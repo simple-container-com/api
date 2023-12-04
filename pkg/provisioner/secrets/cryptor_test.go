@@ -39,6 +39,16 @@ func TestNewCryptor(t *testing.T) {
 			actions: happyPathScenario,
 		},
 		{
+			name:           "happy path with profile",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				WithGitDir("gitdir"),
+				WithProfile("local-key-files"),
+				WithKeysFromCurrentProfile(),
+			},
+			actions: happyPathScenario,
+		},
+		{
 			name:           "bad workdir",
 			testExampleDir: "testdata/non-existent-repo",
 			wantErr:        "no such file or directory",
@@ -49,7 +59,7 @@ func TestNewCryptor(t *testing.T) {
 			wantErr:        "failed to open git repository.*",
 		},
 		{
-			name:           "with profile",
+			name:           "with generated keys",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
 				WithGitDir("gitdir"),

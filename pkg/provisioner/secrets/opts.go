@@ -34,6 +34,14 @@ func WithProfile(profile string) Option {
 	}
 }
 
+func WithKeysFromCurrentProfile() Option {
+	return Option{
+		f: func(c *cryptor) error {
+			return WithKeysFromScConfig(c.profile).f(c)
+		},
+	}
+}
+
 func WithGeneratedKeys(profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {
