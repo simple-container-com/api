@@ -48,7 +48,7 @@ func WithGeneratedKeys(profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {
 			c.profile = profile
-			return c.GenerateKeyPair(c.profile)
+			return c.GenerateKeyPairWithProfile(c.profile)
 		},
 	}
 }

@@ -262,7 +262,7 @@ func NewCryptor(workDir string, opts ...Option) (Cryptor, error) {
 	return c, nil
 }
 
-func (c *cryptor) GenerateKeyPair(profile string) error {
+func (c *cryptor) GenerateKeyPairWithProfile(profile string) error {
 	c.profile = profile
 	privKey, pubKey, err := ciphers.GenerateKeyPair(2048)
 

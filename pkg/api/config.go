@@ -20,14 +20,14 @@ type ConfigFile struct {
 }
 
 func ReadConfigFile(workDir, profile string) (*ConfigFile, error) {
-	res, err := ReadDescriptor(configFilePath(workDir, profile), &ConfigFile{})
+	res, err := ReadDescriptor(ConfigFilePath(workDir, profile), &ConfigFile{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "profile does not exist: %q", profile)
 	}
 	return res, nil
 }
 
-func configFilePath(workDir string, profile string) string {
+func ConfigFilePath(workDir string, profile string) string {
 	return path.Join(workDir, ScConfigDirectory, fmt.Sprintf(EnvConfigFileTemplate, profile))
 }
 
@@ -36,7 +36,7 @@ func (f *ConfigFile) WriteConfigFile(workDir, profile string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFilePath(workDir, profile), bytes, 0644)
+	return os.WriteFile(ConfigFilePath(workDir, profile), bytes, 0644)
 }
 
 func (f *ConfigFile) ToYaml() ([]byte, error) {

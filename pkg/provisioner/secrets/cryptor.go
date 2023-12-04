@@ -8,7 +8,7 @@ import (
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
 
 type Cryptor interface {
-	GenerateKeyPair(profile string) error
+	GenerateKeyPairWithProfile(profile string) error
 	AddFile(path string) error
 	RemoveFile(path string) error
 	DecryptAll() error

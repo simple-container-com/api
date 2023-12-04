@@ -3,6 +3,7 @@ package provisioner
 import (
 	"api/pkg/provisioner/git"
 	"api/pkg/provisioner/logger"
+	"api/pkg/provisioner/secrets"
 	"context"
 )
 
@@ -32,6 +33,13 @@ func WithLogger(log logger.Logger) Option {
 func WithContext(ctx context.Context) Option {
 	return func(p *provisioner) error {
 		p.context = ctx
+		return nil
+	}
+}
+
+func WithCryptor(cryptor secrets.Cryptor) Option {
+	return func(p *provisioner) error {
+		p.cryptor = cryptor
 		return nil
 	}
 }

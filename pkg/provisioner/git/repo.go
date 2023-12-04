@@ -7,6 +7,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
+	"github.com/pkg/errors"
 	"os"
 	"path"
 )
@@ -17,9 +18,20 @@ type Repo interface {
 	OpenFile(filePath string, flag int, perm os.FileMode) (billy.File, error)
 	CreateFile(filePath string) (billy.File, error)
 	Exists(filePath string) bool
+	CreateDir(filePath string) (billy.Dir, error)
 
 	RemoveFileFromIgnore(filePath string) error
 	AddFileToIgnore(filePath string) error
+
+	AddFileToGit(filePath string) error
+	Commit(msg string, opts CommitOpts) error
+	Log() []Commit
+}
+
+type Commit struct {
+	Author  string
+	Hash    string
+	Message string
 }
 
 type repo struct {
@@ -29,15 +41,6 @@ type repo struct {
 	wdFs    billy.Filesystem
 	gitFs   billy.Filesystem
 	gitRepo *git.Repository
-}
-
-type Option func(r *repo) error
-
-func WithGitDir(dir string) Option {
-	return func(r *repo) error {
-		r.gitDir = dir
-		return nil
-	}
 }
 
 func (r *repo) OpenFile(filePath string, flag int, perm os.FileMode) (billy.File, error) {
@@ -63,7 +66,11 @@ func (r *repo) Init(wd string, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	c.gitRepo, err = git.Init(st, wt)
+	r.gitRepo, err = git.Init(st, wt)
+	r.gitFs = c.gitFs
+	r.gitDir = c.gitDir
+	r.workDir = c.workDir
+	r.wdFs = c.wdFs
 	return err
 }
 
@@ -102,7 +109,14 @@ func Open(wd string, opts ...Option) (Repo, error) {
 }
 
 func (r *repo) CreateFile(filePath string) (billy.File, error) {
-	return r.gitFs.Create(filePath)
+	return r.wdFs.Create(filePath)
+}
+
+func (r *repo) CreateDir(filePath string) (billy.Dir, error) {
+	if err := r.wdFs.MkdirAll(filePath, os.ModePerm); err != nil {
+		return nil, errors.Wrapf(err, "failed to create dir %q", filePath)
+	}
+	return r.wdFs.Chroot(filePath)
 }
 
 func (r *repo) Exists(filePath string) bool {
@@ -113,4 +127,49 @@ func (r *repo) Exists(filePath string) bool {
 		return false
 	}
 	return true
+}
+
+func (r *repo) AddFileToGit(filePath string) error {
+	if wt, err := r.gitRepo.Worktree(); err != nil {
+		return errors.Wrapf(err, "failed to get worktree")
+	} else if _, err = wt.Add(filePath); err != nil {
+		return errors.Wrapf(err, "failed to add file to git")
+	}
+	return nil
+}
+
+func (r *repo) Commit(msg string, opts CommitOpts) error {
+	if wt, err := r.gitRepo.Worktree(); err != nil {
+		return errors.Wrapf(err, "failed to get worktree")
+	} else if _, err = wt.Commit(msg, &git.CommitOptions{
+		All: opts.All,
+		// TODO: pass other opts
+	}); err != nil {
+		return errors.Wrapf(err, "failed to make commit")
+	}
+	return nil
+}
+
+func (r *repo) Log() []Commit {
+	var res []Commit
+	if ci, err := r.gitRepo.Log(&git.LogOptions{
+		All: true,
+	}); err != nil {
+		// TODO: log error
+		return res
+	} else {
+		for {
+			c, err := ci.Next()
+			if err != nil {
+				// TODO: log error
+				break
+			}
+			res = append(res, Commit{
+				Author:  c.Author.String(),
+				Hash:    c.Hash.String(),
+				Message: c.Message,
+			})
+		}
+	}
+	return res
 }
