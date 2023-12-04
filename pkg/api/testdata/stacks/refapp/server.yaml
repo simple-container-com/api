@@ -1,10 +1,15 @@
 schemaVersion: 1.0
+provisioner:
+  inherit: common
 secrets:
   inherit: common
-ci:
+cicd:
   type: github-actions
   config:
     auth-token: "${secret:GITHUB_TOKEN}"
+templates:
+  stack-per-app:
+    inherit: common
 variables:
   atlas-region:
     type: string
@@ -18,34 +23,31 @@ variables:
   atlas-instance-size:
     type: string
     value: M10
-templates:
-  stack-per-app:
-    inherit: common
 resources:
-  common:
-    registrar:
-      inherit: common
-  staging:
-    template: stack-per-app
-    resources: &resources
-      mongodb:
-        type: mongodb-atlas
-        config:
-          admins: [ "smecsia" ]
-          developers: [ ]
-          instanceSize: "${var:atlas-instance-size}"
-          orgId: "${var:atlas-org-id}"
-          projectId: "${var:atlas-project-id}"
-          projectName: "${stack:name}"
-          region: "${var:atlas-region}"
-          privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
-          publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
-      postgres:
-        type: gcp-cloudsql
-        config:
-          version: 14.5
-          project: "${stack:name}"
-          credentials: "${auth:gcloud}"
-  prod:
-    template: stack-per-app
-    resources: *resources
+  registrar:
+    inherit: common
+  resources:
+    staging:
+      template: stack-per-app
+      resources: &resources
+        mongodb:
+          type: mongodb-atlas
+          config:
+            admins: [ "smecsia" ]
+            developers: [ ]
+            instanceSize: "${var:atlas-instance-size}"
+            orgId: "${var:atlas-org-id}"
+            projectId: "${var:atlas-project-id}"
+            projectName: "${stack:name}"
+            region: "${var:atlas-region}"
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+        postgres:
+          type: gcp-cloudsql-postgres
+          config:
+            version: 14.5
+            project: "${stack:name}"
+            credentials: "${auth:gcloud}"
+    prod:
+      template: stack-per-app
+      resources: *resources

@@ -25,9 +25,9 @@ type PulumiProvisionerConfig struct {
 }
 
 type PulumiStateStorageConfig struct {
-	Type        string `json:"type"`
-	Credentials string `json:"credentials"`
-	Provision   bool   `json:"provision"`
+	Type        string `json:"type" yaml:"type"`
+	Credentials string `json:"credentials" yaml:"credentials"`
+	Provision   bool   `json:"provision" yaml:"provision"`
 }
 
 type PulumiSecretsProviderConfig struct {

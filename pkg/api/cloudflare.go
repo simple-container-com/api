@@ -12,10 +12,10 @@ type CloudflareRegistrarConfig struct {
 	      type: "TXT"
 	      value: "MS=ms83691649"
 	*/
-	Credentials string                `json:"credentials"`
-	Project     string                `json:"project"`
-	ZoneName    string                `json:"zoneName"`
-	DnsRecords  []CloudflareDnsRecord `json:"dnsRecords"`
+	Credentials string                `json:"credentials" yaml:"credentials"`
+	Project     string                `json:"project" yaml:"project"`
+	ZoneName    string                `json:"zoneName" yaml:"zoneName"`
+	DnsRecords  []CloudflareDnsRecord `json:"dnsRecords" yaml:"dnsRecords"`
 }
 
 type CloudflareDnsRecord struct {
