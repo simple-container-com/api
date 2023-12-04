@@ -6,6 +6,8 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/pem"
+	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh"
 )
 
 // GenerateKeyPair generates a new key pair
@@ -44,8 +46,8 @@ func PublicKeyToBytes(pub *rsa.PublicKey) ([]byte, error) {
 	return pubBytes, nil
 }
 
-// EncryptWithPublicRsaKey encrypts data with public key
-func EncryptWithPublicRsaKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
+// EncryptWithPublicRSAKey encrypts data with public key
+func EncryptWithPublicRSAKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
 	hash := sha512.New()
 	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, pub, msg, nil)
 	if err != nil {
@@ -54,12 +56,33 @@ func EncryptWithPublicRsaKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
 	return ciphertext, nil
 }
 
-// DecryptWithPrivateRsaKey decrypts data with private key
-func DecryptWithPrivateRsaKey(ciphertext []byte, priv *rsa.PrivateKey) ([]byte, error) {
+// DecryptWithPrivateRSAKey decrypts data with private key
+func DecryptWithPrivateRSAKey(ciphertext []byte, priv *rsa.PrivateKey) ([]byte, error) {
 	hash := sha512.New()
 	plaintext, err := rsa.DecryptOAEP(hash, rand.Reader, priv, ciphertext, nil)
 	if err != nil {
 		return nil, err
 	}
 	return plaintext, nil
+}
+
+func MarshalRSAPrivateKey(priv *rsa.PrivateKey) string {
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv),
+	}))
+}
+
+func ParsePublicKey(s string) (*rsa.PublicKey, error) {
+	parsed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(s))
+	if err != nil {
+		return nil, err
+	}
+
+	if parsedCryptoKey, ok := parsed.(ssh.CryptoPublicKey); !ok {
+		return nil, errors.New("failed to parse public key: not a CryptoPublicKey")
+	} else if res, ok := parsedCryptoKey.CryptoPublicKey().(*rsa.PublicKey); !ok {
+		return nil, errors.New("failed to parse public key: not a RSA public key")
+	} else {
+		return res, nil
+	}
 }

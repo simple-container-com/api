@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"os"
+	"path"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -17,7 +18,7 @@ func TestNewCryptor(t *testing.T) {
 		name           string
 		testExampleDir string
 		opts           []Option
-		actions        func(t *testing.T, c Cryptor)
+		actions        func(t *testing.T, c Cryptor, wd string)
 		wantErr        string
 	}{
 		{
@@ -27,26 +28,7 @@ func TestNewCryptor(t *testing.T) {
 				WithGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files"),
 			},
-			actions: func(t *testing.T, c Cryptor) {
-				t.Run("add file", func(t *testing.T) {
-					Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
-					secrets := c.GetSecretFiles().Secrets
-					Expect(secrets).NotTo(BeNil())
-					Expect(secrets).To(HaveKey(testPubKey))
-					files := secrets[testPubKey].Files
-					Expect(files).To(HaveLen(1))
-					Expect(files[0].Path).To(Equal("stacks/common/secrets.yaml"))
-					Expect(files[0].EncryptedData).NotTo(BeEmpty())
-				})
-				t.Run("remove file", func(t *testing.T) {
-					Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(BeNil())
-					secrets := c.GetSecretFiles().Secrets
-					Expect(secrets).NotTo(BeNil())
-					Expect(secrets).To(HaveKey(testPubKey))
-					files := secrets[testPubKey].Files
-					Expect(files).To(HaveLen(0))
-				})
-			},
+			actions: happyPathScenario,
 		},
 		{
 			name:           "bad workdir",
@@ -77,10 +59,58 @@ func TestNewCryptor(t *testing.T) {
 			}
 
 			if tt.actions != nil {
-				tt.actions(t, got)
+				tt.actions(t, got, workDir)
 			}
 		})
 	}
+}
+
+func happyPathScenario(t *testing.T, c Cryptor, wd string) {
+	oldSecretFileContent, err := os.ReadFile("testdata/repo/stacks/common/secrets.yaml")
+	Expect(err).To(BeNil())
+
+	t.Run("add file", func(t *testing.T) {
+		Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+		secrets := c.GetSecretFiles().Secrets
+		Expect(secrets).NotTo(BeNil())
+		Expect(secrets).To(HaveKey(testPubKey))
+		files := secrets[testPubKey].Files
+		Expect(files).To(HaveLen(1))
+		Expect(files[0].Path).To(Equal("stacks/common/secrets.yaml"))
+		Expect(files[0].EncryptedData).NotTo(BeEmpty())
+	})
+	gitIgnoreFile := path.Join(wd, ".gitignore")
+	t.Run("secrets.yaml added to gitignore", func(t *testing.T) {
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile(gitIgnoreFile)
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/common/secrets.yaml"))
+	})
+	t.Run("decrypt file", func(t *testing.T) {
+		Expect(c.DecryptAll()).To(BeNil())
+		newSecretFileContent, err := os.ReadFile(path.Join(wd, "stacks/common/secrets.yaml"))
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFileContent))
+	})
+	t.Run("remove file", func(t *testing.T) {
+		Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(BeNil())
+		secrets := c.GetSecretFiles().Secrets
+		Expect(secrets).NotTo(BeNil())
+		Expect(secrets).To(HaveKey(testPubKey))
+		files := secrets[testPubKey].Files
+		Expect(files).To(HaveLen(0))
+
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile("testdata/repo/stacks/common/secrets.yaml")
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/common/secrets.yaml"))
+	})
+	t.Run("secrets.yaml removed from gitignore", func(t *testing.T) {
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile("testdata/repo/stacks/common/secrets.yaml")
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).NotTo(ContainSubstring("stacks/common/secrets.yaml"))
+	})
 }
 
 func copyTempProject(pathToExample string) (string, error) {
