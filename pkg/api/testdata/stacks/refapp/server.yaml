@@ -1,0 +1,48 @@
+schemaVersion: 1.0
+secrets:
+  inherit: common
+ci:
+  type: github-actions
+  config:
+    auth-token: "${secret:GITHUB_TOKEN}"
+variables:
+  atlas-region:
+    type: string
+    value: US_SOUTH_1
+  atlas-project-id:
+    type: string
+    value: 5b89110a4e6581562623c59c
+  atlas-org-id:
+    type: string
+    value: 5b89110a4e6581562623c59c
+  atlas-instance-size:
+    type: string
+    value: M10
+resources:
+  common:
+    registrar:
+      inherit: common
+  staging:
+    template: stack-per-app
+    resources: &resources
+      mongodb:
+        type: mongodb-atlas
+        config:
+          admins: [ "smecsia" ]
+          developers: [ ]
+          instanceSize: "${var:atlas-instance-size}"
+          orgId: "${var:atlas-org-id}"
+          projectId: "${var:atlas-project-id}"
+          projectName: "${stack:name}"
+          region: "${var:atlas-region}"
+          privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+          publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+      postgres:
+        type: gcp-cloudsql
+        config:
+          version: 14.5
+          project: "${stack:name}"
+          credentials: "${auth:gcloud}"
+  prod:
+    template: stack-per-app
+    resources: *resources

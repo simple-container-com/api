@@ -1,0 +1,103 @@
+schemaVersion: 1.0
+setup:
+  type: ansible
+  config:
+    vars:
+      k3s_release_version: v1.28.2+k3s1
+      k3s_token: "${secret:K3S_TOKEN}"
+      k3s_become_for_all: true
+      k3s_become: true
+      master_ip: "{{ hostvars[groups['master'][0]]['internal_ip'] | default(hostvars[groups['master'][0]]['ansible_host']) | default(groups['master'][0])  }}"
+    inventory:
+      - name: node1
+        host_vars: &node_vars
+          nfs_master: false
+          ssh_user: sysadmin
+          k3s_control_node: false
+          internal_ip: "192.168.20.12"
+          k3s_fla10nnel_interface: eth0
+          ansible_host: node1
+          k3s_agent: &k3s_agent
+            with-node-id: true
+            node-label:
+              - "node=node1"
+      - name: node2
+        host_vars:
+          <<: *node_vars
+          internal_ip: "192.168.20.13"
+          ansible_host: node2
+          k3s_agent:
+            <<: *k3s_agent
+            node-label:
+              - "node=node2"
+      - name: master
+        host_vars:
+          nfs_master: true
+          ssh_user: sysadmin
+          k3s_control_node: true
+          internal_ip: "192.168.20.14"
+          k3s_fla10nnel_interface: eth0
+          nfs_exports: [ "/shared *(rw,sync,no_subtree_check,no_root_squash)" ]
+          ansible_host: master
+          k3s_server:
+            with-node-id: true
+            resolv-conf: /etc/isigs/resolv.conf
+            node-label:
+              - "node=master"
+    requirements:
+      - src: geerlingguy.docker
+        version: 7.0.1
+      - src: geerlingguy.nfs
+        version: 2.0.0
+      - src: xanmanning.k3s
+        version: v3.4.2
+      - src: mrlesmithjr.netplan
+        version: v0.3.0
+    playbook:
+      roles:
+        - { role: prerequisites, tags: [ "prerequisites" ] }
+        - { role: mrlesmithjr.netplan, tags: [ "netplan" ] }
+        - { role: geerlingguy.docker, tags: [ "docker" ] }
+        - { role: geerlingguy.nfs, tags: [ "nfs" ] }
+        - { role: xanmanning.k3s, tags: [ "k3s" ] }
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: gcp-bucket
+      credentials: "${auth:gcloud}"
+      provision: true
+    secrets-provider:
+      type: gcp-kms
+      provision: true
+      credentials: "${auth:gcloud}"
+#  type: pulumi
+#  config:
+#    state-storage:
+#      type: pulumi-cloud
+#      credentials: "${auth:pulumi}"
+#      provision: true
+#    secrets-provider:
+#      type: pulumi-cloud
+#      provision: true
+#      credentials: "${auth:pulumi}"
+secrets:
+  type: gcp-secrets-manager
+  config:
+    credentials: "${auth:gcloud}"
+templates:
+  stack-per-app:
+    type: cloudrun
+  stack-per-app-aws:
+    type: fargate
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      project: sc-refapp
+      zoneName: sc-refapp.org
+      dnsRecords:
+        - name: "@"
+          type: "TXT"
+          value: "MS=ms83691649"
