@@ -16,8 +16,14 @@ func Test_Provision(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:   "happy path",
-			params: ProvisionParams{},
+			name: "happy path",
+			params: ProvisionParams{
+				RootDir: "testdata/stacks",
+				Stacks: []string{
+					"common",
+					"refapp",
+				},
+			},
 		},
 	}
 	for _, tt := range tests {

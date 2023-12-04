@@ -6,6 +6,10 @@ import (
 	"os"
 )
 
+const ServerDescriptorFileName = "server.yaml"
+const SecretsDescriptorFileName = "secrets.yaml"
+const ClientDescriptorFileName = "client.yaml"
+
 func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	var descriptor ServerDescriptor
 	fileBytes, err := os.ReadFile(path)
