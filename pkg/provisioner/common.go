@@ -17,10 +17,14 @@ type Provisioner interface {
 	Stacks() StacksMap
 }
 
+const DefaultProfile = "default"
+
 type StacksMap map[string]Stack
 type provisioner struct {
-	stacks StacksMap
+	profile string
+	stacks  StacksMap
 
+	context context.Context
 	gitRepo git.Repo
 	log     logger.Logger
 }
@@ -45,8 +49,6 @@ type Stack struct {
 	Client  api.ClientDescriptor  `json:"client" yaml:"client"`
 }
 
-type Option func(p *provisioner) error
-
 func New(opts ...Option) (Provisioner, error) {
 	res := &provisioner{
 		stacks: make(StacksMap),
@@ -57,6 +59,14 @@ func New(opts ...Option) (Provisioner, error) {
 		if err := opt(res); err != nil {
 			return nil, err
 		}
+	}
+	if res.context == nil {
+		res.context = context.Background()
+		res.log.Warn(res.context, "context is not configured, using background context")
+	}
+	if res.profile == "" {
+		res.log.Warn(res.context, "profile is not set, using default profile")
+		res.profile = DefaultProfile
 	}
 	return res, nil
 }
