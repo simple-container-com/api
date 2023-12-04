@@ -86,7 +86,7 @@ func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
 			}
 			continue
 		}
-		if fn, found := cloudMapping[auth.Type]; !found {
+		if fn, found := providerConfigMapping[auth.Type]; !found {
 			return nil, errors.Errorf("unknown auth type %q for auth %q", auth.Type, name)
 		} else {
 			var err error
@@ -140,7 +140,7 @@ func DetectCiCdType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
 	if descriptor.CiCd.IsInherited() {
 		return descriptor, nil
 	}
-	if fn, found := cloudMapping[descriptor.CiCd.Type]; !found {
+	if fn, found := providerConfigMapping[descriptor.CiCd.Type]; !found {
 		return nil, errors.Errorf("unknown cicd type %q", descriptor.CiCd.Type)
 	} else {
 		var err error
@@ -188,7 +188,7 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 				}
 				continue
 			}
-			fn, found := cloudMapping[resource.Type]
+			fn, found := providerConfigMapping[resource.Type]
 			if !found {
 				return nil, errors.Errorf("unknown type %q for resource %q", resource.Type, resourceName)
 			}
@@ -208,7 +208,7 @@ func DetectRegistrarType(p *PerStackResourcesDescriptor) (*PerStackResourcesDesc
 	if registrar.IsInherited() {
 		return p, nil
 	}
-	if fn, found := cloudMapping[registrar.Type]; !found {
+	if fn, found := providerConfigMapping[registrar.Type]; !found {
 		return nil, errors.Errorf("unknown registrar type %q", registrar.Type)
 	} else {
 		var err error
@@ -226,7 +226,7 @@ func DetectTemplatesType(descriptor *ServerDescriptor) (*ServerDescriptor, error
 		if tpl.IsInherited() {
 			continue
 		}
-		if fn, found := cloudMapping[tpl.Type]; !found {
+		if fn, found := providerConfigMapping[tpl.Type]; !found {
 			return nil, errors.Errorf("unknown template type %q for %q", tpl.Type, name)
 		} else {
 			stackDesc := descriptor.Templates[name]
@@ -246,7 +246,7 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 		return descriptor, nil
 	}
 
-	if fn, found := cloudMapping[descriptor.Secrets.Type]; !found {
+	if fn, found := providerConfigMapping[descriptor.Secrets.Type]; !found {
 		return nil, errors.Errorf("unknown secrets type %q", descriptor.Secrets.Type)
 	} else {
 		var err error
@@ -262,7 +262,7 @@ func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, err
 	if descriptor.Provisioner.IsInherited() {
 		return descriptor, nil
 	}
-	if fn, found := cloudMapping[descriptor.Provisioner.Type]; !found {
+	if fn, found := providerConfigMapping[descriptor.Provisioner.Type]; !found {
 		return nil, errors.Errorf("unknown provisioner type %q", descriptor.Provisioner.Type)
 	} else {
 		var err error

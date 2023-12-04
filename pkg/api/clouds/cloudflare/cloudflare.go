@@ -1,4 +1,6 @@
-package api
+package cloudflare
+
+import "api/pkg/api"
 
 const RegistrarTypeCloudflare = "cloudflare"
 
@@ -25,5 +27,5 @@ type CloudflareDnsRecord struct {
 }
 
 func CloudflareReadRegistrarConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &CloudflareRegistrarConfig{})
+	return api.ConvertDescriptor(config, &CloudflareRegistrarConfig{})
 }

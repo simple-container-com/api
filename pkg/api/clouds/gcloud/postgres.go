@@ -1,4 +1,6 @@
-package api
+package gcloud
+
+import "api/pkg/api"
 
 const ResourceTypePostgresGcpCloudsql = "gcp-cloudsql-postgres"
 
@@ -9,5 +11,5 @@ type PostgresGcpCloudsqlConfig struct {
 }
 
 func PostgresqlGcpCloudsqlReadConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &PostgresGcpCloudsqlConfig{})
+	return api.ConvertDescriptor(config, &PostgresGcpCloudsqlConfig{})
 }

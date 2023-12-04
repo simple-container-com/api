@@ -1,4 +1,6 @@
-package api
+package gcloud
+
+import "api/pkg/api"
 
 const AuthTypeGCPServiceAccount = "gcp-service-account"
 const SecretsTypeGCPSecretsManager = "gcp-secrets-manager"
@@ -17,13 +19,13 @@ type GcloudTemplateConfig struct {
 }
 
 func GcloudReadAuthServiceAccountConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &GcloudAuthServiceAccountConfig{})
+	return api.ConvertDescriptor(config, &GcloudAuthServiceAccountConfig{})
 }
 
 func GcloudReadSecretsConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &GcloudSecretsConfig{})
+	return api.ConvertDescriptor(config, &GcloudSecretsConfig{})
 }
 
 func GcloudReadTemplateConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &GcloudTemplateConfig{})
+	return api.ConvertDescriptor(config, &GcloudTemplateConfig{})
 }

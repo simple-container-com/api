@@ -1,6 +1,12 @@
-package api
+package tests
 
 import (
+	"api/pkg/api"
+	"api/pkg/api/clouds/cloudflare"
+	"api/pkg/api/clouds/gcloud"
+	"api/pkg/api/clouds/github"
+	"api/pkg/api/clouds/mongodb"
+	"api/pkg/api/clouds/pulumi"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -11,48 +17,48 @@ func TestReadServerDescriptor(t *testing.T) {
 
 	tests := []struct {
 		path    string
-		want    *ServerDescriptor
+		want    *api.ServerDescriptor
 		wantErr bool
 	}{
 		{
 			path: "testdata/stacks/common/server.yaml",
-			want: &ServerDescriptor{
-				SchemaVersion: ServerSchemaVersion,
-				Provisioner: ProvisionerDescriptor{
-					Type: ProvisionerTypePulumi,
-					Config: &PulumiProvisionerConfig{
-						StateStorage:    PulumiStateStorageConfig{},
-						SecretsProvider: PulumiSecretsProviderConfig{},
+			want: &api.ServerDescriptor{
+				SchemaVersion: api.ServerSchemaVersion,
+				Provisioner: api.ProvisionerDescriptor{
+					Type: pulumi.ProvisionerTypePulumi,
+					Config: &pulumi.PulumiProvisionerConfig{
+						StateStorage:    pulumi.PulumiStateStorageConfig{},
+						SecretsProvider: pulumi.PulumiSecretsProviderConfig{},
 					},
 				},
-				CiCd: CiCdDescriptor{
+				CiCd: api.CiCdDescriptor{
 					Type: "github-actions",
-					Config: &GithubActionsCiCdConfig{
+					Config: &github.GithubActionsCiCdConfig{
 						AuthToken: "${secret:GITHUB_TOKEN}",
 					},
 				},
-				Secrets: SecretsConfigDescriptor{
-					Type: SecretsTypeGCPSecretsManager,
-					Config: &GcloudSecretsConfig{
+				Secrets: api.SecretsConfigDescriptor{
+					Type: gcloud.SecretsTypeGCPSecretsManager,
+					Config: &gcloud.GcloudSecretsConfig{
 						Credentials: "${auth:gcloud}",
 					},
 				},
-				Templates: map[string]StackDescriptor{
+				Templates: map[string]api.StackDescriptor{
 					"stack-per-app": {
-						Type: TemplateTypeGcpCloudrun,
-						Config: &GcloudTemplateConfig{
+						Type: gcloud.TemplateTypeGcpCloudrun,
+						Config: &gcloud.GcloudTemplateConfig{
 							Credentials: "${auth:gcloud}",
 						},
 					},
 				},
-				Resources: PerStackResourcesDescriptor{
-					Registrar: RegistrarDescriptor{
-						Type: RegistrarTypeCloudflare,
-						Config: &CloudflareRegistrarConfig{
+				Resources: api.PerStackResourcesDescriptor{
+					Registrar: api.RegistrarDescriptor{
+						Type: cloudflare.RegistrarTypeCloudflare,
+						Config: &cloudflare.CloudflareRegistrarConfig{
 							Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
 							Project:     "sc-refapp",
 							ZoneName:    "sc-refapp.org",
-							DnsRecords: []CloudflareDnsRecord{
+							DnsRecords: []cloudflare.CloudflareDnsRecord{
 								{
 									Name:  "@",
 									Type:  "TXT",
@@ -66,23 +72,23 @@ func TestReadServerDescriptor(t *testing.T) {
 		},
 		{
 			path: "testdata/stacks/refapp/server.yaml",
-			want: &ServerDescriptor{
-				SchemaVersion: ServerSchemaVersion,
-				Provisioner: ProvisionerDescriptor{
-					Inherit: Inherit{Inherit: "common"},
+			want: &api.ServerDescriptor{
+				SchemaVersion: api.ServerSchemaVersion,
+				Provisioner: api.ProvisionerDescriptor{
+					Inherit: api.Inherit{Inherit: "common"},
 				},
-				Secrets: SecretsConfigDescriptor{
-					Inherit: Inherit{Inherit: "common"},
+				Secrets: api.SecretsConfigDescriptor{
+					Inherit: api.Inherit{Inherit: "common"},
 				},
-				CiCd: CiCdDescriptor{
-					Inherit: Inherit{Inherit: "common"},
+				CiCd: api.CiCdDescriptor{
+					Inherit: api.Inherit{Inherit: "common"},
 				},
-				Templates: map[string]StackDescriptor{
+				Templates: map[string]api.StackDescriptor{
 					"stack-per-app": {
-						Inherit: Inherit{Inherit: "common"},
+						Inherit: api.Inherit{Inherit: "common"},
 					},
 				},
-				Variables: map[string]VariableDescriptor{
+				Variables: map[string]api.VariableDescriptor{
 					"atlas-region": {
 						Type:  "string",
 						Value: "US_SOUTH_1",
@@ -100,17 +106,17 @@ func TestReadServerDescriptor(t *testing.T) {
 						Value: "M10",
 					},
 				},
-				Resources: PerStackResourcesDescriptor{
-					Registrar: RegistrarDescriptor{
-						Inherit: Inherit{Inherit: "common"},
+				Resources: api.PerStackResourcesDescriptor{
+					Registrar: api.RegistrarDescriptor{
+						Inherit: api.Inherit{Inherit: "common"},
 					},
-					Resources: map[string]PerEnvResourcesDescriptor{
+					Resources: map[string]api.PerEnvResourcesDescriptor{
 						"staging": {
 							Template: "stack-per-app",
-							Resources: map[string]ResourceDescriptor{
+							Resources: map[string]api.ResourceDescriptor{
 								"mongodb": {
 									Type: "mongodb-atlas",
-									Config: &MongodbAtlasConfig{
+									Config: &mongodb.MongodbAtlasConfig{
 										Admins:       []string{"smecsia"},
 										Developers:   []string{},
 										InstanceSize: "${var:atlas-instance-size}",
@@ -124,7 +130,7 @@ func TestReadServerDescriptor(t *testing.T) {
 								},
 								"postgres": {
 									Type: "gcp-cloudsql-postgres",
-									Config: &PostgresGcpCloudsqlConfig{
+									Config: &gcloud.PostgresGcpCloudsqlConfig{
 										Version:     "14.5",
 										Project:     "${stack:name}",
 										Credentials: "${auth:gcloud}",
@@ -134,10 +140,10 @@ func TestReadServerDescriptor(t *testing.T) {
 						},
 						"prod": {
 							Template: "stack-per-app",
-							Resources: map[string]ResourceDescriptor{
+							Resources: map[string]api.ResourceDescriptor{
 								"mongodb": {
 									Type: "mongodb-atlas",
-									Config: &MongodbAtlasConfig{
+									Config: &mongodb.MongodbAtlasConfig{
 										Admins:       []string{"smecsia"},
 										Developers:   []string{},
 										InstanceSize: "${var:atlas-instance-size}",
@@ -151,7 +157,7 @@ func TestReadServerDescriptor(t *testing.T) {
 								},
 								"postgres": {
 									Type: "gcp-cloudsql-postgres",
-									Config: &PostgresGcpCloudsqlConfig{
+									Config: &gcloud.PostgresGcpCloudsqlConfig{
 										Version:     "14.5",
 										Project:     "${stack:name}",
 										Credentials: "${auth:gcloud}",
@@ -166,7 +172,7 @@ func TestReadServerDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got, err := ReadServerDescriptor(tt.path)
+			got, err := api.ReadServerDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
 			Expect(got).To(Equal(tt.want))
@@ -179,23 +185,23 @@ func TestReadSecretsDescriptor(t *testing.T) {
 
 	tests := []struct {
 		path    string
-		want    *SecretsDescriptor
+		want    *api.SecretsDescriptor
 		wantErr bool
 	}{
 		{
 			path: "testdata/stacks/common/secrets.yaml",
-			want: &SecretsDescriptor{
-				SchemaVersion: SecretsSchemaVersion,
-				Auth: map[string]AuthDescriptor{
+			want: &api.SecretsDescriptor{
+				SchemaVersion: api.SecretsSchemaVersion,
+				Auth: map[string]api.AuthDescriptor{
 					"gcloud": {
-						Type: AuthTypeGCPServiceAccount,
-						Config: &GcloudAuthServiceAccountConfig{
+						Type: gcloud.AuthTypeGCPServiceAccount,
+						Config: &gcloud.GcloudAuthServiceAccountConfig{
 							Account: "<gcloud-service-account-email>",
 						},
 					},
 					"pulumi": {
-						Type: AuthTypePulumiToken,
-						Config: &PulumiTokenAuthDescriptor{
+						Type: pulumi.AuthTypePulumiToken,
+						Config: &pulumi.PulumiTokenAuthDescriptor{
 							Value: "<pulumi-token>",
 						},
 					},
@@ -211,7 +217,7 @@ func TestReadSecretsDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got, err := ReadSecretsDescriptor(tt.path)
+			got, err := api.ReadSecretsDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
 			Expect(got).To(Equal(tt.want))
@@ -224,18 +230,18 @@ func TestReadClientDescriptor(t *testing.T) {
 
 	tests := []struct {
 		path    string
-		want    *ClientDescriptor
+		want    *api.ClientDescriptor
 		wantErr bool
 	}{
 		{
 			path: "testdata/stacks/refapp/client.yaml",
-			want: &ClientDescriptor{
-				SchemaVersion: ClientSchemaVersion,
-				Stacks: map[string]StackClientDescriptor{
+			want: &api.ClientDescriptor{
+				SchemaVersion: api.ClientSchemaVersion,
+				Stacks: map[string]api.StackClientDescriptor{
 					"staging": {
 						Stack:  "refapp/staging",
 						Domain: "staging.sc-refapp.org",
-						Config: StackConfig{
+						Config: api.StackConfig{
 							DockerComposeFile: "./docker-compose.yaml",
 							Uses: []string{
 								"mongodb",
@@ -249,7 +255,7 @@ func TestReadClientDescriptor(t *testing.T) {
 					"prod": {
 						Stack:  "refapp/prod",
 						Domain: "prod.sc-refapp.org",
-						Config: StackConfig{
+						Config: api.StackConfig{
 							DockerComposeFile: "./docker-compose.yaml",
 							Uses: []string{
 								"mongodb",
@@ -266,7 +272,7 @@ func TestReadClientDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got, err := ReadClientDescriptor(tt.path)
+			got, err := api.ReadClientDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
 			Expect(got).To(Equal(tt.want))

@@ -1,4 +1,6 @@
-package api
+package mongodb
+
+import "api/pkg/api"
 
 const ResourceTypeMongodbAtlas = "mongodb-atlas"
 
@@ -15,5 +17,5 @@ type MongodbAtlasConfig struct {
 }
 
 func MondodbAtlasReadConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &MongodbAtlasConfig{})
+	return api.ConvertDescriptor(config, &MongodbAtlasConfig{})
 }

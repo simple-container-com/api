@@ -1,4 +1,6 @@
-package api
+package pulumi
+
+import "api/pkg/api"
 
 const AuthTypePulumiToken = "pulumi-token"
 const ProvisionerTypePulumi = "pulumi"
@@ -26,9 +28,9 @@ type PulumiSecretsProviderConfig struct {
 }
 
 func PulumiReadProvisionerConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &PulumiProvisionerConfig{})
+	return api.ConvertDescriptor(config, &PulumiProvisionerConfig{})
 }
 
 func PulumiReadAuthConfig(config any) (any, error) {
-	return ConvertDescriptor(config, &PulumiTokenAuthDescriptor{})
+	return api.ConvertDescriptor(config, &PulumiTokenAuthDescriptor{})
 }

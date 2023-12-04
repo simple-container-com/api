@@ -7,11 +7,19 @@ import (
 )
 
 type Provisioner interface {
-	Provision(ctx context.Context) error
+	Provision(ctx context.Context, params ProvisionParams) error
+
+	Deploy(ctx context.Context, params DeployParams) error
 }
 
 type provisioner struct {
 	Stacks map[string]Stack `json:"stacks" yaml:"stacks"`
+}
+
+type ProvisionParams struct {
+}
+
+type DeployParams struct {
 }
 
 type Stack struct {
@@ -25,6 +33,10 @@ func New() Provisioner {
 	return &provisioner{}
 }
 
-func (p *provisioner) Provision(ctx context.Context) error {
+func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) error {
+	return nil
+}
+
+func (p *provisioner) Deploy(ctx context.Context, params DeployParams) error {
 	return nil
 }
