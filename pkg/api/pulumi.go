@@ -1,6 +1,6 @@
 package api
 
-const PulumiTokenAuthType = "pulumi-token"
+const AuthTypePulumiToken = "pulumi-token"
 const ProvisionerTypePulumi = "pulumi"
 
 // PulumiTokenAuthDescriptor describes the pulumi token auth schema
@@ -9,17 +9,6 @@ type PulumiTokenAuthDescriptor struct {
 }
 
 type PulumiProvisionerConfig struct {
-	/**
-	  state-storage:
-	    type: gcp-bucket
-	    credentials: "${auth:gcloud}"
-	    provision: true
-	  secrets-provider:
-	    type: gcp-kms
-	    provision: true
-	    credentials: "${auth:gcloud}"
-
-	*/
 	StateStorage    PulumiStateStorageConfig    `json:"state-storage"`
 	SecretsProvider PulumiSecretsProviderConfig `json:"secrets-provider"`
 }
@@ -38,4 +27,8 @@ type PulumiSecretsProviderConfig struct {
 
 func PulumiReadProvisionerConfig(config any) (any, error) {
 	return ConvertDescriptor(config, &PulumiProvisionerConfig{})
+}
+
+func PulumiReadAuthConfig(config any) (any, error) {
+	return ConvertDescriptor(config, &PulumiTokenAuthDescriptor{})
 }

@@ -28,16 +28,59 @@ func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	return res, nil
 }
 
-func ConvertDescriptor[T any](from any, to *T) (*T, error) {
-	if bytes, err := yaml.Marshal(from); err == nil {
-		if err = yaml.Unmarshal(bytes, to); err != nil {
-			return nil, err
-		} else {
-			return to, nil
-		}
-	} else {
-		return nil, err
+func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
+	var descriptor SecretsDescriptor
+	fileBytes, err := os.ReadFile(path)
+
+	if err != nil {
+		return &descriptor, errors.Wrapf(err, "failed to read %s", path)
 	}
+
+	err = yaml.Unmarshal(fileBytes, &descriptor)
+
+	if err != nil {
+		return &descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
+	}
+
+	res, err := ReadSecretsConfigs(&descriptor)
+	if err != nil {
+		return &descriptor, errors.Wrapf(err, "failed to read secret configs for %s", path)
+	}
+
+	return res, nil
+}
+
+func ReadSecretsConfigs(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
+	res := *descriptor
+
+	if withAuth, err := DetectAuthType(&res); err != nil {
+		return nil, err
+	} else {
+		res = *withAuth
+	}
+	return &res, nil
+}
+
+func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
+	for name, auth := range descriptor.Auth {
+		if auth.IsInherited() {
+			if len(auth.Type) > 0 {
+				return descriptor, errors.Errorf("auth %q is inherited, but type %q is defined", name, auth.Type)
+			}
+			continue
+		}
+		if fn, found := cloudMapping[auth.Type]; !found {
+			return nil, errors.Errorf("unknown auth type %q for auth %q", auth.Type, name)
+		} else {
+			var err error
+			auth.Config, err = fn(auth.Config)
+			if err != nil {
+				return descriptor, err
+			}
+			descriptor.Auth[name] = auth
+		}
+	}
+	return descriptor, nil
 }
 
 func ReadServerConfigs(descriptor *ServerDescriptor) (*ServerDescriptor, error) {

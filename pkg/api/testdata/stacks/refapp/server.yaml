@@ -4,9 +4,7 @@ provisioner:
 secrets:
   inherit: common
 cicd:
-  type: github-actions
-  config:
-    auth-token: "${secret:GITHUB_TOKEN}"
+  inherit: common
 templates:
   stack-per-app:
     inherit: common

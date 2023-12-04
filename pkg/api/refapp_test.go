@@ -24,6 +24,12 @@ func TestReadServerDescriptor(t *testing.T) {
 						SecretsProvider: PulumiSecretsProviderConfig{},
 					},
 				},
+				CiCd: CiCdDescriptor{
+					Type: "github-actions",
+					Config: &GithubActionsCiCdConfig{
+						AuthToken: "${secret:GITHUB_TOKEN}",
+					},
+				},
 				Secrets: SecretsConfigDescriptor{
 					Type: SecretsTypeGCPSecretsManager,
 					Config: &GcloudSecretsConfig{
@@ -68,10 +74,7 @@ func TestReadServerDescriptor(t *testing.T) {
 					Inherit: Inherit{Inherit: "common"},
 				},
 				CiCd: CiCdDescriptor{
-					Type: "github-actions",
-					Config: &GithubActionsCiCdConfig{
-						AuthToken: "${secret:GITHUB_TOKEN}",
-					},
+					Inherit: Inherit{Inherit: "common"},
 				},
 				Templates: map[string]StackDescriptor{
 					"stack-per-app": {
@@ -163,6 +166,51 @@ func TestReadServerDescriptor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			got, err := ReadServerDescriptor(tt.path)
+			Expect(err).To(BeNil())
+
+			Expect(got).To(Equal(tt.want))
+		})
+	}
+}
+
+func TestReadSecretsDescriptor(t *testing.T) {
+	RegisterTestingT(t)
+
+	tests := []struct {
+		path    string
+		want    *SecretsDescriptor
+		wantErr bool
+	}{
+		{
+			path: "testdata/stacks/common/secrets.yaml",
+			want: &SecretsDescriptor{
+				SchemaVersion: SecretsSchemaVersion,
+				Auth: map[string]AuthDescriptor{
+					"gcloud": {
+						Type: AuthTypeGCPServiceAccount,
+						Config: &GcloudAuthServiceAccountConfig{
+							Account: "<gcloud-service-account-email>",
+						},
+					},
+					"pulumi": {
+						Type: AuthTypePulumiToken,
+						Config: &PulumiTokenAuthDescriptor{
+							Value: "<pulumi-token>",
+						},
+					},
+				},
+				Values: map[string]string{
+					"CLOUDFLARE_API_TOKEN":      "<encrypted-secret>",
+					"GITHUB_TOKEN":              "<encrypted-secret>",
+					"MONGODB_ATLAS_PRIVATE_KEY": "<encrypted-secret>",
+					"MONGODB_ATLAS_PUBLIC_KEY":  "<encrypted-secret>",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got, err := ReadSecretsDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
 			Expect(got).To(Equal(tt.want))

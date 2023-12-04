@@ -1,11 +1,10 @@
 package api
 
 const AuthTypeGCPServiceAccount = "gcp-service-account"
-const AuthTypeGcloud = "gcloud"
 const SecretsTypeGCPSecretsManager = "gcp-secrets-manager"
 const TemplateTypeGcpCloudrun = "cloudrun"
 
-type GcloudAuthConfig struct {
+type GcloudAuthServiceAccountConfig struct {
 	Account string `json:"account"`
 }
 
@@ -15,6 +14,10 @@ type GcloudSecretsConfig struct {
 
 type GcloudTemplateConfig struct {
 	Credentials string `json:"credentials"`
+}
+
+func GcloudReadAuthServiceAccountConfig(config any) (any, error) {
+	return ConvertDescriptor(config, &GcloudAuthServiceAccountConfig{})
 }
 
 func GcloudReadSecretsConfig(config any) (any, error) {
