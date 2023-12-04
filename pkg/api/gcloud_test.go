@@ -25,12 +25,36 @@ func TestReadServerDescriptor(t *testing.T) {
 					},
 				},
 				Secrets: SecretsConfigDescriptor{
-					Type:    "",
+					Type:    SecretsTypeGCPSecretsManager,
 					Inherit: "",
 					Config:  nil,
 				},
-				Templates: nil,
-				Resources: nil,
+				Templates: map[string]StackDescriptor{
+					"stack-per-app": {
+						Type:    TemplateTypeGcpCloudrun,
+						Inherit: "",
+						Config: &GcloudTemplateConfig{
+							Credentials: "",
+						},
+					},
+				},
+				Resources: PerStackResourcesDescriptor{
+					Registrar: RegistrarDescriptor{
+						Type: RegistrarTypeCloudflare,
+						Config: &CloudflareRegistrarConfig{
+							Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
+							Project:     "sc-refapp",
+							ZoneName:    "sc-refapp.org",
+							DnsRecords: []CloudflareDnsRecord{
+								{
+									Name:  "@",
+									Type:  "TXT",
+									Value: "MS=ms83691649",
+								},
+							},
+						},
+					},
+				},
 				Variables: nil,
 			},
 		},

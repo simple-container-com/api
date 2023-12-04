@@ -36,6 +36,6 @@ type PulumiSecretsProviderConfig struct {
 	Provision   bool   `json:"provision"`
 }
 
-func PulumiReadProvisionerConfig(config any) any {
-	return &PulumiProvisionerConfig{}
+func PulumiReadProvisionerConfig(config any) (any, error) {
+	return ConvertDescriptor(config, &PulumiProvisionerConfig{})
 }
