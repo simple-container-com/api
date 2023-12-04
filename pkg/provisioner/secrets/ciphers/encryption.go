@@ -3,11 +3,14 @@ package ciphers
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/pem"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 	"golang.org/x/crypto/ssh"
+	"strings"
 )
 
 // GenerateKeyPair generates a new key pair
@@ -85,4 +88,33 @@ func ParsePublicKey(s string) (*rsa.PublicKey, error) {
 	} else {
 		return res, nil
 	}
+}
+
+const chunkSize = 256
+
+func EncryptLargeString(key *rsa.PublicKey, s string) ([][]byte, error) {
+	chunks := lo.ChunkString(s, chunkSize)
+	res := make([][]byte, len(chunks))
+	for idx, chunk := range chunks {
+		encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, key, []byte(chunk), nil)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to encrypt secret")
+		}
+		res[idx] = encryptedData
+	}
+	return res, nil
+}
+
+func DecryptLargeString(key *rsa.PrivateKey, chunks [][]byte) ([]byte, error) {
+	decrChunks := make([][]byte, len(chunks))
+	for idx, chunk := range chunks {
+		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunk, nil)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret")
+		}
+		decrChunks[idx] = decrypted
+	}
+	return []byte(strings.Join(lo.Map(decrChunks, func(chunk []byte, _ int) string {
+		return string(chunk)
+	}), "")), nil
 }

@@ -2,9 +2,7 @@ package secrets
 
 import (
 	"api/pkg/api"
-	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"encoding/asn1"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"io"
@@ -50,7 +48,7 @@ type cryptor struct {
 	_lock             sync.RWMutex // для защиты secrets & registry
 	currentPrivateKey string
 	currentPublicKey  string
-	registry          SecretsRegistry
+	registry          Registry
 	secrets           EncryptedSecretFiles
 }
 
@@ -152,7 +150,7 @@ func (c *cryptor) DecryptAll() error {
 	}
 
 	for _, sFile := range c.secrets.Secrets[c.currentPublicKey].Files {
-		if _, err := c.decryptSecretDataToFile(string(sFile.EncryptedData), sFile.Path); err != nil {
+		if _, err := c.decryptSecretDataToFile(sFile.EncryptedData, sFile.Path); err != nil {
 			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, c.currentPublicKey)
 		}
 	}
@@ -199,7 +197,7 @@ func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (
 	return secrets, nil
 }
 
-func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]byte, error) {
+func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([][]byte, error) {
 	file, err := c.wdFs.Open(relFilePath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
@@ -215,16 +213,16 @@ func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]byte,
 		return nil, errors.Wrapf(err, "failed to parse public key: %q", keyData)
 	}
 
-	var encryptedData []byte
-	encryptedData, err = rsa.EncryptOAEP(sha256.New(), rand.Reader, parsed, secretData, nil)
+	var encryptedData [][]byte
+	encryptedData, err = ciphers.EncryptLargeString(parsed, string(secretData))
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to encrypt secret file: %q with publicKey %q", relFilePath, keyData)
+		return nil, errors.Wrapf(err, "failed to encrypt secret file: %q with publicKey %q", relFilePath, keyData[0:15])
 	}
 
 	return encryptedData, nil
 }
 
-func (c *cryptor) decryptSecretDataToFile(encryptedData string, relFilePath string) ([]byte, error) {
+func (c *cryptor) decryptSecretDataToFile(encryptedData [][]byte, relFilePath string) ([]byte, error) {
 	if c.currentPrivateKey == "" {
 		return nil, errors.New("private key is not configured")
 	}
@@ -241,9 +239,9 @@ func (c *cryptor) decryptSecretDataToFile(encryptedData string, relFilePath stri
 		key = castedKey
 	}
 
-	decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, []byte(encryptedData), nil)
+	decrypted, err := ciphers.DecryptLargeString(key, encryptedData)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to decrypt oaep")
+		return nil, errors.Wrapf(err, "failed to decrypt secret")
 	}
 
 	var file billy.File
@@ -347,7 +345,7 @@ func (c *cryptor) openGitRepo() (*cryptor, error) {
 }
 
 func (c *cryptor) removeFileFromIgnore(filePath string) error {
-	currentContent, file, err := c.readIgnore()
+	currentContent, file, err := c.readIgnore(0)
 	if err != nil {
 		return err
 	}
@@ -357,6 +355,11 @@ func (c *cryptor) removeFileFromIgnore(filePath string) error {
 		return s != filePath
 	})
 
+	_, file, err = c.readIgnore(os.O_TRUNC)
+	if err != nil {
+		return err
+	}
+
 	_, err = io.WriteString(file, strings.Join(newContent, "\n"))
 	if err != nil {
 		return errors.Wrapf(err, "failed to write .gitignore file")
@@ -365,27 +368,33 @@ func (c *cryptor) removeFileFromIgnore(filePath string) error {
 }
 
 func (c *cryptor) addFileToIgnore(filePath string) error {
-	currentContent, file, err := c.readIgnore()
+	currentContent, file, err := c.readIgnore(0)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = file.Close() }()
 
-	_, err = io.WriteString(file, string(currentContent)+"\n"+filePath)
-	if err != nil {
-		return errors.Wrapf(err, "failed to write .gitignore file")
+	if !strings.Contains(string(currentContent), "\n"+filePath) {
+		_, file, err = c.readIgnore(os.O_TRUNC)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(file, string(currentContent)+"\n"+filePath)
+		if err != nil {
+			return errors.Wrapf(err, "failed to write .gitignore file")
+		}
 	}
 	return nil
 }
 
-func (c *cryptor) readIgnore() ([]byte, billy.File, error) {
+func (c *cryptor) readIgnore(flag int) ([]byte, billy.File, error) {
 	filename := ".gitignore"
 	var file billy.File
 	var err error
 	if _, err := c.wdFs.Stat(filename); os.IsNotExist(err) {
 		file, err = c.wdFs.Create(filename)
 	} else if err == nil {
-		file, err = c.wdFs.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.ModePerm)
+		file, err = c.wdFs.OpenFile(filename, os.O_CREATE|os.O_RDWR|flag, os.ModePerm)
 	}
 
 	if err != nil {
@@ -416,11 +425,11 @@ type SshKey struct {
 	Data []byte `json:"data" yaml:"data"`
 }
 
-type SecretsRegistry struct {
+type Registry struct {
 	Files []string `json:"files" yaml:"files"`
 }
 
 type EncryptedSecretFile struct {
-	Path          string `json:"path" yaml:"path"`
-	EncryptedData []byte `json:"encryptedData" yaml:"encryptedData"`
+	Path          string   `json:"path" yaml:"path"`
+	EncryptedData [][]byte `json:"encryptedData" yaml:"encryptedData"`
 }
