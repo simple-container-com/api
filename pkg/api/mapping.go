@@ -5,6 +5,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const MetaDirectoryName = ".sc"
+
 type ConfigReaderFunc func(any) (any, error)
 
 type ConfigRegisterMap map[string]ConfigReaderFunc
