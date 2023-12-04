@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"api/pkg/api/tests"
 	"context"
 	"testing"
 
@@ -11,9 +12,10 @@ func Test_Provision(t *testing.T) {
 	RegisterTestingT(t)
 
 	tests := []struct {
-		name    string
-		params  ProvisionParams
-		wantErr string
+		name         string
+		params       ProvisionParams
+		expectStacks StacksMap
+		wantErr      string
 	}{
 		{
 			name: "happy path",
@@ -22,6 +24,18 @@ func Test_Provision(t *testing.T) {
 				Stacks: []string{
 					"common",
 					"refapp",
+				},
+			},
+			expectStacks: map[string]Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.CommonServerDescriptor,
+				},
+				"refapp": {
+					Name:   "refapp",
+					Server: *tests.RefappServerDescriptor,
+					Client: *tests.RefappClientDescriptor,
 				},
 			},
 		},
@@ -37,6 +51,9 @@ func Test_Provision(t *testing.T) {
 				Expect(err).To(MatchRegexp(tt.wantErr))
 			} else {
 				Expect(err).To(BeNil())
+				if tt.expectStacks != nil {
+					Expect(p.Stacks()).To(Equal(tt.expectStacks))
+				}
 			}
 		})
 	}
