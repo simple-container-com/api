@@ -1,8 +1,9 @@
 package api
 
 import (
-	. "github.com/onsi/gomega"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestReadServerDescriptor(t *testing.T) {
@@ -16,7 +17,7 @@ func TestReadServerDescriptor(t *testing.T) {
 		{
 			path: "testdata/stacks/common/server.yaml",
 			want: &ServerDescriptor{
-				SchemaVersion: "1.0",
+				SchemaVersion: ServerSchemaVersion,
 				Provisioner: ProvisionerDescriptor{
 					Type: ProvisionerTypePulumi,
 					Config: &PulumiProvisionerConfig{
@@ -66,7 +67,7 @@ func TestReadServerDescriptor(t *testing.T) {
 		{
 			path: "testdata/stacks/refapp/server.yaml",
 			want: &ServerDescriptor{
-				SchemaVersion: "1.0",
+				SchemaVersion: ServerSchemaVersion,
 				Provisioner: ProvisionerDescriptor{
 					Inherit: Inherit{Inherit: "common"},
 				},
@@ -211,6 +212,61 @@ func TestReadSecretsDescriptor(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			got, err := ReadSecretsDescriptor(tt.path)
+			Expect(err).To(BeNil())
+
+			Expect(got).To(Equal(tt.want))
+		})
+	}
+}
+
+func TestReadClientDescriptor(t *testing.T) {
+	RegisterTestingT(t)
+
+	tests := []struct {
+		path    string
+		want    *ClientDescriptor
+		wantErr bool
+	}{
+		{
+			path: "testdata/stacks/refapp/client.yaml",
+			want: &ClientDescriptor{
+				SchemaVersion: ClientSchemaVersion,
+				Stacks: map[string]StackClientDescriptor{
+					"staging": {
+						Stack:  "refapp/staging",
+						Domain: "staging.sc-refapp.org",
+						Config: StackConfig{
+							DockerComposeFile: "./docker-compose.yaml",
+							Uses: []string{
+								"mongodb",
+							},
+							Runs: []string{
+								"api",
+								"ui",
+							},
+						},
+					},
+					"prod": {
+						Stack:  "refapp/prod",
+						Domain: "prod.sc-refapp.org",
+						Config: StackConfig{
+							DockerComposeFile: "./docker-compose.yaml",
+							Uses: []string{
+								"mongodb",
+							},
+							Runs: []string{
+								"api",
+								"ui",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got, err := ReadClientDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
 			Expect(got).To(Equal(tt.want))

@@ -50,6 +50,23 @@ func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
 	return res, nil
 }
 
+func ReadClientDescriptor(path string) (*ClientDescriptor, error) {
+	var descriptor ClientDescriptor
+	fileBytes, err := os.ReadFile(path)
+
+	if err != nil {
+		return &descriptor, errors.Wrapf(err, "failed to read %s", path)
+	}
+
+	err = yaml.Unmarshal(fileBytes, &descriptor)
+
+	if err != nil {
+		return &descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
+	}
+
+	return &descriptor, nil
+}
+
 func ReadSecretsConfigs(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
 	res := *descriptor
 

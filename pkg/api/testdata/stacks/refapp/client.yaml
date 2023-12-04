@@ -11,7 +11,7 @@ stacks:
       runs:
         - api
         - ui
-  production:
-    stack: refapp/production
-    domain: production.sc-refapp.org
+  prod:
+    stack: refapp/prod
+    domain: prod.sc-refapp.org
     config: *config # shape services the same way as staging
