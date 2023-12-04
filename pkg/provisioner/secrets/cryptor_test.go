@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"api/pkg/api"
 	"os"
 	"path"
 	"testing"
@@ -8,8 +9,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/otiai10/copy"
 )
-
-const testPubKey = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCeVkFyudvqIp1rYrgPDpoYXJ0CtwYpGWrbUESK+ZDN22XflKmaSAMqHiuZ60NomuNv3uxjRU1acOYX0+BtwYrmTlH3COYmDR0z29d4ZjmTWa3H1z4Al/z1zOgrFxdDZ82MXTRXn478Mw/MCCQ1D4oGDNjwVKSan06FrSffE6aKKEZGPUC5BKRwMzkKeEZdFJCZifykd/7WXAIpXa9BLxL/FdjAFjPy8mRe1I2qRoPR2LRWReAukbpk1hOjS0OFiYLVhbE/jUAunlAUug/5D7OI7Q9P7/xL/kIlfuG+/tVQ3EFXkR9EX2RkRjD2C1vQrIEqu8Kdt/PnqzFfvs3KapGdUNxqlAo9tvBC4Q+8OJ4Y0vfHNIihhwecLBu3DQJJXXJZFIlactDmTYvhnNTt0T6DDPAv+aaw7SLTvBBZtwgi9eFbwYtlFVp2EMzBBlmpPsLtHlPAnnq7tOQihAGrBzO3iViV0Az9Q6as5P9Lor6Xeu71ke4xlmkRTSN0fi1sqLUy4s2srLIOLIykbIzeKujElJaSHumy+AD+x5SsZ6/WvgyLQyWR5cwPoM+yHslOZYTPdcfRmyEZTa5C4drytjFyvlR0yCwucPrJADtx6qJkfomDG+9xfd3zS/9GFr0LD+JMRFaBQhjQ7VHc/zIb3bNEEY9TCsmH5ie6hjKj5N6f0Q== test@localhost"
 
 func TestNewCryptor(t *testing.T) {
 	RegisterTestingT(t)
@@ -31,6 +30,15 @@ func TestNewCryptor(t *testing.T) {
 			actions: happyPathScenario,
 		},
 		{
+			name:           "happy path with inline keys",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				WithGitDir("gitdir"),
+				WithKeysFromScConfig("local-key-inline"),
+			},
+			actions: happyPathScenario,
+		},
+		{
 			name:           "bad workdir",
 			testExampleDir: "testdata/non-existent-repo",
 			wantErr:        "no such file or directory",
@@ -40,7 +48,35 @@ func TestNewCryptor(t *testing.T) {
 			testExampleDir: "testdata/repo",
 			wantErr:        "failed to open git repository.*",
 		},
+		{
+			name:           "with profile",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				WithGitDir("gitdir"),
+				WithProfile("test-profile"),
+				WithGeneratedKeys("test-profile"),
+			},
+			actions: func(t *testing.T, c Cryptor, wd string) {
+				happyPathScenario(t, c, wd)
+				cfg, err := api.ReadConfigFile(wd, "test-profile")
+				Expect(err).To(BeNil())
+				Expect(cfg.PrivateKey).To(ContainSubstring(c.PrivateKey()))
+				Expect(cfg.PublicKey).To(ContainSubstring(c.PublicKey()))
+				Expect(cfg.PrivateKeyPath).To(Equal(""))
+				Expect(cfg.PublicKeyPath).To(Equal(""))
+			},
+		},
+		{
+			name:           "with not existing profile",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				WithGitDir("gitdir"),
+				WithKeysFromScConfig("not-existing-profile"),
+			},
+			wantErr: "profile does not exist: \"not-existing-profile\"",
+		},
 	}
+	t.Parallel()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			workDir, err := copyTempProject(tt.testExampleDir)
@@ -76,8 +112,8 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
 		secrets := c.GetSecretFiles().Secrets
 		Expect(secrets).NotTo(BeNil())
-		Expect(secrets).To(HaveKey(testPubKey))
-		files := secrets[testPubKey].Files
+		Expect(secrets).To(HaveKey(c.PublicKey()))
+		files := secrets[c.PublicKey()].Files
 		Expect(files).To(HaveLen(1))
 		Expect(files[0].Path).To(Equal("stacks/common/secrets.yaml"))
 		Expect(files[0].EncryptedData).NotTo(BeEmpty())
@@ -105,8 +141,8 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(BeNil())
 		secrets := c.GetSecretFiles().Secrets
 		Expect(secrets).NotTo(BeNil())
-		Expect(secrets).To(HaveKey(testPubKey))
-		files := secrets[testPubKey].Files
+		Expect(secrets).To(HaveKey(c.PublicKey()))
+		files := secrets[c.PublicKey()].Files
 		Expect(files).To(HaveLen(1))
 
 		Expect(gitIgnoreFile).To(BeAnExistingFile())

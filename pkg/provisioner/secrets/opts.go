@@ -25,10 +25,29 @@ func WithGitDir(dir string) Option {
 	}
 }
 
+func WithProfile(profile string) Option {
+	return Option{
+		f: func(c *cryptor) error {
+			c.profile = profile
+			return nil
+		},
+	}
+}
+
+func WithGeneratedKeys(profile string) Option {
+	return Option{
+		f: func(c *cryptor) error {
+			c.profile = profile
+			return c.GenerateKeyPair(c.profile)
+		},
+	}
+}
+
 func WithKeysFromScConfig(profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {
-			cfg, err := api.ReadConfigFile(c.workDir, profile)
+			c.profile = profile
+			cfg, err := api.ReadConfigFile(c.workDir, c.profile)
 			if err != nil {
 				return err
 			}

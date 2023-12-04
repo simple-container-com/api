@@ -7,10 +7,11 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/pem"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"golang.org/x/crypto/ssh"
-	"strings"
 )
 
 // GenerateKeyPair generates a new key pair
@@ -32,6 +33,23 @@ func PrivateKeyToBytes(priv *rsa.PrivateKey) []byte {
 	)
 
 	return privBytes
+}
+
+func MarshalPublicKey(pub *rsa.PublicKey) ([]byte, error) {
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		return nil, err
+	}
+	sshPubBytes := sshPub.Marshal()
+
+	// Now we can convert it back to PEM format
+	// Remember: if you're reading the public key from a file, you probably
+	// want ssh.ParseAuthorizedKey.
+	sshKey, err := ssh.ParsePublicKey(sshPubBytes)
+	if err != nil {
+		return nil, err
+	}
+	return ssh.MarshalAuthorizedKey(sshKey), nil
 }
 
 // PublicKeyToBytes public key to bytes
@@ -90,10 +108,8 @@ func ParsePublicKey(s string) (*rsa.PublicKey, error) {
 	}
 }
 
-const chunkSize = 256
-
 func EncryptLargeString(key *rsa.PublicKey, s string) ([][]byte, error) {
-	chunks := lo.ChunkString(s, chunkSize)
+	chunks := lo.ChunkString(s, key.Size()/2)
 	res := make([][]byte, len(chunks))
 	for idx, chunk := range chunks {
 		encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, key, []byte(chunk), nil)
