@@ -4,22 +4,14 @@ import (
 	"api/pkg/api"
 	"crypto/rsa"
 	"encoding/asn1"
+	"github.com/go-git/go-billy/v5"
+	"github.com/pkg/errors"
+	"github.com/samber/lo"
+	"golang.org/x/crypto/ssh"
 	"io"
 	"io/fs"
 	"os"
 	"path"
-	"strings"
-
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/osfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/cache"
-	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
-	"github.com/go-git/go-git/v5/storage/filesystem"
-	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
-	"github.com/pkg/errors"
-	"github.com/samber/lo"
-	"golang.org/x/crypto/ssh"
 
 	"api/pkg/provisioner/secrets/ciphers"
 )
@@ -33,11 +25,6 @@ func (c *cryptor) GetSecretFiles() EncryptedSecretFiles {
 func (c *cryptor) AddFile(filePath string) error {
 	defer c.withWriteLock()()
 
-	ignorePatterns, err := gitignore.ReadPatterns(c.wdFs, nil)
-	if err != nil {
-		return errors.Wrapf(err, "failed to read gitignore patterns")
-	}
-
 	if err := c.initData(); err != nil {
 		return err
 	}
@@ -47,17 +34,11 @@ func (c *cryptor) AddFile(filePath string) error {
 	if err := c.EncryptAll(); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
-	if err = c.marshalSecretsFile(); err != nil {
+	if err := c.marshalSecretsFile(); err != nil {
 		return err
 	}
-
-	if _, found := lo.Find(ignorePatterns, func(pattern gitignore.Pattern) bool {
-		return pattern.Match(strings.Split(filePath, "/"), false) == gitignore.Exclude
-	}); !found {
-		err = c.addFileToIgnore(filePath)
-		if err != nil {
-			return errors.Wrapf(err, "failed to add file to .gitignore %q", filePath)
-		}
+	if err := c.gitRepo.AddFileToIgnore(filePath); err != nil {
+		return err
 	}
 	return nil
 }
@@ -77,7 +58,7 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	if err != nil {
 		return err
 	}
-	err = c.removeFileFromIgnore(filePath)
+	err = c.gitRepo.RemoveFileFromIgnore(filePath)
 	if err != nil {
 		return err
 	}
@@ -92,11 +73,7 @@ func (c *cryptor) marshalSecretsFile() error {
 		return errors.Wrapf(err, "failed to marshal secrets")
 	}
 	var file billy.File
-	if _, err := c.wdFs.Stat(secretsFilePath); os.IsNotExist(err) {
-		file, err = c.wdFs.Create(secretsFilePath)
-	} else {
-		file, err = c.wdFs.OpenFile(secretsFilePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.ModePerm)
-	}
+	file, err = c.gitRepo.OpenFile(secretsFilePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -170,7 +147,7 @@ func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (
 }
 
 func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([][]byte, error) {
-	file, err := c.wdFs.Open(relFilePath)
+	file, err := c.gitRepo.OpenFile(relFilePath, os.O_RDONLY, fs.ModePerm)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
 	}
@@ -217,10 +194,10 @@ func (c *cryptor) decryptSecretDataToFile(encryptedData [][]byte, relFilePath st
 	}
 
 	var file billy.File
-	if _, err = c.wdFs.Stat(relFilePath); os.IsNotExist(err) {
-		file, err = c.wdFs.Create(relFilePath)
+	if !c.gitRepo.Exists(relFilePath) {
+		file, err = c.gitRepo.CreateFile(relFilePath)
 	} else {
-		file, err = c.wdFs.OpenFile(relFilePath, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, fs.ModePerm)
+		file, err = c.gitRepo.OpenFile(relFilePath, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, fs.ModePerm)
 	}
 
 	if err != nil {
@@ -243,6 +220,9 @@ func (c *cryptor) initData() error {
 	}
 	if c.currentPrivateKey == "" {
 		return errors.New("private key is not configured")
+	}
+	if c.gitRepo == nil {
+		return errors.New("git repo is not configured")
 	}
 	return nil
 }
@@ -276,11 +256,6 @@ func NewCryptor(workDir string, opts ...Option) (Cryptor, error) {
 		return nil, err
 	}
 
-	var err error
-	c, err = c.openGitRepo()
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open git repository (must be in a git root: %q)", workDir)
-	}
 	if err := c.applyOpts(afterInitOpts); err != nil {
 		return nil, err
 	}
@@ -321,89 +296,4 @@ func (c *cryptor) applyOpts(opts []Option) error {
 		}
 	}
 	return nil
-}
-
-func (c *cryptor) openGitRepo() (*cryptor, error) {
-	var fs *dotgit.RepositoryFilesystem
-	var wt = osfs.New(c.workDir)
-	if c.gitDir != "" {
-		c.gitFs = osfs.New(path.Join(c.workDir, c.gitDir))
-	} else {
-		c.gitFs = osfs.New(path.Join(c.workDir, git.GitDirName))
-	}
-	if c.workDir != "" {
-		c.wdFs = osfs.New(c.workDir)
-	} else {
-		c.wdFs = osfs.New("")
-	}
-	fs = dotgit.NewRepositoryFilesystem(c.gitFs, nil)
-	s := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-	var err error
-	c.gitRepo, err = git.Open(s, wt)
-	return c, err
-}
-
-func (c *cryptor) removeFileFromIgnore(filePath string) error {
-	currentContent, file, err := c.readIgnore(0)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	newContent := lo.Filter(strings.Split(string(currentContent), "\n"), func(s string, _ int) bool {
-		return s != filePath
-	})
-
-	_, file, err = c.readIgnore(os.O_TRUNC)
-	if err != nil {
-		return err
-	}
-
-	_, err = io.WriteString(file, strings.Join(newContent, "\n"))
-	if err != nil {
-		return errors.Wrapf(err, "failed to write .gitignore file")
-	}
-	return nil
-}
-
-func (c *cryptor) addFileToIgnore(filePath string) error {
-	currentContent, file, err := c.readIgnore(0)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	if !strings.Contains(string(currentContent), "\n"+filePath) {
-		_, file, err = c.readIgnore(os.O_TRUNC)
-		if err != nil {
-			return err
-		}
-		_, err = io.WriteString(file, string(currentContent)+"\n"+filePath)
-		if err != nil {
-			return errors.Wrapf(err, "failed to write .gitignore file")
-		}
-	}
-	return nil
-}
-
-func (c *cryptor) readIgnore(flag int) ([]byte, billy.File, error) {
-	filename := ".gitignore"
-	var file billy.File
-	var err error
-	if _, err := c.wdFs.Stat(filename); os.IsNotExist(err) {
-		file, err = c.wdFs.Create(filename)
-	} else if err == nil {
-		file, err = c.wdFs.OpenFile(filename, os.O_CREATE|os.O_RDWR|flag, os.ModePerm)
-	}
-
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to open .gitignore file")
-	}
-
-	currentContent, err := io.ReadAll(file)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to read .gitignore file")
-	}
-
-	return currentContent, file, nil
 }

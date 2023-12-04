@@ -15,6 +15,7 @@ func Test_Provision(t *testing.T) {
 	testCases := []struct {
 		name         string
 		params       ProvisionParams
+		opts         []Option
 		expectStacks StacksMap
 		wantErr      string
 	}{
@@ -44,9 +45,15 @@ func Test_Provision(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
-			p := New()
+			p, err := New(tt.opts...)
 
-			err := p.Provision(ctx, tt.params)
+			if err != nil && tt.wantErr != "" {
+				Expect(err).To(MatchRegexp(tt.wantErr))
+			} else {
+				Expect(err).To(BeNil())
+			}
+
+			err = p.Provision(ctx, tt.params)
 
 			if err != nil && tt.wantErr != "" {
 				Expect(err).To(MatchRegexp(tt.wantErr))

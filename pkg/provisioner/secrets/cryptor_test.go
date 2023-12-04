@@ -1,19 +1,35 @@
 package secrets
 
 import (
-	"api/pkg/api"
 	"os"
 	"path"
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/otiai10/copy"
+
+	"api/pkg/api"
+	"api/pkg/provisioner/git"
+	"api/pkg/provisioner/tests"
 )
+
+func withGitDir(gitDir string) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			repo, err := git.Open(c.workDir, git.WithGitDir(gitDir))
+			if err != nil {
+				return err
+			}
+			c.gitRepo = repo
+			return nil
+		},
+	}
+}
 
 func TestNewCryptor(t *testing.T) {
 	RegisterTestingT(t)
 
-	tests := []struct {
+	cases := []struct {
 		name           string
 		testExampleDir string
 		opts           []Option
@@ -24,7 +40,7 @@ func TestNewCryptor(t *testing.T) {
 			name:           "happy path",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
-				WithGitDir("gitdir"),
+				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files"),
 			},
 			actions: happyPathScenario,
@@ -33,7 +49,7 @@ func TestNewCryptor(t *testing.T) {
 			name:           "happy path with inline keys",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
-				WithGitDir("gitdir"),
+				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-inline"),
 			},
 			actions: happyPathScenario,
@@ -42,7 +58,7 @@ func TestNewCryptor(t *testing.T) {
 			name:           "happy path with profile",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
-				WithGitDir("gitdir"),
+				withGitDir("gitdir"),
 				WithProfile("local-key-files"),
 				WithKeysFromCurrentProfile(),
 			},
@@ -62,7 +78,7 @@ func TestNewCryptor(t *testing.T) {
 			name:           "with generated keys",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
-				WithGitDir("gitdir"),
+				withGitDir("gitdir"),
 				WithProfile("test-profile"),
 				WithGeneratedKeys("test-profile"),
 			},
@@ -80,16 +96,32 @@ func TestNewCryptor(t *testing.T) {
 			name:           "with not existing profile",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
-				WithGitDir("gitdir"),
+				withGitDir("gitdir"),
 				WithKeysFromScConfig("not-existing-profile"),
 			},
 			wantErr: "profile does not exist: \"not-existing-profile\"",
 		},
+		{
+			name:           "public key not configured",
+			testExampleDir: "testdata/repo",
+			actions: func(t *testing.T, c Cryptor, wd string) {
+				Expect(c.AddFile("stacks/common/secrets.yaml")).
+					To(MatchError("public key is not configured"))
+			},
+		},
+		{
+			name:           "git repo not configured",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				WithKeysFromScConfig("local-key-files"),
+			},
+			wantErr: "git repo is not configured",
+		},
 	}
 	t.Parallel()
-	for _, tt := range tests {
+	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			workDir, err := copyTempProject(tt.testExampleDir)
+			workDir, err := tests.CopyTempProject(tt.testExampleDir)
 			defer func() { _ = os.RemoveAll(workDir) }()
 			if err != nil && tt.wantErr != "" {
 				Expect(err.Error()).Should(MatchRegexp(tt.wantErr))
@@ -167,14 +199,4 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(string(gitignoreContent)).NotTo(ContainSubstring("stacks/common/secrets.yaml"))
 		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/refapp/secrets.yaml"))
 	})
-}
-
-func copyTempProject(pathToExample string) (string, error) {
-	if depDir, err := os.MkdirTemp(os.TempDir(), "project"); err != nil {
-		return pathToExample, err
-	} else if err = copy.Copy(pathToExample, depDir); err != nil {
-		return pathToExample, err
-	} else {
-		return depDir, nil
-	}
 }

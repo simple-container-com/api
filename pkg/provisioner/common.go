@@ -2,11 +2,14 @@ package provisioner
 
 import (
 	"api/pkg/api"
+	"api/pkg/provisioner/git"
 	"api/pkg/provisioner/logger"
 	"context"
 )
 
 type Provisioner interface {
+	Init() error
+
 	Provision(ctx context.Context, params ProvisionParams) error
 
 	Deploy(ctx context.Context, params DeployParams) error
@@ -17,7 +20,9 @@ type Provisioner interface {
 type StacksMap map[string]Stack
 type provisioner struct {
 	stacks StacksMap
-	log    logger.Logger
+
+	gitRepo git.Repo
+	log     logger.Logger
 }
 
 type ProvisionParams struct {
@@ -40,13 +45,27 @@ type Stack struct {
 	Client  api.ClientDescriptor  `json:"client" yaml:"client"`
 }
 
-func New() Provisioner {
-	return &provisioner{
+type Option func(p *provisioner) error
+
+func New(opts ...Option) (Provisioner, error) {
+	res := &provisioner{
 		stacks: make(StacksMap),
 		log:    logger.New(),
 	}
+
+	for _, opt := range opts {
+		if err := opt(res); err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
 }
 
 func (p *provisioner) Stacks() StacksMap {
 	return p.stacks
+}
+
+func (p *provisioner) Init() error {
+	//TODO implement me
+	panic("implement me")
 }

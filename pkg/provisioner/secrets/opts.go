@@ -1,13 +1,15 @@
 package secrets
 
 import (
-	"api/pkg/api"
 	"io"
 	"io/fs"
 	"os"
 	"strings"
 
 	"github.com/pkg/errors"
+
+	"api/pkg/api"
+	"api/pkg/provisioner/git"
 )
 
 type Option struct {
@@ -15,11 +17,11 @@ type Option struct {
 	beforeInit bool
 }
 
-func WithGitDir(dir string) Option {
+func WithGitRepo(gitRepo git.Repo) Option {
 	return Option{
 		beforeInit: true,
 		f: func(c *cryptor) error {
-			c.gitDir = dir
+			c.gitRepo = gitRepo
 			return nil
 		},
 	}
@@ -91,11 +93,7 @@ func WithKeysFromScConfig(profile string) Option {
 func WithPublicKey(filePath string) Option {
 	return Option{
 		f: func(c *cryptor) error {
-			//if !path.IsAbs(filePath) {
-			//	filePath = path.Join(c.workDir, filePath)
-			//}
-
-			file, err := c.wdFs.OpenFile(filePath, os.O_RDONLY, fs.ModePerm)
+			file, err := c.gitRepo.OpenFile(filePath, os.O_RDONLY, fs.ModePerm)
 			if err != nil {
 				return errors.Wrapf(err, "failed to open public key file: %q", filePath)
 			}
@@ -114,10 +112,10 @@ func WithPublicKey(filePath string) Option {
 func WithPrivateKey(filePath string) Option {
 	return Option{
 		f: func(c *cryptor) error {
-			//if !path.IsAbs(filePath) {
-			//	filePath = path.Join(c.workDir, filePath)
-			//}
-			file, err := c.wdFs.OpenFile(filePath, os.O_RDONLY, fs.ModePerm)
+			if c.gitRepo == nil {
+				return errors.New("git repo is not configured")
+			}
+			file, err := c.gitRepo.OpenFile(filePath, os.O_RDONLY, fs.ModePerm)
 			if err != nil {
 				return errors.Wrapf(err, "failed to open public key file: %q", filePath)
 			}

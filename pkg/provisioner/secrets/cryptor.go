@@ -1,10 +1,8 @@
 package secrets
 
 import (
+	"api/pkg/provisioner/git"
 	"sync"
-
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-git/v5"
 )
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
@@ -23,13 +21,9 @@ type Cryptor interface {
 
 type cryptor struct {
 	workDir string
-	gitDir  string
-
-	wdFs    billy.Filesystem
-	gitFs   billy.Filesystem
-	gitRepo *git.Repository
-
 	profile string
+
+	gitRepo git.Repo
 
 	_lock             sync.RWMutex // для защиты secrets & registry
 	currentPrivateKey string
