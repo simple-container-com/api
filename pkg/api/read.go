@@ -1,74 +1,65 @@
 package api
 
 import (
+	"os"
+
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
-	"os"
 )
 
 const ServerDescriptorFileName = "server.yaml"
 const SecretsDescriptorFileName = "secrets.yaml"
 const ClientDescriptorFileName = "client.yaml"
 
+func ReadDescriptor[T any](filePath string, descriptor *T) (*T, error) {
+	fileBytes, err := os.ReadFile(filePath)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read %s", filePath)
+	}
+
+	err = yaml.Unmarshal(fileBytes, descriptor)
+
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal %s", filePath)
+	}
+	return descriptor, nil
+}
+
+func MarshalDescriptor[T any](descriptor *T) ([]byte, error) {
+	return yaml.Marshal(descriptor)
+}
+
 func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
-	var descriptor ServerDescriptor
-	fileBytes, err := os.ReadFile(path)
+	descriptor, err := ReadDescriptor(path, &ServerDescriptor{})
 
+	res, err := ReadServerConfigs(descriptor)
 	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to read %s", path)
-	}
-
-	err = yaml.Unmarshal(fileBytes, &descriptor)
-
-	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
-	}
-
-	res, err := ReadServerConfigs(&descriptor)
-	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to read server configs for %s", path)
+		return descriptor, errors.Wrapf(err, "failed to read server configs for %s", path)
 	}
 
 	return res, nil
 }
 
 func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
-	var descriptor SecretsDescriptor
-	fileBytes, err := os.ReadFile(path)
+	descriptor, err := ReadDescriptor(path, &SecretsDescriptor{})
 
+	res, err := ReadSecretsConfigs(descriptor)
 	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to read %s", path)
-	}
-
-	err = yaml.Unmarshal(fileBytes, &descriptor)
-
-	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
-	}
-
-	res, err := ReadSecretsConfigs(&descriptor)
-	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to read secret configs for %s", path)
+		return descriptor, errors.Wrapf(err, "failed to read secret configs for %s", path)
 	}
 
 	return res, nil
 }
 
 func ReadClientDescriptor(path string) (*ClientDescriptor, error) {
-	var descriptor ClientDescriptor
-	fileBytes, err := os.ReadFile(path)
+	descriptor, err := ReadDescriptor(path, &ClientDescriptor{})
 
 	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to read %s", path)
+		return descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
 	}
 
-	err = yaml.Unmarshal(fileBytes, &descriptor)
-
-	if err != nil {
-		return &descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
-	}
-
-	return &descriptor, nil
+	return descriptor, nil
 }
 
 func ReadSecretsConfigs(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
