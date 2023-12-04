@@ -1,17 +1,18 @@
 package provisioner
 
 import (
-	"api/pkg/api/tests"
 	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
+
+	"api/pkg/api/tests"
 )
 
 func Test_Provision(t *testing.T) {
 	RegisterTestingT(t)
 
-	tests := []struct {
+	testCases := []struct {
 		name         string
 		params       ProvisionParams
 		expectStacks StacksMap
@@ -40,7 +41,7 @@ func Test_Provision(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range tests {
+	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 			p := New()
