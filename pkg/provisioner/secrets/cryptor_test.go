@@ -101,7 +101,7 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(files).To(HaveLen(0))
 
 		Expect(gitIgnoreFile).To(BeAnExistingFile())
-		gitignoreContent, err := os.ReadFile("testdata/repo/stacks/common/secrets.yaml")
+		gitignoreContent, err := os.ReadFile(path.Join(wd, ".gitignore"))
 		Expect(err).To(BeNil())
 		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/common/secrets.yaml"))
 	})

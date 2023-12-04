@@ -8,6 +8,7 @@ import (
 	"encoding/asn1"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"strings"
@@ -120,11 +121,12 @@ func (c *cryptor) marshalSecretsFile() error {
 	if _, err := c.wdFs.Stat(secretsFilePath); os.IsNotExist(err) {
 		file, err = c.wdFs.Create(secretsFilePath)
 	} else {
-		file, err = c.wdFs.Open(secretsFilePath)
+		file, err = c.wdFs.OpenFile(secretsFilePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.ModePerm)
 	}
 	if err != nil {
 		return err
 	}
+	defer func() { _ = file.Close() }()
 	if _, err := file.Write(bytes); err != nil {
 		return errors.Wrapf(err, "failed to write secrets file %q", secretsFilePath)
 	}
@@ -241,13 +243,14 @@ func (c *cryptor) decryptSecretDataToFile(encryptedData string, relFilePath stri
 	if _, err = c.wdFs.Stat(relFilePath); os.IsNotExist(err) {
 		file, err = c.wdFs.Create(relFilePath)
 	} else {
-		file, err = c.wdFs.Open(relFilePath)
+		file, err = c.wdFs.OpenFile(relFilePath, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, fs.ModePerm)
 	}
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
 	}
-	if _, err := file.Write(decrypted); err != nil {
+	defer func() { _ = file.Close() }()
+	if _, err := io.WriteString(file, string(decrypted)); err != nil {
 		return nil, errors.Wrapf(err, "failed to write secret to file %q", relFilePath)
 	}
 
@@ -278,95 +281,6 @@ func (c *cryptor) withWriteLock() func() {
 	c._lock.Lock()
 	return func() {
 		c._lock.Unlock()
-	}
-}
-
-type Option struct {
-	f          func(*cryptor) error
-	beforeInit bool
-}
-
-func WithGitDir(dir string) Option {
-	return Option{
-		beforeInit: true,
-		f: func(c *cryptor) error {
-			c.gitDir = dir
-			return nil
-		},
-	}
-}
-
-func WithKeysFromScConfig(profile string) Option {
-	return Option{
-		f: func(c *cryptor) error {
-			cfg, err := api.ReadConfigFile(c.workDir, profile)
-			if err != nil {
-				return err
-			}
-			if cfg.PublicKeyPath != "" && cfg.PrivateKey != "" {
-				return errors.New("both public key path and public key are configured")
-			}
-			if cfg.PrivateKeyPath != "" && cfg.PrivateKey != "" {
-				return errors.New("both private key path and private key are configured")
-			}
-			if cfg.PrivateKeyPath != "" {
-				opt := WithPrivateKey(cfg.PrivateKeyPath)
-				if err := opt.f(c); err != nil {
-					return err
-				}
-			}
-			if cfg.PublicKeyPath != "" {
-				opt := WithPublicKey(cfg.PublicKeyPath)
-				if err := opt.f(c); err != nil {
-					return err
-				}
-			}
-			if cfg.PublicKey != "" {
-				c.currentPublicKey = cfg.PublicKey
-			}
-			if cfg.PrivateKey != "" {
-				c.currentPrivateKey = cfg.PrivateKey
-			}
-			return nil
-		},
-	}
-}
-
-func WithPublicKey(filePath string) Option {
-	return Option{
-		f: func(c *cryptor) error {
-			//if !path.IsAbs(filePath) {
-			//	filePath = path.Join(c.workDir, filePath)
-			//}
-
-			file, err := c.wdFs.Open(filePath)
-			if err != nil {
-				return errors.Wrapf(err, "failed to open public key file: %q", filePath)
-			}
-
-			if data, err := io.ReadAll(file); err != nil {
-				return err
-			} else {
-				c.currentPublicKey = strings.TrimSpace(string(data))
-			}
-			return nil
-		},
-	}
-}
-
-func WithPrivateKey(filePath string) Option {
-	return Option{
-		f: func(c *cryptor) error {
-			if !path.IsAbs(filePath) {
-				filePath = path.Join(c.workDir, filePath)
-			}
-			if data, err := os.ReadFile(filePath); err != nil {
-				return err
-			} else {
-				c.currentPrivateKey = strings.TrimSpace(string(data))
-			}
-			return nil
-		},
 	}
 }
 
