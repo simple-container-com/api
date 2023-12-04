@@ -107,6 +107,10 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	if err != nil {
 		return err
 	}
+	err = c.removeFileFromIgnore(filePath)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -125,6 +129,9 @@ func (c *cryptor) marshalSecretsFile() error {
 	}
 	if err != nil {
 		return err
+	}
+	if file == nil {
+		return errors.New("file is nil")
 	}
 	defer func() { _ = file.Close() }()
 	if _, err := file.Write(bytes); err != nil {
@@ -339,30 +346,58 @@ func (c *cryptor) openGitRepo() (*cryptor, error) {
 	return c, err
 }
 
+func (c *cryptor) removeFileFromIgnore(filePath string) error {
+	currentContent, file, err := c.readIgnore()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	newContent := lo.Filter(strings.Split(string(currentContent), "\n"), func(s string, _ int) bool {
+		return s != filePath
+	})
+
+	_, err = io.WriteString(file, strings.Join(newContent, "\n"))
+	if err != nil {
+		return errors.Wrapf(err, "failed to write .gitignore file")
+	}
+	return nil
+}
+
 func (c *cryptor) addFileToIgnore(filePath string) error {
+	currentContent, file, err := c.readIgnore()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	_, err = io.WriteString(file, string(currentContent)+"\n"+filePath)
+	if err != nil {
+		return errors.Wrapf(err, "failed to write .gitignore file")
+	}
+	return nil
+}
+
+func (c *cryptor) readIgnore() ([]byte, billy.File, error) {
 	filename := ".gitignore"
 	var file billy.File
 	var err error
 	if _, err := c.wdFs.Stat(filename); os.IsNotExist(err) {
 		file, err = c.wdFs.Create(filename)
 	} else if err == nil {
-		file, err = c.wdFs.Open(filename)
+		file, err = c.wdFs.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.ModePerm)
 	}
 
 	if err != nil {
-		return errors.Wrapf(err, "failed to open .gitignore file")
+		return nil, nil, errors.Wrapf(err, "failed to open .gitignore file")
 	}
 
 	currentContent, err := io.ReadAll(file)
 	if err != nil {
-		return errors.Wrapf(err, "failed to read .gitignore file")
+		return nil, nil, errors.Wrapf(err, "failed to read .gitignore file")
 	}
 
-	_, err = file.Write([]byte(string(currentContent) + "\n" + filePath))
-	if err != nil {
-		return errors.Wrapf(err, "failed to write .gitignore file")
-	}
-	return nil
+	return currentContent, file, nil
 }
 
 type EncryptedSecretFiles struct {
