@@ -1,4 +1,4 @@
-module simple-container-ctl
+module api
 
 go 1.21.3
 
