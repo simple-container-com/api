@@ -1,8 +1,6 @@
 package api
 
 const ServerSchemaVersion = "1.0"
-const ClientSchemaVersion = "1.0"
-const SecretsSchemaVersion = "1.0"
 
 // ServerDescriptor describes the server schema
 type ServerDescriptor struct {

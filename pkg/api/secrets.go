@@ -1,5 +1,7 @@
 package api
 
+const SecretsSchemaVersion = "1.0"
+
 // SecretsDescriptor describes the secrets schema
 type SecretsDescriptor struct {
 	SchemaVersion string                    `json:"schemaVersion"`

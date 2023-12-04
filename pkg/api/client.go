@@ -1,5 +1,7 @@
 package api
 
+const ClientSchemaVersion = "1.0"
+
 // ClientDescriptor describes the client schema
 type ClientDescriptor struct {
 	SchemaVersion string                           `json:"schemaVersion"`
