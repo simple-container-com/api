@@ -1,6 +1,7 @@
 package api
 
 const PulumiTokenAuthType = "pulumi-token"
+const ProvisionerTypePulumi = "pulumi"
 
 // PulumiTokenAuthDescriptor describes the pulumi token auth schema
 type PulumiTokenAuthDescriptor struct {
@@ -33,4 +34,8 @@ type PulumiSecretsProviderConfig struct {
 	Type        string `json:"type"`
 	Credentials string `json:"credentials"`
 	Provision   bool   `json:"provision"`
+}
+
+func PulumiReadProvisionerConfig(config any) any {
+	return &PulumiProvisionerConfig{}
 }

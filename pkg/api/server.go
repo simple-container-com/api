@@ -18,32 +18,36 @@ type VariableDescriptor struct {
 }
 
 type PerStackResourcesDescriptor struct {
-	Registrar *RegistrarDescriptor          `json:"registrar"`
-	Inherit   *string                       `json:"inherit"`
+	Registrar RegistrarDescriptor           `json:"registrar"`
+	Inherit   string                        `json:"inherit"`
 	Resources map[string]ResourceDescriptor `json:"resources"`
 }
 
 type ResourceDescriptor struct {
-	Type   string `json:"type"`
-	Config any    `json:"config"`
+	Type    string `json:"type"`
+	Inherit string `json:"inherit"`
+	Config  any    `json:"config"`
 }
 
 type RegistrarDescriptor struct {
-	Type    *string `json:"type"`
-	Inherit *string `json:"inherit"`
+	Type    string `json:"type"`
+	Inherit string `json:"inherit"`
 }
 
 type StackDescriptor struct {
-	Type string `json:"type"`
+	Type    string `json:"type"`
+	Inherit string `json:"inherit"`
+	Config  any    `json:"config"`
 }
 
 type SecretsConfigDescriptor struct {
-	Type   string         `json:"type"`
-	Config map[string]any `json:"config"`
+	Type    string `json:"type"`
+	Inherit string `json:"inherit"`
+	Config  any    `json:"config"`
 }
 
 // ProvisionerDescriptor describes the provisioner schema
 type ProvisionerDescriptor struct {
-	Type   string         `json:"type"`
-	Config map[string]any `json:"config"`
+	Type   string `json:"type"`
+	Config any    `json:"config"`
 }

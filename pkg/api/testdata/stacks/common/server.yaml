@@ -27,6 +27,8 @@ secrets:
 templates:
   stack-per-app:
     type: cloudrun
+    config:
+      credentials: "${auth:gcloud}"
 resources:
   registrar:
     type: cloudflare

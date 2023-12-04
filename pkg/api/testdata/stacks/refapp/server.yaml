@@ -18,6 +18,9 @@ variables:
   atlas-instance-size:
     type: string
     value: M10
+templates:
+  stack-per-app:
+    inherit: common
 resources:
   common:
     registrar:

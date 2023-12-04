@@ -16,4 +16,4 @@ stacks:
     stack: refapp/production
     template: stack-per-app
     domain: production.sc-refapp.org
-    config: *config # shape services the same way as
+    config: *config # shape services the same way as staging
