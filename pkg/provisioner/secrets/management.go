@@ -117,33 +117,35 @@ func (c *cryptor) EncryptAll() error {
 	}
 	for _, relFilePath := range c.registry.Files {
 		for publicKey := range c.secrets.Secrets {
-			secrets, err := c.encryptSecretsFileWith(publicKey, relFilePath)
+			sFile, err := c.encryptSecretsFileWith(publicKey, relFilePath)
 			if err != nil {
 				return err
 			}
-			c.secrets.Secrets[publicKey] = secrets
+			s := c.secrets.Secrets[publicKey]
+			s.AddFileIfNotExist(sFile)
+			c.secrets.Secrets[publicKey] = s
 		}
-		secrets, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
+		sFile, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
 		if err != nil {
 			return err
 		}
-		c.secrets.Secrets[c.currentPublicKey] = secrets
+		s := c.secrets.Secrets[c.currentPublicKey]
+		s.AddFileIfNotExist(sFile)
+		c.secrets.Secrets[c.currentPublicKey] = s
 	}
 	return nil
 }
 
-func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (EncryptedSecrets, error) {
-	secrets := EncryptedSecrets{}
-	secrets.PublicKey = SshKey{Data: []byte(publicKey)}
+func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (EncryptedSecretFile, error) {
+	file := EncryptedSecretFile{}
 	encryptedData, err := c.encryptSecretFile(publicKey, relFilePath)
 	if err != nil {
-		return EncryptedSecrets{}, err
+		return file, err
 	}
-	secrets.Files = append(secrets.Files, EncryptedSecretFile{
+	return EncryptedSecretFile{
 		Path:          relFilePath,
 		EncryptedData: encryptedData,
-	})
-	return secrets, nil
+	}, nil
 }
 
 func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([][]byte, error) {

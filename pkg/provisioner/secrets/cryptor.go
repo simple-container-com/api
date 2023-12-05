@@ -1,8 +1,11 @@
 package secrets
 
 import (
-	"api/pkg/provisioner/git"
 	"sync"
+
+	"github.com/samber/lo"
+
+	"api/pkg/provisioner/git"
 )
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
@@ -50,6 +53,14 @@ type EncryptedSecrets struct {
 
 	// not to be serialized
 	PrivateKey SshKey `json:"-" yaml:"-"`
+}
+
+func (es *EncryptedSecrets) AddFileIfNotExist(f EncryptedSecretFile) {
+	if !lo.ContainsBy(es.Files, func(item EncryptedSecretFile) bool {
+		return item.Path == f.Path
+	}) {
+		es.Files = append(es.Files, f)
+	}
 }
 
 type SshKey struct {

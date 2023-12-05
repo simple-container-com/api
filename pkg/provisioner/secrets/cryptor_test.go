@@ -149,6 +149,8 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 	Expect(err).To(BeNil())
 	oldSecretFile2Content, err := os.ReadFile("testdata/repo/stacks/refapp/secrets.yaml")
 	Expect(err).To(BeNil())
+	commonSecretsFilePath := path.Join(wd, "stacks/common/secrets.yaml")
+	refappSecretsFilePath := path.Join(wd, "stacks/refapp/secrets.yaml")
 
 	t.Run("add file", func(t *testing.T) {
 		Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
@@ -170,12 +172,13 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/refapp/secrets.yaml"))
 	})
 	t.Run("decrypt file", func(t *testing.T) {
+		Expect(os.RemoveAll(commonSecretsFilePath)).To(BeNil())
 		Expect(c.DecryptAll()).To(BeNil())
-		newSecretFileContent, err := os.ReadFile(path.Join(wd, "stacks/common/secrets.yaml"))
+		newSecretFileContent, err := os.ReadFile(commonSecretsFilePath)
 		Expect(err).To(BeNil())
 		Expect(newSecretFileContent).To(Equal(oldSecretFile1Content))
 
-		newSecretFileContent, err = os.ReadFile(path.Join(wd, "stacks/refapp/secrets.yaml"))
+		newSecretFileContent, err = os.ReadFile(refappSecretsFilePath)
 		Expect(err).To(BeNil())
 		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
 	})
