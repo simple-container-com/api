@@ -115,7 +115,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 			p.gitRepo = repo
 		}
 	}
-	if err := p.gitRepo.Init(params.RootDir); err != nil {
+	if err := p.gitRepo.InitOrOpen(params.RootDir); err != nil {
 		return errors.Wrapf(err, "failed to init git repo")
 	}
 	if p.cryptor == nil {
@@ -135,7 +135,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	if err := p.cryptor.GenerateKeyPairWithProfile(DefaultProfile); err != nil {
 		return errors.Wrapf(err, "failed to generate key pair")
 	}
-	if err := p.gitRepo.AddFileToIgnore(api.ConfigFilePath(params.RootDir, DefaultProfile)); err != nil {
+	if err := p.gitRepo.AddFileToIgnore(api.ConfigFilePath("", DefaultProfile)); err != nil {
 		return errors.Wrapf(err, "failed to add config file to ignore")
 	}
 

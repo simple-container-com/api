@@ -12,8 +12,14 @@ import (
 	"path"
 )
 
+var (
+	ErrRepositoryAlreadyExists = errors.New("repository already exists")
+)
+
 type Repo interface {
 	Init(wd string, opts ...Option) error
+	Open(wd string, opts ...Option) error
+	InitOrOpen(wd string, opts ...Option) error
 
 	OpenFile(filePath string, flag int, perm os.FileMode) (billy.File, error)
 	CreateFile(filePath string) (billy.File, error)
@@ -41,6 +47,8 @@ type repo struct {
 	wdFs    billy.Filesystem
 	gitFs   billy.Filesystem
 	gitRepo *git.Repository
+
+	opts []Option
 }
 
 func (r *repo) OpenFile(filePath string, flag int, perm os.FileMode) (billy.File, error) {
@@ -52,7 +60,9 @@ func New(opts ...Option) (Repo, error) {
 }
 
 func newWithOpts(opts ...Option) (*repo, error) {
-	res := &repo{}
+	res := &repo{
+		opts: opts,
+	}
 	for _, opt := range opts {
 		if err := opt(res); err != nil {
 			return nil, err
@@ -61,17 +71,47 @@ func newWithOpts(opts ...Option) (*repo, error) {
 	return res, nil
 }
 
+func (r *repo) InitOrOpen(wd string, opts ...Option) error {
+	if err := r.Init(wd, opts...); err == ErrRepositoryAlreadyExists {
+		return r.Open(wd, opts...)
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *repo) Init(wd string, opts ...Option) error {
-	c, wt, st, err := initRepo(wd, opts)
+	c, wt, st, err := initRepo(wd, append(r.opts, opts...))
 	if err != nil {
 		return err
 	}
-	r.gitRepo, err = git.Init(st, wt)
+	if r.gitRepo, err = git.Init(st, wt); err != nil {
+		if err == git.ErrRepositoryAlreadyExists {
+			return ErrRepositoryAlreadyExists
+		}
+		return err
+	}
+	r.overwriteFrom(c)
+	return err
+}
+
+func (r *repo) Open(wd string, opts ...Option) error {
+	c, wt, st, err := initRepo(wd, append(r.opts, opts...))
+	if err != nil {
+		return err
+	}
+	if r.gitRepo, err = git.Open(st, wt); err != nil {
+		return err
+	}
+	r.overwriteFrom(c)
+	return err
+}
+
+func (r *repo) overwriteFrom(c *repo) {
 	r.gitFs = c.gitFs
 	r.gitDir = c.gitDir
 	r.workDir = c.workDir
 	r.wdFs = c.wdFs
-	return err
 }
 
 func initRepo(wd string, opts []Option) (*repo, billy.Filesystem, *filesystem.Storage, error) {

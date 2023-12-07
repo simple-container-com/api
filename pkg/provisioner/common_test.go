@@ -3,7 +3,9 @@ package provisioner
 import (
 	"api/pkg/provisioner/git"
 	"context"
+	"github.com/samber/lo"
 	"os"
+	"path"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -78,7 +80,7 @@ func Test_Init(t *testing.T) {
 		params  InitParams
 		opts    []Option
 		init    func(wd string) Provisioner
-		check   func(wd string, p Provisioner)
+		check   func(t *testing.T, wd string, p Provisioner)
 		wantErr string
 	}{
 		{
@@ -86,12 +88,12 @@ func Test_Init(t *testing.T) {
 			params: InitParams{
 				RootDir: "testdata/refapp",
 			},
-			check: checkInitialCommit,
+			check: checkInitSuccess,
 		},
 		{
 			name: "existing repo no error",
 			params: InitParams{
-				RootDir: "testdata/refapp",
+				RootDir: "testdata/refapp-existing-gitdir",
 			},
 			init: func(wd string) Provisioner {
 				gitRepo, err := git.New(git.WithGitDir("gitdir"), git.WithRootDir(wd))
@@ -100,7 +102,7 @@ func Test_Init(t *testing.T) {
 				Expect(err).To(BeNil())
 				return p
 			},
-			check: checkInitialCommit,
+			check: checkInitSuccess,
 		},
 	}
 	for _, tt := range cases {
@@ -129,7 +131,7 @@ func Test_Init(t *testing.T) {
 			checkError(err, tt.wantErr)
 
 			if tt.check != nil {
-				tt.check(workDir, p)
+				tt.check(t, workDir, p)
 			}
 		})
 	}
@@ -141,8 +143,26 @@ func checkError(err error, checkErr string) {
 	}
 }
 
-func checkInitialCommit(wd string, p Provisioner) {
-	commits := p.GitRepo().Log()
-	Expect(commits).To(HaveLen(1))
-	Expect(commits[0].Message).To(Equal("simple-container.com initial commit"))
+func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
+	t.Run("initial commit is present", func(t *testing.T) {
+		commits := p.GitRepo().Log()
+		commit, exists := lo.Find(commits, func(c git.Commit) bool {
+			return c.Message == "simple-container.com initial commit"
+		})
+		Expect(exists).To(BeTrue())
+		Expect(commit.Message).To(Equal("simple-container.com initial commit"))
+	})
+
+	t.Run("profile file created", func(t *testing.T) {
+		profileFile := path.Join(wd, ".sc/cfg.default.yaml")
+		Expect(profileFile).To(BeAnExistingFile())
+	})
+	t.Run("profile added to gitignore", func(t *testing.T) {
+		gitIgnoreFile := path.Join(wd, ".gitignore")
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile(gitIgnoreFile)
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).To(ContainSubstring("\n.sc/cfg.default.yaml"))
+	})
+
 }
