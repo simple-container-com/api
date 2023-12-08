@@ -73,5 +73,5 @@ type Registry struct {
 
 type EncryptedSecretFile struct {
 	Path          string   `json:"path" yaml:"path"`
-	EncryptedData [][]byte `json:"encryptedData" yaml:"encryptedData"`
+	EncryptedData []string `json:"encryptedData" yaml:"encryptedData"`
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"strings"
 
@@ -108,23 +109,27 @@ func ParsePublicKey(s string) (*rsa.PublicKey, error) {
 	}
 }
 
-func EncryptLargeString(key *rsa.PublicKey, s string) ([][]byte, error) {
+func EncryptLargeString(key *rsa.PublicKey, s string) ([]string, error) {
 	chunks := lo.ChunkString(s, key.Size()/2)
-	res := make([][]byte, len(chunks))
+	res := make([]string, len(chunks))
 	for idx, chunk := range chunks {
 		encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, key, []byte(chunk), nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to encrypt secret")
 		}
-		res[idx] = encryptedData
+		res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
 	}
 	return res, nil
 }
 
-func DecryptLargeString(key *rsa.PrivateKey, chunks [][]byte) ([]byte, error) {
+func DecryptLargeString(key *rsa.PrivateKey, chunks []string) ([]byte, error) {
 	decrChunks := make([][]byte, len(chunks))
 	for idx, chunk := range chunks {
-		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunk, nil)
+		chunkBytes, err := base64.StdEncoding.DecodeString(chunk)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decode base64 string")
+		}
+		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunkBytes, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to decrypt secret")
 		}

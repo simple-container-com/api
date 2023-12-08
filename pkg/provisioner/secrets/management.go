@@ -148,7 +148,7 @@ func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (
 	}, nil
 }
 
-func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([][]byte, error) {
+func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]string, error) {
 	file, err := c.gitRepo.OpenFile(relFilePath, os.O_RDONLY, fs.ModePerm)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
@@ -164,7 +164,7 @@ func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([][]byt
 		return nil, errors.Wrapf(err, "failed to parse public key: %q", keyData)
 	}
 
-	var encryptedData [][]byte
+	var encryptedData []string
 	encryptedData, err = ciphers.EncryptLargeString(parsed, string(secretData))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to encrypt secret file: %q with publicKey %q", relFilePath, keyData[0:15])
@@ -173,7 +173,7 @@ func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([][]byt
 	return encryptedData, nil
 }
 
-func (c *cryptor) decryptSecretDataToFile(encryptedData [][]byte, relFilePath string) ([]byte, error) {
+func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath string) ([]byte, error) {
 	if c.currentPrivateKey == "" {
 		return nil, errors.New("private key is not configured")
 	}

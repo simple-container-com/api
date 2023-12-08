@@ -10,6 +10,15 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) error {
+	err := p.readStacks(ctx, params)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (p *provisioner) readStacks(ctx context.Context, params ProvisionParams) error {
 	for _, stackName := range params.Stacks {
 		stack := Stack{
 			Name: stackName,
@@ -18,31 +27,30 @@ func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) err
 		if serverDesc, err := p.readServerDescriptor(params.RootDir, stackName); err != nil {
 			return err
 		} else {
-			p.log.Info(ctx, "Successfully read server descriptor: %q", serverDesc)
+			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
 			stack.Server = *serverDesc
 		}
 
 		if clientDesc, err := p.optionallyReadClientDescriptor(params.RootDir, stackName); err != nil {
 			return err
 		} else if clientDesc != nil {
-			p.log.Info(ctx, "Successfully read client descriptor: %q", clientDesc)
+			p.log.Debug(ctx, "Successfully read client descriptor: %q", clientDesc)
 			stack.Client = *clientDesc
 		} else {
-			p.log.Info(ctx, "Secrets descriptor not found for %s", stackName)
+			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
 		if secretsDesc, err := p.optionallyReadSecretsDescriptor(params.RootDir, stackName); err != nil {
 			return err
 		} else if secretsDesc != nil {
-			p.log.Info(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
+			p.log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
 			stack.Secrets = *secretsDesc
 		} else {
-			p.log.Info(ctx, "Secrets descriptor not found for %s", stackName)
+			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
 		p.stacks[stackName] = stack
 	}
-
 	return nil
 }
 
