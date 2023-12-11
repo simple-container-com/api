@@ -1,6 +1,7 @@
 package placeholders
 
 import (
+	"api/pkg/api/clouds/github"
 	"fmt"
 	"testing"
 
@@ -35,6 +36,11 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				pConfig := srvConfig.(*pulumi.PulumiProvisionerConfig)
 				Expect(pConfig.StateStorage.Credentials).To(Equal("<gcloud-service-account-email>"))
 				Expect(pConfig.SecretsProvider.Credentials).To(Equal("<gcloud-service-account-email>"))
+
+				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
+				cicdConfig := stacks["common"].Server.CiCd.Config.Config
+				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
+				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
 			},
 		},
 		{
@@ -49,6 +55,12 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(resPgCfg).To(BeAssignableToTypeOf(&gcloud.PostgresGcpCloudsqlConfig{}))
 				pgConfig := resPgCfg.(*gcloud.PostgresGcpCloudsqlConfig)
 				Expect(pgConfig.Credentials).To(Equal("<gcloud-service-account-email>"))
+
+				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
+				cicdConfig := stacks["refapp"].Server.CiCd.Config.Config
+				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
+				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
+
 			},
 		},
 	}
@@ -59,7 +71,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				log: logger.New(),
 			}
 
-			err := ph.ProcessStacks(tt.stacks)
+			err := ph.Resolve(tt.stacks)
 
 			testutils.CheckError(err, tt.wantErr)
 

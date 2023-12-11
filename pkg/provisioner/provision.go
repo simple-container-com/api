@@ -54,7 +54,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, params ProvisionParams) er
 
 		p.stacks[stackName] = stack
 	}
-	return nil
+	return p.phResolver.Resolve(p.stacks)
 }
 
 func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*api.ServerDescriptor, error) {

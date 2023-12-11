@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"api/pkg/provisioner/placeholders"
 	"context"
 
 	"api/pkg/provisioner/git"
@@ -13,6 +14,13 @@ type Option func(p *provisioner) error
 func WithProfile(profile string) Option {
 	return func(p *provisioner) error {
 		p.profile = profile
+		return nil
+	}
+}
+
+func WithPlaceholders(ph placeholders.Placeholders) Option {
+	return func(p *provisioner) error {
+		p.phResolver = ph
 		return nil
 	}
 }

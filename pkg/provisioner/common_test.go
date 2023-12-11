@@ -1,6 +1,8 @@
 package provisioner
 
 import (
+	"api/pkg/provisioner/logger"
+	"api/pkg/provisioner/placeholders"
 	"context"
 	"os"
 	"path"
@@ -43,7 +45,7 @@ func Test_Provision(t *testing.T) {
 				},
 				"refapp": {
 					Name:   "refapp",
-					Server: *tests.RefappServerDescriptor,
+					Server: *tests.ResolvedRefappServerDescriptor,
 					Client: *tests.RefappClientDescriptor,
 				},
 			},
@@ -52,6 +54,10 @@ func Test_Provision(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
+
+			if len(tt.opts) == 0 {
+				tt.opts = []Option{WithPlaceholders(placeholders.New(logger.New()))}
+			}
 			p, err := New(tt.opts...)
 
 			if err != nil && tt.wantErr != "" {
@@ -90,6 +96,7 @@ func Test_Init(t *testing.T) {
 			params: InitParams{
 				RootDir: "testdata/refapp",
 			},
+			opts:  []Option{WithPlaceholders(placeholders.New(logger.New()))},
 			check: checkInitSuccess,
 		},
 		{
@@ -100,7 +107,7 @@ func Test_Init(t *testing.T) {
 			init: func(wd string) Provisioner {
 				gitRepo, err := git.New(git.WithGitDir("gitdir"), git.WithRootDir(wd))
 				Expect(err).To(BeNil())
-				p, err := New(WithGitRepo(gitRepo))
+				p, err := New(WithGitRepo(gitRepo), WithPlaceholders(placeholders.New(logger.New())))
 				Expect(err).To(BeNil())
 				return p
 			},

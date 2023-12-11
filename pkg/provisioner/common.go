@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"api/pkg/provisioner/placeholders"
 	"context"
 	"io"
 	"path"
@@ -37,11 +38,12 @@ type provisioner struct {
 	profile string
 	stacks  models.StacksMap
 
-	_lock   sync.RWMutex // для защиты secrets & registry
-	context context.Context
-	gitRepo git.Repo
-	cryptor secrets.Cryptor
-	log     logger.Logger
+	_lock      sync.RWMutex // для защиты secrets & registry
+	context    context.Context
+	gitRepo    git.Repo
+	cryptor    secrets.Cryptor
+	phResolver placeholders.Placeholders
+	log        logger.Logger
 }
 
 type ProvisionParams struct {
@@ -101,6 +103,10 @@ func (p *provisioner) withWriteLock() func() {
 
 func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	defer p.withWriteLock()()
+
+	if p.phResolver == nil {
+		p.phResolver = placeholders.New(p.log)
+	}
 
 	if p.gitRepo == nil {
 		if repo, err := git.New(); err != nil {

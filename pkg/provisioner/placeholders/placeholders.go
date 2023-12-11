@@ -16,7 +16,7 @@ import (
 type Placeholders interface {
 	Apply(obj any, opts ...Option) error
 
-	ProcessStacks(stacks models.StacksMap) error
+	Resolve(stacks models.StacksMap) error
 }
 
 type Option func(tpl *template.Template)
@@ -35,12 +35,14 @@ func (p *placeholders) Apply(obj any, opts ...Option) error {
 	return p.applyTemplatesOnObject(obj, opts)
 }
 
-func (p *placeholders) ProcessStacks(stacks models.StacksMap) error {
+func (p *placeholders) Resolve(stacks models.StacksMap) error {
+	stacks = *stacks.ResolveInheritance()
 	iterStacks := lo.Assign(stacks)
 	for stackName, stack := range iterStacks {
 		opts := []Option{
 			WithExtensions(map[string]template.Extension{
-				"auth": p.tplAuth(stackName, stack, stacks),
+				"auth":   p.tplAuth(stackName, stack, stacks),
+				"secret": p.tplSecrets(stackName, stack, stacks),
 			}),
 		}
 		if err := p.Apply(&stack, opts...); err != nil {
@@ -49,6 +51,25 @@ func (p *placeholders) ProcessStacks(stacks models.StacksMap) error {
 		stacks[stackName] = stack
 	}
 	return nil
+}
+
+func (p *placeholders) tplSecrets(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+	return func(noSubs, path string, value *string) (string, error) {
+		if stack.Server.Secrets.IsInherited() {
+			parentStack := stack.Server.Secrets.Inherit.Inherit
+			if iServerCfg, ok := stacks[parentStack]; !ok {
+				return noSubs, errors.Errorf("parent stack %q not found for stack %q", parentStack, stackName)
+			} else if sec, ok := iServerCfg.Secrets.Values[path]; !ok {
+				return noSubs, errors.Errorf("secret %q not found in parent stack %q", path, parentStack)
+			} else {
+				return sec, nil
+			}
+		} else if sec, ok := stack.Secrets.Values[path]; !ok {
+			return noSubs, errors.Errorf("secret %q not found in stack %q", path, stackName)
+		} else {
+			return sec, nil
+		}
+	}
 }
 
 func (p *placeholders) tplAuth(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {

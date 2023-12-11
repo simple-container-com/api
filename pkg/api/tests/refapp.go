@@ -162,6 +162,98 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
+var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
+	SchemaVersion: api.ServerSchemaVersion,
+	Provisioner:   CommonServerDescriptor.Provisioner,
+	Secrets:       CommonServerDescriptor.Secrets,
+	CiCd:          CommonServerDescriptor.CiCd,
+	Templates: map[string]api.StackDescriptor{
+		"stack-per-app": {
+			Type: gcloud.TemplateTypeGcpCloudrun,
+			Config: api.Config{Config: &gcloud.GcloudTemplateConfig{
+				Credentials: "<gcloud-service-account-email>",
+			}},
+		},
+	},
+	Variables: map[string]api.VariableDescriptor{
+		"atlas-region": {
+			Type:  "string",
+			Value: "US_SOUTH_1",
+		},
+		"atlas-project-id": {
+			Type:  "string",
+			Value: "5b89110a4e6581562623c59c",
+		},
+		"atlas-org-id": {
+			Type:  "string",
+			Value: "5b89110a4e6581562623c59c",
+		},
+		"atlas-instance-size": {
+			Type:  "string",
+			Value: "M10",
+		},
+	},
+	Resources: api.PerStackResourcesDescriptor{
+		Registrar: CommonServerDescriptor.Resources.Registrar,
+		Resources: map[string]api.PerEnvResourcesDescriptor{
+			"staging": {
+				Template: "stack-per-app",
+				Resources: map[string]api.ResourceDescriptor{
+					"mongodb": {
+						Type: "mongodb-atlas",
+						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
+							Admins:       []string{"smecsia"},
+							Developers:   []string{},
+							InstanceSize: "${var:atlas-instance-size}",
+							OrgId:        "${var:atlas-org-id}",
+							ProjectId:    "${var:atlas-project-id}",
+							ProjectName:  "${stack:name}",
+							Region:       "${var:atlas-region}",
+							PrivateKey:   "<encrypted-secret>",
+							PublicKey:    "<encrypted-secret>",
+						}},
+					},
+					"postgres": {
+						Type: "gcp-cloudsql-postgres",
+						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
+							Version:     "14.5",
+							Project:     "${stack:name}",
+							Credentials: "<gcloud-service-account-email>",
+						}},
+					},
+				},
+			},
+			"prod": {
+				Template: "stack-per-app",
+				Resources: map[string]api.ResourceDescriptor{
+					"mongodb": {
+						Type: "mongodb-atlas",
+						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
+							Admins:       []string{"smecsia"},
+							Developers:   []string{},
+							InstanceSize: "${var:atlas-instance-size}",
+							OrgId:        "${var:atlas-org-id}",
+							ProjectId:    "${var:atlas-project-id}",
+							ProjectName:  "${stack:name}",
+							Region:       "${var:atlas-region}",
+							PrivateKey:   "<encrypted-secret>",
+							PublicKey:    "<encrypted-secret>",
+						}},
+					},
+					"postgres": {
+						Type: "gcp-cloudsql-postgres",
+						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
+							Version:     "14.5",
+							Project:     "${stack:name}",
+							Credentials: "<gcloud-service-account-email>",
+						}},
+					},
+				},
+			},
+		},
+	},
+}
+
 var CommonSecretsDescriptor = &api.SecretsDescriptor{
 	SchemaVersion: api.SecretsSchemaVersion,
 	Auth: map[string]api.AuthDescriptor{
