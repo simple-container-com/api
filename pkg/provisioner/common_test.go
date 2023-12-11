@@ -1,16 +1,17 @@
 package provisioner
 
 import (
-	"api/pkg/provisioner/git"
+	"api/pkg/provisioner/models"
 	"context"
-	"github.com/samber/lo"
 	"os"
 	"path"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"api/pkg/api/tests"
+	"api/pkg/provisioner/git"
 	testutils "api/pkg/provisioner/tests"
 )
 
@@ -21,7 +22,7 @@ func Test_Provision(t *testing.T) {
 		name         string
 		params       ProvisionParams
 		opts         []Option
-		expectStacks StacksMap
+		expectStacks models.StacksMap
 		wantErr      string
 	}{
 		{
@@ -33,7 +34,7 @@ func Test_Provision(t *testing.T) {
 					"refapp",
 				},
 			},
-			expectStacks: map[string]Stack{
+			expectStacks: map[string]models.Stack{
 				"common": {
 					Name:    "common",
 					Secrets: *tests.CommonSecretsDescriptor,
@@ -109,10 +110,10 @@ func Test_Init(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 
-			workDir, err := testutils.CopyTempProject(tt.params.RootDir)
-			defer func() { _ = os.RemoveAll(workDir) }()
+			workDir, cleanup, err := testutils.CopyTempProject(tt.params.RootDir)
+			defer cleanup()
 
-			checkError(err, tt.wantErr)
+			testutils.CheckError(err, tt.wantErr)
 
 			var p Provisioner
 			if tt.init != nil {
@@ -121,25 +122,19 @@ func Test_Init(t *testing.T) {
 				p, err = New(tt.opts...)
 			}
 
-			checkError(err, tt.wantErr)
+			testutils.CheckError(err, tt.wantErr)
 
 			// overwrite root dir to temp
 			tt.params.RootDir = workDir
 
 			Expect(err).To(BeNil())
 			err = p.Init(ctx, tt.params)
-			checkError(err, tt.wantErr)
+			testutils.CheckError(err, tt.wantErr)
 
 			if tt.check != nil {
 				tt.check(t, workDir, p)
 			}
 		})
-	}
-}
-
-func checkError(err error, checkErr string) {
-	if checkErr != "" {
-		Expect(err).To(MatchRegexp(checkErr))
 	}
 }
 

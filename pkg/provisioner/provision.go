@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"api/pkg/provisioner/models"
 	"context"
 	"github.com/pkg/errors"
 	"os"
@@ -10,7 +11,7 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) error {
-	err := p.readStacks(ctx, params)
+	err := p.ReadStacks(ctx, params)
 	if err != nil {
 		return err
 	}
@@ -18,9 +19,9 @@ func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) err
 	return nil
 }
 
-func (p *provisioner) readStacks(ctx context.Context, params ProvisionParams) error {
+func (p *provisioner) ReadStacks(ctx context.Context, params ProvisionParams) error {
 	for _, stackName := range params.Stacks {
-		stack := Stack{
+		stack := models.Stack{
 			Name: stackName,
 		}
 

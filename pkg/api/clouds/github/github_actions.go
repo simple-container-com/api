@@ -8,6 +8,6 @@ type GithubActionsCiCdConfig struct {
 	AuthToken string `json:"auth-token" yaml:"auth-token"`
 }
 
-func GithubActionsReadCiCdConfig(config any) (any, error) {
-	return api.ConvertDescriptor(config, &GithubActionsCiCdConfig{})
+func GithubActionsReadCiCdConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &GithubActionsCiCdConfig{})
 }

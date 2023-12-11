@@ -13,35 +13,43 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
 		Type: pulumi.ProvisionerTypePulumi,
-		Config: &pulumi.PulumiProvisionerConfig{
-			StateStorage:    pulumi.PulumiStateStorageConfig{},
-			SecretsProvider: pulumi.PulumiSecretsProviderConfig{},
-		},
+		Config: api.Config{Config: &pulumi.PulumiProvisionerConfig{
+			StateStorage: pulumi.PulumiStateStorageConfig{
+				Type:        pulumi.StateStorageTypeGcpBucket,
+				Credentials: "${auth:gcloud}",
+				Provision:   true,
+			},
+			SecretsProvider: pulumi.PulumiSecretsProviderConfig{
+				Type:        pulumi.SecretsProviderTypeGcpKms,
+				Credentials: "${auth:gcloud}",
+				Provision:   true,
+			},
+		}},
 	},
 	CiCd: api.CiCdDescriptor{
 		Type: "github-actions",
-		Config: &github.GithubActionsCiCdConfig{
+		Config: api.Config{Config: &github.GithubActionsCiCdConfig{
 			AuthToken: "${secret:GITHUB_TOKEN}",
-		},
+		}},
 	},
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
-		Config: &gcloud.GcloudSecretsConfig{
+		Config: api.Config{Config: &gcloud.GcloudSecretsConfig{
 			Credentials: "${auth:gcloud}",
-		},
+		}},
 	},
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
-			Config: &gcloud.GcloudTemplateConfig{
+			Config: api.Config{Config: &gcloud.GcloudTemplateConfig{
 				Credentials: "${auth:gcloud}",
-			},
+			}},
 		},
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
 			Type: cloudflare.RegistrarTypeCloudflare,
-			Config: &cloudflare.CloudflareRegistrarConfig{
+			Config: api.Config{Config: &cloudflare.CloudflareRegistrarConfig{
 				Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
 				Project:     "sc-refapp",
 				ZoneName:    "sc-refapp.org",
@@ -52,7 +60,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 						Value: "MS=ms83691649",
 					},
 				},
-			},
+			}},
 		},
 	},
 }
@@ -101,7 +109,7 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 				Resources: map[string]api.ResourceDescriptor{
 					"mongodb": {
 						Type: "mongodb-atlas",
-						Config: &mongodb.MongodbAtlasConfig{
+						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
 							Admins:       []string{"smecsia"},
 							Developers:   []string{},
 							InstanceSize: "${var:atlas-instance-size}",
@@ -111,15 +119,15 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 							Region:       "${var:atlas-region}",
 							PrivateKey:   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
 							PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
-						},
+						}},
 					},
 					"postgres": {
 						Type: "gcp-cloudsql-postgres",
-						Config: &gcloud.PostgresGcpCloudsqlConfig{
+						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
 							Version:     "14.5",
 							Project:     "${stack:name}",
 							Credentials: "${auth:gcloud}",
-						},
+						}},
 					},
 				},
 			},
@@ -128,7 +136,7 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 				Resources: map[string]api.ResourceDescriptor{
 					"mongodb": {
 						Type: "mongodb-atlas",
-						Config: &mongodb.MongodbAtlasConfig{
+						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
 							Admins:       []string{"smecsia"},
 							Developers:   []string{},
 							InstanceSize: "${var:atlas-instance-size}",
@@ -138,15 +146,15 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 							Region:       "${var:atlas-region}",
 							PrivateKey:   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
 							PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
-						},
+						}},
 					},
 					"postgres": {
 						Type: "gcp-cloudsql-postgres",
-						Config: &gcloud.PostgresGcpCloudsqlConfig{
+						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
 							Version:     "14.5",
 							Project:     "${stack:name}",
 							Credentials: "${auth:gcloud}",
-						},
+						}},
 					},
 				},
 			},
@@ -159,15 +167,15 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 	Auth: map[string]api.AuthDescriptor{
 		"gcloud": {
 			Type: gcloud.AuthTypeGCPServiceAccount,
-			Config: &gcloud.GcloudAuthServiceAccountConfig{
+			Config: api.Config{Config: &gcloud.GcloudAuthServiceAccountConfig{
 				Account: "<gcloud-service-account-email>",
-			},
+			}},
 		},
 		"pulumi": {
 			Type: pulumi.AuthTypePulumiToken,
-			Config: &pulumi.PulumiTokenAuthDescriptor{
+			Config: api.Config{Config: &pulumi.PulumiTokenAuthDescriptor{
 				Value: "<pulumi-token>",
-			},
+			}},
 		},
 	},
 	Values: map[string]string{

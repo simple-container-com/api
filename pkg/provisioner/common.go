@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"api/pkg/provisioner/models"
 	"context"
 	"io"
 	"path"
@@ -16,23 +17,24 @@ import (
 )
 
 type Provisioner interface {
+	ReadStacks(ctx context.Context, params ProvisionParams) error
+
 	Init(ctx context.Context, params InitParams) error
 
 	Provision(ctx context.Context, params ProvisionParams) error
 
 	Deploy(ctx context.Context, params DeployParams) error
 
-	Stacks() StacksMap
+	Stacks() models.StacksMap
 
 	GitRepo() git.Repo
 }
 
 const DefaultProfile = "default"
 
-type StacksMap map[string]Stack
 type provisioner struct {
 	profile string
-	stacks  StacksMap
+	stacks  models.StacksMap
 
 	_lock   sync.RWMutex // для защиты secrets & registry
 	context context.Context
@@ -51,23 +53,14 @@ type InitParams struct {
 }
 
 type DeployParams struct {
-	Stack       string         `json:"stack" yaml:"stack"`
-	Environment string         `json:"environment" yaml:"environment"`
-	Vars        VariableValues `json:"vars" yaml:"vars"`
-}
-
-type VariableValues map[string]any
-
-type Stack struct {
-	Name    string                `json:"name" yaml:"name"`
-	Secrets api.SecretsDescriptor `json:"secrets" yaml:"secrets"`
-	Server  api.ServerDescriptor  `json:"server" yaml:"server"`
-	Client  api.ClientDescriptor  `json:"client" yaml:"client"`
+	Stack       string                `json:"stack" yaml:"stack"`
+	Environment string                `json:"environment" yaml:"environment"`
+	Vars        models.VariableValues `json:"vars" yaml:"vars"`
 }
 
 func New(opts ...Option) (Provisioner, error) {
 	res := &provisioner{
-		stacks: make(StacksMap),
+		stacks: make(models.StacksMap),
 		log:    logger.New(),
 	}
 
@@ -87,7 +80,7 @@ func New(opts ...Option) (Provisioner, error) {
 	return res, nil
 }
 
-func (p *provisioner) Stacks() StacksMap {
+func (p *provisioner) Stacks() models.StacksMap {
 	return p.stacks
 }
 

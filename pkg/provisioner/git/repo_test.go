@@ -59,8 +59,9 @@ func TestOpenRepo(t *testing.T) {
 	t.Parallel()
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			workDir, err := tests.CopyTempProject(tt.testExampleDir)
-			defer func() { _ = os.RemoveAll(workDir) }()
+			workDir, cleanup, err := tests.CopyTempProject(tt.testExampleDir)
+			defer cleanup()
+
 			if err != nil && tt.wantErr != "" {
 				Expect(err.Error()).Should(MatchRegexp(tt.wantErr))
 				return

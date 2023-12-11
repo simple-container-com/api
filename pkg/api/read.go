@@ -85,7 +85,7 @@ func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
 			return nil, errors.Errorf("unknown auth type %q for auth %q", auth.Type, name)
 		} else {
 			var err error
-			auth.Config, err = fn(auth.Config)
+			auth.Config, err = fn(&auth.Config)
 			if err != nil {
 				return descriptor, err
 			}
@@ -139,7 +139,7 @@ func DetectCiCdType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
 		return nil, errors.Errorf("unknown cicd type %q", descriptor.CiCd.Type)
 	} else {
 		var err error
-		descriptor.CiCd.Config, err = fn(descriptor.CiCd.Config)
+		descriptor.CiCd.Config, err = fn(&descriptor.CiCd.Config)
 		if err != nil {
 			return descriptor, err
 		}
@@ -188,7 +188,7 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 				return nil, errors.Errorf("unknown type %q for resource %q", resource.Type, resourceName)
 			}
 			var err error
-			resource.Config, err = fn(resource.Config)
+			resource.Config, err = fn(&resource.Config)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to read resource %q for stack %q", resourceName, stackName)
 			}
@@ -207,7 +207,7 @@ func DetectRegistrarType(p *PerStackResourcesDescriptor) (*PerStackResourcesDesc
 		return nil, errors.Errorf("unknown registrar type %q", registrar.Type)
 	} else {
 		var err error
-		registrar.Config, err = fn(registrar.Config)
+		registrar.Config, err = fn(&registrar.Config)
 		if err != nil {
 			return p, err
 		}
@@ -226,7 +226,7 @@ func DetectTemplatesType(descriptor *ServerDescriptor) (*ServerDescriptor, error
 		} else {
 			stackDesc := descriptor.Templates[name]
 			var err error
-			stackDesc.Config, err = fn(stackDesc.Config)
+			stackDesc.Config, err = fn(&stackDesc.Config)
 			if err != nil {
 				return descriptor, err
 			}
@@ -245,7 +245,7 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 		return nil, errors.Errorf("unknown secrets type %q", descriptor.Secrets.Type)
 	} else {
 		var err error
-		descriptor.Secrets.Config, err = fn(descriptor.Secrets.Config)
+		descriptor.Secrets.Config, err = fn(&descriptor.Secrets.Config)
 		if err != nil {
 			return descriptor, err
 		}
@@ -261,7 +261,7 @@ func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, err
 		return nil, errors.Errorf("unknown provisioner type %q", descriptor.Provisioner.Type)
 	} else {
 		var err error
-		descriptor.Provisioner.Config, err = fn(descriptor.Provisioner.Config)
+		descriptor.Provisioner.Config, err = fn(&descriptor.Provisioner.Config)
 		if err != nil {
 			return descriptor, err
 		}

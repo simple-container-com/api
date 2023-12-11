@@ -1,5 +1,7 @@
 package api
 
+import "github.com/pkg/errors"
+
 const SecretsSchemaVersion = "1.0"
 
 // SecretsDescriptor describes the secrets schema
@@ -11,6 +13,14 @@ type SecretsDescriptor struct {
 
 type AuthDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
+}
+
+func (a *AuthDescriptor) AuthValue() (string, error) {
+	c, ok := a.Config.Config.(AuthConfig)
+	if !ok {
+		return "", errors.Errorf("auth config %q does not implement AuthConfig", a)
+	}
+	return c.AuthValue(), nil
 }

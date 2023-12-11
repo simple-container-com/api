@@ -26,6 +26,6 @@ type CloudflareDnsRecord struct {
 	Value string `json:"value"`
 }
 
-func CloudflareReadRegistrarConfig(config any) (any, error) {
-	return api.ConvertDescriptor(config, &CloudflareRegistrarConfig{})
+func CloudflareReadRegistrarConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &CloudflareRegistrarConfig{})
 }

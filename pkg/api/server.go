@@ -17,13 +17,17 @@ type Inherit struct {
 	Inherit string `json:"inherit" yaml:"inherit"`
 }
 
+type Config struct {
+	Config any `json:"config" yaml:"config"`
+}
+
 func (i Inherit) IsInherited() bool {
 	return i.Inherit != ""
 }
 
 type CiCdDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }
 
@@ -46,31 +50,31 @@ type PerEnvResourcesDescriptor struct {
 
 type ResourceDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }
 
 type RegistrarDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }
 
 type StackDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }
 
 type SecretsConfigDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }
 
 // ProvisionerDescriptor describes the provisioner schema
 type ProvisionerDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
-	Config  any    `json:"config" yaml:"config"`
+	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }

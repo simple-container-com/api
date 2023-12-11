@@ -16,6 +16,6 @@ type MongodbAtlasConfig struct {
 	PublicKey    string   `json:"publicKey" yaml:"publicKey"`
 }
 
-func MondodbAtlasReadConfig(config any) (any, error) {
-	return api.ConvertDescriptor(config, &MongodbAtlasConfig{})
+func MondodbAtlasReadConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &MongodbAtlasConfig{})
 }

@@ -10,6 +10,6 @@ type PostgresGcpCloudsqlConfig struct {
 	Credentials string `json:"credentials" yaml:"credentials"`
 }
 
-func PostgresqlGcpCloudsqlReadConfig(config any) (any, error) {
-	return api.ConvertDescriptor(config, &PostgresGcpCloudsqlConfig{})
+func PostgresqlGcpCloudsqlReadConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &PostgresGcpCloudsqlConfig{})
 }
