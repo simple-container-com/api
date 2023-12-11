@@ -1,8 +1,9 @@
 package tests
 
 import (
-	"api/pkg/api"
 	"testing"
+
+	"api/pkg/api"
 
 	. "github.com/onsi/gomega"
 )

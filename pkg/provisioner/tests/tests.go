@@ -1,9 +1,10 @@
 package tests
 
 import (
+	"os"
+
 	"api/pkg/api/tests"
 	"api/pkg/provisioner/models"
-	"os"
 
 	. "github.com/onsi/gomega"
 	"github.com/otiai10/copy"

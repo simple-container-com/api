@@ -2,11 +2,15 @@ package pulumi
 
 import "api/pkg/api"
 
-const AuthTypePulumiToken = "pulumi-token"
-const ProvisionerTypePulumi = "pulumi"
+const (
+	AuthTypePulumiToken   = "pulumi-token"
+	ProvisionerTypePulumi = "pulumi"
+)
 
-const StateStorageTypeGcpBucket = "gcp-bucket"
-const SecretsProviderTypeGcpKms = "gcp-kms"
+const (
+	StateStorageTypeGcpBucket = "gcp-bucket"
+	SecretsProviderTypeGcpKms = "gcp-kms"
+)
 
 // PulumiTokenAuthDescriptor describes the pulumi token auth schema
 type PulumiTokenAuthDescriptor struct {

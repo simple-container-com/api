@@ -1,11 +1,12 @@
 package provisioner
 
 import (
-	"api/pkg/provisioner/models"
 	"context"
 	"io"
 	"path"
 	"sync"
+
+	"api/pkg/provisioner/models"
 
 	"github.com/pkg/errors"
 

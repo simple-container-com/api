@@ -2,8 +2,10 @@ package models
 
 import "api/pkg/api"
 
-type StacksMap map[string]Stack
-type VariableValues map[string]any
+type (
+	StacksMap      map[string]Stack
+	VariableValues map[string]any
+)
 
 type Stack struct {
 	Name    string                `json:"name" yaml:"name"`

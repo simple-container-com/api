@@ -7,13 +7,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const ServerDescriptorFileName = "server.yaml"
-const SecretsDescriptorFileName = "secrets.yaml"
-const ClientDescriptorFileName = "client.yaml"
+const (
+	ServerDescriptorFileName  = "server.yaml"
+	SecretsDescriptorFileName = "secrets.yaml"
+	ClientDescriptorFileName  = "client.yaml"
+)
 
 func ReadDescriptor[T any](filePath string, descriptor *T) (*T, error) {
 	fileBytes, err := os.ReadFile(filePath)
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read %s", filePath)
 	}
@@ -54,7 +55,6 @@ func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
 
 func ReadClientDescriptor(path string) (*ClientDescriptor, error) {
 	descriptor, err := ReadDescriptor(path, &ClientDescriptor{})
-
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
 	}

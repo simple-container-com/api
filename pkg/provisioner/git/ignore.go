@@ -1,12 +1,13 @@
 package git
 
 import (
-	"github.com/go-git/go-billy/v5"
-	"github.com/pkg/errors"
-	"github.com/samber/lo"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/go-git/go-billy/v5"
+	"github.com/pkg/errors"
+	"github.com/samber/lo"
 )
 
 func (r *repo) RemoveFileFromIgnore(filePath string) error {

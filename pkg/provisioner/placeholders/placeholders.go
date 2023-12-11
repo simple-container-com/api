@@ -1,14 +1,16 @@
 package placeholders
 
 import (
-	"api/pkg/provisioner/logger"
-	"api/pkg/provisioner/models"
+	"reflect"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"reflect"
 
 	"github.com/simple-container-com/welder/pkg/template"
 	"github.com/simple-container-com/welder/pkg/welder/types"
+
+	"api/pkg/provisioner/logger"
+	"api/pkg/provisioner/models"
 )
 
 type Placeholders interface {

@@ -1,10 +1,11 @@
 package git
 
 import (
-	"api/pkg/provisioner/tests"
 	"os"
 	"path"
 	"testing"
+
+	"api/pkg/provisioner/tests"
 
 	. "github.com/onsi/gomega"
 )
@@ -81,5 +82,4 @@ func TestOpenRepo(t *testing.T) {
 			}
 		})
 	}
-
 }

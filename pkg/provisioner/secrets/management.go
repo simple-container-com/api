@@ -1,17 +1,19 @@
 package secrets
 
 import (
-	"api/pkg/api"
 	"crypto/rsa"
 	"encoding/asn1"
-	"github.com/go-git/go-billy/v5"
-	"github.com/pkg/errors"
-	"github.com/samber/lo"
-	"golang.org/x/crypto/ssh"
 	"io"
 	"io/fs"
 	"os"
 	"path"
+
+	"api/pkg/api"
+
+	"github.com/go-git/go-billy/v5"
+	"github.com/pkg/errors"
+	"github.com/samber/lo"
+	"golang.org/x/crypto/ssh"
 
 	"api/pkg/provisioner/secrets/ciphers"
 )
@@ -159,7 +161,6 @@ func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]strin
 	}
 
 	parsed, err := ciphers.ParsePublicKey(keyData)
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse public key: %q", keyData)
 	}
@@ -267,7 +268,6 @@ func NewCryptor(workDir string, opts ...Option) (Cryptor, error) {
 func (c *cryptor) GenerateKeyPairWithProfile(profile string) error {
 	c.profile = profile
 	privKey, pubKey, err := ciphers.GenerateKeyPair(2048)
-
 	if err != nil {
 		return errors.Wrapf(err, "failed to generate key pair")
 	}

@@ -1,11 +1,12 @@
 package provisioner
 
 import (
-	"api/pkg/provisioner/models"
 	"context"
 	"os"
 	"path"
 	"testing"
+
+	"api/pkg/provisioner/models"
 
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -159,5 +160,4 @@ func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
 		Expect(err).To(BeNil())
 		Expect(string(gitignoreContent)).To(ContainSubstring("\n.sc/cfg.default.yaml"))
 	})
-
 }

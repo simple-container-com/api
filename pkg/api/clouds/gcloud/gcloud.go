@@ -2,9 +2,11 @@ package gcloud
 
 import "api/pkg/api"
 
-const AuthTypeGCPServiceAccount = "gcp-service-account"
-const SecretsTypeGCPSecretsManager = "gcp-secrets-manager"
-const TemplateTypeGcpCloudrun = "cloudrun"
+const (
+	AuthTypeGCPServiceAccount    = "gcp-service-account"
+	SecretsTypeGCPSecretsManager = "gcp-secrets-manager"
+	TemplateTypeGcpCloudrun      = "cloudrun"
+)
 
 type GcloudAuthServiceAccountConfig struct {
 	api.AuthConfig

@@ -1,11 +1,12 @@
 package placeholders
 
 import (
+	"fmt"
+	"testing"
+
 	"api/pkg/api/clouds/gcloud"
 	"api/pkg/api/clouds/pulumi"
 	"api/pkg/provisioner/logger"
-	"fmt"
-	"testing"
 
 	. "github.com/onsi/gomega"
 
@@ -51,6 +52,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			},
 		},
 	}
+	t.Parallel()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ph := &placeholders{

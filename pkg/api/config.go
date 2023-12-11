@@ -9,8 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const ScConfigDirectory = ".sc"
-const EnvConfigFileTemplate = "cfg.%s.yaml"
+const (
+	ScConfigDirectory     = ".sc"
+	EnvConfigFileTemplate = "cfg.%s.yaml"
+)
 
 type ConfigFile struct {
 	PrivateKeyPath string `yaml:"privateKeyPath" json:"privateKeyPath"`
@@ -36,7 +38,7 @@ func (f *ConfigFile) WriteConfigFile(workDir, profile string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(ConfigFilePath(workDir, profile), bytes, 0644)
+	return os.WriteFile(ConfigFilePath(workDir, profile), bytes, 0o644)
 }
 
 func (f *ConfigFile) ToYaml() ([]byte, error) {

@@ -1,6 +1,9 @@
 package git
 
 import (
+	"os"
+	"path"
+
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
@@ -8,13 +11,9 @@ import (
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
 	"github.com/pkg/errors"
-	"os"
-	"path"
 )
 
-var (
-	ErrRepositoryAlreadyExists = errors.New("repository already exists")
-)
+var ErrRepositoryAlreadyExists = errors.New("repository already exists")
 
 type Repo interface {
 	Init(wd string, opts ...Option) error
@@ -123,7 +122,7 @@ func initRepo(wd string, opts []Option) (*repo, billy.Filesystem, *filesystem.St
 	gitRepo.workDir = wd
 
 	var fs *dotgit.RepositoryFilesystem
-	var wt = osfs.New(wd)
+	wt := osfs.New(wd)
 	if gitRepo.gitDir != "" {
 		gitRepo.gitFs = osfs.New(path.Join(gitRepo.workDir, gitRepo.gitDir))
 	} else {

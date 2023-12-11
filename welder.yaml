@@ -1,0 +1,23 @@
+schemaVersion: "1.8.1"
+projectName: simple-container-api
+projectRoot: .
+version: 0.0-${git:commit.short}${arg:release-suffix:}
+modules:
+  - name: api
+    build:
+      steps:
+        - task: tools
+        - task: build
+tasks:
+  tools:
+    runOn: host
+    script:
+      - cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+      - go mod download
+      - go mod tidy
+  build:
+    runOn: host
+    script:
+      - go test ./...
+      - go run mvdan.cc/gofumpt -l -w .
+      - go build ./...

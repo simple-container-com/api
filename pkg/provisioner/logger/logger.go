@@ -12,8 +12,7 @@ type Logger interface {
 	Debug(ctx context.Context, format string, a ...any)
 }
 
-type logger struct {
-}
+type logger struct{}
 
 func New() Logger {
 	return &logger{}
