@@ -1,12 +1,16 @@
 package provisioner
 
 import (
-	"api/pkg/provisioner/logger"
-	"api/pkg/provisioner/placeholders"
 	"context"
 	"os"
 	"path"
 	"testing"
+
+	"api/pkg/api"
+	"api/pkg/provisioner/logger"
+	"api/pkg/provisioner/placeholders"
+
+	"github.com/onsi/gomega/format"
 
 	"api/pkg/provisioner/models"
 
@@ -20,7 +24,7 @@ import (
 
 func Test_Provision(t *testing.T) {
 	RegisterTestingT(t)
-
+	format.MaxLength = 10000
 	testCases := []struct {
 		name         string
 		params       ProvisionParams
@@ -41,12 +45,14 @@ func Test_Provision(t *testing.T) {
 				"common": {
 					Name:    "common",
 					Secrets: *tests.CommonSecretsDescriptor,
-					Server:  *tests.CommonServerDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
 				},
 				"refapp": {
-					Name:   "refapp",
-					Server: *tests.ResolvedRefappServerDescriptor,
-					Client: *tests.RefappClientDescriptor,
+					Name:    "refapp",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappServerDescriptor,
+					Client:  *tests.RefappClientDescriptor,
 				},
 			},
 		},
@@ -73,7 +79,9 @@ func Test_Provision(t *testing.T) {
 			} else {
 				Expect(err).To(BeNil())
 				if tt.expectStacks != nil {
-					Expect(p.Stacks()).To(Equal(tt.expectStacks))
+					for stackName := range tt.expectStacks {
+						Expect(p.Stacks()[stackName]).To(Equal(tt.expectStacks[stackName]))
+					}
 				}
 			}
 		})

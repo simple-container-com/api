@@ -65,6 +65,64 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
+var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
+	SchemaVersion: api.ServerSchemaVersion,
+	Provisioner: api.ProvisionerDescriptor{
+		Type: pulumi.ProvisionerTypePulumi,
+		Config: api.Config{Config: &pulumi.PulumiProvisionerConfig{
+			StateStorage: pulumi.PulumiStateStorageConfig{
+				Type:        pulumi.StateStorageTypeGcpBucket,
+				Credentials: "<gcloud-service-account-email>",
+				Provision:   true,
+			},
+			SecretsProvider: pulumi.PulumiSecretsProviderConfig{
+				Type:        pulumi.SecretsProviderTypeGcpKms,
+				Credentials: "<gcloud-service-account-email>",
+				Provision:   true,
+			},
+		}},
+	},
+	CiCd: api.CiCdDescriptor{
+		Type: "github-actions",
+		Config: api.Config{Config: &github.GithubActionsCiCdConfig{
+			AuthToken: "<encrypted-secret>",
+		}},
+	},
+	Secrets: api.SecretsConfigDescriptor{
+		Type: gcloud.SecretsTypeGCPSecretsManager,
+		Config: api.Config{Config: &gcloud.GcloudSecretsConfig{
+			Credentials: "<gcloud-service-account-email>",
+		}},
+	},
+	Templates: map[string]api.StackDescriptor{
+		"stack-per-app": {
+			Type: gcloud.TemplateTypeGcpCloudrun,
+			Config: api.Config{Config: &gcloud.GcloudTemplateConfig{
+				Credentials: "<gcloud-service-account-email>",
+			}},
+		},
+	},
+	Resources: api.PerStackResourcesDescriptor{
+		Registrar: api.RegistrarDescriptor{
+			Type: cloudflare.RegistrarTypeCloudflare,
+			Config: api.Config{Config: &cloudflare.CloudflareRegistrarConfig{
+				Credentials: "<encrypted-secret>",
+				Project:     "sc-refapp",
+				ZoneName:    "sc-refapp.org",
+				DnsRecords: []cloudflare.CloudflareDnsRecord{
+					{
+						Name:  "@",
+						Type:  "TXT",
+						Value: "MS=ms83691649",
+					},
+				},
+			}},
+		},
+		Resources: map[string]api.PerEnvResourcesDescriptor{},
+	},
+	Variables: map[string]api.VariableDescriptor{},
+}
+
 var RefappServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
@@ -164,17 +222,10 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 
 var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
-	Provisioner:   CommonServerDescriptor.Provisioner,
-	Secrets:       CommonServerDescriptor.Secrets,
-	CiCd:          CommonServerDescriptor.CiCd,
-	Templates: map[string]api.StackDescriptor{
-		"stack-per-app": {
-			Type: gcloud.TemplateTypeGcpCloudrun,
-			Config: api.Config{Config: &gcloud.GcloudTemplateConfig{
-				Credentials: "<gcloud-service-account-email>",
-			}},
-		},
-	},
+	Provisioner:   ResolvedCommonServerDescriptor.Provisioner,
+	Secrets:       ResolvedCommonServerDescriptor.Secrets,
+	CiCd:          ResolvedCommonServerDescriptor.CiCd,
+	Templates:     ResolvedCommonServerDescriptor.Templates,
 	Variables: map[string]api.VariableDescriptor{
 		"atlas-region": {
 			Type:  "string",
@@ -194,7 +245,7 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 		},
 	},
 	Resources: api.PerStackResourcesDescriptor{
-		Registrar: CommonServerDescriptor.Resources.Registrar,
+		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{
 			"staging": {
 				Template: "stack-per-app",

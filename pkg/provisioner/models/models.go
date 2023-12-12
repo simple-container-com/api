@@ -1,9 +1,10 @@
 package models
 
 import (
+	"strings"
+
 	"api/pkg/api"
 	"github.com/samber/lo"
-	"strings"
 )
 
 type (
@@ -27,9 +28,9 @@ func (m *StacksMap) ResolveInheritance() *StacksMap {
 			val.Server.Provisioner = current[stack.Server.Provisioner.Inherit.Inherit].Server.Provisioner
 			current[stackName] = val
 		}
-		if stack.Server.Resources.IsInherited() {
+		if stack.Server.Resources.Registrar.IsInherited() {
 			val := current[stackName]
-			val.Server.Resources = current[stack.Server.Resources.Inherit.Inherit].Server.Resources
+			val.Server.Resources.Registrar = current[stack.Server.Resources.Registrar.Inherit.Inherit].Server.Resources.Registrar
 			current[stackName] = val
 		}
 		if stack.Server.CiCd.IsInherited() {
@@ -40,6 +41,7 @@ func (m *StacksMap) ResolveInheritance() *StacksMap {
 		if stack.Server.Secrets.IsInherited() {
 			val := current[stackName]
 			val.Server.Secrets = current[stack.Server.Secrets.Inherit.Inherit].Server.Secrets
+			val.Secrets = current[stack.Server.Secrets.Inherit.Inherit].Secrets
 			current[stackName] = val
 		}
 		for tplName, tpl := range lo.Assign(stack.Server.Templates) {

@@ -148,12 +148,6 @@ func DetectCiCdType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
 }
 
 func DetectResourcesType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
-	if descriptor.Resources.IsInherited() {
-		if len(descriptor.Resources.Resources) > 0 {
-			return descriptor, errors.Errorf("resources are inherited, but resources are defined")
-		}
-		return descriptor, nil
-	}
 	if withRegistrar, err := DetectRegistrarType(&descriptor.Resources); err != nil {
 		return nil, err
 	} else {

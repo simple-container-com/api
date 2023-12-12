@@ -1,9 +1,10 @@
 package placeholders
 
 import (
-	"api/pkg/api/clouds/github"
 	"fmt"
 	"testing"
+
+	"api/pkg/api/clouds/github"
 
 	"api/pkg/api/clouds/gcloud"
 	"api/pkg/api/clouds/pulumi"
@@ -60,7 +61,6 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				cicdConfig := stacks["refapp"].Server.CiCd.Config.Config
 				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
 				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
-
 			},
 		},
 	}

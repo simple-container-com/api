@@ -39,7 +39,6 @@ type VariableDescriptor struct {
 type PerStackResourcesDescriptor struct {
 	Registrar RegistrarDescriptor                  `json:"registrar" yaml:"registrar"`
 	Resources map[string]PerEnvResourcesDescriptor `json:"resources" yaml:"resources"`
-	Inherit   `json:",inline" yaml:",inline"`
 }
 
 type PerEnvResourcesDescriptor struct {
