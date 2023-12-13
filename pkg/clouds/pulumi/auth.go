@@ -18,15 +18,17 @@ type ProvisionerConfig struct {
 }
 
 type StateStorageConfig struct {
-	Type        string `json:"type" yaml:"type"`
-	Credentials string `json:"credentials" yaml:"credentials"`
-	Provision   bool   `json:"provision" yaml:"provision"`
+	Type         string `json:"type" yaml:"type"`
+	Credentials  string `json:"credentials" yaml:"credentials"`
+	Organization string `json:"organization" yaml:"organization"`
+	Provision    bool   `json:"provision" yaml:"provision"`
 }
 
 type SecretsProviderConfig struct {
-	Type        string `json:"type" yaml:"type"`
-	Credentials string `json:"credentials" yaml:"credentials"`
-	Provision   bool   `json:"provision" yaml:"provision"`
+	Type         string `json:"type" yaml:"type"`
+	Credentials  string `json:"credentials" yaml:"credentials"`
+	Organization string `json:"organization" yaml:"organization"`
+	Provision    bool   `json:"provision" yaml:"provision"`
 }
 
 func ReadProvisionerConfig(config *api.Config) (api.Config, error) {

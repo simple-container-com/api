@@ -3,9 +3,9 @@ package tests
 import (
 	"os"
 
-	"api/pkg/api/tests"
-	"api/pkg/provisioner/models"
+	"api/pkg/api"
 
+	"api/pkg/api/tests"
 	. "github.com/onsi/gomega"
 	"github.com/otiai10/copy"
 )
@@ -26,13 +26,13 @@ func CheckError(err error, checkErr string) {
 	}
 }
 
-var CommonStack = models.Stack{
+var CommonStack = api.Stack{
 	Name:    "common",
 	Secrets: *tests.CommonSecretsDescriptor,
 	Server:  *tests.CommonServerDescriptor,
 }
 
-var RefappStack = models.Stack{
+var RefappStack = api.Stack{
 	Name:    "refapp",
 	Secrets: *tests.CommonSecretsDescriptor,
 	Server:  *tests.RefappServerDescriptor,

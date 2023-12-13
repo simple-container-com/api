@@ -260,5 +260,14 @@ func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, err
 			return descriptor, err
 		}
 	}
+	if fn, found := provisionerConfigMapping[descriptor.Provisioner.Type]; !found {
+		return nil, errors.Errorf("unknown provisioner type %q", descriptor.Provisioner.Type)
+	} else {
+		var err error
+		descriptor.Provisioner.provisioner, err = fn()
+		if err != nil {
+			return descriptor, err
+		}
+	}
 	return descriptor, nil
 }

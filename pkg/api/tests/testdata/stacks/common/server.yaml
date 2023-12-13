@@ -14,10 +14,12 @@ provisioner:
 #  config:
 #    state-storage:
 #      type: pulumi-cloud
+#      organization: mypulumi-org
 #      credentials: "${auth:pulumi}"
 #      provision: true
 #    secrets-provider:
 #      type: pulumi-cloud
+#      organization: mypulumi-org
 #      provision: true
 #      credentials: "${auth:pulumi}"
 secrets:

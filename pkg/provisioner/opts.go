@@ -3,7 +3,7 @@ package provisioner
 import (
 	"context"
 
-	"api/pkg/provisioner/pulumi"
+	"api/pkg/api"
 
 	"api/pkg/provisioner/placeholders"
 
@@ -28,16 +28,16 @@ func WithPlaceholders(ph placeholders.Placeholders) Option {
 	}
 }
 
-func WithPulumi(pl pulumi.Pulumi) Option {
+func WithGitRepo(gitRepo git.Repo) Option {
 	return func(p *provisioner) error {
-		p.pulumi = pl
+		p.gitRepo = gitRepo
 		return nil
 	}
 }
 
-func WithGitRepo(gitRepo git.Repo) Option {
+func WithOverrideProvisioner(prov api.Provisioner) Option {
 	return func(p *provisioner) error {
-		p.gitRepo = gitRepo
+		p.overrideProvisioner = prov
 		return nil
 	}
 }

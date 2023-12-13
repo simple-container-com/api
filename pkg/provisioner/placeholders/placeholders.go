@@ -3,6 +3,8 @@ package placeholders
 import (
 	"reflect"
 
+	"api/pkg/api"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -10,7 +12,6 @@ import (
 	"github.com/simple-container-com/welder/pkg/welder/types"
 
 	"api/pkg/provisioner/logger"
-	"api/pkg/provisioner/models"
 )
 
 type Placeholders interface {
@@ -18,7 +19,7 @@ type Placeholders interface {
 	Apply(obj any, opts ...Option) error
 
 	// Resolve resolves all placeholders (like ${auth:<something}) in a stack map
-	Resolve(stacks models.StacksMap) error
+	Resolve(stacks api.StacksMap) error
 }
 
 type Option func(tpl *template.Template)
@@ -37,7 +38,7 @@ func (p *placeholders) Apply(obj any, opts ...Option) error {
 	return p.applyTemplatesOnObject(obj, opts)
 }
 
-func (p *placeholders) Resolve(stacks models.StacksMap) error {
+func (p *placeholders) Resolve(stacks api.StacksMap) error {
 	stacks = *stacks.ResolveInheritance()
 	iterStacks := lo.Assign(stacks)
 	for stackName, stack := range iterStacks {
@@ -57,7 +58,7 @@ func (p *placeholders) Resolve(stacks models.StacksMap) error {
 	return nil
 }
 
-func (p *placeholders) tplStack(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+func (p *placeholders) tplStack(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
 		vars := map[string]string{
 			"name": stackName,
@@ -70,7 +71,7 @@ func (p *placeholders) tplStack(stackName string, stack models.Stack, stacks mod
 	}
 }
 
-func (p *placeholders) tplVars(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+func (p *placeholders) tplVars(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
 		if val, found := stack.Server.Variables[path]; !found {
 			return noSubs, errors.Errorf("variable %q not found for stack %q", path, stackName)
@@ -80,7 +81,7 @@ func (p *placeholders) tplVars(stackName string, stack models.Stack, stacks mode
 	}
 }
 
-func (p *placeholders) tplSecrets(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+func (p *placeholders) tplSecrets(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
 		if stack.Server.Secrets.IsInherited() {
 			parentStack := stack.Server.Secrets.Inherit.Inherit
@@ -99,7 +100,7 @@ func (p *placeholders) tplSecrets(stackName string, stack models.Stack, stacks m
 	}
 }
 
-func (p *placeholders) tplAuth(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+func (p *placeholders) tplAuth(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
 		if auth, ok := stack.Secrets.Auth[path]; !ok {
 			return noSubs, errors.Errorf("auth %s not found in stack %s", path, stackName)
@@ -187,7 +188,7 @@ func (p *placeholders) applyTemplatesRecursive(copy, original reflect.Value, opt
 
 		// Create a new object. Now new gives us a pointer, but we want the value it
 		// points to, so we have to call Elem() to unwrap it
-		if originalValue.IsValid() {
+		if originalValue.IsValid() && copy.CanSet() {
 			copyValue := reflect.New(originalValue.Type()).Elem()
 			p.applyTemplatesRecursive(copyValue, originalValue, opts)
 			copy.Set(copyValue)

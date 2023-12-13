@@ -13,6 +13,18 @@ type ServerDescriptor struct {
 	Variables     map[string]VariableDescriptor `json:"variables" yaml:"variables"`
 }
 
+func (sd *ServerDescriptor) ValuesOnly() *ServerDescriptor {
+	return &ServerDescriptor{
+		SchemaVersion: sd.SchemaVersion,
+		Provisioner:   sd.Provisioner.ValuesOnly(),
+		Secrets:       sd.Secrets,
+		CiCd:          sd.CiCd,
+		Templates:     sd.Templates,
+		Resources:     sd.Resources,
+		Variables:     sd.Variables,
+	}
+}
+
 type Inherit struct {
 	Inherit string `json:"inherit" yaml:"inherit"`
 }
@@ -76,4 +88,18 @@ type ProvisionerDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
 	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
+
+	provisioner Provisioner
+}
+
+func (pd *ProvisionerDescriptor) GetProvisioner() Provisioner {
+	return pd.provisioner
+}
+
+func (pd *ProvisionerDescriptor) ValuesOnly() ProvisionerDescriptor {
+	return ProvisionerDescriptor{
+		Type:    pd.Type,
+		Config:  pd.Config,
+		Inherit: pd.Inherit,
+	}
 }

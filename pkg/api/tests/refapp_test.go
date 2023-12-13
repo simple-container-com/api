@@ -30,7 +30,7 @@ func TestReadServerDescriptor(t *testing.T) {
 			got, err := api.ReadServerDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			Expect(got).To(Equal(tt.want))
+			Expect(got.ValuesOnly()).To(Equal(tt.want))
 		})
 	}
 }

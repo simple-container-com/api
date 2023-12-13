@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
 )
@@ -9,9 +11,15 @@ const MetaDirectoryName = ".sc"
 
 type ConfigReaderFunc func(config *Config) (Config, error)
 
+type ProvisionerInitFunc func(opts ...ProvisionerOption) (Provisioner, error)
+
 type ConfigRegisterMap map[string]ConfigReaderFunc
 
-var providerConfigMapping = map[string]ConfigReaderFunc{}
+type ProvisionerRegisterMap map[string]ProvisionerInitFunc
+
+var providerConfigMapping = ConfigRegisterMap{}
+
+var provisionerConfigMapping = ProvisionerRegisterMap{}
 
 func ConvertDescriptor[T any](from any, to *T) (*T, error) {
 	if bytes, err := yaml.Marshal(from); err == nil {
@@ -31,9 +39,19 @@ func ConvertConfig[T any](config *Config, to *T) (Config, error) {
 	return *config, err
 }
 
-func RegisterProviderConfig(configMapping map[string]ConfigReaderFunc) {
+func RegisterProviderConfig(configMapping ConfigRegisterMap) {
 	providerConfigMapping = lo.Assign(providerConfigMapping, configMapping)
 }
+
+func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
+	provisionerConfigMapping = lo.Assign(provisionerConfigMapping, provisionerMapping)
+}
+
+type Provisioner interface {
+	CreateStack(ctx context.Context, cfg *ConfigFile, stack Stack) error
+}
+
+type ProvisionerOption func(p Provisioner) error
 
 type AuthConfig interface {
 	AuthValue() string

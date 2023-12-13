@@ -6,11 +6,7 @@ import (
 	"path"
 	"sync"
 
-	"api/pkg/provisioner/pulumi"
-
 	"api/pkg/provisioner/placeholders"
-
-	"api/pkg/provisioner/models"
 
 	"github.com/pkg/errors"
 
@@ -30,7 +26,7 @@ type Provisioner interface {
 
 	Deploy(ctx context.Context, params DeployParams) error
 
-	Stacks() models.StacksMap
+	Stacks() api.StacksMap
 
 	GitRepo() git.Repo
 }
@@ -39,15 +35,15 @@ const DefaultProfile = "default"
 
 type provisioner struct {
 	profile string
-	stacks  models.StacksMap
+	stacks  api.StacksMap
 
-	_lock      sync.RWMutex // для защиты secrets & registry
-	context    context.Context
-	gitRepo    git.Repo
-	cryptor    secrets.Cryptor
-	phResolver placeholders.Placeholders
-	log        logger.Logger
-	pulumi     pulumi.Pulumi
+	_lock               sync.RWMutex // для защиты secrets & registry
+	context             context.Context
+	gitRepo             git.Repo
+	cryptor             secrets.Cryptor
+	phResolver          placeholders.Placeholders
+	log                 logger.Logger
+	overrideProvisioner api.Provisioner
 }
 
 type ProvisionParams struct {
@@ -62,14 +58,14 @@ type InitParams struct {
 }
 
 type DeployParams struct {
-	Stack       string                `json:"stack" yaml:"stack"`
-	Environment string                `json:"environment" yaml:"environment"`
-	Vars        models.VariableValues `json:"vars" yaml:"vars"`
+	Stack       string             `json:"stack" yaml:"stack"`
+	Environment string             `json:"environment" yaml:"environment"`
+	Vars        api.VariableValues `json:"vars" yaml:"vars"`
 }
 
 func New(opts ...Option) (Provisioner, error) {
 	res := &provisioner{
-		stacks: make(models.StacksMap),
+		stacks: make(api.StacksMap),
 		log:    logger.New(),
 	}
 
@@ -89,7 +85,7 @@ func New(opts ...Option) (Provisioner, error) {
 	return res, nil
 }
 
-func (p *provisioner) Stacks() models.StacksMap {
+func (p *provisioner) Stacks() api.StacksMap {
 	return p.stacks
 }
 
@@ -123,14 +119,6 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 			return errors.Wrapf(err, "failed to init git")
 		} else {
 			p.gitRepo = repo
-		}
-	}
-
-	if p.pulumi == nil {
-		if pl, err := pulumi.New(); err != nil {
-			return errors.Wrapf(err, "failed to init pulumi")
-		} else {
-			p.pulumi = pl
 		}
 	}
 

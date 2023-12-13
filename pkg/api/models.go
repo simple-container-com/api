@@ -1,9 +1,8 @@
-package models
+package api
 
 import (
 	"strings"
 
-	"api/pkg/api"
 	"github.com/samber/lo"
 )
 
@@ -13,10 +12,10 @@ type (
 )
 
 type Stack struct {
-	Name    string                `json:"name" yaml:"name"`
-	Secrets api.SecretsDescriptor `json:"secrets" yaml:"secrets"`
-	Server  api.ServerDescriptor  `json:"server" yaml:"server"`
-	Client  api.ClientDescriptor  `json:"client" yaml:"client"`
+	Name    string            `json:"name" yaml:"name"`
+	Secrets SecretsDescriptor `json:"secrets" yaml:"secrets"`
+	Server  ServerDescriptor  `json:"server" yaml:"server"`
+	Client  ClientDescriptor  `json:"client" yaml:"client"`
 }
 
 func (m *StacksMap) ResolveInheritance() *StacksMap {

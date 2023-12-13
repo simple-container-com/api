@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"api/pkg/api"
+
 	"api/pkg/clouds/gcloud"
 	"api/pkg/clouds/github"
 	"api/pkg/clouds/mongodb"
@@ -12,7 +14,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"api/pkg/provisioner/logger"
-	"api/pkg/provisioner/models"
 	testutils "api/pkg/provisioner/tests"
 )
 
@@ -21,16 +22,16 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		stacks  models.StacksMap
+		stacks  api.StacksMap
 		wantErr string
-		check   func(t *testing.T, stacks models.StacksMap)
+		check   func(t *testing.T, stacks api.StacksMap)
 	}{
 		{
 			name: "common stack",
-			stacks: models.StacksMap{
+			stacks: api.StacksMap{
 				"common": testutils.CommonStack,
 			},
-			check: func(t *testing.T, stacks models.StacksMap) {
+			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["common"].Secrets.Auth["gcloud"]).NotTo(BeNil())
 				srvConfig := stacks["common"].Server.Provisioner.Config.Config
 				Expect(srvConfig).To(BeAssignableToTypeOf(&pulumi.ProvisionerConfig{}))
@@ -46,11 +47,11 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 		},
 		{
 			name: "refapp stack",
-			stacks: models.StacksMap{
+			stacks: api.StacksMap{
 				"common": testutils.CommonStack,
 				"refapp": testutils.RefappStack,
 			},
-			check: func(t *testing.T, stacks models.StacksMap) {
+			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp"]).NotTo(BeNil())
 				resPgCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["postgres"].Config.Config
 				Expect(resPgCfg).To(BeAssignableToTypeOf(&gcloud.PostgresGcpCloudsqlConfig{}))

@@ -6,7 +6,7 @@ import (
 	"path"
 	"testing"
 
-	pulumi_mocks "api/pkg/provisioner/pulumi/mocks"
+	"api/pkg/clouds/pulumi/mocks"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
@@ -16,8 +16,6 @@ import (
 	"api/pkg/provisioner/placeholders"
 
 	"github.com/onsi/gomega/format"
-
-	"api/pkg/provisioner/models"
 
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -35,7 +33,7 @@ func Test_Provision(t *testing.T) {
 		params       ProvisionParams
 		init         func(t *testing.T, ctx context.Context) (Provisioner, error)
 		opts         []Option
-		expectStacks models.StacksMap
+		expectStacks api.StacksMap
 		wantErr      string
 	}{
 		{
@@ -47,7 +45,7 @@ func Test_Provision(t *testing.T) {
 					"refapp",
 				},
 			},
-			expectStacks: map[string]models.Stack{
+			expectStacks: map[string]api.Stack{
 				"common": {
 					Name:    "common",
 					Secrets: *tests.CommonSecretsDescriptor,
@@ -73,11 +71,11 @@ func Test_Provision(t *testing.T) {
 			},
 			init: func(t *testing.T, ctx context.Context) (Provisioner, error) {
 				pulumiMock := pulumi_mocks.NewPulumiMock(t)
-				pulumiMock.On("CreateStacks", ctx, mock.Anything, mock.Anything).
+				pulumiMock.On("CreateStack", ctx, mock.Anything, mock.Anything).
 					Return(errors.New("failed to create stacks"))
 				return New(
 					WithPlaceholders(placeholders.New(logger.New())),
-					WithPulumi(pulumiMock),
+					WithOverrideProvisioner(pulumiMock),
 				)
 			},
 			wantErr: "failed to create stacks",
@@ -94,10 +92,10 @@ func Test_Provision(t *testing.T) {
 			} else {
 				if len(tt.opts) == 0 {
 					pulumiMock := pulumi_mocks.NewPulumiMock(t)
-					pulumiMock.On("CreateStacks", ctx, mock.Anything, mock.Anything).Return(nil)
+					pulumiMock.On("CreateStack", ctx, mock.Anything, mock.Anything).Return(nil)
 					tt.opts = []Option{
 						WithPlaceholders(placeholders.New(logger.New())),
-						WithPulumi(pulumiMock),
+						WithOverrideProvisioner(pulumiMock),
 					}
 				}
 				p, err = New(tt.opts...)

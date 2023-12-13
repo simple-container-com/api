@@ -5,8 +5,6 @@ import (
 	"os"
 	"path"
 
-	"api/pkg/provisioner/models"
-
 	"github.com/pkg/errors"
 
 	"api/pkg/api"
@@ -28,16 +26,24 @@ func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) err
 		return errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
 	}
 
-	if err := p.pulumi.CreateStacks(ctx, cfg, p.stacks); err != nil {
-		return errors.Wrap(err, "failed to create stacks with pulumi")
+	for _, stack := range p.stacks {
+		pv := stack.Server.Provisioner.GetProvisioner()
+		if p.overrideProvisioner != nil {
+			pv = p.overrideProvisioner
+		}
+		if pv == nil {
+			return errors.Errorf("provisioner is not set for stack %q", stack.Name)
+		}
+		if err := pv.CreateStack(ctx, cfg, stack); err != nil {
+			return errors.Wrap(err, "failed to create stacks with pulumi")
+		}
 	}
-
 	return nil
 }
 
 func (p *provisioner) ReadStacks(ctx context.Context, params ProvisionParams) error {
 	for _, stackName := range params.Stacks {
-		stack := models.Stack{
+		stack := api.Stack{
 			Name: stackName,
 		}
 
