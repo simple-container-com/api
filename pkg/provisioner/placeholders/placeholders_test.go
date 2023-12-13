@@ -1,18 +1,16 @@
 package placeholders
 
 import (
-	"api/pkg/api/clouds/mongodb"
 	"fmt"
 	"testing"
 
-	"api/pkg/api/clouds/github"
-
-	"api/pkg/api/clouds/gcloud"
-	"api/pkg/api/clouds/pulumi"
-	"api/pkg/provisioner/logger"
-
 	. "github.com/onsi/gomega"
 
+	"api/pkg/api/clouds/gcloud"
+	"api/pkg/api/clouds/github"
+	"api/pkg/api/clouds/mongodb"
+	"api/pkg/api/clouds/pulumi"
+	"api/pkg/provisioner/logger"
 	"api/pkg/provisioner/models"
 	testutils "api/pkg/provisioner/tests"
 )
