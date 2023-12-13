@@ -6,6 +6,8 @@ import (
 	"path"
 	"sync"
 
+	"api/pkg/provisioner/pulumi"
+
 	"api/pkg/provisioner/placeholders"
 
 	"api/pkg/provisioner/models"
@@ -45,15 +47,18 @@ type provisioner struct {
 	cryptor    secrets.Cryptor
 	phResolver placeholders.Placeholders
 	log        logger.Logger
+	pulumi     pulumi.Pulumi
 }
 
 type ProvisionParams struct {
 	RootDir string   `json:"rootDir" yaml:"rootDir"`
+	Profile string   `json:"profile" yaml:"profile"`
 	Stacks  []string `json:"stacks" yaml:"stacks"`
 }
 
 type InitParams struct {
-	RootDir string `json:"rootDir,omitempty" yaml:"rootDir"`
+	ProjectName string `json:"projectName" yaml:"projectName"`
+	RootDir     string `json:"rootDir,omitempty" yaml:"rootDir"`
 }
 
 type DeployParams struct {
@@ -105,6 +110,10 @@ func (p *provisioner) withWriteLock() func() {
 func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	defer p.withWriteLock()()
 
+	if params.ProjectName == "" {
+		return errors.New("project name is not configured")
+	}
+
 	if p.phResolver == nil {
 		p.phResolver = placeholders.New(p.log)
 	}
@@ -116,6 +125,15 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 			p.gitRepo = repo
 		}
 	}
+
+	if p.pulumi == nil {
+		if pl, err := pulumi.New(); err != nil {
+			return errors.Wrapf(err, "failed to init pulumi")
+		} else {
+			p.pulumi = pl
+		}
+	}
+
 	if err := p.gitRepo.InitOrOpen(params.RootDir); err != nil {
 		return errors.Wrapf(err, "failed to init git repo")
 	}
@@ -133,7 +151,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	}
 
 	// generate default profile
-	if err := p.cryptor.GenerateKeyPairWithProfile(DefaultProfile); err != nil {
+	if err := p.cryptor.GenerateKeyPairWithProfile(params.ProjectName, DefaultProfile); err != nil {
 		return errors.Wrapf(err, "failed to generate key pair")
 	}
 	if err := p.gitRepo.AddFileToIgnore(api.ConfigFilePath("", DefaultProfile)); err != nil {

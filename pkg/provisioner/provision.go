@@ -13,9 +13,23 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) error {
-	err := p.ReadStacks(ctx, params)
+	if err := p.ReadStacks(ctx, params); err != nil {
+		return errors.Wrapf(err, "failed to read stacks")
+	}
+
+	if p.profile == "" && params.Profile == "" {
+		return errors.Errorf("profile is not set")
+	} else if params.Profile != "" {
+		p.profile = params.Profile
+	}
+
+	cfg, err := api.ReadConfigFile(params.RootDir, p.profile)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
+	}
+
+	if err := p.pulumi.CreateStacks(ctx, cfg, p.stacks); err != nil {
+		return errors.Wrap(err, "failed to create stacks with pulumi")
 	}
 
 	return nil

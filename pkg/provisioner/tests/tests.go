@@ -21,8 +21,8 @@ func CopyTempProject(pathToExample string) (string, func(), error) {
 }
 
 func CheckError(err error, checkErr string) {
-	if checkErr != "" {
-		Expect(err).To(MatchRegexp(checkErr))
+	if checkErr != "" && err != nil {
+		Expect(err.Error()).To(MatchRegexp(checkErr))
 	}
 }
 

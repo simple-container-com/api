@@ -44,11 +44,12 @@ func WithKeysFromCurrentProfile() Option {
 	}
 }
 
-func WithGeneratedKeys(profile string) Option {
+func WithGeneratedKeys(projectName, profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {
 			c.profile = profile
-			return c.GenerateKeyPairWithProfile(c.profile)
+			c.projectName = projectName
+			return c.GenerateKeyPairWithProfile(c.projectName, c.profile)
 		},
 	}
 }

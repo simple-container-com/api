@@ -11,7 +11,7 @@ import (
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
 
 type Cryptor interface {
-	GenerateKeyPairWithProfile(profile string) error
+	GenerateKeyPairWithProfile(projectName, profile string) error
 	AddFile(path string) error
 	RemoveFile(path string) error
 	DecryptAll() error
@@ -23,8 +23,9 @@ type Cryptor interface {
 }
 
 type cryptor struct {
-	workDir string
-	profile string
+	workDir     string
+	projectName string
+	profile     string
 
 	gitRepo git.Repo
 

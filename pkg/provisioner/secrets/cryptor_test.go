@@ -80,7 +80,7 @@ func TestNewCryptor(t *testing.T) {
 			opts: []Option{
 				withGitDir("gitdir"),
 				WithProfile("test-profile"),
-				WithGeneratedKeys("test-profile"),
+				WithGeneratedKeys("test-project", "test-profile"),
 			},
 			actions: func(t *testing.T, c Cryptor, wd string) {
 				happyPathScenario(t, c, wd)

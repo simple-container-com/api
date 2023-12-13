@@ -3,6 +3,8 @@ package provisioner
 import (
 	"context"
 
+	"api/pkg/provisioner/pulumi"
+
 	"api/pkg/provisioner/placeholders"
 
 	"api/pkg/provisioner/git"
@@ -22,6 +24,13 @@ func WithProfile(profile string) Option {
 func WithPlaceholders(ph placeholders.Placeholders) Option {
 	return func(p *provisioner) error {
 		p.phResolver = ph
+		return nil
+	}
+}
+
+func WithPulumi(pl pulumi.Pulumi) Option {
+	return func(p *provisioner) error {
+		p.pulumi = pl
 		return nil
 	}
 }

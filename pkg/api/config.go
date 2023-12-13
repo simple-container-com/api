@@ -15,6 +15,7 @@ const (
 )
 
 type ConfigFile struct {
+	ProjectName    string `json:"projectName" yaml:"projectName"`
 	PrivateKeyPath string `yaml:"privateKeyPath" json:"privateKeyPath"`
 	PublicKeyPath  string `yaml:"publicKeyPath" json:"publicKeyPath"`
 	PrivateKey     string `yaml:"privateKey" json:"privateKey"`

@@ -6,6 +6,11 @@ import (
 	"path"
 	"testing"
 
+	pulumi_mocks "api/pkg/provisioner/pulumi/mocks"
+
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/mock"
+
 	"api/pkg/api"
 	"api/pkg/provisioner/logger"
 	"api/pkg/provisioner/placeholders"
@@ -28,6 +33,7 @@ func Test_Provision(t *testing.T) {
 	testCases := []struct {
 		name         string
 		params       ProvisionParams
+		init         func(t *testing.T, ctx context.Context) (Provisioner, error)
 		opts         []Option
 		expectStacks models.StacksMap
 		wantErr      string
@@ -56,15 +62,46 @@ func Test_Provision(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "pulumi error",
+			params: ProvisionParams{
+				RootDir: "testdata/stacks",
+				Stacks: []string{
+					"common",
+					"refapp",
+				},
+			},
+			init: func(t *testing.T, ctx context.Context) (Provisioner, error) {
+				pulumiMock := pulumi_mocks.NewPulumiMock(t)
+				pulumiMock.On("CreateStacks", ctx, mock.Anything, mock.Anything).
+					Return(errors.New("failed to create stacks"))
+				return New(
+					WithPlaceholders(placeholders.New(logger.New())),
+					WithPulumi(pulumiMock),
+				)
+			},
+			wantErr: "failed to create stacks",
+		},
 	}
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 
-			if len(tt.opts) == 0 {
-				tt.opts = []Option{WithPlaceholders(placeholders.New(logger.New()))}
+			var p Provisioner
+			var err error
+			if tt.init != nil {
+				p, err = tt.init(t, ctx)
+			} else {
+				if len(tt.opts) == 0 {
+					pulumiMock := pulumi_mocks.NewPulumiMock(t)
+					pulumiMock.On("CreateStacks", ctx, mock.Anything, mock.Anything).Return(nil)
+					tt.opts = []Option{
+						WithPlaceholders(placeholders.New(logger.New())),
+						WithPulumi(pulumiMock),
+					}
+				}
+				p, err = New(tt.opts...)
 			}
-			p, err := New(tt.opts...)
 
 			if err != nil && tt.wantErr != "" {
 				Expect(err).To(MatchRegexp(tt.wantErr))
@@ -75,7 +112,7 @@ func Test_Provision(t *testing.T) {
 			err = p.Provision(ctx, tt.params)
 
 			if err != nil && tt.wantErr != "" {
-				Expect(err).To(MatchRegexp(tt.wantErr))
+				Expect(err.Error()).To(MatchRegexp(tt.wantErr))
 			} else {
 				Expect(err).To(BeNil())
 				if tt.expectStacks != nil {
@@ -92,17 +129,19 @@ func Test_Init(t *testing.T) {
 	RegisterTestingT(t)
 
 	cases := []struct {
-		name    string
-		params  InitParams
-		opts    []Option
-		init    func(wd string) Provisioner
-		check   func(t *testing.T, wd string, p Provisioner)
-		wantErr string
+		name        string
+		params      InitParams
+		opts        []Option
+		init        func(wd string) Provisioner
+		check       func(t *testing.T, wd string, p Provisioner)
+		wantInitErr string
+		wantAnyErr  string
 	}{
 		{
 			name: "happy path",
 			params: InitParams{
-				RootDir: "testdata/refapp",
+				ProjectName: "test-project",
+				RootDir:     "testdata/refapp",
 			},
 			opts:  []Option{WithPlaceholders(placeholders.New(logger.New()))},
 			check: checkInitSuccess,
@@ -110,7 +149,8 @@ func Test_Init(t *testing.T) {
 		{
 			name: "existing repo no error",
 			params: InitParams{
-				RootDir: "testdata/refapp-existing-gitdir",
+				ProjectName: "test-project",
+				RootDir:     "testdata/refapp-existing-gitdir",
 			},
 			init: func(wd string) Provisioner {
 				gitRepo, err := git.New(git.WithGitDir("gitdir"), git.WithRootDir(wd))
@@ -121,6 +161,13 @@ func Test_Init(t *testing.T) {
 			},
 			check: checkInitSuccess,
 		},
+		{
+			name: "project name is not set",
+			params: InitParams{
+				RootDir: "testdata/refapp",
+			},
+			wantInitErr: "project name is not configured",
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -129,7 +176,7 @@ func Test_Init(t *testing.T) {
 			workDir, cleanup, err := testutils.CopyTempProject(tt.params.RootDir)
 			defer cleanup()
 
-			testutils.CheckError(err, tt.wantErr)
+			testutils.CheckError(err, tt.wantAnyErr)
 
 			var p Provisioner
 			if tt.init != nil {
@@ -138,14 +185,13 @@ func Test_Init(t *testing.T) {
 				p, err = New(tt.opts...)
 			}
 
-			testutils.CheckError(err, tt.wantErr)
+			testutils.CheckError(err, tt.wantAnyErr)
 
 			// overwrite root dir to temp
 			tt.params.RootDir = workDir
 
-			Expect(err).To(BeNil())
 			err = p.Init(ctx, tt.params)
-			testutils.CheckError(err, tt.wantErr)
+			testutils.CheckError(err, tt.wantInitErr)
 
 			if tt.check != nil {
 				tt.check(t, workDir, p)

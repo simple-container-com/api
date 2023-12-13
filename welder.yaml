@@ -2,6 +2,13 @@ schemaVersion: "1.8.1"
 projectName: simple-container-api
 projectRoot: .
 version: 0.0-${git:commit.short}${arg:release-suffix:}
+profiles:
+  skip-test:
+    activation:
+      skip-tests: true
+    build:
+      env:
+        SKIP_TESTS: "true"
 modules:
   - name: api
     build:
@@ -14,10 +21,11 @@ tasks:
     script:
       - cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
       - go mod download
+      - go generate -tags tools
       - go mod tidy
   build:
     runOn: host
     script:
-      - go test ./...
-      - go run mvdan.cc/gofumpt -l -w .
+      - ( [ "${SKIP_TESTS}" != 'true' ] && go test ./... )
+      - ${project:root}/bin/gofumpt -l -w .
       - go build ./...
