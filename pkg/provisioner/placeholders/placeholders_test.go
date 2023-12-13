@@ -1,6 +1,7 @@
 package placeholders
 
 import (
+	"api/pkg/api/clouds/mongodb"
 	"fmt"
 	"testing"
 
@@ -56,11 +57,23 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(resPgCfg).To(BeAssignableToTypeOf(&gcloud.PostgresGcpCloudsqlConfig{}))
 				pgConfig := resPgCfg.(*gcloud.PostgresGcpCloudsqlConfig)
 				Expect(pgConfig.Credentials).To(Equal("<gcloud-service-account-email>"))
+				Expect(pgConfig.Project).To(Equal("refapp"))
 
 				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
 				cicdConfig := stacks["refapp"].Server.CiCd.Config.Config
 				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
 				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
+
+				resMongoCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["mongodb"].Config.Config
+				Expect(resMongoCfg).To(BeAssignableToTypeOf(&mongodb.MongodbAtlasConfig{}))
+				mongoConfig := resMongoCfg.(*mongodb.MongodbAtlasConfig)
+				Expect(mongoConfig.PublicKey).To(Equal("<encrypted-secret>"))
+				Expect(mongoConfig.PrivateKey).To(Equal("<encrypted-secret>"))
+				Expect(mongoConfig.InstanceSize).To(Equal("M10"))
+				Expect(mongoConfig.OrgId).To(Equal("5b89110a4e6581562623c59c"))
+				Expect(mongoConfig.ProjectId).To(Equal("5b89110a4e6581562623c59c"))
+				Expect(mongoConfig.ProjectName).To(Equal("refapp"))
+				Expect(mongoConfig.Region).To(Equal("US_SOUTH_1"))
 			},
 		},
 	}

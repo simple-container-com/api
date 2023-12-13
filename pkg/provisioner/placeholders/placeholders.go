@@ -14,8 +14,10 @@ import (
 )
 
 type Placeholders interface {
+	// Apply applies placeholders resolve to an object
 	Apply(obj any, opts ...Option) error
 
+	// Resolve resolves all placeholders (like ${auth:<something}) in a stack map
 	Resolve(stacks models.StacksMap) error
 }
 
@@ -43,6 +45,8 @@ func (p *placeholders) Resolve(stacks models.StacksMap) error {
 			WithExtensions(map[string]template.Extension{
 				"auth":   p.tplAuth(stackName, stack, stacks),
 				"secret": p.tplSecrets(stackName, stack, stacks),
+				"var":    p.tplVars(stackName, stack, stacks),
+				"stack":  p.tplStack(stackName, stack, stacks),
 			}),
 		}
 		if err := p.Apply(&stack, opts...); err != nil {
@@ -51,6 +55,29 @@ func (p *placeholders) Resolve(stacks models.StacksMap) error {
 		stacks[stackName] = stack
 	}
 	return nil
+}
+
+func (p *placeholders) tplStack(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+	return func(noSubs, path string, value *string) (string, error) {
+		vars := map[string]string{
+			"name": stackName,
+		}
+		if val, found := vars[path]; !found {
+			return noSubs, errors.Errorf("value %q not found for stack %q", path, stackName)
+		} else {
+			return val, nil
+		}
+	}
+}
+
+func (p *placeholders) tplVars(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
+	return func(noSubs, path string, value *string) (string, error) {
+		if val, found := stack.Server.Variables[path]; !found {
+			return noSubs, errors.Errorf("variable %q not found for stack %q", path, stackName)
+		} else {
+			return val.Value, nil
+		}
+	}
 }
 
 func (p *placeholders) tplSecrets(stackName string, stack models.Stack, stacks models.StacksMap) func(source string, path string, value *string) (string, error) {
