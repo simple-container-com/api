@@ -7,6 +7,6 @@ import (
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		// cloudflare
-		RegistrarTypeCloudflare: CloudflareReadRegistrarConfig,
+		RegistrarTypeCloudflare: ReadRegistrarConfig,
 	})
 }

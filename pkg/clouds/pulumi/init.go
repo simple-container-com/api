@@ -7,7 +7,7 @@ import (
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		// pulumi
-		ProvisionerTypePulumi: PulumiReadProvisionerConfig,
-		AuthTypePulumiToken:   PulumiReadAuthConfig,
+		ProvisionerTypePulumi: ReadProvisionerConfig,
+		AuthTypePulumiToken:   ReadAuthConfig,
 	})
 }

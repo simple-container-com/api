@@ -1,9 +1,9 @@
 package provisioner
 
 import (
-	_ "api/pkg/api/clouds/cloudflare"
-	_ "api/pkg/api/clouds/gcloud"
-	_ "api/pkg/api/clouds/github"
-	_ "api/pkg/api/clouds/mongodb"
-	_ "api/pkg/api/clouds/pulumi"
+	_ "api/pkg/clouds/cloudflare"
+	_ "api/pkg/clouds/gcloud"
+	_ "api/pkg/clouds/github"
+	_ "api/pkg/clouds/mongodb"
+	_ "api/pkg/clouds/pulumi"
 )

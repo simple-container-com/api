@@ -4,7 +4,7 @@ import "api/pkg/api"
 
 const ResourceTypeMongodbAtlas = "mongodb-atlas"
 
-type MongodbAtlasConfig struct {
+type AtlasConfig struct {
 	Admins       []string `json:"admins" yaml:"admins"`
 	Developers   []string `json:"developers" yaml:"developers"`
 	InstanceSize string   `json:"instanceSize" yaml:"instanceSize"`
@@ -16,6 +16,6 @@ type MongodbAtlasConfig struct {
 	PublicKey    string   `json:"publicKey" yaml:"publicKey"`
 }
 
-func MondodbAtlasReadConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &MongodbAtlasConfig{})
+func ReadAtlasConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &AtlasConfig{})
 }

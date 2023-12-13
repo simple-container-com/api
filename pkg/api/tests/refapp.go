@@ -2,24 +2,24 @@ package tests
 
 import (
 	"api/pkg/api"
-	"api/pkg/api/clouds/cloudflare"
-	"api/pkg/api/clouds/gcloud"
-	"api/pkg/api/clouds/github"
-	"api/pkg/api/clouds/mongodb"
-	"api/pkg/api/clouds/pulumi"
+	"api/pkg/clouds/cloudflare"
+	"api/pkg/clouds/gcloud"
+	"api/pkg/clouds/github"
+	"api/pkg/clouds/mongodb"
+	"api/pkg/clouds/pulumi"
 )
 
 var CommonServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
 		Type: pulumi.ProvisionerTypePulumi,
-		Config: api.Config{Config: &pulumi.PulumiProvisionerConfig{
-			StateStorage: pulumi.PulumiStateStorageConfig{
+		Config: api.Config{Config: &pulumi.ProvisionerConfig{
+			StateStorage: pulumi.StateStorageConfig{
 				Type:        pulumi.StateStorageTypeGcpBucket,
 				Credentials: "${auth:gcloud}",
 				Provision:   true,
 			},
-			SecretsProvider: pulumi.PulumiSecretsProviderConfig{
+			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type:        pulumi.SecretsProviderTypeGcpKms,
 				Credentials: "${auth:gcloud}",
 				Provision:   true,
@@ -34,7 +34,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
-		Config: api.Config{Config: &gcloud.GcloudSecretsConfig{
+		Config: api.Config{Config: &gcloud.SecretsConfig{
 			Credentials: "${auth:gcloud}",
 		}},
 	},
@@ -49,11 +49,11 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
 			Type: cloudflare.RegistrarTypeCloudflare,
-			Config: api.Config{Config: &cloudflare.CloudflareRegistrarConfig{
+			Config: api.Config{Config: &cloudflare.RegistrarConfig{
 				Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
 				Project:     "sc-refapp",
 				ZoneName:    "sc-refapp.org",
-				DnsRecords: []cloudflare.CloudflareDnsRecord{
+				DnsRecords: []cloudflare.DnsRecord{
 					{
 						Name:  "@",
 						Type:  "TXT",
@@ -69,13 +69,13 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
 		Type: pulumi.ProvisionerTypePulumi,
-		Config: api.Config{Config: &pulumi.PulumiProvisionerConfig{
-			StateStorage: pulumi.PulumiStateStorageConfig{
+		Config: api.Config{Config: &pulumi.ProvisionerConfig{
+			StateStorage: pulumi.StateStorageConfig{
 				Type:        pulumi.StateStorageTypeGcpBucket,
 				Credentials: "<gcloud-service-account-email>",
 				Provision:   true,
 			},
-			SecretsProvider: pulumi.PulumiSecretsProviderConfig{
+			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type:        pulumi.SecretsProviderTypeGcpKms,
 				Credentials: "<gcloud-service-account-email>",
 				Provision:   true,
@@ -90,7 +90,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
-		Config: api.Config{Config: &gcloud.GcloudSecretsConfig{
+		Config: api.Config{Config: &gcloud.SecretsConfig{
 			Credentials: "<gcloud-service-account-email>",
 		}},
 	},
@@ -105,11 +105,11 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
 			Type: cloudflare.RegistrarTypeCloudflare,
-			Config: api.Config{Config: &cloudflare.CloudflareRegistrarConfig{
+			Config: api.Config{Config: &cloudflare.RegistrarConfig{
 				Credentials: "<encrypted-secret>",
 				Project:     "sc-refapp",
 				ZoneName:    "sc-refapp.org",
-				DnsRecords: []cloudflare.CloudflareDnsRecord{
+				DnsRecords: []cloudflare.DnsRecord{
 					{
 						Name:  "@",
 						Type:  "TXT",
@@ -167,7 +167,7 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 				Resources: map[string]api.ResourceDescriptor{
 					"mongodb": {
 						Type: "mongodb-atlas",
-						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
+						Config: api.Config{Config: &mongodb.AtlasConfig{
 							Admins:       []string{"smecsia"},
 							Developers:   []string{},
 							InstanceSize: "${var:atlas-instance-size}",
@@ -194,7 +194,7 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 				Resources: map[string]api.ResourceDescriptor{
 					"mongodb": {
 						Type: "mongodb-atlas",
-						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
+						Config: api.Config{Config: &mongodb.AtlasConfig{
 							Admins:       []string{"smecsia"},
 							Developers:   []string{},
 							InstanceSize: "${var:atlas-instance-size}",
@@ -252,7 +252,7 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 				Resources: map[string]api.ResourceDescriptor{
 					"mongodb": {
 						Type: "mongodb-atlas",
-						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
+						Config: api.Config{Config: &mongodb.AtlasConfig{
 							Admins:       []string{"smecsia"},
 							Developers:   []string{},
 							InstanceSize: "M10",
@@ -279,7 +279,7 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 				Resources: map[string]api.ResourceDescriptor{
 					"mongodb": {
 						Type: "mongodb-atlas",
-						Config: api.Config{Config: &mongodb.MongodbAtlasConfig{
+						Config: api.Config{Config: &mongodb.AtlasConfig{
 							Admins:       []string{"smecsia"},
 							Developers:   []string{},
 							InstanceSize: "M10",
@@ -310,13 +310,13 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 	Auth: map[string]api.AuthDescriptor{
 		"gcloud": {
 			Type: gcloud.AuthTypeGCPServiceAccount,
-			Config: api.Config{Config: &gcloud.GcloudAuthServiceAccountConfig{
+			Config: api.Config{Config: &gcloud.AuthServiceAccountConfig{
 				Account: "<gcloud-service-account-email>",
 			}},
 		},
 		"pulumi": {
 			Type: pulumi.AuthTypePulumiToken,
-			Config: api.Config{Config: &pulumi.PulumiTokenAuthDescriptor{
+			Config: api.Config{Config: &pulumi.TokenAuthDescriptor{
 				Value: "<pulumi-token>",
 			}},
 		},

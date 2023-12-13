@@ -3,9 +3,9 @@ package tests
 import (
 	"testing"
 
-	"api/pkg/api"
-
 	. "github.com/onsi/gomega"
+
+	"api/pkg/api"
 )
 
 func TestReadServerDescriptor(t *testing.T) {

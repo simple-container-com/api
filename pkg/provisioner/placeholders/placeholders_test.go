@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"testing"
 
+	"api/pkg/clouds/gcloud"
+	"api/pkg/clouds/github"
+	"api/pkg/clouds/mongodb"
+	"api/pkg/clouds/pulumi"
+
 	. "github.com/onsi/gomega"
 
-	"api/pkg/api/clouds/gcloud"
-	"api/pkg/api/clouds/github"
-	"api/pkg/api/clouds/mongodb"
-	"api/pkg/api/clouds/pulumi"
 	"api/pkg/provisioner/logger"
 	"api/pkg/provisioner/models"
 	testutils "api/pkg/provisioner/tests"
@@ -32,8 +33,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			check: func(t *testing.T, stacks models.StacksMap) {
 				Expect(stacks["common"].Secrets.Auth["gcloud"]).NotTo(BeNil())
 				srvConfig := stacks["common"].Server.Provisioner.Config.Config
-				Expect(srvConfig).To(BeAssignableToTypeOf(&pulumi.PulumiProvisionerConfig{}))
-				pConfig := srvConfig.(*pulumi.PulumiProvisionerConfig)
+				Expect(srvConfig).To(BeAssignableToTypeOf(&pulumi.ProvisionerConfig{}))
+				pConfig := srvConfig.(*pulumi.ProvisionerConfig)
 				Expect(pConfig.StateStorage.Credentials).To(Equal("<gcloud-service-account-email>"))
 				Expect(pConfig.SecretsProvider.Credentials).To(Equal("<gcloud-service-account-email>"))
 
@@ -63,8 +64,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
 
 				resMongoCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["mongodb"].Config.Config
-				Expect(resMongoCfg).To(BeAssignableToTypeOf(&mongodb.MongodbAtlasConfig{}))
-				mongoConfig := resMongoCfg.(*mongodb.MongodbAtlasConfig)
+				Expect(resMongoCfg).To(BeAssignableToTypeOf(&mongodb.AtlasConfig{}))
+				mongoConfig := resMongoCfg.(*mongodb.AtlasConfig)
 				Expect(mongoConfig.PublicKey).To(Equal("<encrypted-secret>"))
 				Expect(mongoConfig.PrivateKey).To(Equal("<encrypted-secret>"))
 				Expect(mongoConfig.InstanceSize).To(Equal("M10"))

@@ -7,9 +7,9 @@ import (
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		// gcloud
-		SecretsTypeGCPSecretsManager: GcloudReadSecretsConfig,
-		TemplateTypeGcpCloudrun:      GcloudReadTemplateConfig,
-		AuthTypeGCPServiceAccount:    GcloudReadAuthServiceAccountConfig,
+		SecretsTypeGCPSecretsManager: ReadSecretsConfig,
+		TemplateTypeGcpCloudrun:      ReadTemplateConfig,
+		AuthTypeGCPServiceAccount:    ReadAuthServiceAccountConfig,
 
 		// postgres
 		ResourceTypePostgresGcpCloudsql: PostgresqlGcpCloudsqlReadConfig,
