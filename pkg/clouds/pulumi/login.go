@@ -19,47 +19,12 @@ import (
 	"api/pkg/api"
 )
 
-func (p *pulumi) createStackIfNotExists(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
-	sdkCtx, be, err := p.login(ctx, cfg, stack)
-	if err != nil {
-		return err
-	}
-	p.logger.Info(ctx, be.Name())
-
-	name, apiOrgs, tokenInfo, err := be.CurrentUser()
-	if err != nil {
-		return err
-	}
-	p.logger.Info(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
-
-	ref, err := be.ParseStackReference(fmt.Sprintf("%s/%s/%s", sdkCtx.Organization(), sdkCtx.Project(), stack.Name))
-	if err != nil {
-		return err
-	}
-
-	if s, err := be.GetStack(ctx, ref); err != nil {
-		return err
-	} else if s != nil {
-		p.logger.Debug(ctx, "found stack %q, not going to create", ref.String())
-		return nil
-	} else {
-		p.logger.Debug(ctx, "stack %q not found, creating...", ref.String())
-		s, err = be.CreateStack(ctx, ref, "", nil)
-		if err != nil {
-			return errors.Wrapf(err, "failed to create stack %q", ref.String())
-		} else if s != nil {
-			p.logger.Info(ctx, "created stack %q", s.Ref().String())
-		}
-	}
-	return nil
-}
-
-func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*sdk.Context, backend.Backend, error) {
+func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*sdk.Context, backend.Backend, backend.StackReference, error) {
 	cmdutil.DisableInteractive = true
-	provisionerCfg, valid := stack.Server.Provisioner.Config.Config.(*ProvisionerConfig)
 
-	if !valid {
-		return nil, nil, errors.Errorf("provisioner config is not of type %T", &ProvisionerConfig{})
+	provisionerCfg, err := p.getProvisionerConfig(stack)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	var organization string
@@ -78,7 +43,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		EngineAddr:   "",
 	})
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to init pulumi provisioner context")
+		return nil, nil, nil, errors.Wrapf(err, "failed to init pulumi provisioner context")
 	}
 
 	project := &workspace.Project{
@@ -88,7 +53,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	creds := provisionerCfg.StateStorage.Credentials
 
 	if creds == "" {
-		return nil, nil, errors.Errorf("credentials for pulumi backend must not be empty")
+		return nil, nil, nil, errors.Errorf("credentials for pulumi backend must not be empty")
 	}
 
 	switch provisionerCfg.StateStorage.Type {
@@ -109,11 +74,32 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			Color: cmdutil.GetGlobalColorization(),
 		})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		be, err = httpstate.New(cmdutil.Diag(), cloudUrl, project, false)
 	default:
-		return nil, nil, errors.Errorf("unsupported state storage type %q", provisionerCfg.StateStorage.Type)
+		return nil, nil, nil, errors.Errorf("unsupported state storage type %q", provisionerCfg.StateStorage.Type)
 	}
-	return sdkCtx, be, nil
+
+	name, apiOrgs, tokenInfo, err := be.CurrentUser()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	p.logger.Info(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
+
+	ref, err := be.ParseStackReference(fmt.Sprintf("%s/%s/%s", sdkCtx.Organization(), sdkCtx.Project(), stack.Name))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return sdkCtx, be, ref, nil
+}
+
+func (p *pulumi) getProvisionerConfig(stack api.Stack) (*ProvisionerConfig, error) {
+	provisionerCfg, valid := stack.Server.Provisioner.Config.Config.(*ProvisionerConfig)
+
+	if !valid {
+		return nil, errors.Errorf("provisioner config is not of type %T", &ProvisionerConfig{})
+	}
+	return provisionerCfg, nil
 }

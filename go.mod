@@ -9,6 +9,7 @@ require (
 	github.com/onsi/gomega v1.27.10
 	github.com/otiai10/copy v1.14.0
 	github.com/pkg/errors v0.9.1
+	github.com/pulumi/pulumi-gcp/sdk/v6 v6.67.1
 	github.com/pulumi/pulumi/pkg/v3 v3.96.2
 	github.com/pulumi/pulumi/sdk/v3 v3.96.2
 	github.com/samber/lo v1.38.1

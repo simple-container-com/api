@@ -13,7 +13,7 @@ import (
 
 const testSAFile = "pkg/clouds/pulumi/testdata/sc-test-project-sa.json"
 
-func Test_CreateProject(t *testing.T) {
+func Test_CreateStack(t *testing.T) {
 	RegisterTestingT(t)
 
 	p, err := InitPulumiProvisioner()
@@ -41,7 +41,13 @@ func Test_CreateProject(t *testing.T) {
 							Credentials: string(gcpSa),
 							Provision:   true,
 						},
-						SecretsProvider: SecretsProviderConfig{},
+						SecretsProvider: SecretsProviderConfig{
+							Type:        SecretsProviderTypeGcpKms,
+							Credentials: string(gcpSa),
+							KeyName:     "test-key",
+							KeyLocation: "global",
+							Provision:   true,
+						},
 					},
 				},
 				Inherit: api.Inherit{},
@@ -50,7 +56,7 @@ func Test_CreateProject(t *testing.T) {
 		Client: api.ClientDescriptor{},
 	}
 
-	err = p.CreateStack(ctx, cfg, stack)
+	err = p.ProvisionStack(ctx, cfg, stack)
 
 	Expect(err).To(BeNil())
 }

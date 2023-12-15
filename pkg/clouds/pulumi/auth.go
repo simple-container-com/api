@@ -1,6 +1,9 @@
 package pulumi
 
-import "api/pkg/api"
+import (
+	"api/pkg/api"
+	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/kms"
+)
 
 const (
 	AuthTypePulumiToken   = "pulumi-token"
@@ -16,6 +19,8 @@ type ProvisionerConfig struct {
 	Organization    string                `json:"organization" yaml:"organization"`
 	StateStorage    StateStorageConfig    `json:"state-storage" yaml:"state-storage"`
 	SecretsProvider SecretsProviderConfig `json:"secrets-provider" yaml:"secrets-provider"`
+
+	kmsKey *kms.CryptoKey
 }
 
 type StateStorageConfig struct {
@@ -26,10 +31,12 @@ type StateStorageConfig struct {
 }
 
 type SecretsProviderConfig struct {
-	Type         string `json:"type" yaml:"type"`
-	Credentials  string `json:"credentials" yaml:"credentials"`
-	KeyReference string `json:"KeyReference" yaml:"KeyReference"`
-	Provision    bool   `json:"provision" yaml:"provision"`
+	Type              string `json:"type" yaml:"type"`
+	Credentials       string `json:"credentials" yaml:"credentials"`
+	KeyName           string `json:"keyName" yaml:"keyName"`
+	KeyLocation       string `json:"keyLocation" yaml:"keyLocation"`
+	KeyRotationPeriod string `json:"keyRotationPeriod" yaml:"keyRotationPeriod"`
+	Provision         bool   `json:"provision" yaml:"provision"`
 }
 
 func ReadProvisionerConfig(config *api.Config) (api.Config, error) {

@@ -3,9 +3,8 @@ package pulumi
 import (
 	"context"
 
-	"api/pkg/api/logger"
-
 	"api/pkg/api"
+	"api/pkg/api/logger"
 )
 
 //go:generate ../../../bin/mockery --name Pulumi --output ./mocks --filename pulumi_mock.go --outpkg pulumi_mocks --structname PulumiMock
@@ -29,8 +28,11 @@ func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, erro
 	return res, nil
 }
 
-func (p *pulumi) CreateStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
+func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	if err := p.createStackIfNotExists(ctx, cfg, stack); err != nil {
+		return err
+	}
+	if err := p.provisionStack(ctx, cfg, stack); err != nil {
 		return err
 	}
 	return nil

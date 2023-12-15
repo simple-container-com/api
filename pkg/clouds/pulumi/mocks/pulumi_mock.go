@@ -14,12 +14,12 @@ type PulumiMock struct {
 	mock.Mock
 }
 
-// CreateStack provides a mock function with given fields: ctx, cfg, stack
-func (_m *PulumiMock) CreateStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
+// ProvisionStack provides a mock function with given fields: ctx, cfg, stack
+func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	ret := _m.Called(ctx, cfg, stack)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CreateStack")
+		panic("no return value specified for ProvisionStack")
 	}
 
 	var r0 error

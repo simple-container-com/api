@@ -34,7 +34,7 @@ func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) err
 		if pv == nil {
 			return errors.Errorf("provisioner is not set for stack %q", stack.Name)
 		}
-		if err := pv.CreateStack(ctx, cfg, stack); err != nil {
+		if err := pv.ProvisionStack(ctx, cfg, stack); err != nil {
 			return errors.Wrap(err, "failed to create stacks with pulumi")
 		}
 	}

@@ -72,7 +72,7 @@ func Test_Provision(t *testing.T) {
 			},
 			init: func(t *testing.T, ctx context.Context) (Provisioner, error) {
 				pulumiMock := pulumi_mocks.NewPulumiMock(t)
-				pulumiMock.On("CreateStack", ctx, mock.Anything, mock.Anything).
+				pulumiMock.On("ProvisionStack", ctx, mock.Anything, mock.Anything).
 					Return(errors.New("failed to create stacks"))
 				return New(
 					WithPlaceholders(placeholders.New(logger.New())),
@@ -93,7 +93,7 @@ func Test_Provision(t *testing.T) {
 			} else {
 				if len(tt.opts) == 0 {
 					pulumiMock := pulumi_mocks.NewPulumiMock(t)
-					pulumiMock.On("CreateStack", ctx, mock.Anything, mock.Anything).Return(nil)
+					pulumiMock.On("ProvisionStack", ctx, mock.Anything, mock.Anything).Return(nil)
 					tt.opts = []Option{
 						WithPlaceholders(placeholders.New(logger.New())),
 						WithOverrideProvisioner(pulumiMock),

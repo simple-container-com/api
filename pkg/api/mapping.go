@@ -48,7 +48,7 @@ func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
 }
 
 type Provisioner interface {
-	CreateStack(ctx context.Context, cfg *ConfigFile, stack Stack) error
+	ProvisionStack(ctx context.Context, cfg *ConfigFile, stack Stack) error
 }
 
 type ProvisionerOption func(p Provisioner) error

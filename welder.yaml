@@ -26,6 +26,6 @@ tasks:
   build:
     runOn: host
     script:
-      - ( [ "${SKIP_TESTS}" != 'true' ] && go test ./... )
+      - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
       - ${project:root}/bin/gofumpt -l -w .
       - go build ./...

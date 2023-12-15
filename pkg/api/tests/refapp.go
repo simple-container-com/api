@@ -22,6 +22,8 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type:        pulumi.SecretsProviderTypeGcpKms,
 				Credentials: "${auth:gcloud}",
+				KeyName:     "mypulumi-base-kms-key",
+				KeyLocation: "global",
 				Provision:   true,
 			},
 		}},
@@ -78,6 +80,8 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type:        pulumi.SecretsProviderTypeGcpKms,
 				Credentials: "<gcloud-service-account-email>",
+				KeyName:     "mypulumi-base-kms-key",
+				KeyLocation: "global",
 				Provision:   true,
 			},
 		}},
