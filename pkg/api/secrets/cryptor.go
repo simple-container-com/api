@@ -3,9 +3,9 @@ package secrets
 import (
 	"sync"
 
-	"github.com/samber/lo"
+	"api/pkg/api/git"
 
-	"api/pkg/provisioner/git"
+	"github.com/samber/lo"
 )
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
@@ -17,9 +17,10 @@ type Cryptor interface {
 	DecryptAll() error
 	EncryptAll() error
 	GetSecretFiles() EncryptedSecretFiles
-
+	GetAndDecryptFileContent(relPath string) ([]byte, error)
 	PublicKey() string
 	PrivateKey() string
+	Workdir() string
 }
 
 type cryptor struct {
@@ -34,6 +35,10 @@ type cryptor struct {
 	currentPublicKey  string
 	registry          Registry
 	secrets           EncryptedSecretFiles
+}
+
+func (c *cryptor) Workdir() string {
+	return c.workDir
 }
 
 func (c *cryptor) PublicKey() string {

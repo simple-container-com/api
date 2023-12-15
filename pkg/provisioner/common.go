@@ -6,15 +6,16 @@ import (
 	"path"
 	"sync"
 
+	git2 "api/pkg/api/git"
+	"api/pkg/api/logger"
+	secrets2 "api/pkg/api/secrets"
+
 	"api/pkg/provisioner/placeholders"
 
 	"github.com/pkg/errors"
 
 	"api/pkg/api"
-	"api/pkg/provisioner/git"
-	"api/pkg/provisioner/logger"
 	"api/pkg/provisioner/misc"
-	"api/pkg/provisioner/secrets"
 )
 
 type Provisioner interface {
@@ -28,7 +29,7 @@ type Provisioner interface {
 
 	Stacks() api.StacksMap
 
-	GitRepo() git.Repo
+	GitRepo() git2.Repo
 }
 
 const DefaultProfile = "default"
@@ -39,8 +40,8 @@ type provisioner struct {
 
 	_lock               sync.RWMutex // для защиты secrets & registry
 	context             context.Context
-	gitRepo             git.Repo
-	cryptor             secrets.Cryptor
+	gitRepo             git2.Repo
+	cryptor             secrets2.Cryptor
 	phResolver          placeholders.Placeholders
 	log                 logger.Logger
 	overrideProvisioner api.Provisioner
@@ -115,7 +116,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	}
 
 	if p.gitRepo == nil {
-		if repo, err := git.New(); err != nil {
+		if repo, err := git2.New(); err != nil {
 			return errors.Wrapf(err, "failed to init git")
 		} else {
 			p.gitRepo = repo
@@ -126,7 +127,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 		return errors.Wrapf(err, "failed to init git repo")
 	}
 	if p.cryptor == nil {
-		if cryptor, err := secrets.NewCryptor(params.RootDir); err != nil {
+		if cryptor, err := secrets2.NewCryptor(params.RootDir); err != nil {
 			return errors.Wrapf(err, "failed to init cryptor")
 		} else {
 			p.cryptor = cryptor
@@ -164,7 +165,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	}
 
 	// initial commit
-	if err := p.gitRepo.Commit("simple-container.com initial commit", git.CommitOpts{
+	if err := p.gitRepo.Commit("simple-container.com initial commit", git2.CommitOpts{
 		All: true,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to make initial commit")
@@ -173,6 +174,6 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	return nil
 }
 
-func (p *provisioner) GitRepo() git.Repo {
+func (p *provisioner) GitRepo() git2.Repo {
 	return p.gitRepo
 }

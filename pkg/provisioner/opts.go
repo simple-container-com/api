@@ -3,13 +3,13 @@ package provisioner
 import (
 	"context"
 
+	"api/pkg/api/git"
+	"api/pkg/api/logger"
+	"api/pkg/api/secrets"
+
 	"api/pkg/api"
 
 	"api/pkg/provisioner/placeholders"
-
-	"api/pkg/provisioner/git"
-	"api/pkg/provisioner/logger"
-	"api/pkg/provisioner/secrets"
 )
 
 type Option func(p *provisioner) error

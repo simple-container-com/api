@@ -1,6 +1,7 @@
 package pulumi
 
 const (
-	StateStorageTypeGcpBucket = "gcp-bucket"
-	SecretsProviderTypeGcpKms = "gcp-kms"
+	StateStorageTypeGcpBucket   = "gcp-bucket"
+	StateStorageTypePulumiCloud = "pulumi-cloud"
+	SecretsProviderTypeGcpKms   = "gcp-kms"
 )

@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"testing"
 
-	"api/pkg/api"
+	"api/pkg/api/logger"
 
+	. "github.com/onsi/gomega"
+
+	"api/pkg/api"
+	tests "api/pkg/api/tests"
+	testutils "api/pkg/api/tests/testutil"
 	"api/pkg/clouds/gcloud"
 	"api/pkg/clouds/github"
 	"api/pkg/clouds/mongodb"
 	"api/pkg/clouds/pulumi"
-
-	. "github.com/onsi/gomega"
-
-	"api/pkg/provisioner/logger"
-	testutils "api/pkg/provisioner/tests"
 )
 
 func Test_placeholders_ProcessStacks(t *testing.T) {
@@ -29,7 +29,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 		{
 			name: "common stack",
 			stacks: api.StacksMap{
-				"common": testutils.CommonStack,
+				"common": tests.CommonStack,
 			},
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["common"].Secrets.Auth["gcloud"]).NotTo(BeNil())
@@ -48,8 +48,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 		{
 			name: "refapp stack",
 			stacks: api.StacksMap{
-				"common": testutils.CommonStack,
-				"refapp": testutils.RefappStack,
+				"common": tests.CommonStack,
+				"refapp": tests.RefappStack,
 			},
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp"]).NotTo(BeNil())

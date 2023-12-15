@@ -9,17 +9,18 @@ provisioner:
     secrets-provider:
       type: gcp-kms
       provision: true
+      keyReference: gcpkms://projects/<project-id>/locations/global/keyRings/<keyring-id>/cryptoKeys/<key-name>
       credentials: "${auth:gcloud}"
 #  type: pulumi
 #  config:
+#    organization: mypulumiorg
 #    state-storage:
 #      type: pulumi-cloud
-#      organization: mypulumi-org
 #      credentials: "${auth:pulumi}"
 #      provision: true
 #    secrets-provider:
 #      type: pulumi-cloud
-#      organization: mypulumi-org
+#      organization: mypulumi-other-org
 #      provision: true
 #      credentials: "${auth:pulumi}"
 secrets:

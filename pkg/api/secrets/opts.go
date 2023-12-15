@@ -6,10 +6,11 @@ import (
 	"os"
 	"strings"
 
+	git2 "api/pkg/api/git"
+
 	"github.com/pkg/errors"
 
 	"api/pkg/api"
-	"api/pkg/provisioner/git"
 )
 
 type Option struct {
@@ -17,13 +18,28 @@ type Option struct {
 	beforeInit bool
 }
 
-func WithGitRepo(gitRepo git.Repo) Option {
+func WithGitRepo(gitRepo git2.Repo) Option {
 	return Option{
 		beforeInit: true,
 		f: func(c *cryptor) error {
 			c.gitRepo = gitRepo
 			return nil
 		},
+	}
+}
+
+func WithDetectGitDir() Option {
+	return Option{
+		f: func(c *cryptor) error {
+			var err error
+			c.gitRepo, err = git2.New(git2.WithDetectRootDir())
+			if err != nil {
+				return err
+			}
+			c.workDir = c.gitRepo.Workdir()
+			return nil
+		},
+		beforeInit: true,
 	}
 }
 
@@ -118,7 +134,7 @@ func WithPrivateKey(filePath string) Option {
 			}
 			file, err := c.gitRepo.OpenFile(filePath, os.O_RDONLY, fs.ModePerm)
 			if err != nil {
-				return errors.Wrapf(err, "failed to open public key file: %q", filePath)
+				return errors.Wrapf(err, "failed to open private key file: %q", filePath)
 			}
 			defer func() { _ = file.Close() }()
 			if data, err := io.ReadAll(file); err != nil {

@@ -1,3 +1,4 @@
 .idea
 bin
 *.iml
+pkg/clouds/pulumi/testdata/sc-test-project-sa.json

@@ -6,13 +6,16 @@ import (
 	"path"
 	"testing"
 
+	git2 "api/pkg/api/git"
+	"api/pkg/api/logger"
+	"api/pkg/api/tests/testutil"
+
 	"api/pkg/clouds/pulumi/mocks"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 
 	"api/pkg/api"
-	"api/pkg/provisioner/logger"
 	"api/pkg/provisioner/placeholders"
 
 	"github.com/onsi/gomega/format"
@@ -21,8 +24,6 @@ import (
 	"github.com/samber/lo"
 
 	"api/pkg/api/tests"
-	"api/pkg/provisioner/git"
-	testutils "api/pkg/provisioner/tests"
 )
 
 func Test_Provision(t *testing.T) {
@@ -151,7 +152,7 @@ func Test_Init(t *testing.T) {
 				RootDir:     "testdata/refapp-existing-gitdir",
 			},
 			init: func(wd string) Provisioner {
-				gitRepo, err := git.New(git.WithGitDir("gitdir"), git.WithRootDir(wd))
+				gitRepo, err := git2.New(git2.WithGitDir("gitdir"), git2.WithRootDir(wd))
 				Expect(err).To(BeNil())
 				p, err := New(WithGitRepo(gitRepo), WithPlaceholders(placeholders.New(logger.New())))
 				Expect(err).To(BeNil())
@@ -171,10 +172,10 @@ func Test_Init(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 
-			workDir, cleanup, err := testutils.CopyTempProject(tt.params.RootDir)
+			workDir, cleanup, err := testutil.CopyTempProject(tt.params.RootDir)
 			defer cleanup()
 
-			testutils.CheckError(err, tt.wantAnyErr)
+			testutil.CheckError(err, tt.wantAnyErr)
 
 			var p Provisioner
 			if tt.init != nil {
@@ -183,13 +184,13 @@ func Test_Init(t *testing.T) {
 				p, err = New(tt.opts...)
 			}
 
-			testutils.CheckError(err, tt.wantAnyErr)
+			testutil.CheckError(err, tt.wantAnyErr)
 
 			// overwrite root dir to temp
 			tt.params.RootDir = workDir
 
 			err = p.Init(ctx, tt.params)
-			testutils.CheckError(err, tt.wantInitErr)
+			testutil.CheckError(err, tt.wantInitErr)
 
 			if tt.check != nil {
 				tt.check(t, workDir, p)
@@ -201,7 +202,7 @@ func Test_Init(t *testing.T) {
 func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
 	t.Run("initial commit is present", func(t *testing.T) {
 		commits := p.GitRepo().Log()
-		commit, exists := lo.Find(commits, func(c git.Commit) bool {
+		commit, exists := lo.Find(commits, func(c git2.Commit) bool {
 			return c.Message == "simple-container.com initial commit"
 		})
 		Expect(exists).To(BeTrue())

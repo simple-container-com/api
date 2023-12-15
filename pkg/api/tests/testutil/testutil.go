@@ -1,11 +1,8 @@
-package tests
+package testutil
 
 import (
 	"os"
 
-	"api/pkg/api"
-
-	"api/pkg/api/tests"
 	. "github.com/onsi/gomega"
 	"github.com/otiai10/copy"
 )
@@ -24,17 +21,4 @@ func CheckError(err error, checkErr string) {
 	if checkErr != "" && err != nil {
 		Expect(err.Error()).To(MatchRegexp(checkErr))
 	}
-}
-
-var CommonStack = api.Stack{
-	Name:    "common",
-	Secrets: *tests.CommonSecretsDescriptor,
-	Server:  *tests.CommonServerDescriptor,
-}
-
-var RefappStack = api.Stack{
-	Name:    "refapp",
-	Secrets: *tests.CommonSecretsDescriptor,
-	Server:  *tests.RefappServerDescriptor,
-	Client:  *tests.RefappClientDescriptor,
 }

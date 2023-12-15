@@ -5,7 +5,7 @@ import (
 	"path"
 	"testing"
 
-	"api/pkg/provisioner/tests"
+	"api/pkg/api/tests/testutil"
 
 	. "github.com/onsi/gomega"
 )
@@ -60,7 +60,7 @@ func TestOpenRepo(t *testing.T) {
 	t.Parallel()
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			workDir, cleanup, err := tests.CopyTempProject(tt.testExampleDir)
+			workDir, cleanup, err := testutil.CopyTempProject(tt.testExampleDir)
 			defer cleanup()
 
 			if err != nil && tt.wantErr != "" {

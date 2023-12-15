@@ -4,12 +4,15 @@ import (
 	"os"
 	"path"
 
+	"api/pkg/api/git/path_util"
+
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
+
 	"github.com/pkg/errors"
 )
 
@@ -31,6 +34,7 @@ type Repo interface {
 	AddFileToGit(filePath string) error
 	Commit(msg string, opts CommitOpts) error
 	Log() []Commit
+	Workdir() string
 }
 
 type Commit struct {
@@ -51,7 +55,14 @@ type repo struct {
 }
 
 func (r *repo) OpenFile(filePath string, flag int, perm os.FileMode) (billy.File, error) {
-	return r.wdFs.OpenFile(filePath, flag, perm)
+	rPath, err := path_util.ReplaceTildeWithHome(filePath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to replace path %q with home", filePath)
+	}
+	if path.IsAbs(rPath) {
+		return osfs.New("").OpenFile(rPath, flag, perm)
+	}
+	return r.wdFs.OpenFile(rPath, flag, perm)
 }
 
 func New(opts ...Option) (Repo, error) {
@@ -77,6 +88,10 @@ func (r *repo) InitOrOpen(wd string, opts ...Option) error {
 		return err
 	}
 	return nil
+}
+
+func (r *repo) Workdir() string {
+	return r.workDir
 }
 
 func (r *repo) Init(wd string, opts ...Option) error {
@@ -145,6 +160,25 @@ func Open(wd string, opts ...Option) (Repo, error) {
 	}
 	c.gitRepo, err = git.Open(st, wt)
 	return c, err
+}
+
+func (r *repo) detectRootDir() error {
+	gitRepo, err := git.PlainOpenWithOptions("", &git.PlainOpenOptions{
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: false,
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to detect git dir")
+	}
+	r.gitRepo = gitRepo
+	wt, err := gitRepo.Worktree()
+	if err != nil {
+		return errors.Wrapf(err, "failed to open worktree")
+	}
+	r.gitFs = wt.Filesystem
+	r.workDir = wt.Filesystem.Root()
+	r.wdFs = osfs.New(r.workDir)
+	return nil
 }
 
 func (r *repo) CreateFile(filePath string) (billy.File, error) {

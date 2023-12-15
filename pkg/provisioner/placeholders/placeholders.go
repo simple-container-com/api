@@ -3,6 +3,8 @@ package placeholders
 import (
 	"reflect"
 
+	"api/pkg/api/logger"
+
 	"api/pkg/api"
 
 	"github.com/pkg/errors"
@@ -10,8 +12,6 @@ import (
 
 	"github.com/simple-container-com/welder/pkg/template"
 	"github.com/simple-container-com/welder/pkg/welder/types"
-
-	"api/pkg/provisioner/logger"
 )
 
 type Placeholders interface {

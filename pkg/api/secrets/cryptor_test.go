@@ -8,8 +8,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"api/pkg/api"
-	"api/pkg/provisioner/git"
-	"api/pkg/provisioner/tests"
+	"api/pkg/api/git"
+	"api/pkg/api/tests/testutil"
 )
 
 func withGitDir(gitDir string) Option {
@@ -121,7 +121,7 @@ func TestNewCryptor(t *testing.T) {
 	t.Parallel()
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			workDir, cleanup, err := tests.CopyTempProject(tt.testExampleDir)
+			workDir, cleanup, err := testutil.CopyTempProject(tt.testExampleDir)
 			defer cleanup()
 
 			if err != nil && tt.wantErr != "" {

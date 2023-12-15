@@ -19,3 +19,9 @@ func WithRootDir(dir string) Option {
 		return nil
 	}
 }
+
+func WithDetectRootDir() Option {
+	return func(r *repo) error {
+		return r.detectRootDir()
+	}
+}

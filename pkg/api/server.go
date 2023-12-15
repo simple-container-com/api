@@ -13,6 +13,7 @@ type ServerDescriptor struct {
 	Variables     map[string]VariableDescriptor `json:"variables" yaml:"variables"`
 }
 
+// ValuesOnly returns copy of descriptor without additional state (e.g. provisioner reference etc.)
 func (sd *ServerDescriptor) ValuesOnly() *ServerDescriptor {
 	return &ServerDescriptor{
 		SchemaVersion: sd.SchemaVersion,
@@ -96,6 +97,7 @@ func (pd *ProvisionerDescriptor) GetProvisioner() Provisioner {
 	return pd.provisioner
 }
 
+// ValuesOnly returns copy of descriptor without provisioner reference
 func (pd *ProvisionerDescriptor) ValuesOnly() ProvisionerDescriptor {
 	return ProvisionerDescriptor{
 		Type:    pd.Type,

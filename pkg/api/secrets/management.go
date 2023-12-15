@@ -8,20 +8,36 @@ import (
 	"os"
 	"path"
 
+	"api/pkg/api/secrets/ciphers"
+
 	"api/pkg/api"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"golang.org/x/crypto/ssh"
-
-	"api/pkg/provisioner/secrets/ciphers"
 )
 
 func (c *cryptor) GetSecretFiles() EncryptedSecretFiles {
 	defer c.withReadLock()()
 	res := c.secrets
 	return res
+}
+
+func (c *cryptor) GetAndDecryptFileContent(relPath string) ([]byte, error) {
+	defer c.withReadLock()()
+
+	if f, found := c.secrets.Secrets[c.currentPublicKey]; !found {
+		return nil, errors.Errorf("secret file %q not found", relPath)
+	} else if encrypted, found := lo.Find(f.Files, func(item EncryptedSecretFile) bool {
+		return item.Path == relPath
+	}); !found {
+		return nil, errors.Errorf("encrypted secret file %q not found", relPath)
+	} else if content, err := c.decryptSecretData(encrypted.EncryptedData, relPath); err != nil {
+		return nil, errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", relPath, c.currentPublicKey)
+	} else {
+		return content, nil
+	}
 }
 
 func (c *cryptor) AddFile(filePath string) error {
@@ -174,7 +190,7 @@ func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]strin
 	return encryptedData, nil
 }
 
-func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath string) ([]byte, error) {
+func (c *cryptor) decryptSecretData(encryptedData []string, relFilePath string) ([]byte, error) {
 	if c.currentPrivateKey == "" {
 		return nil, errors.New("private key is not configured")
 	}
@@ -194,6 +210,14 @@ func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath st
 	decrypted, err := ciphers.DecryptLargeString(key, encryptedData)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to decrypt secret")
+	}
+	return decrypted, nil
+}
+
+func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath string) ([]byte, error) {
+	decrypted, err := c.decryptSecretData(encryptedData, relFilePath)
+	if err != nil {
+		return nil, err
 	}
 
 	var file billy.File
