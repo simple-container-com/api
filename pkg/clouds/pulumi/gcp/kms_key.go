@@ -15,13 +15,14 @@ type KmsKeyInput struct {
 	KeyName           string
 	KeyLocation       string
 	KeyRotationPeriod string
+	Provider          sdk.ProviderResource
 }
 
 func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, params KmsKeyInput) (*kms.CryptoKey, error) {
 	// Create a new KeyRing for stack
 	keyRing, err := kms.NewKeyRing(ctx, stack.Name, &kms.KeyRingArgs{
 		Location: sdk.String(params.KeyLocation),
-	})
+	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +37,7 @@ func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, params KmsKeyInput) (*km
 			Algorithm:       sdk.String("GOOGLE_SYMMETRIC_ENCRYPTION"),
 			ProtectionLevel: sdk.String("SOFTWARE"),
 		},
-	})
+	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, err
 	}

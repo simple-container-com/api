@@ -15,7 +15,7 @@ type Cryptor interface {
 	AddFile(path string) error
 	RemoveFile(path string) error
 	DecryptAll() error
-	EncryptAll() error
+	EncryptChanged() error
 	GetSecretFiles() EncryptedSecretFiles
 	GetAndDecryptFileContent(relPath string) ([]byte, error)
 	PublicKey() string
@@ -66,6 +66,16 @@ func (es *EncryptedSecrets) AddFileIfNotExist(f EncryptedSecretFile) {
 		return item.Path == f.Path
 	}) {
 		es.Files = append(es.Files, f)
+	}
+}
+
+func (es *EncryptedSecrets) GetEncryptedContent(path string) []string {
+	if file, found := lo.Find(es.Files, func(item EncryptedSecretFile) bool {
+		return item.Path == path
+	}); !found {
+		return []string{}
+	} else {
+		return file.EncryptedData
 	}
 }
 

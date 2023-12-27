@@ -33,7 +33,7 @@ func (c *cryptor) GetAndDecryptFileContent(relPath string) ([]byte, error) {
 		return item.Path == relPath
 	}); !found {
 		return nil, errors.Errorf("encrypted secret file %q not found", relPath)
-	} else if content, err := c.decryptSecretData(encrypted.EncryptedData, relPath); err != nil {
+	} else if content, err := c.decryptSecretData(encrypted.EncryptedData); err != nil {
 		return nil, errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", relPath, c.currentPublicKey)
 	} else {
 		return content, nil
@@ -49,7 +49,7 @@ func (c *cryptor) AddFile(filePath string) error {
 	if lo.IndexOf(c.registry.Files, filePath) < 0 {
 		c.registry.Files = append(c.registry.Files, filePath)
 	}
-	if err := c.EncryptAll(); err != nil {
+	if err := c.EncryptChanged(); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	if err := c.marshalSecretsFile(); err != nil {
@@ -69,7 +69,7 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	c.registry.Files = lo.Filter(c.registry.Files, func(s string, _ int) bool {
 		return s != filePath
 	})
-	if err := c.EncryptAll(); err != nil {
+	if err := c.EncryptChanged(); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	err := c.marshalSecretsFile()
@@ -125,7 +125,7 @@ func (c *cryptor) DecryptAll() error {
 	return nil
 }
 
-func (c *cryptor) EncryptAll() error {
+func (c *cryptor) EncryptChanged() error {
 	for publicKey := range c.secrets.Secrets {
 		filteredSecrets := c.secrets.Secrets[publicKey]
 		filteredSecrets.Files = lo.Filter(filteredSecrets.Files, func(file EncryptedSecretFile, _ int) bool {
@@ -134,22 +134,40 @@ func (c *cryptor) EncryptAll() error {
 		c.secrets.Secrets[publicKey] = filteredSecrets
 	}
 	for _, relFilePath := range c.registry.Files {
+		secretData, err := c.readSecretFile(relFilePath)
+		if err != nil {
+			return errors.Wrapf(err, "failed to read secret file %q", relFilePath)
+		}
+		secrets := c.secrets.Secrets[c.currentPublicKey]
+
+		// for all other public keys
 		for publicKey := range c.secrets.Secrets {
+			pKeySecrets := c.secrets.Secrets[publicKey]
+
+			if currentContent, _ := c.decryptSecretData(pKeySecrets.GetEncryptedContent(relFilePath)); currentContent != nil && string(secretData) == string(currentContent) {
+				// skip re-encrypting for unchanged secret
+				continue
+			}
+
 			sFile, err := c.encryptSecretsFileWith(publicKey, relFilePath)
 			if err != nil {
 				return err
 			}
-			s := c.secrets.Secrets[publicKey]
-			s.AddFileIfNotExist(sFile)
-			c.secrets.Secrets[publicKey] = s
+			pKeySecrets.AddFileIfNotExist(sFile)
+			c.secrets.Secrets[publicKey] = pKeySecrets
 		}
+
+		if currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath)); currentContent != nil && string(secretData) == string(currentContent) {
+			// skip re-encrypting for unchanged secret
+			continue
+		}
+
 		sFile, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
 		if err != nil {
 			return err
 		}
-		s := c.secrets.Secrets[c.currentPublicKey]
-		s.AddFileIfNotExist(sFile)
-		c.secrets.Secrets[c.currentPublicKey] = s
+		secrets.AddFileIfNotExist(sFile)
+		c.secrets.Secrets[c.currentPublicKey] = secrets
 	}
 	return nil
 }
@@ -167,13 +185,9 @@ func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (
 }
 
 func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]string, error) {
-	file, err := c.gitRepo.OpenFile(relFilePath, os.O_RDONLY, fs.ModePerm)
+	secretData, err := c.readSecretFile(relFilePath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
-	}
-	secretData, err := io.ReadAll(file)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read secret file: %q", relFilePath)
+		return nil, errors.Wrapf(err, "failed to read secret file %q", relFilePath)
 	}
 
 	parsed, err := ciphers.ParsePublicKey(keyData)
@@ -190,7 +204,19 @@ func (c *cryptor) encryptSecretFile(keyData string, relFilePath string) ([]strin
 	return encryptedData, nil
 }
 
-func (c *cryptor) decryptSecretData(encryptedData []string, relFilePath string) ([]byte, error) {
+func (c *cryptor) readSecretFile(relFilePath string) ([]byte, error) {
+	file, err := c.gitRepo.OpenFile(relFilePath, os.O_RDONLY, fs.ModePerm)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
+	}
+	secretData, err := io.ReadAll(file)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read secret file: %q", relFilePath)
+	}
+	return secretData, err
+}
+
+func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 	if c.currentPrivateKey == "" {
 		return nil, errors.New("private key is not configured")
 	}
@@ -215,7 +241,7 @@ func (c *cryptor) decryptSecretData(encryptedData []string, relFilePath string) 
 }
 
 func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath string) ([]byte, error) {
-	decrypted, err := c.decryptSecretData(encryptedData, relFilePath)
+	decrypted, err := c.decryptSecretData(encryptedData)
 	if err != nil {
 		return nil, err
 	}

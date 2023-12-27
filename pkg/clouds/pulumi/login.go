@@ -1,8 +1,10 @@
 package pulumi
 
 import (
+	"api/pkg/api/git/path_util"
 	"context"
 	"fmt"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"os"
 	"strings"
 
@@ -19,7 +21,7 @@ import (
 	"api/pkg/api"
 )
 
-func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*sdk.Context, backend.Backend, backend.StackReference, error) {
+func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*auto.Stack, backend.Backend, backend.StackReference, error) {
 	cmdutil.DisableInteractive = true
 
 	provisionerCfg, err := p.getProvisionerConfig(stack)
@@ -35,16 +37,31 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		organization = provisionerCfg.Organization
 	}
 
-	sdkCtx, err := sdk.NewContext(ctx, sdk.RunInfo{
-		Organization: organization,
-		Project:      cfg.ProjectName,
-		Stack:        stack.Name,
-		MonitorAddr:  "",
-		EngineAddr:   "",
-	})
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to init pulumi provisioner context")
 	}
+
+	if os.Getenv(workspace.PulumiHomeEnvVar) == "" {
+		// TODO: detect pulumi home
+		if pulumiHome, err := path_util.ReplaceTildeWithHome("~/.pulumi"); err != nil {
+			p.logger.Warn(ctx, "failed to replace tilde with home: %q", err.Error())
+		} else if err := os.Setenv("PATH", fmt.Sprintf("%s/bin:%s", pulumiHome, os.Getenv("PATH"))); err != nil {
+			p.logger.Warn(ctx, "failed to set %s var", "PATH")
+		}
+	}
+
+	pStack, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, func(ctx *sdk.Context) error {
+		if err := p.provisionSecretsProvider(ctx, provisionerCfg, stack); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	upRes, err := pStack.Up(ctx)
+	if err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to provision stack %q", pStack.Name())
+	}
+	p.logger.Info(ctx, fmt.Sprint(upRes.Outputs))
 
 	project := &workspace.Project{
 		Name: tokens.PackageName(cfg.ProjectName),
@@ -87,12 +104,12 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 	p.logger.Info(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
 
-	ref, err := be.ParseStackReference(fmt.Sprintf("%s/%s/%s", sdkCtx.Organization(), sdkCtx.Project(), stack.Name))
+	ref, err := be.ParseStackReference(fmt.Sprintf("%s/%s/%s", organization, project.Name, stack.Name))
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	return sdkCtx, be, ref, nil
+	return &pStack, be, ref, nil
 }
 
 func (p *pulumi) getProvisionerConfig(stack api.Stack) (*ProvisionerConfig, error) {

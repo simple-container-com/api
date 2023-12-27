@@ -2,6 +2,7 @@ package pulumi
 
 import (
 	"context"
+	"github.com/pkg/errors"
 
 	"api/pkg/api"
 	"api/pkg/api/logger"
@@ -30,7 +31,7 @@ func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, erro
 
 func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	if err := p.createStackIfNotExists(ctx, cfg, stack); err != nil {
-		return err
+		return errors.Wrapf(err, "failed to create stack %q if not exists", stack.Name)
 	}
 	if err := p.provisionStack(ctx, cfg, stack); err != nil {
 		return err
