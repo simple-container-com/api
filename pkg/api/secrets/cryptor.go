@@ -16,6 +16,7 @@ type Cryptor interface {
 	RemoveFile(path string) error
 	DecryptAll() error
 	EncryptChanged() error
+	ReadSecretFiles() error
 	GetSecretFiles() EncryptedSecretFiles
 	GetAndDecryptFileContent(relPath string) ([]byte, error)
 	PublicKey() string

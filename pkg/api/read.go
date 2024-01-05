@@ -31,6 +31,15 @@ func MarshalDescriptor[T any](descriptor *T) ([]byte, error) {
 	return yaml.Marshal(descriptor)
 }
 
+func UnmarshalDescriptor[T any](bytes []byte) (*T, error) {
+	var descriptor T
+	err := yaml.Unmarshal(bytes, &descriptor)
+	if err != nil {
+		return nil, err
+	}
+	return &descriptor, nil
+}
+
 func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	descriptor, err := ReadDescriptor(path, &ServerDescriptor{})
 

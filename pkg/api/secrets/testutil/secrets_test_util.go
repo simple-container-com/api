@@ -13,6 +13,8 @@ func ReadIntegrationTestConfig(t *testing.T, testSecretFiles ...string) (*api.Co
 	c, err := secrets.NewCryptor("", secrets.WithDetectGitDir(), secrets.WithProfile("test"), secrets.WithKeysFromCurrentProfile())
 	Expect(err).To(BeNil())
 
+	Expect(c.ReadSecretFiles()).To(BeNil())
+
 	cfg, err := api.ReadConfigFile(c.Workdir(), "test")
 	Expect(err).To(BeNil())
 

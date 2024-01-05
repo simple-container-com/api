@@ -24,6 +24,11 @@ func (c *cryptor) GetSecretFiles() EncryptedSecretFiles {
 	return res
 }
 
+func (c *cryptor) ReadSecretFiles() error {
+	defer c.withWriteLock()()
+	return c.unmarshalSecretsFile()
+}
+
 func (c *cryptor) GetAndDecryptFileContent(relPath string) ([]byte, error) {
 	defer c.withReadLock()()
 
@@ -79,6 +84,31 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	err = c.gitRepo.RemoveFileFromIgnore(filePath)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (c *cryptor) unmarshalSecretsFile() error {
+	secretsFilePath := path.Join(api.ScConfigDirectory, EncryptedSecretFilesDataFileName)
+
+	var err error
+	var file billy.File
+	file, err = c.gitRepo.OpenFile(secretsFilePath, os.O_CREATE|os.O_RDONLY, os.ModePerm)
+	if err != nil {
+		return err
+	}
+	if file == nil {
+		return errors.New("file is nil")
+	}
+	defer func() { _ = file.Close() }()
+	secretsFileData, err := io.ReadAll(file)
+	if err != nil {
+		return errors.Wrapf(err, "failed to read secret file: %q", secretsFilePath)
+	}
+	if res, err := api.UnmarshalDescriptor[EncryptedSecretFiles](secretsFileData); err != nil || res == nil {
+		return errors.Wrapf(err, "failed to unmarshal secrets file: %q", secretsFilePath)
+	} else {
+		c.secrets = *res
 	}
 	return nil
 }
