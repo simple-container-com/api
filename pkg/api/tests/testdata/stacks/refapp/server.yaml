@@ -46,6 +46,7 @@ resources:
             version: 14.5
             project: "${stack:name}"
             credentials: "${auth:gcloud}"
+            projectId: "${auth:gcloud.projectId}"
     prod:
       template: stack-per-app
       resources: *resources

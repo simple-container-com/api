@@ -59,6 +59,7 @@ func (p *pulumi) provisionSecretsProviderGcpKms(ctx *sdk.Context, provisionerCfg
 	gcpProvider, err := gcp.ProvisionProvider(ctx, gcp.ProviderInput{
 		Name:        fmt.Sprintf("%s-secrets-provider", stack.Name),
 		Credentials: provisionerCfg.SecretsProvider.Credentials,
+		ProjectId:   provisionerCfg.SecretsProvider.ProjectId,
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to provision gcp provider")

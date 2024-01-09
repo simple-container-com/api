@@ -5,10 +5,12 @@ provisioner:
     state-storage:
       type: gcp-bucket
       credentials: "${auth:gcloud}"
+      projectId: "${auth:gcloud.projectId}"
       provision: true
     secrets-provider:
       type: gcp-kms
       provision: true
+      projectId: "${auth:gcloud.projectId}"
       keyName: mypulumi-base-kms-key
       keyLocation: global
       credentials: "${auth:gcloud}"
@@ -27,11 +29,13 @@ provisioner:
 secrets:
   type: gcp-secrets-manager
   config:
+    projectId: "${auth:gcloud.projectId}"
     credentials: "${auth:gcloud}"
 templates:
   stack-per-app:
     type: cloudrun
     config:
+      projectId: "${auth:gcloud.projectId}"
       credentials: "${auth:gcloud}"
 cicd:
   type: github-actions

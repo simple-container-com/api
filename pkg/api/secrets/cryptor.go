@@ -3,9 +3,9 @@ package secrets
 import (
 	"sync"
 
-	"api/pkg/api/git"
-
 	"github.com/samber/lo"
+
+	"api/pkg/api/git"
 )
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"

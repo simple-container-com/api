@@ -20,7 +20,7 @@ import (
 func Test_placeholders_ProcessStacks(t *testing.T) {
 	RegisterTestingT(t)
 
-	tests := []struct {
+	tcs := []struct {
 		name    string
 		stacks  api.StacksMap
 		wantErr string
@@ -36,6 +36,9 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				srvConfig := stacks["common"].Server.Provisioner.Config.Config
 				Expect(srvConfig).To(BeAssignableToTypeOf(&pulumi.ProvisionerConfig{}))
 				pConfig := srvConfig.(*pulumi.ProvisionerConfig)
+
+				Expect(pConfig.StateStorage.ProjectId).To(Equal("test-gcp-project"))
+				Expect(pConfig.SecretsProvider.ProjectId).To(Equal("test-gcp-project"))
 				Expect(pConfig.StateStorage.Credentials).To(Equal("<gcloud-service-account-email>"))
 				Expect(pConfig.SecretsProvider.Credentials).To(Equal("<gcloud-service-account-email>"))
 
@@ -78,7 +81,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 		},
 	}
 	t.Parallel()
-	for _, tt := range tests {
+	for _, tt := range tcs {
 		t.Run(tt.name, func(t *testing.T) {
 			ph := &placeholders{
 				log: logger.New(),

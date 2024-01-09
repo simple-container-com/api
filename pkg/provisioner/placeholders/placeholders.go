@@ -2,6 +2,7 @@ package placeholders
 
 import (
 	"reflect"
+	"strings"
 
 	"api/pkg/api/logger"
 
@@ -102,19 +103,30 @@ func (p *placeholders) tplSecrets(stackName string, stack api.Stack, stacks api.
 
 func (p *placeholders) tplAuth(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
-		if auth, ok := stack.Secrets.Auth[path]; !ok {
-			return noSubs, errors.Errorf("auth %s not found in stack %s", path, stackName)
+		pathParts := strings.SplitN(path, ".", 2)
+		var resAuth api.AuthDescriptor
+		if auth, ok := stack.Secrets.Auth[pathParts[0]]; !ok {
+			return noSubs, errors.Errorf("auth %s not found in stack %s", pathParts[0], stackName)
 		} else if !auth.IsInherited() {
-			if val, err := auth.AuthValue(); err != nil {
+			resAuth = auth
+		} else if pAuth, ok := stacks[auth.Inherit.Inherit].Secrets.Auth[pathParts[0]]; auth.IsInherited() && ok {
+			resAuth = pAuth
+		}
+
+		if resAuth.Type != "" {
+			authConfig, err := resAuth.AuthConfig()
+			if err != nil {
 				return noSubs, err
-			} else {
-				return val, nil
 			}
-		} else if pAuth, ok := stacks[auth.Inherit.Inherit].Secrets.Auth[path]; auth.IsInherited() && ok {
-			if val, err := pAuth.AuthValue(); err != nil {
-				return noSubs, err
-			} else {
-				return val, nil
+			if len(pathParts) == 1 {
+				return authConfig.CredentialsValue(), nil
+			} else if len(pathParts) == 2 {
+				if res, ok := map[string]string{
+					"projectId":   authConfig.ProjectIdValue(),
+					"credentials": authConfig.CredentialsValue(),
+				}[pathParts[1]]; ok {
+					return res, nil
+				}
 			}
 		}
 		return noSubs, errors.Errorf("inherited auth %s not found in stack %s", path, stackName)

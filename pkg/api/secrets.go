@@ -17,10 +17,10 @@ type AuthDescriptor struct {
 	Inherit `json:",inline" yaml:",inline"`
 }
 
-func (a *AuthDescriptor) AuthValue() (string, error) {
+func (a *AuthDescriptor) AuthConfig() (AuthConfig, error) {
 	c, ok := a.Config.Config.(AuthConfig)
 	if !ok {
-		return "", errors.Errorf("auth config %q does not implement AuthConfig", a)
+		return nil, errors.Errorf("auth config %q does not implement AuthConfig", a)
 	}
-	return c.AuthValue(), nil
+	return c, nil
 }

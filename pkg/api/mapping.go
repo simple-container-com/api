@@ -48,11 +48,12 @@ func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
 }
 
 type Provisioner interface {
-	ProvisionStack(ctx context.Context, cfg *ConfigFile, stack Stack) error
+	ProvisionStack(ctx context.Context, cfg *ConfigFile, pubKey string, stack Stack) error
 }
 
 type ProvisionerOption func(p Provisioner) error
 
 type AuthConfig interface {
-	AuthValue() string
+	CredentialsValue() string
+	ProjectIdValue() string
 }

@@ -21,6 +21,7 @@ type KmsKeyInput struct {
 func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, params KmsKeyInput) (*kms.CryptoKey, error) {
 	// Create a new KeyRing for stack
 	keyRing, err := kms.NewKeyRing(ctx, stack.Name, &kms.KeyRingArgs{
+		Name:     sdk.String(stack.Name),
 		Location: sdk.String(params.KeyLocation),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
@@ -31,6 +32,7 @@ func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, params KmsKeyInput) (*km
 	rotationPeriod := lo.If(params.KeyRotationPeriod == "", "100000s").Else(params.KeyRotationPeriod)
 
 	key, err := kms.NewCryptoKey(ctx, params.KeyName, &kms.CryptoKeyArgs{
+		Name:           sdk.String(params.KeyName),
 		KeyRing:        keyRing.ID(),               // Reference the ID of the KeyRing created above.
 		RotationPeriod: sdk.String(rotationPeriod), // Define key rotation period in seconds.
 		VersionTemplate: &kms.CryptoKeyVersionTemplateArgs{

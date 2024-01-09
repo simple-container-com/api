@@ -15,6 +15,7 @@ type Pulumi interface {
 
 type pulumi struct {
 	logger logger.Logger
+	pubKey string
 }
 
 func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, error) {
@@ -29,7 +30,8 @@ func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, erro
 	return res, nil
 }
 
-func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
+func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, stack api.Stack) error {
+	p.pubKey = pubKey // find better way of setting this
 	if err := p.createStackIfNotExists(ctx, cfg, stack); err != nil {
 		return errors.Wrapf(err, "failed to create stack %q if not exists", stack.Name)
 	}

@@ -5,10 +5,12 @@ provisioner:
     state-storage:
       type: gcp-bucket
       credentials: "${auth:gcloud}"
+      projectId: "${auth:gcloud.projectId}"
       provision: true
     secrets-provider:
       type: gcp-kms
       provision: true
+      projectId: "${auth:gcloud.projectId}"
       credentials: "${auth:gcloud}"
 #  type: pulumi
 #  config:

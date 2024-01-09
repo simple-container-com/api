@@ -38,12 +38,14 @@ func Test_CreateStack(t *testing.T) {
 						StateStorage: StateStorageConfig{
 							Type:        StateStorageTypeGcpBucket,
 							BucketName:  "sc-pulumi-test",
+							ProjectId:   "sc-test-project-408205",
 							Credentials: string(gcpSa),
 							Provision:   true,
 						},
 						SecretsProvider: SecretsProviderConfig{
 							Type:        SecretsProviderTypeGcpKms,
 							Credentials: string(gcpSa),
+							ProjectId:   "sc-test-project-408205",
 							KeyName:     "test-key",
 							KeyLocation: "global",
 							Provision:   true,
@@ -56,7 +58,7 @@ func Test_CreateStack(t *testing.T) {
 		Client: api.ClientDescriptor{},
 	}
 
-	err = p.ProvisionStack(ctx, cfg, stack)
+	err = p.ProvisionStack(ctx, cfg, cryptor.PublicKey(), stack)
 
 	Expect(err).To(BeNil())
 }

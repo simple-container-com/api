@@ -26,6 +26,7 @@ type ProvisionerConfig struct {
 type StateStorageConfig struct {
 	Type        string `json:"type" yaml:"type"`
 	Credentials string `json:"credentials" yaml:"credentials"`
+	ProjectId   string `json:"projectId" yaml:"projectId"`
 	BucketName  string `json:"bucketName" yaml:"bucketName"`
 	Provision   bool   `json:"provision" yaml:"provision"`
 }
@@ -33,6 +34,7 @@ type StateStorageConfig struct {
 type SecretsProviderConfig struct {
 	Type              string `json:"type" yaml:"type"`
 	Credentials       string `json:"credentials" yaml:"credentials"`
+	ProjectId         string `json:"projectId" yaml:"projectId"`
 	KeyName           string `json:"keyName" yaml:"keyName"`
 	KeyLocation       string `json:"keyLocation" yaml:"keyLocation"`
 	KeyRotationPeriod string `json:"keyRotationPeriod" yaml:"keyRotationPeriod"`

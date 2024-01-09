@@ -21,6 +21,8 @@ import (
 	"api/pkg/api"
 )
 
+const ConfigPassphraseEnvVar = "PULUMI_CONFIG_PASSPHRASE"
+
 func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*auto.Stack, backend.Backend, backend.StackReference, error) {
 	cmdutil.DisableInteractive = true
 
@@ -47,6 +49,12 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			p.logger.Warn(ctx, "failed to replace tilde with home: %q", err.Error())
 		} else if err := os.Setenv("PATH", fmt.Sprintf("%s/bin:%s", pulumiHome, os.Getenv("PATH"))); err != nil {
 			p.logger.Warn(ctx, "failed to set %s var", "PATH")
+		}
+	}
+	if os.Getenv(ConfigPassphraseEnvVar) == "" {
+		// TODO: figure out how to set this properly
+		if err := os.Setenv(ConfigPassphraseEnvVar, p.pubKey); err != nil {
+			p.logger.Warn(ctx, "failed to set %s var", ConfigPassphraseEnvVar)
 		}
 	}
 

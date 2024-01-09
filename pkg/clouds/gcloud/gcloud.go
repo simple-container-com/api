@@ -7,7 +7,8 @@ const (
 )
 
 type GcloudTemplateConfig struct {
-	Credentials string `json:"credentials"`
+	Credentials string `json:"credentials" yaml:"credentials"`
+	ProjectId   string `json:"projectId" yaml:"projectId"`
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {
