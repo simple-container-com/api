@@ -29,12 +29,15 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 	p.logger.Info(ctx, "Found stack %q", s.Ref().String())
 
-	_, err = auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, func(ctx *sdk.Context) error {
-		if err := p.provisionSecretsProvider(ctx, provisionerCfg, stack); err != nil {
-			return err
-		}
+	stackSource, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, func(ctx *sdk.Context) error {
+		// TODO: provision resources for stack with the use of secrets provider output
+		p.logger.Info(ctx.Context(), "secrets provider output: %v", provisionerCfg.secretsProviderOutput)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err
 	}
@@ -54,6 +57,11 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 	}
 }
 
+type SecretsProviderOutput struct {
+	Provider sdk.ProviderResource
+	Resource sdk.ComponentResource
+}
+
 func (p *pulumi) provisionSecretsProviderGcpKms(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
 	gcpProvider, err := gcp.ProvisionProvider(ctx, gcp.ProviderInput{
 		Name:        fmt.Sprintf("%s-secrets-provider", stack.Name),
@@ -68,11 +76,14 @@ func (p *pulumi) provisionSecretsProviderGcpKms(ctx *sdk.Context, provisionerCfg
 		KeyName:           provisionerCfg.SecretsProvider.KeyName,
 		KeyLocation:       provisionerCfg.SecretsProvider.KeyLocation,
 		KeyRotationPeriod: provisionerCfg.SecretsProvider.KeyRotationPeriod,
-		Provider:          gcpProvider,
+		Provider:          gcpProvider.Provider,
 	}); err != nil {
 		return err
 	} else {
-		provisionerCfg.kmsKey = key
+		provisionerCfg.secretsProviderOutput = &SecretsProviderOutput{
+			Provider: gcpProvider.Provider,
+			Resource: key,
+		}
 	}
 	return nil
 }

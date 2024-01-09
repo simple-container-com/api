@@ -11,9 +11,16 @@ type ProviderInput struct {
 	ProjectId   string
 }
 
-func ProvisionProvider(ctx *sdk.Context, params ProviderInput) (sdk.ProviderResource, error) {
-	return gcp.NewProvider(ctx, params.Name, &gcp.ProviderArgs{
+type ProviderOutput struct {
+	Provider sdk.ProviderResource
+}
+
+func ProvisionProvider(ctx *sdk.Context, params ProviderInput) (ProviderOutput, error) {
+	provider, err := gcp.NewProvider(ctx, params.Name, &gcp.ProviderArgs{
 		Credentials: sdk.String(params.Credentials),
 		Project:     sdk.String(params.ProjectId),
 	})
+	return ProviderOutput{
+		Provider: provider,
+	}, err
 }

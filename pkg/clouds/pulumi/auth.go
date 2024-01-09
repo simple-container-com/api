@@ -2,7 +2,6 @@ package pulumi
 
 import (
 	"api/pkg/api"
-	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/kms"
 )
 
 const (
@@ -20,7 +19,7 @@ type ProvisionerConfig struct {
 	StateStorage    StateStorageConfig    `json:"state-storage" yaml:"state-storage"`
 	SecretsProvider SecretsProviderConfig `json:"secrets-provider" yaml:"secrets-provider"`
 
-	kmsKey *kms.CryptoKey
+	secretsProviderOutput *SecretsProviderOutput
 }
 
 type StateStorageConfig struct {
