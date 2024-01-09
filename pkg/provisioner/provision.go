@@ -34,7 +34,13 @@ func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) err
 		if pv == nil {
 			return errors.Errorf("provisioner is not set for stack %q", stack.Name)
 		}
-		if err := pv.ProvisionStack(ctx, cfg, p.cryptor.PublicKey(), stack); err != nil {
+		var pubKey string
+		if p.cryptor != nil {
+			pubKey = p.cryptor.PublicKey()
+		} else {
+			p.log.Warn(ctx, "Cryptor is not set, secrets will not be encrypted")
+		}
+		if err := pv.ProvisionStack(ctx, cfg, pubKey, stack); err != nil {
 			return errors.Wrap(err, "failed to create stacks with pulumi")
 		}
 	}

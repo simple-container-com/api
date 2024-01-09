@@ -102,6 +102,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
 		Config: api.Config{Config: &gcloud.SecretsConfig{
 			Credentials: "<gcloud-service-account-email>",
+			ProjectId:   "test-gcp-project",
 		}},
 	},
 	Templates: map[string]api.StackDescriptor{

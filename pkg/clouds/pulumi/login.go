@@ -1,12 +1,12 @@
 package pulumi
 
 import (
-	"api/pkg/api/git/path_util"
 	"context"
 	"fmt"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"os"
 	"strings"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
@@ -19,6 +19,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"api/pkg/api"
+	"api/pkg/api/git/path_util"
 )
 
 const ConfigPassphraseEnvVar = "PULUMI_CONFIG_PASSPHRASE"

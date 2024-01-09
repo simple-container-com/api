@@ -1,16 +1,15 @@
 package pulumi
 
 import (
-	"api/pkg/clouds/pulumi/gcp"
 	"context"
 	"fmt"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/pkg/errors"
-
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"api/pkg/api"
+	"api/pkg/clouds/pulumi/gcp"
 )
 
 func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
