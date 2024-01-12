@@ -21,7 +21,9 @@ type secretsCmd struct {
 }
 
 func NewSecretsCmd(rootParams root_cmd.Params) *cobra.Command {
-	sCmd := &secretsCmd{}
+	sCmd := &secretsCmd{
+		rootParams: rootParams,
+	}
 	cmd := &cobra.Command{
 		Use:   "secrets",
 		Short: "Control repository-stored secrets",
