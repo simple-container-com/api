@@ -32,6 +32,9 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	stackSource, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, func(ctx *sdk.Context) error {
 		// TODO: provision resources for stack with the use of secrets provider output
 		p.logger.Info(ctx.Context(), "secrets provider output: %v", provisionerCfg.secretsProviderOutput)
+
+		// stack.Server.Resources.Resources
+
 		return nil
 	})
 	if err != nil {

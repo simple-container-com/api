@@ -66,6 +66,11 @@ func (c *cryptor) AddFile(filePath string) error {
 	return nil
 }
 
+func (c *cryptor) AddPublicKey(pubKey string) error {
+	c.secrets.Secrets[pubKey] = EncryptedSecrets{}
+	return c.EncryptChanged()
+}
+
 func (c *cryptor) RemoveFile(filePath string) error {
 	defer c.withWriteLock()()
 	if err := c.initData(); err != nil {

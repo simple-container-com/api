@@ -22,6 +22,8 @@ type Cryptor interface {
 	PublicKey() string
 	PrivateKey() string
 	Workdir() string
+	// allow another public key to encrypt secrets
+	AddPublicKey(pubKey string) error
 }
 
 type cryptor struct {

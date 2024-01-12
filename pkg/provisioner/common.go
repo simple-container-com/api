@@ -28,6 +28,8 @@ type Provisioner interface {
 	Stacks() api.StacksMap
 
 	GitRepo() git.Repo
+
+	Cryptor() secrets.Cryptor
 }
 
 const DefaultProfile = "default"
@@ -52,8 +54,10 @@ type ProvisionParams struct {
 }
 
 type InitParams struct {
-	ProjectName string `json:"projectName" yaml:"projectName"`
-	RootDir     string `json:"rootDir,omitempty" yaml:"rootDir"`
+	ProjectName         string `json:"projectName" yaml:"projectName"`
+	RootDir             string `json:"rootDir,omitempty" yaml:"rootDir"`
+	SkipInitialCommit   bool   `json:"makeInitialCommit" yaml:"makeInitialCommit"`
+	SkipProfileCreation bool   `json:"skipProfileCreation" yaml:"skipProfileCreation"`
 }
 
 type DeployParams struct {
@@ -137,36 +141,40 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 		return errors.Wrapf(err, "failed to init config dir")
 	}
 
-	// generate default profile
-	if err := p.cryptor.GenerateKeyPairWithProfile(params.ProjectName, DefaultProfile); err != nil {
-		return errors.Wrapf(err, "failed to generate key pair")
-	}
-	if err := p.gitRepo.AddFileToIgnore(api.ConfigFilePath("", DefaultProfile)); err != nil {
-		return errors.Wrapf(err, "failed to add config file to ignore")
+	if !params.SkipProfileCreation {
+		// generate default profile
+		if err := p.cryptor.GenerateKeyPairWithProfile(params.ProjectName, DefaultProfile); err != nil {
+			return errors.Wrapf(err, "failed to generate key pair")
+		}
+		if err := p.gitRepo.AddFileToIgnore(api.ConfigFilePath("", DefaultProfile)); err != nil {
+			return errors.Wrapf(err, "failed to add config file to ignore")
+		}
+
+		// create .sc/cfg.yaml.template
+		tplFilePath := path.Join(params.RootDir, api.ScConfigDirectory, "cfg.yaml.template")
+		if tplFile, err := p.gitRepo.CreateFile(tplFilePath); err != nil {
+			return errors.Wrapf(err, "failed to init config template file")
+		} else if cfgTpl, err := misc.Templates.ReadFile("embed/templates/cfg.yaml.template"); err != nil {
+			return errors.Wrapf(err, "failed to read config template file")
+		} else {
+			defer func() { _ = tplFile.Close() }()
+			if _, err := io.WriteString(tplFile, string(cfgTpl)); err != nil {
+				return errors.Wrapf(err, "failed to write config template file %q", tplFile.Name())
+			}
+			err := p.gitRepo.AddFileToGit(tplFilePath)
+			if err != nil {
+				return errors.Wrapf(err, "failed to add template file to git")
+			}
+		}
 	}
 
-	// create .sc/cfg.yaml.template
-	tplFilePath := path.Join(params.RootDir, api.ScConfigDirectory, "cfg.yaml.template")
-	if tplFile, err := p.gitRepo.CreateFile(tplFilePath); err != nil {
-		return errors.Wrapf(err, "failed to init config template file")
-	} else if cfgTpl, err := misc.Templates.ReadFile("embed/templates/cfg.yaml.template"); err != nil {
-		return errors.Wrapf(err, "failed to read config template file")
-	} else {
-		defer func() { _ = tplFile.Close() }()
-		if _, err := io.WriteString(tplFile, string(cfgTpl)); err != nil {
-			return errors.Wrapf(err, "failed to write config template file %q", tplFile.Name())
+	if !params.SkipInitialCommit {
+		// initial commit
+		if err := p.gitRepo.Commit("simple-container.com initial commit", git.CommitOpts{
+			All: true,
+		}); err != nil {
+			return errors.Wrapf(err, "failed to make initial commit")
 		}
-		err := p.gitRepo.AddFileToGit(tplFilePath)
-		if err != nil {
-			return errors.Wrapf(err, "failed to add template file to git")
-		}
-	}
-
-	// initial commit
-	if err := p.gitRepo.Commit("simple-container.com initial commit", git.CommitOpts{
-		All: true,
-	}); err != nil {
-		return errors.Wrapf(err, "failed to make initial commit")
 	}
 
 	return nil
@@ -174,4 +182,8 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 
 func (p *provisioner) GitRepo() git.Repo {
 	return p.gitRepo
+}
+
+func (p *provisioner) Cryptor() secrets.Cryptor {
+	return p.cryptor
 }
