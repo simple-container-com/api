@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"api/pkg/api/secrets/ciphers"
 	"os"
 	"path"
 	"testing"
@@ -182,6 +183,22 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		newSecretFileContent, err = os.ReadFile(refappSecretsFilePath)
 		Expect(err).To(BeNil())
 		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
+	})
+
+	_, pubKey, err := ciphers.GenerateKeyPair(2048)
+	Expect(err).To(BeNil())
+	anotherPubKey, err := ciphers.MarshalPublicKey(pubKey)
+	Expect(err).To(BeNil())
+
+	t.Run("allow another key", func(t *testing.T) {
+		Expect(c.AddPublicKey(string(anotherPubKey))).To(BeNil())
+		Expect(c.ReadSecretFiles()).To(BeNil())
+		Expect(c.GetKnownPublicKeys()).To(ContainElement(c.PublicKey()))
+	})
+	t.Run("disallow another key", func(t *testing.T) {
+		Expect(c.GetKnownPublicKeys()).To(ContainElement(string(anotherPubKey)))
+		Expect(c.RemovePublicKey(string(anotherPubKey))).To(BeNil())
+		Expect(c.GetKnownPublicKeys()).NotTo(ContainElement(string(anotherPubKey)))
 	})
 	t.Run("remove file", func(t *testing.T) {
 		Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(BeNil())

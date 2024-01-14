@@ -1,6 +1,7 @@
 package ciphers
 
 import (
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"golang.org/x/crypto/ed25519"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -94,7 +96,7 @@ func MarshalRSAPrivateKey(priv *rsa.PrivateKey) string {
 	}))
 }
 
-func ParsePublicKey(s string) (*rsa.PublicKey, error) {
+func ParsePublicKey(s string) (crypto.PublicKey, error) {
 	parsed, _, _, _, err := ssh.ParseAuthorizedKey([]byte(s))
 	if err != nil {
 		return nil, err
@@ -102,22 +104,27 @@ func ParsePublicKey(s string) (*rsa.PublicKey, error) {
 
 	if parsedCryptoKey, ok := parsed.(ssh.CryptoPublicKey); !ok {
 		return nil, errors.New("failed to parse public key: not a CryptoPublicKey")
-	} else if res, ok := parsedCryptoKey.CryptoPublicKey().(*rsa.PublicKey); !ok {
+	} else if res, ok := parsedCryptoKey.CryptoPublicKey().(crypto.PublicKey); !ok {
 		return nil, errors.New("failed to parse public key: not a RSA public key")
 	} else {
 		return res, nil
 	}
 }
 
-func EncryptLargeString(key *rsa.PublicKey, s string) ([]string, error) {
-	chunks := lo.ChunkString(s, key.Size()/2)
-	res := make([]string, len(chunks))
-	for idx, chunk := range chunks {
-		encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, key, []byte(chunk), nil)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to encrypt secret")
+func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
+	var res []string
+	if rsaKey, ok := key.(*rsa.PublicKey); ok {
+		chunks := lo.ChunkString(s, rsaKey.Size()/2)
+		res = make([]string, len(chunks))
+		for idx, chunk := range chunks {
+			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), nil)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to encrypt secret")
+			}
+			res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
 		}
-		res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
+	} else if _, ok := key.(ed25519.PublicKey); ok {
+		return res, errors.New("ed25519 encryption is not supported")
 	}
 	return res, nil
 }

@@ -66,9 +66,26 @@ func (c *cryptor) AddFile(filePath string) error {
 	return nil
 }
 
+func (c *cryptor) RemovePublicKey(pubKey string) error {
+	delete(c.secrets.Secrets, pubKey)
+	err := c.EncryptChanged()
+	if err != nil {
+		return err
+	}
+	return c.marshalSecretsFile()
+}
+
+func (c *cryptor) GetKnownPublicKeys() []string {
+	return lo.Keys(c.secrets.Secrets)
+}
+
 func (c *cryptor) AddPublicKey(pubKey string) error {
 	c.secrets.Secrets[pubKey] = EncryptedSecrets{}
-	return c.EncryptChanged()
+	err := c.EncryptChanged()
+	if err != nil {
+		return err
+	}
+	return c.marshalSecretsFile()
 }
 
 func (c *cryptor) RemoveFile(filePath string) error {
@@ -179,7 +196,11 @@ func (c *cryptor) EncryptChanged() error {
 		for publicKey := range c.secrets.Secrets {
 			pKeySecrets := c.secrets.Secrets[publicKey]
 
-			if currentContent, _ := c.decryptSecretData(pKeySecrets.GetEncryptedContent(relFilePath)); currentContent != nil && string(secretData) == string(currentContent) {
+			currentContent, _ := c.decryptSecretData(pKeySecrets.GetEncryptedContent(relFilePath))
+			_, found := lo.Find(pKeySecrets.Files, func(file EncryptedSecretFile) bool {
+				return file.Path == relFilePath
+			})
+			if currentContent != nil && string(secretData) == string(currentContent) && found {
 				// skip re-encrypting for unchanged secret
 				continue
 			}
