@@ -168,6 +168,36 @@ func Test_Init(t *testing.T) {
 			},
 			wantInitErr: "project name is not configured",
 		},
+		{
+			name: "skip profile creation",
+			params: InitParams{
+				ProjectName:         "test-project",
+				RootDir:             "testdata/refapp",
+				SkipProfileCreation: true,
+			},
+			opts: []Option{WithPlaceholders(placeholders.New(logger.New()))},
+			check: func(t *testing.T, wd string, p Provisioner) {
+				profileFile := path.Join(wd, ".sc/cfg.default.yaml")
+				Expect(profileFile).NotTo(BeAnExistingFile())
+			},
+		},
+		{
+			name: "skip initial commit",
+			params: InitParams{
+				ProjectName:       "test-project",
+				RootDir:           "testdata/refapp",
+				SkipInitialCommit: true,
+			},
+			opts: []Option{WithPlaceholders(placeholders.New(logger.New()))},
+			check: func(t *testing.T, wd string, p Provisioner) {
+				checkProfileIsCreated(t, wd, p)
+				commits := p.GitRepo().Log()
+				_, exists := lo.Find(commits, func(c git2.Commit) bool {
+					return c.Message == "simple-container.com initial commit"
+				})
+				Expect(exists).To(BeFalse())
+			},
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -201,6 +231,11 @@ func Test_Init(t *testing.T) {
 }
 
 func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
+	checkProfileIsCreated(t, wd, p)
+	checkInitialCommit(t, wd, p)
+}
+
+func checkInitialCommit(t *testing.T, wd string, p Provisioner) {
 	t.Run("initial commit is present", func(t *testing.T) {
 		commits := p.GitRepo().Log()
 		commit, exists := lo.Find(commits, func(c git2.Commit) bool {
@@ -209,7 +244,9 @@ func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
 		Expect(exists).To(BeTrue())
 		Expect(commit.Message).To(Equal("simple-container.com initial commit"))
 	})
+}
 
+func checkProfileIsCreated(t *testing.T, wd string, p Provisioner) {
 	t.Run("profile file created", func(t *testing.T) {
 		profileFile := path.Join(wd, ".sc/cfg.default.yaml")
 		Expect(profileFile).To(BeAnExistingFile())
