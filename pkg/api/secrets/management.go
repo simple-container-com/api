@@ -18,6 +18,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+func (c *cryptor) ReadProfileConfig() error {
+	return WithKeysFromCurrentProfile().f(c)
+}
+
 func (c *cryptor) GetSecretFiles() EncryptedSecretFiles {
 	defer c.withReadLock()()
 	res := c.secrets

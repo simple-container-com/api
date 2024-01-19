@@ -2,6 +2,7 @@ package cmd_secrets
 
 import (
 	"context"
+	"github.com/pkg/errors"
 	"path"
 
 	"api/pkg/api/git"
@@ -60,10 +61,18 @@ func (c *secretsCmd) init() error {
 		return err
 	}
 
-	return c.provisioner.Init(ctx, provisioner.InitParams{
+	if err := c.provisioner.Init(ctx, provisioner.InitParams{
 		ProjectName:         path.Base(gitRepo.Workdir()),
 		RootDir:             gitRepo.Workdir(),
 		SkipInitialCommit:   true,
 		SkipProfileCreation: true,
-	})
+	}); err != nil {
+		return err
+	}
+
+	if err := c.provisioner.Cryptor().ReadProfileConfig(); err != nil {
+		return errors.Wrapf(err, "failed to read profile config, did you run `secrets init`?")
+	}
+
+	return nil
 }

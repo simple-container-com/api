@@ -1,6 +1,7 @@
 package git
 
 import (
+	"io"
 	"os"
 	"path"
 
@@ -25,6 +26,8 @@ type Repo interface {
 
 	OpenFile(filePath string, flag int, perm os.FileMode) (billy.File, error)
 	CreateFile(filePath string) (billy.File, error)
+
+	CopyFile(fromPath, toPath string) error
 	Exists(filePath string) bool
 	CreateDir(filePath string) (billy.Dir, error)
 
@@ -188,6 +191,28 @@ func (r *repo) detectRootDir() error {
 
 func (r *repo) CreateFile(filePath string) (billy.File, error) {
 	return r.wdFs.Create(filePath)
+}
+
+func (r *repo) CopyFile(fromPath, toPath string) error {
+	fromFile, err := r.wdFs.OpenFile(fromPath, os.O_RDWR, os.ModePerm)
+	if err != nil {
+		return errors.Wrapf(err, "failed to open file %q", fromPath)
+	}
+
+	currentContent, err := io.ReadAll(fromFile)
+	if err != nil {
+		return errors.Wrapf(err, "failed to read file %q", fromPath)
+	}
+
+	toFile, err := r.wdFs.OpenFile(toPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, os.ModePerm)
+	if err != nil {
+		return errors.Wrapf(err, "failed to open file %q", toPath)
+	}
+	_, err = io.WriteString(toFile, string(currentContent))
+	if err != nil {
+		return errors.Wrapf(err, "failed to write file %q", toPath)
+	}
+	return nil
 }
 
 func (r *repo) CreateDir(filePath string) (billy.Dir, error) {

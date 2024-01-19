@@ -55,6 +55,7 @@ func WithDetectGitDir() Option {
 
 func WithProfile(profile string) Option {
 	return Option{
+		beforeInit: true,
 		f: func(c *cryptor) error {
 			c.profile = profile
 			return nil
@@ -83,6 +84,12 @@ func WithGeneratedKeys(projectName, profile string) Option {
 func WithKeysFromScConfig(profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {
+			if c.workDir == "" {
+				return errors.Errorf("workdir is not configured")
+			}
+			if profile == "" {
+				return errors.Errorf("profile is not configured")
+			}
 			c.profile = profile
 			cfg, err := api.ReadConfigFile(c.workDir, c.profile)
 			if err != nil {

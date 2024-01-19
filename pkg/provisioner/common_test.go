@@ -231,6 +231,10 @@ func Test_Init(t *testing.T) {
 }
 
 func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
+	t.Run("profile template is created", func(t *testing.T) {
+		templateFile := path.Join(wd, ".sc/cfg.yaml.template")
+		Expect(templateFile).To(BeAnExistingFile())
+	})
 	checkProfileIsCreated(t, wd, p)
 	checkInitialCommit(t, wd, p)
 }

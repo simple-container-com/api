@@ -21,7 +21,7 @@ type Provisioner interface {
 	ReadStacks(ctx context.Context, params ProvisionParams) error
 
 	Init(ctx context.Context, params InitParams) error
-	InitProfile() error
+	InitProfile(generateKeyPair bool) error
 	MakeInitialCommit() error
 
 	Provision(ctx context.Context, params ProvisionParams) error
@@ -61,8 +61,10 @@ type ProvisionParams struct {
 type InitParams struct {
 	ProjectName         string `json:"projectName" yaml:"projectName"`
 	RootDir             string `json:"rootDir,omitempty" yaml:"rootDir"`
+	Profile             string `json:"profile,omitempty" yaml:"profile"`
 	SkipInitialCommit   bool   `json:"skipInitialCommit" yaml:"skipInitialCommit"`
 	SkipProfileCreation bool   `json:"skipProfileCreation" yaml:"skipProfileCreation"`
+	GenerateKeyPair     bool   `json:"generateKeyPair" yaml:"generateKeyPair"`
 }
 
 type DeployParams struct {
@@ -143,11 +145,11 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 		}
 	}
 
-	if err := p.gitRepo.InitOrOpen(params.RootDir); err != nil {
+	if err := p.gitRepo.InitOrOpen(p.rootDir); err != nil {
 		return errors.Wrapf(err, "failed to init git repo")
 	}
 	if p.cryptor == nil {
-		if cryptor, err := secrets.NewCryptor(params.RootDir); err != nil {
+		if cryptor, err := secrets.NewCryptor(p.rootDir, secrets.WithProfile(p.profile), secrets.WithGitRepo(p.gitRepo)); err != nil {
 			return errors.Wrapf(err, "failed to init cryptor")
 		} else {
 			p.cryptor = cryptor
@@ -160,7 +162,7 @@ func (p *provisioner) Init(ctx context.Context, params InitParams) error {
 	}
 
 	if !params.SkipProfileCreation {
-		if err := p.InitProfile(); err != nil {
+		if err := p.InitProfile(params.GenerateKeyPair); err != nil {
 			return err
 		}
 	}
@@ -184,21 +186,13 @@ func (p *provisioner) MakeInitialCommit() error {
 	return nil
 }
 
-func (p *provisioner) InitProfile() error {
+func (p *provisioner) InitProfile(generateKeyPair bool) error {
 	if p.profile == "" {
 		return errors.Errorf("profile is not configured")
 	}
 
-	// generate profile
-	if err := p.cryptor.GenerateKeyPairWithProfile(p.projectName, p.profile); err != nil {
-		return errors.Wrapf(err, "failed to generate key pair")
-	}
-	if err := p.gitRepo.AddFileToIgnore(api.ConfigFilePath("", p.profile)); err != nil {
-		return errors.Wrapf(err, "failed to add config file to ignore")
-	}
-
 	// create .sc/cfg.yaml.template
-	tplFilePath := path.Join(p.rootDir, api.ScConfigDirectory, "cfg.yaml.template")
+	tplFilePath := path.Join(api.ScConfigDirectory, "cfg.yaml.template")
 	if tplFile, err := p.gitRepo.CreateFile(tplFilePath); err != nil {
 		return errors.Wrapf(err, "failed to init config template file")
 	} else if cfgTpl, err := misc.Templates.ReadFile("embed/templates/cfg.yaml.template"); err != nil {
@@ -213,7 +207,21 @@ func (p *provisioner) InitProfile() error {
 			return errors.Wrapf(err, "failed to add template file to git")
 		}
 	}
-	return nil
+
+	profileCfgFile := api.ConfigFilePath("", p.profile)
+	if generateKeyPair {
+		// generate profile
+		if err := p.cryptor.GenerateKeyPairWithProfile(p.projectName, p.profile); err != nil {
+			return errors.Wrapf(err, "failed to generate key pair")
+		}
+	} else if err := p.gitRepo.CopyFile(tplFilePath, profileCfgFile); err != nil {
+		return errors.Wrapf(err, "failed to copy template file to profile")
+	}
+	if err := p.gitRepo.AddFileToIgnore(profileCfgFile); err != nil {
+		return errors.Wrapf(err, "failed to add config file to ignore")
+	}
+
+	return p.cryptor.ReadProfileConfig()
 }
 
 func (p *provisioner) GitRepo() git.Repo {
