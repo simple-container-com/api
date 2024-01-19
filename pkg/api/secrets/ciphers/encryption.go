@@ -9,8 +9,9 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
-	"golang.org/x/crypto/ed25519"
 	"strings"
+
+	"golang.org/x/crypto/ed25519"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"

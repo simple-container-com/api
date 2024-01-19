@@ -1,10 +1,11 @@
 package secrets
 
 import (
-	"api/pkg/api/secrets/ciphers"
 	"os"
 	"path"
 	"testing"
+
+	"api/pkg/api/secrets/ciphers"
 
 	. "github.com/onsi/gomega"
 
@@ -185,21 +186,64 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
 	})
 
-	_, pubKey, err := ciphers.GenerateKeyPair(2048)
+	anotherPrivKeyBytes, anotherPubKeyBytes, err := ciphers.GenerateKeyPair(2048)
 	Expect(err).To(BeNil())
-	anotherPubKey, err := ciphers.MarshalPublicKey(pubKey)
+	anotherPubKey, err := ciphers.MarshalPublicKey(anotherPubKeyBytes)
 	Expect(err).To(BeNil())
+	anotherPrivKey := ciphers.MarshalRSAPrivateKey(anotherPrivKeyBytes)
 
 	t.Run("allow another key", func(t *testing.T) {
 		Expect(c.AddPublicKey(string(anotherPubKey))).To(BeNil())
 		Expect(c.ReadSecretFiles()).To(BeNil())
-		Expect(c.GetKnownPublicKeys()).To(ContainElement(c.PublicKey()))
+		knownKeys := c.GetKnownPublicKeys()
+		Expect(knownKeys).To(ContainElement(c.PublicKey()))
+		Expect(knownKeys).To(ContainElement(string(anotherPubKey)))
 	})
+
+	// clone to another dir
+	anotherC, cleanup, err := cloneWorkdir(c, wd, string(anotherPubKey), anotherPrivKey)
+	Expect(err).To(BeNil())
+	defer cleanup()
+
+	t.Run("decrypt secrets in another dir", func(t *testing.T) {
+		Expect(anotherC.PrivateKey()).To(Equal(anotherPrivKey))
+		Expect(anotherC.ReadSecretFiles()).To(BeNil())
+		knownKeys := anotherC.GetKnownPublicKeys()
+		Expect(knownKeys).To(ContainElement(c.PublicKey()))
+		Expect(knownKeys).To(ContainElement(string(anotherPubKey)))
+		Expect(anotherC.DecryptAll()).To(BeNil())
+
+		newSecretFileContent, err := os.ReadFile(path.Join(anotherC.Workdir(), "stacks/common/secrets.yaml"))
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFile1Content))
+
+		newSecretFileContent, err = os.ReadFile(path.Join(anotherC.Workdir(), "stacks/refapp/secrets.yaml"))
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
+	})
+
 	t.Run("disallow another key", func(t *testing.T) {
 		Expect(c.GetKnownPublicKeys()).To(ContainElement(string(anotherPubKey)))
 		Expect(c.RemovePublicKey(string(anotherPubKey))).To(BeNil())
 		Expect(c.GetKnownPublicKeys()).NotTo(ContainElement(string(anotherPubKey)))
 	})
+
+	// clone to another dir
+	anotherC, cleanup, err = cloneWorkdir(c, wd, string(anotherPubKey), anotherPrivKey)
+	Expect(err).To(BeNil())
+	defer cleanup()
+
+	t.Run("fail to decrypt secrets in another dir", func(t *testing.T) {
+		Expect(anotherC.PrivateKey()).To(Equal(anotherPrivKey))
+		Expect(anotherC.ReadSecretFiles()).To(BeNil())
+		knownKeys := anotherC.GetKnownPublicKeys()
+		Expect(knownKeys).To(ContainElement(c.PublicKey()))
+		Expect(knownKeys).NotTo(ContainElement(string(anotherPubKey)))
+		decryptErr := anotherC.DecryptAll()
+		Expect(decryptErr).NotTo(BeNil())
+		Expect(decryptErr.Error()).To(MatchRegexp("current public key is not found in secrets"))
+	})
+
 	t.Run("remove file", func(t *testing.T) {
 		Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(BeNil())
 		secrets := c.GetSecretFiles().Secrets
@@ -213,6 +257,7 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(err).To(BeNil())
 		Expect(string(gitignoreContent)).NotTo(ContainSubstring("stacks/common/secrets.yaml"))
 	})
+
 	t.Run("secrets removed from gitignore", func(t *testing.T) {
 		Expect(gitIgnoreFile).To(BeAnExistingFile())
 		gitignoreContent, err := os.ReadFile(path.Join(wd, ".gitignore"))
@@ -220,4 +265,18 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(string(gitignoreContent)).NotTo(ContainSubstring("stacks/common/secrets.yaml"))
 		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/refapp/secrets.yaml"))
 	})
+}
+
+func cloneWorkdir(c Cryptor, wd, pubKey, privKey string) (Cryptor, func(), error) {
+	anotherDir, cleanup, err := testutil.CopyTempProject(wd)
+	Expect(err).To(BeNil())
+	anotherGitRepo, err := git.New(git.WithRootDir(anotherDir))
+	Expect(err).To(BeNil())
+	Expect(anotherGitRepo.Open(anotherDir, git.WithGitDir(c.GitRepo().Gitdir()))).To(BeNil())
+	anotherC, err := NewCryptor(anotherDir,
+		WithPublicKey(pubKey),
+		WithPrivateKey(privKey),
+		WithGitRepo(anotherGitRepo),
+	)
+	return anotherC, cleanup, err
 }

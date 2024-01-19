@@ -45,6 +45,10 @@ func (c *cryptor) GetAndDecryptFileContent(relPath string) ([]byte, error) {
 	}
 }
 
+func (c *cryptor) Options() []Option {
+	return c.options
+}
+
 func (c *cryptor) AddFile(filePath string) error {
 	defer c.withWriteLock()()
 
@@ -353,6 +357,7 @@ func (c *cryptor) withWriteLock() func() {
 func NewCryptor(workDir string, opts ...Option) (Cryptor, error) {
 	c := &cryptor{
 		workDir: workDir,
+		options: opts,
 	}
 
 	beforeInitOpts := lo.Filter(opts, func(item Option, index int) bool {

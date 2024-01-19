@@ -35,6 +35,7 @@ type Repo interface {
 	Commit(msg string, opts CommitOpts) error
 	Log() []Commit
 	Workdir() string
+	Gitdir() string
 }
 
 type Commit struct {
@@ -92,6 +93,10 @@ func (r *repo) InitOrOpen(wd string, opts ...Option) error {
 
 func (r *repo) Workdir() string {
 	return r.workDir
+}
+
+func (r *repo) Gitdir() string {
+	return r.gitDir
 }
 
 func (r *repo) Init(wd string, opts ...Option) error {

@@ -28,12 +28,17 @@ type Cryptor interface {
 	RemovePublicKey(pubKey string) error
 	// GetKnownPublicKeys return all public keys
 	GetKnownPublicKeys() []string
+
+	Options() []Option
+	GitRepo() git.Repo
 }
 
 type cryptor struct {
 	workDir     string
 	projectName string
 	profile     string
+
+	options []Option
 
 	gitRepo git.Repo
 
@@ -46,6 +51,10 @@ type cryptor struct {
 
 func (c *cryptor) Workdir() string {
 	return c.workDir
+}
+
+func (c *cryptor) GitRepo() git.Repo {
+	return c.gitRepo
 }
 
 func (c *cryptor) PublicKey() string {

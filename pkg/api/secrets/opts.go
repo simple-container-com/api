@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	git2 "api/pkg/api/git"
+	"api/pkg/api/git"
 
 	"github.com/pkg/errors"
 
@@ -18,7 +18,7 @@ type Option struct {
 	beforeInit bool
 }
 
-func WithGitRepo(gitRepo git2.Repo) Option {
+func WithGitRepo(gitRepo git.Repo) Option {
 	return Option{
 		beforeInit: true,
 		f: func(c *cryptor) error {
@@ -28,11 +28,21 @@ func WithGitRepo(gitRepo git2.Repo) Option {
 	}
 }
 
+func WithWorkDir(wd string) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			c.workDir = wd
+			return nil
+		},
+	}
+}
+
 func WithDetectGitDir() Option {
 	return Option{
 		f: func(c *cryptor) error {
 			var err error
-			c.gitRepo, err = git2.New(git2.WithDetectRootDir())
+			c.gitRepo, err = git.New(git.WithDetectRootDir())
 			if err != nil {
 				return err
 			}
@@ -85,13 +95,13 @@ func WithKeysFromScConfig(profile string) Option {
 				return errors.New("both private key path and private key are configured")
 			}
 			if cfg.PrivateKeyPath != "" {
-				opt := WithPrivateKey(cfg.PrivateKeyPath)
+				opt := WithPrivateKeyPath(cfg.PrivateKeyPath)
 				if err := opt.f(c); err != nil {
 					return err
 				}
 			}
 			if cfg.PublicKeyPath != "" {
-				opt := WithPublicKey(cfg.PublicKeyPath)
+				opt := WithPublicKeyPath(cfg.PublicKeyPath)
 				if err := opt.f(c); err != nil {
 					return err
 				}
@@ -107,7 +117,25 @@ func WithKeysFromScConfig(profile string) Option {
 	}
 }
 
-func WithPublicKey(filePath string) Option {
+func WithPublicKey(key string) Option {
+	return Option{
+		f: func(c *cryptor) error {
+			c.currentPublicKey = key
+			return nil
+		},
+	}
+}
+
+func WithPrivateKey(key string) Option {
+	return Option{
+		f: func(c *cryptor) error {
+			c.currentPrivateKey = key
+			return nil
+		},
+	}
+}
+
+func WithPublicKeyPath(filePath string) Option {
 	return Option{
 		f: func(c *cryptor) error {
 			file, err := c.gitRepo.OpenFile(filePath, os.O_RDONLY, fs.ModePerm)
@@ -126,7 +154,7 @@ func WithPublicKey(filePath string) Option {
 	}
 }
 
-func WithPrivateKey(filePath string) Option {
+func WithPrivateKeyPath(filePath string) Option {
 	return Option{
 		f: func(c *cryptor) error {
 			if c.gitRepo == nil {
