@@ -2,6 +2,9 @@ package pulumi
 
 import (
 	"context"
+	"github.com/pulumi/pulumi/pkg/v3/backend"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/pkg/errors"
 
@@ -17,6 +20,11 @@ type Pulumi interface {
 type pulumi struct {
 	logger logger.Logger
 	pubKey string
+
+	initialProvisionProgram func(ctx *sdk.Context) error
+	stack                   *auto.Stack
+	backend                 backend.Backend
+	stackRef                backend.StackReference
 }
 
 func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, error) {
@@ -39,5 +47,10 @@ func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey
 	if err := p.provisionStack(ctx, cfg, stack); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (p *pulumi) Provision(ctx context.Context, rd *api.ResourceDescriptor) error {
+	// TODO implement
 	return nil
 }

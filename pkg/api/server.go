@@ -64,6 +64,24 @@ type ResourceDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
 	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
+
+	provisionerRef Provisioner
+}
+
+type ResourceInput struct {
+	Descriptor *ResourceDescriptor
+}
+
+type ResourceOutput struct {
+	Ref string `json:"ref" yaml:"ref"`
+}
+
+func (rd *ResourceDescriptor) SetProvisioner(p Provisioner) {
+	rd.provisionerRef = p
+}
+
+func (rd *ResourceDescriptor) GetProvisioner() Provisioner {
+	return rd.provisionerRef
 }
 
 type RegistrarDescriptor struct {

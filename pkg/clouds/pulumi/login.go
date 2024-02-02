@@ -24,12 +24,12 @@ import (
 
 const ConfigPassphraseEnvVar = "PULUMI_CONFIG_PASSPHRASE"
 
-func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*auto.Stack, backend.Backend, backend.StackReference, error) {
+func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	cmdutil.DisableInteractive = true
 
 	provisionerCfg, err := p.getProvisionerConfig(stack)
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 
 	var organization string
@@ -41,12 +41,13 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 
 	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to init pulumi provisioner context")
+		return errors.Wrapf(err, "failed to init pulumi provisioner context")
 	}
 
+	var pulumiHome string
 	if os.Getenv(workspace.PulumiHomeEnvVar) == "" {
 		// TODO: detect pulumi home
-		if pulumiHome, err := path_util.ReplaceTildeWithHome("~/.pulumi"); err != nil {
+		if pulumiHome, err = path_util.ReplaceTildeWithHome("~/.pulumi"); err != nil {
 			p.logger.Warn(ctx, "failed to replace tilde with home: %q", err.Error())
 		} else if err := os.Setenv("PATH", fmt.Sprintf("%s/bin:%s", pulumiHome, os.Getenv("PATH"))); err != nil {
 			p.logger.Warn(ctx, "failed to set %s var", "PATH")
@@ -59,19 +60,13 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		}
 	}
 
-	pStack, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, func(ctx *sdk.Context) error {
+	p.initialProvisionProgram = func(ctx *sdk.Context) error {
 		if err := p.provisionSecretsProvider(ctx, provisionerCfg, stack); err != nil {
 			return err
 		}
 		return nil
-	})
-
-	upRes, err := pStack.Up(ctx)
-	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to provision stack %q", pStack.Name())
 	}
-	p.logger.Info(ctx, fmt.Sprint(upRes.Outputs))
-
+	pStack, _ := auto.SelectStackInlineSource(ctx, stack.Name, cfg.ProjectName, p.initialProvisionProgram)
 	project := &workspace.Project{
 		Name: tokens.PackageName(cfg.ProjectName),
 	}
@@ -79,7 +74,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	creds := provisionerCfg.StateStorage.Credentials
 
 	if creds == "" {
-		return nil, nil, nil, errors.Errorf("credentials for pulumi backend must not be empty")
+		return errors.Errorf("credentials for pulumi backend must not be empty")
 	}
 
 	switch provisionerCfg.StateStorage.Type {
@@ -100,25 +95,32 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			Color: cmdutil.GetGlobalColorization(),
 		})
 		if err != nil {
-			return nil, nil, nil, err
+			return err
 		}
 		be, err = httpstate.New(cmdutil.Diag(), cloudUrl, project, false)
 	default:
-		return nil, nil, nil, errors.Errorf("unsupported state storage type %q", provisionerCfg.StateStorage.Type)
+		return errors.Errorf("unsupported state storage type %q", provisionerCfg.StateStorage.Type)
+	}
+	if err != nil {
+		return err
 	}
 
 	name, apiOrgs, tokenInfo, err := be.CurrentUser()
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 	p.logger.Info(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
 
 	ref, err := be.ParseStackReference(fmt.Sprintf("%s/%s/%s", organization, project.Name, stack.Name))
 	if err != nil {
-		return nil, nil, nil, err
+		return err
 	}
 
-	return &pStack, be, ref, nil
+	p.stack = &pStack
+	p.stackRef = ref
+	p.backend = be
+
+	return nil
 }
 
 func (p *pulumi) getProvisionerConfig(stack api.Stack) (*ProvisionerConfig, error) {
