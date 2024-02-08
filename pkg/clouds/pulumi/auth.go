@@ -23,6 +23,7 @@ type ProvisionerConfig struct {
 }
 
 type StateStorageConfig struct {
+	api.AuthConfig
 	Type        string `json:"type" yaml:"type"`
 	Credentials string `json:"credentials" yaml:"credentials"`
 	ProjectId   string `json:"projectId" yaml:"projectId"`
@@ -30,7 +31,16 @@ type StateStorageConfig struct {
 	Provision   bool   `json:"provision" yaml:"provision"`
 }
 
+func (r *StateStorageConfig) CredentialsValue() string {
+	return r.Credentials
+}
+
+func (r *StateStorageConfig) ProjectIdValue() string {
+	return r.ProjectId
+}
+
 type SecretsProviderConfig struct {
+	api.AuthConfig
 	Type              string `json:"type" yaml:"type"`
 	Credentials       string `json:"credentials" yaml:"credentials"`
 	ProjectId         string `json:"projectId" yaml:"projectId"`
@@ -38,6 +48,14 @@ type SecretsProviderConfig struct {
 	KeyLocation       string `json:"keyLocation" yaml:"keyLocation"`
 	KeyRotationPeriod string `json:"keyRotationPeriod" yaml:"keyRotationPeriod"`
 	Provision         bool   `json:"provision" yaml:"provision"`
+}
+
+func (r *SecretsProviderConfig) CredentialsValue() string {
+	return r.Credentials
+}
+
+func (r *SecretsProviderConfig) ProjectIdValue() string {
+	return r.ProjectId
 }
 
 func ReadProvisionerConfig(config *api.Config) (api.Config, error) {

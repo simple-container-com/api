@@ -1,5 +1,7 @@
 package api
 
+import "api/pkg/api/logger"
+
 const ServerSchemaVersion = "1.0"
 
 // ServerDescriptor describes the server schema
@@ -64,24 +66,15 @@ type ResourceDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
 	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
-
-	provisionerRef Provisioner
 }
 
 type ResourceInput struct {
 	Descriptor *ResourceDescriptor
+	Log        logger.Logger
 }
 
 type ResourceOutput struct {
-	Ref string `json:"ref" yaml:"ref"`
-}
-
-func (rd *ResourceDescriptor) SetProvisioner(p Provisioner) {
-	rd.provisionerRef = p
-}
-
-func (rd *ResourceDescriptor) GetProvisioner() Provisioner {
-	return rd.provisionerRef
+	Ref any `json:"ref" yaml:"ref"`
 }
 
 type RegistrarDescriptor struct {

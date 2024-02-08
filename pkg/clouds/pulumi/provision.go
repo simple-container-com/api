@@ -1,6 +1,7 @@
 package pulumi
 
 import (
+	"api/pkg/clouds/pulumi/params"
 	"context"
 	"fmt"
 
@@ -43,13 +44,18 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 			p.logger.Info(ctx.Context(), "provisioning resources for env %q...", env)
 			for resName, res := range resources.Resources {
 				p.logger.Info(ctx.Context(), "provisioning resource %q of env %q", resName, env)
-				res.SetProvisioner(p)
+
+				provisionParams, err := p.getProvisionParams(ctx, res)
+				if err != nil {
+					return errors.Wrapf(err, "failed to init provision params for %q", res.Type)
+				}
 
 				if fnc, ok := provisionFuncByType[res.Type]; !ok {
 					return errors.Errorf("unknown resource type %q", res.Type)
 				} else if _, err := fnc(ctx, api.ResourceInput{
+					Log:        p.logger,
 					Descriptor: &res,
-				}); err != nil {
+				}, provisionParams); err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
 			}
@@ -65,6 +71,35 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		return err
 	}
 	return nil
+}
+
+func (p *pulumi) getProvisionParams(ctx *sdk.Context, res api.ResourceDescriptor) (params.ProvisionParams, error) {
+	p.pParamsMutex.Lock()
+	defer p.pParamsMutex.Unlock()
+
+	var provider sdk.ProviderResource
+	providerName := fmt.Sprintf("%s-provider", res.Type)
+
+	// check cache and return if found
+	if pParams, ok := p.pParamsMap[providerName]; ok {
+		return pParams, nil
+	}
+
+	if fnc, ok := providerByType[res.Type]; !ok {
+		return params.ProvisionParams{}, errors.Errorf("unsupported resource type %q", res.Type)
+	} else if out, err := fnc(ctx, params.ProviderInput{
+		Name:     providerName,
+		Resource: res.Config.Config,
+	}); err != nil {
+		return params.ProvisionParams{}, errors.Errorf("failed to provision provider for resource %q", res.Type)
+	} else {
+		provider = out.Provider
+	}
+	pParams := params.ProvisionParams{
+		Provider: provider,
+	}
+	p.pParamsMap[providerName] = pParams
+	return pParams, nil
 }
 
 func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
@@ -87,10 +122,9 @@ type SecretsProviderOutput struct {
 }
 
 func (p *pulumi) provisionSecretsProviderGcpKms(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
-	gcpProvider, err := gcp.ProvisionProvider(ctx, gcp.ProviderInput{
-		Name:        fmt.Sprintf("%s-secrets-provider", stack.Name),
-		Credentials: provisionerCfg.SecretsProvider.Credentials,
-		ProjectId:   provisionerCfg.SecretsProvider.ProjectId,
+	gcpProvider, err := gcp.ProvisionProvider(ctx, params.ProviderInput{
+		Name:     fmt.Sprintf("%s-secrets-provider", stack.Name),
+		Resource: &provisionerCfg.SecretsProvider,
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to provision gcp provider")

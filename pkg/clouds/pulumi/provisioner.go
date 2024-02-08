@@ -1,10 +1,12 @@
 package pulumi
 
 import (
+	"api/pkg/clouds/pulumi/params"
 	"context"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"sync"
 
 	"github.com/pkg/errors"
 
@@ -25,6 +27,9 @@ type pulumi struct {
 	stack                   *auto.Stack
 	backend                 backend.Backend
 	stackRef                backend.StackReference
+
+	pParamsMutex sync.RWMutex
+	pParamsMap   map[string]params.ProvisionParams
 }
 
 func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, error) {
@@ -47,10 +52,5 @@ func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey
 	if err := p.provisionStack(ctx, cfg, stack); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (p *pulumi) Provision(ctx context.Context, rd *api.ResourceDescriptor) error {
-	// TODO implement
 	return nil
 }

@@ -5,12 +5,21 @@ import "api/pkg/api"
 const ResourceTypeBucket = "gcp-bucket"
 
 type GcpBucket struct {
+	api.AuthConfig
 	Name        string `json:"name,omitempty" yaml:"name"`
-	Project     string `json:"project" yaml:"project" json:"project,omitempty"`
-	Credentials string `json:"credentials" yaml:"credentials" json:"credentials,omitempty"`
-	ProjectId   string `json:"projectId" yaml:"projectId" json:"projectId,omitempty"`
+	Credentials string `json:"credentials" yaml:"credentials"`
+	ProjectId   string `json:"projectId" yaml:"projectId"`
+	Location    string `json:"location" yaml:"location"`
 }
 
 func GcpBucketReadConfig(config *api.Config) (api.Config, error) {
 	return api.ConvertConfig(config, &GcpBucket{})
+}
+
+func (r *GcpBucket) CredentialsValue() string {
+	return r.Credentials
+}
+
+func (r *GcpBucket) ProjectIdValue() string {
+	return r.ProjectId
 }

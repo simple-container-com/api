@@ -1,26 +1,24 @@
 package gcp
 
 import (
+	"api/pkg/api"
+	"api/pkg/clouds/pulumi/params"
+	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-type ProviderInput struct {
-	Name        string
-	Credentials string
-	ProjectId   string
-}
+func ProvisionProvider(ctx *sdk.Context, input params.ProviderInput) (params.ProviderOutput, error) {
+	authCfg, ok := input.Resource.(api.AuthConfig)
+	if !ok {
+		return params.ProviderOutput{}, errors.Errorf("failed to cast config to AuthConfig for %q", input.Name)
+	}
 
-type ProviderOutput struct {
-	Provider sdk.ProviderResource
-}
-
-func ProvisionProvider(ctx *sdk.Context, params ProviderInput) (ProviderOutput, error) {
-	provider, err := gcp.NewProvider(ctx, params.Name, &gcp.ProviderArgs{
-		Credentials: sdk.String(params.Credentials),
-		Project:     sdk.String(params.ProjectId),
+	provider, err := gcp.NewProvider(ctx, input.Name, &gcp.ProviderArgs{
+		Credentials: sdk.String(authCfg.CredentialsValue()),
+		Project:     sdk.String(authCfg.ProjectIdValue()),
 	})
-	return ProviderOutput{
+	return params.ProviderOutput{
 		Provider: provider,
 	}, err
 }
