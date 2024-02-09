@@ -8,9 +8,9 @@ import (
 	"os"
 	"path"
 
-	"api/pkg/api/secrets/ciphers"
+	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/pkg/errors"

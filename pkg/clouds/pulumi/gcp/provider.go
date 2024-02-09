@@ -1,11 +1,11 @@
 package gcp
 
 import (
-	"api/pkg/api"
-	"api/pkg/clouds/pulumi/params"
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
 func ProvisionProvider(ctx *sdk.Context, input params.ProviderInput) (params.ProviderOutput, error) {

@@ -2,16 +2,17 @@ package cmd_secrets
 
 import (
 	"context"
-	"github.com/pkg/errors"
 	"path"
 
-	"api/pkg/api/git"
-	"api/pkg/provisioner"
+	"github.com/pkg/errors"
+
+	"github.com/simple-container-com/api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/provisioner"
 
 	"github.com/spf13/cobra"
 
-	"api/pkg/api/logger"
-	"api/pkg/cmd/root_cmd"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
 type secretsCmd struct {

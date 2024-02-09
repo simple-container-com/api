@@ -28,5 +28,6 @@ tasks:
     script:
       - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
       - ${project:root}/bin/gofumpt -l -w .
+      - ${project:root}/bin/golangci-lint linters
       - go build ./...
       - go build -o ${project:root}/bin/sc ./cmd/sc

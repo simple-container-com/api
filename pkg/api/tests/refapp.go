@@ -1,12 +1,12 @@
 package tests
 
 import (
-	"api/pkg/api"
-	"api/pkg/clouds/cloudflare"
-	"api/pkg/clouds/gcloud"
-	"api/pkg/clouds/github"
-	"api/pkg/clouds/mongodb"
-	"api/pkg/clouds/pulumi"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 )
 
 var CommonServerDescriptor = &api.ServerDescriptor{
@@ -46,7 +46,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
-			Config: api.Config{Config: &gcloud.GcloudTemplateConfig{
+			Config: api.Config{Config: &gcloud.TemplateConfig{
 				Credentials: "${auth:gcloud}",
 				ProjectId:   "${auth:gcloud.projectId}",
 			}},
@@ -108,7 +108,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
-			Config: api.Config{Config: &gcloud.GcloudTemplateConfig{
+			Config: api.Config{Config: &gcloud.TemplateConfig{
 				ProjectId:   "test-gcp-project",
 				Credentials: "<gcloud-service-account-email>",
 			}},

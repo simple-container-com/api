@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/api/git"
 
 	"github.com/pkg/errors"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 type Option struct {

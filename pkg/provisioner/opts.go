@@ -3,13 +3,13 @@ package provisioner
 import (
 	"context"
 
-	"api/pkg/api/git"
-	"api/pkg/api/logger"
-	"api/pkg/api/secrets"
+	"github.com/simple-container-com/api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/api/secrets"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 
-	"api/pkg/provisioner/placeholders"
+	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
 type Option func(p *provisioner) error

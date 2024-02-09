@@ -5,13 +5,13 @@ import (
 	"path"
 	"testing"
 
-	"api/pkg/api/secrets/ciphers"
+	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 
 	. "github.com/onsi/gomega"
 
-	"api/pkg/api"
-	"api/pkg/api/git"
-	"api/pkg/api/tests/testutil"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/api/tests/testutil"
 )
 
 func withGitDir(gitDir string) Option {

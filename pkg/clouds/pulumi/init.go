@@ -1,12 +1,12 @@
 package pulumi
 
 import (
-	"api/pkg/clouds/pulumi/gcp"
-	"api/pkg/clouds/pulumi/params"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 
-	"api/pkg/api"
-	"api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
 func init() {

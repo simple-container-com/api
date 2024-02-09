@@ -1,6 +1,6 @@
 package cloudflare
 
-import "api/pkg/api"
+import "github.com/simple-container-com/api/pkg/api"
 
 const RegistrarTypeCloudflare = "cloudflare"
 

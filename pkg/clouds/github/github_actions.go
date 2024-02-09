@@ -1,6 +1,6 @@
 package github
 
-import "api/pkg/api"
+import "github.com/simple-container-com/api/pkg/api"
 
 const CiCdTypeGithubActions = "github-actions"
 

@@ -20,7 +20,6 @@ func ReadDescriptor[T any](filePath string, descriptor *T) (*T, error) {
 	}
 
 	err = yaml.Unmarshal(fileBytes, descriptor)
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal %s", filePath)
 	}

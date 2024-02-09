@@ -9,12 +9,12 @@ import (
 
 	"github.com/pkg/errors"
 
-	"api/pkg/api"
-	"api/pkg/api/git"
-	"api/pkg/api/logger"
-	"api/pkg/api/secrets"
-	"api/pkg/provisioner/misc"
-	"api/pkg/provisioner/placeholders"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/api/secrets"
+	"github.com/simple-container-com/api/pkg/provisioner/misc"
+	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
 type Provisioner interface {

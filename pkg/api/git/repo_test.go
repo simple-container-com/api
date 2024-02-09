@@ -5,7 +5,7 @@ import (
 	"path"
 	"testing"
 
-	"api/pkg/api/tests/testutil"
+	"github.com/simple-container-com/api/pkg/api/tests/testutil"
 
 	. "github.com/onsi/gomega"
 )

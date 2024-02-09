@@ -5,7 +5,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 func (p *pulumi) createStackIfNotExists(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"api/pkg/cmd/cmd_secrets"
-	"api/pkg/cmd/root_cmd"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/spf13/cobra"
 )
 

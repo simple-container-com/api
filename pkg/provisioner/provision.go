@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) error {

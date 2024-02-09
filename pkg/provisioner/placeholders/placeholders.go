@@ -4,13 +4,11 @@ import (
 	"reflect"
 	"strings"
 
-	"api/pkg/api/logger"
-
-	"api/pkg/api"
-
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/welder/pkg/template"
 	"github.com/simple-container-com/welder/pkg/welder/types"
 )

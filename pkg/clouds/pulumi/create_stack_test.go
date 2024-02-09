@@ -1,15 +1,16 @@
 package pulumi
 
 import (
-	"api/pkg/clouds/gcloud"
 	"context"
 	"testing"
 
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+
 	. "github.com/onsi/gomega"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 
-	secretTestutil "api/pkg/api/secrets/testutil"
+	secretTestutil "github.com/simple-container-com/api/pkg/api/secrets/testutil"
 )
 
 const (

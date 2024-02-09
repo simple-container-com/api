@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 var CommonStack = api.Stack{

@@ -1,13 +1,13 @@
 package gcp
 
 import (
-	"api/pkg/clouds/pulumi/params"
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/storage"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 
-	"api/pkg/api"
-	"api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
 type BucketOutput struct {

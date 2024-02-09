@@ -5,7 +5,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/api/git"
 )
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"

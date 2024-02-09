@@ -6,24 +6,19 @@ import (
 	"path"
 	"testing"
 
-	git2 "api/pkg/api/git"
-	"api/pkg/api/logger"
-	"api/pkg/api/tests/testutil"
-
-	"api/pkg/clouds/pulumi/mocks"
-
+	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/mock"
 
-	"api/pkg/api"
-	"api/pkg/provisioner/placeholders"
-
-	"github.com/onsi/gomega/format"
-
-	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
-
-	"api/pkg/api/tests"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/git"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/api/tests"
+	"github.com/simple-container-com/api/pkg/api/tests/testutil"
+	pulumi_mocks "github.com/simple-container-com/api/pkg/clouds/pulumi/mocks"
+	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
 func Test_Provision(t *testing.T) {
@@ -153,7 +148,7 @@ func Test_Init(t *testing.T) {
 				RootDir:     "testdata/refapp-existing-gitdir",
 			},
 			init: func(wd string) Provisioner {
-				gitRepo, err := git2.New(git2.WithGitDir("gitdir"), git2.WithRootDir(wd))
+				gitRepo, err := git.New(git.WithGitDir("gitdir"), git.WithRootDir(wd))
 				Expect(err).To(BeNil())
 				p, err := New(WithGitRepo(gitRepo), WithPlaceholders(placeholders.New(logger.New())))
 				Expect(err).To(BeNil())
@@ -192,7 +187,7 @@ func Test_Init(t *testing.T) {
 			check: func(t *testing.T, wd string, p Provisioner) {
 				checkProfileIsCreated(t, wd, p)
 				commits := p.GitRepo().Log()
-				_, exists := lo.Find(commits, func(c git2.Commit) bool {
+				_, exists := lo.Find(commits, func(c git.Commit) bool {
 					return c.Message == "simple-container.com initial commit"
 				})
 				Expect(exists).To(BeFalse())
@@ -242,7 +237,7 @@ func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
 func checkInitialCommit(t *testing.T, wd string, p Provisioner) {
 	t.Run("initial commit is present", func(t *testing.T) {
 		commits := p.GitRepo().Log()
-		commit, exists := lo.Find(commits, func(c git2.Commit) bool {
+		commit, exists := lo.Find(commits, func(c git.Commit) bool {
 			return c.Message == "simple-container.com initial commit"
 		})
 		Expect(exists).To(BeTrue())

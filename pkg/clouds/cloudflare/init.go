@@ -1,7 +1,7 @@
 package cloudflare
 
 import (
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 func init() {

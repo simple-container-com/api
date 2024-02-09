@@ -4,17 +4,16 @@ import (
 	"fmt"
 	"testing"
 
-	"api/pkg/api/logger"
-
 	. "github.com/onsi/gomega"
 
-	"api/pkg/api"
-	tests "api/pkg/api/tests"
-	testutils "api/pkg/api/tests/testutil"
-	"api/pkg/clouds/gcloud"
-	"api/pkg/clouds/github"
-	"api/pkg/clouds/mongodb"
-	"api/pkg/clouds/pulumi"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	tests "github.com/simple-container-com/api/pkg/api/tests"
+	testutils "github.com/simple-container-com/api/pkg/api/tests/testutil"
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 )
 
 func Test_placeholders_ProcessStacks(t *testing.T) {

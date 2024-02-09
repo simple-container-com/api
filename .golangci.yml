@@ -1,0 +1,30 @@
+run:
+  skip-files: []
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - errcheck
+    - ineffassign
+    - gofumpt
+    - gosimple
+    - unused
+    - staticcheck
+    - gci
+
+linters-settings:
+  gci:
+    sections:
+      - standard # Standard section: captures all standard packages.
+      - default # Default section: contains all imports that could not be matched to another section type.
+      - prefix(github.com) # Custom section: groups all imports with the specified Prefix.
+      - prefix(github.com/simple-container-com) # Custom section: groups all imports with the specified Prefix.
+      # - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
+      # - dot # Dot section: contains all dot imports. This section is not present unless explicitly enabled.
+    skip-generated: false
+    custom-order: true
+  revive:
+    rules:
+      - name: var-naming # usually this is not critical
+        disabled: true

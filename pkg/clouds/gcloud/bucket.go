@@ -1,6 +1,6 @@
 package gcloud
 
-import "api/pkg/api"
+import "github.com/simple-container-com/api/pkg/api"
 
 const ResourceTypeBucket = "gcp-bucket"
 

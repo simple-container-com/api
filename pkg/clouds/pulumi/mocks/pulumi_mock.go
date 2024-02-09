@@ -3,8 +3,8 @@
 package pulumi_mocks
 
 import (
-	api "api/pkg/api"
 	context "context"
+	api "github.com/simple-container-com/api/pkg/api"
 
 	mock "github.com/stretchr/testify/mock"
 )

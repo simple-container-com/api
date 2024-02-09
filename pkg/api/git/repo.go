@@ -5,7 +5,7 @@ import (
 	"os"
 	"path"
 
-	"api/pkg/api/git/path_util"
+	"github.com/simple-container-com/api/pkg/api/git/path_util"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"

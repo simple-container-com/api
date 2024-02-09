@@ -1,6 +1,6 @@
 package api
 
-import "api/pkg/api/logger"
+import "github.com/simple-container-com/api/pkg/api/logger"
 
 const ServerSchemaVersion = "1.0"
 

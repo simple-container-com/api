@@ -5,7 +5,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	"api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 func TestReadServerDescriptor(t *testing.T) {

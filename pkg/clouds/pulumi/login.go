@@ -18,8 +18,8 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
-	"api/pkg/api"
-	"api/pkg/api/git/path_util"
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/git/path_util"
 )
 
 const ConfigPassphraseEnvVar = "PULUMI_CONFIG_PASSPHRASE"
