@@ -66,7 +66,7 @@ func Test_CreateStack(t *testing.T) {
 							"test-bucket": {
 								Type: gcloud.ResourceTypeBucket,
 								Config: api.Config{
-									Config: gcloud.GcpBucket{
+									Config: &gcloud.GcpBucket{
 										Credentials: string(gcpSa),
 										ProjectId:   e2eTestProject,
 										Name:        "e2e-create--test-bucket",

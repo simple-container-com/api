@@ -34,7 +34,8 @@ type pulumi struct {
 
 func InitPulumiProvisioner(opts ...api.ProvisionerOption) (api.Provisioner, error) {
 	res := &pulumi{
-		logger: logger.New(),
+		logger:     logger.New(),
+		pParamsMap: make(map[string]params.ProvisionParams),
 	}
 	for _, opt := range opts {
 		if err := opt(res); err != nil {

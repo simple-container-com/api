@@ -19,7 +19,7 @@ func ProvisionBucket(ctx *sdk.Context, input api.ResourceInput, params params.Pr
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}
 
-	bucketCfg, ok := input.Descriptor.Config.Config.(gcloud.GcpBucket)
+	bucketCfg, ok := input.Descriptor.Config.Config.(*gcloud.GcpBucket)
 	if !ok {
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
