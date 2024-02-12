@@ -2,10 +2,6 @@ package gcloud
 
 import "github.com/simple-container-com/api/pkg/api"
 
-const (
-	TemplateTypeGcpCloudrun = "cloudrun"
-)
-
 type TemplateConfig struct {
 	api.AuthConfig
 	Credentials string `json:"credentials" yaml:"credentials"`
