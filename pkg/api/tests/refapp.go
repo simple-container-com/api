@@ -2,6 +2,7 @@ package tests
 
 import (
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
@@ -15,14 +16,18 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 		Type: pulumi.ProvisionerTypePulumi,
 		Config: api.Config{Config: &pulumi.ProvisionerConfig{
 			StateStorage: pulumi.StateStorageConfig{
-				Type:        pulumi.StateStorageTypeGcpBucket,
-				Credentials: "${auth:gcloud}",
-				ProjectId:   "${auth:gcloud.projectId}",
-				Provision:   true,
+				Type: pulumi.StateStorageTypeGcpBucket,
+				Credentials: api.Credentials{
+					Credentials: "${auth:gcloud}",
+				},
+				ProjectId: "${auth:gcloud.projectId}",
+				Provision: true,
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
-				Type:        pulumi.SecretsProviderTypeGcpKms,
-				Credentials: "${auth:gcloud}",
+				Type: pulumi.SecretsProviderTypeGcpKms,
+				Credentials: api.Credentials{
+					Credentials: "${auth:gcloud}",
+				},
 				ProjectId:   "${auth:gcloud.projectId}",
 				KeyName:     "mypulumi-base-kms-key",
 				KeyLocation: "global",
@@ -39,16 +44,29 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
 		Config: api.Config{Config: &gcloud.SecretsConfig{
-			Credentials: "${auth:gcloud}",
-			ProjectId:   "${auth:gcloud.projectId}",
+			Credentials: api.Credentials{
+				Credentials: "${auth:gcloud}",
+			},
+			ProjectId: "${auth:gcloud.projectId}",
 		}},
 	},
 	Templates: map[string]api.StackDescriptor{
+		"stack-per-app-aws": {
+			Type: aws.TemplateTypeEcsFargate,
+			Config: api.Config{Config: &aws.TemplateConfig{
+				Credentials: api.Credentials{
+					Credentials: "${auth:aws}",
+				},
+				Account: "${auth:aws.projectId}",
+			}},
+		},
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
 			Config: api.Config{Config: &gcloud.TemplateConfig{
-				Credentials: "${auth:gcloud}",
-				ProjectId:   "${auth:gcloud.projectId}",
+				Credentials: api.Credentials{
+					Credentials: "${auth:gcloud}",
+				},
+				ProjectId: "${auth:gcloud.projectId}",
 			}},
 		},
 	},
@@ -77,14 +95,18 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		Type: pulumi.ProvisionerTypePulumi,
 		Config: api.Config{Config: &pulumi.ProvisionerConfig{
 			StateStorage: pulumi.StateStorageConfig{
-				Type:        pulumi.StateStorageTypeGcpBucket,
-				Credentials: "<gcloud-service-account-email>",
-				ProjectId:   "test-gcp-project",
-				Provision:   true,
+				Type: pulumi.StateStorageTypeGcpBucket,
+				Credentials: api.Credentials{
+					Credentials: "<gcloud-service-account-email>",
+				},
+				ProjectId: "test-gcp-project",
+				Provision: true,
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
-				Type:        pulumi.SecretsProviderTypeGcpKms,
-				Credentials: "<gcloud-service-account-email>",
+				Type: pulumi.SecretsProviderTypeGcpKms,
+				Credentials: api.Credentials{
+					Credentials: "<gcloud-service-account-email>",
+				},
 				ProjectId:   "test-gcp-project",
 				KeyName:     "mypulumi-base-kms-key",
 				KeyLocation: "global",
@@ -101,16 +123,29 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
 		Config: api.Config{Config: &gcloud.SecretsConfig{
-			Credentials: "<gcloud-service-account-email>",
-			ProjectId:   "test-gcp-project",
+			Credentials: api.Credentials{
+				Credentials: "<gcloud-service-account-email>",
+			},
+			ProjectId: "test-gcp-project",
 		}},
 	},
 	Templates: map[string]api.StackDescriptor{
+		"stack-per-app-aws": {
+			Type: aws.TemplateTypeEcsFargate,
+			Config: api.Config{Config: &aws.TemplateConfig{
+				Account: "000",
+				Credentials: api.Credentials{
+					Credentials: "ALALA", // TODO
+				},
+			}},
+		},
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
 			Config: api.Config{Config: &gcloud.TemplateConfig{
-				ProjectId:   "test-gcp-project",
-				Credentials: "<gcloud-service-account-email>",
+				ProjectId: "test-gcp-project",
+				Credentials: api.Credentials{
+					Credentials: "<gcloud-service-account-email>",
+				},
 			}},
 		},
 	},
@@ -194,10 +229,12 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version:     "14.5",
-							Project:     "${stack:name}",
-							Credentials: "${auth:gcloud}",
-							ProjectId:   "${auth:gcloud.projectId}",
+							Version: "14.5",
+							Project: "${stack:name}",
+							Credentials: api.Credentials{
+								Credentials: "${auth:gcloud}",
+							},
+							ProjectId: "${auth:gcloud.projectId}",
 						}},
 					},
 				},
@@ -222,10 +259,12 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: "gcp-cloudsql-postgres",
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version:     "14.5",
-							Project:     "${stack:name}",
-							Credentials: "${auth:gcloud}",
-							ProjectId:   "${auth:gcloud.projectId}",
+							Version: "14.5",
+							Project: "${stack:name}",
+							Credentials: api.Credentials{
+								Credentials: "${auth:gcloud}",
+							},
+							ProjectId: "${auth:gcloud.projectId}",
 						}},
 					},
 				},
@@ -281,10 +320,12 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version:     "14.5",
-							Project:     "refapp",
-							Credentials: "<gcloud-service-account-email>",
-							ProjectId:   "test-gcp-project",
+							Version: "14.5",
+							Project: "refapp",
+							Credentials: api.Credentials{
+								Credentials: "<gcloud-service-account-email>",
+							},
+							ProjectId: "test-gcp-project",
 						}},
 					},
 				},
@@ -309,10 +350,12 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version:     "14.5",
-							Project:     "refapp",
-							Credentials: "<gcloud-service-account-email>",
-							ProjectId:   "test-gcp-project",
+							Version: "14.5",
+							Project: "refapp",
+							Credentials: api.Credentials{
+								Credentials: "<gcloud-service-account-email>",
+							},
+							ProjectId: "test-gcp-project",
 						}},
 					},
 				},
@@ -329,6 +372,14 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 			Config: api.Config{Config: &gcloud.AuthServiceAccountConfig{
 				Account:   "<gcloud-service-account-email>",
 				ProjectId: "test-gcp-project",
+			}},
+		},
+		"aws": {
+			Type: aws.AuthTypeAWSToken,
+			Config: api.Config{Config: &aws.AuthAccessKeyConfig{
+				Account:         "000",
+				AccessKey:       "<aws-access-key>",
+				SecretAccessKey: "<aws-secret-key>",
 			}},
 		},
 		"pulumi": {

@@ -1,0 +1,20 @@
+schemaVersion: 1.0
+provisioner:
+  inherit: common
+secrets:
+  inherit: common
+cicd:
+  inherit: common
+templates:
+  stack-per-app-aws:
+    inherit: common
+resources:
+  registrar:
+    inherit: common
+  resources:
+    staging:
+      template: stack-per-app-aws
+      resources: &resources
+    prod:
+      template: stack-per-app-aws
+      resources: *resources

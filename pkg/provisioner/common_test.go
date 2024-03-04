@@ -2,6 +2,7 @@ package provisioner
 
 import (
 	"context"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"path"
 	"testing"
@@ -112,7 +113,7 @@ func Test_Provision(t *testing.T) {
 				Expect(err).To(BeNil())
 				if tt.expectStacks != nil {
 					for stackName := range tt.expectStacks {
-						Expect(p.Stacks()[stackName]).To(Equal(tt.expectStacks[stackName]))
+						assert.EqualValuesf(t, p.Stacks()[stackName], tt.expectStacks[stackName], "%v/%v failed", tt.name, stackName)
 					}
 				}
 			}

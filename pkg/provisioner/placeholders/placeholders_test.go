@@ -58,7 +58,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				resPgCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["postgres"].Config.Config
 				Expect(resPgCfg).To(BeAssignableToTypeOf(&gcloud.PostgresGcpCloudsqlConfig{}))
 				pgConfig := resPgCfg.(*gcloud.PostgresGcpCloudsqlConfig)
-				Expect(pgConfig.Credentials).To(Equal("<gcloud-service-account-email>"))
+				Expect(pgConfig.CredentialsValue()).To(Equal("<gcloud-service-account-email>"))
 				Expect(pgConfig.Project).To(Equal("refapp"))
 
 				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
@@ -76,6 +76,21 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(mongoConfig.ProjectId).To(Equal("5b89110a4e6581562623c59c"))
 				Expect(mongoConfig.ProjectName).To(Equal("refapp"))
 				Expect(mongoConfig.Region).To(Equal("US_SOUTH_1"))
+			},
+		},
+		{
+			name: "refapp-aws stack",
+			stacks: api.StacksMap{
+				"common":     tests.CommonStack,
+				"refapp-aws": tests.RefappAwsStack,
+			},
+			check: func(t *testing.T, stacks api.StacksMap) {
+				Expect(stacks["refapp-aws"]).NotTo(BeNil())
+				Expect(stacks["refapp-aws"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
+				cicdConfig := stacks["refapp-aws"].Server.CiCd.Config.Config
+				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
+				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
+				// TODO: tests for aws resources
 			},
 		},
 	}

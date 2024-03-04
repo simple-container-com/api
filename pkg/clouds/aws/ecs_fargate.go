@@ -1,4 +1,4 @@
-package gcloud
+package aws
 
 import (
 	"github.com/compose-spec/compose-go/types"
@@ -9,15 +9,15 @@ import (
 )
 
 const (
-	TemplateTypeGcpCloudrun = "cloudrun"
+	TemplateTypeEcsFargate = "ecs-fargate"
 )
 
-type CloudRunConfig struct {
+type EcsFargateConfig struct {
 	api.AuthConfig
-	Name        string `json:"name,omitempty" yaml:"name"`
-	Credentials string `json:"auth" yaml:"auth"`
-	ProjectId   string `json:"projectId" yaml:"projectId"`
-	Location    string `json:"location" yaml:"location"`
+	api.Credentials `json:",inline" yaml:",inline"`
+	Name            string `json:"name,omitempty" yaml:"name"`
+	Account         string `json:"account" yaml:"account"`
+	Region          string `json:"region" yaml:"region"`
 }
 
 type ImagePlatform string
@@ -26,18 +26,18 @@ const (
 	ImagePlatformLinuxAmd64 ImagePlatform = "linux/amd64"
 )
 
-type CloudRunImage struct {
+type EcsFargateImage struct {
 	Context    string
 	Dockerfile string
 	Platform   ImagePlatform
 }
 
-type CloudRunProbe struct {
+type EcsFargateProbe struct {
 	HttpGet             ProbeHttpGet
 	InitialDelaySeconds int
 }
 
-type CloudRunResources struct {
+type EcsFargateResources struct {
 	Limits   map[string]string
 	Requests map[string]string
 }
@@ -47,18 +47,18 @@ type ProbeHttpGet struct {
 	Port int
 }
 
-type CloudRunContainer struct {
+type EcsFargateContainer struct {
 	Name          string
-	Image         CloudRunImage
+	Image         EcsFargateImage
 	Env           map[string]string
 	Secrets       map[string]string
 	Port          int
-	LivenessProbe CloudRunProbe
-	StartupProbe  CloudRunProbe
-	Resources     CloudRunResources
+	LivenessProbe EcsFargateProbe
+	StartupProbe  EcsFargateProbe
+	Resources     EcsFargateResources
 }
 
-type CloudRunScale struct {
+type EcsFargateScale struct {
 	Min int
 	Max int
 }
@@ -82,14 +82,14 @@ type MaxErrorConfig struct {
 	MaxErrorCount         int
 }
 
-type CloudRunInput struct {
-	Scale      CloudRunScale
-	Containers []CloudRunContainer
-	Config     CloudRunConfig
+type EcsFargateInput struct {
+	Scale      EcsFargateScale
+	Containers []EcsFargateContainer
+	Config     EcsFargateConfig
 }
 
-func CloudRunConfigFromCompose(crCfg CloudRunConfig, composeCfg compose.Config, stackCfg api.StackConfig) (CloudRunInput, error) {
-	var res CloudRunInput
+func EcsFargateConfigFromCompose(crCfg EcsFargateConfig, composeCfg compose.Config, stackCfg api.StackConfig) (EcsFargateInput, error) {
+	var res EcsFargateInput
 
 	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {
 		return svc.Name, svc
@@ -99,12 +99,12 @@ func CloudRunConfigFromCompose(crCfg CloudRunConfig, composeCfg compose.Config, 
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {
-			return CloudRunInput{}, errors.Wrapf(err, "service %s", svcName)
+			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
 		}
 
-		res.Containers = append(res.Containers, CloudRunContainer{
+		res.Containers = append(res.Containers, EcsFargateContainer{
 			Name: svcName,
-			Image: CloudRunImage{
+			Image: EcsFargateImage{
 				Context:    svc.Build.Context,
 				Platform:   ImagePlatformLinuxAmd64,
 				Dockerfile: svc.Build.Dockerfile,
@@ -128,16 +128,16 @@ func toRunPort(ports []types.ServicePortConfig) (int, error) {
 	return 0, errors.Errorf("expected 1 port, got %d", len(ports))
 }
 
-func toResources(svc types.ServiceConfig) CloudRunResources {
-	return CloudRunResources{}
+func toResources(svc types.ServiceConfig) EcsFargateResources {
+	return EcsFargateResources{}
 }
 
-func toStartupProbe(check *types.HealthCheckConfig) CloudRunProbe {
-	return CloudRunProbe{}
+func toStartupProbe(check *types.HealthCheckConfig) EcsFargateProbe {
+	return EcsFargateProbe{}
 }
 
-func toLivenessProbe(check *types.HealthCheckConfig) CloudRunProbe {
-	return CloudRunProbe{}
+func toLivenessProbe(check *types.HealthCheckConfig) EcsFargateProbe {
+	return EcsFargateProbe{}
 }
 
 func toRunSecrets(environment types.MappingWithEquals) map[string]string {
@@ -155,10 +155,10 @@ func toRunEnv(environment types.MappingWithEquals) map[string]string {
 	return res
 }
 
-func (r *CloudRunConfig) CredentialsValue() string {
-	return r.Credentials
+func (r *EcsFargateConfig) CredentialsValue() string {
+	return api.AuthToString(r)
 }
 
-func (r *CloudRunConfig) ProjectIdValue() string {
-	return r.ProjectId
+func (r *EcsFargateConfig) ProjectIdValue() string {
+	return r.Account
 }

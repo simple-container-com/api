@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
 	"os"
 	"strings"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/pkg/v3/backend/display"
-	"github.com/pulumi/pulumi/pkg/v3/backend/filestate"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
@@ -71,7 +71,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		Name: tokens.PackageName(cfg.ProjectName),
 	}
 	var be backend.Backend
-	creds := provisionerCfg.StateStorage.Credentials
+	creds := provisionerCfg.StateStorage.CredentialsValue()
 
 	if creds == "" {
 		return errors.Errorf("credentials for pulumi backend must not be empty")
@@ -84,7 +84,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			p.logger.Warn(ctx, "failed to set %q value: %q", httpstate.AccessTokenEnvVar, err.Error())
 		}
 
-		be, err = filestate.Login(ctx, cmdutil.Diag(), fmt.Sprintf("gs://%s", provisionerCfg.StateStorage.BucketName), project)
+		be, err = diy.Login(ctx, cmdutil.Diag(), fmt.Sprintf("gs://%s", provisionerCfg.StateStorage.BucketName), project)
 	case StateStorageTypePulumiCloud:
 		// hackily set access token env variable, so that lm can access it
 		if err := os.Setenv(httpstate.AccessTokenEnvVar, creds); err != nil {

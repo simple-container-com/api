@@ -24,15 +24,15 @@ type ProvisionerConfig struct {
 
 type StateStorageConfig struct {
 	api.AuthConfig
-	Type        string `json:"type" yaml:"type"`
-	Credentials string `json:"credentials" yaml:"credentials"`
-	ProjectId   string `json:"projectId" yaml:"projectId"`
-	BucketName  string `json:"bucketName" yaml:"bucketName"`
-	Provision   bool   `json:"provision" yaml:"provision"`
+	api.Credentials `json:",inline" yaml:",inline"`
+	Type            string `json:"type" yaml:"type"`
+	ProjectId       string `json:"projectId" yaml:"projectId"`
+	BucketName      string `json:"bucketName" yaml:"bucketName"`
+	Provision       bool   `json:"provision" yaml:"provision"`
 }
 
 func (r *StateStorageConfig) CredentialsValue() string {
-	return r.Credentials
+	return r.Credentials.Credentials
 }
 
 func (r *StateStorageConfig) ProjectIdValue() string {
@@ -41,8 +41,8 @@ func (r *StateStorageConfig) ProjectIdValue() string {
 
 type SecretsProviderConfig struct {
 	api.AuthConfig
+	api.Credentials   `json:",inline" yaml:",inline"`
 	Type              string `json:"type" yaml:"type"`
-	Credentials       string `json:"credentials" yaml:"credentials"`
 	ProjectId         string `json:"projectId" yaml:"projectId"`
 	KeyName           string `json:"keyName" yaml:"keyName"`
 	KeyLocation       string `json:"keyLocation" yaml:"keyLocation"`
@@ -51,7 +51,7 @@ type SecretsProviderConfig struct {
 }
 
 func (r *SecretsProviderConfig) CredentialsValue() string {
-	return r.Credentials
+	return r.Credentials.Credentials
 }
 
 func (r *SecretsProviderConfig) ProjectIdValue() string {

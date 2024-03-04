@@ -7,6 +7,11 @@ provisioner:
       credentials: "${auth:gcloud}"
       projectId: "${auth:gcloud.projectId}"
       provision: true
+#    state-storage:
+#      type: s3-bucket
+#      credentials: "${auth:aws}"
+#      projectId: "${auth:aws.projectId}"
+#      provision: true
     secrets-provider:
       type: gcp-kms
       provision: true
@@ -32,6 +37,11 @@ secrets:
     projectId: "${auth:gcloud.projectId}"
     credentials: "${auth:gcloud}"
 templates:
+  stack-per-app-aws:
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
   stack-per-app:
     type: cloudrun
     config:

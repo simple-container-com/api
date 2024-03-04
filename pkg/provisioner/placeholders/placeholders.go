@@ -120,8 +120,7 @@ func (p *placeholders) tplAuth(stackName string, stack api.Stack, stacks api.Sta
 				return authConfig.CredentialsValue(), nil
 			} else if len(pathParts) == 2 {
 				if res, ok := map[string]string{
-					"projectId":   authConfig.ProjectIdValue(),
-					"credentials": authConfig.CredentialsValue(),
+					"projectId": authConfig.ProjectIdValue(),
 				}[pathParts[1]]; ok {
 					return res, nil
 				}

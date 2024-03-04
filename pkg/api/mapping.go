@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
@@ -39,6 +41,14 @@ func ConvertConfig[T any](config *Config, to *T) (Config, error) {
 	return *config, err
 }
 
+func AuthToString[T any](sa *T) string {
+	if res, err := json.Marshal(sa); err != nil {
+		return fmt.Sprintf("<ERROR: %q>", err.Error())
+	} else {
+		return string(res)
+	}
+}
+
 func RegisterProviderConfig(configMapping ConfigRegisterMap) {
 	providerConfigMapping = lo.Assign(providerConfigMapping, configMapping)
 }
@@ -56,4 +66,9 @@ type ProvisionerOption func(p Provisioner) error
 type AuthConfig interface {
 	CredentialsValue() string
 	ProjectIdValue() string
+	ToPulumiProviderArgs() any
+}
+
+type Credentials struct {
+	Credentials string `json:"credentials" yaml:"credentials"` // required for proper deserialization
 }

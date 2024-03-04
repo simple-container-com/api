@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"github.com/stretchr/testify/assert"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -24,13 +25,18 @@ func TestReadServerDescriptor(t *testing.T) {
 			path: "testdata/stacks/refapp/server.yaml",
 			want: RefappServerDescriptor,
 		},
+		{
+			path: "testdata/stacks/refapp-aws/server.yaml",
+			want: RefappAwsServerDescriptor,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			got, err := api.ReadServerDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			Expect(got.ValuesOnly()).To(Equal(tt.want))
+			assert.EqualValuesf(t, tt.want, got.ValuesOnly(), "%v failed", tt.path)
+			//Expect(got.ValuesOnly()).To(Equal(tt.want))
 		})
 	}
 }
@@ -53,7 +59,8 @@ func TestReadSecretsDescriptor(t *testing.T) {
 			got, err := api.ReadSecretsDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			Expect(got).To(Equal(tt.want))
+			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
+			//Expect(got).To(Equal(tt.want))
 		})
 	}
 }
@@ -76,7 +83,8 @@ func TestReadClientDescriptor(t *testing.T) {
 			got, err := api.ReadClientDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			Expect(got).To(Equal(tt.want))
+			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
+			//Expect(got).To(Equal(tt.want))
 		})
 	}
 }

@@ -16,3 +16,10 @@ var RefappStack = api.Stack{
 	Server:  *RefappServerDescriptor,
 	Client:  *RefappClientDescriptor,
 }
+
+var RefappAwsStack = api.Stack{
+	Name:    "refapp-aws",
+	Secrets: *CommonSecretsDescriptor,
+	Server:  *RefappServerDescriptor,
+	Client:  *RefappClientDescriptor,
+}
