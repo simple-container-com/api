@@ -36,10 +36,16 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(srvConfig).To(BeAssignableToTypeOf(&pulumi.ProvisionerConfig{}))
 				pConfig := srvConfig.(*pulumi.ProvisionerConfig)
 
-				Expect(pConfig.StateStorage.ProjectId).To(Equal("test-gcp-project"))
-				Expect(pConfig.SecretsProvider.ProjectId).To(Equal("test-gcp-project"))
-				Expect(pConfig.StateStorage.Credentials).To(Equal("<gcloud-service-account-email>"))
-				Expect(pConfig.SecretsProvider.Credentials).To(Equal("<gcloud-service-account-email>"))
+				Expect(pConfig.StateStorage.Config.Config).To(BeAssignableToTypeOf(&gcloud.StateStorageConfig{}))
+				stateStorageCfg := pConfig.StateStorage.Config.Config.(*gcloud.StateStorageConfig)
+				Expect(pConfig.SecretsProvider.Config.Config).To(BeAssignableToTypeOf(&gcloud.SecretsProviderConfig{}))
+				secretsProviderCfg := pConfig.SecretsProvider.Config.Config.(*gcloud.SecretsProviderConfig)
+
+				// TODO: fixme
+				Expect(stateStorageCfg.ProjectId).To(Equal("test-gcp-project"))
+				Expect(stateStorageCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
+				Expect(secretsProviderCfg.ProjectId).To(Equal("test-gcp-project"))
+				Expect(secretsProviderCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 
 				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
 				cicdConfig := stacks["common"].Server.CiCd.Config.Config

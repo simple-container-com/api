@@ -10,11 +10,7 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
-type BucketOutput struct {
-	Provider sdk.ProviderResource
-}
-
-func ProvisionBucket(ctx *sdk.Context, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
+func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != gcloud.ResourceTypeBucket {
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}

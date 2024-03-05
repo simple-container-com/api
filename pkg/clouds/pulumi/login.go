@@ -84,7 +84,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			p.logger.Warn(ctx, "failed to set %q value: %q", httpstate.AccessTokenEnvVar, err.Error())
 		}
 
-		be, err = diy.Login(ctx, cmdutil.Diag(), fmt.Sprintf("gs://%s", provisionerCfg.StateStorage.BucketName), project)
+		be, err = diy.Login(ctx, cmdutil.Diag(), provisionerCfg.StateStorage.StorageUrl(), project)
 	case StateStorageTypePulumiCloud:
 		// hackily set access token env variable, so that lm can access it
 		if err := os.Setenv(httpstate.AccessTokenEnvVar, creds); err != nil {

@@ -14,4 +14,9 @@ func init() {
 		// bucket
 		ResourceTypeBucket: S3BucketReadConfig,
 	})
+
+	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{
+		StateStorageTypeS3Bucket:  ReadStateStorageConfig,
+		SecretsProviderTypeAwsKms: ReadSecretsProviderConfig,
+	})
 }

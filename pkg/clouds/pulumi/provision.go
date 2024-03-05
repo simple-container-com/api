@@ -4,21 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
 func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
-	provisionerCfg, err := p.getProvisionerConfig(stack)
-	if err != nil {
-		return err
-	}
 	if p.backend == nil {
 		return errors.Errorf("backend is nil")
 	}
@@ -39,7 +33,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		}
 
 		// TODO: provision resources for stack with the use of secrets provider output
-		p.logger.Info(ctx.Context(), "secrets provider output: %v", provisionerCfg.secretsProviderOutput)
+		p.logger.Info(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
 
 		for env, resources := range stack.Server.Resources.Resources {
 			p.logger.Info(ctx.Context(), "provisioning resources for env %q...", env)
@@ -53,7 +47,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 				if fnc, ok := provisionFuncByType[res.Type]; !ok {
 					return errors.Errorf("unknown resource type %q", res.Type)
-				} else if _, err := fnc(ctx, api.ResourceInput{
+				} else if _, err := fnc(ctx, stack, api.ResourceInput{
 					Log:        p.logger,
 					Descriptor: &res,
 				}, provisionParams); err != nil {
@@ -104,45 +98,35 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, res api.ResourceDescriptor
 }
 
 func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
-	if !provisionerCfg.SecretsProvider.Provision {
+	if !provisionerCfg.SecretsProvider.IsProvisionEnabled() {
 		p.logger.Info(ctx.Context(), "Skipping provisioning of secrets provider for stack %q", stack.Name)
 		return nil
 	}
 	p.logger.Info(ctx.Context(), "Provisioning secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
-	switch provisionerCfg.SecretsProvider.Type {
-	case SecretsProviderTypeGcpKms:
-		return p.provisionSecretsProviderGcpKms(ctx, provisionerCfg, stack)
-	default:
-		return errors.Errorf("unknown secrets provider type %q", provisionerCfg.SecretsProvider.Type)
+
+	resDescriptor := api.ResourceDescriptor{
+		Type:   provisionerCfg.SecretsProvider.Type,
+		Config: provisionerCfg.SecretsProvider.Config,
 	}
+	provisionParams, err := p.getProvisionParams(ctx, resDescriptor)
+	if err != nil {
+		return errors.Wrapf(err, "failed to init provision params for %q", provisionerCfg.SecretsProvider.Type)
+	}
+
+	if fnc, ok := provisionFuncByType[provisionerCfg.SecretsProvider.Type]; ok {
+		_, err := fnc(ctx, stack, api.ResourceInput{
+			Log:        p.logger,
+			Descriptor: &resDescriptor,
+		}, provisionParams)
+		if err != nil {
+			return errors.Wrapf(err, "failed to provision secrets provider of type %q", provisionerCfg.SecretsProvider.Type)
+		}
+		return nil
+	}
+	return errors.Errorf("unknown secrets provider type %q", provisionerCfg.SecretsProvider.Type)
 }
 
 type SecretsProviderOutput struct {
 	Provider sdk.ProviderResource
 	Resource sdk.ComponentResource
-}
-
-func (p *pulumi) provisionSecretsProviderGcpKms(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
-	gcpProvider, err := gcp.ProvisionProvider(ctx, params.ProviderInput{
-		Name:     fmt.Sprintf("%s-secrets-provider", stack.Name),
-		Resource: &provisionerCfg.SecretsProvider,
-	})
-	if err != nil {
-		return errors.Wrapf(err, "failed to provision gcp provider")
-	}
-	if key, err := gcp.ProvisionKmsKey(ctx, stack, gcp.KmsKeyInput{
-		KeyRingName:       stack.Name,
-		KeyName:           provisionerCfg.SecretsProvider.KeyName,
-		KeyLocation:       provisionerCfg.SecretsProvider.KeyLocation,
-		KeyRotationPeriod: provisionerCfg.SecretsProvider.KeyRotationPeriod,
-		Provider:          gcpProvider.Provider,
-	}); err != nil {
-		return err
-	} else {
-		provisionerCfg.secretsProviderOutput = &SecretsProviderOutput{
-			Provider: gcpProvider.Provider,
-			Resource: key,
-		}
-	}
-	return nil
 }

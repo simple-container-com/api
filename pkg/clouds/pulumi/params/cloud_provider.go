@@ -6,7 +6,6 @@ import (
 
 type ProvisionParams struct {
 	Provider sdk.ProviderResource
-	// todo: more
 }
 
 type ProviderInput struct {

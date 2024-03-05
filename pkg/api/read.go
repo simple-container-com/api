@@ -272,10 +272,21 @@ func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, err
 		return nil, errors.Errorf("unknown provisioner type %q", descriptor.Provisioner.Type)
 	} else {
 		var err error
-		descriptor.Provisioner.provisioner, err = fn()
+		descriptor.Provisioner.provisioner, err = fn(
+			descriptor.Provisioner.Config,
+			WithFieldConfigReader(ReadProvisionerFieldConfig),
+		)
 		if err != nil {
 			return descriptor, err
 		}
 	}
 	return descriptor, nil
+}
+
+func ReadProvisionerFieldConfig(cType string, config *Config) (Config, error) {
+	if fn, found := provisionerFieldConfigMapping[cType]; !found {
+		return *config, errors.Errorf("unknown provisioner field config type %q", cType)
+	} else {
+		return fn(config)
+	}
 }

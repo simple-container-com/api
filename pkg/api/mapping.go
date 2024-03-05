@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
 	"github.com/samber/lo"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,7 +13,7 @@ const MetaDirectoryName = ".sc"
 
 type ConfigReaderFunc func(config *Config) (Config, error)
 
-type ProvisionerInitFunc func(opts ...ProvisionerOption) (Provisioner, error)
+type ProvisionerInitFunc func(config Config, opts ...ProvisionerOption) (Provisioner, error)
 
 type ConfigRegisterMap map[string]ConfigReaderFunc
 
@@ -22,6 +22,12 @@ type ProvisionerRegisterMap map[string]ProvisionerInitFunc
 var providerConfigMapping = ConfigRegisterMap{}
 
 var provisionerConfigMapping = ProvisionerRegisterMap{}
+
+type ProvisionerFieldConfigReadFunc func(config *Config) (Config, error)
+type ProvisionerFieldConfigRegister map[string]ProvisionerFieldConfigReadFunc
+type ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
+
+var provisionerFieldConfigMapping = ProvisionerFieldConfigRegister{}
 
 func ConvertDescriptor[T any](from any, to *T) (*T, error) {
 	if bytes, err := yaml.Marshal(from); err == nil {
@@ -57,16 +63,40 @@ func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
 	provisionerConfigMapping = lo.Assign(provisionerConfigMapping, provisionerMapping)
 }
 
+func RegisterProvisionerFieldConfig(mapping ProvisionerFieldConfigRegister) {
+	provisionerFieldConfigMapping = lo.Assign(provisionerFieldConfigMapping, mapping)
+}
+
 type Provisioner interface {
 	ProvisionStack(ctx context.Context, cfg *ConfigFile, pubKey string, stack Stack) error
+
+	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }
 
 type ProvisionerOption func(p Provisioner) error
 
+func WithFieldConfigReader(f ProvisionerFieldConfigReaderFunc) ProvisionerOption {
+	return func(p Provisioner) error {
+		p.SetConfigReader(f)
+		return nil
+	}
+}
+
 type AuthConfig interface {
 	CredentialsValue() string
 	ProjectIdValue() string
-	ToPulumiProviderArgs() any
+	ToPulumiProviderArgs() any // deprecated: figure out how to migrate to provisioner-specific implementations
+}
+
+type StateStorageConfig interface {
+	AuthConfig
+	StorageUrl() string
+	IsProvisionEnabled() bool
+}
+
+type SecretsProviderConfig interface {
+	AuthConfig
+	IsProvisionEnabled() bool
 }
 
 type Credentials struct {

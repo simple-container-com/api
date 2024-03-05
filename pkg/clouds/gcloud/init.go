@@ -17,4 +17,9 @@ func init() {
 		// bucket
 		ResourceTypeBucket: GcpBucketReadConfig,
 	})
+
+	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{
+		StateStorageTypeGcpBucket: ReadStateStorageConfig,
+		SecretsProviderTypeGcpKms: ReadSecretsProviderConfig,
+	})
 }

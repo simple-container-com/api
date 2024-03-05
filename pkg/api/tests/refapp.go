@@ -17,21 +17,27 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 		Config: api.Config{Config: &pulumi.ProvisionerConfig{
 			StateStorage: pulumi.StateStorageConfig{
 				Type: pulumi.StateStorageTypeGcpBucket,
-				Credentials: api.Credentials{
-					Credentials: "${auth:gcloud}",
-				},
-				ProjectId: "${auth:gcloud.projectId}",
-				Provision: true,
+				Config: api.Config{Config: &gcloud.StateStorageConfig{
+					Credentials: api.Credentials{
+						Credentials: "${auth:gcloud}",
+					},
+					ServiceAccountConfig: gcloud.ServiceAccountConfig{
+						ProjectId: "${auth:gcloud.projectId}",
+					},
+				}},
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type: pulumi.SecretsProviderTypeGcpKms,
-				Credentials: api.Credentials{
-					Credentials: "${auth:gcloud}",
-				},
-				ProjectId:   "${auth:gcloud.projectId}",
-				KeyName:     "mypulumi-base-kms-key",
-				KeyLocation: "global",
-				Provision:   true,
+				Config: api.Config{Config: &gcloud.SecretsProviderConfig{
+					Credentials: api.Credentials{
+						Credentials: "${auth:gcloud}",
+					},
+					ServiceAccountConfig: gcloud.ServiceAccountConfig{
+						ProjectId: "${auth:gcloud.projectId}",
+					},
+					KeyName:     "mypulumi-base-kms-key",
+					KeyLocation: "global",
+				}},
 			},
 		}},
 	},
@@ -47,7 +53,9 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 			Credentials: api.Credentials{
 				Credentials: "${auth:gcloud}",
 			},
-			ProjectId: "${auth:gcloud.projectId}",
+			ServiceAccountConfig: gcloud.ServiceAccountConfig{
+				ProjectId: "${auth:gcloud.projectId}",
+			},
 		}},
 	},
 	Templates: map[string]api.StackDescriptor{
@@ -96,21 +104,27 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		Config: api.Config{Config: &pulumi.ProvisionerConfig{
 			StateStorage: pulumi.StateStorageConfig{
 				Type: pulumi.StateStorageTypeGcpBucket,
-				Credentials: api.Credentials{
-					Credentials: "<gcloud-service-account-email>",
-				},
-				ProjectId: "test-gcp-project",
-				Provision: true,
+				Config: api.Config{Config: &gcloud.StateStorageConfig{
+					Credentials: api.Credentials{
+						Credentials: "<gcloud-service-account-email>",
+					},
+					ServiceAccountConfig: gcloud.ServiceAccountConfig{
+						ProjectId: "test-gcp-project",
+					},
+				}},
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type: pulumi.SecretsProviderTypeGcpKms,
-				Credentials: api.Credentials{
-					Credentials: "<gcloud-service-account-email>",
-				},
-				ProjectId:   "test-gcp-project",
-				KeyName:     "mypulumi-base-kms-key",
-				KeyLocation: "global",
-				Provision:   true,
+				Config: api.Config{Config: &gcloud.SecretsProviderConfig{
+					Credentials: api.Credentials{
+						Credentials: "<gcloud-service-account-email>",
+					},
+					ServiceAccountConfig: gcloud.ServiceAccountConfig{
+						ProjectId: "test-gcp-project",
+					},
+					KeyName:     "mypulumi-base-kms-key",
+					KeyLocation: "global",
+				}},
 			},
 		}},
 	},
@@ -126,7 +140,9 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 			Credentials: api.Credentials{
 				Credentials: "<gcloud-service-account-email>",
 			},
-			ProjectId: "test-gcp-project",
+			ServiceAccountConfig: gcloud.ServiceAccountConfig{
+				ProjectId: "test-gcp-project",
+			},
 		}},
 	},
 	Templates: map[string]api.StackDescriptor{
@@ -370,16 +386,19 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 		"gcloud": {
 			Type: gcloud.AuthTypeGCPServiceAccount,
 			Config: api.Config{Config: &gcloud.AuthServiceAccountConfig{
-				Account:   "<gcloud-service-account-email>",
-				ProjectId: "test-gcp-project",
+				ServiceAccountConfig: gcloud.ServiceAccountConfig{
+					ProjectId: "test-gcp-project",
+				},
 			}},
 		},
 		"aws": {
 			Type: aws.AuthTypeAWSToken,
 			Config: api.Config{Config: &aws.AuthAccessKeyConfig{
-				Account:         "000",
-				AccessKey:       "<aws-access-key>",
-				SecretAccessKey: "<aws-secret-key>",
+				AwsAccountConfig: aws.AwsAccountConfig{
+					Account:         "000",
+					AccessKey:       "<aws-access-key>",
+					SecretAccessKey: "<aws-secret-key>",
+				},
 			}},
 		},
 		"pulumi": {

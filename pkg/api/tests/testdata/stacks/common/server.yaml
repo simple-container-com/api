@@ -4,33 +4,38 @@ provisioner:
   config:
     state-storage:
       type: gcp-bucket
-      credentials: "${auth:gcloud}"
-      projectId: "${auth:gcloud.projectId}"
-      provision: true
+      config:
+        credentials: "${auth:gcloud}"
+        projectId: "${auth:gcloud.projectId}"
+        provision: true
 #    state-storage:
 #      type: s3-bucket
-#      credentials: "${auth:aws}"
-#      projectId: "${auth:aws.projectId}"
-#      provision: true
+#      config:
+#        credentials: "${auth:aws}"
+#        projectId: "${auth:aws.projectId}"
+#        provision: true
     secrets-provider:
       type: gcp-kms
-      provision: true
-      projectId: "${auth:gcloud.projectId}"
-      keyName: mypulumi-base-kms-key
-      keyLocation: global
-      credentials: "${auth:gcloud}"
+      config:
+        provision: true
+        projectId: "${auth:gcloud.projectId}"
+        keyName: mypulumi-base-kms-key
+        keyLocation: global
+        credentials: "${auth:gcloud}"
 #  type: pulumi
 #  config:
 #    organization: mypulumiorg
 #    state-storage:
-#      type: pulumi-cloud
-#      credentials: "${auth:pulumi}"
-#      provision: true
+#      config:
+#        type: pulumi-cloud
+#        credentials: "${auth:pulumi}"
+#        provision: true
 #    secrets-provider:
 #      type: pulumi-cloud
-#      organization: mypulumi-other-org
-#      provision: true
-#      credentials: "${auth:pulumi}"
+#      config:
+#        organization: mypulumi-other-org
+#        provision: true
+#        credentials: "${auth:pulumi}"
 secrets:
   type: gcp-secrets-manager
   config:
