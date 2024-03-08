@@ -12,7 +12,7 @@ func init() {
 		AuthTypeAWSToken:             ReadAuthServiceAccountConfig,
 
 		// bucket
-		ResourceTypeBucket: S3BucketReadConfig,
+		ResourceTypeS3Bucket: S3BucketReadConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{

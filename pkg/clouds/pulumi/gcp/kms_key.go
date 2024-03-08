@@ -19,9 +19,14 @@ func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		return nil, errors.Errorf("failed to convert KmsKeyInput for %q", input.Descriptor.Type)
 	}
 
+	keyRingName := kmsInput.KeyRingName
+	if keyRingName == "" {
+		keyRingName = fmt.Sprintf("%s-keyring", stack.Name)
+	}
+
 	// Create a new KeyRing for stack
 	keyRing, err := kms.NewKeyRing(ctx, stack.Name, &kms.KeyRingArgs{
-		Name:     sdk.String(stack.Name),
+		Name:     sdk.String(keyRingName),
 		Location: sdk.String(kmsInput.KeyLocation),
 	}, sdk.Provider(params.Provider))
 	if err != nil {

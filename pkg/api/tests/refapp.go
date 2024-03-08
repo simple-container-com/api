@@ -24,6 +24,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 					ServiceAccountConfig: gcloud.ServiceAccountConfig{
 						ProjectId: "${auth:gcloud.projectId}",
 					},
+					Provision: true,
 				}},
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
@@ -35,6 +36,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 					ServiceAccountConfig: gcloud.ServiceAccountConfig{
 						ProjectId: "${auth:gcloud.projectId}",
 					},
+					Provision:   true,
 					KeyName:     "mypulumi-base-kms-key",
 					KeyLocation: "global",
 				}},
@@ -49,7 +51,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
-		Config: api.Config{Config: &gcloud.SecretsConfig{
+		Config: api.Config{Config: &gcloud.SecretsProviderConfig{
 			Credentials: api.Credentials{
 				Credentials: "${auth:gcloud}",
 			},
@@ -136,7 +138,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
-		Config: api.Config{Config: &gcloud.SecretsConfig{
+		Config: api.Config{Config: &gcloud.SecretsProviderConfig{
 			Credentials: api.Credentials{
 				Credentials: "<gcloud-service-account-email>",
 			},
@@ -385,7 +387,10 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 	Auth: map[string]api.AuthDescriptor{
 		"gcloud": {
 			Type: gcloud.AuthTypeGCPServiceAccount,
-			Config: api.Config{Config: &gcloud.AuthServiceAccountConfig{
+			Config: api.Config{Config: &gcloud.Credentials{
+				Credentials: api.Credentials{
+					Credentials: "<gcloud-service-account-email>",
+				},
 				ServiceAccountConfig: gcloud.ServiceAccountConfig{
 					ProjectId: "test-gcp-project",
 				},

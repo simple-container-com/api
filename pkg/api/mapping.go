@@ -85,7 +85,6 @@ func WithFieldConfigReader(f ProvisionerFieldConfigReaderFunc) ProvisionerOption
 type AuthConfig interface {
 	CredentialsValue() string
 	ProjectIdValue() string
-	ToPulumiProviderArgs() any // deprecated: figure out how to migrate to provisioner-specific implementations
 }
 
 type StateStorageConfig interface {

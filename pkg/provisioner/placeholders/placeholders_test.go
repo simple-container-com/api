@@ -31,22 +31,30 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				"common": tests.CommonStack,
 			},
 			check: func(t *testing.T, stacks api.StacksMap) {
+				// auth
 				Expect(stacks["common"].Secrets.Auth["gcloud"]).NotTo(BeNil())
+				authConfigGeneric := stacks["common"].Secrets.Auth["gcloud"].Config.Config
+				Expect(authConfigGeneric).To(BeAssignableToTypeOf(&gcloud.Credentials{}))
+				authConfig := authConfigGeneric.(*gcloud.Credentials)
+				Expect(authConfig.ProjectId).To(Equal("test-gcp-project"))
+				Expect(authConfig.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
+
+				// provisioner
 				srvConfig := stacks["common"].Server.Provisioner.Config.Config
 				Expect(srvConfig).To(BeAssignableToTypeOf(&pulumi.ProvisionerConfig{}))
 				pConfig := srvConfig.(*pulumi.ProvisionerConfig)
 
+				// state storage
 				Expect(pConfig.StateStorage.Config.Config).To(BeAssignableToTypeOf(&gcloud.StateStorageConfig{}))
 				stateStorageCfg := pConfig.StateStorage.Config.Config.(*gcloud.StateStorageConfig)
 				Expect(pConfig.SecretsProvider.Config.Config).To(BeAssignableToTypeOf(&gcloud.SecretsProviderConfig{}))
 				secretsProviderCfg := pConfig.SecretsProvider.Config.Config.(*gcloud.SecretsProviderConfig)
-
-				// TODO: fixme
 				Expect(stateStorageCfg.ProjectId).To(Equal("test-gcp-project"))
 				Expect(stateStorageCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 				Expect(secretsProviderCfg.ProjectId).To(Equal("test-gcp-project"))
 				Expect(secretsProviderCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 
+				// cicd
 				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
 				cicdConfig := stacks["common"].Server.CiCd.Config.Config
 				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)

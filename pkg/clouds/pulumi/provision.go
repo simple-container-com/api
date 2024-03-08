@@ -40,7 +40,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 			for resName, res := range resources.Resources {
 				p.logger.Info(ctx.Context(), "provisioning resource %q of env %q", resName, env)
 
-				provisionParams, err := p.getProvisionParams(ctx, res)
+				provisionParams, err := p.getProvisionParams(ctx, stack, res)
 				if err != nil {
 					return errors.Wrapf(err, "failed to init provision params for %q", res.Type)
 				}
@@ -68,7 +68,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	return nil
 }
 
-func (p *pulumi) getProvisionParams(ctx *sdk.Context, res api.ResourceDescriptor) (params.ProvisionParams, error) {
+func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor) (params.ProvisionParams, error) {
 	p.pParamsMutex.Lock()
 	defer p.pParamsMutex.Unlock()
 
@@ -80,15 +80,24 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, res api.ResourceDescriptor
 		return pParams, nil
 	}
 
-	if fnc, ok := providerByType[res.Type]; !ok {
-		return params.ProvisionParams{}, errors.Errorf("unsupported resource type %q", res.Type)
-	} else if out, err := fnc(ctx, params.ProviderInput{
-		Name:     providerName,
-		Resource: res.Config.Config,
-	}); err != nil {
-		return params.ProvisionParams{}, errors.Errorf("failed to provision provider for resource %q", res.Type)
-	} else {
-		provider = out.Provider
+	if providerArgsFunc, ok := pulumiProviderArgsByType[res.Type]; !ok {
+		return params.ProvisionParams{}, errors.Errorf("unsupported provider for resource type %q in stack %q", res.Type, stack.Name)
+	} else if providerArgs, err := providerArgsFunc(res.Config); err != nil {
+		return params.ProvisionParams{}, errors.Errorf("failed to cast config to provider args for %q in stack %q", res.Type, stack.Name)
+	} else if providerFunc, ok := providerFuncByType[res.Type]; !ok {
+		return params.ProvisionParams{}, errors.Errorf("unsupported provider for resource type %q in stack %q", res.Type, stack.Name)
+	} else if out, err := providerFunc(ctx, stack, api.ResourceInput{
+		Log: p.logger,
+		Descriptor: &api.ResourceDescriptor{
+			Type: res.Type,
+			Name: providerName,
+			Config: api.Config{
+				Config: providerArgs,
+			},
+		},
+	}, params.ProvisionParams{}); err != nil {
+	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
+		return params.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	}
 	pParams := params.ProvisionParams{
 		Provider: provider,
@@ -98,7 +107,12 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, res api.ResourceDescriptor
 }
 
 func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
-	if !provisionerCfg.SecretsProvider.IsProvisionEnabled() {
+	secretsProviderCfg, ok := provisionerCfg.SecretsProvider.Config.Config.(api.SecretsProviderConfig)
+	if !ok {
+		return errors.Errorf("secrets provider config is not of type api.SecretsProviderConfig for %q", provisionerCfg.SecretsProvider.Type)
+	}
+
+	if !secretsProviderCfg.IsProvisionEnabled() {
 		p.logger.Info(ctx.Context(), "Skipping provisioning of secrets provider for stack %q", stack.Name)
 		return nil
 	}
@@ -106,20 +120,25 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 
 	resDescriptor := api.ResourceDescriptor{
 		Type:   provisionerCfg.SecretsProvider.Type,
+		Name:   fmt.Sprintf("%s-secrets-provider", stack.Name),
 		Config: provisionerCfg.SecretsProvider.Config,
 	}
-	provisionParams, err := p.getProvisionParams(ctx, resDescriptor)
+	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor)
 	if err != nil {
-		return errors.Wrapf(err, "failed to init provision params for %q", provisionerCfg.SecretsProvider.Type)
+		return errors.Wrapf(err, "failed to init provision params for %q in stack %q", provisionerCfg.SecretsProvider.Type, stack.Name)
 	}
 
 	if fnc, ok := provisionFuncByType[provisionerCfg.SecretsProvider.Type]; ok {
-		_, err := fnc(ctx, stack, api.ResourceInput{
+		out, err := fnc(ctx, stack, api.ResourceInput{
 			Log:        p.logger,
 			Descriptor: &resDescriptor,
 		}, provisionParams)
 		if err != nil {
 			return errors.Wrapf(err, "failed to provision secrets provider of type %q", provisionerCfg.SecretsProvider.Type)
+		}
+		p.secretsProviderOutput = &SecretsProviderOutput{
+			Provider: provisionParams.Provider,
+			Resource: out.Ref.(sdk.ComponentResource),
 		}
 		return nil
 	}

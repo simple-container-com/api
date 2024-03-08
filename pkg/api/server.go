@@ -64,6 +64,7 @@ type PerEnvResourcesDescriptor struct {
 
 type ResourceDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
+	Name    string `json:"name" yaml:"name"`
 	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }

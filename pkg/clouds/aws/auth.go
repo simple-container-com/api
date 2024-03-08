@@ -1,8 +1,7 @@
 package aws
 
 import (
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"fmt"
 	"github.com/simple-container-com/api/pkg/api"
 )
 
@@ -21,22 +20,20 @@ type AwsAccountConfig struct {
 }
 
 type AuthAccessKeyConfig struct {
-	api.AuthConfig
 	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 }
 
 type SecretsConfig struct {
-	api.AuthConfig
 	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 }
 
 type StateStorageConfig struct {
-	api.StateStorageConfig
 	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
-	Provision        bool `json:"provision" yaml:"provision"`
+	BucketName       string `json:"bucketName" yaml:"bucketName"`
+	Provision        bool   `json:"provision" yaml:"provision"`
 }
 
 type SecretsProviderConfig struct {
@@ -54,13 +51,6 @@ func (sa *AuthAccessKeyConfig) ProjectIdValue() string {
 	return sa.Account
 }
 
-func (sa *AuthAccessKeyConfig) ToPulumiProviderArgs() any {
-	return &aws.ProviderArgs{
-		AccessKey: sdk.String(sa.AccessKey),
-		SecretKey: sdk.String(sa.SecretAccessKey),
-	}
-}
-
 func (sa *SecretsConfig) CredentialsValue() string {
 	return sa.SecretAccessKey
 }
@@ -75,6 +65,10 @@ func (sa *StateStorageConfig) IsProvisionEnabled() bool {
 
 func (sa *SecretsProviderConfig) IsProvisionEnabled() bool {
 	return sa.Provision
+}
+
+func (sa *StateStorageConfig) StorageUrl() string {
+	return fmt.Sprintf("s3://%s", sa.BucketName)
 }
 
 func ReadAuthServiceAccountConfig(config *api.Config) (api.Config, error) {

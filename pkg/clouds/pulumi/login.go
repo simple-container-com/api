@@ -71,20 +71,17 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		Name: tokens.PackageName(cfg.ProjectName),
 	}
 	var be backend.Backend
-	creds := provisionerCfg.StateStorage.CredentialsValue()
+	stateStorageCfg, ok := provisionerCfg.StateStorage.Config.Config.(api.StateStorageConfig)
+	if !ok {
+		return errors.Errorf("state storage config is not of type api.StateStorageConfig for %q", provisionerCfg.StateStorage.Type)
+	}
+	creds := stateStorageCfg.CredentialsValue()
 
 	if creds == "" {
 		return errors.Errorf("credentials for pulumi backend must not be empty")
 	}
 
 	switch provisionerCfg.StateStorage.Type {
-	case StateStorageTypeGcpBucket:
-		// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
-		if err := os.Setenv("GOOGLE_CREDENTIALS", creds); err != nil {
-			p.logger.Warn(ctx, "failed to set %q value: %q", httpstate.AccessTokenEnvVar, err.Error())
-		}
-
-		be, err = diy.Login(ctx, cmdutil.Diag(), provisionerCfg.StateStorage.StorageUrl(), project)
 	case StateStorageTypePulumiCloud:
 		// hackily set access token env variable, so that lm can access it
 		if err := os.Setenv(httpstate.AccessTokenEnvVar, creds); err != nil {
@@ -99,7 +96,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		}
 		be, err = httpstate.New(cmdutil.Diag(), cloudUrl, project, false)
 	default:
-		return errors.Errorf("unsupported state storage type %q", provisionerCfg.StateStorage.Type)
+		be, err = diy.Login(ctx, cmdutil.Diag(), stateStorageCfg.StorageUrl(), project)
 	}
 	if err != nil {
 		return err

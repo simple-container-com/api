@@ -23,13 +23,11 @@ type ProvisionerConfig struct {
 type StateStorageConfig struct {
 	Type       string `json:"type" yaml:"type"`
 	api.Config `json:",inline" yaml:",inline"`
-	api.StateStorageConfig
 }
 
 type SecretsProviderConfig struct {
 	Type       string `json:"type" yaml:"type"`
 	api.Config `json:",inline" yaml:",inline"`
-	api.SecretsProviderConfig
 }
 
 func ReadProvisionerConfig(config *api.Config) (api.Config, error) {

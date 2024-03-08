@@ -2,7 +2,7 @@ package aws
 
 import "github.com/simple-container-com/api/pkg/api"
 
-const ResourceTypeBucket = "gcp-bucket"
+const ResourceTypeS3Bucket = "s3-bucket"
 
 type S3Bucket struct {
 	api.AuthConfig
