@@ -1,8 +1,9 @@
 package tests
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	. "github.com/onsi/gomega"
 
@@ -36,7 +37,7 @@ func TestReadServerDescriptor(t *testing.T) {
 			Expect(err).To(BeNil())
 
 			assert.EqualValuesf(t, tt.want, got.ValuesOnly(), "%v failed", tt.path)
-			//Expect(got.ValuesOnly()).To(Equal(tt.want))
+			// Expect(got.ValuesOnly()).To(Equal(tt.want))
 		})
 	}
 }
@@ -60,7 +61,7 @@ func TestReadSecretsDescriptor(t *testing.T) {
 			Expect(err).To(BeNil())
 
 			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
-			//Expect(got).To(Equal(tt.want))
+			// Expect(got).To(Equal(tt.want))
 		})
 	}
 }
@@ -84,7 +85,7 @@ func TestReadClientDescriptor(t *testing.T) {
 			Expect(err).To(BeNil())
 
 			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
-			//Expect(got).To(Equal(tt.want))
+			// Expect(got).To(Equal(tt.want))
 		})
 	}
 }

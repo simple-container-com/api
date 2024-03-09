@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/samber/lo"
 
 	"gopkg.in/yaml.v3"
@@ -23,9 +24,11 @@ var providerConfigMapping = ConfigRegisterMap{}
 
 var provisionerConfigMapping = ProvisionerRegisterMap{}
 
-type ProvisionerFieldConfigReadFunc func(config *Config) (Config, error)
-type ProvisionerFieldConfigRegister map[string]ProvisionerFieldConfigReadFunc
-type ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
+type (
+	ProvisionerFieldConfigReadFunc   func(config *Config) (Config, error)
+	ProvisionerFieldConfigRegister   map[string]ProvisionerFieldConfigReadFunc
+	ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
+)
 
 var provisionerFieldConfigMapping = ProvisionerFieldConfigRegister{}
 

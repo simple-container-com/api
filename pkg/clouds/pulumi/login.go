@@ -3,9 +3,10 @@ package pulumi
 import (
 	"context"
 	"fmt"
-	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
 	"os"
 	"strings"
+
+	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 

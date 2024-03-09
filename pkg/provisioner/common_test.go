@@ -2,10 +2,11 @@ package provisioner
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
