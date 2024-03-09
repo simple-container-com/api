@@ -3,9 +3,9 @@ package aws
 import "github.com/simple-container-com/api/pkg/api"
 
 type TemplateConfig struct {
-	api.AuthConfig
-	api.Credentials `json:",inline" yaml:",inline"`
-	Account         string `json:"account" yaml:"account"`
+	api.Credentials  `json:",inline" yaml:",inline"`
+	AwsAccountConfig `json:",inline" yaml:",inline"`
+	Region           string `json:"region" yaml:"region"`
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {

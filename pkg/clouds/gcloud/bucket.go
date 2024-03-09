@@ -5,11 +5,10 @@ import "github.com/simple-container-com/api/pkg/api"
 const ResourceTypeBucket = "gcp-bucket"
 
 type GcpBucket struct {
-	api.AuthConfig
-	Name        string `json:"name,omitempty" yaml:"name"`
-	Credentials string `json:"credentials" yaml:"credentials"`
-	ProjectId   string `json:"projectId" yaml:"projectId"`
-	Location    string `json:"location" yaml:"location"`
+	ServiceAccountConfig `json:",inline" yaml:",inline"`
+	api.Credentials      `json:",inline" yaml:",inline"`
+	Name                 string `json:"name,omitempty" yaml:"name"`
+	Location             string `json:"location" yaml:"location"`
 }
 
 func GcpBucketReadConfig(config *api.Config) (api.Config, error) {
@@ -17,7 +16,7 @@ func GcpBucketReadConfig(config *api.Config) (api.Config, error) {
 }
 
 func (r *GcpBucket) CredentialsValue() string {
-	return r.Credentials
+	return r.Credentials.Credentials
 }
 
 func (r *GcpBucket) ProjectIdValue() string {

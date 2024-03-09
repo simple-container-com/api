@@ -13,11 +13,11 @@ const (
 )
 
 type EcsFargateConfig struct {
-	api.AuthConfig
-	api.Credentials `json:",inline" yaml:",inline"`
-	Name            string `json:"name,omitempty" yaml:"name"`
-	Account         string `json:"account" yaml:"account"`
-	Region          string `json:"region" yaml:"region"`
+	api.Credentials  `json:",inline" yaml:",inline"`
+	AwsAccountConfig `json:",inline" yaml:",inline"`
+	Name             string `json:"name,omitempty" yaml:"name"`
+	Account          string `json:"account" yaml:"account"`
+	Region           string `json:"region" yaml:"region"`
 }
 
 type ImagePlatform string
@@ -83,19 +83,33 @@ type MaxErrorConfig struct {
 }
 
 type EcsFargateInput struct {
-	Scale      EcsFargateScale
-	Containers []EcsFargateContainer
-	Config     EcsFargateConfig
+	TemplateConfig `json:"templateConfig" yaml:"templateConfig"`
+	Scale          EcsFargateScale       `json:"scale" yaml:"scale"`
+	Containers     []EcsFargateContainer `json:"containers" yaml:"containers"`
+	Config         EcsFargateConfig      `json:"config" yaml:"config"`
 }
 
-func EcsFargateConfigFromCompose(crCfg EcsFargateConfig, composeCfg compose.Config, stackCfg api.StackConfig) (EcsFargateInput, error) {
-	var res EcsFargateInput
+func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
+	templateCfg, ok := tpl.(TemplateConfig)
+	if !ok {
+		return EcsFargateInput{}, errors.Errorf("template config is not of type aws.TemplateConfig")
+	}
+
+	res := EcsFargateInput{
+		TemplateConfig: templateCfg,
+		Config: EcsFargateConfig{
+			Credentials:      templateCfg.Credentials,
+			AwsAccountConfig: templateCfg.AwsAccountConfig,
+			Name:             "",
+			Region:           templateCfg.Region,
+		},
+	}
 
 	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {
 		return svc.Name, svc
 	})
 
-	for _, svcName := range stackCfg.Runs {
+	for _, svcName := range stackCfg.Config.Runs {
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {

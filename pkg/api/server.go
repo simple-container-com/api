@@ -4,6 +4,12 @@ import "github.com/simple-container-com/api/pkg/api/logger"
 
 const ServerSchemaVersion = "1.0"
 
+type ProvisionParams struct {
+	RootDir string   `json:"rootDir" yaml:"rootDir"`
+	Profile string   `json:"profile" yaml:"profile"`
+	Stacks  []string `json:"stacks" yaml:"stacks"`
+}
+
 // ServerDescriptor describes the server schema
 type ServerDescriptor struct {
 	SchemaVersion string                        `json:"schemaVersion" yaml:"schemaVersion"`
@@ -88,6 +94,11 @@ type StackDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
 	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
+}
+
+type CloudComposeDescriptor struct {
+	StackName string `json:"stackName" yaml:"stackName"`
+	Input     any    `json:"input" yaml:"input"`
 }
 
 type SecretsConfigDescriptor struct {

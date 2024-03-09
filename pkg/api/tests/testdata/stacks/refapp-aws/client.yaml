@@ -2,7 +2,8 @@
 schemaVersion: 1.0
 stacks:
   staging:
-    stack: refapp/staging
+    stack: refapp
+    environment: staging
     domain: staging.sc-refapp.org
     config: &config
       docker-compose-file: ./docker-compose.yaml # uses listed containers from docker-compose.yaml
@@ -12,6 +13,7 @@ stacks:
         - api
         - ui
   prod:
-    stack: refapp/prod
+    stack: refapp
+    environment: prod
     domain: prod.sc-refapp.org
     config: *config # shape services the same way as staging

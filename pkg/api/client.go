@@ -9,13 +9,22 @@ type ClientDescriptor struct {
 }
 
 type StackClientDescriptor struct {
-	Stack  string      `json:"stack" yaml:"stack"`
-	Domain string      `json:"domain" yaml:"domain"`
-	Config StackConfig `json:"config" yaml:"config"`
+	Stack       string      `json:"stack" yaml:"stack"`
+	Environment string      `json:"environment" yaml:"environment"`
+	Domain      string      `json:"domain" yaml:"domain"`
+	Config      StackConfig `json:"config" yaml:"config"`
 }
 
 type StackConfig struct {
 	DockerComposeFile string   `json:"docker-compose-file" yaml:"docker-compose-file"`
 	Uses              []string `json:"uses" yaml:"uses"`
 	Runs              []string `json:"runs" yaml:"runs"`
+}
+
+type DeployParams struct {
+	RootDir     string         `json:"rootDir" yaml:"rootDir"`
+	Profile     string         `json:"profile" yaml:"profile"`
+	Stack       string         `json:"stack" yaml:"stack"`
+	Environment string         `json:"environment" yaml:"environment"`
+	Vars        VariableValues `json:"vars" yaml:"vars"`
 }

@@ -5,11 +5,10 @@ import "github.com/simple-container-com/api/pkg/api"
 const ResourceTypeS3Bucket = "s3-bucket"
 
 type S3Bucket struct {
-	api.AuthConfig
-	Name        string `json:"name,omitempty" yaml:"name"`
-	Credentials string `json:"credentials" yaml:"credentials"`
-	ProjectId   string `json:"projectId" yaml:"projectId"`
-	Location    string `json:"location" yaml:"location"`
+	api.Credentials  `json:",inline" yaml:",inline"`
+	AwsAccountConfig `json:",inline" yaml:",inline"`
+	Name             string `json:"name,omitempty" yaml:"name"`
+	Location         string `json:"location" yaml:"location"`
 }
 
 func S3BucketReadConfig(config *api.Config) (api.Config, error) {
@@ -17,9 +16,9 @@ func S3BucketReadConfig(config *api.Config) (api.Config, error) {
 }
 
 func (r *S3Bucket) CredentialsValue() string {
-	return r.Credentials
+	return api.AuthToString(r)
 }
 
 func (r *S3Bucket) ProjectIdValue() string {
-	return r.ProjectId
+	return r.Account
 }

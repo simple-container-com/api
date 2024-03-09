@@ -10,7 +10,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
-func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) error {
+func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
 	if err := p.ReadStacks(ctx, params); err != nil {
 		return errors.Wrapf(err, "failed to read stacks")
 	}
@@ -47,7 +47,7 @@ func (p *provisioner) Provision(ctx context.Context, params ProvisionParams) err
 	return nil
 }
 
-func (p *provisioner) ReadStacks(ctx context.Context, params ProvisionParams) error {
+func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams) error {
 	for _, stackName := range params.Stacks {
 		stack := api.Stack{
 			Name: stackName,

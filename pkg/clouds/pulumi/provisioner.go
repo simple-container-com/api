@@ -82,3 +82,11 @@ func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey
 	}
 	return nil
 }
+
+func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, client api.StackClientDescriptor) error {
+	p.pubKey = pubKey
+
+	// TODO
+	//api.ConvertTemplateToCloudCompose(ctx, "", client.Stack, client)
+	return errors.Errorf("not implemented")
+}

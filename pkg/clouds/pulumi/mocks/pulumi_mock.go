@@ -15,6 +15,24 @@ type PulumiMock struct {
 	mock.Mock
 }
 
+// DeployStack provides a mock function with given fields: ctx, cfg, pubKey, client
+func (_m *PulumiMock) DeployStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, client api.StackClientDescriptor) error {
+	ret := _m.Called(ctx, cfg, pubKey, client)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeployStack")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, string, api.StackClientDescriptor) error); ok {
+		r0 = rf(ctx, cfg, pubKey, client)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // ProvisionStack provides a mock function with given fields: ctx, cfg, pubKey, stack
 func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, stack api.Stack) error {
 	ret := _m.Called(ctx, cfg, pubKey, stack)

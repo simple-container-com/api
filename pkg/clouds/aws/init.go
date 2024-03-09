@@ -19,4 +19,8 @@ func init() {
 		StateStorageTypeS3Bucket:  ReadStateStorageConfig,
 		SecretsProviderTypeAwsKms: ReadSecretsProviderConfig,
 	})
+
+	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
+		TemplateTypeEcsFargate: ToEcsFargateConfig,
+	})
 }

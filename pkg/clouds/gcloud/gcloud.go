@@ -3,9 +3,8 @@ package gcloud
 import "github.com/simple-container-com/api/pkg/api"
 
 type TemplateConfig struct {
-	api.AuthConfig
-	api.Credentials `json:",inline" yaml:",inline"`
-	ProjectId       string `json:"projectId" yaml:"projectId"`
+	ServiceAccountConfig `json:",inline" yaml:",inline"`
+	api.Credentials      `json:",inline" yaml:",inline"`
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {

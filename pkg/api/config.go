@@ -22,6 +22,15 @@ type ConfigFile struct {
 	PublicKey      string `yaml:"publicKey" json:"publicKey"`
 }
 
+type InitParams struct {
+	ProjectName         string `json:"projectName" yaml:"projectName"`
+	RootDir             string `json:"rootDir,omitempty" yaml:"rootDir"`
+	Profile             string `json:"profile,omitempty" yaml:"profile"`
+	SkipInitialCommit   bool   `json:"skipInitialCommit" yaml:"skipInitialCommit"`
+	SkipProfileCreation bool   `json:"skipProfileCreation" yaml:"skipProfileCreation"`
+	GenerateKeyPair     bool   `json:"generateKeyPair" yaml:"generateKeyPair"`
+}
+
 func ReadConfigFile(workDir, profile string) (*ConfigFile, error) {
 	res, err := ReadDescriptor(ConfigFilePath(workDir, profile), &ConfigFile{})
 	if err != nil {

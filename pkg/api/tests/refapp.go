@@ -67,7 +67,9 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 				Credentials: api.Credentials{
 					Credentials: "${auth:aws}",
 				},
-				Account: "${auth:aws.projectId}",
+				AwsAccountConfig: aws.AwsAccountConfig{
+					Account: "${auth:aws.projectId}",
+				},
 			}},
 		},
 		"stack-per-app": {
@@ -76,7 +78,9 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 				Credentials: api.Credentials{
 					Credentials: "${auth:gcloud}",
 				},
-				ProjectId: "${auth:gcloud.projectId}",
+				ServiceAccountConfig: gcloud.ServiceAccountConfig{
+					ProjectId: "${auth:gcloud.projectId}",
+				},
 			}},
 		},
 	},
@@ -153,7 +157,9 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-aws": {
 			Type: aws.TemplateTypeEcsFargate,
 			Config: api.Config{Config: &aws.TemplateConfig{
-				Account: "000",
+				AwsAccountConfig: aws.AwsAccountConfig{
+					Account: "000",
+				},
 				Credentials: api.Credentials{
 					Credentials: `{"credentials":"","account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e"}`,
 				},
@@ -162,7 +168,9 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
 			Config: api.Config{Config: &gcloud.TemplateConfig{
-				ProjectId: "test-gcp-project",
+				ServiceAccountConfig: gcloud.ServiceAccountConfig{
+					ProjectId: "test-gcp-project",
+				},
 				Credentials: api.Credentials{
 					Credentials: "<gcloud-service-account-email>",
 				},
@@ -429,8 +437,9 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
-			Stack:  "refapp/staging",
-			Domain: "staging.sc-refapp.org",
+			Stack:       "refapp",
+			Environment: "staging",
+			Domain:      "staging.sc-refapp.org",
 			Config: api.StackConfig{
 				DockerComposeFile: "./docker-compose.yaml",
 				Uses: []string{
@@ -443,8 +452,9 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 		"prod": {
-			Stack:  "refapp/prod",
-			Domain: "prod.sc-refapp.org",
+			Stack:       "refapp",
+			Environment: "prod",
+			Domain:      "prod.sc-refapp.org",
 			Config: api.StackConfig{
 				DockerComposeFile: "./docker-compose.yaml",
 				Uses: []string{

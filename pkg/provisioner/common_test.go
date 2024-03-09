@@ -28,7 +28,7 @@ func Test_Provision(t *testing.T) {
 	format.MaxLength = 10000
 	testCases := []struct {
 		name         string
-		params       ProvisionParams
+		params       api.ProvisionParams
 		init         func(t *testing.T, ctx context.Context) (Provisioner, error)
 		opts         []Option
 		expectStacks api.StacksMap
@@ -36,7 +36,7 @@ func Test_Provision(t *testing.T) {
 	}{
 		{
 			name: "happy path gcp",
-			params: ProvisionParams{
+			params: api.ProvisionParams{
 				RootDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
@@ -60,7 +60,7 @@ func Test_Provision(t *testing.T) {
 		},
 		{
 			name: "happy path aws",
-			params: ProvisionParams{
+			params: api.ProvisionParams{
 				RootDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
@@ -84,7 +84,7 @@ func Test_Provision(t *testing.T) {
 		},
 		{
 			name: "pulumi error",
-			params: ProvisionParams{
+			params: api.ProvisionParams{
 				RootDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
@@ -148,12 +148,70 @@ func Test_Provision(t *testing.T) {
 	}
 }
 
+func Test_Deploy(t *testing.T) {
+	RegisterTestingT(t)
+	format.MaxLength = 10000
+	testCases := []struct {
+		name    string
+		params  api.DeployParams
+		verify  func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock)
+		wantErr string
+	}{
+		{
+			name: "happy path staging gcp",
+			params: api.DeployParams{
+				RootDir:     "testdata/stacks",
+				Stack:       "refapp",
+				Environment: "staging",
+			},
+			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock) {
+				pulumiMock.AssertCalled(t, "DeployStack", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(actual any) bool {
+					expected := tests.RefappClientDescriptor.Stacks["staging"]
+					return assert.EqualValuesf(t, expected, actual, "%v failed", ttName)
+				}))
+			},
+		},
+	}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.TODO()
+
+			var p Provisioner
+			var err error
+			pulumiMock := pulumi_mocks.NewPulumiMock(t)
+			pulumiMock.On("DeployStack", ctx, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+			p, err = New(
+				WithPlaceholders(placeholders.New(logger.New())),
+				WithOverrideProvisioner(pulumiMock),
+			)
+
+			if err != nil && tt.wantErr != "" {
+				Expect(err).To(MatchRegexp(tt.wantErr))
+			} else {
+				Expect(err).To(BeNil())
+			}
+
+			err = p.Deploy(ctx, tt.params)
+
+			if err != nil && tt.wantErr != "" {
+				Expect(err.Error()).To(MatchRegexp(tt.wantErr))
+			} else {
+				Expect(err).To(BeNil())
+				if tt.verify != nil {
+					tt.verify(t, tt.name, pulumiMock)
+				}
+			}
+		})
+	}
+}
+
 func Test_Init(t *testing.T) {
 	RegisterTestingT(t)
 
 	cases := []struct {
 		name        string
-		params      InitParams
+		params      api.InitParams
 		opts        []Option
 		init        func(wd string) Provisioner
 		check       func(t *testing.T, wd string, p Provisioner)
@@ -162,7 +220,7 @@ func Test_Init(t *testing.T) {
 	}{
 		{
 			name: "happy path",
-			params: InitParams{
+			params: api.InitParams{
 				ProjectName: "test-project",
 				RootDir:     "testdata/refapp",
 			},
@@ -171,7 +229,7 @@ func Test_Init(t *testing.T) {
 		},
 		{
 			name: "existing repo no error",
-			params: InitParams{
+			params: api.InitParams{
 				ProjectName: "test-project",
 				RootDir:     "testdata/refapp-existing-gitdir",
 			},
@@ -186,14 +244,14 @@ func Test_Init(t *testing.T) {
 		},
 		{
 			name: "project name is not set",
-			params: InitParams{
+			params: api.InitParams{
 				RootDir: "testdata/refapp",
 			},
 			wantInitErr: "project name is not configured",
 		},
 		{
 			name: "skip profile creation",
-			params: InitParams{
+			params: api.InitParams{
 				ProjectName:         "test-project",
 				RootDir:             "testdata/refapp",
 				SkipProfileCreation: true,
@@ -206,7 +264,7 @@ func Test_Init(t *testing.T) {
 		},
 		{
 			name: "skip initial commit",
-			params: InitParams{
+			params: api.InitParams{
 				ProjectName:       "test-project",
 				RootDir:           "testdata/refapp",
 				SkipInitialCommit: true,

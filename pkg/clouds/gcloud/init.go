@@ -22,4 +22,9 @@ func init() {
 		StateStorageTypeGcpBucket: ReadStateStorageConfig,
 		SecretsProviderTypeGcpKms: ReadSecretsProviderConfig,
 	})
+
+	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
+		TemplateTypeGcpCloudrun: ToCloudRunConfig,
+	})
+
 }

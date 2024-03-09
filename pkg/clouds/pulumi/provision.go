@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -55,6 +56,17 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 				}
 			}
 		}
+		for templateName, stackDesc := range stack.Server.Templates {
+			serializedStackDesc, err := yaml.Marshal(stackDesc)
+			if err != nil {
+				return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
+			}
+
+			outputName := stackDescriptorTemplateName(stack.Name, templateName)
+			p.logger.Info(ctx.Context(), "preserving template %q in the stack's %q outputs as %q...", templateName, stack.Name, outputName)
+			secretOutput := sdk.ToSecret(serializedStackDesc)
+			ctx.Export(outputName, secretOutput)
+		}
 
 		return nil
 	})
@@ -104,6 +116,10 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	}
 	p.pParamsMap[providerName] = pParams
 	return pParams, nil
+}
+
+func stackDescriptorTemplateName(stackName, templateName string) string {
+	return fmt.Sprintf("%q/%q", stackName, templateName)
 }
 
 func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {

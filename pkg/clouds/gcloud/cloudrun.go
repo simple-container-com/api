@@ -13,11 +13,10 @@ const (
 )
 
 type CloudRunConfig struct {
-	api.AuthConfig
-	Name        string `json:"name,omitempty" yaml:"name"`
-	Credentials string `json:"auth" yaml:"auth"`
-	ProjectId   string `json:"projectId" yaml:"projectId"`
-	Location    string `json:"location" yaml:"location"`
+	ServiceAccountConfig `json:",inline" yaml:",inline"`
+	api.Credentials      `json:",inline" yaml:",inline"`
+	Name                 string `json:"name,omitempty" yaml:"name"`
+	Location             string `json:"location" yaml:"location"`
 }
 
 type ImagePlatform string
@@ -83,19 +82,27 @@ type MaxErrorConfig struct {
 }
 
 type CloudRunInput struct {
-	Scale      CloudRunScale
-	Containers []CloudRunContainer
-	Config     CloudRunConfig
+	TemplateConfig `json:"templateConfig" yaml:"templateConfig"`
+	Scale          CloudRunScale       `json:"scale" yaml:"scale"`
+	Containers     []CloudRunContainer `json:"containers" yaml:"containers"`
+	Config         CloudRunConfig      `json:"config" yaml:"config"`
 }
 
-func CloudRunConfigFromCompose(crCfg CloudRunConfig, composeCfg compose.Config, stackCfg api.StackConfig) (CloudRunInput, error) {
-	var res CloudRunInput
+func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
+	templateCfg, ok := tpl.(TemplateConfig)
+	if !ok {
+		return CloudRunInput{}, errors.Errorf("template config is not of type aws.TemplateConfig")
+	}
+
+	res := CloudRunInput{
+		TemplateConfig: templateCfg,
+	}
 
 	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {
 		return svc.Name, svc
 	})
 
-	for _, svcName := range stackCfg.Runs {
+	for _, svcName := range stackCfg.Config.Runs {
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {
@@ -156,7 +163,7 @@ func toRunEnv(environment types.MappingWithEquals) map[string]string {
 }
 
 func (r *CloudRunConfig) CredentialsValue() string {
-	return r.Credentials
+	return r.Credentials.Credentials
 }
 
 func (r *CloudRunConfig) ProjectIdValue() string {

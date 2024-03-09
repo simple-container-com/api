@@ -68,6 +68,19 @@ func Test_CreateStack(t *testing.T) {
 					},
 				},
 			},
+			Templates: map[string]api.StackDescriptor{
+				"stack-per-app": {
+					Type: gcloud.TemplateTypeGcpCloudrun,
+					Config: api.Config{Config: &gcloud.TemplateConfig{
+						Credentials: api.Credentials{
+							Credentials: string(gcpSa),
+						},
+						ServiceAccountConfig: gcloud.ServiceAccountConfig{
+							ProjectId: e2eTestProject,
+						},
+					}},
+				},
+			},
 			Resources: api.PerStackResourcesDescriptor{
 				Resources: map[string]api.PerEnvResourcesDescriptor{
 					"test": {
@@ -76,9 +89,13 @@ func Test_CreateStack(t *testing.T) {
 								Type: gcloud.ResourceTypeBucket,
 								Config: api.Config{
 									Config: &gcloud.GcpBucket{
-										Credentials: string(gcpSa),
-										ProjectId:   e2eTestProject,
-										Name:        "e2e-create--test-bucket",
+										Credentials: api.Credentials{
+											Credentials: string(gcpSa),
+										},
+										ServiceAccountConfig: gcloud.ServiceAccountConfig{
+											ProjectId: e2eTestProject,
+										},
+										Name: "e2e-create--test-bucket",
 									},
 								},
 							},

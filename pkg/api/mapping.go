@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/simple-container-com/api/pkg/clouds/compose"
 
 	"github.com/samber/lo"
 
@@ -28,9 +29,14 @@ type (
 	ProvisionerFieldConfigReadFunc   func(config *Config) (Config, error)
 	ProvisionerFieldConfigRegister   map[string]ProvisionerFieldConfigReadFunc
 	ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
+	ToCloudComposeConvertFunc        func(tpl any, composeCfg compose.Config, stackCfg StackClientDescriptor) (any, error)
+	CloudComposeConfigRegister       map[string]ToCloudComposeConvertFunc
 )
 
-var provisionerFieldConfigMapping = ProvisionerFieldConfigRegister{}
+var (
+	provisionerFieldConfigMapping = ProvisionerFieldConfigRegister{}
+	cloudComposeConverterMapping  = CloudComposeConfigRegister{}
+)
 
 func ConvertDescriptor[T any](from any, to *T) (*T, error) {
 	if bytes, err := yaml.Marshal(from); err == nil {
@@ -70,8 +76,14 @@ func RegisterProvisionerFieldConfig(mapping ProvisionerFieldConfigRegister) {
 	provisionerFieldConfigMapping = lo.Assign(provisionerFieldConfigMapping, mapping)
 }
 
+func RegisterCloudComposeConverter(mapping CloudComposeConfigRegister) {
+	cloudComposeConverterMapping = lo.Assign(cloudComposeConverterMapping, mapping)
+}
+
 type Provisioner interface {
 	ProvisionStack(ctx context.Context, cfg *ConfigFile, pubKey string, stack Stack) error
+
+	DeployStack(ctx context.Context, cfg *ConfigFile, pubKey string, client StackClientDescriptor) error
 
 	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }

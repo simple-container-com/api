@@ -18,15 +18,15 @@ import (
 )
 
 type Provisioner interface {
-	ReadStacks(ctx context.Context, params ProvisionParams) error
+	ReadStacks(ctx context.Context, params api.ProvisionParams) error
 
-	Init(ctx context.Context, params InitParams) error
+	Init(ctx context.Context, params api.InitParams) error
 	InitProfile(generateKeyPair bool) error
 	MakeInitialCommit() error
 
-	Provision(ctx context.Context, params ProvisionParams) error
+	Provision(ctx context.Context, params api.ProvisionParams) error
 
-	Deploy(ctx context.Context, params DeployParams) error
+	Deploy(ctx context.Context, params api.DeployParams) error
 
 	Stacks() api.StacksMap
 
@@ -50,27 +50,6 @@ type provisioner struct {
 	phResolver          placeholders.Placeholders
 	log                 logger.Logger
 	overrideProvisioner api.Provisioner
-}
-
-type ProvisionParams struct {
-	RootDir string   `json:"rootDir" yaml:"rootDir"`
-	Profile string   `json:"profile" yaml:"profile"`
-	Stacks  []string `json:"stacks" yaml:"stacks"`
-}
-
-type InitParams struct {
-	ProjectName         string `json:"projectName" yaml:"projectName"`
-	RootDir             string `json:"rootDir,omitempty" yaml:"rootDir"`
-	Profile             string `json:"profile,omitempty" yaml:"profile"`
-	SkipInitialCommit   bool   `json:"skipInitialCommit" yaml:"skipInitialCommit"`
-	SkipProfileCreation bool   `json:"skipProfileCreation" yaml:"skipProfileCreation"`
-	GenerateKeyPair     bool   `json:"generateKeyPair" yaml:"generateKeyPair"`
-}
-
-type DeployParams struct {
-	Stack       string             `json:"stack" yaml:"stack"`
-	Environment string             `json:"environment" yaml:"environment"`
-	Vars        api.VariableValues `json:"vars" yaml:"vars"`
 }
 
 func New(opts ...Option) (Provisioner, error) {
@@ -120,7 +99,7 @@ func (p *provisioner) withWriteLock() func() {
 	}
 }
 
-func (p *provisioner) Init(ctx context.Context, params InitParams) error {
+func (p *provisioner) Init(ctx context.Context, params api.InitParams) error {
 	defer p.withWriteLock()()
 	p.context = ctx
 	if params.ProjectName == "" {

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"github.com/simple-container-com/api/pkg/clouds/compose"
 	"os"
 
 	"github.com/pkg/errors"
@@ -82,6 +84,24 @@ func ReadSecretsConfigs(descriptor *SecretsDescriptor) (*SecretsDescriptor, erro
 		res = *withAuth
 	}
 	return &res, nil
+}
+
+func ConvertTemplateToCloudCompose(ctx context.Context, rootDir, stackName string, stackDesc StackDescriptor, clientDesc StackClientDescriptor) (*CloudComposeDescriptor, error) {
+	composeCfg, err := compose.ReadDockerCompose(ctx, rootDir, clientDesc.Config.DockerComposeFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read docker-compose config from %q/%q", rootDir, clientDesc.Config.DockerComposeFile)
+	}
+
+	if tplFun, found := cloudComposeConverterMapping[stackDesc.Type]; !found {
+		return nil, errors.Errorf("unknown template type %q for %q", stackDesc.Type, stackName)
+	} else if input, err := tplFun(stackDesc.Config.Config, composeCfg, clientDesc); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert cloud compose for type %q in stack %q", stackDesc.Type, stackName)
+	} else {
+		return &CloudComposeDescriptor{
+			StackName: stackName,
+			Input:     input,
+		}, nil
+	}
 }
 
 func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
