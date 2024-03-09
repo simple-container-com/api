@@ -42,6 +42,9 @@ func UnmarshalDescriptor[T any](bytes []byte) (*T, error) {
 func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	descriptor, err := ReadDescriptor(path, &ServerDescriptor{})
 
+	if err != nil {
+		return descriptor, errors.Wrapf(err, "failed to read server descriptor from %q", path)
+	}
 	res, err := ReadServerConfigs(descriptor)
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read server configs for %s", path)
@@ -104,6 +107,9 @@ func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
 }
 
 func ReadServerConfigs(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
+	if descriptor == nil {
+		return nil, errors.Errorf("failed to read descriptor: reference is nil")
+	}
 	res := *descriptor
 
 	if withProvisioner, err := DetectProvisionerType(&res); err != nil {

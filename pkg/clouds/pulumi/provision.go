@@ -36,9 +36,9 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		p.logger.Info(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
 
 		for env, resources := range stack.Server.Resources.Resources {
-			p.logger.Info(ctx.Context(), "provisioning resources for env %q...", env)
+			p.logger.Info(ctx.Context(), "provisioning resources for stack %q in env %q...", stack.Name, env)
 			for resName, res := range resources.Resources {
-				p.logger.Info(ctx.Context(), "provisioning resource %q of env %q", resName, env)
+				p.logger.Info(ctx.Context(), "provisioning resource %q for stack %q in env %q", resName, stack.Name, env)
 
 				provisionParams, err := p.getProvisionParams(ctx, stack, res)
 				if err != nil {

@@ -40,16 +40,20 @@ var ResolvedRefappAwsServerDescriptor = &api.ServerDescriptor{
 	Provisioner:   ResolvedCommonServerDescriptor.Provisioner,
 	Secrets:       ResolvedCommonServerDescriptor.Secrets,
 	CiCd:          ResolvedCommonServerDescriptor.CiCd,
-	Templates:     ResolvedCommonServerDescriptor.Templates,
-	Variables:     map[string]api.VariableDescriptor{},
+	Templates: map[string]api.StackDescriptor{
+		"stack-per-app-aws": ResolvedCommonServerDescriptor.Templates["stack-per-app-aws"],
+	},
+	Variables: map[string]api.VariableDescriptor{},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{
 			"staging": {
-				Template: "stack-per-app-aws",
+				Template:  "stack-per-app-aws",
+				Resources: map[string]api.ResourceDescriptor{},
 			},
 			"prod": {
-				Template: "stack-per-app-aws",
+				Template:  "stack-per-app-aws",
+				Resources: map[string]api.ResourceDescriptor{},
 			},
 		},
 	},

@@ -35,7 +35,7 @@ func Test_Provision(t *testing.T) {
 		wantErr      string
 	}{
 		{
-			name: "happy path",
+			name: "happy path gcp",
 			params: ProvisionParams{
 				RootDir: "testdata/stacks",
 				Stacks: []string{
@@ -54,6 +54,30 @@ func Test_Provision(t *testing.T) {
 					Name:    "refapp",
 					Secrets: *tests.CommonSecretsDescriptor,
 					Server:  *tests.ResolvedRefappServerDescriptor,
+					Client:  *tests.RefappClientDescriptor,
+				},
+			},
+		},
+		{
+			name: "happy path aws",
+			params: ProvisionParams{
+				RootDir: "testdata/stacks",
+				Stacks: []string{
+					"common",
+					"refapp-aws",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-aws": {
+					Name:    "refapp-aws",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappAwsServerDescriptor,
 					Client:  *tests.RefappClientDescriptor,
 				},
 			},

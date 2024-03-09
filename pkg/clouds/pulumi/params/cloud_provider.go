@@ -7,12 +7,3 @@ import (
 type ProvisionParams struct {
 	Provider sdk.ProviderResource
 }
-
-type ProviderInput struct {
-	Name     string
-	Resource any
-}
-
-type ProviderOutput struct {
-	Provider sdk.ProviderResource
-}
