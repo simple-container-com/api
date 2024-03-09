@@ -1,0 +1,14 @@
+name: Build api
+on:
+  push:
+    branches:
+      - 'main'
+jobs:
+  build-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build api
+        shell: bash
+        run: |-
+          echo "TODO"
