@@ -113,6 +113,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 					ServiceAccountConfig: gcloud.ServiceAccountConfig{
 						ProjectId: "test-gcp-project",
 					},
+					Provision: true,
 				}},
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
@@ -126,6 +127,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 					},
 					KeyName:     "mypulumi-base-kms-key",
 					KeyLocation: "global",
+					Provision:   true,
 				}},
 			},
 		}},
@@ -153,7 +155,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 			Config: api.Config{Config: &aws.TemplateConfig{
 				Account: "000",
 				Credentials: api.Credentials{
-					Credentials: "ALALA", // TODO
+					Credentials: `{"credentials":"","account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e"}`,
 				},
 			}},
 		},
@@ -296,7 +298,9 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 	Provisioner:   ResolvedCommonServerDescriptor.Provisioner,
 	Secrets:       ResolvedCommonServerDescriptor.Secrets,
 	CiCd:          ResolvedCommonServerDescriptor.CiCd,
-	Templates:     ResolvedCommonServerDescriptor.Templates,
+	Templates: map[string]api.StackDescriptor{
+		"stack-per-app": ResolvedCommonServerDescriptor.Templates["stack-per-app"],
+	},
 	Variables: map[string]api.VariableDescriptor{
 		"atlas-region": {
 			Type:  "string",

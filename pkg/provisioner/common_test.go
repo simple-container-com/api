@@ -113,7 +113,9 @@ func Test_Provision(t *testing.T) {
 				Expect(err).To(BeNil())
 				if tt.expectStacks != nil {
 					for stackName := range tt.expectStacks {
-						assert.EqualValuesf(t, p.Stacks()[stackName], tt.expectStacks[stackName], "%v/%v failed", tt.name, stackName)
+						actual := p.Stacks()[stackName]
+						expected := tt.expectStacks[stackName]
+						assert.EqualValuesf(t, expected, actual, "%v/%v failed", tt.name, stackName)
 					}
 				}
 			}
