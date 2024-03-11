@@ -72,8 +72,7 @@ func (p *pulumi) SetConfigReader(f api.ProvisionerFieldConfigReaderFunc) {
 	p.fieldConfigReader = f
 }
 
-func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, stack api.Stack) error {
-	p.pubKey = pubKey // find better way of setting this
+func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	if err := p.createStackIfNotExists(ctx, cfg, stack); err != nil {
 		return errors.Wrapf(err, "failed to create stack %q if not exists", stack.Name)
 	}
@@ -83,10 +82,15 @@ func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey
 	return nil
 }
 
-func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, client api.StackClientDescriptor) error {
+func (p *pulumi) SetPublicKey(pubKey string) {
 	p.pubKey = pubKey
+}
 
-	// TODO
-	//api.ConvertTemplateToCloudCompose(ctx, "", client.Stack, client)
-	return errors.Errorf("not implemented")
+func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) error {
+	s, err := p.getStack(ctx, cfg, stack)
+	if err != nil {
+		return errors.Wrapf(err, "stack %q not found", stack.Name)
+	}
+	p.logger.Info(ctx, "found stack %q", s.Ref())
+	return nil
 }

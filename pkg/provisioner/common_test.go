@@ -95,6 +95,7 @@ func Test_Provision(t *testing.T) {
 				pulumiMock := pulumi_mocks.NewPulumiMock(t)
 				pulumiMock.On("ProvisionStack", ctx, mock.Anything, mock.Anything, mock.Anything).
 					Return(errors.New("failed to create stacks"))
+				pulumiMock.On("SetPublicKey", mock.Anything).Return()
 				return New(
 					WithPlaceholders(placeholders.New(logger.New())),
 					WithOverrideProvisioner(pulumiMock),
@@ -116,6 +117,7 @@ func Test_Provision(t *testing.T) {
 					pulumiMock := pulumi_mocks.NewPulumiMock(t)
 					pulumiMock.On("ProvisionStack", ctx, mock.Anything, mock.Anything, mock.Anything).
 						Return(nil)
+					pulumiMock.On("SetPublicKey", mock.Anything).Return()
 					tt.opts = []Option{
 						WithPlaceholders(placeholders.New(logger.New())),
 						WithOverrideProvisioner(pulumiMock),
@@ -152,10 +154,11 @@ func Test_Deploy(t *testing.T) {
 	RegisterTestingT(t)
 	format.MaxLength = 10000
 	testCases := []struct {
-		name    string
-		params  api.DeployParams
-		verify  func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock)
-		wantErr string
+		name            string
+		params          api.DeployParams
+		verify          func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error)
+		setExpectations bool
+		wantErr         string
 	}{
 		{
 			name: "happy path staging gcp",
@@ -164,11 +167,36 @@ func Test_Deploy(t *testing.T) {
 				Stack:       "refapp",
 				Environment: "staging",
 			},
-			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock) {
-				pulumiMock.AssertCalled(t, "DeployStack", mock.Anything, mock.Anything, mock.Anything, mock.MatchedBy(func(actual any) bool {
-					expected := tests.RefappClientDescriptor.Stacks["staging"]
+			setExpectations: true,
+			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error) {
+				pulumiMock.AssertCalled(t, "DeployStack", mock.Anything, mock.Anything, mock.MatchedBy(func(actual any) bool {
+					expected := api.Stack{
+						Name:    "refapp",
+						Secrets: *tests.CommonSecretsDescriptor,
+						Server:  *tests.ResolvedRefappServerDescriptor,
+						Client:  *tests.RefappClientDescriptor,
+					}
 					return assert.EqualValuesf(t, expected, actual, "%v failed", ttName)
+				}), mock.MatchedBy(func(actual any) bool {
+					return assert.EqualValuesf(t, api.DeployParams{
+						RootDir:     "testdata/stacks",
+						Stack:       "refapp",
+						Environment: "staging",
+					}, actual, "%v failed", ttName)
 				}))
+			},
+		},
+		{
+			name: "error stack not found",
+			params: api.DeployParams{
+				RootDir:     "testdata/stacks",
+				Stack:       "refapp-notexisting",
+				Environment: "staging",
+			},
+			wantErr: `stack "refapp-notexisting" is not configured`,
+			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error) {
+				pulumiMock.AssertNotCalled(t, "DeployStack", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+				pulumiMock.AssertNotCalled(t, "SetPublicKey", mock.Anything)
 			},
 		},
 	}
@@ -179,8 +207,11 @@ func Test_Deploy(t *testing.T) {
 			var p Provisioner
 			var err error
 			pulumiMock := pulumi_mocks.NewPulumiMock(t)
-			pulumiMock.On("DeployStack", ctx, mock.Anything, mock.Anything, mock.Anything).
-				Return(nil)
+			if tt.setExpectations {
+				pulumiMock.On("DeployStack", ctx, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				pulumiMock.On("SetPublicKey", mock.Anything).Return()
+			}
 			p, err = New(
 				WithPlaceholders(placeholders.New(logger.New())),
 				WithOverrideProvisioner(pulumiMock),
@@ -194,13 +225,13 @@ func Test_Deploy(t *testing.T) {
 
 			err = p.Deploy(ctx, tt.params)
 
+			if tt.verify != nil {
+				tt.verify(t, tt.name, pulumiMock, err)
+			}
 			if err != nil && tt.wantErr != "" {
 				Expect(err.Error()).To(MatchRegexp(tt.wantErr))
 			} else {
 				Expect(err).To(BeNil())
-				if tt.verify != nil {
-					tt.verify(t, tt.name, pulumiMock)
-				}
 			}
 		})
 	}

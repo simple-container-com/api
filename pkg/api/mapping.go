@@ -81,9 +81,11 @@ func RegisterCloudComposeConverter(mapping CloudComposeConfigRegister) {
 }
 
 type Provisioner interface {
-	ProvisionStack(ctx context.Context, cfg *ConfigFile, pubKey string, stack Stack) error
+	ProvisionStack(ctx context.Context, cfg *ConfigFile, stack Stack) error
 
-	DeployStack(ctx context.Context, cfg *ConfigFile, pubKey string, client StackClientDescriptor) error
+	SetPublicKey(pubKey string)
+
+	DeployStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DeployParams) error
 
 	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }

@@ -12,7 +12,7 @@ provisioner:
 #      type: s3-bucket
 #      config:
 #        credentials: "${auth:aws}"
-#        projectId: "${auth:aws.projectId}"
+#        account: "${auth:aws.projectId}"
 #        provision: true
     secrets-provider:
       type: gcp-kms

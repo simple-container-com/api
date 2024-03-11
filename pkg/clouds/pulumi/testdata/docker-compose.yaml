@@ -1,0 +1,9 @@
+services:
+  backend:
+    build:
+      context: ./api
+    container_name: refapp-api
+    environment:
+      NODE_ENV: production
+    expose:
+      - "8080"

@@ -2,8 +2,10 @@ package provisioner
 
 import (
 	"context"
+	"github.com/samber/lo"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -11,7 +13,7 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
-	if err := p.ReadStacks(ctx, params); err != nil {
+	if err := p.ReadStacks(ctx, params, false); err != nil {
 		return errors.Wrapf(err, "failed to read stacks")
 	}
 
@@ -27,35 +29,64 @@ func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams)
 	}
 
 	for _, stack := range p.stacks {
-		pv := stack.Server.Provisioner.GetProvisioner()
-		if p.overrideProvisioner != nil {
-			pv = p.overrideProvisioner
+		pv, err := p.getProvisionerForStack(ctx, stack)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get provisioner for stack %q", stack.Name)
 		}
-		if pv == nil {
-			return errors.Errorf("provisioner is not set for stack %q", stack.Name)
-		}
-		var pubKey string
-		if p.cryptor != nil {
-			pubKey = p.cryptor.PublicKey()
-		} else {
-			p.log.Warn(ctx, "Cryptor is not set, secrets will not be encrypted")
-		}
-		if err := pv.ProvisionStack(ctx, cfg, pubKey, stack); err != nil {
-			return errors.Wrap(err, "failed to create stacks with pulumi")
+		if err := pv.ProvisionStack(ctx, cfg, stack); err != nil {
+			return errors.Wrapf(err, "failed to create stacks with pulumi for stack %q", stack.Name)
 		}
 	}
 	return nil
 }
 
-func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams) error {
-	for _, stackName := range params.Stacks {
+func (p *provisioner) getProvisionerForStack(ctx context.Context, stack api.Stack) (api.Provisioner, error) {
+	pv := stack.Server.Provisioner.GetProvisioner()
+	if p.overrideProvisioner != nil {
+		pv = p.overrideProvisioner
+	}
+	if pv == nil {
+		return nil, errors.Errorf("provisioner is not set for stack %q", stack.Name)
+	}
+	var pubKey string
+	if p.cryptor != nil {
+		pubKey = p.cryptor.PublicKey()
+	} else {
+		p.log.Warn(ctx, "Cryptor is not set, secrets will not be encrypted")
+	}
+	pv.SetPublicKey(pubKey)
+	return pv, nil
+}
+
+func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams, ignoreErrors bool) error {
+	var stacks = params.Stacks
+	if len(stacks) == 0 {
+		p.log.Info(ctx, "stacks list is not provided, reading from %q", params.RootDir)
+		dirs, err := os.ReadDir(params.RootDir)
+		if err != nil {
+			return errors.Wrapf(err, "failed to read root dir")
+		}
+		stacks = lo.Map(lo.Filter(dirs, func(d os.DirEntry, _ int) bool {
+			dInfo, err := d.Info()
+			if err != nil {
+				return false
+			}
+			// could be a symlink to dir
+			return dInfo.Mode()&os.ModeSymlink == os.ModeSymlink || d.IsDir()
+		}), func(d os.DirEntry, _ int) string {
+			return d.Name()
+		})
+		p.log.Info(ctx, "read stacks from %q: %q", params.RootDir, strings.Join(stacks, ", "))
+	}
+
+	for _, stackName := range stacks {
 		stack := api.Stack{
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(params.RootDir, stackName); err != nil {
+		if serverDesc, err := p.readServerDescriptor(params.RootDir, stackName); err != nil && !ignoreErrors {
 			return err
-		} else {
+		} else if serverDesc != nil {
 			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
 			stack.Server = *serverDesc
 		}

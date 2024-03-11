@@ -104,12 +104,37 @@ func Test_CreateStack(t *testing.T) {
 				},
 			},
 		},
+		Client: api.ClientDescriptor{
+			Stacks: map[string]api.StackClientDescriptor{
+				"staging": {
+					Stack:       e2eStackName,
+					Environment: "staging",
+					Domain:      "refapp.sc-app.me",
+					Config: api.StackConfig{
+						DockerComposeFile: "testdata/docker-compose.yaml",
+						Uses: []string{
+							"test-bucket",
+						},
+						Runs: []string{
+							"backend",
+						},
+					},
+				},
+			},
+		},
 	}
 
 	p, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
 	Expect(err).To(BeNil())
 
-	err = p.ProvisionStack(ctx, cfg, cryptor.PublicKey(), stack)
+	p.SetPublicKey(cryptor.PublicKey())
 
+	err = p.ProvisionStack(ctx, cfg, stack)
+	Expect(err).To(BeNil())
+
+	err = p.DeployStack(ctx, cfg, stack, api.DeployParams{
+		Stack:       e2eStackName,
+		Environment: "staging",
+	})
 	Expect(err).To(BeNil())
 }

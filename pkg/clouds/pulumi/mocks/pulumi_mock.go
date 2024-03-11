@@ -15,17 +15,17 @@ type PulumiMock struct {
 	mock.Mock
 }
 
-// DeployStack provides a mock function with given fields: ctx, cfg, pubKey, client
-func (_m *PulumiMock) DeployStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, client api.StackClientDescriptor) error {
-	ret := _m.Called(ctx, cfg, pubKey, client)
+// DeployStack provides a mock function with given fields: ctx, cfg, stack, params
+func (_m *PulumiMock) DeployStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) error {
+	ret := _m.Called(ctx, cfg, stack, params)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeployStack")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, string, api.StackClientDescriptor) error); ok {
-		r0 = rf(ctx, cfg, pubKey, client)
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.DeployParams) error); ok {
+		r0 = rf(ctx, cfg, stack, params)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -33,17 +33,17 @@ func (_m *PulumiMock) DeployStack(ctx context.Context, cfg *api.ConfigFile, pubK
 	return r0
 }
 
-// ProvisionStack provides a mock function with given fields: ctx, cfg, pubKey, stack
-func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, pubKey string, stack api.Stack) error {
-	ret := _m.Called(ctx, cfg, pubKey, stack)
+// ProvisionStack provides a mock function with given fields: ctx, cfg, stack
+func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
+	ret := _m.Called(ctx, cfg, stack)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ProvisionStack")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, string, api.Stack) error); ok {
-		r0 = rf(ctx, cfg, pubKey, stack)
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack) error); ok {
+		r0 = rf(ctx, cfg, stack)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -54,6 +54,11 @@ func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, p
 // SetConfigReader provides a mock function with given fields: _a0
 func (_m *PulumiMock) SetConfigReader(_a0 api.ProvisionerFieldConfigReaderFunc) {
 	_m.Called(_a0)
+}
+
+// SetPublicKey provides a mock function with given fields: pubKey
+func (_m *PulumiMock) SetPublicKey(pubKey string) {
+	_m.Called(pubKey)
 }
 
 // NewPulumiMock creates a new instance of PulumiMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

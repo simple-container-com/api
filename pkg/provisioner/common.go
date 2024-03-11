@@ -18,7 +18,7 @@ import (
 )
 
 type Provisioner interface {
-	ReadStacks(ctx context.Context, params api.ProvisionParams) error
+	ReadStacks(ctx context.Context, params api.ProvisionParams, ignoreErrors bool) error
 
 	Init(ctx context.Context, params api.InitParams) error
 	InitProfile(generateKeyPair bool) error
