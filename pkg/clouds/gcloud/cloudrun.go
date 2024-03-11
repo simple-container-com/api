@@ -91,7 +91,7 @@ type CloudRunInput struct {
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
 	templateCfg, ok := tpl.(TemplateConfig)
 	if !ok {
-		return CloudRunInput{}, errors.Errorf("template config is not of type aws.TemplateConfig")
+		return CloudRunInput{}, errors.Errorf("template config is not of type gcloud.TemplateConfig")
 	}
 
 	res := CloudRunInput{

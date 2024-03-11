@@ -58,7 +58,6 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 			outputName := stackDescriptorTemplateName(stack.Name, templateName)
 			p.logger.Info(ctx.Context(), "preserving template %q in the stack's %q outputs as %q...", templateName, stack.Name, outputName)
-			p.logger.Debug(ctx.Context(), "serialized template: %q", string(serializedStackDesc))
 			secretOutput := sdk.ToSecret(string(serializedStackDesc))
 			ctx.Export(outputName, secretOutput)
 		}

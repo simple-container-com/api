@@ -86,7 +86,12 @@ func ReadSecretsConfigs(descriptor *SecretsDescriptor) (*SecretsDescriptor, erro
 	return &res, nil
 }
 
-func ConvertTemplateToCloudCompose(ctx context.Context, rootDir, stackName string, stackDesc StackDescriptor, clientDesc StackClientDescriptor) (*CloudComposeDescriptor, error) {
+func ConvertTemplateToCloudCompose(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*CloudComposeDescriptor, error) {
+	stackDesc, err := DetectTemplateType(tpl)
+	if err != nil {
+		return nil, err
+	}
+
 	composeCfg, err := compose.ReadDockerCompose(ctx, rootDir, clientDesc.Config.DockerComposeFile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read docker-compose config from %q/%q", rootDir, clientDesc.Config.DockerComposeFile)
@@ -249,19 +254,24 @@ func DetectTemplatesType(descriptor *ServerDescriptor) (*ServerDescriptor, error
 		if tpl.IsInherited() {
 			continue
 		}
-		if fn, found := providerConfigMapping[tpl.Type]; !found {
-			return nil, errors.Errorf("unknown template type %q for %q", tpl.Type, name)
-		} else {
-			stackDesc := descriptor.Templates[name]
-			var err error
-			stackDesc.Config, err = fn(&stackDesc.Config)
-			if err != nil {
-				return descriptor, err
-			}
-			descriptor.Templates[name] = stackDesc
+		stackDescriptor, err := DetectTemplateType(tpl)
+		if err != nil {
+			return descriptor, err
 		}
+		descriptor.Templates[name] = *stackDescriptor
 	}
 	return descriptor, nil
+}
+
+func DetectTemplateType(tpl StackDescriptor) (*StackDescriptor, error) {
+	if fn, found := providerConfigMapping[tpl.Type]; !found {
+		return nil, errors.Errorf("unknown template type %q", tpl.Type)
+	} else {
+		stackDesc := tpl
+		var err error
+		stackDesc.Config, err = fn(&stackDesc.Config)
+		return &stackDesc, err
+	}
 }
 
 func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
