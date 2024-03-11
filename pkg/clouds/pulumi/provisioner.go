@@ -92,5 +92,5 @@ func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		return errors.Wrapf(err, "stack %q not found", stack.Name)
 	}
 	p.logger.Info(ctx, "found stack %q", s.Ref())
-	return nil
+	return p.deployStack(ctx, cfg, stack, params)
 }

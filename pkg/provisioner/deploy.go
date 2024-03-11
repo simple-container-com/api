@@ -23,6 +23,11 @@ func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error
 		return errors.Errorf("stack %q is not configured", params.Stack)
 	}
 
+	_, ok = p.stacks[params.Stack].Server.Resources.Resources[params.Environment]
+	if !ok {
+		return errors.Errorf("resources for stack %q are not configured in env %q", stack.Name, params.Environment)
+	}
+
 	_, ok = p.stacks[params.Stack].Client.Stacks[params.Environment]
 	if !ok {
 		return errors.Errorf("environment %q for stack %q is not configured", params.Environment, stack.Name)

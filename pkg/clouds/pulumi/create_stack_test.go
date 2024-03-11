@@ -84,6 +84,7 @@ func Test_CreateStack(t *testing.T) {
 			Resources: api.PerStackResourcesDescriptor{
 				Resources: map[string]api.PerEnvResourcesDescriptor{
 					"test": {
+						Template: "stack-per-app",
 						Resources: map[string]api.ResourceDescriptor{
 							"test-bucket": {
 								Type: gcloud.ResourceTypeBucket,
@@ -106,9 +107,9 @@ func Test_CreateStack(t *testing.T) {
 		},
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
-				"staging": {
+				"test": {
 					Stack:       e2eStackName,
-					Environment: "staging",
+					Environment: "test",
 					Domain:      "refapp.sc-app.me",
 					Config: api.StackConfig{
 						DockerComposeFile: "testdata/docker-compose.yaml",
@@ -134,7 +135,7 @@ func Test_CreateStack(t *testing.T) {
 
 	err = p.DeployStack(ctx, cfg, stack, api.DeployParams{
 		Stack:       e2eStackName,
-		Environment: "staging",
+		Environment: "test",
 	})
 	Expect(err).To(BeNil())
 }

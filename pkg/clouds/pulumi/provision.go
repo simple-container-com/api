@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
@@ -14,14 +15,7 @@ import (
 )
 
 func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
-	if p.backend == nil {
-		return errors.Errorf("backend is nil")
-	}
-	if p.stackRef == nil {
-		return errors.Errorf("stackRef is nil")
-	}
-
-	s, err := p.backend.GetStack(ctx, p.stackRef)
+	s, err := p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return err
 	}
@@ -64,7 +58,8 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 			outputName := stackDescriptorTemplateName(stack.Name, templateName)
 			p.logger.Info(ctx.Context(), "preserving template %q in the stack's %q outputs as %q...", templateName, stack.Name, outputName)
-			secretOutput := sdk.ToSecret(serializedStackDesc)
+			p.logger.Debug(ctx.Context(), "serialized template: %q", string(serializedStackDesc))
+			secretOutput := sdk.ToSecret(string(serializedStackDesc))
 			ctx.Export(outputName, secretOutput)
 		}
 
@@ -78,6 +73,21 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		return err
 	}
 	return nil
+}
+
+func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, error) {
+	if p.backend == nil {
+		return nil, errors.Errorf("backend is nil")
+	}
+	if p.stackRef == nil {
+		return nil, errors.Errorf("stackRef is nil")
+	}
+
+	if s, err := p.backend.GetStack(ctx, p.stackRef); err != nil {
+		return nil, errors.Errorf("failed to get stack %q", p.stackRef.Name())
+	} else {
+		return s, nil
+	}
 }
 
 func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor) (params.ProvisionParams, error) {
