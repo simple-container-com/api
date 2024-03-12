@@ -28,5 +28,4 @@ func init() {
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
 		TemplateTypeGcpCloudrun: ToCloudRunConfig,
 	})
-
 }

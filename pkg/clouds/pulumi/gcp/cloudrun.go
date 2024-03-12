@@ -20,5 +20,5 @@ func ProvisionCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	return nil, errors.Errorf("not implemented for %q", cloudrunInput)
-	//return &api.ResourceOutput{Ref: nil}, nil
+	// return &api.ResourceOutput{Ref: nil}, nil
 }

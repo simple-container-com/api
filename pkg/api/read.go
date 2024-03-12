@@ -2,11 +2,12 @@ package api
 
 import (
 	"context"
-	"github.com/simple-container-com/api/pkg/clouds/compose"
 	"os"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
+
+	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
 const (
@@ -43,7 +44,6 @@ func UnmarshalDescriptor[T any](bytes []byte) (*T, error) {
 
 func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	descriptor, err := ReadDescriptor(path, &ServerDescriptor{})
-
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read server descriptor from %q", path)
 	}

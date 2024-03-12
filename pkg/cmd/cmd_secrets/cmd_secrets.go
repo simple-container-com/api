@@ -5,14 +5,13 @@ import (
 	"path"
 
 	"github.com/pkg/errors"
-
-	"github.com/simple-container-com/api/pkg/api/git"
-	"github.com/simple-container-com/api/pkg/provisioner"
-
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
+	"github.com/simple-container-com/api/pkg/provisioner"
 )
 
 type secretsCmd struct {
@@ -62,7 +61,7 @@ func (c *secretsCmd) init() error {
 		return err
 	}
 
-	if err := c.provisioner.Init(ctx, provisioner.InitParams{
+	if err := c.provisioner.Init(ctx, api.InitParams{
 		ProjectName:         path.Base(gitRepo.Workdir()),
 		RootDir:             gitRepo.Workdir(),
 		SkipInitialCommit:   true,

@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
@@ -21,7 +22,6 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	fullStackName := fmt.Sprintf("%s-%s-%s", cfg.ProjectName, params.Stack, params.Environment)
 
 	stackSource, err := auto.UpsertStackInlineSource(ctx, fullStackName, cfg.ProjectName, func(ctx *sdk.Context) error {
-
 		stackClientDesc := stack.Client.Stacks[params.Environment]
 		templateName := stack.Server.Resources.Resources[params.Environment].Template
 		if templateName == "" {

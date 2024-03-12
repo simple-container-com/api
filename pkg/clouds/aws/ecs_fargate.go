@@ -2,6 +2,7 @@ package aws
 
 import (
 	"fmt"
+
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"

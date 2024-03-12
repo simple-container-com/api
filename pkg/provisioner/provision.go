@@ -2,12 +2,12 @@ package provisioner
 
 import (
 	"context"
-	"github.com/samber/lo"
 	"os"
 	"path"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -59,7 +59,7 @@ func (p *provisioner) getProvisionerForStack(ctx context.Context, stack api.Stac
 }
 
 func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams, ignoreErrors bool) error {
-	var stacks = params.Stacks
+	stacks := params.Stacks
 	if len(stacks) == 0 {
 		p.log.Info(ctx, "stacks list is not provided, reading from %q", params.RootDir)
 		dirs, err := os.ReadDir(params.RootDir)
