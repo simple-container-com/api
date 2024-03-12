@@ -14,11 +14,13 @@ import (
 )
 
 const (
-	testSAFile        = "pkg/clouds/pulumi/testdata/sc-test-project-sa.json"
-	e2eTestProject    = "sc-test-project-408205"
-	e2eStackName      = "e2e-create--stack"
-	e2eKmsTestKeyName = "e2e-create--kms-key"
-	e2eBucketName     = "sc-pulumi-test"
+	testSAFile            = "pkg/clouds/pulumi/testdata/sc-test-project-sa.json"
+	e2eTestProject        = "sc-test-project-408205"
+	e2eCreateStackName    = "e2e-create--stack"
+	e2eDeployStackName    = "e2e-deploy--stack"
+	e2eKmsTestKeyName     = "e2e-create--kms-key"
+	e2eKmsTestKeyringName = "e2e-create--kms-keyring"
+	e2eBucketName         = "sc-pulumi-test"
 )
 
 func Test_CreateStack(t *testing.T) {
@@ -31,7 +33,7 @@ func Test_CreateStack(t *testing.T) {
 	Expect(err).To(BeNil())
 
 	stack := api.Stack{
-		Name: e2eStackName,
+		Name: e2eCreateStackName,
 		Server: api.ServerDescriptor{
 			Provisioner: api.ProvisionerDescriptor{
 				Type: ProvisionerTypePulumi,
@@ -58,6 +60,7 @@ func Test_CreateStack(t *testing.T) {
 							Config: api.Config{Config: &gcloud.SecretsProviderConfig{
 								KeyName:     e2eKmsTestKeyName,
 								KeyLocation: "global",
+								KeyRingName: e2eKmsTestKeyringName,
 								Provision:   true,
 								Credentials: gcloud.Credentials{
 									Credentials: api.Credentials{
@@ -116,7 +119,7 @@ func Test_CreateStack(t *testing.T) {
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
-					Stack:       e2eStackName,
+					Stack:       e2eCreateStackName,
 					Environment: "test",
 					Domain:      "refapp.sc-app.me",
 					Config: api.StackConfig{
@@ -133,16 +136,21 @@ func Test_CreateStack(t *testing.T) {
 		},
 	}
 
-	p, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	createProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
 	Expect(err).To(BeNil())
 
-	p.SetPublicKey(cryptor.PublicKey())
+	createProv.SetPublicKey(cryptor.PublicKey())
 
-	err = p.ProvisionStack(ctx, cfg, stack)
+	err = createProv.ProvisionStack(ctx, cfg, stack)
 	Expect(err).To(BeNil())
 
-	err = p.DeployStack(ctx, cfg, stack, api.DeployParams{
-		Stack:       e2eStackName,
+	deployProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	Expect(err).To(BeNil())
+
+	deployProv.SetPublicKey(cryptor.PublicKey())
+
+	err = deployProv.DeployStack(ctx, cfg, stack, api.DeployParams{
+		Stack:       e2eDeployStackName,
 		Environment: "test",
 	})
 	Expect(err).To(BeNil())

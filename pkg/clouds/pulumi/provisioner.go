@@ -76,21 +76,18 @@ func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err := p.createStackIfNotExists(ctx, cfg, stack); err != nil {
 		return errors.Wrapf(err, "failed to create stack %q if not exists", stack.Name)
 	}
-	if err := p.provisionStack(ctx, cfg, stack); err != nil {
-		return err
-	}
-	return nil
+	return p.provisionStack(ctx, cfg, stack)
 }
 
 func (p *pulumi) SetPublicKey(pubKey string) {
 	p.pubKey = pubKey
 }
 
-func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) error {
-	s, err := p.getStack(ctx, cfg, stack)
+func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {
+	parent, err := p.getStack(ctx, cfg, parentStack)
 	if err != nil {
-		return errors.Wrapf(err, "stack %q not found", stack.Name)
+		return errors.Wrapf(err, "failed to create stack %q if not exists", parentStack.Name)
 	}
-	p.logger.Info(ctx, "found stack %q", s.Ref())
-	return p.deployStack(ctx, cfg, stack, params)
+	parentStack.ChildStack(params.Stack)
+	return p.deployStack(ctx, cfg, parentStack, params)
 }

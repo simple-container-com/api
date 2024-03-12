@@ -56,7 +56,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 	if os.Getenv(ConfigPassphraseEnvVar) == "" {
 		// TODO: figure out how to set this properly
-		if err := os.Setenv(ConfigPassphraseEnvVar, p.pubKey); err != nil {
+		if err := os.Setenv(ConfigPassphraseEnvVar, cfg.ProjectName); err != nil {
 			p.logger.Warn(ctx, "failed to set %s var", ConfigPassphraseEnvVar)
 		}
 	}

@@ -116,15 +116,15 @@ type ProvisionerDescriptor struct {
 	provisioner Provisioner
 }
 
-func (pd *ProvisionerDescriptor) GetProvisioner() Provisioner {
-	return pd.provisioner
+func (s *ProvisionerDescriptor) GetProvisioner() Provisioner {
+	return s.provisioner
 }
 
 // ValuesOnly returns copy of descriptor without provisioner reference
-func (pd *ProvisionerDescriptor) ValuesOnly() ProvisionerDescriptor {
+func (s *ProvisionerDescriptor) ValuesOnly() ProvisionerDescriptor {
 	return ProvisionerDescriptor{
-		Type:    pd.Type,
-		Config:  pd.Config,
-		Inherit: pd.Inherit,
+		Type:    s.Type,
+		Config:  s.Config,
+		Inherit: s.Inherit,
 	}
 }
