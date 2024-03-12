@@ -47,7 +47,9 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		if err != nil {
 			return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 		}
-		_, err = api.ConvertTemplateToCloudCompose(ctx.Context(), params.RootDir, params.Stack, stackDesc, stackClientDesc)
+		composeInput, err := api.ConvertTemplateToCloudCompose(ctx.Context(), params.RootDir, params.Stack, stackDesc, stackClientDesc)
+
+		p.logger.Info(ctx.Context(), "converted compose to cloud compose input: %q", composeInput)
 		return err
 	})
 	if err != nil {

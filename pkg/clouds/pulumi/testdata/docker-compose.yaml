@@ -3,6 +3,8 @@ services:
     build:
       context: ./api
     container_name: refapp-api
+    ports:
+      - 8080:8080
     environment:
       NODE_ENV: production
     expose:

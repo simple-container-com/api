@@ -18,46 +18,38 @@ type AwsAccountConfig struct {
 	Account         string `json:"account" yaml:"account"`
 	AccessKey       string `json:"accessKey" yaml:"accessKey"`
 	SecretAccessKey string `json:"secretAccessKey" yaml:"secretAccessKey"`
+	api.Credentials `json:",inline" yaml:",inline"`
 }
 
 type AuthAccessKeyConfig struct {
-	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 }
 
 type SecretsConfig struct {
-	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 }
 
 type StateStorageConfig struct {
-	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 	BucketName       string `json:"bucketName" yaml:"bucketName"`
 	Provision        bool   `json:"provision" yaml:"provision"`
 }
 
 type SecretsProviderConfig struct {
-	api.SecretsProviderConfig
-	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 	Provision        bool `json:"provision" yaml:"provision"`
 }
 
-func (sa *AuthAccessKeyConfig) CredentialsValue() string {
-	return api.AuthToString(sa)
+func (r *AwsAccountConfig) ProviderType() string {
+	return ProviderType
 }
 
-func (sa *AuthAccessKeyConfig) ProjectIdValue() string {
-	return sa.Account
+func (r *AwsAccountConfig) CredentialsValue() string {
+	return api.AuthToString(r)
 }
 
-func (sa *SecretsConfig) CredentialsValue() string {
-	return sa.SecretAccessKey
-}
-
-func (sa *SecretsConfig) ProjectIdValue() string {
-	return sa.Account
+func (r *AwsAccountConfig) ProjectIdValue() string {
+	return r.Account
 }
 
 func (sa *StateStorageConfig) IsProvisionEnabled() bool {

@@ -4,6 +4,8 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
+const ProviderType = "gcp"
+
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		// gcloud

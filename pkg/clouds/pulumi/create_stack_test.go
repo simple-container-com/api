@@ -43,11 +43,13 @@ func Test_CreateStack(t *testing.T) {
 							Config: api.Config{Config: &gcloud.StateStorageConfig{
 								Provision:  false,
 								BucketName: e2eBucketName,
-								Credentials: api.Credentials{
-									Credentials: string(gcpSa),
-								},
-								ServiceAccountConfig: gcloud.ServiceAccountConfig{
-									ProjectId: e2eTestProject,
+								Credentials: gcloud.Credentials{
+									Credentials: api.Credentials{
+										Credentials: string(gcpSa),
+									},
+									ServiceAccountConfig: gcloud.ServiceAccountConfig{
+										ProjectId: e2eTestProject,
+									},
 								},
 							}},
 						},
@@ -57,11 +59,13 @@ func Test_CreateStack(t *testing.T) {
 								KeyName:     e2eKmsTestKeyName,
 								KeyLocation: "global",
 								Provision:   true,
-								Credentials: api.Credentials{
-									Credentials: string(gcpSa),
-								},
-								ServiceAccountConfig: gcloud.ServiceAccountConfig{
-									ProjectId: e2eTestProject,
+								Credentials: gcloud.Credentials{
+									Credentials: api.Credentials{
+										Credentials: string(gcpSa),
+									},
+									ServiceAccountConfig: gcloud.ServiceAccountConfig{
+										ProjectId: e2eTestProject,
+									},
 								},
 							}},
 						},
@@ -72,11 +76,13 @@ func Test_CreateStack(t *testing.T) {
 				"stack-per-app": {
 					Type: gcloud.TemplateTypeGcpCloudrun,
 					Config: api.Config{Config: &gcloud.TemplateConfig{
-						Credentials: api.Credentials{
-							Credentials: string(gcpSa),
-						},
-						ServiceAccountConfig: gcloud.ServiceAccountConfig{
-							ProjectId: e2eTestProject,
+						Credentials: gcloud.Credentials{
+							Credentials: api.Credentials{
+								Credentials: string(gcpSa),
+							},
+							ServiceAccountConfig: gcloud.ServiceAccountConfig{
+								ProjectId: e2eTestProject,
+							},
 						},
 					}},
 				},
@@ -90,11 +96,13 @@ func Test_CreateStack(t *testing.T) {
 								Type: gcloud.ResourceTypeBucket,
 								Config: api.Config{
 									Config: &gcloud.GcpBucket{
-										Credentials: api.Credentials{
-											Credentials: string(gcpSa),
-										},
-										ServiceAccountConfig: gcloud.ServiceAccountConfig{
-											ProjectId: e2eTestProject,
+										Credentials: gcloud.Credentials{
+											Credentials: api.Credentials{
+												Credentials: string(gcpSa),
+											},
+											ServiceAccountConfig: gcloud.ServiceAccountConfig{
+												ProjectId: e2eTestProject,
+											},
 										},
 										Name: "e2e-create--test-bucket",
 									},

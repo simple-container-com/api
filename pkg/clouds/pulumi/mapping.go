@@ -17,10 +17,12 @@ var provisionFuncByType = map[string]provisionFunc{
 	// gcp
 	gcloud.ResourceTypeBucket:        gcp.ProvisionBucket,
 	gcloud.SecretsProviderTypeGcpKms: gcp.ProvisionKmsKey,
+	gcloud.TemplateTypeGcpCloudrun:   gcp.ProvisionCloudrun,
 
 	// aws
 	aws.ResourceTypeS3Bucket:      awsImpl.ProvisionBucket,
 	aws.SecretsProviderTypeAwsKms: awsImpl.ProvisionKmsKey,
+	aws.TemplateTypeEcsFargate:    awsImpl.ProvisionEcsFargate,
 }
 
 var providerFuncByType = map[string]provisionFunc{

@@ -1,9 +1,11 @@
 package aws
 
 import (
+	"fmt"
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
@@ -90,17 +92,21 @@ type EcsFargateInput struct {
 }
 
 func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
-	templateCfg, ok := tpl.(TemplateConfig)
+	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
-		return EcsFargateInput{}, errors.Errorf("template config is not of type aws.TemplateConfig")
+		return nil, errors.Errorf("template config is not of type aws.TemplateConfig")
+	}
+
+	if templateCfg == nil {
+		return nil, errors.Errorf("template config is nil")
 	}
 
 	res := EcsFargateInput{
-		TemplateConfig: templateCfg,
+		TemplateConfig: *templateCfg,
 		Config: EcsFargateConfig{
 			Credentials:      templateCfg.Credentials,
 			AwsAccountConfig: templateCfg.AwsAccountConfig,
-			Name:             "",
+			Name:             fmt.Sprintf("%s-%s", stackCfg.Stack, stackCfg.Environment),
 			Region:           templateCfg.Region,
 		},
 	}

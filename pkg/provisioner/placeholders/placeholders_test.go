@@ -55,9 +55,9 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(secretsProviderCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 
 				// cicd
-				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
+				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))
 				cicdConfig := stacks["common"].Server.CiCd.Config.Config
-				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
+				ghConfig := cicdConfig.(*github.ActionsCiCdConfig)
 				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
 			},
 		},
@@ -75,9 +75,9 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(pgConfig.CredentialsValue()).To(Equal("<gcloud-service-account-email>"))
 				Expect(pgConfig.Project).To(Equal("refapp"))
 
-				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
+				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))
 				cicdConfig := stacks["refapp"].Server.CiCd.Config.Config
-				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
+				ghConfig := cicdConfig.(*github.ActionsCiCdConfig)
 				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
 
 				resMongoCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["mongodb"].Config.Config
@@ -100,9 +100,9 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			},
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp-aws"]).NotTo(BeNil())
-				Expect(stacks["refapp-aws"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GithubActionsCiCdConfig{}))
+				Expect(stacks["refapp-aws"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))
 				cicdConfig := stacks["refapp-aws"].Server.CiCd.Config.Config
-				ghConfig := cicdConfig.(*github.GithubActionsCiCdConfig)
+				ghConfig := cicdConfig.(*github.ActionsCiCdConfig)
 				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
 				// TODO: tests for aws resources
 			},

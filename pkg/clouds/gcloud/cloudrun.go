@@ -4,6 +4,7 @@ import (
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
@@ -89,13 +90,16 @@ type CloudRunInput struct {
 }
 
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
-	templateCfg, ok := tpl.(TemplateConfig)
+	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
-		return CloudRunInput{}, errors.Errorf("template config is not of type gcloud.TemplateConfig")
+		return nil, errors.Errorf("template config is not of type gcloud.TemplateConfig")
+	}
+	if templateCfg == nil {
+		return nil, errors.Errorf("template config is nil")
 	}
 
 	res := CloudRunInput{
-		TemplateConfig: templateCfg,
+		TemplateConfig: *templateCfg,
 	}
 
 	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {
@@ -106,7 +110,7 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClie
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {
-			return CloudRunInput{}, errors.Wrapf(err, "service %s", svcName)
+			return nil, errors.Wrapf(err, "error converting service %s to cloudrun", svcName)
 		}
 
 		res.Containers = append(res.Containers, CloudRunContainer{
@@ -132,7 +136,7 @@ func toRunPort(ports []types.ServicePortConfig) (int, error) {
 	if len(ports) == 1 {
 		return int(ports[0].Target), nil
 	}
-	return 0, errors.Errorf("expected 1 port, got %d", len(ports))
+	return 0, errors.Errorf("exactly one port must be configured for service, but got: %d", len(ports))
 }
 
 func toResources(svc types.ServiceConfig) CloudRunResources {
@@ -160,12 +164,4 @@ func toRunEnv(environment types.MappingWithEquals) map[string]string {
 		}
 	}
 	return res
-}
-
-func (r *CloudRunConfig) CredentialsValue() string {
-	return r.Credentials.Credentials
-}
-
-func (r *CloudRunConfig) ProjectIdValue() string {
-	return r.ProjectId
 }

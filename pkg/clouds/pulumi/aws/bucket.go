@@ -2,12 +2,12 @@ package aws
 
 import (
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/storage"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/s3"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/aws"
 )
 
 type BucketOutput struct {
@@ -15,18 +15,18 @@ type BucketOutput struct {
 }
 
 func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
-	if input.Descriptor.Type != gcloud.ResourceTypeBucket {
+	if input.Descriptor.Type != aws.ResourceTypeS3Bucket {
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}
 
-	bucketCfg, ok := input.Descriptor.Config.Config.(*gcloud.GcpBucket)
+	bucketCfg, ok := input.Descriptor.Config.Config.(*aws.S3Bucket)
 	if !ok {
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
-	bucket, err := storage.NewBucket(ctx, bucketCfg.Name, &storage.BucketArgs{
-		Name:     sdk.String(bucketCfg.Name),
-		Location: sdk.String(bucketCfg.Location),
+	bucket, err := s3.NewBucket(ctx, bucketCfg.Name, &s3.BucketArgs{
+		Bucket: sdk.String(bucketCfg.Name),
+		// TODO: region
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision bucket %q", bucketCfg.Name)

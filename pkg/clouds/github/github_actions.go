@@ -4,19 +4,22 @@ import "github.com/simple-container-com/api/pkg/api"
 
 const CiCdTypeGithubActions = "github-actions"
 
-type GithubActionsCiCdConfig struct {
-	api.AuthConfig
+type ActionsCiCdConfig struct {
 	AuthToken string `json:"auth-token" yaml:"auth-token"`
 }
 
-func GithubActionsReadCiCdConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &GithubActionsCiCdConfig{})
+func ReadCiCdConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &ActionsCiCdConfig{})
 }
 
-func (r *GithubActionsCiCdConfig) CredentialsValue() string {
+func (r *ActionsCiCdConfig) CredentialsValue() string {
 	return r.AuthToken
 }
 
-func (r *GithubActionsCiCdConfig) ProjectIdValue() string {
+func (r *ActionsCiCdConfig) ProjectIdValue() string {
 	return "" // todo: figure out
+}
+
+func (r *ActionsCiCdConfig) ProviderType() string {
+	return ProviderType
 }
