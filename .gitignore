@@ -4,3 +4,4 @@ bin
 pkg/clouds/pulumi/testdata/sc-test-project-sa.json
 .sc/cfg.default.yaml
 .sc/cfg.github.yaml
+.sc/cfg.test.yaml
