@@ -50,9 +50,9 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(pConfig.SecretsProvider.Config.Config).To(BeAssignableToTypeOf(&gcloud.SecretsProviderConfig{}))
 				secretsProviderCfg := pConfig.SecretsProvider.Config.Config.(*gcloud.SecretsProviderConfig)
 				Expect(stateStorageCfg.ProjectId).To(Equal("test-gcp-project"))
-				Expect(stateStorageCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
+				Expect(stateStorageCfg.Credentials.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 				Expect(secretsProviderCfg.ProjectId).To(Equal("test-gcp-project"))
-				Expect(secretsProviderCfg.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
+				Expect(secretsProviderCfg.Credentials.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 
 				// cicd
 				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))

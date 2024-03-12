@@ -178,7 +178,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 				AwsAccountConfig: aws.AwsAccountConfig{
 					Account: "000",
 					Credentials: api.Credentials{
-						Credentials: `{"credentials":"","account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e"}`,
+						Credentials: `{"account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e","credentials":""}`,
 					},
 				},
 			}},
