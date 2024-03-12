@@ -59,8 +59,8 @@ func (c *cryptor) AddFile(filePath string) error {
 	if err := c.initData(); err != nil {
 		return err
 	}
-	if lo.IndexOf(c.registry.Files, filePath) < 0 {
-		c.registry.Files = append(c.registry.Files, filePath)
+	if lo.IndexOf(c.secrets.Registry.Files, filePath) < 0 {
+		c.secrets.Registry.Files = append(c.secrets.Registry.Files, filePath)
 	}
 	if err := c.EncryptChanged(); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
@@ -88,6 +88,10 @@ func (c *cryptor) GetKnownPublicKeys() []string {
 }
 
 func (c *cryptor) AddPublicKey(pubKey string) error {
+	defer c.withWriteLock()()
+	if err := c.initData(); err != nil {
+		return err
+	}
 	c.secrets.Secrets[pubKey] = EncryptedSecrets{}
 	err := c.EncryptChanged()
 	if err != nil {
@@ -101,7 +105,7 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	if err := c.initData(); err != nil {
 		return err
 	}
-	c.registry.Files = lo.Filter(c.registry.Files, func(s string, _ int) bool {
+	c.secrets.Registry.Files = lo.Filter(c.secrets.Registry.Files, func(s string, _ int) bool {
 		return s != filePath
 	})
 	if err := c.EncryptChanged(); err != nil {
@@ -189,11 +193,11 @@ func (c *cryptor) EncryptChanged() error {
 	for publicKey := range c.secrets.Secrets {
 		filteredSecrets := c.secrets.Secrets[publicKey]
 		filteredSecrets.Files = lo.Filter(filteredSecrets.Files, func(file EncryptedSecretFile, _ int) bool {
-			return lo.Contains(c.registry.Files, file.Path)
+			return lo.Contains(c.secrets.Registry.Files, file.Path)
 		})
 		c.secrets.Secrets[publicKey] = filteredSecrets
 	}
-	for _, relFilePath := range c.registry.Files {
+	for _, relFilePath := range c.secrets.Registry.Files {
 		secretData, err := c.readSecretFile(relFilePath)
 		if err != nil {
 			return errors.Wrapf(err, "failed to read secret file %q", relFilePath)

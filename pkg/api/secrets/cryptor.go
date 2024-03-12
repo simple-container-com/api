@@ -46,7 +46,6 @@ type cryptor struct {
 	_lock             sync.RWMutex // для защиты secrets & registry
 	currentPrivateKey string
 	currentPublicKey  string
-	registry          Registry
 	secrets           EncryptedSecretFiles
 }
 
@@ -67,7 +66,8 @@ func (c *cryptor) PrivateKey() string {
 }
 
 type EncryptedSecretFiles struct {
-	Secrets map[string]EncryptedSecrets `json:"secrets" yaml:"secrets"`
+	Registry Registry                    `json:"registry" yaml:"registry"`
+	Secrets  map[string]EncryptedSecrets `json:"secrets" yaml:"secrets"`
 }
 
 type EncryptedSecrets struct {

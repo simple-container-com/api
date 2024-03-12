@@ -73,6 +73,9 @@ func (c *secretsCmd) init() error {
 	if err := c.provisioner.Cryptor().ReadProfileConfig(); err != nil {
 		return errors.Wrapf(err, "failed to read profile config, did you run `secrets init`?")
 	}
+	if err := c.provisioner.Cryptor().ReadSecretFiles(); err != nil {
+		return errors.Wrapf(err, "failed to read secrets file, did you run `secrets init`?")
+	}
 
 	return nil
 }
