@@ -2,6 +2,8 @@ module github.com/simple-container-com/api
 
 go 1.22
 
+toolchain go1.22.1
+
 require (
 	github.com/atombender/go-jsonschema v0.15.0
 	github.com/compose-spec/compose-go v1.20.2
