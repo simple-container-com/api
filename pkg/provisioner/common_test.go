@@ -78,7 +78,7 @@ func Test_Provision(t *testing.T) {
 					Name:    "refapp-aws",
 					Secrets: *tests.CommonSecretsDescriptor,
 					Server:  *tests.ResolvedRefappAwsServerDescriptor,
-					Client:  *tests.RefappClientDescriptor,
+					Client:  *tests.RefappAwsClientDescriptor,
 				},
 			},
 		},
@@ -164,7 +164,8 @@ func Test_Deploy(t *testing.T) {
 			name: "happy path staging gcp",
 			params: api.DeployParams{
 				RootDir:     "testdata/stacks",
-				Stack:       "refapp",
+				StackName:   "refapp",
+				ParentStack: "refapp",
 				Environment: "staging",
 			},
 			setExpectations: true,
@@ -180,7 +181,8 @@ func Test_Deploy(t *testing.T) {
 				}), mock.MatchedBy(func(actual any) bool {
 					return assert.EqualValuesf(t, api.DeployParams{
 						RootDir:     "testdata/stacks",
-						Stack:       "refapp",
+						StackName:   "refapp",
+						ParentStack: "refapp",
 						Environment: "staging",
 					}, actual, "%v failed", ttName)
 				}))
@@ -190,7 +192,7 @@ func Test_Deploy(t *testing.T) {
 			name: "error stack not found",
 			params: api.DeployParams{
 				RootDir:     "testdata/stacks",
-				Stack:       "refapp-notexisting",
+				ParentStack: "refapp-notexisting",
 				Environment: "staging",
 			},
 			wantErr: `stack "refapp-notexisting" is not configured`,

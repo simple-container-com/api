@@ -58,3 +58,39 @@ var ResolvedRefappAwsServerDescriptor = &api.ServerDescriptor{
 		},
 	},
 }
+
+var RefappAwsClientDescriptor = &api.ClientDescriptor{
+	SchemaVersion: api.ClientSchemaVersion,
+	Stacks: map[string]api.StackClientDescriptor{
+		"staging": {
+			ParentStack: "refapp-aws",
+			Environment: "staging",
+			Domain:      "staging.sc-refapp.org",
+			Config: api.StackConfig{
+				DockerComposeFile: "./docker-compose.yaml",
+				Uses: []string{
+					"mongodb",
+				},
+				Runs: []string{
+					"api",
+					"ui",
+				},
+			},
+		},
+		"prod": {
+			ParentStack: "refapp-aws",
+			Environment: "prod",
+			Domain:      "prod.sc-refapp.org",
+			Config: api.StackConfig{
+				DockerComposeFile: "./docker-compose.yaml",
+				Uses: []string{
+					"mongodb",
+				},
+				Runs: []string{
+					"api",
+					"ui",
+				},
+			},
+		},
+	},
+}

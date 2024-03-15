@@ -129,7 +129,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 }
 
 func stackDescriptorTemplateName(stackName, templateName string) string {
-	return fmt.Sprintf("%q/%q", stackName, templateName)
+	return fmt.Sprintf("%s/%s", stackName, templateName)
 }
 
 func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {

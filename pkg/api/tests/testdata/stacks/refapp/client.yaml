@@ -2,7 +2,7 @@
 schemaVersion: 1.0
 stacks:
   staging:
-    stack: refapp
+    parent: refapp
     environment: staging
     domain: staging.sc-refapp.org
     config: &config
@@ -13,7 +13,7 @@ stacks:
         - api
         - ui
   prod:
-    stack: refapp
+    parent: refapp
     environment: prod
     domain: prod.sc-refapp.org
     config: *config # shape services the same way as staging

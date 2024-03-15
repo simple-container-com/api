@@ -21,6 +21,7 @@ func (s *AuthDescriptor) Copy() AuthDescriptor {
 		Inherit: s.Inherit,
 	}
 }
+
 func (s *ServerDescriptor) Copy() ServerDescriptor {
 	return ServerDescriptor{
 		SchemaVersion: s.SchemaVersion,
@@ -51,10 +52,32 @@ func (s *StackDescriptor) Copy() StackDescriptor {
 		Inherit: s.Inherit,
 	}
 }
+
 func (s *PerStackResourcesDescriptor) Copy() PerStackResourcesDescriptor {
 	return PerStackResourcesDescriptor{
 		Registrar: s.Registrar.Copy(),
-		Resources: nil,
+		Resources: lo.MapValues(s.Resources, func(value PerEnvResourcesDescriptor, key string) PerEnvResourcesDescriptor {
+			return value.Copy()
+		}),
+	}
+}
+
+func (s *PerEnvResourcesDescriptor) Copy() PerEnvResourcesDescriptor {
+	return PerEnvResourcesDescriptor{
+		Template: s.Template,
+		Resources: lo.MapValues(s.Resources, func(value ResourceDescriptor, key string) ResourceDescriptor {
+			return value.Copy()
+		}),
+		Inherit: s.Inherit,
+	}
+}
+
+func (s *ResourceDescriptor) Copy() ResourceDescriptor {
+	return ResourceDescriptor{
+		Type:    s.Type,
+		Name:    s.Name,
+		Config:  s.Config.Copy(),
+		Inherit: s.Inherit,
 	}
 }
 
@@ -81,6 +104,7 @@ func (s *CiCdDescriptor) Copy() CiCdDescriptor {
 		Inherit: s.Inherit,
 	}
 }
+
 func (s *Config) Copy() Config {
 	return Config{
 		Config: s.Config,
@@ -96,8 +120,8 @@ func (s *ProvisionerDescriptor) Copy() ProvisionerDescriptor {
 	}
 }
 
-func (s *Stack) ChildStack(name string) *Stack {
-	return &Stack{
+func (s *Stack) ChildStack(name string) Stack {
+	return Stack{
 		Name:    name,
 		Secrets: s.Secrets.Copy(),
 		Server:  s.Server.Copy(),
@@ -116,7 +140,7 @@ func (s *ClientDescriptor) Copy() ClientDescriptor {
 
 func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	return StackClientDescriptor{
-		Stack:       s.Stack,
+		ParentStack: s.ParentStack,
 		Environment: s.Environment,
 		Domain:      s.Domain,
 		Config:      s.Config.Copy(),

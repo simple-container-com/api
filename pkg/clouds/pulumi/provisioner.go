@@ -84,10 +84,14 @@ func (p *pulumi) SetPublicKey(pubKey string) {
 }
 
 func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {
-	parent, err := p.getStack(ctx, cfg, parentStack)
+	_, err := p.getStack(ctx, cfg, parentStack)
 	if err != nil {
-		return errors.Wrapf(err, "failed to create stack %q if not exists", parentStack.Name)
+		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	parentStack.ChildStack(params.Stack)
-	return p.deployStack(ctx, cfg, parentStack, params)
+	childStack := parentStack.ChildStack(params.ParentStack)
+	if err = p.createStackIfNotExists(ctx, cfg, childStack); err != nil {
+		return errors.Wrapf(err, "failed to create stack %q if not exists", childStack.Name)
+	}
+
+	return p.deployStack(ctx, cfg, childStack, params)
 }

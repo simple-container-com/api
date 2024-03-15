@@ -9,7 +9,7 @@ type ClientDescriptor struct {
 }
 
 type StackClientDescriptor struct {
-	Stack       string      `json:"stack" yaml:"stack"`
+	ParentStack string      `json:"parent" yaml:"parent"`
 	Environment string      `json:"environment" yaml:"environment"`
 	Domain      string      `json:"domain" yaml:"domain"`
 	Config      StackConfig `json:"config" yaml:"config"`
@@ -24,7 +24,8 @@ type StackConfig struct {
 type DeployParams struct {
 	RootDir     string         `json:"rootDir" yaml:"rootDir"`
 	Profile     string         `json:"profile" yaml:"profile"`
-	Stack       string         `json:"stack" yaml:"stack"`
+	StackName   string         `json:"stack" yaml:"stack"`
+	ParentStack string         `json:"parent" yaml:"parent"`
 	Environment string         `json:"environment" yaml:"environment"`
 	Vars        VariableValues `json:"vars" yaml:"vars"`
 }

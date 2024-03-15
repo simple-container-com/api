@@ -19,17 +19,17 @@ func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error
 	}, true); err != nil {
 		return errors.Wrapf(err, "failed to read stacks")
 	}
-	stack, ok := p.stacks[params.Stack]
+	stack, ok := p.stacks[params.ParentStack]
 	if !ok {
-		return errors.Errorf("stack %q is not configured", params.Stack)
+		return errors.Errorf("stack %q is not configured", params.ParentStack)
 	}
 
-	_, ok = p.stacks[params.Stack].Server.Resources.Resources[params.Environment]
+	_, ok = p.stacks[params.ParentStack].Server.Resources.Resources[params.Environment]
 	if !ok {
 		return errors.Errorf("resources for stack %q are not configured in env %q", stack.Name, params.Environment)
 	}
 
-	_, ok = p.stacks[params.Stack].Client.Stacks[params.Environment]
+	_, ok = p.stacks[params.ParentStack].Client.Stacks[params.Environment]
 	if !ok {
 		return errors.Errorf("environment %q for stack %q is not configured", params.Environment, stack.Name)
 	}

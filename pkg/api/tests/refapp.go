@@ -477,7 +477,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
-			Stack:       "refapp",
+			ParentStack: "refapp",
 			Environment: "staging",
 			Domain:      "staging.sc-refapp.org",
 			Config: api.StackConfig{
@@ -492,7 +492,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 		"prod": {
-			Stack:       "refapp",
+			ParentStack: "refapp",
 			Environment: "prod",
 			Domain:      "prod.sc-refapp.org",
 			Config: api.StackConfig{

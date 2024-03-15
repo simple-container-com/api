@@ -119,7 +119,7 @@ func Test_CreateStack(t *testing.T) {
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
-					Stack:       e2eCreateStackName,
+					ParentStack: e2eCreateStackName,
 					Environment: "test",
 					Domain:      "refapp.sc-app.me",
 					Config: api.StackConfig{
@@ -150,7 +150,8 @@ func Test_CreateStack(t *testing.T) {
 	deployProv.SetPublicKey(cryptor.PublicKey())
 
 	err = deployProv.DeployStack(ctx, cfg, stack, api.DeployParams{
-		Stack:       e2eDeployStackName,
+		StackName:   e2eDeployStackName,
+		ParentStack: e2eCreateStackName,
 		Environment: "test",
 	})
 	Expect(err).To(BeNil())

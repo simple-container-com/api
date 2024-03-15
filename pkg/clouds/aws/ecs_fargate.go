@@ -107,7 +107,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackCl
 		Config: EcsFargateConfig{
 			Credentials:      templateCfg.Credentials,
 			AwsAccountConfig: templateCfg.AwsAccountConfig,
-			Name:             fmt.Sprintf("%s-%s", stackCfg.Stack, stackCfg.Environment),
+			Name:             fmt.Sprintf("%s-%s", stackCfg.ParentStack, stackCfg.Environment),
 			Region:           templateCfg.Region,
 		},
 	}
