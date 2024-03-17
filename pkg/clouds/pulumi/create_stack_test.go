@@ -28,7 +28,7 @@ func Test_CreateStack(t *testing.T) {
 
 	ctx := context.Background()
 
-	cfg, cryptor := secretTestutil.ReadIntegrationTestConfig(t, testSAFile)
+	cfg, cryptor := secretTestutil.ReadIntegrationTestConfig()
 	gcpSa, err := cryptor.GetAndDecryptFileContent(testSAFile)
 	Expect(err).To(BeNil())
 
