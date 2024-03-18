@@ -26,7 +26,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		stackClientDesc := stack.Client.Stacks[params.Environment]
 		templateName := stack.Server.Resources.Resources[params.Environment].Template
 		if templateName == "" {
-			return errors.Errorf("no template for stack %q in env %q", parentStack, params.Environment)
+			return errors.Errorf("no template configured for stack %q in env %q", parentStack, params.Environment)
 		}
 
 		// Create a StackReference to the parent stack

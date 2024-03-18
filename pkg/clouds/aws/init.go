@@ -11,6 +11,7 @@ func init() {
 		// gcloud
 		SecretsTypeAWSSecretsManager: ReadSecretsConfig,
 		TemplateTypeEcsFargate:       ReadTemplateConfig,
+		TemplateTypeStaticWebsite:    ReadTemplateConfig,
 		AuthTypeAWSToken:             ReadAuthServiceAccountConfig,
 
 		// bucket

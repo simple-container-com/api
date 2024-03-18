@@ -35,7 +35,7 @@ type StackConfigCompose struct {
 }
 
 type StackConfigStatic struct {
-	BundleDir string `json:"bundle-dir", yaml:"bundle-dir"`
+	BundleDir string `json:"bundle-dir" yaml:"bundle-dir"`
 }
 
 type DeployParams struct {
@@ -72,6 +72,10 @@ func PrepareCloudComposeForDeploy(ctx context.Context, rootDir, stackName string
 	}
 }
 
+func PrepareStaticForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic) (*StackDescriptor, error) {
+	return nil, errors.Errorf("not implemented")
+}
+
 func PrepareClientConfigForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 	if clientDesc.Type == ClientTypeCompose {
 		configCompose, ok := clientDesc.Config.Config.(*StackConfigCompose)
@@ -80,11 +84,25 @@ func PrepareClientConfigForDeploy(ctx context.Context, rootDir, stackName string
 		}
 		return PrepareCloudComposeForDeploy(ctx, rootDir, stackName, tpl, configCompose)
 	}
+	if clientDesc.Type == ClientTypeStatic {
+		configStatic, ok := clientDesc.Config.Config.(*StackConfigStatic)
+		if !ok {
+			return nil, errors.Errorf("client config is not of type *StackConfigStatic")
+		}
+		return PrepareStaticForDeploy(ctx, rootDir, stackName, tpl, configStatic)
+	}
 	return nil, errors.Errorf("unsupported client type %q", tpl.Type)
 }
 
 func ConvertClientConfig(clientDesc StackClientDescriptor) (*StackClientDescriptor, error) {
-	if clientDesc.Type == ClientTypeCompose {
+	switch clientDesc.Type {
+	case ClientTypeStatic:
+		if converted, err := ConvertConfig(&clientDesc.Config, &StackConfigStatic{}); err != nil {
+			return &clientDesc, err
+		} else {
+			clientDesc.Config = converted
+		}
+	case ClientTypeCompose:
 		if converted, err := ConvertConfig(&clientDesc.Config, &StackConfigCompose{}); err != nil {
 			return &clientDesc, err
 		} else {

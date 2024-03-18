@@ -6,15 +6,18 @@ secrets:
 cicd:
   inherit: common
 templates:
-  stack-per-app-aws:
-    inherit: common
+  static-website:
+    type: gcp-static-website
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
 resources:
   registrar:
     inherit: common
   resources:
     staging:
-      template: stack-per-app-aws
+      template: static-website
       resources: &resources
     prod:
-      template: stack-per-app-aws
+      template: static-website
       resources: *resources

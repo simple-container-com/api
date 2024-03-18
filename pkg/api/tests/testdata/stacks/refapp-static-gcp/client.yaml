@@ -3,11 +3,11 @@ schemaVersion: 1.0
 stacks:
   staging: &staging
     type: static
-    parent: refapp-static
+    parent: refapp-static-gcp
     environment: staging
     domain: staging.sc-refapp.org
     config:
-      bundle-dir: ./
+      bundle-dir: ./bundle
   prod:
     <<: *staging
     environment: prod

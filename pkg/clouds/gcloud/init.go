@@ -11,6 +11,7 @@ func init() {
 		// gcloud
 		SecretsTypeGCPSecretsManager: ReadSecretsProviderConfig,
 		TemplateTypeGcpCloudrun:      ReadTemplateConfig,
+		TemplateTypeStaticWebsite:    ReadTemplateConfig,
 		AuthTypeGCPServiceAccount:    ReadAuthServiceAccountConfig,
 
 		// postgres

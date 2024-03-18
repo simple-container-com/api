@@ -83,6 +83,30 @@ func Test_Provision(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path gcp static",
+			params: api.ProvisionParams{
+				RootDir: "testdata/stacks",
+				Stacks: []string{
+					"common",
+					"refapp-static-gcp",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-static-gcp": {
+					Name:    "refapp-static-gcp",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappStaticGCPServerDescriptor,
+					Client:  *tests.RefappStaticGCPClientDescriptor,
+				},
+			},
+		},
+		{
 			name: "pulumi error",
 			params: api.ProvisionParams{
 				RootDir: "testdata/stacks",

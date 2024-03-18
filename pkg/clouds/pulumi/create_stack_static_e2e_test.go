@@ -2,6 +2,7 @@ package pulumi
 
 import (
 	"context"
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -31,6 +32,26 @@ func Test_CreateStaticStack(t *testing.T) {
 			gcpSa:          gcpSa,
 			kmsKeyName:     e2eStaticKmsTestKeyName,
 			kmsKeyringName: e2eStaticKmsTestKeyringName,
+			templates: map[string]api.StackDescriptor{
+				"static-website": {
+					Type: gcloud.TemplateTypeStaticWebsite,
+					Config: api.Config{Config: &gcloud.TemplateConfig{
+						Credentials: gcloud.Credentials{
+							Credentials: api.Credentials{
+								Credentials: gcpSa,
+							},
+							ServiceAccountConfig: gcloud.ServiceAccountConfig{
+								ProjectId: e2eTestProject,
+							},
+						},
+					}},
+				},
+			},
+			resources: map[string]api.PerEnvResourcesDescriptor{
+				"test": {
+					Template: "static-website",
+				},
+			},
 		}),
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
