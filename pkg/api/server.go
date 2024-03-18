@@ -97,8 +97,8 @@ type StackDescriptor struct {
 }
 
 type CloudComposeDescriptor struct {
-	StackName string `json:"stackName" yaml:"stackName"`
-	Input     any    `json:"input" yaml:"input"`
+	StackName       string `json:"stackName" yaml:"stackName"`
+	StackDescriptor `json:",inline" yaml:",inline"`
 }
 
 type SecretsConfigDescriptor struct {

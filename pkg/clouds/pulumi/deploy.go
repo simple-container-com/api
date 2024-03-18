@@ -51,7 +51,26 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		composeInput, err := api.ConvertTemplateToCloudCompose(ctx.Context(), params.RootDir, fullStackName, stackDesc, stackClientDesc)
 
 		p.logger.Info(ctx.Context(), "converted compose to cloud compose input: %q", composeInput)
-		return err
+
+		resDesc := api.ResourceDescriptor{
+			Type:   composeInput.Type,
+			Name:   composeInput.StackName,
+			Config: composeInput.Config,
+		}
+		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc)
+		if err != nil {
+			return errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
+		}
+
+		if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
+			return errors.Errorf("unknown resource type %q", resDesc.Type)
+		} else if _, err := fnc(ctx, stack, api.ResourceInput{
+			Log:        p.logger,
+			Descriptor: &resDesc,
+		}, provisionParams); err != nil {
+			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
+		}
+		return nil
 	})
 	if err != nil {
 		return err

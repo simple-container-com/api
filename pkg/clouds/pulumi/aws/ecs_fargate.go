@@ -19,6 +19,6 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 		return nil, errors.Errorf("failed to convert ecs_fargate config for %q", input.Descriptor.Type)
 	}
 
-	return nil, errors.Errorf("not implemented for %q", cloudrunInput)
-	// return &api.ResourceOutput{Ref: nil}, nil
+	input.Log.Error(ctx.Context(), "not implemented for %q", cloudrunInput)
+	return &api.ResourceOutput{Ref: nil}, nil
 }

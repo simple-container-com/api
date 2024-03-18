@@ -104,7 +104,12 @@ func ConvertTemplateToCloudCompose(ctx context.Context, rootDir, stackName strin
 	} else {
 		return &CloudComposeDescriptor{
 			StackName: stackName,
-			Input:     input,
+			StackDescriptor: StackDescriptor{
+				Type: stackDesc.Type,
+				Config: Config{
+					Config: input,
+				},
+			},
 		}, nil
 	}
 }

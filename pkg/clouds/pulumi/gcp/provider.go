@@ -8,7 +8,6 @@ import (
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
@@ -25,9 +24,9 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 }
 
 func ToPulumiProviderArgs(config api.Config) (any, error) {
-	pcfg, ok := config.Config.(gcloud.AuthServiceAccountConfig)
+	pcfg, ok := config.Config.(api.AuthConfig)
 	if !ok {
-		return nil, errors.Errorf("failed to cast config to gcloud.AuthServiceAccountConfig")
+		return nil, errors.Errorf("failed to cast config to api.AuthConfig")
 	}
 
 	creds := pcfg.CredentialsValue()

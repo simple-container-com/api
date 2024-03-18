@@ -102,7 +102,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackCl
 		return nil, errors.Errorf("template config is nil")
 	}
 
-	res := EcsFargateInput{
+	res := &EcsFargateInput{
 		TemplateConfig: *templateCfg,
 		Config: EcsFargateConfig{
 			Credentials:      templateCfg.Credentials,
@@ -110,6 +110,10 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackCl
 			Name:             fmt.Sprintf("%s-%s", stackCfg.ParentStack, stackCfg.Environment),
 			Region:           templateCfg.Region,
 		},
+	}
+
+	if composeCfg.Project == nil {
+		return nil, errors.Errorf("compose config is nil")
 	}
 
 	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {

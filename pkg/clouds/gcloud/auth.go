@@ -18,10 +18,6 @@ type ServiceAccountConfig struct {
 	ProjectId string `json:"projectId" yaml:"projectId"`
 }
 
-type AuthServiceAccountConfig interface {
-	api.AuthConfig
-}
-
 type Credentials struct {
 	api.Credentials      `json:",inline" yaml:",inline"`
 	ServiceAccountConfig `json:",inline" yaml:",inline"`

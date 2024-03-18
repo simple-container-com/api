@@ -92,14 +92,17 @@ type CloudRunInput struct {
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
-		return nil, errors.Errorf("template config is not of type gcloud.TemplateConfig")
+		return nil, errors.Errorf("template config is not of type *gcloud.TemplateConfig")
 	}
 	if templateCfg == nil {
 		return nil, errors.Errorf("template config is nil")
 	}
 
-	res := CloudRunInput{
+	res := &CloudRunInput{
 		TemplateConfig: *templateCfg,
+	}
+	if composeCfg.Project == nil {
+		return nil, errors.Errorf("compose config is nil")
 	}
 
 	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {
