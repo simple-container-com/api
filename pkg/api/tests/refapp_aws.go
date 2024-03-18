@@ -63,6 +63,7 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
+			Type:        api.ClientTypeCompose,
 			ParentStack: "refapp-aws",
 			Environment: "staging",
 			Domain:      "staging.sc-refapp.org",
@@ -80,6 +81,7 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 		"prod": {
+			Type:        api.ClientTypeCompose,
 			ParentStack: "refapp-aws",
 			Environment: "prod",
 			Domain:      "prod.sc-refapp.org",
