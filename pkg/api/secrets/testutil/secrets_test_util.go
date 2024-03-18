@@ -7,6 +7,10 @@ import (
 	"github.com/simple-container-com/api/pkg/api/secrets"
 )
 
+const (
+	testSAFile = "pkg/clouds/pulumi/testdata/sc-test-project-sa.json"
+)
+
 func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
 	c, err := secrets.NewCryptor("", secrets.WithDetectGitDir(), secrets.WithProfile("test"), secrets.WithKeysFromCurrentProfile())
 	Expect(err).To(BeNil())
@@ -17,4 +21,11 @@ func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
 	Expect(err).To(BeNil())
 
 	return cfg, c
+}
+
+func PrepareE2EtestForGCP() (*api.ConfigFile, secrets.Cryptor, string) {
+	cfg, cryptor := ReadIntegrationTestConfig()
+	gcpSa, err := cryptor.GetAndDecryptFileContent(testSAFile)
+	Expect(err).To(BeNil())
+	return cfg, cryptor, string(gcpSa)
 }
