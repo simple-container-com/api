@@ -16,13 +16,13 @@ func TestToCloudRunConfig(t *testing.T) {
 	tests := []struct {
 		name     string
 		tpl      any
-		stackCfg api.StackClientDescriptor
+		stackCfg *api.StackConfigCompose
 		check    func(t *testing.T, got any, err error)
 	}{
 		{
 			name:     "happy path",
 			tpl:      &TemplateConfig{},
-			stackCfg: api.StackClientDescriptor{},
+			stackCfg: &api.StackConfigCompose{},
 			check: func(t *testing.T, got any, err error) {
 				Expect(err).To(BeNil())
 				_, ok := got.(*CloudRunInput)

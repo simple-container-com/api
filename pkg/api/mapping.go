@@ -29,7 +29,7 @@ type (
 	ProvisionerFieldConfigReadFunc   func(config *Config) (Config, error)
 	ProvisionerFieldConfigRegister   map[string]ProvisionerFieldConfigReadFunc
 	ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
-	ToCloudComposeConvertFunc        func(tpl any, composeCfg compose.Config, stackCfg StackClientDescriptor) (any, error)
+	ToCloudComposeConvertFunc        func(tpl any, composeCfg compose.Config, stackCfg *StackConfigCompose) (any, error)
 	CloudComposeConfigRegister       map[string]ToCloudComposeConvertFunc
 )
 

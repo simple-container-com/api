@@ -48,14 +48,17 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		if err != nil {
 			return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 		}
-		composeInput, err := api.ConvertTemplateToCloudCompose(ctx.Context(), params.RootDir, fullStackName, stackDesc, stackClientDesc)
+		deployInput, err := api.PrepareClientConfigForDeploy(ctx.Context(), params.RootDir, fullStackName, stackDesc, stackClientDesc)
+		if err != nil {
+			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
+		}
 
-		p.logger.Info(ctx.Context(), "converted compose to cloud compose input: %q", composeInput)
+		p.logger.Info(ctx.Context(), "converted compose to cloud compose input: %q", deployInput)
 
 		resDesc := api.ResourceDescriptor{
-			Type:   composeInput.Type,
-			Name:   composeInput.StackName,
-			Config: composeInput.Config,
+			Type:   deployInput.Type,
+			Name:   fullStackName,
+			Config: deployInput.Config,
 		}
 		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc)
 		if err != nil {

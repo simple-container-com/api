@@ -89,7 +89,7 @@ type CloudRunInput struct {
 	Config         CloudRunConfig      `json:"config" yaml:"config"`
 }
 
-func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
+func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
 		return nil, errors.Errorf("template config is not of type *gcloud.TemplateConfig")
@@ -109,7 +109,7 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClie
 		return svc.Name, svc
 	})
 
-	for _, svcName := range stackCfg.Config.Runs {
+	for _, svcName := range stackCfg.Runs {
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {

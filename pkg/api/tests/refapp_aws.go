@@ -66,14 +66,16 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 			ParentStack: "refapp-aws",
 			Environment: "staging",
 			Domain:      "staging.sc-refapp.org",
-			Config: api.StackConfig{
-				DockerComposeFile: "./docker-compose.yaml",
-				Uses: []string{
-					"mongodb",
-				},
-				Runs: []string{
-					"api",
-					"ui",
+			Config: api.Config{
+				Config: &api.StackConfigCompose{
+					DockerComposeFile: "./docker-compose.yaml",
+					Uses: []string{
+						"mongodb",
+					},
+					Runs: []string{
+						"api",
+						"ui",
+					},
 				},
 			},
 		},
@@ -81,14 +83,16 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 			ParentStack: "refapp-aws",
 			Environment: "prod",
 			Domain:      "prod.sc-refapp.org",
-			Config: api.StackConfig{
-				DockerComposeFile: "./docker-compose.yaml",
-				Uses: []string{
-					"mongodb",
-				},
-				Runs: []string{
-					"api",
-					"ui",
+			Config: api.Config{
+				Config: &api.StackConfigCompose{
+					DockerComposeFile: "./docker-compose.yaml",
+					Uses: []string{
+						"mongodb",
+					},
+					Runs: []string{
+						"api",
+						"ui",
+					},
 				},
 			},
 		},

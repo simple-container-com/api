@@ -1,8 +1,6 @@
 package aws
 
 import (
-	"fmt"
-
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -18,7 +16,6 @@ const (
 type EcsFargateConfig struct {
 	api.Credentials  `json:",inline" yaml:",inline"`
 	AwsAccountConfig `json:",inline" yaml:",inline"`
-	Name             string `json:"name,omitempty" yaml:"name"`
 	Account          string `json:"account" yaml:"account"`
 	Region           string `json:"region" yaml:"region"`
 }
@@ -92,7 +89,7 @@ type EcsFargateInput struct {
 	Config         EcsFargateConfig      `json:"config" yaml:"config"`
 }
 
-func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackClientDescriptor) (any, error) {
+func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
 		return nil, errors.Errorf("template config is not of type aws.TemplateConfig")
@@ -107,7 +104,6 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackCl
 		Config: EcsFargateConfig{
 			Credentials:      templateCfg.Credentials,
 			AwsAccountConfig: templateCfg.AwsAccountConfig,
-			Name:             fmt.Sprintf("%s-%s", stackCfg.ParentStack, stackCfg.Environment),
 			Region:           templateCfg.Region,
 		},
 	}
@@ -120,7 +116,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg api.StackCl
 		return svc.Name, svc
 	})
 
-	for _, svcName := range stackCfg.Config.Runs {
+	for _, svcName := range stackCfg.Runs {
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {

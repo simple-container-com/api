@@ -1,13 +1,10 @@
 package api
 
 import (
-	"context"
 	"os"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
-
-	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
 const (
@@ -71,7 +68,13 @@ func ReadClientDescriptor(path string) (*ClientDescriptor, error) {
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
 	}
-
+	for env, cfg := range descriptor.Stacks {
+		if res, err := ConvertClientConfig(cfg); err != nil {
+			return nil, errors.Wrapf(err, "failed to convert client config for env %q in %q", env, path)
+		} else {
+			descriptor.Stacks[env] = *res
+		}
+	}
 	return descriptor, nil
 }
 
@@ -84,34 +87,6 @@ func ReadSecretsConfigs(descriptor *SecretsDescriptor) (*SecretsDescriptor, erro
 		res = *withAuth
 	}
 	return &res, nil
-}
-
-func ConvertTemplateToCloudCompose(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*CloudComposeDescriptor, error) {
-	stackDesc, err := DetectTemplateType(tpl)
-	if err != nil {
-		return nil, err
-	}
-
-	composeCfg, err := compose.ReadDockerCompose(ctx, rootDir, clientDesc.Config.DockerComposeFile)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read docker-compose config from %q/%q", rootDir, clientDesc.Config.DockerComposeFile)
-	}
-
-	if tplFun, found := cloudComposeConverterMapping[stackDesc.Type]; !found {
-		return nil, errors.Errorf("unknown template type %q for %q", stackDesc.Type, stackName)
-	} else if input, err := tplFun(stackDesc.Config.Config, composeCfg, clientDesc); err != nil {
-		return nil, errors.Wrapf(err, "failed to convert cloud compose for type %q in stack %q", stackDesc.Type, stackName)
-	} else {
-		return &CloudComposeDescriptor{
-			StackName: stackName,
-			StackDescriptor: StackDescriptor{
-				Type: stackDesc.Type,
-				Config: Config{
-					Config: input,
-				},
-			},
-		}, nil
-	}
 }
 
 func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {

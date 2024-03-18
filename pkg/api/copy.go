@@ -140,6 +140,7 @@ func (s *ClientDescriptor) Copy() ClientDescriptor {
 
 func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	return StackClientDescriptor{
+		Type:        s.Type,
 		ParentStack: s.ParentStack,
 		Environment: s.Environment,
 		Domain:      s.Domain,
@@ -147,8 +148,8 @@ func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	}
 }
 
-func (s *StackConfig) Copy() StackConfig {
-	return StackConfig{
+func (s *StackConfigCompose) Copy() StackConfigCompose {
+	return StackConfigCompose{
 		DockerComposeFile: s.DockerComposeFile,
 		Uses:              s.Uses,
 		Runs:              s.Runs,

@@ -2,17 +2,12 @@
 schemaVersion: 1.0
 stacks:
   staging: &staging
-    type: compose
-    parent: refapp-aws
+    type: static
+    parent: refapp-static
     environment: staging
     domain: staging.sc-refapp.org
     config:
-      docker-compose-file: ./docker-compose.yaml # uses listed containers from docker-compose.yaml
-      uses:
-        - mongodb
-      runs:
-        - api
-        - ui
+      bundle-dir: ./
   prod:
     <<: *staging
     environment: prod

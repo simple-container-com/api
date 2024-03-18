@@ -119,16 +119,19 @@ func Test_CreateStack(t *testing.T) {
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
+					Type:        api.ClientTypeCompose,
 					ParentStack: e2eCreateStackName,
 					Environment: "test",
 					Domain:      "refapp.sc-app.me",
-					Config: api.StackConfig{
-						DockerComposeFile: "testdata/docker-compose.yaml",
-						Uses: []string{
-							"test-bucket",
-						},
-						Runs: []string{
-							"backend",
+					Config: api.Config{
+						Config: &api.StackConfigCompose{
+							DockerComposeFile: "testdata/docker-compose.yaml",
+							Uses: []string{
+								"test-bucket",
+							},
+							Runs: []string{
+								"backend",
+							},
 						},
 					},
 				},
