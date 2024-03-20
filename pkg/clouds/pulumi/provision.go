@@ -102,20 +102,16 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		return pParams, nil
 	}
 
-	if providerArgsFunc, ok := pulumiProviderArgsByType[res.Type]; !ok {
-		return params.ProvisionParams{}, errors.Errorf("unsupported provider for resource type %q in stack %q", res.Type, stack.Name)
-	} else if providerArgs, err := providerArgsFunc(res.Config); err != nil {
-		return params.ProvisionParams{}, errors.Errorf("failed to cast config to provider args for %q in stack %q", res.Type, stack.Name)
-	} else if providerFunc, ok := providerFuncByType[res.Type]; !ok {
-		return params.ProvisionParams{}, errors.Errorf("unsupported provider for resource type %q in stack %q", res.Type, stack.Name)
+	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
+		return params.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
+	} else if providerFunc, ok := providerFuncByType[authCfg.ProviderType()]; !ok {
+		return params.ProvisionParams{}, errors.Errorf("unsupported provider type %q for resource type %q in stack %q", authCfg.ProviderType(), res.Type, stack.Name)
 	} else if out, err := providerFunc(ctx, stack, api.ResourceInput{
 		Log: p.logger,
 		Descriptor: &api.ResourceDescriptor{
-			Type: res.Type,
-			Name: providerName,
-			Config: api.Config{
-				Config: providerArgs,
-			},
+			Type:   res.Type,
+			Name:   providerName,
+			Config: res.Config,
 		},
 	}, params.ProvisionParams{}); err != nil {
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {

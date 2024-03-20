@@ -7,7 +7,7 @@ const ResourceTypeS3Bucket = "s3-bucket"
 type S3Bucket struct {
 	AwsAccountConfig `json:",inline" yaml:",inline"`
 	Name             string `json:"name,omitempty" yaml:"name"`
-	Location         string `json:"location" yaml:"location"`
+	Region           string `json:"region" yaml:"region"`
 }
 
 func S3BucketReadConfig(config *api.Config) (api.Config, error) {

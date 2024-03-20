@@ -12,31 +12,24 @@ import (
 )
 
 func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
-	providerArgs, ok := input.Descriptor.Config.Config.(*gcp.ProviderArgs)
-	if !ok {
-		return &api.ResourceOutput{}, errors.Errorf("failed to cast config to gcp.ProviderArgs for %q in stack %q", input.Descriptor.Type, stack.Name)
-	}
-
-	provider, err := gcp.NewProvider(ctx, input.Descriptor.Name, providerArgs)
-	return &api.ResourceOutput{
-		Ref: provider,
-	}, err
-}
-
-func ToPulumiProviderArgs(config api.Config) (any, error) {
-	pcfg, ok := config.Config.(api.AuthConfig)
+	pcfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to cast config to api.AuthConfig")
 	}
 
 	creds := pcfg.CredentialsValue()
 	projectId := pcfg.ProjectIdValue()
+
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
 	if err := os.Setenv("GOOGLE_CREDENTIALS", creds); err != nil {
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
-	return &gcp.ProviderArgs{
+
+	provider, err := gcp.NewProvider(ctx, input.Descriptor.Name, &gcp.ProviderArgs{
 		Credentials: sdk.String(creds),
 		Project:     sdk.String(projectId),
-	}, nil
+	})
+	return &api.ResourceOutput{
+		Ref: provider,
+	}, err
 }

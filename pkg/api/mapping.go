@@ -102,6 +102,7 @@ func WithFieldConfigReader(f ProvisionerFieldConfigReaderFunc) ProvisionerOption
 type AuthConfig interface {
 	CredentialsValue() string
 	ProjectIdValue() string
+	ProviderType() string
 }
 
 type StateStorageConfig interface {

@@ -27,26 +27,7 @@ var provisionFuncByType = map[string]provisionFunc{
 
 var providerFuncByType = map[string]provisionFunc{
 	// gcp
-	gcloud.SecretsProviderTypeGcpKms: gcp.ProvisionProvider,
-	gcloud.ResourceTypeBucket:        gcp.ProvisionProvider,
-	gcloud.TemplateTypeGcpCloudrun:   gcp.ProvisionProvider,
-
+	gcloud.ProviderType: gcp.ProvisionProvider,
 	// aws
-	aws.ResourceTypeS3Bucket:      awsImpl.ProvisionProvider,
-	aws.SecretsProviderTypeAwsKms: awsImpl.ProvisionProvider,
-	aws.TemplateTypeEcsFargate:    awsImpl.ProvisionProvider,
-}
-
-type pulumiProviderArgsFunc func(config api.Config) (any, error)
-
-var pulumiProviderArgsByType = map[string]pulumiProviderArgsFunc{
-	// gcp
-	gcloud.ResourceTypeBucket:        gcp.ToPulumiProviderArgs,
-	gcloud.SecretsProviderTypeGcpKms: gcp.ToPulumiProviderArgs,
-	gcloud.TemplateTypeGcpCloudrun:   gcp.ToPulumiProviderArgs,
-
-	// aws
-	aws.ResourceTypeS3Bucket:      awsImpl.ToPulumiProviderArgs,
-	aws.SecretsProviderTypeAwsKms: awsImpl.ToPulumiProviderArgs,
-	aws.TemplateTypeEcsFargate:    awsImpl.ToPulumiProviderArgs,
+	aws.ProviderType: awsImpl.ProvisionProvider,
 }
