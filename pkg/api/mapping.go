@@ -31,11 +31,14 @@ type (
 	ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
 	ToCloudComposeConvertFunc        func(tpl any, composeCfg compose.Config, stackCfg *StackConfigCompose) (any, error)
 	CloudComposeConfigRegister       map[string]ToCloudComposeConvertFunc
+	ToCloudStaticSiteConvertFunc     func(tpl any, rootDir, stackName string, stackCfg *StackConfigStatic) (any, error)
+	CloudStaticSiteConfigRegister    map[string]ToCloudStaticSiteConvertFunc
 )
 
 var (
-	provisionerFieldConfigMapping = ProvisionerFieldConfigRegister{}
-	cloudComposeConverterMapping  = CloudComposeConfigRegister{}
+	provisionerFieldConfigMapping   = ProvisionerFieldConfigRegister{}
+	cloudComposeConverterMapping    = CloudComposeConfigRegister{}
+	cloudStaticSiteConverterMapping = CloudStaticSiteConfigRegister{}
 )
 
 func ConvertDescriptor[T any](from any, to *T) (*T, error) {
@@ -78,6 +81,10 @@ func RegisterProvisionerFieldConfig(mapping ProvisionerFieldConfigRegister) {
 
 func RegisterCloudComposeConverter(mapping CloudComposeConfigRegister) {
 	cloudComposeConverterMapping = lo.Assign(cloudComposeConverterMapping, mapping)
+}
+
+func RegisterCloudStaticSiteConverter(mapping CloudStaticSiteConfigRegister) {
+	cloudStaticSiteConverterMapping = lo.Assign(cloudStaticSiteConverterMapping, mapping)
 }
 
 type Provisioner interface {

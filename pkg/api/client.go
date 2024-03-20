@@ -73,7 +73,23 @@ func PrepareCloudComposeForDeploy(ctx context.Context, rootDir, stackName string
 }
 
 func PrepareStaticForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic) (*StackDescriptor, error) {
-	return nil, errors.Errorf("not implemented")
+	stackDesc, err := DetectTemplateType(tpl)
+	if err != nil {
+		return nil, err
+	}
+
+	if tplFun, found := cloudStaticSiteConverterMapping[stackDesc.Type]; !found {
+		return nil, errors.Errorf("unknown template type %q for %q", stackDesc.Type, stackName)
+	} else if input, err := tplFun(stackDesc.Config.Config, rootDir, stackName, clientConfig); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert cloud static site for type %q in stack %q", stackDesc.Type, stackName)
+	} else {
+		return &StackDescriptor{
+			Type: stackDesc.Type,
+			Config: Config{
+				Config: input,
+			},
+		}, nil
+	}
 }
 
 func PrepareClientConfigForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {

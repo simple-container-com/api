@@ -29,4 +29,8 @@ func init() {
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
 		TemplateTypeGcpCloudrun: ToCloudRunConfig,
 	})
+
+	api.RegisterCloudStaticSiteConverter(api.CloudStaticSiteConfigRegister{
+		TemplateTypeStaticWebsite: ToStaticSiteConfig,
+	})
 }

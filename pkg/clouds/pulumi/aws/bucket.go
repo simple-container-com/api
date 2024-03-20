@@ -26,7 +26,6 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 
 	bucket, err := s3.NewBucket(ctx, bucketCfg.Name, &s3.BucketArgs{
 		Bucket: sdk.String(bucketCfg.Name),
-		// TODO: region
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision bucket %q", bucketCfg.Name)

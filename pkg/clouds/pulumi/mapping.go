@@ -2,12 +2,12 @@ package pulumi
 
 import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/simple-container-com/api/pkg/clouds/aws"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
+	gcpApi "github.com/simple-container-com/api/pkg/clouds/gcloud"
 	awsImpl "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	gcpImpl "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
@@ -15,19 +15,21 @@ type provisionFunc func(sdkCtx *sdk.Context, stack api.Stack, input api.Resource
 
 var provisionFuncByType = map[string]provisionFunc{
 	// gcp
-	gcloud.ResourceTypeBucket:        gcp.ProvisionBucket,
-	gcloud.SecretsProviderTypeGcpKms: gcp.ProvisionKmsKey,
-	gcloud.TemplateTypeGcpCloudrun:   gcp.ProvisionCloudrun,
+	gcpApi.ResourceTypeBucket:        gcpImpl.ProvisionBucket,
+	gcpApi.SecretsProviderTypeGcpKms: gcpImpl.ProvisionKmsKey,
+	gcpApi.TemplateTypeGcpCloudrun:   gcpImpl.ProvisionCloudrun,
+	gcpApi.TemplateTypeStaticWebsite: gcpImpl.ProvisionStaticWebsite,
 
 	// aws
-	aws.ResourceTypeS3Bucket:      awsImpl.ProvisionBucket,
-	aws.SecretsProviderTypeAwsKms: awsImpl.ProvisionKmsKey,
-	aws.TemplateTypeEcsFargate:    awsImpl.ProvisionEcsFargate,
+	awsApi.ResourceTypeS3Bucket:      awsImpl.ProvisionBucket,
+	awsApi.SecretsProviderTypeAwsKms: awsImpl.ProvisionKmsKey,
+	awsApi.TemplateTypeEcsFargate:    awsImpl.ProvisionEcsFargate,
+	awsApi.TemplateTypeStaticWebsite: awsImpl.ProvisionStaticWebsite,
 }
 
 var providerFuncByType = map[string]provisionFunc{
 	// gcp
-	gcloud.ProviderType: gcp.ProvisionProvider,
+	gcpApi.ProviderType: gcpImpl.ProvisionProvider,
 	// aws
-	aws.ProviderType: awsImpl.ProvisionProvider,
+	awsApi.ProviderType: awsImpl.ProvisionProvider,
 }

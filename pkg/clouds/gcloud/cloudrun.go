@@ -13,13 +13,6 @@ const (
 	TemplateTypeGcpCloudrun = "cloudrun"
 )
 
-type CloudRunConfig struct {
-	ServiceAccountConfig `json:",inline" yaml:",inline"`
-	api.Credentials      `json:",inline" yaml:",inline"`
-	Name                 string `json:"name,omitempty" yaml:"name"`
-	Location             string `json:"location" yaml:"location"`
-}
-
 type ImagePlatform string
 
 const (
@@ -86,7 +79,6 @@ type CloudRunInput struct {
 	TemplateConfig `json:"templateConfig" yaml:"templateConfig"`
 	Scale          CloudRunScale       `json:"scale" yaml:"scale"`
 	Containers     []CloudRunContainer `json:"containers" yaml:"containers"`
-	Config         CloudRunConfig      `json:"config" yaml:"config"`
 }
 
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {

@@ -26,4 +26,8 @@ func init() {
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
 		TemplateTypeEcsFargate: ToEcsFargateConfig,
 	})
+
+	api.RegisterCloudStaticSiteConverter(api.CloudStaticSiteConfigRegister{
+		TemplateTypeStaticWebsite: ToStaticSiteConfig,
+	})
 }
