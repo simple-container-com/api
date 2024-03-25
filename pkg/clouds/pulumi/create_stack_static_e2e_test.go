@@ -2,8 +2,9 @@ package pulumi
 
 import (
 	"context"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"testing"
+
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 
 	. "github.com/onsi/gomega"
 
