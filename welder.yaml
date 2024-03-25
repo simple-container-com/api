@@ -31,3 +31,7 @@ tasks:
       - ${project:root}/bin/golangci-lint linters
       - go build ./...
       - go build -o ${project:root}/bin/sc ./cmd/sc
+  rebuild:
+    runOn: host
+    script:
+      - go build -o ${project:root}/bin/sc ./cmd/sc

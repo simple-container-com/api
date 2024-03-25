@@ -34,6 +34,8 @@ func NewSecretsCmd(rootParams root_cmd.Params) *cobra.Command {
 	}
 
 	cmd.AddCommand(
+		NewKnownKeysCmd(sCmd),
+		NewListCmd(sCmd),
 		NewHideCmd(sCmd),
 		NewRevealCmd(sCmd),
 		NewAllowCmd(sCmd),
