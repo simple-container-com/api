@@ -29,7 +29,10 @@ func NewSecretsCmd(rootParams root_cmd.Params) *cobra.Command {
 		Use:   "secrets",
 		Short: "Control repository-stored secrets",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return sCmd.init()
+			if cmd.Name() != "init" {
+				return sCmd.init(false)
+			}
+			return nil
 		},
 	}
 
@@ -45,7 +48,7 @@ func NewSecretsCmd(rootParams root_cmd.Params) *cobra.Command {
 	return cmd
 }
 
-func (c *secretsCmd) init() error {
+func (c *secretsCmd) init(skipConfigRead bool) error {
 	ctx := context.Background()
 
 	c.logger = logger.New()
@@ -70,6 +73,10 @@ func (c *secretsCmd) init() error {
 		SkipProfileCreation: true,
 	}); err != nil {
 		return err
+	}
+
+	if skipConfigRead {
+		return nil
 	}
 
 	if err := c.provisioner.Cryptor().ReadProfileConfig(); err != nil {
