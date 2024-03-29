@@ -2,14 +2,22 @@ package testutil
 
 import (
 	. "github.com/onsi/gomega"
+	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
+	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 )
 
 const (
-	testSAFile = "pkg/clouds/pulumi/testdata/sc-test-project-sa.json"
+	testSAFile       = "pkg/clouds/pulumi/testdata/sc-test-project-sa.json"
+	testCfConfigFile = "pkg/clouds/pulumi/testdata/cloudflare-e2e-config.yaml"
 )
+
+type E2ETestConfigGCP struct {
+	ServiceAccount   string
+	CloudflareConfig *cloudflare.RegistrarConfig
+}
 
 func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
 	c, err := secrets.NewCryptor("", secrets.WithDetectGitDir(), secrets.WithProfile("test"), secrets.WithKeysFromCurrentProfile())
@@ -23,9 +31,17 @@ func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
 	return cfg, c
 }
 
-func PrepareE2EtestForGCP() (*api.ConfigFile, secrets.Cryptor, string) {
+func PrepareE2EtestForGCP() (*api.ConfigFile, secrets.Cryptor, E2ETestConfigGCP) {
 	cfg, cryptor := ReadIntegrationTestConfig()
 	gcpSa, err := cryptor.GetAndDecryptFileContent(testSAFile)
 	Expect(err).To(BeNil())
-	return cfg, cryptor, string(gcpSa)
+	cfConfigBytes, err := cryptor.GetAndDecryptFileContent(testCfConfigFile)
+	Expect(err).To(BeNil())
+	cfConfig := cloudflare.RegistrarConfig{}
+	err = yaml.Unmarshal(cfConfigBytes, &cfConfig)
+	Expect(err).To(BeNil())
+	return cfg, cryptor, E2ETestConfigGCP{
+		ServiceAccount:   string(gcpSa),
+		CloudflareConfig: &cfConfig,
+	}
 }

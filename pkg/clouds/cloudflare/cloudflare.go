@@ -2,23 +2,17 @@ package cloudflare
 
 import "github.com/simple-container-com/api/pkg/api"
 
-const RegistrarTypeCloudflare = "cloudflare"
+const RegistrarType = "cloudflare"
 
 type AuthConfig struct {
 	api.Credentials `json:",inline" yaml:",inline"`
-	Project         string `json:"project" yaml:"project"`
+	AccountId       string `json:"accountId" yaml:"accountId"`
 }
 
 type RegistrarConfig struct {
 	AuthConfig `json:",inline" yaml:",inline"`
-	ZoneName   string      `json:"zoneName" yaml:"zoneName"`
-	DnsRecords []DnsRecord `json:"dnsRecords" yaml:"dnsRecords"`
-}
-
-type DnsRecord struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Value string `json:"value"`
+	ZoneName   string          `json:"zoneName" yaml:"zoneName"`
+	Records    []api.DnsRecord `json:"dnsRecords" yaml:"dnsRecords"`
 }
 
 func ReadRegistrarConfig(config *api.Config) (api.Config, error) {
@@ -30,5 +24,13 @@ func (r *AuthConfig) CredentialsValue() string {
 }
 
 func (r *AuthConfig) ProjectIdValue() string {
-	return r.Project
+	return r.AccountId
+}
+
+func (r *AuthConfig) ProviderType() string {
+	return ProviderType
+}
+
+func (r *RegistrarConfig) DnsRecords() []api.DnsRecord {
+	return r.Records
 }

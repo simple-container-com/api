@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"fmt"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"github.com/pkg/errors"
 
@@ -11,10 +12,9 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
-func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
+func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	kmsInput, ok := input.Descriptor.Config.Config.(*gcloud.SecretsProviderConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert KmsKeyInput for %q", input.Descriptor.Type)

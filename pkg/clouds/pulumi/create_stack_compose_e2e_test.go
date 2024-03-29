@@ -2,6 +2,7 @@ package pulumi
 
 import (
 	"context"
+	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
@@ -25,12 +26,12 @@ func Test_CreateComposeStack(t *testing.T) {
 
 	ctx := context.Background()
 
-	cfg, cryptor, gcpSa := secretTestutil.PrepareE2EtestForGCP()
+	cfg, cryptor, gcpCfg := secretTestutil.PrepareE2EtestForGCP()
 
 	stack := api.Stack{
 		Name: e2eCreateStackName,
 		Server: testServerDescriptorForGCP(e2eTestConfigGCP{
-			gcpSa:          gcpSa,
+			gcpSa:          gcpCfg.ServiceAccount,
 			kmsKeyName:     e2eKmsTestKeyName,
 			kmsKeyringName: e2eKmsTestKeyringName,
 			templates: map[string]api.StackDescriptor{
@@ -39,13 +40,19 @@ func Test_CreateComposeStack(t *testing.T) {
 					Config: api.Config{Config: &gcloud.TemplateConfig{
 						Credentials: gcloud.Credentials{
 							Credentials: api.Credentials{
-								Credentials: gcpSa,
+								Credentials: gcpCfg.ServiceAccount,
 							},
 							ServiceAccountConfig: gcloud.ServiceAccountConfig{
 								ProjectId: e2eTestProject,
 							},
 						},
 					}},
+				},
+			},
+			registrar: api.RegistrarDescriptor{
+				Type: cloudflare.RegistrarType,
+				Config: api.Config{
+					Config: gcpCfg.CloudflareConfig,
 				},
 			},
 			resources: map[string]api.PerEnvResourcesDescriptor{
@@ -58,7 +65,7 @@ func Test_CreateComposeStack(t *testing.T) {
 								Config: &gcloud.GcpBucket{
 									Credentials: gcloud.Credentials{
 										Credentials: api.Credentials{
-											Credentials: gcpSa,
+											Credentials: gcpCfg.ServiceAccount,
 										},
 										ServiceAccountConfig: gcloud.ServiceAccountConfig{
 											ProjectId: e2eTestProject,

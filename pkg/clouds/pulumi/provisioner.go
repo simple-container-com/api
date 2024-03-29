@@ -2,9 +2,8 @@ package pulumi
 
 import (
 	"context"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"sync"
-
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -29,17 +28,18 @@ type pulumi struct {
 	stack                   *auto.Stack
 	backend                 backend.Backend
 	stackRef                backend.StackReference
+	registrar               pApi.Registrar
 
 	secretsProviderOutput *SecretsProviderOutput
 	fieldConfigReader     api.ProvisionerFieldConfigReaderFunc
 	pParamsMutex          sync.RWMutex
-	pParamsMap            map[string]params.ProvisionParams
+	pParamsMap            map[string]pApi.ProvisionParams
 }
 
 func InitPulumiProvisioner(config api.Config, opts ...api.ProvisionerOption) (api.Provisioner, error) {
 	res := &pulumi{
 		logger:     logger.New(),
-		pParamsMap: make(map[string]params.ProvisionParams),
+		pParamsMap: make(map[string]pApi.ProvisionParams),
 	}
 	for _, opt := range opts {
 		if err := opt(res); err != nil {

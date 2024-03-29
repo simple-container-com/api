@@ -9,6 +9,6 @@ const ProviderType = "cloudflare"
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		// cloudflare
-		RegistrarTypeCloudflare: ReadRegistrarConfig,
+		RegistrarType: ReadRegistrarConfig,
 	})
 }

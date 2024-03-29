@@ -16,6 +16,7 @@ type e2eTestConfigGCP struct {
 	kmsKeyringName string
 	templates      map[string]api.StackDescriptor
 	resources      map[string]api.PerEnvResourcesDescriptor
+	registrar      api.RegistrarDescriptor
 }
 
 func testServerDescriptorForGCP(config e2eTestConfigGCP) api.ServerDescriptor {
@@ -63,6 +64,7 @@ func testServerDescriptorForGCP(config e2eTestConfigGCP) api.ServerDescriptor {
 		Templates: config.templates,
 		Resources: api.PerStackResourcesDescriptor{
 			Resources: config.resources,
+			Registrar: config.registrar,
 		},
 	}
 }

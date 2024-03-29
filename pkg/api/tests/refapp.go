@@ -94,16 +94,16 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
-			Type: cloudflare.RegistrarTypeCloudflare,
+			Type: cloudflare.RegistrarType,
 			Config: api.Config{Config: &cloudflare.RegistrarConfig{
 				AuthConfig: cloudflare.AuthConfig{
 					Credentials: api.Credentials{
 						Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
 					},
-					Project: "sc-refapp",
+					AccountId: "12345",
 				},
 				ZoneName: "sc-refapp.org",
-				DnsRecords: []cloudflare.DnsRecord{
+				Records: []api.DnsRecord{
 					{
 						Name:  "@",
 						Type:  "TXT",
@@ -199,16 +199,16 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
-			Type: cloudflare.RegistrarTypeCloudflare,
+			Type: cloudflare.RegistrarType,
 			Config: api.Config{Config: &cloudflare.RegistrarConfig{
 				AuthConfig: cloudflare.AuthConfig{
 					Credentials: api.Credentials{
 						Credentials: "<encrypted-secret>",
 					},
-					Project: "sc-refapp",
+					AccountId: "12345",
 				},
 				ZoneName: "sc-refapp.org",
-				DnsRecords: []cloudflare.DnsRecord{
+				Records: []api.DnsRecord{
 					{
 						Name:  "@",
 						Type:  "TXT",

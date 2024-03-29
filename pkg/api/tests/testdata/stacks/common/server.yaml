@@ -61,7 +61,7 @@ resources:
     type: cloudflare
     config:
       credentials: "${secret:CLOUDFLARE_API_TOKEN}"
-      project: sc-refapp
+      accountId: 12345
       zoneName: sc-refapp.org
       dnsRecords:
         - name: "@"

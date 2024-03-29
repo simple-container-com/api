@@ -14,9 +14,10 @@ require (
 	github.com/otiai10/copy v1.14.0
 	github.com/pkg/errors v0.9.1
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.24.0
+	github.com/pulumi/pulumi-cloudflare/sdk/v5 v5.23.0
 	github.com/pulumi/pulumi-gcp/sdk/v6 v6.67.1
-	github.com/pulumi/pulumi/pkg/v3 v3.105.0
-	github.com/pulumi/pulumi/sdk/v3 v3.105.0
+	github.com/pulumi/pulumi/pkg/v3 v3.112.0
+	github.com/pulumi/pulumi/sdk/v3 v3.112.0
 	github.com/samber/lo v1.38.1
 	github.com/simple-container-com/welder v0.0.0-20231210065542-fb1b24bf9b46
 	github.com/spf13/cobra v1.8.0
@@ -285,7 +286,7 @@ require (
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.16.1 // indirect
-	github.com/nxadm/tail v1.4.8 // indirect
+	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/oklog/run v1.1.0 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect

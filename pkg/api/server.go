@@ -84,12 +84,6 @@ type ResourceOutput struct {
 	Ref any `json:"ref" yaml:"ref"`
 }
 
-type RegistrarDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
-}
-
 type StackDescriptor struct {
 	Type    string `json:"type" yaml:"type"`
 	Config  `json:",inline" yaml:",inline"`

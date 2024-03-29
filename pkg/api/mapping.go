@@ -126,3 +126,8 @@ type SecretsProviderConfig interface {
 type Credentials struct {
 	Credentials string `json:"credentials" yaml:"credentials"` // required for proper deserialization
 }
+
+type RegistrarConfig interface {
+	ProviderType() string
+	DnsRecords() []DnsRecord
+}

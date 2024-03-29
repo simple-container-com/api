@@ -53,7 +53,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
 		}
 
-		p.logger.Info(ctx.Context(), "converted compose to cloud compose input: %q", deployInput)
+		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", deployInput)
 
 		resDesc := api.ResourceDescriptor{
 			Type:   deployInput.Type,

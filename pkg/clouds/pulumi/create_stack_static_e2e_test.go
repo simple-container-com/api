@@ -25,12 +25,12 @@ func Test_CreateStaticStack(t *testing.T) {
 
 	ctx := context.Background()
 
-	cfg, cryptor, gcpSa := secretTestutil.PrepareE2EtestForGCP()
+	cfg, cryptor, gcpCfg := secretTestutil.PrepareE2EtestForGCP()
 
 	stack := api.Stack{
 		Name: e2eCreateStaticStackName,
 		Server: testServerDescriptorForGCP(e2eTestConfigGCP{
-			gcpSa:          gcpSa,
+			gcpSa:          gcpCfg.ServiceAccount,
 			kmsKeyName:     e2eStaticKmsTestKeyName,
 			kmsKeyringName: e2eStaticKmsTestKeyringName,
 			templates: map[string]api.StackDescriptor{
@@ -39,7 +39,7 @@ func Test_CreateStaticStack(t *testing.T) {
 					Config: api.Config{Config: &gcloud.TemplateConfig{
 						Credentials: gcloud.Credentials{
 							Credentials: api.Credentials{
-								Credentials: gcpSa,
+								Credentials: gcpCfg.ServiceAccount,
 							},
 							ServiceAccountConfig: gcloud.ServiceAccountConfig{
 								ProjectId: e2eTestProject,

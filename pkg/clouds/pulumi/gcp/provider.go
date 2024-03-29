@@ -2,16 +2,16 @@ package gcp
 
 import (
 	"fmt"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"os"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
-func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
+func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	pcfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to cast config to api.AuthConfig")

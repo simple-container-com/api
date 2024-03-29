@@ -12,7 +12,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
 func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
@@ -30,6 +30,18 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 		// TODO: provision resources for stack with the use of secrets provider output
 		p.logger.Info(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
+
+		registrarType := stack.Server.Resources.Registrar.Type
+		if registrarType != "" {
+			p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
+			if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
+				return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
+			} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar); err != nil {
+				return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
+			} else {
+				p.registrar = reg
+			}
+		}
 
 		for env, resources := range stack.Server.Resources.Resources {
 			p.logger.Info(ctx.Context(), "provisioning resources for stack %q in env %q...", stack.Name, env)
@@ -90,7 +102,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	}
 }
 
-func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor) (params.ProvisionParams, error) {
+func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor) (pApi.ProvisionParams, error) {
 	p.pParamsMutex.Lock()
 	defer p.pParamsMutex.Unlock()
 
@@ -103,9 +115,9 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	}
 
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
-		return params.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
+		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
 	} else if providerFunc, ok := providerFuncByType[authCfg.ProviderType()]; !ok {
-		return params.ProvisionParams{}, errors.Errorf("unsupported provider type %q for resource type %q in stack %q", authCfg.ProviderType(), res.Type, stack.Name)
+		return pApi.ProvisionParams{}, errors.Errorf("unsupported provider type %q for resource type %q in stack %q", authCfg.ProviderType(), res.Type, stack.Name)
 	} else if out, err := providerFunc(ctx, stack, api.ResourceInput{
 		Log: p.logger,
 		Descriptor: &api.ResourceDescriptor{
@@ -113,12 +125,13 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 			Name:   providerName,
 			Config: res.Config,
 		},
-	}, params.ProvisionParams{}); err != nil {
+	}, pApi.ProvisionParams{}); err != nil {
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
-		return params.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
+		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	}
-	pParams := params.ProvisionParams{
-		Provider: provider,
+	pParams := pApi.ProvisionParams{
+		Provider:  provider,
+		Registrar: p.registrar,
 	}
 	p.pParamsMap[providerName] = pParams
 	return pParams, nil

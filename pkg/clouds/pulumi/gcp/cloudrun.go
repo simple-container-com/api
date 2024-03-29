@@ -3,13 +3,13 @@ package gcp
 import (
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
 )
 
-func ProvisionCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
+func ProvisionCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != gcloud.TemplateTypeGcpCloudrun {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}
@@ -18,7 +18,8 @@ func ProvisionCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	if !ok {
 		return nil, errors.Errorf("failed to convert cloudrun config for %q", input.Descriptor.Type)
 	}
+	input.Log.Debug(ctx.Context(), "provisioning cloud run for %q", cloudrunInput)
 
-	input.Log.Error(ctx.Context(), "not implemented for %q", cloudrunInput)
+	input.Log.Error(ctx.Context(), "not implemented for %q", input.Descriptor.Type)
 	return &api.ResourceOutput{Ref: nil}, nil
 }

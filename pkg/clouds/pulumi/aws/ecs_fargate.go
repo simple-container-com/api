@@ -6,10 +6,10 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/params"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params params.ProvisionParams) (*api.ResourceOutput, error) {
+func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != aws.TemplateTypeEcsFargate {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}

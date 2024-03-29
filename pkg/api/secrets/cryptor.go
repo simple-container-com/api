@@ -18,6 +18,7 @@ type Cryptor interface {
 	DecryptAll() error
 	EncryptChanged() error
 	ReadSecretFiles() error
+	MarshalSecretsFile() error
 	GetSecretFiles() EncryptedSecretFiles
 	GetAndDecryptFileContent(relPath string) ([]byte, error)
 	PublicKey() string
@@ -84,6 +85,12 @@ func (es *EncryptedSecrets) AddFileIfNotExist(f EncryptedSecretFile) {
 	}) {
 		es.Files = append(es.Files, f)
 	}
+}
+
+func (es *EncryptedSecrets) RemoveFile(f EncryptedSecretFile) {
+	es.Files = lo.Filter(es.Files, func(item EncryptedSecretFile, _ int) bool {
+		return item.Path != f.Path
+	})
 }
 
 func (es *EncryptedSecrets) GetEncryptedContent(path string) []string {

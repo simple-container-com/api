@@ -65,7 +65,7 @@ func (c *cryptor) AddFile(filePath string) error {
 	if err := c.EncryptChanged(); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
-	if err := c.marshalSecretsFile(); err != nil {
+	if err := c.MarshalSecretsFile(); err != nil {
 		return err
 	}
 	if err := c.gitRepo.AddFileToIgnore(filePath); err != nil {
@@ -80,7 +80,7 @@ func (c *cryptor) RemovePublicKey(pubKey string) error {
 	if err != nil {
 		return err
 	}
-	return c.marshalSecretsFile()
+	return c.MarshalSecretsFile()
 }
 
 func (c *cryptor) GetKnownPublicKeys() []string {
@@ -97,7 +97,7 @@ func (c *cryptor) AddPublicKey(pubKey string) error {
 	if err != nil {
 		return err
 	}
-	return c.marshalSecretsFile()
+	return c.MarshalSecretsFile()
 }
 
 func (c *cryptor) RemoveFile(filePath string) error {
@@ -111,7 +111,7 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	if err := c.EncryptChanged(); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
-	err := c.marshalSecretsFile()
+	err := c.MarshalSecretsFile()
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (c *cryptor) unmarshalSecretsFile() error {
 	return nil
 }
 
-func (c *cryptor) marshalSecretsFile() error {
+func (c *cryptor) MarshalSecretsFile() error {
 	secretsFilePath := path.Join(api.ScConfigDirectory, EncryptedSecretFilesDataFileName)
 
 	bytes, err := api.MarshalDescriptor(&c.secrets)
@@ -221,11 +221,15 @@ func (c *cryptor) EncryptChanged() error {
 			if err != nil {
 				return err
 			}
+			if string(secretData) != string(currentContent) {
+				pKeySecrets.RemoveFile(sFile)
+			}
 			pKeySecrets.AddFileIfNotExist(sFile)
 			c.secrets.Secrets[publicKey] = pKeySecrets
 		}
 
-		if currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath)); currentContent != nil && string(secretData) == string(currentContent) {
+		currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath))
+		if currentContent != nil && string(secretData) == string(currentContent) {
 			// skip re-encrypting for unchanged secret
 			continue
 		}
@@ -233,6 +237,9 @@ func (c *cryptor) EncryptChanged() error {
 		sFile, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
 		if err != nil {
 			return err
+		}
+		if string(secretData) != string(currentContent) {
+			secrets.RemoveFile(sFile)
 		}
 		secrets.AddFileIfNotExist(sFile)
 		c.secrets.Secrets[c.currentPublicKey] = secrets
