@@ -43,7 +43,6 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		Name:     bucketCfg.Name,
 		Provider: params.Provider,
 	})
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision private bucket")
 	}

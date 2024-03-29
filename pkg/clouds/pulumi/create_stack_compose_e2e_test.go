@@ -2,8 +2,9 @@ package pulumi
 
 import (
 	"context"
-	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"testing"
+
+	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 
@@ -85,9 +86,9 @@ func Test_CreateComposeStack(t *testing.T) {
 					Type:        api.ClientTypeCompose,
 					ParentStack: e2eCreateStackName,
 					Environment: "test",
-					Domain:      "refapp.sc-app.me",
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
+							Domain:            "refapp.sc-app.me",
 							DockerComposeFile: "testdata/docker-compose.yaml",
 							Uses: []string{
 								"test-bucket",

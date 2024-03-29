@@ -60,9 +60,9 @@ func Test_CreateStaticStack(t *testing.T) {
 					Type:        api.ClientTypeStatic,
 					ParentStack: e2eCreateStaticStackName,
 					Environment: "test",
-					Domain:      "refapp.sc-app.me",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
+							Domain:    "refapp.sc-app.me",
 							BundleDir: "testdata/static",
 						},
 					},

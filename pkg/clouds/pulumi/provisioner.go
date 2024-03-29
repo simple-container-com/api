@@ -2,8 +2,9 @@ package pulumi
 
 import (
 	"context"
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"sync"
+
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"

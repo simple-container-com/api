@@ -41,7 +41,6 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		Domain:             staticSiteCfg.Domain,
 		ProvisionWwwDomain: staticSiteCfg.ProvisionWwwDomain,
 	})
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision static website for stack %q", stack.Name)
 	}

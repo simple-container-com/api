@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"fmt"
+
 	"github.com/pkg/errors"
 	cfImpl "github.com/pulumi/pulumi-cloudflare/sdk/v5/go/cloudflare"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -69,7 +70,6 @@ func (r *Cloudflare) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.
 		Value:   sdk.StringPtr(dnsRecord.Value),
 		Proxied: sdk.Bool(dnsRecord.Proxied),
 	}, sdk.Provider(r.provider))
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create record %q", dnsRecord.Name)
 	}
