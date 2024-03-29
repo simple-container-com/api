@@ -5,10 +5,12 @@ stacks:
     type: static
     parent: refapp-static-gcp
     environment: staging
-    domain: staging.sc-refapp.org
-    config:
-      bundle-dir: ./bundle
+    config: &config
+      bundleDir: ./bundle
+      domain: staging.sc-refapp.org
   prod:
     <<: *staging
     environment: prod
-    domain: prod.sc-refapp.org
+    config:
+      <<: *config
+      domain: prod.sc-refapp.org

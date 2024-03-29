@@ -7,5 +7,6 @@ import (
 )
 
 type Registrar interface {
+	MainDomain() string
 	NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error)
 }

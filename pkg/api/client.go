@@ -24,18 +24,22 @@ type StackClientDescriptor struct {
 	Type        string `json:"type" yaml:"type"`
 	ParentStack string `json:"parent" yaml:"parent"`
 	Environment string `json:"environment" yaml:"environment"`
-	Domain      string `json:"domain" yaml:"domain"`
 	Config      Config `json:",inline" yaml:",inline"`
 }
 
 type StackConfigCompose struct {
-	DockerComposeFile string   `json:"docker-compose-file" yaml:"docker-compose-file"`
+	DockerComposeFile string   `json:"dockerComposeFile" yaml:"dockerComposeFile"`
+	Domain            string   `json:"domain" yaml:"domain"`
 	Uses              []string `json:"uses" yaml:"uses"`
 	Runs              []string `json:"runs" yaml:"runs"`
 }
 
 type StackConfigStatic struct {
-	BundleDir string `json:"bundle-dir" yaml:"bundle-dir"`
+	BundleDir          string `json:"bundleDir" yaml:"bundleDir"`
+	Domain             string `json:"domain" yaml:"domain"`
+	IndexDocument      string `json:"indexDocument" yaml:"indexDocument"`
+	ErrorDocument      string `json:"errorDocument" yaml:"errorDocument"`
+	ProvisionWwwDomain bool   `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
 }
 
 type DeployParams struct {

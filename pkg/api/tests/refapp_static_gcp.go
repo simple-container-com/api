@@ -90,10 +90,10 @@ var RefappStaticGCPClientDescriptor = &api.ClientDescriptor{
 			Type:        api.ClientTypeStatic,
 			ParentStack: "refapp-static-gcp",
 			Environment: "staging",
-			Domain:      "staging.sc-refapp.org",
 			Config: api.Config{
 				Config: &api.StackConfigStatic{
 					BundleDir: "./bundle",
+					Domain:    "staging.sc-refapp.org",
 				},
 			},
 		},
@@ -101,10 +101,10 @@ var RefappStaticGCPClientDescriptor = &api.ClientDescriptor{
 			Type:        api.ClientTypeStatic,
 			ParentStack: "refapp-static-gcp",
 			Environment: "prod",
-			Domain:      "prod.sc-refapp.org",
 			Config: api.Config{
 				Config: &api.StackConfigStatic{
 					BundleDir: "./bundle",
+					Domain:    "prod.sc-refapp.org",
 				},
 			},
 		},

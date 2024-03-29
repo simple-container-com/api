@@ -57,6 +57,10 @@ func NewCloudflare(ctx *sdk.Context, config api.RegistrarDescriptor) (pApi.Regis
 	}, nil
 }
 
+func (r *Cloudflare) MainDomain() string {
+	return r.zone.Name
+}
+
 func (r *Cloudflare) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error) {
 	ref, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", dnsRecord.Name), &cfImpl.RecordArgs{
 		ZoneId:  sdk.String(r.zone.ZoneId),

@@ -143,7 +143,6 @@ func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 		Type:        s.Type,
 		ParentStack: s.ParentStack,
 		Environment: s.Environment,
-		Domain:      s.Domain,
 		Config:      s.Config.Copy(),
 	}
 }
