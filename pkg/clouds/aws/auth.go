@@ -14,41 +14,38 @@ const (
 	StateStorageTypeS3Bucket  = "s3-bucket"
 )
 
-type AwsAccountConfig struct {
+type AccountConfig struct {
 	Account         string `json:"account" yaml:"account"`
 	AccessKey       string `json:"accessKey" yaml:"accessKey"`
 	SecretAccessKey string `json:"secretAccessKey" yaml:"secretAccessKey"`
 	api.Credentials `json:",inline" yaml:",inline"`
 }
 
-type AuthAccessKeyConfig struct {
-	AwsAccountConfig `json:",inline" yaml:",inline"`
-}
-
 type SecretsConfig struct {
-	AwsAccountConfig `json:",inline" yaml:",inline"`
+	AccountConfig `json:",inline" yaml:",inline"`
 }
 
 type StateStorageConfig struct {
-	AwsAccountConfig `json:",inline" yaml:",inline"`
-	BucketName       string `json:"bucketName" yaml:"bucketName"`
-	Provision        bool   `json:"provision" yaml:"provision"`
+	AccountConfig `json:",inline" yaml:",inline"`
+	BucketName    string `json:"bucketName" yaml:"bucketName"`
+	Provision     bool   `json:"provision" yaml:"provision"`
 }
 
 type SecretsProviderConfig struct {
-	AwsAccountConfig `json:",inline" yaml:",inline"`
-	Provision        bool `json:"provision" yaml:"provision"`
+	AccountConfig `json:",inline" yaml:",inline"`
+	Provision     bool   `json:"provision" yaml:"provision"`
+	KeyName       string `json:"keyName" yaml:"keyName"`
 }
 
-func (r *AwsAccountConfig) ProviderType() string {
+func (r *AccountConfig) ProviderType() string {
 	return ProviderType
 }
 
-func (r *AwsAccountConfig) CredentialsValue() string {
+func (r *AccountConfig) CredentialsValue() string {
 	return api.AuthToString(r)
 }
 
-func (r *AwsAccountConfig) ProjectIdValue() string {
+func (r *AccountConfig) ProjectIdValue() string {
 	return r.Account
 }
 
@@ -65,7 +62,7 @@ func (sa *StateStorageConfig) StorageUrl() string {
 }
 
 func ReadAuthServiceAccountConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &AuthAccessKeyConfig{})
+	return api.ConvertConfig(config, &AccountConfig{})
 }
 
 func ReadSecretsConfig(config *api.Config) (api.Config, error) {

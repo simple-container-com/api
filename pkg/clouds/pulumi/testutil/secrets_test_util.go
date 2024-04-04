@@ -2,6 +2,7 @@ package testutil
 
 import (
 	. "github.com/onsi/gomega"
+	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"gopkg.in/yaml.v3"
@@ -12,24 +13,16 @@ import (
 
 const (
 	testGCPConfigFile = "pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml"
+	testAwsConfigFile = "pkg/clouds/pulumi/testdata/secrets/aws-e2e-config.yaml"
 	testCfConfigFile  = "pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml"
 )
 
-type E2ETestBasics struct {
+type E2ETestConfig struct {
+	GcpCredentials   *gcloud.Credentials
+	AwsCredentials   *awsApi.AccountConfig
 	ConfigFile       *api.ConfigFile
 	Cryptor          secrets.Cryptor
 	CloudflareConfig *cloudflare.RegistrarConfig
-}
-
-type E2ETestConfigGCP struct {
-	Credentials *gcloud.Credentials
-	E2ETestBasics
-}
-
-type E2ETestConfigAWS struct {
-	ServiceAccount   string
-	CloudflareConfig *cloudflare.RegistrarConfig
-	E2ETestBasics
 }
 
 func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
@@ -52,16 +45,16 @@ func readTestSecretConfig[T any](cryptor secrets.Cryptor, path string, cfg *T) *
 	return cfg
 }
 
-func PrepareE2EtestForGCP() E2ETestConfigGCP {
+func PrepareE2Etest() E2ETestConfig {
 	cfg, cryptor := ReadIntegrationTestConfig()
 	gcpCreds := readTestSecretConfig(cryptor, testGCPConfigFile, &gcloud.Credentials{})
+	awsCreds := readTestSecretConfig(cryptor, testAwsConfigFile, &awsApi.AccountConfig{})
 	cfConfig := readTestSecretConfig(cryptor, testCfConfigFile, &cloudflare.RegistrarConfig{})
-	return E2ETestConfigGCP{
-		E2ETestBasics: E2ETestBasics{
-			ConfigFile:       cfg,
-			Cryptor:          cryptor,
-			CloudflareConfig: cfConfig,
-		},
-		Credentials: gcpCreds,
+	return E2ETestConfig{
+		ConfigFile:       cfg,
+		Cryptor:          cryptor,
+		CloudflareConfig: cfConfig,
+		AwsCredentials:   awsCreds,
+		GcpCredentials:   gcpCreds,
 	}
 }

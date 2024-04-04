@@ -1,6 +1,7 @@
 package pulumi
 
 import (
+	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 	"testing"
@@ -22,33 +23,31 @@ const (
 func Test_CreateStaticStackGCP(t *testing.T) {
 	RegisterTestingT(t)
 
-	cfg := testutil.PrepareE2EtestForGCP()
+	cfg := testutil.PrepareE2Etest()
 
 	stack := api.Stack{
 		Name: e2eCreateStaticStackName,
-		Server: e2eServerDescriptorForGCP(e2eGCPConfig{
-			credentials: *cfg.Credentials,
-			e2eCommon: e2eCommon{
-				kmsKeyName:     e2eStaticKmsTestKeyName,
-				kmsKeyringName: e2eStaticKmsTestKeyringName,
-				templates: map[string]api.StackDescriptor{
-					"static-website": {
-						Type: gcloud.TemplateTypeStaticWebsite,
-						Config: api.Config{Config: &gcloud.TemplateConfig{
-							Credentials: *cfg.Credentials,
-						}},
-					},
+		Server: e2eServerDescriptorForGCP(e2eConfig{
+			gcpCreds:       *cfg.GcpCredentials,
+			kmsKeyName:     e2eStaticKmsTestKeyName,
+			kmsKeyringName: e2eStaticKmsTestKeyringName,
+			templates: map[string]api.StackDescriptor{
+				"static-website": {
+					Type: gcloud.TemplateTypeStaticWebsite,
+					Config: api.Config{Config: &gcloud.TemplateConfig{
+						Credentials: *cfg.GcpCredentials,
+					}},
 				},
-				resources: map[string]api.PerEnvResourcesDescriptor{
-					"test": {
-						Template: "static-website",
-					},
+			},
+			resources: map[string]api.PerEnvResourcesDescriptor{
+				"test": {
+					Template: "static-website",
 				},
-				registrar: api.RegistrarDescriptor{
-					Type: cloudflare.RegistrarType,
-					Config: api.Config{
-						Config: cfg.CloudflareConfig,
-					},
+			},
+			registrar: api.RegistrarDescriptor{
+				Type: cloudflare.RegistrarType,
+				Config: api.Config{
+					Config: cfg.CloudflareConfig,
 				},
 			},
 		}),
@@ -69,5 +68,60 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 		},
 	}
 
-	runProvisionAndDeployTest(stack, cfg.E2ETestBasics, e2eDeployStaticStackName)
+	runProvisionAndDeployTest(stack, cfg, e2eDeployStaticStackName)
+}
+
+func Test_CreateStaticStackAWS(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := testutil.PrepareE2Etest()
+
+	stack := api.Stack{
+		Name: e2eCreateStaticStackName,
+		Server: e2eServerDescriptorForAws(e2eConfig{
+			gcpCreds:       *cfg.GcpCredentials,
+			awsCreds:       *cfg.AwsCredentials,
+			kmsKeyName:     e2eStaticKmsTestKeyName,
+			kmsKeyringName: e2eStaticKmsTestKeyringName,
+			templates: map[string]api.StackDescriptor{
+				"static-website": {
+					Type: aws.TemplateTypeStaticWebsite,
+					Config: api.Config{Config: &aws.TemplateConfig{
+						AccountConfig: *cfg.AwsCredentials,
+					}},
+				},
+			},
+			resources: map[string]api.PerEnvResourcesDescriptor{
+				"test": {
+					Template: "static-website",
+				},
+			},
+			registrar: api.RegistrarDescriptor{
+				Type: cloudflare.RegistrarType,
+				Config: api.Config{
+					Config: cfg.CloudflareConfig,
+				},
+			},
+		}),
+		Client: api.ClientDescriptor{
+			Stacks: map[string]api.StackClientDescriptor{
+				"test": {
+					Type:        api.ClientTypeStatic,
+					ParentStack: e2eCreateStaticStackName,
+					Environment: "test",
+					Config: api.Config{
+						Config: &api.StackConfigStatic{
+							BundleDir:          "testdata/static",
+							Domain:             "sc-e2e-static-aws.simple-container.com",
+							IndexDocument:      "index.html",
+							ErrorDocument:      "index.html",
+							ProvisionWwwDomain: false,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	runProvisionAndDeployTest(stack, cfg, e2eDeployStaticStackName)
 }

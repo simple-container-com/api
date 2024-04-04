@@ -70,7 +70,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-aws": {
 			Type: aws.TemplateTypeEcsFargate,
 			Config: api.Config{Config: &aws.TemplateConfig{
-				AwsAccountConfig: aws.AwsAccountConfig{
+				AccountConfig: aws.AccountConfig{
 					Account: "${auth:aws.projectId}",
 					Credentials: api.Credentials{
 						Credentials: "${auth:aws}",
@@ -175,7 +175,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-aws": {
 			Type: aws.TemplateTypeEcsFargate,
 			Config: api.Config{Config: &aws.TemplateConfig{
-				AwsAccountConfig: aws.AwsAccountConfig{
+				AccountConfig: aws.AccountConfig{
 					Account: "000",
 					Credentials: api.Credentials{
 						Credentials: `{"account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e","credentials":""}`,
@@ -450,12 +450,10 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 		},
 		"aws": {
 			Type: aws.AuthTypeAWSToken,
-			Config: api.Config{Config: &aws.AuthAccessKeyConfig{
-				AwsAccountConfig: aws.AwsAccountConfig{
-					Account:         "000",
-					AccessKey:       "<aws-access-key>",
-					SecretAccessKey: "<aws-secret-key>",
-				},
+			Config: api.Config{Config: &aws.AccountConfig{
+				Account:         "000",
+				AccessKey:       "<aws-access-key>",
+				SecretAccessKey: "<aws-secret-key>",
 			}},
 		},
 		"pulumi": {

@@ -59,6 +59,14 @@ func ConvertConfig[T any](config *Config, to *T) (Config, error) {
 	return *config, err
 }
 
+func ConvertAuth[T any](auth AuthConfig, creds *T) error {
+	if err := json.Unmarshal([]byte(auth.CredentialsValue()), creds); err != nil {
+		return err
+	} else {
+		return nil
+	}
+}
+
 func AuthToString[T any](sa *T) string {
 	if res, err := json.Marshal(sa); err != nil {
 		return fmt.Sprintf("<ERROR: %q>", err.Error())

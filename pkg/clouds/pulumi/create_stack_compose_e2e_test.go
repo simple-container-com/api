@@ -23,39 +23,37 @@ const (
 func Test_CreateComposeStackGCP(t *testing.T) {
 	RegisterTestingT(t)
 
-	cfg := secretTestutil.PrepareE2EtestForGCP()
+	cfg := secretTestutil.PrepareE2Etest()
 	stack := api.Stack{
 		Name: e2eCreateStackName,
-		Server: e2eServerDescriptorForGCP(e2eGCPConfig{
-			credentials: *cfg.Credentials,
-			e2eCommon: e2eCommon{
-				kmsKeyName:     e2eKmsTestKeyName,
-				kmsKeyringName: e2eKmsTestKeyringName,
-				templates: map[string]api.StackDescriptor{
-					"stack-per-app": {
-						Type: gcloud.TemplateTypeGcpCloudrun,
-						Config: api.Config{Config: &gcloud.TemplateConfig{
-							Credentials: *cfg.Credentials,
-						}},
-					},
+		Server: e2eServerDescriptorForGCP(e2eConfig{
+			gcpCreds:       *cfg.GcpCredentials,
+			kmsKeyName:     e2eKmsTestKeyName,
+			kmsKeyringName: e2eKmsTestKeyringName,
+			templates: map[string]api.StackDescriptor{
+				"stack-per-app": {
+					Type: gcloud.TemplateTypeGcpCloudrun,
+					Config: api.Config{Config: &gcloud.TemplateConfig{
+						Credentials: *cfg.GcpCredentials,
+					}},
 				},
-				registrar: api.RegistrarDescriptor{
-					Type: cloudflare.RegistrarType,
-					Config: api.Config{
-						Config: cfg.CloudflareConfig,
-					},
+			},
+			registrar: api.RegistrarDescriptor{
+				Type: cloudflare.RegistrarType,
+				Config: api.Config{
+					Config: cfg.CloudflareConfig,
 				},
-				resources: map[string]api.PerEnvResourcesDescriptor{
-					"test": {
-						Template: "stack-per-app",
-						Resources: map[string]api.ResourceDescriptor{
-							"test-bucket": {
-								Type: gcloud.ResourceTypeBucket,
-								Config: api.Config{
-									Config: &gcloud.GcpBucket{
-										Credentials: *cfg.Credentials,
-										Name:        "e2e-create--test-bucket",
-									},
+			},
+			resources: map[string]api.PerEnvResourcesDescriptor{
+				"test": {
+					Template: "stack-per-app",
+					Resources: map[string]api.ResourceDescriptor{
+						"test-bucket": {
+							Type: gcloud.ResourceTypeBucket,
+							Config: api.Config{
+								Config: &gcloud.GcpBucket{
+									Credentials: *cfg.GcpCredentials,
+									Name:        "e2e-create--test-bucket",
 								},
 							},
 						},
@@ -86,5 +84,5 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 		},
 	}
 
-	runProvisionAndDeployTest(stack, cfg.E2ETestBasics, e2eDeployStackName)
+	runProvisionAndDeployTest(stack, cfg, e2eDeployStackName)
 }

@@ -14,10 +14,10 @@ const (
 )
 
 type EcsFargateConfig struct {
-	api.Credentials  `json:",inline" yaml:",inline"`
-	AwsAccountConfig `json:",inline" yaml:",inline"`
-	Account          string `json:"account" yaml:"account"`
-	Region           string `json:"region" yaml:"region"`
+	api.Credentials `json:",inline" yaml:",inline"`
+	AccountConfig   `json:",inline" yaml:",inline"`
+	Account         string `json:"account" yaml:"account"`
+	Region          string `json:"region" yaml:"region"`
 }
 
 type ImagePlatform string
@@ -102,9 +102,9 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 	res := &EcsFargateInput{
 		TemplateConfig: *templateCfg,
 		Config: EcsFargateConfig{
-			Credentials:      templateCfg.Credentials,
-			AwsAccountConfig: templateCfg.AwsAccountConfig,
-			Region:           templateCfg.Region,
+			Credentials:   templateCfg.Credentials,
+			AccountConfig: templateCfg.AccountConfig,
+			Region:        templateCfg.Region,
 		},
 	}
 

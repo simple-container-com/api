@@ -9,10 +9,10 @@ import (
 const TemplateTypeStaticWebsite = "aws-static-website"
 
 type StaticSiteInput struct {
-	TemplateConfig         `json:"templateConfig" yaml:"templateConfig"`
-	*api.StackConfigStatic `json:",inline" yaml:",inline"`
-	RootDir                string `json:"rootDir" yaml:"rootDir"`
-	StackName              string `json:"stackName" yaml:"stackName"`
+	TemplateConfig        `json:"templateConfig" yaml:"templateConfig"`
+	api.StackConfigStatic `json:",inline" yaml:",inline"`
+	RootDir               string `json:"rootDir" yaml:"rootDir"`
+	StackName             string `json:"stackName" yaml:"stackName"`
 }
 
 func ToStaticSiteConfig(tpl any, rootDir, stackName string, stackCfg *api.StackConfigStatic) (any, error) {
@@ -25,9 +25,13 @@ func ToStaticSiteConfig(tpl any, rootDir, stackName string, stackCfg *api.StackC
 		return nil, errors.Errorf("template config is nil")
 	}
 
+	if stackCfg == nil {
+		return nil, errors.Errorf("stack config is nil")
+	}
+
 	res := &StaticSiteInput{
 		TemplateConfig:    *templateCfg,
-		StackConfigStatic: stackCfg,
+		StackConfigStatic: *stackCfg,
 		RootDir:           rootDir,
 		StackName:         stackName,
 	}
