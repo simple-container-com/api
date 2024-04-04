@@ -18,8 +18,8 @@ func ProvisionCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	if !ok {
 		return nil, errors.Errorf("failed to convert cloudrun config for %q", input.Descriptor.Type)
 	}
-	input.Log.Debug(ctx.Context(), "provisioning cloud run for %q", cloudrunInput)
+	params.Log.Debug(ctx.Context(), "provisioning cloud run for %q", cloudrunInput)
 
-	input.Log.Error(ctx.Context(), "not implemented for %q", input.Descriptor.Type)
+	params.Log.Error(ctx.Context(), "not implemented for %q", input.Descriptor.Type)
 	return &api.ResourceOutput{Ref: nil}, nil
 }

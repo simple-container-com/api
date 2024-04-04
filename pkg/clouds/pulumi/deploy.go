@@ -29,6 +29,10 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 			return errors.Errorf("no template configured for stack %q in env %q", parentStack, params.Environment)
 		}
 
+		if err := p.initRegistrar(ctx, stack); err != nil {
+			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
+		}
+
 		// Create a StackReference to the parent stack
 		parentRef, err := sdk.NewStackReference(ctx, parentStack, nil)
 		if err != nil {
@@ -68,7 +72,6 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
 			return errors.Errorf("unknown resource type %q", resDesc.Type)
 		} else if _, err := fnc(ctx, stack, api.ResourceInput{
-			Log:        p.logger,
 			Descriptor: &resDesc,
 		}, provisionParams); err != nil {
 			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)

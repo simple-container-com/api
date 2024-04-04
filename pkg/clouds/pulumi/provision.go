@@ -3,7 +3,6 @@ package pulumi
 import (
 	"context"
 	"fmt"
-
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"gopkg.in/yaml.v3"
 
@@ -28,19 +27,16 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 			return errors.Wrapf(err, "failed to provision init program")
 		}
 
-		// TODO: provision resources for stack with the use of secrets provider output
 		p.logger.Info(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
 
-		registrarType := stack.Server.Resources.Registrar.Type
-		if registrarType != "" {
-			p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
-			if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
-				return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
-			} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar); err != nil {
-				return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
-			} else {
-				p.registrar = reg
-			}
+		if err := p.initRegistrar(ctx, stack); err != nil {
+			return errors.Wrapf(err, "failed to init registar")
+		}
+
+		if _, err := p.registrar.ProvisionRecords(ctx, pApi.ProvisionParams{
+			Log: p.logger,
+		}); err != nil {
+			return errors.Wrapf(err, "failed to provision base DNS records for stack %q", stack.Name)
 		}
 
 		for env, resources := range stack.Server.Resources.Resources {
@@ -56,7 +52,6 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 				if fnc, ok := provisionFuncByType[res.Type]; !ok {
 					return errors.Errorf("unknown resource type %q", res.Type)
 				} else if _, err := fnc(ctx, stack, api.ResourceInput{
-					Log:        p.logger,
 					Descriptor: &res,
 				}, provisionParams); err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
@@ -83,6 +78,21 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack) error {
+	registrarType := stack.Server.Resources.Registrar.Type
+	if registrarType != "" {
+		p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
+		if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
+			return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
+		} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar); err != nil {
+			return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
+		} else {
+			p.registrar = reg
+		}
 	}
 	return nil
 }
@@ -119,19 +129,21 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	} else if providerFunc, ok := providerFuncByType[authCfg.ProviderType()]; !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("unsupported provider type %q for resource type %q in stack %q", authCfg.ProviderType(), res.Type, stack.Name)
 	} else if out, err := providerFunc(ctx, stack, api.ResourceInput{
-		Log: p.logger,
 		Descriptor: &api.ResourceDescriptor{
 			Type:   res.Type,
 			Name:   providerName,
 			Config: res.Config,
 		},
-	}, pApi.ProvisionParams{}); err != nil {
+	}, pApi.ProvisionParams{
+		Log: p.logger,
+	}); err != nil {
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	}
 	pParams := pApi.ProvisionParams{
 		Provider:  provider,
 		Registrar: p.registrar,
+		Log:       p.logger,
 	}
 	p.pParamsMap[providerName] = pParams
 	return pParams, nil
@@ -165,7 +177,6 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 
 	if fnc, ok := provisionFuncByType[provisionerCfg.SecretsProvider.Type]; ok {
 		out, err := fnc(ctx, stack, api.ResourceInput{
-			Log:        p.logger,
 			Descriptor: &resDescriptor,
 		}, provisionParams)
 		if err != nil {

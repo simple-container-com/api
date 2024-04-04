@@ -14,7 +14,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}
 
-	input.Log.Error(ctx.Context(), "TODO: Not implemented yet for gcp static website")
+	params.Log.Error(ctx.Context(), "TODO: Not implemented yet for gcp static website")
 
 	return &api.ResourceOutput{Ref: nil}, nil
 }

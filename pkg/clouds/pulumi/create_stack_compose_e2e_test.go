@@ -1,7 +1,7 @@
 package pulumi
 
 import (
-	"context"
+	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -11,8 +11,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api"
-
-	secretTestutil "github.com/simple-container-com/api/pkg/api/secrets/testutil"
 )
 
 const (
@@ -22,57 +20,42 @@ const (
 	e2eKmsTestKeyringName = "e2e-create--kms-keyring"
 )
 
-func Test_CreateComposeStack(t *testing.T) {
+func Test_CreateComposeStackGCP(t *testing.T) {
 	RegisterTestingT(t)
 
-	ctx := context.Background()
-
-	cfg, cryptor, gcpCfg := secretTestutil.PrepareE2EtestForGCP()
-
+	cfg := secretTestutil.PrepareE2EtestForGCP()
 	stack := api.Stack{
 		Name: e2eCreateStackName,
-		Server: testServerDescriptorForGCP(e2eTestConfigGCP{
-			gcpSa:          gcpCfg.ServiceAccount,
-			kmsKeyName:     e2eKmsTestKeyName,
-			kmsKeyringName: e2eKmsTestKeyringName,
-			templates: map[string]api.StackDescriptor{
-				"stack-per-app": {
-					Type: gcloud.TemplateTypeGcpCloudrun,
-					Config: api.Config{Config: &gcloud.TemplateConfig{
-						Credentials: gcloud.Credentials{
-							Credentials: api.Credentials{
-								Credentials: gcpCfg.ServiceAccount,
-							},
-							ServiceAccountConfig: gcloud.ServiceAccountConfig{
-								ProjectId: e2eTestProject,
-							},
-						},
-					}},
+		Server: e2eServerDescriptorForGCP(e2eGCPConfig{
+			credentials: *cfg.Credentials,
+			e2eCommon: e2eCommon{
+				kmsKeyName:     e2eKmsTestKeyName,
+				kmsKeyringName: e2eKmsTestKeyringName,
+				templates: map[string]api.StackDescriptor{
+					"stack-per-app": {
+						Type: gcloud.TemplateTypeGcpCloudrun,
+						Config: api.Config{Config: &gcloud.TemplateConfig{
+							Credentials: *cfg.Credentials,
+						}},
+					},
 				},
-			},
-			registrar: api.RegistrarDescriptor{
-				Type: cloudflare.RegistrarType,
-				Config: api.Config{
-					Config: gcpCfg.CloudflareConfig,
+				registrar: api.RegistrarDescriptor{
+					Type: cloudflare.RegistrarType,
+					Config: api.Config{
+						Config: cfg.CloudflareConfig,
+					},
 				},
-			},
-			resources: map[string]api.PerEnvResourcesDescriptor{
-				"test": {
-					Template: "stack-per-app",
-					Resources: map[string]api.ResourceDescriptor{
-						"test-bucket": {
-							Type: gcloud.ResourceTypeBucket,
-							Config: api.Config{
-								Config: &gcloud.GcpBucket{
-									Credentials: gcloud.Credentials{
-										Credentials: api.Credentials{
-											Credentials: gcpCfg.ServiceAccount,
-										},
-										ServiceAccountConfig: gcloud.ServiceAccountConfig{
-											ProjectId: e2eTestProject,
-										},
+				resources: map[string]api.PerEnvResourcesDescriptor{
+					"test": {
+						Template: "stack-per-app",
+						Resources: map[string]api.ResourceDescriptor{
+							"test-bucket": {
+								Type: gcloud.ResourceTypeBucket,
+								Config: api.Config{
+									Config: &gcloud.GcpBucket{
+										Credentials: *cfg.Credentials,
+										Name:        "e2e-create--test-bucket",
 									},
-									Name: "e2e-create--test-bucket",
 								},
 							},
 						},
@@ -103,23 +86,5 @@ func Test_CreateComposeStack(t *testing.T) {
 		},
 	}
 
-	createProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
-	Expect(err).To(BeNil())
-
-	createProv.SetPublicKey(cryptor.PublicKey())
-
-	err = createProv.ProvisionStack(ctx, cfg, stack)
-	Expect(err).To(BeNil())
-
-	deployProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
-	Expect(err).To(BeNil())
-
-	deployProv.SetPublicKey(cryptor.PublicKey())
-
-	err = deployProv.DeployStack(ctx, cfg, stack, api.DeployParams{
-		StackName:   e2eDeployStackName,
-		ParentStack: e2eCreateStackName,
-		Environment: "test",
-	})
-	Expect(err).To(BeNil())
+	runProvisionAndDeployTest(stack, cfg.E2ETestBasics, e2eDeployStackName)
 }

@@ -1,9 +1,9 @@
 .idea
 bin
 *.iml
-pkg/clouds/pulumi/testdata/sc-test-project-sa.json
 .sc/cfg.default.yaml
 .sc/cfg.github.yaml
 .sc/cfg.test.yaml
 
-pkg/clouds/pulumi/testdata/cloudflare-e2e-config.yaml
+pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
+pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml

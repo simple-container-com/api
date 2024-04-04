@@ -1,7 +1,5 @@
 package api
 
-import "github.com/simple-container-com/api/pkg/api/logger"
-
 const ServerSchemaVersion = "1.0"
 
 type ProvisionParams struct {
@@ -77,7 +75,6 @@ type ResourceDescriptor struct {
 
 type ResourceInput struct {
 	Descriptor *ResourceDescriptor
-	Log        logger.Logger
 }
 
 type ResourceOutput struct {

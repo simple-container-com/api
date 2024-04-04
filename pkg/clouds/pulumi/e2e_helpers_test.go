@@ -1,17 +1,20 @@
 package pulumi
 
 import (
+	"context"
+	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
+
+	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
 const (
-	e2eTestProject = "sc-test-project-408205"
-	e2eBucketName  = "sc-pulumi-test"
+	e2eBucketName = "sc-pulumi-test"
 )
 
-type e2eTestConfigGCP struct {
-	gcpSa          string
+type e2eCommon struct {
 	kmsKeyName     string
 	kmsKeyringName string
 	templates      map[string]api.StackDescriptor
@@ -19,7 +22,12 @@ type e2eTestConfigGCP struct {
 	registrar      api.RegistrarDescriptor
 }
 
-func testServerDescriptorForGCP(config e2eTestConfigGCP) api.ServerDescriptor {
+type e2eGCPConfig struct {
+	e2eCommon
+	credentials gcloud.Credentials
+}
+
+func e2eServerDescriptorForGCP(config e2eGCPConfig) api.ServerDescriptor {
 	return api.ServerDescriptor{
 		Provisioner: api.ProvisionerDescriptor{
 			Type: ProvisionerTypePulumi,
@@ -29,16 +37,9 @@ func testServerDescriptorForGCP(config e2eTestConfigGCP) api.ServerDescriptor {
 					StateStorage: StateStorageConfig{
 						Type: StateStorageTypeGcpBucket,
 						Config: api.Config{Config: &gcloud.StateStorageConfig{
-							Provision:  false,
-							BucketName: e2eBucketName,
-							Credentials: gcloud.Credentials{
-								Credentials: api.Credentials{
-									Credentials: config.gcpSa,
-								},
-								ServiceAccountConfig: gcloud.ServiceAccountConfig{
-									ProjectId: e2eTestProject,
-								},
-							},
+							Provision:   false,
+							BucketName:  e2eBucketName,
+							Credentials: config.credentials,
 						}},
 					},
 					SecretsProvider: SecretsProviderConfig{
@@ -48,14 +49,7 @@ func testServerDescriptorForGCP(config e2eTestConfigGCP) api.ServerDescriptor {
 							KeyLocation: "global",
 							KeyRingName: config.kmsKeyringName,
 							Provision:   true,
-							Credentials: gcloud.Credentials{
-								Credentials: api.Credentials{
-									Credentials: config.gcpSa,
-								},
-								ServiceAccountConfig: gcloud.ServiceAccountConfig{
-									ProjectId: e2eTestProject,
-								},
-							},
+							Credentials: config.credentials,
 						}},
 					},
 				},
@@ -67,4 +61,28 @@ func testServerDescriptorForGCP(config e2eTestConfigGCP) api.ServerDescriptor {
 			Registrar: config.registrar,
 		},
 	}
+}
+
+func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestBasics, deployStackName string) {
+	ctx := context.Background()
+
+	createProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	Expect(err).To(BeNil())
+
+	createProv.SetPublicKey(cfg.Cryptor.PublicKey())
+
+	err = createProv.ProvisionStack(ctx, cfg.ConfigFile, stack)
+	Expect(err).To(BeNil())
+
+	deployProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	Expect(err).To(BeNil())
+
+	deployProv.SetPublicKey(cfg.Cryptor.PublicKey())
+
+	err = deployProv.DeployStack(ctx, cfg.ConfigFile, stack, api.DeployParams{
+		StackName:   deployStackName,
+		ParentStack: stack.Name,
+		Environment: "test",
+	})
+	Expect(err).To(BeNil())
 }
