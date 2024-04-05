@@ -4,6 +4,7 @@ import (
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
@@ -33,53 +34,56 @@ type EcsFargateImage struct {
 }
 
 type EcsFargateProbe struct {
-	HttpGet             ProbeHttpGet
-	InitialDelaySeconds int
+	HttpGet             ProbeHttpGet `json:"httpGet" yaml:"httpGet"`
+	InitialDelaySeconds int          `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
+	TimeoutSeconds      int          `json:"timeoutSeconds" yaml:"timeoutSeconds"`
+	IntervalSeconds     int          `json:"intervalSeconds" yaml:"intervalSeconds"`
+	Retries             int          `json:"retries" yaml:"retries"`
 }
 
 type EcsFargateResources struct {
-	Limits   map[string]string
-	Requests map[string]string
+	Limits   map[string]string `json:"limits" yaml:"limits"`
+	Requests map[string]string `json:"requests" yaml:"requests"`
 }
 
 type ProbeHttpGet struct {
-	Path string
-	Port int
+	Path string `json:"path" yaml:"path"`
+	Port int    `json:"port" yaml:"port"`
 }
 
 type EcsFargateContainer struct {
-	Name          string
-	Image         EcsFargateImage
-	Env           map[string]string
-	Secrets       map[string]string
-	Port          int
-	LivenessProbe EcsFargateProbe
-	StartupProbe  EcsFargateProbe
-	Resources     EcsFargateResources
+	Name          string              `json:"name" yaml:"name"`
+	Image         EcsFargateImage     `json:"image" yaml:"image"`
+	Env           map[string]string   `json:"env" yaml:"env"`
+	Secrets       map[string]string   `json:"secrets" yaml:"secrets"`
+	Port          int                 `json:"port" yaml:"port"`
+	LivenessProbe EcsFargateProbe     `json:"livenessProbe" yaml:"livenessProbe"`
+	StartupProbe  EcsFargateProbe     `json:"startupProbe" yaml:"startupProbe"`
+	Resources     EcsFargateResources `json:"resources" yaml:"resources"`
 }
 
 type EcsFargateScale struct {
-	Min int
-	Max int
+	Min int `json:"min" yaml:"min"`
+	Max int `json:"max" yaml:"max"`
 }
 
 type AlertsConfig struct {
-	MaxErrors MaxErrorConfig
-	Discord   DiscordCfg
-	Telegram  TelegramCfg
+	MaxErrors MaxErrorConfig `json:"maxErrors" yaml:"maxErrors"`
+	Discord   DiscordCfg     `json:"discord" yaml:"discord"`
+	Telegram  TelegramCfg    `json:"telegram" yaml:"telegram"`
 }
 
 type TelegramCfg struct {
-	DefaultChatId string
+	DefaultChatId string `json:"defaultChatId" yaml:"defaultChatId"`
 }
 
 type DiscordCfg struct {
-	WebhookId string
+	WebhookId string `json:"webhookId" yaml:"webhookId"`
 }
 
 type MaxErrorConfig struct {
-	ErrorLogMessageRegexp string
-	MaxErrorCount         int
+	ErrorLogMessageRegexp string `json:"errorLogMessageRegexp" yaml:"errorLogMessageRegexp"`
+	MaxErrorCount         int    `json:"maxErrorCount" yaml:"maxErrorCount"`
 }
 
 type EcsFargateInput struct {
@@ -123,18 +127,30 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
 		}
 
+		liveProbe, err := toLivenessProbe(svc, port)
+		if err != nil {
+			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
+		}
+		startProbe, err := toStartupProbe(svc, port)
+		if err != nil {
+			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
+		}
+		secrets, err := toRunSecrets(svc.Environment)
+		if err != nil {
+			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
+		}
 		res.Containers = append(res.Containers, EcsFargateContainer{
 			Name: svcName,
 			Image: EcsFargateImage{
-				Context:    svc.Build.Context,
+				Context:    composeCfg.Project.RelativePath(svc.Build.Context),
 				Platform:   ImagePlatformLinuxAmd64,
-				Dockerfile: svc.Build.Dockerfile,
+				Dockerfile: lo.If(svc.Build.Dockerfile == "", "Dockerfile").Else(svc.Build.Dockerfile),
 			},
 			Env:           toRunEnv(svc.Environment),
-			Secrets:       toRunSecrets(svc.Environment),
+			Secrets:       secrets,
 			Port:          port,
-			LivenessProbe: toLivenessProbe(svc.HealthCheck),
-			StartupProbe:  toStartupProbe(svc.HealthCheck),
+			LivenessProbe: liveProbe,
+			StartupProbe:  startProbe,
 			Resources:     toResources(svc),
 		})
 	}
@@ -153,17 +169,45 @@ func toResources(svc types.ServiceConfig) EcsFargateResources {
 	return EcsFargateResources{}
 }
 
-func toStartupProbe(check *types.HealthCheckConfig) EcsFargateProbe {
-	return EcsFargateProbe{}
+func toStartupProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {
+	res := EcsFargateProbe{
+		HttpGet: ProbeHttpGet{
+			Path: "/",
+			Port: port,
+		},
+	}
+	res.FromHealthCheck(svc.HealthCheck)
+	return res, nil
 }
 
-func toLivenessProbe(check *types.HealthCheckConfig) EcsFargateProbe {
-	return EcsFargateProbe{}
+func toLivenessProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {
+	res := EcsFargateProbe{
+		HttpGet: ProbeHttpGet{
+			Path: "/",
+			Port: port,
+		},
+	}
+	res.FromHealthCheck(svc.HealthCheck)
+	return res, nil
 }
 
-func toRunSecrets(environment types.MappingWithEquals) map[string]string {
+func (p *EcsFargateProbe) FromHealthCheck(check *types.HealthCheckConfig) {
+	if check != nil {
+		if check.Interval != nil {
+			p.IntervalSeconds = int(time.Duration(lo.FromPtr(check.Interval)).Seconds())
+		}
+		if check.Retries != nil {
+			p.Retries = int(lo.FromPtr(check.Retries))
+		}
+		if check.StartPeriod != nil {
+			p.InitialDelaySeconds = int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds())
+		}
+	}
+}
+
+func toRunSecrets(environment types.MappingWithEquals) (map[string]string, error) {
 	// TODO: implement secrets with ${secret:blah}
-	return map[string]string{}
+	return map[string]string{}, nil
 }
 
 func toRunEnv(environment types.MappingWithEquals) map[string]string {

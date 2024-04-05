@@ -72,7 +72,8 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
 			return errors.Errorf("unknown resource type %q", resDesc.Type)
 		} else if _, err := fnc(ctx, stack, api.ResourceInput{
-			Descriptor: &resDesc,
+			Descriptor:   &resDesc,
+			DeployParams: &params,
 		}, provisionParams); err != nil {
 			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
 		}

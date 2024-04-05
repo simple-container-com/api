@@ -78,7 +78,8 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 	// Create an S3 bucket and configure it as a website.
 	bucketName := input.Domain
 	mainBucket, err := s3.NewBucket(ctx, bucketName, &s3.BucketArgs{
-		Bucket: sdk.String(bucketName),
+		Bucket:       sdk.String(bucketName),
+		ForceDestroy: sdk.Bool(true),
 		Website: &s3.BucketWebsiteArgs{
 			IndexDocument: sdk.String(input.IndexDocument),
 			ErrorDocument: sdk.String(input.ErrorDocument),
@@ -190,7 +191,8 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		// Configure S3 bucket to redirect requests for www.mydomain.com to mydomain.com
 		wwwDomain := fmt.Sprintf("www.%s", input.Domain)
 		wwwBucket, err = s3.NewBucket(ctx, fmt.Sprintf("%s-www-redirect", input.ServiceName), &s3.BucketArgs{
-			Bucket: sdk.String(wwwDomain),
+			Bucket:       sdk.String(wwwDomain),
+			ForceDestroy: sdk.Bool(true),
 			Website: s3.BucketWebsiteArgs{
 				RedirectAllRequestsTo: sdk.StringPtr(input.Domain),
 			},

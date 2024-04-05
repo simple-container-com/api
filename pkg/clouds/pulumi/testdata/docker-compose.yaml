@@ -4,7 +4,12 @@ services:
       context: ./api
     container_name: refapp-api
     ports:
-      - 8080:8080
+      - 8080:80
+    healthcheck:
+      test: "curl --silent --fail http://localhost > /dev/null || exit 1"
+      timeout: 2s
+      interval: 2s
+      retries: 2
     environment:
       NODE_ENV: production
     expose:

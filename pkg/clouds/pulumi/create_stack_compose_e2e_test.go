@@ -1,6 +1,7 @@
 package pulumi
 
 import (
+	"github.com/simple-container-com/api/pkg/clouds/aws"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 	"testing"
 
@@ -26,7 +27,7 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 	cfg := secretTestutil.PrepareE2Etest()
 	stack := api.Stack{
 		Name: e2eCreateStackName,
-		Server: e2eServerDescriptorForGCP(e2eConfig{
+		Server: e2eServerDescriptorForGcp(e2eConfig{
 			gcpCreds:       *cfg.GcpCredentials,
 			kmsKeyName:     e2eKmsTestKeyName,
 			kmsKeyringName: e2eKmsTestKeyringName,
@@ -70,7 +71,74 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
 							Domain:            "refapp.sc-app.me",
-							DockerComposeFile: "testdata/docker-compose.yaml",
+							DockerComposeFile: "docker-compose.yaml",
+							Uses: []string{
+								"test-bucket",
+							},
+							Runs: []string{
+								"backend",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	runProvisionAndDeployTest(stack, cfg, e2eDeployStackName)
+}
+
+func Test_CreateComposeStackAWS(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := secretTestutil.PrepareE2Etest()
+	stack := api.Stack{
+		Name: e2eCreateStackName,
+		Server: e2eServerDescriptorForAws(e2eConfig{
+			awsCreds:       *cfg.AwsCredentials,
+			kmsKeyName:     e2eKmsTestKeyName,
+			kmsKeyringName: e2eKmsTestKeyringName,
+			templates: map[string]api.StackDescriptor{
+				"stack-per-app": {
+					Type: aws.TemplateTypeEcsFargate,
+					Config: api.Config{Config: &aws.TemplateConfig{
+						AccountConfig: *cfg.AwsCredentials,
+					}},
+				},
+			},
+			registrar: api.RegistrarDescriptor{
+				Type: cloudflare.RegistrarType,
+				Config: api.Config{
+					Config: cfg.CloudflareConfig,
+				},
+			},
+			resources: map[string]api.PerEnvResourcesDescriptor{
+				"test": {
+					Template: "stack-per-app",
+					Resources: map[string]api.ResourceDescriptor{
+						"test-bucket": {
+							Type: aws.ResourceTypeS3Bucket,
+							Config: api.Config{
+								Config: &aws.S3Bucket{
+									AccountConfig: *cfg.AwsCredentials,
+									Name:          "sc-e2e-create--test-bucket",
+								},
+							},
+						},
+					},
+				},
+			},
+		}),
+		Client: api.ClientDescriptor{
+			Stacks: map[string]api.StackClientDescriptor{
+				"test": {
+					Type:        api.ClientTypeCompose,
+					ParentStack: e2eCreateStackName,
+					Environment: "test",
+					Config: api.Config{
+						Config: &api.StackConfigCompose{
+							Domain:            "e2e-aws-ecs-fargate.simple-container.com",
+							DockerComposeFile: "docker-compose.yaml",
 							Uses: []string{
 								"test-bucket",
 							},

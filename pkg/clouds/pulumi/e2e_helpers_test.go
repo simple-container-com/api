@@ -28,7 +28,7 @@ type e2eConfig struct {
 	awsCreds       aws.AccountConfig
 }
 
-func e2eServerDescriptorForGCP(config e2eConfig) api.ServerDescriptor {
+func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {
 	return api.ServerDescriptor{
 		Provisioner: api.ProvisionerDescriptor{
 			Type: ProvisionerTypePulumi,
@@ -117,6 +117,7 @@ func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig
 	err = deployProv.DeployStack(ctx, cfg.ConfigFile, stack, api.DeployParams{
 		StackName:   deployStackName,
 		ParentStack: stack.Name,
+		RootDir:     cfg.RootDir,
 		Environment: "test",
 	})
 	Expect(err).To(BeNil())

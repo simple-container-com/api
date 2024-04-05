@@ -27,7 +27,7 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 
 	stack := api.Stack{
 		Name: e2eCreateStaticStackName,
-		Server: e2eServerDescriptorForGCP(e2eConfig{
+		Server: e2eServerDescriptorForGcp(e2eConfig{
 			gcpCreds:       *cfg.GcpCredentials,
 			kmsKeyName:     e2eStaticKmsTestKeyName,
 			kmsKeyringName: e2eStaticKmsTestKeyringName,
@@ -59,7 +59,7 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							Domain:    "sc-e2e-static-gcp.simple-container.com",
+							Domain:    "e2e-gcp-static-website.simple-container.com",
 							BundleDir: "testdata/static",
 						},
 					},
@@ -112,7 +112,7 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							BundleDir:          "testdata/static",
-							Domain:             "sc-e2e-static-aws.simple-container.com",
+							Domain:             "e2e-aws-static-website.simple-container.com",
 							IndexDocument:      "index.html",
 							ErrorDocument:      "index.html",
 							ProvisionWwwDomain: false,

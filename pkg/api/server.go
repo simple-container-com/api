@@ -74,7 +74,8 @@ type ResourceDescriptor struct {
 }
 
 type ResourceInput struct {
-	Descriptor *ResourceDescriptor
+	Descriptor   *ResourceDescriptor `json:"descriptor" yaml:"descriptor"`
+	DeployParams *DeployParams       `json:"deployParams" yaml:"deployParams"`
 }
 
 type ResourceOutput struct {
