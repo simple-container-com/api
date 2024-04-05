@@ -23,6 +23,7 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	provider, err := sdkAws.NewProvider(ctx, input.Descriptor.Name, &sdkAws.ProviderArgs{
 		AccessKey: sdk.String(pcfg.AccessKey),
 		SecretKey: sdk.String(pcfg.SecretAccessKey),
+		Region:    sdk.String(pcfg.Region),
 	})
 	return &api.ResourceOutput{
 		Ref: provider,

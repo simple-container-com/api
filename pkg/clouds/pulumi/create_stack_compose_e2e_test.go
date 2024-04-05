@@ -121,7 +121,7 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 							Config: api.Config{
 								Config: &aws.S3Bucket{
 									AccountConfig: *cfg.AwsCredentials,
-									Name:          "sc-e2e-create--test-bucket",
+									Name:          "e2e--create--test-bucket",
 								},
 							},
 						},
@@ -137,7 +137,7 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
-							Domain:            "e2e-aws-ecs-fargate.simple-container.com",
+							Domain:            "e2e--aws-ecs-fargate.simple-container.com",
 							DockerComposeFile: "docker-compose.yaml",
 							Uses: []string{
 								"test-bucket",

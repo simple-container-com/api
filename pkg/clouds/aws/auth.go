@@ -18,6 +18,7 @@ type AccountConfig struct {
 	Account         string `json:"account" yaml:"account"`
 	AccessKey       string `json:"accessKey" yaml:"accessKey"`
 	SecretAccessKey string `json:"secretAccessKey" yaml:"secretAccessKey"`
+	Region          string `json:"region" yaml:"region"`
 	api.Credentials `json:",inline" yaml:",inline"`
 }
 

@@ -74,11 +74,7 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 	}
 
 	user, err := iam.NewUser(ctx, fmt.Sprintf("%s-user", input.Name), &iam.UserArgs{
-		ForceDestroy:        nil,
-		Name:                nil,
-		Path:                nil,
-		PermissionsBoundary: nil,
-		Tags:                nil,
+		ForceDestroy: sdk.BoolPtr(true),
 	}, provider)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision user for bucket %q", input.Name)

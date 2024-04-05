@@ -59,7 +59,7 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							Domain:    "e2e-gcp-static-website.simple-container.com",
+							Domain:    "e2e--gcp--static-website.simple-container.com",
 							BundleDir: "testdata/static",
 						},
 					},
@@ -111,8 +111,8 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							BundleDir:          "testdata/static",
-							Domain:             "e2e-aws-static-website.simple-container.com",
+							BundleDir:          "static",
+							Domain:             "e2e--aws---static-website.simple-container.com",
 							IndexDocument:      "index.html",
 							ErrorDocument:      "index.html",
 							ProvisionWwwDomain: false,

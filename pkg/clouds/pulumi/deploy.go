@@ -82,6 +82,10 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
+	_, err = stackSource.Refresh(ctx)
+	if err != nil {
+		return err
+	}
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err

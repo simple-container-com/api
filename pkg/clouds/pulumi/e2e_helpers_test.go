@@ -12,11 +12,9 @@ import (
 )
 
 const (
-	e2eBucketName = "sc-pulumi-test"
+	e2eBucketNameGCP = "sc-pulumi-test"
+	e2eBucketNameAWS = "sc-pulumi-test-aws"
 )
-
-type e2eCommon struct {
-}
 
 type e2eConfig struct {
 	kmsKeyName     string
@@ -39,7 +37,7 @@ func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {
 						Type: StateStorageTypeGcpBucket,
 						Config: api.Config{Config: &gcloud.StateStorageConfig{
 							Provision:   false,
-							BucketName:  e2eBucketName,
+							BucketName:  e2eBucketNameGCP,
 							Credentials: config.gcpCreds,
 						}},
 					},
@@ -75,7 +73,7 @@ func e2eServerDescriptorForAws(config e2eConfig) api.ServerDescriptor {
 						Type: StateStorageTypeS3Bucket,
 						Config: api.Config{Config: &aws.StateStorageConfig{
 							Provision:     false,
-							BucketName:    e2eBucketName,
+							BucketName:    e2eBucketNameAWS,
 							AccountConfig: config.awsCreds,
 						}},
 					},

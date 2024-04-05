@@ -144,7 +144,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Image: EcsFargateImage{
 				Context:    composeCfg.Project.RelativePath(svc.Build.Context),
 				Platform:   ImagePlatformLinuxAmd64,
-				Dockerfile: lo.If(svc.Build.Dockerfile == "", "Dockerfile").Else(svc.Build.Dockerfile),
+				Dockerfile: svc.Build.Dockerfile,
 			},
 			Env:           toRunEnv(svc.Environment),
 			Secrets:       secrets,
