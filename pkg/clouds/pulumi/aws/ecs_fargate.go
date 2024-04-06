@@ -38,7 +38,6 @@ type EcsFargateImage struct {
 type EcsFargateOutput struct {
 	Images           []*EcsFargateImage
 	ExecRole         *iam.Role
-	TaskDefinition   *ecs.FargateTaskDefinition
 	PolicyAttachment *iam.RolePolicyAttachment
 	Service          *ecs.FargateService
 	LoadBalancer     *lb.ApplicationLoadBalancer
@@ -168,19 +167,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return value[0].TaskDefinitionContainerDefinitionArgs
 		})
 
-	// Create ECS Fargate task definition
-	taskDef, err := ecs.NewFargateTaskDefinition(ctx, fmt.Sprintf("%s-%s-task-def", ecsClusterName, deployParams.Environment), &ecs.FargateTaskDefinitionArgs{
-		Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
-		Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
-		Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
-		Containers: containers,
-	}, sdk.Provider(params.Provider))
-	if err != nil {
-		return errors.Wrapf(err, "failed to create ecs task definition for stack %q in %q", stack.Name, deployParams.Environment)
-	}
-	ref.TaskDefinition = taskDef
-	ctx.Export(fmt.Sprintf("%s-task-arn", ecsClusterName), taskDef.TaskDefinition.Arn())
-
 	params.Log.Info(ctx.Context(), "creating application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
 	loadBalancerName := fmt.Sprintf("%s-%s-alb", stack.Name, deployParams.Environment)
 	targetGroupName := fmt.Sprintf("%s-%s-tg", stack.Name, deployParams.Environment)
@@ -227,10 +213,15 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "creating ECS Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
-		Cluster:              cluster.Arn,
-		Name:                 sdk.String(ecsClusterName),
-		DesiredCount:         sdk.Int(crInput.Scale.Min),
-		TaskDefinition:       taskDef.TaskDefinition.Arn(),
+		Cluster:      cluster.Arn,
+		Name:         sdk.String(ecsClusterName),
+		DesiredCount: sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
+		TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
+			Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
+			Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
+			Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
+			Containers: containers,
+		},
 		ForceNewDeployment:   sdk.BoolPtr(true),
 		EnableExecuteCommand: sdk.BoolPtr(true),
 		Tags: sdk.StringMap{
