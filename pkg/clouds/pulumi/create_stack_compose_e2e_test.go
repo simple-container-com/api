@@ -153,6 +153,7 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 		},
 	}
 
-	// runDestroyTest(stack, cfg, e2eDeployStackName)
+	//runDestroyParentTest(stack, cfg, e2eCreateStackName)
+	//runDestroyChildTest(stack, cfg, e2eDeployStackName)
 	runProvisionAndDeployTest(stack, cfg, e2eDeployStackName)
 }

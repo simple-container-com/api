@@ -40,6 +40,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		ErrorDocument:      staticSiteCfg.ErrorDocument,
 		Domain:             staticSiteCfg.Domain,
 		ProvisionWwwDomain: staticSiteCfg.ProvisionWwwDomain,
+		Account:            staticSiteCfg.AccountConfig,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision static website for stack %q", stack.Name)
@@ -58,6 +59,7 @@ type StaticSiteInput struct {
 	ErrorDocument      string
 	Domain             string
 	ProvisionWwwDomain bool
+	Account            aws.AccountConfig
 }
 
 type StaticSiteOutput struct {
@@ -168,6 +170,11 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 				Create:   sdk.String(fmt.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, bucketName)),
 				Update:   sdk.String(fmt.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, bucketName)),
 				Triggers: sdk.ArrayInput(sdk.Array{sdk.String(checksum)}),
+				Environment: sdk.ToStringMap(map[string]string{
+					"AWS_ACCESS_KEY_ID":     input.Account.AccessKey,
+					"AWS_SECRET_ACCESS_KEY": input.Account.SecretAccessKey,
+					"AWS_DEFAULT_REGION":    input.Account.Region,
+				}),
 			}, sdk.DependsOn([]sdk.Resource{mainBucket, publicAccessBlock, ownershipControls, mainBucketPolicy}))
 			if err != nil {
 				return err

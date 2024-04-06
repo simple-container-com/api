@@ -104,7 +104,9 @@ type Provisioner interface {
 
 	DeployStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DeployParams) error
 
-	DestroyStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
+	DestroyChildStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
+
+	DestroyParentStack(ctx context.Context, cfg *ConfigFile, parentStack Stack) error
 
 	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }

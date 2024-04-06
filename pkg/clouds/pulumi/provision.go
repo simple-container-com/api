@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"gopkg.in/yaml.v3"
 
@@ -22,7 +23,25 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 	p.logger.Info(ctx, "Found stack %q", s.Ref().String())
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, func(ctx *sdk.Context) error {
+	stackSource, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, p.provisionProgram(stack))
+	if err != nil {
+		return err
+	}
+	p.logger.Info(ctx, "Refreshing stack %q...", stackSource.Name())
+	refreshResult, err := stackSource.Refresh(ctx)
+	if err != nil {
+		return err
+	}
+	p.logger.Info(ctx, "Refresh summary: %q", refreshResult.Summary)
+	_, err = stackSource.Up(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error {
+	program := func(ctx *sdk.Context) error {
 		if err := p.initialProvisionProgram(ctx); err != nil {
 			return errors.Wrapf(err, "failed to provision init program")
 		}
@@ -71,15 +90,8 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		}
 
 		return nil
-	})
-	if err != nil {
-		return err
 	}
-	_, err = stackSource.Up(ctx)
-	if err != nil {
-		return err
-	}
-	return nil
+	return program
 }
 
 func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack) error {

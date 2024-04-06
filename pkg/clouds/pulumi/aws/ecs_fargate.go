@@ -42,6 +42,8 @@ type EcsFargateOutput struct {
 	PolicyAttachment *iam.RolePolicyAttachment
 	Service          *ecs.FargateService
 	LoadBalancer     *lb.ApplicationLoadBalancer
+	MainDnsRecord    sdk.AnyOutput
+	Cluster          *legacyEcs.Cluster
 }
 
 type EcsContainerEnv struct {
@@ -85,6 +87,18 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	if err != nil {
 		return output, errors.Wrapf(err, "failed to create ECS Fargate cluster for stack %q in %q", stack.Name, deployParams.Environment)
 	}
+
+	params.Log.Info(ctx.Context(), "provisioning CNAME DNS record %q for %q in %q...", crInput.Domain, stack.Name, deployParams.Environment)
+	mainRecord := ref.LoadBalancer.LoadBalancer.DnsName().ApplyT(func(endpoint string) (*api.ResourceOutput, error) {
+		return params.Registrar.NewRecord(ctx, api.DnsRecord{
+			Name:    crInput.Domain,
+			Type:    "CNAME",
+			Value:   endpoint,
+			Proxied: true,
+		})
+	}).(sdk.AnyOutput)
+	ref.MainDnsRecord = mainRecord
+	ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
 
 	return output, nil
 }
@@ -193,10 +207,28 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	iContainer := crInput.IngressContainer
 
+	params.Log.Info(ctx.Context(), "creating ECS Fargate cluster for %q in %q with ingress container %q...",
+		stack.Name, deployParams.Environment, iContainer.Name)
+	cluster, err := legacyEcs.NewCluster(ctx, ecsClusterName, &legacyEcs.ClusterArgs{
+		Name: sdk.String(ecsClusterName),
+		Configuration: legacyEcs.ClusterConfigurationArgs{
+			ExecuteCommandConfiguration: legacyEcs.ClusterConfigurationExecuteCommandConfigurationArgs{
+				Logging: sdk.String("DEFAULT"),
+			},
+		},
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to create ECS cluster for %q in %q", stack.Name, deployParams.Environment)
+	}
+	ref.Cluster = cluster
+	ctx.Export(fmt.Sprintf("%s-arn", ecsClusterName), cluster.Arn)
+	ctx.Export(fmt.Sprintf("%s-name", ecsClusterName), cluster.Name)
+
 	params.Log.Info(ctx.Context(), "creating ECS Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
-		Cluster:              sdk.String(ecsClusterName),
+		Cluster:              cluster.Arn,
+		Name:                 sdk.String(ecsClusterName),
 		DesiredCount:         sdk.Int(crInput.Scale.Min),
 		TaskDefinition:       taskDef.TaskDefinition.Arn(),
 		ForceNewDeployment:   sdk.BoolPtr(true),

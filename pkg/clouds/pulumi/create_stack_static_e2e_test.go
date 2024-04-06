@@ -1,10 +1,11 @@
 package pulumi
 
 import (
+	"testing"
+
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
-	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 
@@ -112,7 +113,7 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							BundleDir:          "static",
-							Domain:             "e2e--aws---static-website.simple-container.com",
+							Domain:             "e2e--aws--static-website.simple-container.com",
 							IndexDocument:      "index.html",
 							ErrorDocument:      "index.html",
 							ProvisionWwwDomain: false,
@@ -123,5 +124,7 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 		},
 	}
 
+	//runDestroyChildTest(stack, cfg, e2eDeployStackName)
+	//runDestroyParentTest(stack, cfg, e2eCreateStackName)
 	runProvisionAndDeployTest(stack, cfg, e2eDeployStaticStackName)
 }

@@ -98,6 +98,7 @@ type EcsFargateInput struct {
 	Containers       []EcsFargateContainer `json:"containers" yaml:"containers"`
 	IngressContainer EcsFargateContainer   `json:"ingressContainer" yaml:"ingressContainer"`
 	Config           EcsFargateConfig      `json:"config" yaml:"config"`
+	Domain           string                `json:"domain" yaml:"domain"`
 }
 
 func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -176,6 +177,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 	res.IngressContainer, _ = lo.Find(res.Containers, func(item EcsFargateContainer) bool {
 		return item.Name == iContainers[0].Name
 	})
+	res.Domain = stackCfg.Domain
 
 	return res, nil
 }

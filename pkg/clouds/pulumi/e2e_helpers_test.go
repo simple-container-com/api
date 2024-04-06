@@ -13,8 +13,7 @@ import (
 )
 
 const (
-	e2eBucketNameGCP = "sc-pulumi-test"
-	e2eBucketNameAWS = "sc-pulumi-test-aws"
+	e2eBucketName = "sc-pulumi-test"
 )
 
 type e2eConfig struct {
@@ -38,7 +37,7 @@ func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {
 						Type: StateStorageTypeGcpBucket,
 						Config: api.Config{Config: &gcloud.StateStorageConfig{
 							Provision:   false,
-							BucketName:  e2eBucketNameGCP,
+							BucketName:  e2eBucketName,
 							Credentials: config.gcpCreds,
 						}},
 					},
@@ -74,7 +73,7 @@ func e2eServerDescriptorForAws(config e2eConfig) api.ServerDescriptor {
 						Type: StateStorageTypeS3Bucket,
 						Config: api.Config{Config: &aws.StateStorageConfig{
 							Provision:     false,
-							BucketName:    e2eBucketNameAWS,
+							BucketName:    e2eBucketName,
 							AccountConfig: config.awsCreds,
 						}},
 					},
@@ -124,7 +123,7 @@ func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig
 	Expect(err).To(BeNil())
 }
 
-func runDestroyTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deployStackName string) {
+func runDestroyChildTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deployStackName string) {
 	ctx := context.Background()
 
 	destroyProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
@@ -132,7 +131,7 @@ func runDestroyTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deploySta
 
 	destroyProv.SetPublicKey(cfg.Cryptor.PublicKey())
 
-	err = destroyProv.DestroyStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{
+	err = destroyProv.DestroyChildStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{
 		StackParams: api.StackParams{
 			StackName:   deployStackName,
 			ParentStack: stack.Name,
@@ -140,5 +139,17 @@ func runDestroyTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deploySta
 			Environment: "test",
 		},
 	})
+	Expect(err).To(BeNil())
+}
+
+func runDestroyParentTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deployStackName string) {
+	ctx := context.Background()
+
+	destroyProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	Expect(err).To(BeNil())
+
+	destroyProv.SetPublicKey(cfg.Cryptor.PublicKey())
+
+	err = destroyProv.DestroyParentStack(ctx, cfg.ConfigFile, stack)
 	Expect(err).To(BeNil())
 }
