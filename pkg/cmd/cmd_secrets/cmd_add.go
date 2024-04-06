@@ -10,7 +10,7 @@ func NewAddCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Add repository secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sCmd.provisioner.Cryptor().AddFile(args[0])
+			return sCmd.Root.Provisioner.Cryptor().AddFile(args[0])
 		},
 	}
 	return cmd

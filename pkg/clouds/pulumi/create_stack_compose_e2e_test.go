@@ -1,9 +1,10 @@
 package pulumi
 
 import (
+	"testing"
+
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
-	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 
@@ -152,5 +153,6 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 		},
 	}
 
+	// runDestroyTest(stack, cfg, e2eDeployStackName)
 	runProvisionAndDeployTest(stack, cfg, e2eDeployStackName)
 }

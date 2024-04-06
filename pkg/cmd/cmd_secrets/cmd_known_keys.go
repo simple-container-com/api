@@ -11,7 +11,7 @@ func NewKnownKeysCmd(sCmd *secretsCmd) *cobra.Command {
 		Use:   "known-keys",
 		Short: "List public keys allowed to decrypt secrets",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			for pubKey := range sCmd.provisioner.Cryptor().GetSecretFiles().Secrets {
+			for pubKey := range sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Secrets {
 				fmt.Println(pubKey)
 				fmt.Println()
 			}

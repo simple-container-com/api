@@ -10,7 +10,7 @@ func NewAllowCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Allow public key to read secrets",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pubKey := args[0]
-			return sCmd.provisioner.Cryptor().AddPublicKey(pubKey)
+			return sCmd.Root.Provisioner.Cryptor().AddPublicKey(pubKey)
 		},
 	}
 	return cmd

@@ -2,6 +2,7 @@ package pulumi
 
 import (
 	"context"
+
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 
@@ -113,10 +114,31 @@ func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig
 	deployProv.SetPublicKey(cfg.Cryptor.PublicKey())
 
 	err = deployProv.DeployStack(ctx, cfg.ConfigFile, stack, api.DeployParams{
-		StackName:   deployStackName,
-		ParentStack: stack.Name,
-		RootDir:     cfg.RootDir,
-		Environment: "test",
+		StackParams: api.StackParams{
+			StackName:   deployStackName,
+			ParentStack: stack.Name,
+			RootDir:     cfg.RootDir,
+			Environment: "test",
+		},
+	})
+	Expect(err).To(BeNil())
+}
+
+func runDestroyTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deployStackName string) {
+	ctx := context.Background()
+
+	destroyProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	Expect(err).To(BeNil())
+
+	destroyProv.SetPublicKey(cfg.Cryptor.PublicKey())
+
+	err = destroyProv.DestroyStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{
+		StackParams: api.StackParams{
+			StackName:   deployStackName,
+			ParentStack: stack.Name,
+			RootDir:     cfg.RootDir,
+			Environment: "test",
+		},
 	})
 	Expect(err).To(BeNil())
 }

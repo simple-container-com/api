@@ -1,10 +1,11 @@
 package aws
 
 import (
+	"time"
+
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
@@ -13,6 +14,8 @@ import (
 const (
 	TemplateTypeEcsFargate = "ecs-fargate"
 )
+
+const ComposeLabelIngressContainer = "simple-container.com/ingress"
 
 type EcsFargateConfig struct {
 	api.Credentials `json:",inline" yaml:",inline"`
@@ -90,10 +93,11 @@ type MaxErrorConfig struct {
 }
 
 type EcsFargateInput struct {
-	TemplateConfig `json:"templateConfig" yaml:"templateConfig"`
-	Scale          EcsFargateScale       `json:"scale" yaml:"scale"`
-	Containers     []EcsFargateContainer `json:"containers" yaml:"containers"`
-	Config         EcsFargateConfig      `json:"config" yaml:"config"`
+	TemplateConfig   `json:"templateConfig" yaml:"templateConfig"`
+	Scale            EcsFargateScale       `json:"scale" yaml:"scale"`
+	Containers       []EcsFargateContainer `json:"containers" yaml:"containers"`
+	IngressContainer EcsFargateContainer   `json:"ingressContainer" yaml:"ingressContainer"`
+	Config           EcsFargateConfig      `json:"config" yaml:"config"`
 }
 
 func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -157,6 +161,21 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			// TODO: cpu, memory
 		})
 	}
+
+	iContainers := lo.Filter(composeCfg.Project.Services, func(s types.ServiceConfig, _ int) bool {
+		v, hasLabel := s.Labels[ComposeLabelIngressContainer]
+		return hasLabel && v == "true"
+	})
+	if len(iContainers) > 1 || len(iContainers) == 0 {
+		return nil, errors.Errorf("must have exactly 1 ingress container, but found (%v) in compose files %q,"+
+			"did you forget to add label %q to the main container?",
+			lo.Map(iContainers, func(item types.ServiceConfig, _ int) string {
+				return item.Name
+			}), composeCfg.Project.ComposeFiles, ComposeLabelIngressContainer)
+	}
+	res.IngressContainer, _ = lo.Find(res.Containers, func(item EcsFargateContainer) bool {
+		return item.Name == iContainers[0].Name
+	})
 
 	return res, nil
 }

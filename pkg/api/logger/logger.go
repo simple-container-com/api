@@ -12,12 +12,12 @@ const (
 )
 
 const (
-	logLevelDebug = iota
-	logLevelInfo  = iota
-	logLevelWarn  = iota
-	logLevelError = iota
+	LogLevelDebug = iota
+	LogLevelInfo  = iota
+	LogLevelWarn  = iota
+	LogLevelError = iota
 
-	defaultLogLevel = logLevelInfo
+	defaultLogLevel = LogLevelInfo
 )
 
 type Logger interface {
@@ -25,6 +25,7 @@ type Logger interface {
 	Warn(ctx context.Context, format string, a ...any)
 	Info(ctx context.Context, format string, a ...any)
 	Debug(ctx context.Context, format string, a ...any)
+	SetLogLevel(ctx context.Context, logLevel int) context.Context
 }
 
 type logger struct{}
@@ -34,27 +35,31 @@ func New() Logger {
 }
 
 func (l *logger) Error(ctx context.Context, format string, a ...any) {
-	if getLogLevel(ctx) <= logLevelError {
+	if getLogLevel(ctx) <= LogLevelError {
 		fmt.Println("ERROR: " + fmt.Sprintf(format, a...))
 	}
 }
 
 func (l logger) Warn(ctx context.Context, format string, a ...any) {
-	if getLogLevel(ctx) <= logLevelWarn {
+	if getLogLevel(ctx) <= LogLevelWarn {
 		fmt.Println("WARN: " + fmt.Sprintf(format, a...))
 	}
 }
 
 func (l logger) Info(ctx context.Context, format string, a ...any) {
-	if getLogLevel(ctx) <= logLevelInfo {
+	if getLogLevel(ctx) <= LogLevelInfo {
 		fmt.Println("INFO: " + fmt.Sprintf(format, a...))
 	}
 }
 
 func (l logger) Debug(ctx context.Context, format string, a ...any) {
-	if getLogLevel(ctx) <= logLevelDebug {
+	if getLogLevel(ctx) <= LogLevelDebug {
 		fmt.Println("DEBUG: " + fmt.Sprintf(format, a...))
 	}
+}
+
+func (l *logger) SetLogLevel(ctx context.Context, logLevel int) context.Context {
+	return context.WithValue(ctx, logLevel, logLevel)
 }
 
 func getLogLevel(ctx context.Context) int {

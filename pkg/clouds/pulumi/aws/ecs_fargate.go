@@ -2,20 +2,23 @@ package aws
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	legacyEcs "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
+	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
 	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 	"github.com/simple-container-com/api/pkg/util"
-	"strconv"
-	"strings"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -35,10 +38,9 @@ type EcsFargateImage struct {
 type EcsFargateOutput struct {
 	Images           []*EcsFargateImage
 	ExecRole         *iam.Role
-	TaskDefinition   *ecs.TaskDefinition
+	TaskDefinition   *ecs.FargateTaskDefinition
 	PolicyAttachment *iam.RolePolicyAttachment
-	Service          *ecs.Service
-	Cluster          *ecs.Cluster
+	Service          *ecs.FargateService
 	LoadBalancer     *lb.ApplicationLoadBalancer
 }
 
@@ -52,13 +54,8 @@ type EcsContainerPorts struct {
 	HostPort      int `json:"hostPort"`
 }
 type EcsContainerDef struct {
-	Name         string              `json:"name"`
-	Image        string              `json:"image"`
-	Cpu          int                 `json:"cpu"`
-	Memory       int                 `json:"memory"`
-	Essential    bool                `json:"essential"`
-	Environment  []EcsContainerEnv   `json:"environment"`
-	PortMappings []EcsContainerPorts `json:"portMappings"`
+	Name string `json:"name"`
+	ecs.TaskDefinitionContainerDefinitionArgs
 }
 
 func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -92,7 +89,7 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	return output, nil
 }
 
-func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.DeployParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
+func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	ecsClusterName := awsResName(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment), "ecs")
 	// Create an ECS task execution IAM role
 	taskExecRole, err := iam.NewRole(ctx, fmt.Sprintf("%s-exec-role", ecsClusterName), &iam.RoleArgs{
@@ -124,108 +121,111 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.PolicyAttachment = policyAttachment
 	ctx.Export(fmt.Sprintf("%s-policy-arn", ecsClusterName), policyAttachment.PolicyArn)
 
-	containerDefs := sdk.All(lo.Map(ref.Images, func(image *EcsFargateImage, _ int) any {
-		return image.Image.ImageName
-	})...).ApplyT(func(imageNames []any) (string, error) {
-		containers := lo.Map(ref.Images, func(image *EcsFargateImage, i int) EcsContainerDef {
+	containers := lo.MapValues(lo.GroupBy(lo.Map(
+		ref.Images,
+		func(image *EcsFargateImage, index int) EcsContainerDef {
 			return EcsContainerDef{
-				Name:      image.Container.Name,
-				Image:     imageNames[i].(string),
-				Cpu:       lo.If(crInput.Config.Cpu == 0, 256).Else(crInput.Config.Cpu),
-				Memory:    lo.If(crInput.Config.Memory == 0, 512).Else(crInput.Config.Memory),
-				Essential: true,
-				Environment: lo.MapToSlice(image.Container.Env, func(key string, value string) EcsContainerEnv {
-					return EcsContainerEnv{
-						Name:  key,
-						Value: value,
-					}
-				}),
-				PortMappings: []EcsContainerPorts{
-					{
-						ContainerPort: image.Container.Port,
-						HostPort:      image.Container.Port,
+				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
+					Name:      sdk.String(image.Container.Name),
+					Image:     image.Image.ImageName,
+					Cpu:       sdk.IntPtr(lo.If(crInput.Config.Cpu == 0, 256).Else(crInput.Config.Cpu)),
+					Memory:    sdk.IntPtr(lo.If(crInput.Config.Memory == 0, 512).Else(crInput.Config.Memory)),
+					Essential: sdk.BoolPtr(true),
+					Environment: append(ecs.TaskDefinitionKeyValuePairArray{}, lo.MapToSlice(image.Container.Env, func(key string, value string) ecs.TaskDefinitionKeyValuePairInput {
+						return ecs.TaskDefinitionKeyValuePairArgs{
+							Name:  sdk.StringPtr(key),
+							Value: sdk.StringPtr(value),
+						}
+					})...),
+					PortMappings: ecs.TaskDefinitionPortMappingArray{
+						ecs.TaskDefinitionPortMappingArgs{
+							ContainerPort: sdk.IntPtr(image.Container.Port),
+							HostPort:      sdk.IntPtr(image.Container.Port),
+						},
 					},
 				},
+				Name: image.Container.Name,
 			}
+		}),
+		func(container EcsContainerDef) string {
+			return container.Name
+		}),
+		func(value []EcsContainerDef, key string) ecs.TaskDefinitionContainerDefinitionArgs {
+			return value[0].TaskDefinitionContainerDefinitionArgs
 		})
-		bytes, err := json.Marshal(containers)
-		return string(bytes), err
-	}).(sdk.StringOutput)
 
 	// Create ECS Fargate task definition
-	taskDef, err := ecs.NewTaskDefinition(ctx, fmt.Sprintf("%s-%s-task-def", ecsClusterName, deployParams.Environment), &ecs.TaskDefinitionArgs{
-		RequiresCompatibilities: sdk.StringArray{
-			sdk.String("FARGATE"),
-		},
-		Family:               sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
-		NetworkMode:          sdk.String("awsvpc"),
-		Cpu:                  sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
-		Memory:               sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
-		ExecutionRoleArn:     taskExecRole.Arn,
-		ContainerDefinitions: containerDefs,
+	taskDef, err := ecs.NewFargateTaskDefinition(ctx, fmt.Sprintf("%s-%s-task-def", ecsClusterName, deployParams.Environment), &ecs.FargateTaskDefinitionArgs{
+		Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
+		Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
+		Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
+		Containers: containers,
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ecs task definition for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.TaskDefinition = taskDef
-	ctx.Export(fmt.Sprintf("%s-task-arn", ecsClusterName), taskDef.Arn)
-
-	// Create an ECS cluster
-	cluster, err := ecs.NewCluster(ctx, ecsClusterName, &ecs.ClusterArgs{
-		Name: sdk.String(ecsClusterName),
-	}, sdk.Provider(params.Provider))
-	if err != nil {
-		return errors.Wrapf(err, "failed to create ecs cluster for stack %q in %q", stack.Name, deployParams.Environment)
-	}
-	ref.Cluster = cluster
-	ctx.Export(fmt.Sprintf("%s-cluster-arn", ecsClusterName), cluster.Arn)
-	ctx.Export(fmt.Sprintf("%s-cluster-name", ecsClusterName), cluster.Name)
+	ctx.Export(fmt.Sprintf("%s-task-arn", ecsClusterName), taskDef.TaskDefinition.Arn())
 
 	params.Log.Info(ctx.Context(), "creating application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
 	loadBalancerName := fmt.Sprintf("%s-%s-alb", stack.Name, deployParams.Environment)
+	targetGroupName := fmt.Sprintf("%s-%s-tg", stack.Name, deployParams.Environment)
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 		Name: sdk.String(loadBalancerName),
 		DefaultTargetGroup: &lb.TargetGroupArgs{
-			Name: sdk.Sprintf("%s-tg", strings.ReplaceAll(ecsClusterName, "_", "--")),
+			Name: sdk.String(targetGroupName),
 		},
 	}, sdk.Provider(params.Provider))
 	if err != nil {
-		return errors.Wrapf(err, "failed to create application loadbalancer %q in %q", stack.Name, deployParams.Environment)
+		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.LoadBalancer = loadBalancer
 	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsClusterName), loadBalancer.LoadBalancer.Arn())
 	ctx.Export(fmt.Sprintf("%s-alb-name", ecsClusterName), loadBalancer.LoadBalancer.Name())
 
-	iContainer := crInput.Containers[0] // TODO: find ingress container
+	subnets, err := getOrCreateDefaultSubnetsInRegion(ctx, crInput.AccountConfig, params)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get default subnets for %q in %q", stack.Name, deployParams.Environment)
+	}
+	subnetIds := lo.Map(subnets, func(subnet *ec2.DefaultSubnet, _ int) sdk.StringOutput {
+		return subnet.ID().ToStringOutput()
+	})
+
+	iContainer := crInput.IngressContainer
 
 	params.Log.Info(ctx.Context(), "creating ECS Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	service, err := ecs.NewService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.ServiceArgs{
-		Cluster:        cluster.Arn,
-		DesiredCount:   sdk.Int(crInput.Scale.Min),
-		LaunchType:     sdk.String("FARGATE"),
-		TaskDefinition: taskDef.Arn,
-		LoadBalancers: ecs.ServiceLoadBalancerArray{
-			ecs.ServiceLoadBalancerArgs{
+	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
+		Cluster:              sdk.String(ecsClusterName),
+		DesiredCount:         sdk.Int(crInput.Scale.Min),
+		TaskDefinition:       taskDef.TaskDefinition.Arn(),
+		ForceNewDeployment:   sdk.BoolPtr(true),
+		EnableExecuteCommand: sdk.BoolPtr(true),
+		Tags: sdk.StringMap{
+			"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
+		},
+		LoadBalancers: legacyEcs.ServiceLoadBalancerArray{
+			legacyEcs.ServiceLoadBalancerArgs{
 				ContainerName:  sdk.String(iContainer.Name),
 				ContainerPort:  sdk.Int(iContainer.Port),
 				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
 			},
 		},
-		NetworkConfiguration: &ecs.ServiceNetworkConfigurationArgs{
+		NetworkConfiguration: legacyEcs.ServiceNetworkConfigurationArgs{
 			AssignPublicIp: sdk.BoolPtr(true),
+			Subnets:        sdk.ToStringArrayOutput(subnetIds),
 		},
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.Service = service
-	ctx.Export(fmt.Sprintf("%s-service-name", ecsClusterName), service.Name)
+	ctx.Export(fmt.Sprintf("%s-service-name", ecsClusterName), service.Service.Name())
 
 	return nil
 }
 
-func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.DeployParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
+func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*EcsFargateImage, error) {
 		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
 		version := "latest" // TODO: support versioning
@@ -272,7 +272,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 	return nil
 }
 
-func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.DeployParams, imageName string) (EcsFargateRepository, error) {
+func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, imageName string) (EcsFargateRepository, error) {
 	res := EcsFargateRepository{}
 	ecrRepoName := awsResName(fmt.Sprintf("%s-%s", stack.Name, imageName), "ecr")
 	params.Log.Info(ctx.Context(), "provisioning ECR repository %q for stack %q in %q...", ecrRepoName, stack.Name, deployParams.Environment)
@@ -313,13 +313,30 @@ func awsResName(name string, suffix string) string {
 	return strings.ReplaceAll(fmt.Sprintf("%s-%s", name, suffix), "--", "_")
 }
 
-// getVpcDefaultSubnetIds searches for default subnets in the default VPC and returns their IDs
-func getVpcDefaultSubnetIds(ctx *sdk.Context, params pApi.ProvisionParams) ([]string, error) {
-	if vpc, err := ec2.LookupVpc(ctx, &ec2.LookupVpcArgs{Default: lo.ToPtr(true)}, sdk.Provider(params.Provider)); err != nil {
-		return nil, err
-	} else if ids, err := ec2.GetSubnetIds(ctx, &ec2.GetSubnetIdsArgs{VpcId: vpc.Id}, sdk.Provider(params.Provider)); err != nil {
-		return nil, err
-	} else {
-		return ids.Ids, nil
+func getOrCreateDefaultSubnetsInRegion(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) ([]*ec2.DefaultSubnet, error) {
+	// Get all availability zones in provided region
+	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
+		Filters: []awsImpl.GetAvailabilityZonesFilter{
+			{
+				Name:   "region-name",
+				Values: []string{account.Region},
+			},
+		},
+	}, sdk.Provider(params.Provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
 	}
+
+	// Create default subnet in each availability zone
+	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (*ec2.DefaultSubnet, error) {
+		subnetName := fmt.Sprintf("default-subnet-%s", zone)
+		subnet, err := ec2.NewDefaultSubnet(ctx, subnetName, &ec2.DefaultSubnetArgs{
+			AvailabilityZone: sdk.String(zone),
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create default subnet %s in %q", subnetName, account.Region)
+		}
+		return subnet, nil
+	})
+	return subnets, err
 }

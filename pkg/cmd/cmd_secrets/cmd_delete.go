@@ -10,7 +10,7 @@ func NewDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Delete repository secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sCmd.provisioner.Cryptor().RemoveFile(args[0])
+			return sCmd.Root.Provisioner.Cryptor().RemoveFile(args[0])
 		},
 	}
 	return cmd

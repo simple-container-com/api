@@ -10,10 +10,10 @@ func NewHideCmd(sCmd *secretsCmd) *cobra.Command {
 		Use:   "hide",
 		Short: "Hide repository secrets",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := sCmd.provisioner.Cryptor().EncryptChanged(); err != nil {
+			if err := sCmd.Root.Provisioner.Cryptor().EncryptChanged(); err != nil {
 				return errors.Wrapf(err, "failed to encrypt secrets")
 			} else {
-				return sCmd.provisioner.Cryptor().MarshalSecretsFile()
+				return sCmd.Root.Provisioner.Cryptor().MarshalSecretsFile()
 			}
 		},
 	}

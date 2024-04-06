@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/pkg/errors"
 
 	"github.com/samber/lo"
@@ -103,6 +104,8 @@ type Provisioner interface {
 
 	DeployStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DeployParams) error
 
+	DestroyStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
+
 	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }
 
@@ -141,8 +144,10 @@ type RegistrarConfig interface {
 	DnsRecords() []DnsRecord
 }
 
-type clientConfigConvertFunc func(cfg *Config) (Config, error)
-type clientConfigPrepareFunc func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error)
+type (
+	clientConfigConvertFunc func(cfg *Config) (Config, error)
+	clientConfigPrepareFunc func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error)
+)
 
 var clientConfigsPrepareMap = map[string]clientConfigPrepareFunc{
 	ClientTypeCloudCompose: func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {

@@ -84,6 +84,18 @@ func (p *pulumi) SetPublicKey(pubKey string) {
 	p.pubKey = pubKey
 }
 
+func (p *pulumi) DestroyStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
+	_, err := p.getStack(ctx, cfg, parentStack)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
+	}
+	childStack := parentStack.ChildStack(params.ParentStack)
+	if _, err = p.getStack(ctx, cfg, childStack); err != nil {
+		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
+	}
+	return p.destroyStack(ctx, cfg, childStack, params)
+}
+
 func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {
 	_, err := p.getStack(ctx, cfg, parentStack)
 	if err != nil {

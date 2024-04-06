@@ -9,7 +9,7 @@ func NewRevealCmd(sCmd *secretsCmd) *cobra.Command {
 		Use:   "reveal",
 		Short: "Reveal repository secrets",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sCmd.provisioner.Cryptor().DecryptAll()
+			return sCmd.Root.Provisioner.Cryptor().DecryptAll()
 		},
 	}
 	return cmd

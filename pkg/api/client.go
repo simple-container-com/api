@@ -42,13 +42,21 @@ type StackConfigStatic struct {
 	ProvisionWwwDomain bool   `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
 }
 
+type StackParams struct {
+	RootDir     string `json:"rootDir" yaml:"rootDir"`
+	Profile     string `json:"profile" yaml:"profile"`
+	StackName   string `json:"stack" yaml:"stack"`
+	ParentStack string `json:"parent" yaml:"parent"`
+	Environment string `json:"environment" yaml:"environment"`
+}
+
 type DeployParams struct {
-	RootDir     string         `json:"rootDir" yaml:"rootDir"`
-	Profile     string         `json:"profile" yaml:"profile"`
-	StackName   string         `json:"stack" yaml:"stack"`
-	ParentStack string         `json:"parent" yaml:"parent"`
-	Environment string         `json:"environment" yaml:"environment"`
+	StackParams `json:",inline" yaml:",inline"`
 	Vars        VariableValues `json:"vars" yaml:"vars"`
+}
+
+type DestroyParams struct {
+	StackParams `json:",inline" yaml:",inline"`
 }
 
 func PrepareCloudComposeForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {

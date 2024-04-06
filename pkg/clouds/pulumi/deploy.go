@@ -22,7 +22,27 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	parentStack := params.ParentStack
 	fullStackName := fmt.Sprintf("%s--%s--%s", cfg.ProjectName, parentStack, params.Environment)
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, fullStackName, cfg.ProjectName, func(ctx *sdk.Context) error {
+	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
+	stackSource, err := auto.UpsertStackInlineSource(ctx, fullStackName, cfg.ProjectName, program)
+	if err != nil {
+		return err
+	}
+	p.logger.Info(ctx, "Refreshing stack %q...", stackSource.Name())
+	refreshResult, err := stackSource.Refresh(ctx)
+	if err != nil {
+		return err
+	}
+	p.logger.Info(ctx, "Refresh summary: %q", refreshResult.Summary)
+	p.logger.Info(ctx, "Updating stack %q...", stackSource.Name())
+	_, err = stackSource.Up(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, parentStack string, fullStackName string) func(ctx *sdk.Context) error {
+	program := func(ctx *sdk.Context) error {
 		stackClientDesc := stack.Client.Stacks[params.Environment]
 		templateName := stack.Server.Resources.Resources[params.Environment].Template
 		if templateName == "" {
@@ -52,7 +72,13 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		if err != nil {
 			return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 		}
-		deployInput, err := api.PrepareClientConfigForDeploy(ctx.Context(), params.RootDir, fullStackName, stackDesc, stackClientDesc)
+		rootDir := params.RootDir
+
+		if rootDir == "" {
+			return errors.Errorf("root directory must be specified")
+		}
+
+		deployInput, err := api.PrepareClientConfigForDeploy(ctx.Context(), rootDir, fullStackName, stackDesc, stackClientDesc)
 		if err != nil {
 			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
 		}
@@ -78,17 +104,6 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
 		}
 		return nil
-	})
-	if err != nil {
-		return err
 	}
-	_, err = stackSource.Refresh(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = stackSource.Up(ctx)
-	if err != nil {
-		return err
-	}
-	return nil
+	return program
 }
