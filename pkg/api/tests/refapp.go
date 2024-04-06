@@ -475,7 +475,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
-			Type:        api.ClientTypeCompose,
+			Type:        api.ClientTypeCloudCompose,
 			ParentStack: "refapp",
 			Environment: "staging",
 			Config: api.Config{
@@ -493,7 +493,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 		"prod": {
-			Type:        api.ClientTypeCompose,
+			Type:        api.ClientTypeCloudCompose,
 			ParentStack: "refapp",
 			Environment: "prod",
 			Config: api.Config{

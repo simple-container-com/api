@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
@@ -138,4 +139,33 @@ type Credentials struct {
 type RegistrarConfig interface {
 	ProviderType() string
 	DnsRecords() []DnsRecord
+}
+
+type clientConfigConvertFunc func(cfg *Config) (Config, error)
+type clientConfigPrepareFunc func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error)
+
+var clientConfigsPrepareMap = map[string]clientConfigPrepareFunc{
+	ClientTypeCloudCompose: func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
+		configCompose, ok := clientDesc.Config.Config.(*StackConfigCompose)
+		if !ok {
+			return nil, errors.Errorf("client config is not of type *StackConfigCompose")
+		}
+		return PrepareCloudComposeForDeploy(ctx, rootDir, stackName, tpl, configCompose)
+	},
+	ClientTypeStatic: func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
+		configStatic, ok := clientDesc.Config.Config.(*StackConfigStatic)
+		if !ok {
+			return nil, errors.Errorf("client config is not of type *StackConfigStatic")
+		}
+		return PrepareStaticForDeploy(ctx, rootDir, stackName, tpl, configStatic)
+	},
+}
+
+var clientConfigsConvertMap = map[string]clientConfigConvertFunc{
+	ClientTypeStatic: func(cfg *Config) (Config, error) {
+		return ConvertConfig(cfg, &StackConfigStatic{})
+	},
+	ClientTypeCloudCompose: func(cfg *Config) (Config, error) {
+		return ConvertConfig(cfg, &StackConfigCompose{})
+	},
 }

@@ -65,7 +65,7 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
-					Type:        api.ClientTypeCompose,
+					Type:        api.ClientTypeCloudCompose,
 					ParentStack: e2eCreateStackName,
 					Environment: "test",
 					Config: api.Config{
@@ -132,7 +132,7 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 		Client: api.ClientDescriptor{
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
-					Type:        api.ClientTypeCompose,
+					Type:        api.ClientTypeCloudCompose,
 					ParentStack: e2eCreateStackName,
 					Environment: "test",
 					Config: api.Config{

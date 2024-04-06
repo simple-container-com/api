@@ -19,6 +19,8 @@ type EcsFargateConfig struct {
 	AccountConfig   `json:",inline" yaml:",inline"`
 	Account         string `json:"account" yaml:"account"`
 	Region          string `json:"region" yaml:"region"`
+	Cpu             int    `json:"cpu" yaml:"cpu"`
+	Memory          int    `json:"memory" yaml:"memory"`
 }
 
 type ImagePlatform string
@@ -52,14 +54,15 @@ type ProbeHttpGet struct {
 }
 
 type EcsFargateContainer struct {
-	Name          string              `json:"name" yaml:"name"`
-	Image         EcsFargateImage     `json:"image" yaml:"image"`
-	Env           map[string]string   `json:"env" yaml:"env"`
-	Secrets       map[string]string   `json:"secrets" yaml:"secrets"`
-	Port          int                 `json:"port" yaml:"port"`
-	LivenessProbe EcsFargateProbe     `json:"livenessProbe" yaml:"livenessProbe"`
-	StartupProbe  EcsFargateProbe     `json:"startupProbe" yaml:"startupProbe"`
-	Resources     EcsFargateResources `json:"resources" yaml:"resources"`
+	Name          string            `json:"name" yaml:"name"`
+	Image         EcsFargateImage   `json:"image" yaml:"image"`
+	Env           map[string]string `json:"env" yaml:"env"`
+	Secrets       map[string]string `json:"secrets" yaml:"secrets"`
+	Port          int               `json:"port" yaml:"port"`
+	LivenessProbe EcsFargateProbe   `json:"livenessProbe" yaml:"livenessProbe"`
+	StartupProbe  EcsFargateProbe   `json:"startupProbe" yaml:"startupProbe"`
+	Cpu           int               `json:"cpu" yaml:"cpu"`
+	Memory        int               `json:"memory" yaml:"memory"`
 }
 
 type EcsFargateScale struct {
@@ -151,7 +154,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Port:          port,
 			LivenessProbe: liveProbe,
 			StartupProbe:  startProbe,
-			Resources:     toResources(svc),
+			// TODO: cpu, memory
 		})
 	}
 

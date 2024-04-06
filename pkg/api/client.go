@@ -10,8 +10,8 @@ import (
 const (
 	ClientSchemaVersion = "1.0"
 
-	ClientTypeCompose = "compose"
-	ClientTypeStatic  = "static"
+	ClientTypeCloudCompose = "cloud-compose"
+	ClientTypeStatic       = "static"
 )
 
 // ClientDescriptor describes the client schema
@@ -97,37 +97,22 @@ func PrepareStaticForDeploy(ctx context.Context, rootDir, stackName string, tpl 
 }
 
 func PrepareClientConfigForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
-	if clientDesc.Type == ClientTypeCompose {
-		configCompose, ok := clientDesc.Config.Config.(*StackConfigCompose)
-		if !ok {
-			return nil, errors.Errorf("client config is not of type *StackConfigCompose")
-		}
-		return PrepareCloudComposeForDeploy(ctx, rootDir, stackName, tpl, configCompose)
+	if fnc, found := clientConfigsPrepareMap[clientDesc.Type]; !found {
+		return nil, errors.Errorf("unsupported client type %q", tpl.Type)
+	} else if sDesc, err := fnc(ctx, rootDir, stackName, tpl, clientDesc); err != nil {
+		return nil, errors.Wrapf(err, "failed to prepare config for deploy")
+	} else {
+		return sDesc, nil
 	}
-	if clientDesc.Type == ClientTypeStatic {
-		configStatic, ok := clientDesc.Config.Config.(*StackConfigStatic)
-		if !ok {
-			return nil, errors.Errorf("client config is not of type *StackConfigStatic")
-		}
-		return PrepareStaticForDeploy(ctx, rootDir, stackName, tpl, configStatic)
-	}
-	return nil, errors.Errorf("unsupported client type %q", tpl.Type)
 }
 
 func ConvertClientConfig(clientDesc StackClientDescriptor) (*StackClientDescriptor, error) {
-	switch clientDesc.Type {
-	case ClientTypeStatic:
-		if converted, err := ConvertConfig(&clientDesc.Config, &StackConfigStatic{}); err != nil {
-			return &clientDesc, err
-		} else {
-			clientDesc.Config = converted
-		}
-	case ClientTypeCompose:
-		if converted, err := ConvertConfig(&clientDesc.Config, &StackConfigCompose{}); err != nil {
-			return &clientDesc, err
-		} else {
-			clientDesc.Config = converted
-		}
+	if fnc, found := clientConfigsConvertMap[clientDesc.Type]; !found {
+		return nil, errors.Errorf("unsupported client config type %q", clientDesc.Type)
+	} else if converted, err := fnc(&clientDesc.Config); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert client config")
+	} else {
+		clientDesc.Config = converted
+		return &clientDesc, nil
 	}
-	return &clientDesc, nil
 }
