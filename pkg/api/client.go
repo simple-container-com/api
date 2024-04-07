@@ -55,6 +55,10 @@ type DeployParams struct {
 	Vars        VariableValues `json:"vars" yaml:"vars"`
 }
 
+type PreviewResult struct {
+	Operations map[string]int `json:"operations" yaml:"operations"`
+}
+
 type DestroyParams struct {
 	StackParams `json:",inline" yaml:",inline"`
 }

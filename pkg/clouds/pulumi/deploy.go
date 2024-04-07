@@ -18,12 +18,12 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Deploying stack %q...", s.Ref().String())
+	p.logger.Info(ctx, "Deploying stack %q...", s.Ref().FullyQualifiedName())
 	parentStack := params.ParentStack
 	fullStackName := fmt.Sprintf("%s--%s--%s", cfg.ProjectName, parentStack, params.Environment)
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
-	stackSource, err := auto.UpsertStackInlineSource(ctx, fullStackName, cfg.ProjectName, program)
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 }
 
 func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, parentStack string, fullStackName string) func(ctx *sdk.Context) error {
-	program := func(ctx *sdk.Context) error {
+	return func(ctx *sdk.Context) error {
 		stackClientDesc := stack.Client.Stacks[params.Environment]
 		templateName := stack.Server.Resources.Resources[params.Environment].Template
 		if templateName == "" {
@@ -59,8 +59,10 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
+		parentRefString := fmt.Sprintf("%s/%s/%s", p.provisionerCfg.Organization, p.configFile.ProjectName, parentStack)
+
 		// Create a StackReference to the parent stack
-		parentRef, err := sdk.NewStackReference(ctx, parentStack, nil)
+		parentRef, err := sdk.NewStackReference(ctx, parentRefString, nil)
 		if err != nil {
 			return err
 		}
@@ -111,5 +113,4 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		}
 		return nil
 	}
-	return program
 }

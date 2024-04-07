@@ -4,6 +4,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_preview"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
@@ -45,6 +46,7 @@ func main() {
 		cmd_init.NewInitCmd(&rootCmdInstance),
 		cmd_provision.NewProvisionCmd(&rootCmdInstance),
 		cmd_deploy.NewDeployCmd(&rootCmdInstance),
+		cmd_preview.NewPreviewCmd(&rootCmdInstance),
 	)
 
 	rootCmd.Flags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

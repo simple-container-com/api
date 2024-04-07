@@ -42,7 +42,7 @@ func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
 	return cfg, c
 }
 
-func readTestSecretConfig[T any](cryptor secrets.Cryptor, path string, cfg *T) *T {
+func ReadTestSecretConfig[T any](cryptor secrets.Cryptor, path string, cfg *T) *T {
 	cfgBytes, err := cryptor.GetAndDecryptFileContent(path)
 	Expect(err).To(BeNil())
 	err = yaml.Unmarshal(cfgBytes, cfg)
@@ -54,13 +54,13 @@ func PrepareE2Etest() E2ETestConfig {
 	cfg, cryptor := ReadIntegrationTestConfig()
 	Expect(cryptor.GetSecretFiles().Registry.Files).NotTo(BeEmpty())
 	fmt.Println(cryptor.GetSecretFiles().Registry.Files) // for debugging purposes
-	gcpCreds := readTestSecretConfig(cryptor, testGCPConfigFile, &gcloud.Credentials{})
-	awsCreds := readTestSecretConfig(cryptor, testAwsConfigFile, &awsApi.AccountConfig{})
-	cfConfig := readTestSecretConfig(cryptor, testCfConfigFile, &cloudflare.RegistrarConfig{})
+	gcpCreds := ReadTestSecretConfig(cryptor, testGCPConfigFile, &gcloud.Credentials{})
+	awsCreds := ReadTestSecretConfig(cryptor, testAwsConfigFile, &awsApi.AccountConfig{})
+	cfCreds := ReadTestSecretConfig(cryptor, testCfConfigFile, &cloudflare.RegistrarConfig{})
 	return E2ETestConfig{
 		ConfigFile:       cfg,
 		Cryptor:          cryptor,
-		CloudflareConfig: cfConfig,
+		CloudflareConfig: cfCreds,
 		AwsCredentials:   awsCreds,
 		GcpCredentials:   gcpCreds,
 		RootDir:          path.Join(cryptor.Workdir(), rootDirRelPath),

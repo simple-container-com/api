@@ -18,7 +18,7 @@ func (p *pulumi) destroyChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	fullStackName := fmt.Sprintf("%s--%s--%s", cfg.ProjectName, parentStack, params.Environment)
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
-	stackSource, err := auto.UpsertStackInlineSource(ctx, fullStackName, cfg.ProjectName, program)
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func (p *pulumi) destroyParentStack(ctx context.Context, cfg *api.ConfigFile, st
 
 	p.logger.Info(ctx, "Found stack %q", s.Ref().String())
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, p.provisionProgram(stack))
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack))
 	if err != nil {
 		return err
 	}

@@ -187,10 +187,12 @@ func Test_Deploy(t *testing.T) {
 		{
 			name: "happy path staging gcp",
 			params: api.DeployParams{
-				RootDir:     "testdata/stacks",
-				StackName:   "refapp",
-				ParentStack: "refapp",
-				Environment: "staging",
+				StackParams: api.StackParams{
+					RootDir:     "testdata/stacks",
+					StackName:   "refapp",
+					ParentStack: "refapp",
+					Environment: "staging",
+				},
 			},
 			setExpectations: true,
 			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error) {
@@ -204,10 +206,12 @@ func Test_Deploy(t *testing.T) {
 					return assert.EqualValuesf(t, expected, actual, "%v failed", ttName)
 				}), mock.MatchedBy(func(actual any) bool {
 					return assert.EqualValuesf(t, api.DeployParams{
-						RootDir:     "testdata/stacks",
-						StackName:   "refapp",
-						ParentStack: "refapp",
-						Environment: "staging",
+						StackParams: api.StackParams{
+							RootDir:     "testdata/stacks",
+							StackName:   "refapp",
+							ParentStack: "refapp",
+							Environment: "staging",
+						},
 					}, actual, "%v failed", ttName)
 				}))
 			},
@@ -215,9 +219,11 @@ func Test_Deploy(t *testing.T) {
 		{
 			name: "error stack not found",
 			params: api.DeployParams{
-				RootDir:     "testdata/stacks",
-				ParentStack: "refapp-notexisting",
-				Environment: "staging",
+				StackParams: api.StackParams{
+					RootDir:     "testdata/stacks",
+					ParentStack: "refapp-notexisting",
+					Environment: "staging",
+				},
 			},
 			wantErr: `stack "refapp-notexisting" is not configured`,
 			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error) {

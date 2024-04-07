@@ -67,10 +67,11 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		}
 		return nil
 	}
-	pStack, _ := auto.SelectStackInlineSource(ctx, stack.Name, cfg.ProjectName, p.initialProvisionProgram)
 	project := &workspace.Project{
 		Name: tokens.PackageName(cfg.ProjectName),
 	}
+	stackRefString := fmt.Sprintf("%s/%s/%s", organization, project.Name, stack.Name)
+	pStack, _ := auto.SelectStackInlineSource(ctx, stackRefString, cfg.ProjectName, p.initialProvisionProgram)
 	var be backend.Backend
 	stateStorageCfg, ok := provisionerCfg.StateStorage.Config.Config.(api.StateStorageConfig)
 	if !ok {
@@ -109,14 +110,17 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 	p.logger.Info(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
 
-	ref, err := be.ParseStackReference(fmt.Sprintf("%s/%s/%s", organization, project.Name, stack.Name))
+	ref, err := be.ParseStackReference(stackRefString)
 	if err != nil {
 		return err
 	}
-
-	p.stack = &pStack
 	p.stackRef = ref
+
+	p.provisionerCfg = provisionerCfg
+	p.configFile = cfg
+	p.stack = &pStack
 	p.backend = be
+	p.project = project
 
 	return nil
 }

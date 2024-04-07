@@ -21,13 +21,13 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		return err
 	}
 
-	p.logger.Info(ctx, "Found stack %q", s.Ref().String())
+	p.logger.Info(ctx, "Found stack %q", s.Ref().FullyQualifiedName())
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, stack.Name, cfg.ProjectName, p.provisionProgram(stack))
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack))
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refreshing stack %q...", stackSource.Name())
+	p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
 	refreshResult, err := stackSource.Refresh(ctx)
 	if err != nil {
 		return err
@@ -118,7 +118,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	}
 
 	if s, err := p.backend.GetStack(ctx, p.stackRef); err != nil {
-		return nil, errors.Errorf("failed to get stack %q", p.stackRef.Name())
+		return nil, errors.Errorf("failed to get stack %q", p.stackRef.FullyQualifiedName())
 	} else {
 		return s, nil
 	}
@@ -176,6 +176,11 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		return nil
 	}
 	p.logger.Info(ctx.Context(), "Provisioning secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
+
+	if provisionerCfg.SecretsProvider.Type == "pulumi-cloud" {
+		p.logger.Info(ctx.Context(), "Do not need to provision secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
+		return nil
+	}
 
 	resDescriptor := api.ResourceDescriptor{
 		Type:   provisionerCfg.SecretsProvider.Type,

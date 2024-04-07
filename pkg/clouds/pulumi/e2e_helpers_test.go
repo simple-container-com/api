@@ -24,6 +24,33 @@ type e2eConfig struct {
 	registrar      api.RegistrarDescriptor
 	gcpCreds       gcloud.Credentials
 	awsCreds       aws.AccountConfig
+	pulumiCreds    TokenAuthDescriptor
+}
+
+func e2eServerDescriptorForPulumi(config e2eConfig) api.ServerDescriptor {
+	return api.ServerDescriptor{
+		Provisioner: api.ProvisionerDescriptor{
+			Type: ProvisionerTypePulumi,
+			Config: api.Config{
+				Config: &ProvisionerConfig{
+					Organization: "simple-container-com",
+					StateStorage: StateStorageConfig{
+						Type:   StateStorageTypePulumiCloud,
+						Config: api.Config{Config: &config.pulumiCreds},
+					},
+					SecretsProvider: SecretsProviderConfig{
+						Type:   SecretsProviderTypePulumiCloud,
+						Config: api.Config{Config: &config.pulumiCreds},
+					},
+				},
+			},
+		},
+		Templates: config.templates,
+		Resources: api.PerStackResourcesDescriptor{
+			Resources: config.resources,
+			Registrar: config.registrar,
+		},
+	}
 }
 
 func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {

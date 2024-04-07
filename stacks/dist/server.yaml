@@ -1,0 +1,36 @@
+schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    organization: simple-container-com
+    state-storage:
+      config:
+        type: pulumi-cloud
+        credentials: "${auth:pulumi}"
+        provision: true
+    secrets-provider:
+      type: pulumi-cloud
+      config:
+        organization: simple-container-com
+        provision: true
+        credentials: "${auth:pulumi}"
+templates:
+  static-website:
+    type: gcp-static-website
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: 12345
+      zoneName: sc-refapp.org
+      dnsRecords:
+        - name: "@"
+          type: "TXT"
+          value: "MS=ms83691649"
+  resources:
+    prod:
+      template: static-website
