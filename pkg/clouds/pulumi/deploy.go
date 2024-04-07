@@ -33,6 +33,12 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		return err
 	}
 	p.logger.Info(ctx, "Refresh summary: %q", refreshResult.Summary)
+	p.logger.Info(ctx, "Preview stack %q...", stackSource.Name())
+	previewResult, err := stackSource.Preview(ctx)
+	if err != nil {
+		return err
+	}
+	p.logger.Info(ctx, "Preview summary: %q", previewResult.ChangeSummary)
 	p.logger.Info(ctx, "Updating stack %q...", stackSource.Name())
 	_, err = stackSource.Up(ctx)
 	if err != nil {
