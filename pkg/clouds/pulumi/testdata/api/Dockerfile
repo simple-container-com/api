@@ -1,1 +1,3 @@
-FROM nginx:latest
+FROM caddy:latest
+
+EXPOSE 80
