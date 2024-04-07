@@ -174,15 +174,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsClusterName), loadBalancer.LoadBalancer.Arn())
 	ctx.Export(fmt.Sprintf("%s-alb-name", ecsClusterName), loadBalancer.LoadBalancer.Name())
 
-	subnets, err := getOrCreateDefaultSubnetsInRegion(ctx, crInput.AccountConfig, params)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get default subnets for %q in %q", stack.Name, deployParams.Environment)
-	}
-	subnetIds := lo.Map(subnets, func(subnet *ec2.DefaultSubnet, _ int) sdk.StringOutput {
-		return subnet.ID().ToStringOutput()
-	})
-	ctx.Export(fmt.Sprintf("%s-subnet-ids", ecsClusterName), sdk.ToStringArrayOutput(subnetIds))
-
 	iContainer := crInput.IngressContainer
 
 	params.Log.Info(ctx.Context(), "creating ECS Fargate cluster for %q in %q with ingress container %q...",
@@ -227,10 +218,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
 			},
 		},
-		//NetworkConfiguration: legacyEcs.ServiceNetworkConfigurationArgs{
-		//	AssignPublicIp: sdk.BoolPtr(true),
-		//	Subnets:        sdk.ToStringArrayOutput(subnetIds),
-		//},
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
