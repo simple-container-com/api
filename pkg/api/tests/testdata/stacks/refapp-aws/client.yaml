@@ -4,7 +4,6 @@ stacks:
   staging: &staging
     type: cloud-compose
     parent: refapp-aws
-    environment: staging
     config: &config
       domain: staging.sc-refapp.org
       dockerComposeFile: ./docker-compose.yaml # uses listed containers from docker-compose.yaml
@@ -15,7 +14,6 @@ stacks:
         - ui
   prod:
     <<: *staging
-    environment: prod
     config:
       <<: *config
       domain: prod.sc-refapp.org

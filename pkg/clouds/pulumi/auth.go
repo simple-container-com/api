@@ -11,7 +11,7 @@ const (
 
 // TokenAuthDescriptor describes the pulumi token auth schema
 type TokenAuthDescriptor struct {
-	Value string `json:"value" yaml:"value"`
+	Credentials string `json:"credentials" yaml:"credentials"`
 }
 
 func (d *TokenAuthDescriptor) StorageUrl() string {
@@ -23,7 +23,7 @@ func (d *TokenAuthDescriptor) IsProvisionEnabled() bool {
 }
 
 func (d *TokenAuthDescriptor) CredentialsValue() string {
-	return d.Value
+	return d.Credentials
 }
 
 func (d *TokenAuthDescriptor) ProviderType() string {

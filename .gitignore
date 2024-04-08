@@ -1,5 +1,6 @@
 .idea
 bin
+dist
 *.iml
 .sc/cfg.default.yaml
 .sc/cfg.github.yaml

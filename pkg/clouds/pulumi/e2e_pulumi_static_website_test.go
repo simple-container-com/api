@@ -60,7 +60,6 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 				"test": {
 					Type:        api.ClientTypeStatic,
 					ParentStack: e2eStaticParentStackName,
-					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							Domain:    fmt.Sprintf("e2e--pulumi--%s.simple-container.com", tmpResName("static-website")),

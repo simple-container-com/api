@@ -154,6 +154,10 @@ func DetectCiCdType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
 	if descriptor.CiCd.IsInherited() {
 		return descriptor, nil
 	}
+	if descriptor.CiCd.Type == "" {
+		return descriptor, nil // skip cicd
+	}
+
 	if fn, found := providerConfigMapping[descriptor.CiCd.Type]; !found {
 		return nil, errors.Errorf("unknown cicd type %q", descriptor.CiCd.Type)
 	} else {
@@ -256,6 +260,9 @@ func DetectTemplateType(tpl StackDescriptor) (*StackDescriptor, error) {
 
 func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
 	if descriptor.Secrets.IsInherited() {
+		return descriptor, nil
+	}
+	if descriptor.Secrets.Type == "" { // skip secrets
 		return descriptor, nil
 	}
 

@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
@@ -19,7 +20,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		return err
 	}
 	p.logger.Info(ctx, "Deploying stack %q...", s.Ref().FullyQualifiedName())
-	parentStack := params.ParentStack
+	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
@@ -38,7 +39,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(previewResult))
+	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
 	p.logger.Info(ctx, "Updating stack %q...", stackSource.Name())
 	_, err = stackSource.Up(ctx)
 	if err != nil {
@@ -80,13 +81,13 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if err != nil {
 			return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 		}
-		rootDir := params.RootDir
 
-		if rootDir == "" {
-			return errors.Errorf("root directory must be specified")
+		if params.StacksDir == "" {
+			return errors.Errorf("stacks directory must be specified")
 		}
+		stackDir := filepath.Join(params.StacksDir, params.StackName)
 
-		deployInput, err := api.PrepareClientConfigForDeploy(ctx.Context(), rootDir, fullStackName, stackDesc, stackClientDesc)
+		deployInput, err := api.PrepareClientConfigForDeploy(ctx.Context(), stackDir, fullStackName, stackDesc, stackClientDesc)
 		if err != nil {
 			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
 		}

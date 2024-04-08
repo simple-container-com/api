@@ -35,11 +35,11 @@ func e2eServerDescriptorForPulumi(config e2eConfig) api.ServerDescriptor {
 				Config: &ProvisionerConfig{
 					Organization: "simple-container-com",
 					StateStorage: StateStorageConfig{
-						Type:   StateStorageTypePulumiCloud,
+						Type:   BackendTypePulumiCloud,
 						Config: api.Config{Config: &config.pulumiCreds},
 					},
 					SecretsProvider: SecretsProviderConfig{
-						Type:   SecretsProviderTypePulumiCloud,
+						Type:   BackendTypePulumiCloud,
 						Config: api.Config{Config: &config.pulumiCreds},
 					},
 				},
@@ -142,8 +142,7 @@ func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig
 	err = deployProv.DeployStack(ctx, cfg.ConfigFile, stack, api.DeployParams{
 		StackParams: api.StackParams{
 			StackName:   deployStackName,
-			ParentStack: stack.Name,
-			RootDir:     cfg.RootDir,
+			StacksDir:   cfg.StacksDir,
 			Environment: "test",
 		},
 	})
@@ -166,8 +165,7 @@ func runDestroyChildTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, depl
 	err = destroyProv.DestroyChildStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{
 		StackParams: api.StackParams{
 			StackName:   deployStackName,
-			ParentStack: stack.Name,
-			RootDir:     cfg.RootDir,
+			StacksDir:   cfg.StacksDir,
 			Environment: "test",
 		},
 	})

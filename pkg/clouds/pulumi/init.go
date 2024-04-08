@@ -13,4 +13,8 @@ func init() {
 	api.RegisterProvisioner(api.ProvisionerRegisterMap{
 		ProvisionerTypePulumi: InitPulumiProvisioner,
 	})
+
+	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{
+		BackendTypePulumiCloud: ReadAuthConfig,
+	})
 }

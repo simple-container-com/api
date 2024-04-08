@@ -10,13 +10,40 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
-func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
+func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*api.PreviewResult, error) {
 	s, err := p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Deploying stack %q...", s.Ref().String())
-	parentStack := params.ParentStack
+	p.logger.Info(ctx, "Previewing parent stack %q...", s.Ref().FullyQualifiedName().String())
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack))
+	if err != nil {
+		return nil, err
+	}
+	p.logger.Info(ctx, "Refreshing parent stack %q...", stackSource.Name())
+	refreshResult, err := stackSource.Refresh(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.logger.Info(ctx, "Refresh parent summary: %q", p.toRefreshResult(refreshResult))
+
+	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
+	previewResult, err := stackSource.Preview(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.logger.Info(ctx, "Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
+	return p.toPreviewResult(stackSource.Name(), previewResult), nil
+}
+
+func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
+	s, err := p.validateStateAndGetStack(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.logger.Info(ctx, "Previewing child stack %q...", s.Ref().FullyQualifiedName().String())
+
+	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
@@ -24,23 +51,25 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refreshing stack %q...", stackSource.Name())
+	p.logger.Info(ctx, "Refreshing child stack %q...", stackSource.Name())
 	refreshResult, err := stackSource.Refresh(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refresh summary: %q", p.toRefreshResult(refreshResult))
-	p.logger.Info(ctx, "Preview stack %q...", stackSource.Name())
+	p.logger.Info(ctx, "Refresh child summary: %q", p.toRefreshResult(refreshResult))
+
+	p.logger.Info(ctx, "Preview child stack %q...", stackSource.Name())
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(previewResult))
-	return p.toPreviewResult(previewResult), nil
+	p.logger.Info(ctx, "Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
+	return p.toPreviewResult(stackSource.Name(), previewResult), nil
 }
 
-func (p *pulumi) toPreviewResult(result auto.PreviewResult) *api.PreviewResult {
+func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *api.PreviewResult {
 	return &api.PreviewResult{
+		StackName: stackName,
 		Operations: lo.MapKeys(result.ChangeSummary, func(value int, key apitype.OpType) string {
 			return string(key)
 		}),

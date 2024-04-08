@@ -2,6 +2,7 @@ package pulumi
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
@@ -97,19 +98,27 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	childStack := parentStack.ChildStack(params.StackName)
+	childStack := toChildStack(parentStack, params.StackParams)
 	if _, err = p.getStack(ctx, cfg, childStack); err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
 	return p.destroyChildStack(ctx, cfg, childStack, params)
 }
 
-func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
+func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) (*api.PreviewResult, error) {
+	_, err := p.getStack(ctx, cfg, parentStack)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
+	}
+	return p.previewStack(ctx, cfg, parentStack)
+}
+
+func (p *pulumi) PreviewChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
 	childStack, err := p.initChildStackForDeploy(ctx, cfg, parentStack, params)
 	if err != nil {
 		return nil, err
 	}
-	return p.previewStack(ctx, cfg, *childStack, params)
+	return p.previewChildStack(ctx, cfg, *childStack, params)
 }
 
 func (p *pulumi) initChildStackForDeploy(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.Stack, error) {
@@ -117,11 +126,15 @@ func (p *pulumi) initChildStackForDeploy(ctx context.Context, cfg *api.ConfigFil
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	childStack := parentStack.ChildStack(params.StackName)
+	childStack := toChildStack(parentStack, params.StackParams)
 	if err = p.createStackIfNotExists(ctx, cfg, childStack); err != nil {
 		return nil, errors.Wrapf(err, "failed to create stack %q if not exists", childStack.Name)
 	}
 	return &childStack, nil
+}
+
+func toChildStack(parentStack api.Stack, params api.StackParams) api.Stack {
+	return parentStack.ChildStack(fmt.Sprintf("%s--%s", params.StackName, params.Environment))
 }
 
 func (p *pulumi) CancelStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {

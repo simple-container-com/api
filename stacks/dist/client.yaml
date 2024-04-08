@@ -3,8 +3,7 @@ schemaVersion: 1.0
 stacks:
   prod:
     type: static
-    parent: simple-container-dist
-    environment: prod
-    config: &config
+    parent: dist
+    config:
       bundleDir: ./bundle
       domain: dist.simple-container.com

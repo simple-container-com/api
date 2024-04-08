@@ -38,7 +38,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(previewResult))
+	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 			return errors.Wrapf(err, "failed to provision init program")
 		}
 
-		p.logger.Info(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
+		p.logger.Debug(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
 
 		if err := p.initRegistrar(ctx, stack); err != nil {
 			return errors.Wrapf(err, "failed to init registar")
@@ -123,6 +123,9 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	}
 	if p.stackRef == nil {
 		return nil, errors.Errorf("stackRef is nil")
+	}
+	if p.stackRef.FullyQualifiedName() == "" {
+		return nil, errors.Errorf("stack reference is not set")
 	}
 
 	if s, err := p.backend.GetStack(ctx, p.stackRef); err != nil {

@@ -73,7 +73,6 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 				"test": {
 					Type:        api.ClientTypeCloudCompose,
 					ParentStack: parentStackName,
-					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
 							Domain:            fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("cloudrun")),
@@ -144,7 +143,6 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 				"test": {
 					Type:        api.ClientTypeCloudCompose,
 					ParentStack: parentStackName,
-					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
 							Domain:            fmt.Sprintf("e2e--aws--%s.simple-container.com", tmpResName("ecs-fargate")),

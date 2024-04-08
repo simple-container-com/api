@@ -1,10 +1,11 @@
 package main
 
 import (
+	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
-	"github.com/simple-container-com/api/pkg/cmd/cmd_preview"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
@@ -22,9 +23,10 @@ func main() {
 	}
 
 	rootCmd := &cobra.Command{
-		Use:   "sc",
-		Short: "Simple Container is a handy tool for provisioning your cloud clusters",
-		Long:  "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://simple-container.com/docs",
+		Use:     "sc",
+		Version: build.Version,
+		Short:   "Simple Container is a handy tool for provisioning your cloud clusters",
+		Long:    "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://simple-container.com/docs",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Name() != "init" {
 				if err := rootCmdInstance.Init(false); err != nil {
@@ -46,7 +48,7 @@ func main() {
 		cmd_init.NewInitCmd(&rootCmdInstance),
 		cmd_provision.NewProvisionCmd(&rootCmdInstance),
 		cmd_deploy.NewDeployCmd(&rootCmdInstance),
-		cmd_preview.NewPreviewCmd(&rootCmdInstance),
+		cmd_cancel.NewCancelCmd(&rootCmdInstance),
 	)
 
 	rootCmd.Flags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

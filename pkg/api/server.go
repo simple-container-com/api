@@ -3,9 +3,9 @@ package api
 const ServerSchemaVersion = "1.0"
 
 type ProvisionParams struct {
-	RootDir string   `json:"rootDir" yaml:"rootDir"`
-	Profile string   `json:"profile" yaml:"profile"`
-	Stacks  []string `json:"stacks" yaml:"stacks"`
+	StacksDir string   `json:"rootDir" yaml:"rootDir"`
+	Profile   string   `json:"profile" yaml:"profile"`
+	Stacks    []string `json:"stacks" yaml:"stacks"`
 }
 
 // ServerDescriptor describes the server schema
@@ -110,6 +110,10 @@ type ProvisionerDescriptor struct {
 
 func (s *ProvisionerDescriptor) GetProvisioner() Provisioner {
 	return s.provisioner
+}
+
+func (s *ProvisionerDescriptor) SetProvisioner(p Provisioner) {
+	s.provisioner = p
 }
 
 // ValuesOnly returns copy of descriptor without provisioner reference

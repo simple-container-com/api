@@ -6,6 +6,8 @@ import (
 	"path"
 	"testing"
 
+	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
+
 	"github.com/stretchr/testify/assert"
 
 	. "github.com/onsi/gomega"
@@ -29,7 +31,7 @@ func Test_Provision(t *testing.T) {
 	testCases := []struct {
 		name         string
 		params       api.ProvisionParams
-		init         func(t *testing.T, ctx context.Context) (Provisioner, error)
+		init         func(t *testing.T, ctx context.Context, gitRepo git.Repo) (Provisioner, error)
 		opts         []Option
 		expectStacks api.StacksMap
 		wantErr      string
@@ -37,7 +39,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "happy path gcp",
 			params: api.ProvisionParams{
-				RootDir: "testdata/stacks",
+				StacksDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
 					"refapp",
@@ -61,7 +63,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "happy path aws",
 			params: api.ProvisionParams{
-				RootDir: "testdata/stacks",
+				StacksDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
 					"refapp-aws",
@@ -85,7 +87,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "happy path gcp static",
 			params: api.ProvisionParams{
-				RootDir: "testdata/stacks",
+				StacksDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
 					"refapp-static-gcp",
@@ -109,13 +111,13 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "pulumi error",
 			params: api.ProvisionParams{
-				RootDir: "testdata/stacks",
+				StacksDir: "testdata/stacks",
 				Stacks: []string{
 					"common",
 					"refapp",
 				},
 			},
-			init: func(t *testing.T, ctx context.Context) (Provisioner, error) {
+			init: func(t *testing.T, ctx context.Context, gitRepo git.Repo) (Provisioner, error) {
 				pulumiMock := pulumi_mocks.NewPulumiMock(t)
 				pulumiMock.On("ProvisionStack", ctx, mock.Anything, mock.Anything, mock.Anything).
 					Return(errors.New("failed to create stacks"))
@@ -123,6 +125,7 @@ func Test_Provision(t *testing.T) {
 				return New(
 					WithPlaceholders(placeholders.New(logger.New())),
 					WithOverrideProvisioner(pulumiMock),
+					WithGitRepo(gitRepo),
 				)
 			},
 			wantErr: "failed to create stacks",
@@ -134,8 +137,11 @@ func Test_Provision(t *testing.T) {
 
 			var p Provisioner
 			var err error
+			gitRepoMock := git_mocks.NewGitRepoMock(t)
+			gitRepoMock.On("Workdir").Return("testdata")
+
 			if tt.init != nil {
-				p, err = tt.init(t, ctx)
+				p, err = tt.init(t, ctx, gitRepoMock)
 			} else {
 				if len(tt.opts) == 0 {
 					pulumiMock := pulumi_mocks.NewPulumiMock(t)
@@ -143,6 +149,7 @@ func Test_Provision(t *testing.T) {
 						Return(nil)
 					pulumiMock.On("SetPublicKey", mock.Anything).Return()
 					tt.opts = []Option{
+						WithGitRepo(gitRepoMock),
 						WithPlaceholders(placeholders.New(logger.New())),
 						WithOverrideProvisioner(pulumiMock),
 					}
@@ -166,7 +173,7 @@ func Test_Provision(t *testing.T) {
 					for stackName := range tt.expectStacks {
 						actual := p.Stacks()[stackName]
 						expected := tt.expectStacks[stackName]
-						assert.EqualValuesf(t, expected, actual, "%v/%v failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected, actual.ValuesOnly(), "%v/%v failed", tt.name, stackName)
 					}
 				}
 			}
@@ -188,9 +195,8 @@ func Test_Deploy(t *testing.T) {
 			name: "happy path staging gcp",
 			params: api.DeployParams{
 				StackParams: api.StackParams{
-					RootDir:     "testdata/stacks",
+					StacksDir:   "testdata/stacks",
 					StackName:   "refapp",
-					ParentStack: "refapp",
 					Environment: "staging",
 				},
 			},
@@ -207,9 +213,8 @@ func Test_Deploy(t *testing.T) {
 				}), mock.MatchedBy(func(actual any) bool {
 					return assert.EqualValuesf(t, api.DeployParams{
 						StackParams: api.StackParams{
-							RootDir:     "testdata/stacks",
+							StacksDir:   "testdata/stacks",
 							StackName:   "refapp",
-							ParentStack: "refapp",
 							Environment: "staging",
 						},
 					}, actual, "%v failed", ttName)
@@ -220,8 +225,8 @@ func Test_Deploy(t *testing.T) {
 			name: "error stack not found",
 			params: api.DeployParams{
 				StackParams: api.StackParams{
-					RootDir:     "testdata/stacks",
-					ParentStack: "refapp-notexisting",
+					StacksDir:   "testdata/stacks",
+					StackName:   "refapp-notexisting",
 					Environment: "staging",
 				},
 			},
@@ -238,6 +243,9 @@ func Test_Deploy(t *testing.T) {
 
 			var p Provisioner
 			var err error
+
+			gitRepoMock := git_mocks.NewGitRepoMock(t)
+			gitRepoMock.On("Workdir").Return("testdata")
 			pulumiMock := pulumi_mocks.NewPulumiMock(t)
 			if tt.setExpectations {
 				pulumiMock.On("DeployStack", ctx, mock.Anything, mock.Anything, mock.Anything).
@@ -247,6 +255,7 @@ func Test_Deploy(t *testing.T) {
 			p, err = New(
 				WithPlaceholders(placeholders.New(logger.New())),
 				WithOverrideProvisioner(pulumiMock),
+				WithGitRepo(gitRepoMock),
 			)
 
 			if err != nil && tt.wantErr != "" {

@@ -23,7 +23,6 @@ type ClientDescriptor struct {
 type StackClientDescriptor struct {
 	Type        string `json:"type" yaml:"type"`
 	ParentStack string `json:"parent" yaml:"parent"`
-	Environment string `json:"environment" yaml:"environment"`
 	Config      Config `json:",inline" yaml:",inline"`
 }
 
@@ -43,10 +42,9 @@ type StackConfigStatic struct {
 }
 
 type StackParams struct {
-	RootDir     string `json:"rootDir" yaml:"rootDir"`
+	StacksDir   string `json:"stacksDir" yaml:"stacksDir"`
 	Profile     string `json:"profile" yaml:"profile"`
 	StackName   string `json:"stack" yaml:"stack"`
-	ParentStack string `json:"parent" yaml:"parent"`
 	Environment string `json:"environment" yaml:"environment"`
 }
 
@@ -56,6 +54,7 @@ type DeployParams struct {
 }
 
 type PreviewResult struct {
+	StackName  string         `json:"stackName" yaml:"stackName"`
 	Operations map[string]int `json:"operations" yaml:"operations"`
 }
 
@@ -95,7 +94,7 @@ func PrepareCloudComposeForDeploy(ctx context.Context, rootDir, stackName string
 	}
 }
 
-func PrepareStaticForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic) (*StackDescriptor, error) {
+func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -103,7 +102,7 @@ func PrepareStaticForDeploy(ctx context.Context, rootDir, stackName string, tpl 
 
 	if tplFun, found := cloudStaticSiteConverterMapping[stackDesc.Type]; !found {
 		return nil, errors.Errorf("unknown template type %q for %q", stackDesc.Type, stackName)
-	} else if input, err := tplFun(stackDesc.Config.Config, rootDir, stackName, clientConfig); err != nil {
+	} else if input, err := tplFun(stackDesc.Config.Config, stackDir, stackName, clientConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert cloud static site for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
@@ -115,10 +114,10 @@ func PrepareStaticForDeploy(ctx context.Context, rootDir, stackName string, tpl 
 	}
 }
 
-func PrepareClientConfigForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
+func PrepareClientConfigForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 	if fnc, found := clientConfigsPrepareMap[clientDesc.Type]; !found {
 		return nil, errors.Errorf("unsupported client type %q", tpl.Type)
-	} else if sDesc, err := fnc(ctx, rootDir, stackName, tpl, clientDesc); err != nil {
+	} else if sDesc, err := fnc(ctx, stackDir, stackName, tpl, clientDesc); err != nil {
 		return nil, errors.Wrapf(err, "failed to prepare config for deploy")
 	} else {
 		return sDesc, nil

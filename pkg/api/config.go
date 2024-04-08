@@ -20,6 +20,7 @@ type ConfigFile struct {
 	PublicKeyPath  string `yaml:"publicKeyPath" json:"publicKeyPath"`
 	PrivateKey     string `yaml:"privateKey" json:"privateKey"`
 	PublicKey      string `yaml:"publicKey" json:"publicKey"`
+	StacksDir      string `yaml:"stacksDir" json:"stacksDir"`
 }
 
 type InitParams struct {

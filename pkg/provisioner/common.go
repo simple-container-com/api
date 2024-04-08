@@ -18,18 +18,16 @@ import (
 )
 
 type Provisioner interface {
-	ReadStacks(ctx context.Context, params api.ProvisionParams, ignoreErrors bool) error
+	ReadStacks(ctx context.Context, cfg *api.ConfigFile, params api.ProvisionParams, ignoreErrors bool) error
 
 	Init(ctx context.Context, params api.InitParams) error
 	InitProfile(generateKeyPair bool) error
 	MakeInitialCommit() error
-
+	PreviewProvision(ctx context.Context, params api.ProvisionParams) ([]*api.PreviewResult, error)
 	Provision(ctx context.Context, params api.ProvisionParams) error
-
 	Deploy(ctx context.Context, params api.DeployParams) error
 	Preview(ctx context.Context, params api.DeployParams) (*api.PreviewResult, error)
 	Cancel(ctx context.Context, params api.DeployParams) error
-
 	Stacks() api.StacksMap
 
 	GitRepo() git.Repo
@@ -37,7 +35,10 @@ type Provisioner interface {
 	Cryptor() secrets.Cryptor
 }
 
-const DefaultProfile = "default"
+const (
+	DefaultProfile       = "default"
+	DefaultStacksRootDir = "stacks"
+)
 
 type provisioner struct {
 	projectName string
@@ -74,11 +75,15 @@ func New(opts ...Option) (Provisioner, error) {
 		res.profile = DefaultProfile
 	}
 	if res.rootDir == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
+		if res.GitRepo() != nil {
+			res.rootDir = res.GitRepo().Workdir()
+		} else {
+			wd, err := os.Getwd()
+			if err != nil {
+				return nil, err
+			}
+			res.rootDir = path.Base(wd)
 		}
-		res.rootDir = path.Base(wd)
 	}
 	return res, nil
 }
@@ -124,6 +129,10 @@ func (p *provisioner) Init(ctx context.Context, params api.InitParams) error {
 		} else {
 			p.gitRepo = repo
 		}
+	}
+
+	if p.rootDir == "" {
+		p.rootDir = p.gitRepo.Workdir()
 	}
 
 	if err := p.gitRepo.InitOrOpen(p.rootDir); err != nil {

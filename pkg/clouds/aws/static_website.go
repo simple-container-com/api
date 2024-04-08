@@ -11,11 +11,11 @@ const TemplateTypeStaticWebsite = "aws-static-website"
 type StaticSiteInput struct {
 	TemplateConfig        `json:"templateConfig" yaml:"templateConfig"`
 	api.StackConfigStatic `json:",inline" yaml:",inline"`
-	RootDir               string `json:"rootDir" yaml:"rootDir"`
+	StackDir              string `json:"stackDir" yaml:"stackDir"`
 	StackName             string `json:"stackName" yaml:"stackName"`
 }
 
-func ToStaticSiteConfig(tpl any, rootDir, stackName string, stackCfg *api.StackConfigStatic) (any, error) {
+func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.StackConfigStatic) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
 		return nil, errors.Errorf("template config is not of type aws.TemplateConfig")
@@ -32,7 +32,7 @@ func ToStaticSiteConfig(tpl any, rootDir, stackName string, stackCfg *api.StackC
 	res := &StaticSiteInput{
 		TemplateConfig:    *templateCfg,
 		StackConfigStatic: *stackCfg,
-		RootDir:           rootDir,
+		StackDir:          stackDir,
 		StackName:         stackName,
 	}
 

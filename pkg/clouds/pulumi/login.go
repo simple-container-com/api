@@ -84,7 +84,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 
 	switch provisionerCfg.StateStorage.Type {
-	case StateStorageTypePulumiCloud:
+	case BackendTypePulumiCloud:
 		// hackily set access token env variable, so that lm can access it
 		if err := os.Setenv(httpstate.AccessTokenEnvVar, creds); err != nil {
 			p.logger.Warn(ctx, "failed to set %q value: %q", httpstate.AccessTokenEnvVar, err.Error())
@@ -108,7 +108,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
+	p.logger.Debug(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
 
 	ref, err := be.ParseStackReference(stackRefString)
 	if err != nil {

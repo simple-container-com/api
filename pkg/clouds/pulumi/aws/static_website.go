@@ -35,7 +35,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		Provider:           params.Provider,
 		Registrar:          params.Registrar,
 		Ctx:                ctx,
-		BundleDir:          path.Join(staticSiteCfg.RootDir, staticSiteCfg.BundleDir),
+		BundleDir:          path.Join(staticSiteCfg.StackDir, staticSiteCfg.BundleDir),
 		IndexDocument:      staticSiteCfg.IndexDocument,
 		ErrorDocument:      staticSiteCfg.ErrorDocument,
 		Domain:             staticSiteCfg.Domain,

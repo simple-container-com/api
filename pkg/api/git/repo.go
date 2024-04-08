@@ -19,6 +19,8 @@ import (
 
 var ErrRepositoryAlreadyExists = errors.New("repository already exists")
 
+//go:generate ../../../bin/mockery --name Repo --output ./mocks --filename git_mock.go --outpkg git_mocks --structname GitRepoMock
+
 type Repo interface {
 	Init(wd string, opts ...Option) error
 	Open(wd string, opts ...Option) error

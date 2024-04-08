@@ -1,22 +1,66 @@
-name: Build api
+name: Build simple-container-com CLI
 on:
   push:
     branches:
       - 'main'
 jobs:
-  build-api:
+  prepare:
+    name: Prepare build
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get next version
+        uses: reecetech/version-increment@2023.10.2
+        id: version
+        with:
+          scheme: "calver"
+          increment: "patch"
+          use_api: "true"
+
+  build:
+    name: Build simple-container-com CLI
+    runs-on: ubuntu-latest
+    needs: prepare
     steps:
       - uses: actions/checkout@v3
       - name: prepare secrets
         run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
           cat << EOF > ./.sc/cfg.test.yaml
           ${{ secrets.SC_CONFIG }}
           EOF
-      - name: build api
+      - name: build sc tool
         shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
-          pwd
-          ls -la 
-          ls -la .sc
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make
+      - name: publish sc tool
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |-
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod
+  finalize:
+    name: Finalize build
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - prepare
+      - build
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ always() }}
+      # Creating release tag
+      - uses: rickstaa/action-create-tag@v1
+        if: ${{ always() && contains(needs.*.result, 'success') }}
+        id: "tag_create"
+        with:
+          tag: "v${{ needs.prepare.outputs.version }}"
+          tag_exists_error: false
+          force_push_tag: true
+          message: "Release v${{ needs.prepare.outputs.version }}"

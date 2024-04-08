@@ -22,17 +22,17 @@ func (s *AuthDescriptor) Copy() AuthDescriptor {
 	}
 }
 
-func (s *ServerDescriptor) Copy() ServerDescriptor {
+func (sd *ServerDescriptor) Copy() ServerDescriptor {
 	return ServerDescriptor{
-		SchemaVersion: s.SchemaVersion,
-		Provisioner:   s.Provisioner.Copy(),
-		Secrets:       s.Secrets.Copy(),
-		CiCd:          s.CiCd.Copy(),
-		Templates: lo.MapValues(s.Templates, func(value StackDescriptor, key string) StackDescriptor {
+		SchemaVersion: sd.SchemaVersion,
+		Provisioner:   sd.Provisioner.Copy(),
+		Secrets:       sd.Secrets.Copy(),
+		CiCd:          sd.CiCd.Copy(),
+		Templates: lo.MapValues(sd.Templates, func(value StackDescriptor, key string) StackDescriptor {
 			return value.Copy()
 		}),
-		Resources: s.Resources.Copy(),
-		Variables: lo.MapValues(s.Variables, func(value VariableDescriptor, key string) VariableDescriptor {
+		Resources: sd.Resources.Copy(),
+		Variables: lo.MapValues(sd.Variables, func(value VariableDescriptor, key string) VariableDescriptor {
 			return value.Copy()
 		}),
 	}
@@ -142,7 +142,6 @@ func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	return StackClientDescriptor{
 		Type:        s.Type,
 		ParentStack: s.ParentStack,
-		Environment: s.Environment,
 		Config:      s.Config.Copy(),
 	}
 }

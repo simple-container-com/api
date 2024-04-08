@@ -13,8 +13,6 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
-const MetaDirectoryName = ".sc"
-
 type ConfigReaderFunc func(config *Config) (Config, error)
 
 type ProvisionerInitFunc func(config Config, opts ...ProvisionerOption) (Provisioner, error)
@@ -106,7 +104,8 @@ type Provisioner interface {
 
 	DestroyChildStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
 
-	PreviewStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) (*PreviewResult, error)
+	PreviewStack(ctx context.Context, cfg *ConfigFile, parentStack Stack) (*PreviewResult, error)
+	PreviewChildStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) (*PreviewResult, error)
 
 	CancelStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) error
 
@@ -152,23 +151,23 @@ type RegistrarConfig interface {
 
 type (
 	clientConfigConvertFunc func(cfg *Config) (Config, error)
-	clientConfigPrepareFunc func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error)
+	clientConfigPrepareFunc func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error)
 )
 
 var clientConfigsPrepareMap = map[string]clientConfigPrepareFunc{
-	ClientTypeCloudCompose: func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
+	ClientTypeCloudCompose: func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 		configCompose, ok := clientDesc.Config.Config.(*StackConfigCompose)
 		if !ok {
 			return nil, errors.Errorf("client config is not of type *StackConfigCompose")
 		}
-		return PrepareCloudComposeForDeploy(ctx, rootDir, stackName, tpl, configCompose)
+		return PrepareCloudComposeForDeploy(ctx, stackDir, stackName, tpl, configCompose)
 	},
-	ClientTypeStatic: func(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
+	ClientTypeStatic: func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 		configStatic, ok := clientDesc.Config.Config.(*StackConfigStatic)
 		if !ok {
 			return nil, errors.Errorf("client config is not of type *StackConfigStatic")
 		}
-		return PrepareStaticForDeploy(ctx, rootDir, stackName, tpl, configStatic)
+		return PrepareStaticForDeploy(ctx, stackDir, stackName, tpl, configStatic)
 	},
 }
 

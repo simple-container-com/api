@@ -65,7 +65,6 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 		"staging": {
 			Type:        api.ClientTypeCloudCompose,
 			ParentStack: "refapp-aws",
-			Environment: "staging",
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "staging.sc-refapp.org",
@@ -83,7 +82,6 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 		"prod": {
 			Type:        api.ClientTypeCloudCompose,
 			ParentStack: "refapp-aws",
-			Environment: "prod",
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "prod.sc-refapp.org",

@@ -13,7 +13,7 @@ func (p *pulumi) destroyChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 		return err
 	}
 	p.logger.Info(ctx, "Destroying child stack %q...", s.Ref().String())
-	parentStack := params.ParentStack
+	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
 	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)

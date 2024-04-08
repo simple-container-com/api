@@ -4,13 +4,11 @@ stacks:
   staging: &staging
     type: static
     parent: refapp-static-gcp
-    environment: staging
     config: &config
       bundleDir: ./bundle
       domain: staging.sc-refapp.org
   prod:
     <<: *staging
-    environment: prod
     config:
       <<: *config
       domain: prod.sc-refapp.org

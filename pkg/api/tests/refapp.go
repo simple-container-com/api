@@ -459,7 +459,7 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 		"pulumi": {
 			Type: pulumi.AuthTypePulumiToken,
 			Config: api.Config{Config: &pulumi.TokenAuthDescriptor{
-				Value: "<pulumi-token>",
+				Credentials: "<pulumi-token>",
 			}},
 		},
 	},
@@ -477,7 +477,6 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 		"staging": {
 			Type:        api.ClientTypeCloudCompose,
 			ParentStack: "refapp",
-			Environment: "staging",
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "staging.sc-refapp.org",
@@ -495,7 +494,6 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 		"prod": {
 			Type:        api.ClientTypeCloudCompose,
 			ParentStack: "refapp",
-			Environment: "prod",
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "prod.sc-refapp.org",

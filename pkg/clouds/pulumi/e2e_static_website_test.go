@@ -63,7 +63,6 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 				"test": {
 					Type:        api.ClientTypeStatic,
 					ParentStack: parentStackName,
-					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							Domain:    fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("static-website")),
@@ -119,7 +118,6 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 				"test": {
 					Type:        api.ClientTypeStatic,
 					ParentStack: parentStackName,
-					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							BundleDir:          "static",

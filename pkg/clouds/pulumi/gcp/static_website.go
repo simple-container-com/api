@@ -57,7 +57,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 
 	out := &StaticSiteOutput{}
 
-	bucketName := fmt.Sprintf("%s-%s", stack.Name, input.DeployParams.Environment)
+	bucketName := fmt.Sprintf("%s--%s", ctx.Project(), stack.Name)
 	domain := in.Domain
 
 	// Create a GCP storage bucket for the static website.
@@ -118,7 +118,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		if ctx.DryRun() {
 			return 0, nil
 		}
-		return copyAllFilesToBucket(ctx.Context(), bucketName, in.RootDir, in.BundleDir, gcpCreds, params)
+		return copyAllFilesToBucket(ctx.Context(), bucketName, in.StackDir, in.BundleDir, gcpCreds, params)
 	})
 	ctx.Export(fmt.Sprintf("%s-uploaded", stack.Name), uploadRes)
 
@@ -150,7 +150,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
-func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDir, gcpCreds string, params pApi.ProvisionParams) (int64, error) {
+func copyAllFilesToBucket(ctx context.Context, bucketName string, stackDir, relDir, gcpCreds string, params pApi.ProvisionParams) (int64, error) {
 	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(gcpCreds)))
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to initialize gcp client")
@@ -159,10 +159,11 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDi
 		_ = client.Close()
 	}(client)
 	bucketRef := client.Bucket(bucketName)
-	fullDirPath := path.Join(rootDir, relDir)
+	fullDirPath := path.Join(stackDir, relDir)
 	totalBytes := atomic.NewInt64(0)
+	params.Log.Info(ctx, "scanning directory %s...", fullDirPath)
 	err = filepath.Walk(fullDirPath, func(filePath string, info fs.FileInfo, err error) error {
-		if info.IsDir() {
+		if info == nil || info.IsDir() {
 			return nil
 		}
 		copyPath, err := filepath.Rel(fullDirPath, filePath)

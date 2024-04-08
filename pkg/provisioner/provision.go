@@ -13,19 +13,9 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
-	if err := p.ReadStacks(ctx, params, false); err != nil {
-		return errors.Wrapf(err, "failed to read stacks")
-	}
-
-	if p.profile == "" && params.Profile == "" {
-		return errors.Errorf("profile is not set")
-	} else if params.Profile != "" {
-		p.profile = params.Profile
-	}
-
-	cfg, err := api.ReadConfigFile(params.RootDir, p.profile)
+	cfg, err := p.readConfigForProvision(ctx, params)
 	if err != nil {
-		return errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
+		return err
 	}
 
 	for _, stack := range p.stacks {
@@ -34,10 +24,29 @@ func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams)
 			return errors.Wrapf(err, "failed to get provisioner for stack %q", stack.Name)
 		}
 		if err := pv.ProvisionStack(ctx, cfg, stack); err != nil {
-			return errors.Wrapf(err, "failed to create stacks with pulumi for stack %q", stack.Name)
+			return errors.Wrapf(err, "failed to create stack %q", stack.Name)
 		}
 	}
 	return nil
+}
+
+func (p *provisioner) readConfigForProvision(ctx context.Context, params api.ProvisionParams) (*api.ConfigFile, error) {
+	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
+	}
+
+	if err := p.ReadStacks(ctx, cfg, params, false); err != nil {
+		return nil, errors.Wrapf(err, "failed to read stacks")
+	}
+
+	if p.profile == "" && params.Profile == "" {
+		return nil, errors.Errorf("profile is not set")
+	} else if params.Profile != "" {
+		p.profile = params.Profile
+	}
+
+	return cfg, nil
 }
 
 func (p *provisioner) getProvisionerForStack(ctx context.Context, stack api.Stack) (api.Provisioner, error) {
@@ -58,11 +67,13 @@ func (p *provisioner) getProvisionerForStack(ctx context.Context, stack api.Stac
 	return pv, nil
 }
 
-func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams, ignoreErrors bool) error {
+func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, params api.ProvisionParams, ignoreErrors bool) error {
+	stacksDir := p.getStacksDir(cfg, params.StacksDir)
+
 	stacks := params.Stacks
 	if len(stacks) == 0 {
-		p.log.Info(ctx, "stacks list is not provided, reading from %q", params.RootDir)
-		dirs, err := os.ReadDir(params.RootDir)
+		p.log.Info(ctx, "stacks list is not provided, reading from %q", stacksDir)
+		dirs, err := os.ReadDir(stacksDir)
 		if err != nil {
 			return errors.Wrapf(err, "failed to read root dir")
 		}
@@ -76,7 +87,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams
 		}), func(d os.DirEntry, _ int) string {
 			return d.Name()
 		})
-		p.log.Info(ctx, "read stacks from %q: %q", params.RootDir, strings.Join(stacks, ", "))
+		p.log.Info(ctx, "read stacks from %q: %q", stacksDir, strings.Join(stacks, ", "))
 	}
 
 	for _, stackName := range stacks {
@@ -84,14 +95,14 @@ func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(params.RootDir, stackName); err != nil && !ignoreErrors {
+		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && !ignoreErrors {
 			return err
 		} else if serverDesc != nil {
 			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
 			stack.Server = *serverDesc
 		}
 
-		if clientDesc, err := p.optionallyReadClientDescriptor(params.RootDir, stackName); err != nil {
+		if clientDesc, err := p.optionallyReadClientDescriptor(stacksDir, stackName); err != nil {
 			return err
 		} else if clientDesc != nil {
 			p.log.Debug(ctx, "Successfully read client descriptor: %q", clientDesc)
@@ -100,7 +111,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
-		if secretsDesc, err := p.optionallyReadSecretsDescriptor(params.RootDir, stackName); err != nil {
+		if secretsDesc, err := p.optionallyReadSecretsDescriptor(stacksDir, stackName); err != nil {
 			return err
 		} else if secretsDesc != nil {
 			p.log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
@@ -111,7 +122,23 @@ func (p *provisioner) ReadStacks(ctx context.Context, params api.ProvisionParams
 
 		p.stacks[stackName] = stack
 	}
-	return p.phResolver.Resolve(p.stacks)
+
+	provisioners := map[string]api.Provisioner{}
+	for stackName, stack := range p.stacks {
+		provisioners[stackName] = stack.Server.Provisioner.GetProvisioner()
+	}
+
+	err := p.phResolver.Resolve(p.stacks)
+	if err != nil {
+		return err
+	}
+
+	p.stacks = lo.MapValues(p.stacks, func(stack api.Stack, name string) api.Stack {
+		stack.Server.Provisioner.SetProvisioner(provisioners[name])
+		return stack
+	})
+
+	return err
 }
 
 func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*api.ServerDescriptor, error) {

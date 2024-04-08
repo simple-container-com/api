@@ -87,12 +87,12 @@ func (_m *PulumiMock) DestroyParentStack(ctx context.Context, cfg *api.ConfigFil
 	return r0
 }
 
-// PreviewStack provides a mock function with given fields: ctx, cfg, parentStack, params
-func (_m *PulumiMock) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
+// PreviewChildStack provides a mock function with given fields: ctx, cfg, parentStack, params
+func (_m *PulumiMock) PreviewChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
 	ret := _m.Called(ctx, cfg, parentStack, params)
 
 	if len(ret) == 0 {
-		panic("no return value specified for PreviewStack")
+		panic("no return value specified for PreviewChildStack")
 	}
 
 	var r0 *api.PreviewResult
@@ -110,6 +110,36 @@ func (_m *PulumiMock) PreviewStack(ctx context.Context, cfg *api.ConfigFile, par
 
 	if rf, ok := ret.Get(1).(func(context.Context, *api.ConfigFile, api.Stack, api.DeployParams) error); ok {
 		r1 = rf(ctx, cfg, parentStack, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PreviewStack provides a mock function with given fields: ctx, cfg, parentStack
+func (_m *PulumiMock) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) (*api.PreviewResult, error) {
+	ret := _m.Called(ctx, cfg, parentStack)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PreviewStack")
+	}
+
+	var r0 *api.PreviewResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack) (*api.PreviewResult, error)); ok {
+		return rf(ctx, cfg, parentStack)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack) *api.PreviewResult); ok {
+		r0 = rf(ctx, cfg, parentStack)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*api.PreviewResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *api.ConfigFile, api.Stack) error); ok {
+		r1 = rf(ctx, cfg, parentStack)
 	} else {
 		r1 = ret.Error(1)
 	}

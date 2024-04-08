@@ -1,8 +1,13 @@
 schemaVersion: "1.8.1"
 projectName: simple-container-api
 projectRoot: .
-version: 0.0-${git:commit.short}${arg:release-suffix:}
+version: ${env:VERSION:0.0.0}
+default:
+  build:
+    args:
+      package: github.com/simple-container-com/api
 profiles:
+  skip-tools:
   skip-test:
     activation:
       skip-tests: true
@@ -14,24 +19,50 @@ modules:
     build:
       steps:
         - task: tools
-        - task: build
+        - task: build-all
+    deploy:
+      environments:
+        prod:
+          autoDeploy: true
+      steps:
+        - task: rebuild
+        - task: deploy
 tasks:
   tools:
     runOn: host
+    runIf: "!${profile:skip-tools.active}"
     script:
       - cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
       - go mod download
       - go generate -tags tools
       - go mod tidy
-  build:
+  build-all:
     runOn: host
     script:
       - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
       - ${project:root}/bin/gofumpt -l -w .
       - ${project:root}/bin/golangci-lint linters
       - go build ./...
-      - go build -o ${project:root}/bin/sc ./cmd/sc
+      - welder run build -a os=linux -a arch=amd64
+      - welder run build -a os=darwin -a arch=arm64
+      - cd ${project:root}/dist && zip -r sc-latest.zip .
+      - cp ${project:root}/dist/sc-latest.zip ${project:root}/stacks/dist/bundle/sc-${project:version}.zip
+      - cp ${project:root}/dist/sc-latest.zip ${project:root}/stacks/dist/bundle/sc-latest.zip
+  build:
+    runOn: host
+    env:
+      GOOS: ${arg:os:linux}
+      GOARCH: ${arg:arch:amd64}
+    script:
+      - echo "Building for ${GOOS}/${GOARCH}..."
+      - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
+      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/dist/sc-${GOOS}-${GOARCH}${EXT} ./cmd/sc
+  deploy:
+    runOn: host
+    script:
+      - ${project:root}/dist/sc deploy -s dist -e prod
   rebuild:
     runOn: host
     script:
-      - go build -o ${project:root}/bin/sc ./cmd/sc
+      - go build -o ${project:root}/dist/sc ./cmd/sc
+      - chmod +x ${project:root}/dist/sc

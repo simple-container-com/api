@@ -27,7 +27,7 @@ type E2ETestConfig struct {
 	ConfigFile       *api.ConfigFile
 	Cryptor          secrets.Cryptor
 	CloudflareConfig *cloudflare.RegistrarConfig
-	RootDir          string
+	StacksDir        string
 }
 
 func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
@@ -63,6 +63,6 @@ func PrepareE2Etest() E2ETestConfig {
 		CloudflareConfig: cfCreds,
 		AwsCredentials:   awsCreds,
 		GcpCredentials:   gcpCreds,
-		RootDir:          path.Join(cryptor.Workdir(), rootDirRelPath),
+		StacksDir:        path.Join(cryptor.Workdir(), rootDirRelPath),
 	}
 }

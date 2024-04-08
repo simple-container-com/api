@@ -58,3 +58,12 @@ func (m *StacksMap) ResolveInheritance() *StacksMap {
 	}
 	return &current
 }
+
+func (s *Stack) ValuesOnly() Stack {
+	return Stack{
+		Name:    s.Name,
+		Secrets: s.Secrets.Copy(),
+		Server:  *s.Server.ValuesOnly(),
+		Client:  s.Client.Copy(),
+	}
+}
