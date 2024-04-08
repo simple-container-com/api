@@ -20,7 +20,7 @@ jobs:
           use_api: "true"
 
   build:
-    name: Build simple-container-com CLI
+    name: Build
     runs-on: ubuntu-latest
     needs: prepare
     steps:
@@ -45,6 +45,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod
+
   finalize:
     name: Finalize build
     runs-on: ubuntu-latest

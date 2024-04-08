@@ -19,7 +19,7 @@ mkdir -p $BINDIR
 if [[ ! -f "$BINDIR/sc" ]]; then
   (
     cd $BINDIR &&
-    curl -fL "https://dist.simple-container.com/releases/latest/sc-${PLATFORM}-${ARCH}.tar.gz" | tar -xzp sc  &&
+    curl -fL "https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}.tar.gz" | tar -xzp sc  &&
     chmod +x sc &&
     export PATH="$PATH:$BINDIR" &&
     cd -

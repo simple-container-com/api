@@ -32,10 +32,9 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.D
 	if params.Environment == "" {
 		return nil, nil, nil, errors.Errorf("environment must be specified")
 	}
-	stacksDir := p.getStacksDir(cfg, params.StacksDir)
 
 	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
-		StacksDir: stacksDir,
+		StacksDir: params.StacksDir,
 		Profile:   params.Profile,
 	}, false); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")

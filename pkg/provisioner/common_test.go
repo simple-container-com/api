@@ -39,7 +39,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "happy path gcp",
 			params: api.ProvisionParams{
-				StacksDir: "testdata/stacks",
+				StacksDir: "stacks",
 				Stacks: []string{
 					"common",
 					"refapp",
@@ -63,7 +63,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "happy path aws",
 			params: api.ProvisionParams{
-				StacksDir: "testdata/stacks",
+				StacksDir: "stacks",
 				Stacks: []string{
 					"common",
 					"refapp-aws",
@@ -87,7 +87,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "happy path gcp static",
 			params: api.ProvisionParams{
-				StacksDir: "testdata/stacks",
+				StacksDir: "stacks",
 				Stacks: []string{
 					"common",
 					"refapp-static-gcp",
@@ -111,7 +111,7 @@ func Test_Provision(t *testing.T) {
 		{
 			name: "pulumi error",
 			params: api.ProvisionParams{
-				StacksDir: "testdata/stacks",
+				StacksDir: "stacks",
 				Stacks: []string{
 					"common",
 					"refapp",
@@ -195,7 +195,7 @@ func Test_Deploy(t *testing.T) {
 			name: "happy path staging gcp",
 			params: api.DeployParams{
 				StackParams: api.StackParams{
-					StacksDir:   "testdata/stacks",
+					StacksDir:   "stacks",
 					StackName:   "refapp",
 					Environment: "staging",
 				},
@@ -213,7 +213,7 @@ func Test_Deploy(t *testing.T) {
 				}), mock.MatchedBy(func(actual any) bool {
 					return assert.EqualValuesf(t, api.DeployParams{
 						StackParams: api.StackParams{
-							StacksDir:   "testdata/stacks",
+							StacksDir:   "stacks",
 							StackName:   "refapp",
 							Environment: "staging",
 						},
@@ -225,7 +225,7 @@ func Test_Deploy(t *testing.T) {
 			name: "error stack not found",
 			params: api.DeployParams{
 				StackParams: api.StackParams{
-					StacksDir:   "testdata/stacks",
+					StacksDir:   "stacks",
 					StackName:   "refapp-notexisting",
 					Environment: "staging",
 				},

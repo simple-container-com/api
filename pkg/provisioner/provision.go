@@ -75,7 +75,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		p.log.Info(ctx, "stacks list is not provided, reading from %q", stacksDir)
 		dirs, err := os.ReadDir(stacksDir)
 		if err != nil {
-			return errors.Wrapf(err, "failed to read root dir")
+			return errors.Wrapf(err, "failed to read stacks dir")
 		}
 		stacks = lo.Map(lo.Filter(dirs, func(d os.DirEntry, _ int) bool {
 			dInfo, err := d.Info()

@@ -45,9 +45,6 @@ tasks:
       - go build ./...
       - welder run build -a os=linux -a arch=amd64
       - welder run build -a os=darwin -a arch=arm64
-      - cd ${project:root}/dist && zip -r sc-latest.zip .
-      - cp ${project:root}/dist/sc-latest.zip ${project:root}/stacks/dist/bundle/sc-${project:version}.zip
-      - cp ${project:root}/dist/sc-latest.zip ${project:root}/stacks/dist/bundle/sc-latest.zip
   build:
     runOn: host
     env:
@@ -56,13 +53,15 @@ tasks:
     script:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/dist/sc-${GOOS}-${GOARCH}${EXT} ./cmd/sc
+      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+      - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
+      - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
+      - cp ${project:root}/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz
   deploy:
     runOn: host
     script:
-      - ${project:root}/dist/sc deploy -s dist -e prod
+      - ${project:root}/bin/sc deploy -s dist -e prod
   rebuild:
     runOn: host
     script:
-      - go build -o ${project:root}/dist/sc ./cmd/sc
-      - chmod +x ${project:root}/dist/sc
+      - go build -o ${project:root}/bin/sc ./cmd/sc
