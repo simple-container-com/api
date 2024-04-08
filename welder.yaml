@@ -61,6 +61,7 @@ tasks:
   deploy:
     runOn: host
     script:
+      - ${project:root}/bin/sc secrets reveal
       - ${project:root}/bin/sc deploy -s dist -e prod
   rebuild:
     runOn: host
