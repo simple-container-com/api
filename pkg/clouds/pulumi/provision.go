@@ -119,22 +119,16 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 
 	if s, err := p.backend.GetStack(ctx, p.stackRef); err != nil {
 		return nil, errors.Errorf("failed to get stack %q", p.stackRef.FullyQualifiedName())
-	} else {
+	} else if s != nil {
 		return s, nil
+	} else {
+		return nil, errors.Errorf("failed to get stack %q: ref is nil", p.stackRef)
 	}
 }
 
 func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor) (pApi.ProvisionParams, error) {
-	p.pParamsMutex.Lock()
-	defer p.pParamsMutex.Unlock()
-
 	var provider sdk.ProviderResource
-	providerName := fmt.Sprintf("%s-provider", res.Type)
-
-	// check cache and return if found
-	if pParams, ok := p.pParamsMap[providerName]; ok {
-		return pParams, nil
-	}
+	providerName := fmt.Sprintf("%s-%s-provider", stack.Name, res.Type)
 
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
@@ -152,13 +146,11 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	}
-	pParams := pApi.ProvisionParams{
+	return pApi.ProvisionParams{
 		Provider:  provider,
 		Registrar: p.registrar,
 		Log:       p.logger,
-	}
-	p.pParamsMap[providerName] = pParams
-	return pParams, nil
+	}, nil
 }
 
 func stackDescriptorTemplateName(stackName, templateName string) string {

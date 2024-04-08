@@ -2,7 +2,6 @@ package pulumi
 
 import (
 	"context"
-	"fmt"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -13,7 +12,7 @@ func (p *pulumi) cancelStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		return err
 	}
 	parentStack := params.ParentStack
-	fullStackName := fmt.Sprintf("%s--%s--%s", cfg.ProjectName, parentStack, params.Environment)
+	fullStackName := s.Ref().FullyQualifiedName().String()
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
 	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)

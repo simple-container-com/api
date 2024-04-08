@@ -1,6 +1,9 @@
+//go:build e2e
+
 package pulumi
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -15,8 +18,8 @@ import (
 )
 
 const (
-	e2eCreateStaticStackName    = "e2e-static-parent--stack"
-	e2eDeployStaticStackName    = "e2e-static--stack"
+	e2eStaticParentStackName    = "e2e-static-parent--stack"
+	e2eStaticChildStackName     = "e2e-static-child--stack"
 	e2eStaticKmsTestKeyName     = "e2e-static--kms-key"
 	e2eStaticKmsTestKeyringName = "e2e-static--kms-keyring"
 )
@@ -26,12 +29,15 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 
 	cfg := testutil.PrepareE2Etest()
 
+	parentStackName := tmpResName(e2ePulumiStaticParentStackName)
+	childStackName := tmpResName(e2eStaticChildStackName)
+
 	stack := api.Stack{
-		Name: e2eCreateStaticStackName,
+		Name: parentStackName,
 		Server: e2eServerDescriptorForGcp(e2eConfig{
 			gcpCreds:       *cfg.GcpCredentials,
-			kmsKeyName:     e2eStaticKmsTestKeyName,
-			kmsKeyringName: e2eStaticKmsTestKeyringName,
+			kmsKeyName:     tmpResName(e2eStaticKmsTestKeyName),
+			kmsKeyringName: tmpResName(e2eStaticKmsTestKeyringName),
 			templates: map[string]api.StackDescriptor{
 				"static-website": {
 					Type: gcloud.TemplateTypeStaticWebsite,
@@ -56,11 +62,11 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
 					Type:        api.ClientTypeStatic,
-					ParentStack: e2eCreateStaticStackName,
+					ParentStack: parentStackName,
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							Domain:    "e2e--gcp--static-website.simple-container.com",
+							Domain:    fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("static-website")),
 							BundleDir: "testdata/static",
 						},
 					},
@@ -69,7 +75,8 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 		},
 	}
 
-	runProvisionAndDeployTest(stack, cfg, e2eDeployStaticStackName)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
+	runDestroyTest(stack, cfg, childStackName)
 }
 
 func Test_CreateStaticStackAWS(t *testing.T) {
@@ -77,13 +84,16 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 
 	cfg := testutil.PrepareE2Etest()
 
+	parentStackName := tmpResName(e2ePulumiStaticParentStackName)
+	childStackName := tmpResName(e2ePulumiStaticChildStackName)
+
 	stack := api.Stack{
-		Name: e2eCreateStaticStackName,
+		Name: parentStackName,
 		Server: e2eServerDescriptorForAws(e2eConfig{
 			gcpCreds:       *cfg.GcpCredentials,
 			awsCreds:       *cfg.AwsCredentials,
-			kmsKeyName:     e2eStaticKmsTestKeyName,
-			kmsKeyringName: e2eStaticKmsTestKeyringName,
+			kmsKeyName:     tmpResName(e2eStaticKmsTestKeyName),
+			kmsKeyringName: tmpResName(e2eStaticKmsTestKeyringName),
 			templates: map[string]api.StackDescriptor{
 				"static-website": {
 					Type: aws.TemplateTypeStaticWebsite,
@@ -108,12 +118,12 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
 					Type:        api.ClientTypeStatic,
-					ParentStack: e2eCreateStaticStackName,
+					ParentStack: parentStackName,
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							BundleDir:          "static",
-							Domain:             "e2e--aws--static-website.simple-container.com",
+							Domain:             fmt.Sprintf("e2e--aws--%s.simple-container.com", tmpResName("static-website")),
 							IndexDocument:      "index.html",
 							ErrorDocument:      "index.html",
 							ProvisionWwwDomain: false,
@@ -124,7 +134,6 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 		},
 	}
 
-	//runDestroyChildTest(stack, cfg, e2eDeployStackName)
-	//runDestroyParentTest(stack, cfg, e2eCreateStackName)
-	runProvisionAndDeployTest(stack, cfg, e2eDeployStaticStackName)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
+	runDestroyTest(stack, cfg, childStackName)
 }

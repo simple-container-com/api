@@ -1,6 +1,9 @@
+//go:build e2e
+
 package pulumi
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -15,7 +18,7 @@ import (
 
 const (
 	e2ePulumiStaticParentStackName = "e2e-pulumi--static-parent--stack"
-	e2ePulumiStaticStackName       = "e2e-pulumi--static--stack"
+	e2ePulumiStaticChildStackName  = "e2e-pulumi--static-child--stack"
 )
 
 func Test_CreatePulumiParentStack(t *testing.T) {
@@ -25,8 +28,11 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 
 	pulumiCreds := testutil.ReadTestSecretConfig(cfg.Cryptor, "pkg/clouds/pulumi/testdata/secrets/pulumi-e2e-config.yaml", &TokenAuthDescriptor{})
 
+	parentStackName := tmpResName(e2ePulumiStaticParentStackName)
+	childStackName := tmpResName(e2ePulumiStaticChildStackName)
+
 	stack := api.Stack{
-		Name: e2ePulumiStaticParentStackName,
+		Name: parentStackName,
 		Server: e2eServerDescriptorForPulumi(e2eConfig{
 			pulumiCreds: *pulumiCreds,
 			templates: map[string]api.StackDescriptor{
@@ -53,11 +59,11 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
 					Type:        api.ClientTypeStatic,
-					ParentStack: e2eCreateStaticStackName,
+					ParentStack: e2eStaticParentStackName,
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							Domain:    "e2e--pulumi--static-website.simple-container.com",
+							Domain:    fmt.Sprintf("e2e--pulumi--%s.simple-container.com", tmpResName("static-website")),
 							BundleDir: "testdata/static",
 						},
 					},
@@ -66,6 +72,6 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 		},
 	}
 
-	runProvisionAndDeployTest(stack, cfg, e2ePulumiStaticStackName)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
 
 }

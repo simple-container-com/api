@@ -3,8 +3,6 @@ package pulumi
 import (
 	"context"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
-	"sync"
-
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
@@ -34,8 +32,6 @@ type pulumi struct {
 
 	secretsProviderOutput *SecretsProviderOutput
 	fieldConfigReader     api.ProvisionerFieldConfigReaderFunc
-	pParamsMutex          sync.RWMutex
-	pParamsMap            map[string]pApi.ProvisionParams
 	provisionerCfg        *ProvisionerConfig
 	configFile            *api.ConfigFile
 	project               *workspace.Project
@@ -43,8 +39,7 @@ type pulumi struct {
 
 func InitPulumiProvisioner(config api.Config, opts ...api.ProvisionerOption) (api.Provisioner, error) {
 	res := &pulumi{
-		logger:     logger.New(),
-		pParamsMap: make(map[string]pApi.ProvisionParams),
+		logger: logger.New(),
 	}
 	for _, opt := range opts {
 		if err := opt(res); err != nil {
@@ -101,7 +96,7 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	childStack := parentStack.ChildStack(params.ParentStack)
+	childStack := parentStack.ChildStack(params.StackName)
 	if _, err = p.getStack(ctx, cfg, childStack); err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}

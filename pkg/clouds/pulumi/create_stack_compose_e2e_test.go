@@ -1,6 +1,9 @@
+//go:build e2e
+
 package pulumi
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -16,22 +19,24 @@ import (
 )
 
 const (
-	e2eCreateStackName    = "e2e-create--stack"
-	e2eDeployStackName    = "e2e-deploy--stack"
-	e2eKmsTestKeyName     = "e2e-create--kms-key"
-	e2eKmsTestKeyringName = "e2e-create--kms-keyring"
+	e2eCreateStackName    = "e2e-parent--stack"
+	e2eDeployStackName    = "e2e-child--stack"
+	e2eKmsTestKeyName     = "e2e--kms-key"
+	e2eKmsTestKeyringName = "e2e--kms-keyring"
 )
 
 func Test_CreateComposeStackGCP(t *testing.T) {
 	RegisterTestingT(t)
 
 	cfg := secretTestutil.PrepareE2Etest()
+	parentStackName := tmpResName(e2eCreateStackName)
+	childStackName := tmpResName(e2eDeployStackName)
 	stack := api.Stack{
-		Name: e2eCreateStackName,
+		Name: parentStackName,
 		Server: e2eServerDescriptorForGcp(e2eConfig{
 			gcpCreds:       *cfg.GcpCredentials,
-			kmsKeyName:     e2eKmsTestKeyName,
-			kmsKeyringName: e2eKmsTestKeyringName,
+			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
+			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
 					Type: gcloud.TemplateTypeGcpCloudrun,
@@ -55,7 +60,7 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 							Config: api.Config{
 								Config: &gcloud.GcpBucket{
 									Credentials: *cfg.GcpCredentials,
-									Name:        "e2e-create--test-bucket",
+									Name:        tmpResName("e2e-create--test-bucket"),
 								},
 							},
 						},
@@ -67,11 +72,11 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
 					Type:        api.ClientTypeCloudCompose,
-					ParentStack: e2eCreateStackName,
+					ParentStack: parentStackName,
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
-							Domain:            "refapp.sc-app.me",
+							Domain:            fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("cloudrun")),
 							DockerComposeFile: "docker-compose.yaml",
 							Uses: []string{
 								"test-bucket",
@@ -86,19 +91,23 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 		},
 	}
 
-	runProvisionAndDeployTest(stack, cfg, e2eDeployStackName)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
+	runDestroyTest(stack, cfg, childStackName)
 }
 
 func Test_CreateComposeStackAWS(t *testing.T) {
 	RegisterTestingT(t)
 
+	parentStackName := tmpResName(e2eCreateStackName)
+	childStackName := tmpResName(e2eDeployStackName)
+
 	cfg := secretTestutil.PrepareE2Etest()
 	stack := api.Stack{
-		Name: e2eCreateStackName,
+		Name: parentStackName,
 		Server: e2eServerDescriptorForAws(e2eConfig{
 			awsCreds:       *cfg.AwsCredentials,
-			kmsKeyName:     e2eKmsTestKeyName,
-			kmsKeyringName: e2eKmsTestKeyringName,
+			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
+			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
 					Type: aws.TemplateTypeEcsFargate,
@@ -122,7 +131,7 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 							Config: api.Config{
 								Config: &aws.S3Bucket{
 									AccountConfig: *cfg.AwsCredentials,
-									Name:          "e2e--create--test-bucket",
+									Name:          tmpResName("e2e--create--test-bucket"),
 								},
 							},
 						},
@@ -134,11 +143,11 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 			Stacks: map[string]api.StackClientDescriptor{
 				"test": {
 					Type:        api.ClientTypeCloudCompose,
-					ParentStack: e2eCreateStackName,
+					ParentStack: parentStackName,
 					Environment: "test",
 					Config: api.Config{
 						Config: &api.StackConfigCompose{
-							Domain:            "e2e--aws-ecs-fargate.simple-container.com",
+							Domain:            fmt.Sprintf("e2e--aws--%s.simple-container.com", tmpResName("ecs-fargate")),
 							DockerComposeFile: "docker-compose.yaml",
 							Uses: []string{
 								"test-bucket",
@@ -153,7 +162,6 @@ func Test_CreateComposeStackAWS(t *testing.T) {
 		},
 	}
 
-	//runDestroyParentTest(stack, cfg, e2eCreateStackName)
-	//runDestroyChildTest(stack, cfg, e2eDeployStackName)
-	runProvisionAndDeployTest(stack, cfg, e2eDeployStackName)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
+	runDestroyTest(stack, cfg, childStackName)
 }

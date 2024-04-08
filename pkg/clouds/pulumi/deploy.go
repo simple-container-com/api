@@ -20,7 +20,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	}
 	p.logger.Info(ctx, "Deploying stack %q...", s.Ref().FullyQualifiedName())
 	parentStack := params.ParentStack
-	fullStackName := fmt.Sprintf("%s--%s--%s", cfg.ProjectName, parentStack, params.Environment)
+	fullStackName := s.Ref().FullyQualifiedName().String()
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
 	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)
@@ -98,6 +98,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			Name:   fullStackName,
 			Config: deployInput.Config,
 		}
+		p.logger.Debug(ctx.Context(), "getting provisioning params for %q in stack %q", deployInput)
 		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc)
 		if err != nil {
 			return errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)

@@ -159,8 +159,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		})
 
 	params.Log.Info(ctx.Context(), "creating application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
-	loadBalancerName := fmt.Sprintf("%s-%s-alb", stack.Name, deployParams.Environment)
-	targetGroupName := fmt.Sprintf("%s-%s-tg", stack.Name, deployParams.Environment)
+	loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb", stack.Name, deployParams.Environment), 30, "-")
+	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg", stack.Name, deployParams.Environment), 30, "-")
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 		Name: sdk.String(loadBalancerName),
 		DefaultTargetGroup: &lb.TargetGroupArgs{
