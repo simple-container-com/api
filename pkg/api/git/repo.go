@@ -4,17 +4,18 @@ import (
 	"io"
 	"os"
 	"path"
-
-	"github.com/simple-container-com/api/pkg/api/git/path_util"
+	"time"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/cache"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
-
 	"github.com/pkg/errors"
+
+	"github.com/simple-container-com/api/pkg/api/git/path_util"
 )
 
 var ErrRepositoryAlreadyExists = errors.New("repository already exists")
@@ -246,11 +247,17 @@ func (r *repo) AddFileToGit(filePath string) error {
 func (r *repo) Commit(msg string, opts CommitOpts) error {
 	if wt, err := r.gitRepo.Worktree(); err != nil {
 		return errors.Wrapf(err, "failed to get worktree")
-	} else if _, err = wt.Commit(msg, &git.CommitOptions{
+	} else if hash, err := wt.Commit(msg, &git.CommitOptions{
 		All: opts.All,
-		// TODO: pass other opts
+		Committer: &object.Signature{
+			Name:  "simple-container.com",
+			Email: "sc@simple-container.com",
+			When:  time.Now(),
+		},
 	}); err != nil {
 		return errors.Wrapf(err, "failed to make commit")
+	} else if hash.IsZero() {
+		return errors.Errorf("committed hash is zero")
 	}
 	return nil
 }
