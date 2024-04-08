@@ -15,7 +15,7 @@ import (
 
 type provisionFunc func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error)
 
-type registrarInitFunc func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor) (pApi.Registrar, error)
+type registrarInitFunc func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error)
 
 var provisionFuncByType = map[string]provisionFunc{
 	// gcp

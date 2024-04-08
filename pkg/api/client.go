@@ -59,6 +59,13 @@ type PreviewResult struct {
 	Operations map[string]int `json:"operations" yaml:"operations"`
 }
 
+type DestroyResult struct {
+	Operations map[string]int `json:"operations" yaml:"operations"`
+}
+type RefreshResult struct {
+	Operations map[string]int `json:"operations" yaml:"operations"`
+}
+
 type DestroyParams struct {
 	StackParams `json:",inline" yaml:",inline"`
 }

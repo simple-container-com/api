@@ -13,6 +13,7 @@ type StaticSiteInput struct {
 	*api.StackConfigStatic `json:",inline" yaml:",inline"`
 	RootDir                string `json:"rootDir" yaml:"rootDir"`
 	StackName              string `json:"stackName" yaml:"stackName"`
+	Location               string `json:"location" yaml:"location"`
 }
 
 func ToStaticSiteConfig(tpl any, rootDir, stackName string, stackCfg *api.StackConfigStatic) (any, error) {

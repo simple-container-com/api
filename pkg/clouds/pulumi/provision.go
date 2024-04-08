@@ -32,7 +32,13 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refresh summary: %q", refreshResult.Summary)
+	p.logger.Info(ctx, "Refresh summary: %q", p.toRefreshResult(refreshResult))
+	p.logger.Info(ctx, "Previewing stack %q...", s.Ref().FullyQualifiedName())
+	previewResult, err := stackSource.Preview(ctx)
+	if err != nil {
+		return err
+	}
+	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(previewResult))
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err
@@ -100,7 +106,9 @@ func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack) error {
 		p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
 		if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
 			return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
-		} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar); err != nil {
+		} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
+			Log: p.logger,
+		}); err != nil {
 			return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
 		} else {
 			p.registrar = reg

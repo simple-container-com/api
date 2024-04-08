@@ -25,13 +25,13 @@ func (p *pulumi) destroyChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refresh child summary: %q", refreshResult.Summary)
+	p.logger.Info(ctx, "Refresh child summary: %q", p.toRefreshResult(refreshResult))
 	p.logger.Info(ctx, "Destroying child stack %q...", stackSource.Name())
 	destroyResult, err := stackSource.Destroy(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Destroy child summary: %q", destroyResult.Summary)
+	p.logger.Info(ctx, "Destroy child summary: %q", p.toDestroyResult(destroyResult))
 	s, err = p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return err
@@ -62,13 +62,13 @@ func (p *pulumi) destroyParentStack(ctx context.Context, cfg *api.ConfigFile, st
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refresh parent summary: %q", refreshResult.Summary)
+	p.logger.Info(ctx, "Refresh parent summary: %q", p.toRefreshResult(refreshResult))
 	p.logger.Info(ctx, "Destroying parent stack %q...", stackSource.Name())
 	destroyResult, err := stackSource.Destroy(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Destroy parent summary: %q", destroyResult.Summary)
+	p.logger.Info(ctx, "Destroy parent summary: %q", p.toDestroyResult(destroyResult))
 	s, err = p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return err

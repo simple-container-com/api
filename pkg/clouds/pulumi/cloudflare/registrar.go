@@ -3,6 +3,8 @@ package cloudflare
 import (
 	"fmt"
 
+	"github.com/simple-container-com/api/pkg/api/logger"
+
 	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
@@ -15,12 +17,14 @@ import (
 )
 
 type provisioner struct {
-	provider *cfImpl.Provider
-	config   *cfApi.RegistrarConfig
-	zone     *cfImpl.LookupZoneResult
+	provider  *cfImpl.Provider
+	config    *cfApi.RegistrarConfig
+	zone      *cfImpl.LookupZoneResult
+	accountId string
+	log       logger.Logger
 }
 
-func NewCloudflare(ctx *sdk.Context, config api.RegistrarDescriptor) (pApi.Registrar, error) {
+func NewCloudflare(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error) {
 	cfg, ok := config.Config.Config.(*cfApi.RegistrarConfig)
 	if !ok {
 		return nil, errors.Errorf("invalid config type %T is not *cloudflare.RegistrarConfig", config.Config.Config)
@@ -41,14 +45,16 @@ func NewCloudflare(ctx *sdk.Context, config api.RegistrarDescriptor) (pApi.Regis
 	}
 
 	return &provisioner{
-		provider: provider,
-		config:   cfg,
-		zone:     cfZone,
+		provider:  provider,
+		config:    cfg,
+		zone:      cfZone,
+		accountId: cfg.AccountId,
+		log:       params.Log,
 	}, nil
 }
 
 func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	res := lo.Map(r.config.Records, func(record api.DnsRecord, _ int) *cfImpl.Record {
+	res := lo.Map(r.config.Records, func(record api.DnsRecord, _ int) sdk.Output {
 		res, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", record.Name), &cfImpl.RecordArgs{
 			ZoneId:  sdk.String(r.zone.ZoneId),
 			Name:    sdk.String(record.Name),
@@ -59,10 +65,10 @@ func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionPa
 		if err != nil {
 			params.Log.Error(ctx.Context(), "failed to create record %q: %v", record.Name, err)
 		}
-		return res
+		return res.ID()
 	})
 	return &api.ResourceOutput{
-		Ref: res,
+		Ref: sdk.ToArrayOutput(res),
 	}, nil
 }
 
@@ -83,6 +89,47 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 	}
 
 	return &api.ResourceOutput{
-		Ref: ref,
+		Ref: ref.ID(),
+	}, nil
+}
+
+func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
+	ruleName := fmt.Sprintf("%s-host-override", stack.Name)
+	r.log.Info(ctx.Context(), "Provisioning cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
+	scriptName := fmt.Sprintf("%s-script", ruleName)
+	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
+		Name:      sdk.String(scriptName),
+		AccountId: sdk.String(r.accountId),
+		Content: sdk.String(fmt.Sprintf(`
+addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request));
+});
+
+async function handleRequest(request) {
+	const overrideHost = "%s";
+	const url = new URL(request.url);
+	url.hostname = overrideHost;
+	return await fetch(url.toString(), request);
+};
+`, rule.ToHost)),
+	}, sdk.Provider(r.provider))
+	if err != nil {
+		return nil, err
+	}
+	ctx.Export(fmt.Sprintf("%s-script", ruleName), workerScript.ToWorkerScriptOutput())
+
+	routeName := fmt.Sprintf("%s-route", ruleName)
+	workerRoute, err := cfImpl.NewWorkerRoute(ctx, routeName, &cfImpl.WorkerRouteArgs{
+		ZoneId:     sdk.String(r.zone.ZoneId),
+		Pattern:    sdk.String(fmt.Sprintf("%s/*", rule.FromHost)),
+		ScriptName: workerScript.Name,
+	}, sdk.Provider(r.provider))
+	if err != nil {
+		return nil, err
+	}
+	ctx.Export(fmt.Sprintf("%s-route", ruleName), workerRoute.ToWorkerRouteOutput())
+
+	return &api.ResourceOutput{
+		Ref: workerRoute.ID(),
 	}, nil
 }

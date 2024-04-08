@@ -1,6 +1,7 @@
 package gcloud
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -21,6 +22,11 @@ type ServiceAccountConfig struct {
 type Credentials struct {
 	api.Credentials      `json:",inline" yaml:",inline"`
 	ServiceAccountConfig `json:",inline" yaml:",inline"`
+}
+
+type CredentialsParsed struct {
+	Type        string `json:"type"`
+	ClientEmail string `json:"client_email"`
 }
 
 type StateStorageConfig struct {
@@ -60,6 +66,14 @@ func (r *Credentials) ProjectIdValue() string {
 
 func (r *Credentials) CredentialsValue() string {
 	return r.Credentials.Credentials // just return serialized gcp account json
+}
+
+func (r *Credentials) CredentialsParsed() (*CredentialsParsed, error) {
+	var key CredentialsParsed
+	if err := json.Unmarshal([]byte(r.CredentialsValue()), &key); err != nil {
+		return nil, err
+	}
+	return &key, nil
 }
 
 func ReadAuthServiceAccountConfig(config *api.Config) (api.Config, error) {

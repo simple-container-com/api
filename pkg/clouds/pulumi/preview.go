@@ -29,16 +29,36 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refresh summary: %q", refreshResult.Summary)
+	p.logger.Info(ctx, "Refresh summary: %q", p.toRefreshResult(refreshResult))
 	p.logger.Info(ctx, "Preview stack %q...", stackSource.Name())
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Preview summary: %q", previewResult.ChangeSummary)
+	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(previewResult))
+	return p.toPreviewResult(previewResult), nil
+}
+
+func (p *pulumi) toPreviewResult(result auto.PreviewResult) *api.PreviewResult {
 	return &api.PreviewResult{
-		Operations: lo.MapKeys(previewResult.ChangeSummary, func(value int, key apitype.OpType) string {
+		Operations: lo.MapKeys(result.ChangeSummary, func(value int, key apitype.OpType) string {
 			return string(key)
 		}),
-	}, nil
+	}
+}
+
+func (p *pulumi) toDestroyResult(result auto.DestroyResult) *api.DestroyResult {
+	return &api.DestroyResult{
+		Operations: lo.MapValues(*result.Summary.ResourceChanges, func(value int, key string) int {
+			return int(value)
+		}),
+	}
+}
+
+func (p *pulumi) toRefreshResult(result auto.RefreshResult) *api.RefreshResult {
+	return &api.RefreshResult{
+		Operations: lo.MapValues(*result.Summary.ResourceChanges, func(value int, key string) int {
+			return int(value)
+		}),
+	}
 }

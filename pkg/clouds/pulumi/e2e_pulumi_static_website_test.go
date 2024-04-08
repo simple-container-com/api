@@ -64,7 +64,7 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
 							Domain:    fmt.Sprintf("e2e--pulumi--%s.simple-container.com", tmpResName("static-website")),
-							BundleDir: "testdata/static",
+							BundleDir: "static",
 						},
 					},
 				},
@@ -73,4 +73,5 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 	}
 
 	runProvisionAndDeployTest(stack, cfg, childStackName)
+	runDestroyTest(stack, cfg, childStackName)
 }
