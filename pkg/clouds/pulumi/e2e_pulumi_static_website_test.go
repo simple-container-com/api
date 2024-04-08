@@ -73,5 +73,4 @@ func Test_CreatePulumiParentStack(t *testing.T) {
 	}
 
 	runProvisionAndDeployTest(stack, cfg, childStackName)
-
 }
