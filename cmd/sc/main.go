@@ -13,12 +13,12 @@ import (
 )
 
 func main() {
-	rootParams := root_cmd.Params{
+	rootParams := &root_cmd.Params{
 		Verbose: false,
 		Silent:  false,
 	}
 
-	rootCmdInstance := root_cmd.RootCmd{
+	rootCmdInstance := &root_cmd.RootCmd{
 		Params: rootParams,
 	}
 
@@ -32,27 +32,27 @@ func main() {
 				if err := rootCmdInstance.Init(false); err != nil {
 					return err
 				}
-			}
-			if rootParams.Verbose {
-				cmd.SetContext(rootCmdInstance.Logger.SetLogLevel(cmd.Context(), logger.LogLevelDebug))
-			}
-			if rootParams.Silent {
-				cmd.SetContext(rootCmdInstance.Logger.SetLogLevel(cmd.Context(), logger.LogLevelError))
+				if rootParams.Verbose {
+					cmd.SetContext(rootCmdInstance.Logger.SetLogLevel(cmd.Context(), logger.LogLevelDebug))
+				}
+				if rootParams.Silent {
+					cmd.SetContext(rootCmdInstance.Logger.SetLogLevel(cmd.Context(), logger.LogLevelError))
+				}
 			}
 			return nil
 		},
 	}
 
 	rootCmd.AddCommand(
-		cmd_secrets.NewSecretsCmd(&rootCmdInstance),
-		cmd_init.NewInitCmd(&rootCmdInstance),
-		cmd_provision.NewProvisionCmd(&rootCmdInstance),
-		cmd_deploy.NewDeployCmd(&rootCmdInstance),
-		cmd_cancel.NewCancelCmd(&rootCmdInstance),
+		cmd_secrets.NewSecretsCmd(rootCmdInstance),
+		cmd_init.NewInitCmd(rootCmdInstance),
+		cmd_provision.NewProvisionCmd(rootCmdInstance),
+		cmd_deploy.NewDeployCmd(rootCmdInstance),
+		cmd_cancel.NewCancelCmd(rootCmdInstance),
 	)
 
-	rootCmd.Flags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")
-	rootCmd.Flags().StringVarP(&rootParams.Profile, "profile", "p", rootParams.Profile, "Use profile")
+	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")
+	rootCmd.PersistentFlags().StringVarP(&rootParams.Profile, "profile", "p", rootParams.Profile, "Use profile")
 
 	err := rootCmd.Execute()
 	if err != nil {

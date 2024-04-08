@@ -20,7 +20,7 @@ type Params struct {
 }
 
 type RootCmd struct {
-	Params
+	*Params
 
 	GitRepo     git.Repo
 	Logger      logger.Logger

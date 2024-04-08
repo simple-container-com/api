@@ -113,6 +113,9 @@ func (p *provisioner) Init(ctx context.Context, params api.InitParams) error {
 		return errors.New("project name is not configured")
 	}
 	p.projectName = params.ProjectName
+	if params.Profile != "" {
+		p.profile = params.Profile
+	}
 
 	if params.RootDir == "" {
 		return errors.New("root dir is not configured")

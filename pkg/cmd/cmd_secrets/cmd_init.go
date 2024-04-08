@@ -4,7 +4,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type initCmd struct {
+	MakeInitialCommit bool
+	GenerateKeyPair   bool
+}
+
 func NewInitCmd(sCmd *secretsCmd) *cobra.Command {
+	iCmd := &initCmd{}
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Init repository secrets with initial commit",
@@ -12,11 +18,16 @@ func NewInitCmd(sCmd *secretsCmd) *cobra.Command {
 			if err := sCmd.Root.Init(true); err != nil {
 				return err
 			}
-			if err := sCmd.Root.Provisioner.InitProfile(false); err != nil {
+			if err := sCmd.Root.Provisioner.InitProfile(iCmd.GenerateKeyPair); err != nil {
 				return err
 			}
-			return sCmd.Root.Provisioner.MakeInitialCommit()
+			if iCmd.MakeInitialCommit {
+				return sCmd.Root.Provisioner.MakeInitialCommit()
+			}
+			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&iCmd.GenerateKeyPair, "generate", "g", iCmd.GenerateKeyPair, "Generate RSA ssh key inside profile of .sc directory")
+	cmd.Flags().BoolVarP(&iCmd.MakeInitialCommit, "commit", "C", iCmd.MakeInitialCommit, "Make initial commit after initialization")
 	return cmd
 }

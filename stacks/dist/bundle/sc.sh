@@ -11,6 +11,7 @@ ARCH=amd64
 case $(uname -m) in
     x86_64) ARCH="amd64" ;;
     arm)    ARCH="arm64" ;;
+    arm64)  ARCH="arm64" ;;
 esac
 BINDIR=~/.local/bin
 
@@ -27,6 +28,11 @@ if [[ ! -f "$BINDIR/sc" ]]; then
     path_export="export PATH=\"\$PATH:$BINDIR\""
     if [[ "$(cat ~/.bashrc | grep "$path_export")" == "" ]]; then
       echo "$path_export" >> ~/.bashrc
+      echo "unalias sc || echo ''" >> ~/.bashrc
+    fi
+    if [[ -f "$HOME/.zshrc" && "$(cat ~/.zshrc | grep "$path_export")" == "" ]]; then
+      echo "$path_export" >> ~/.zshrc
+      echo "unalias sc || echo ''" >> ~/.zshrc
     fi
   )
 fi
