@@ -39,13 +39,13 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make --timestamps
       - name: publish sc tool
         shell: bash
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod --timestamps
 
   finalize:
     name: Finalize build
