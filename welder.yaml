@@ -45,6 +45,7 @@ tasks:
       - go build ./...
       - welder run build -a os=linux -a arch=amd64
       - welder run build -a os=darwin -a arch=arm64
+      - welder run build -a os=darwin -a arch=amd64
   build:
     runOn: host
     env:
