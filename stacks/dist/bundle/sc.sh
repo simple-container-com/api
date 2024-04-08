@@ -29,10 +29,16 @@ if [[ ! -f "$BINDIR/sc" ]]; then
     if [[ "$(cat ~/.bashrc | grep "$path_export")" == "" ]]; then
       echo "$path_export" >> ~/.bashrc
       echo "unalias sc || echo ''" >> ~/.bashrc
+      $BINDIR/sc completion zsh > "${fpath[1]}/_sc"
     fi
     if [[ -f "$HOME/.zshrc" && "$(cat ~/.zshrc | grep "$path_export")" == "" ]]; then
+      # shellcheck disable=SC2129
       echo "$path_export" >> ~/.zshrc
       echo "unalias sc || echo ''" >> ~/.zshrc
+      echo "autoload -U compinit; compinit" >> ~/.zshrc
+      if [[ "$PLATFORM" == "darwin" ]]; then
+        $BINDIR/sc completion zsh > $(brew --prefix)/share/zsh/site-functions/_sc
+      fi
     fi
   )
 fi

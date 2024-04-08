@@ -393,6 +393,10 @@ func checkInitSuccess(t *testing.T, wd string, p Provisioner) {
 }
 
 func checkInitialCommit(t *testing.T, wd string, p Provisioner) {
+	if os.Getenv("GITHUB_REPOSITORY") != "" {
+		t.Skip("Skipping checking for the initial commit on github")
+		return
+	}
 	t.Run("initial commit is present", func(t *testing.T) {
 		commits := p.GitRepo().Log()
 		commit, exists := lo.Find(commits, func(c git.Commit) bool {
