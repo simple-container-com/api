@@ -34,17 +34,13 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	clusterName := toClusterName(stack.Name, input)
 	projectName := toProjectName(stack.Name, input)
 
-	if atlasCfg.ProjectName != "" {
-		projectName = atlasCfg.ProjectName
-	}
-
 	var projectId sdk.StringOutput
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 	}
 	if atlasCfg.ProjectId == "" {
 		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
-			Name:  sdk.String(projectName),
+			Name:  sdk.String(lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)),
 			OrgId: sdk.String(atlasCfg.OrgId),
 		}, opts...)
 		if err != nil {
