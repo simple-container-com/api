@@ -54,7 +54,7 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 		},
 	}, params)
 	ctx.Export(fmt.Sprintf("%s-username", userName), sdk.String(userName))
-	ctx.Export(fmt.Sprintf("%s-password", userName), dbUser.Password)
+	ctx.Export(fmt.Sprintf("%s-password", userName), sdk.ToSecret(dbUser.Password))
 
 	collector.AddDependency(dbUser)
 	dbUser.Password.ApplyT(func(password *string) (any, error) {
