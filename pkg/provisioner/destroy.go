@@ -23,7 +23,7 @@ func (p *provisioner) Destroy(ctx context.Context, params api.DestroyParams) err
 	return pv.DestroyChildStack(ctx, cfg, *stack, params)
 }
 
-func (p *provisioner) DestroyProvision(ctx context.Context, params api.ProvisionParams) error {
+func (p *provisioner) DestroyParent(ctx context.Context, params api.ProvisionParams) error {
 	cfg, err := p.readConfigForProvision(ctx, params)
 	if err != nil {
 		return err
