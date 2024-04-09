@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"path"
+	"path/filepath"
 
 	"github.com/compose-spec/compose-go/loader"
 	"github.com/compose-spec/compose-go/types"
@@ -14,10 +15,13 @@ type Config struct {
 
 func ReadDockerCompose(ctx context.Context, workingDir, composeFilePath string) (Config, error) {
 	var res Config
+	if !filepath.IsAbs(composeFilePath) {
+		composeFilePath = path.Join(workingDir, composeFilePath)
+	}
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir: workingDir,
 		ConfigFiles: []types.ConfigFile{{
-			Filename: path.Join(workingDir, composeFilePath),
+			Filename: composeFilePath,
 		}},
 	}, func(options *loader.Options) {
 		// todo: figure out options
