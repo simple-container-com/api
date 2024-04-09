@@ -71,36 +71,36 @@ export PATH="$PATH:$BINDIR"
 # bash
 if [[ -f "$HOME/.bashrc" ]]; then
   path_export="export PATH=\"\$PATH:$BINDIR\""
-  if [[ "$(cat ~/.bashrc | grep "$path_export")" == "" ]]; then
-    echo "$path_export" >> ~/.bashrc
+  if [[ "$(cat $HOME/.bashrc | grep "$path_export")" == "" ]]; then
+    echo "$path_export" >> $HOME/.bashrc
   fi
   completion_bash="source <(sc completion bash)"
-  if [[ "$(cat ~/.bashrc | grep "$completion_bash")" == "" ]]; then
-    echo "$completion_bash" >> ~/.bashrc
+  if [[ "$(cat $HOME/.bashrc | grep "$completion_bash")" == "" ]]; then
+    echo "$completion_bash" >> $HOME/.bashrc
   fi
   unalias_cmd="unalias sc > /dev/null 2>/dev/null || true" # in case sc is defined as global alias
-  if [[ "$(cat ~/.bashrc | grep "$unalias_cmd")" == "" ]]; then
-    echo "$unalias_cmd" >> ~/.bashrc
+  if [[ "$(cat $HOME/.bashrc | grep "$unalias_cmd")" == "" ]]; then
+    echo "$unalias_cmd" >> $HOME/.bashrc
   fi
 fi
 
 # zsh
 if [[ -f "$HOME/.zshrc"  ]]; then
-  if [[ "$(cat ~/.zshrc | grep "$path_export")" == "" ]]; then
+  if [[ "$(cat $HOME/.zshrc | grep "$path_export")" == "" ]]; then
     # shellcheck disable=SC2129
-    echo "$path_export" >> ~/.zshrc
-    echo "unalias sc || echo ''" >> ~/.zshrc
-    echo "autoload -U compinit; compinit" >> ~/.zshrc
+    echo "$path_export" >> $HOME/.zshrc
+    echo "unalias sc || echo ''" >> $HOME/.zshrc
+    echo "autoload -U compinit; compinit" >> $HOME/.zshrc
     if [[ "$PLATFORM" == "darwin" ]]; then
       $BINDIR/sc completion zsh > $(brew --prefix)/share/zsh/site-functions/_sc || echo ""
     fi
   fi
   completion_zsh="source <(sc completion zsh)"
-  if [[ "$(cat ~/.zshrc | grep "$completion_zsh")" == "" ]]; then
-    echo "$completion_zsh" >> ~/.zshrc
+  if [[ "$(cat $HOME/.zshrc | grep "$completion_zsh")" == "" ]]; then
+    echo "$completion_zsh" >> $HOME/.zshrc
   fi
-  if [[ "$(cat ~/.zshrc | grep "$unalias_cmd")" == "" ]]; then
-    echo "$unalias_cmd" >> ~/.zshrc
+  if [[ "$(cat $HOME/.zshrc | grep "$unalias_cmd")" == "" ]]; then
+    echo "$unalias_cmd" >> $HOME/.zshrc
   fi
 fi
 
