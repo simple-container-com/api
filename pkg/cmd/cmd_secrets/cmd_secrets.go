@@ -25,6 +25,7 @@ func NewSecretsCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		NewHideCmd(sCmd),
 		NewRevealCmd(sCmd),
 		NewAllowCmd(sCmd),
+		NewDisallowCmd(sCmd),
 		NewAddCmd(sCmd),
 		NewDeleteCmd(sCmd),
 		NewInitCmd(sCmd),
