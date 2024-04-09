@@ -54,13 +54,14 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 
 		p.logger.Debug(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
 
-		if err := p.initRegistrar(ctx, stack); err != nil {
+		if err := p.initRegistrar(ctx, stack, ""); err != nil {
 			return errors.Wrapf(err, "failed to init registar")
 		}
 
 		if _, nc := p.registrar.(*notConfigured); !nc && p.registrar != nil {
 			if _, err := p.registrar.ProvisionRecords(ctx, pApi.ProvisionParams{
-				Log: p.logger,
+				Log:       p.logger,
+				Collector: pApi.NewCollector(stack.Name, ""),
 			}); err != nil {
 				return errors.Wrapf(err, "failed to provision base DNS records for stack %q", stack.Name)
 			}
@@ -71,7 +72,7 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 			for resName, res := range resources.Resources {
 				p.logger.Info(ctx.Context(), "provisioning resource %q for stack %q in env %q", resName, stack.Name, env)
 
-				provisionParams, err := p.getProvisionParams(ctx, stack, res)
+				provisionParams, err := p.getProvisionParams(ctx, stack, res, env)
 				if err != nil {
 					return errors.Wrapf(err, "failed to init provision params for %q", res.Type)
 				}
@@ -83,6 +84,11 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 				}, provisionParams); err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
+
+				outputName := stackDescriptorTemplateName(stack.Name, env)
+				p.logger.Debug(ctx.Context(), "preserving outputs of stack %q for env %q as %q...", stack.Name, env, outputName)
+				secretOutput := sdk.ToSecret(provisionParams.Collector.ToJson())
+				ctx.Export(outputName, secretOutput)
 			}
 		}
 		for templateName, stackDesc := range stack.Server.Templates {
@@ -102,13 +108,14 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 	return program
 }
 
-func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack) error {
+func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, environment string) error {
 	registrarType := stack.Server.Resources.Registrar.Type
 	p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
 	if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
 		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
 	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
-		Log: p.logger,
+		Log:       p.logger,
+		Collector: pApi.NewCollector(stack.Name, environment),
 	}); err != nil {
 		return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
 	} else {
@@ -137,7 +144,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	}
 }
 
-func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor) (pApi.ProvisionParams, error) {
+func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string) (pApi.ProvisionParams, error) {
 	var provider sdk.ProviderResource
 	providerName := fmt.Sprintf("%s-%s-provider", stack.Name, res.Type)
 
@@ -152,12 +159,15 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 			Config: res.Config,
 		},
 	}, pApi.ProvisionParams{
-		Log: p.logger,
+		Log:       p.logger,
+		Collector: pApi.NewCollector(stack.Name, environment),
+		Registrar: p.registrar,
 	}); err != nil {
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	}
 	return pApi.ProvisionParams{
+		Collector: pApi.NewCollector(stack.Name, environment),
 		Provider:  provider,
 		Registrar: p.registrar,
 		Log:       p.logger,
@@ -166,6 +176,10 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 
 func stackDescriptorTemplateName(stackName, templateName string) string {
 	return fmt.Sprintf("%s/%s", stackName, templateName)
+}
+
+func stackOutputValuesName(stackName string, env string) string {
+	return fmt.Sprintf("%s/%s", stackName, env)
 }
 
 func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
@@ -190,7 +204,7 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		Name:   fmt.Sprintf("%s-secrets-provider", stack.Name),
 		Config: provisionerCfg.SecretsProvider.Config,
 	}
-	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor)
+	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "")
 	if err != nil {
 		return errors.Wrapf(err, "failed to init provision params for %q in stack %q", provisionerCfg.SecretsProvider.Type, stack.Name)
 	}

@@ -2,8 +2,9 @@ package placeholders
 
 import (
 	"fmt"
-	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 	"testing"
+
+	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 
 	. "github.com/onsi/gomega"
 
@@ -126,7 +127,6 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 	t.Parallel()
 	for _, tt := range tcs {
 		t.Run(tt.name, func(t *testing.T) {
-
 			ph := &placeholders{
 				log: logger.New(),
 			}

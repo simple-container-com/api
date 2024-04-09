@@ -1,9 +1,10 @@
 package placeholders
 
 import (
-	"github.com/simple-container-com/api/pkg/api/git"
 	"reflect"
 	"strings"
+
+	"github.com/simple-container-com/api/pkg/api/git"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"

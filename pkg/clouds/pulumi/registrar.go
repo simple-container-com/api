@@ -9,8 +9,7 @@ import (
 
 var NotConfiguredRegistrarError = errors.New("regisrar is not configured")
 
-type notConfigured struct {
-}
+type notConfigured struct{}
 
 func (n notConfigured) MainDomain() string {
 	return ""

@@ -2,6 +2,7 @@ package provisioner
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -196,7 +197,7 @@ func (p *provisioner) InitProfile(generateKeyPair bool) error {
 		return errors.Wrapf(err, "failed to read config template file")
 	} else {
 		defer func() { _ = tplFile.Close() }()
-		if _, err := io.WriteString(tplFile, string(cfgTpl)); err != nil {
+		if _, err := io.WriteString(tplFile, fmt.Sprintf(string(cfgTpl), p.projectName)); err != nil {
 			return errors.Wrapf(err, "failed to write config template file %q", tplFile.Name())
 		}
 		err := p.gitRepo.AddFileToGit(tplFilePath)

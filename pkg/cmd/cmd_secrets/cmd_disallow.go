@@ -22,7 +22,6 @@ func NewDisallowCmd(sCmd *secretsCmd) *cobra.Command {
 				return lo.MapToSlice(sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Secrets, func(key string, _ secrets.EncryptedSecrets) string {
 					return key
 				}), cobra.ShellCompDirectiveNoFileComp
-
 			}
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},

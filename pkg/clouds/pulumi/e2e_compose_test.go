@@ -4,8 +4,9 @@ package pulumi
 
 import (
 	"fmt"
-	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"testing"
+
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"

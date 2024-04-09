@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
@@ -56,31 +58,36 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Errorf("no template configured for stack %q in env %q", parentStack, params.Environment)
 		}
 
-		if err := p.initRegistrar(ctx, stack); err != nil {
+		if err := p.initRegistrar(ctx, stack, params.Environment); err != nil {
 			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
 		parentRefString := fmt.Sprintf("%s/%s/%s", p.provisionerCfg.Organization, p.configFile.ProjectName, parentStack)
 
-		// Create a StackReference to the parent stack
-		parentRef, err := sdk.NewStackReference(ctx, parentRefString, nil)
-		if err != nil {
-			return err
-		}
-
+		// get template from parent
 		templateRef := stackDescriptorTemplateName(parentStack, templateName)
-		parentOutput, err := parentRef.GetOutputDetails(templateRef)
+		var stackDesc api.StackDescriptor
+		err := getSecretValueFromStack(ctx, parentRefString, templateRef, func(val string) error {
+			err := yaml.Unmarshal([]byte(val), &stackDesc)
+			if err != nil {
+				return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
+			}
+			return nil
+		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
 		}
-		if parentOutput.SecretValue == nil {
-			return errors.Errorf("no secret value for template %q in stack %q for env %q", templateName, parentStack, params.Environment)
-		}
-		var stackDesc api.StackDescriptor
-		err = yaml.Unmarshal([]byte(parentOutput.SecretValue.(string)), &stackDesc)
+		// get outputs from parent
+		outputsRef := stackOutputValuesName(parentStack, params.Environment)
+		var outputs pApi.OutputsCollector
+		err = getSecretValueFromStack(ctx, parentRefString, outputsRef, func(val string) error {
+			outputs = pApi.CollectorFromJson(val)
+			return nil
+		})
 		if err != nil {
-			return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
+			return errors.Wrapf(err, "failed to get outputs for stack %q in %q", parentStack, params.Environment)
 		}
+		p.logger.Info(ctx.Context(), "got outputs from parent stack", outputs)
 
 		if params.StacksDir == "" {
 			return errors.Errorf("stacks directory must be specified")
@@ -100,7 +107,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			Config: deployInput.Config,
 		}
 		p.logger.Debug(ctx.Context(), "getting provisioning params for %q in stack %q", deployInput)
-		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc)
+		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment)
 		if err != nil {
 			return errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
 		}
@@ -115,4 +122,23 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		}
 		return nil
 	}
+}
+
+func getSecretValueFromStack(ctx *sdk.Context, refName, outName string, proc func(val string) error) error {
+	// Create a StackReference to the parent stack
+	ref, err := sdk.NewStackReference(ctx, refName, nil)
+	if err != nil {
+		return err
+	}
+	parentOutput, err := ref.GetOutputDetails(outName)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
+	}
+	if parentOutput.SecretValue == nil {
+		return errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
+	}
+	if proc != nil {
+		return proc(parentOutput.SecretValue.(string))
+	}
+	return nil
 }

@@ -9,4 +9,5 @@ type ProvisionParams struct {
 	Provider  sdk.ProviderResource
 	Registrar Registrar
 	Log       logger.Logger
+	Collector OutputsCollector
 }

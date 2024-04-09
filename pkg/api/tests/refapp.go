@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"

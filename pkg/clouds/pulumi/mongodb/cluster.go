@@ -2,13 +2,12 @@ package mongodb
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
-	"github.com/samber/lo"
 
+	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-
+	"github.com/samber/lo"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
@@ -81,6 +80,9 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	ctx.Export(fmt.Sprintf("%s-cluster-id", clusterName), cluster.ClusterId)
 	ctx.Export(fmt.Sprintf("%s-cluster-uri", clusterName), cluster.MongoUri)
 	out.Cluster = cluster
+
+	params.Collector.ExportEnvVariable(fmt.Sprintf("MONGO_URI"), cluster.MongoUri)
+	params.Collector.ExportEnvVariable(fmt.Sprintf("MONGO_URI_WITH_OPTIONS"), cluster.MongoUriWithOptions)
 
 	ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
 		CidrBlock: sdk.StringPtr("0.0.0.0/0"),
