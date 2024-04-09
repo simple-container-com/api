@@ -27,10 +27,11 @@ type StackClientDescriptor struct {
 }
 
 type StackConfigCompose struct {
-	DockerComposeFile string   `json:"dockerComposeFile" yaml:"dockerComposeFile"`
-	Domain            string   `json:"domain" yaml:"domain"`
-	Uses              []string `json:"uses" yaml:"uses"`
-	Runs              []string `json:"runs" yaml:"runs"`
+	DockerComposeFile string            `json:"dockerComposeFile" yaml:"dockerComposeFile"`
+	Domain            string            `json:"domain" yaml:"domain"`
+	Uses              []string          `json:"uses" yaml:"uses"`
+	Runs              []string          `json:"runs" yaml:"runs"`
+	Env               map[string]string `json:"env" yaml:"env"`
 }
 
 type StackConfigStatic struct {

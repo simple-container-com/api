@@ -22,6 +22,8 @@ require (
 	github.com/pulumi/pulumi-command/sdk v0.9.2
 	github.com/pulumi/pulumi-docker/sdk/v3 v3.6.1
 	github.com/pulumi/pulumi-gcp/sdk/v6 v6.67.1
+	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.14.3
+	github.com/pulumi/pulumi-random/sdk/v4 v4.16.0
 	github.com/pulumi/pulumi/pkg/v3 v3.112.0
 	github.com/pulumi/pulumi/sdk/v3 v3.112.0
 	github.com/samber/lo v1.38.1

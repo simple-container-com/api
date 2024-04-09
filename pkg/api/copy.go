@@ -151,5 +151,7 @@ func (s *StackConfigCompose) Copy() StackConfigCompose {
 		DockerComposeFile: s.DockerComposeFile,
 		Uses:              s.Uses,
 		Runs:              s.Runs,
+		Domain:            s.Domain,
+		Env:               lo.Assign(s.Env),
 	}
 }

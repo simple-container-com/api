@@ -5,16 +5,16 @@ import "github.com/simple-container-com/api/pkg/api"
 const ResourceTypeMongodbAtlas = "mongodb-atlas"
 
 type AtlasConfig struct {
-	api.AuthConfig
-	Admins       []string `json:"admins" yaml:"admins"`
-	Developers   []string `json:"developers" yaml:"developers"`
-	InstanceSize string   `json:"instanceSize" yaml:"instanceSize"`
-	OrgId        string   `json:"orgId" yaml:"orgId"`
-	ProjectId    string   `json:"projectId" yaml:"projectId"`
-	ProjectName  string   `json:"projectName" yaml:"projectName"`
-	Region       string   `json:"region" yaml:"region"`
-	PrivateKey   string   `json:"privateKey" yaml:"privateKey"`
-	PublicKey    string   `json:"publicKey" yaml:"publicKey"`
+	Admins        []string `json:"admins" yaml:"admins"`
+	Developers    []string `json:"developers" yaml:"developers"`
+	InstanceSize  string   `json:"instanceSize" yaml:"instanceSize"`
+	OrgId         string   `json:"orgId" yaml:"orgId"`
+	ProjectId     string   `json:"projectId" yaml:"projectId"`
+	ProjectName   string   `json:"projectName" yaml:"projectName"`
+	Region        string   `json:"region" yaml:"region"`
+	PrivateKey    string   `json:"privateKey" yaml:"privateKey"`
+	PublicKey     string   `json:"publicKey" yaml:"publicKey"`
+	CloudProvider string   `json:"cloudProvider" yaml:"cloudProvider"`
 }
 
 func ReadAtlasConfig(config *api.Config) (api.Config, error) {
@@ -22,9 +22,13 @@ func ReadAtlasConfig(config *api.Config) (api.Config, error) {
 }
 
 func (r *AtlasConfig) CredentialsValue() string {
-	return r.PrivateKey // TODO: figure out
+	return r.PrivateKey
 }
 
 func (r *AtlasConfig) ProjectIdValue() string {
 	return r.ProjectId
+}
+
+func (r *AtlasConfig) ProviderType() string {
+	return ProviderType
 }

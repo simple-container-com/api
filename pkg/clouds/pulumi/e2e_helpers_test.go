@@ -3,13 +3,12 @@ package pulumi
 import (
 	"context"
 	"fmt"
-	"time"
-
 	. "github.com/onsi/gomega"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
+	"time"
 )
 
 const (
@@ -126,13 +125,7 @@ func e2eServerDescriptorForAws(config e2eConfig) api.ServerDescriptor {
 func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, deployStackName string) {
 	ctx := context.Background()
 
-	createProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
-	Expect(err).To(BeNil())
-
-	createProv.SetPublicKey(cfg.Cryptor.PublicKey())
-
-	err = createProv.ProvisionStack(ctx, cfg.ConfigFile, stack)
-	Expect(err).To(BeNil())
+	runProvisionTest(stack, cfg)
 
 	deployProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
 	Expect(err).To(BeNil())
@@ -146,6 +139,18 @@ func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig
 			Environment: "test",
 		},
 	})
+	Expect(err).To(BeNil())
+}
+
+func runProvisionTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
+	ctx := context.Background()
+
+	createProv, err := InitPulumiProvisioner(stack.Server.Provisioner.Config)
+	Expect(err).To(BeNil())
+
+	createProv.SetPublicKey(cfg.Cryptor.PublicKey())
+
+	err = createProv.ProvisionStack(ctx, cfg.ConfigFile, stack)
 	Expect(err).To(BeNil())
 }
 
@@ -185,6 +190,6 @@ func runDestroyParentTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
 }
 
 func tmpResName(name string) string {
-	// return fmt.Sprintf("%s-%d", name, 1712558586)
+	//return fmt.Sprintf("%s-%d", name, 1712558587)
 	return fmt.Sprintf("%s-%d", name, time.Now().Unix())
 }

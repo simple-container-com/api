@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"fmt"
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"path"
 
 	. "github.com/onsi/gomega"
@@ -15,15 +16,17 @@ import (
 )
 
 const (
-	rootDirRelPath    = "pkg/clouds/pulumi/testdata"
-	testGCPConfigFile = "pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml"
-	testAwsConfigFile = "pkg/clouds/pulumi/testdata/secrets/aws-e2e-config.yaml"
-	testCfConfigFile  = "pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml"
+	rootDirRelPath      = "pkg/clouds/pulumi/testdata"
+	testGCPConfigFile   = "pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml"
+	testAwsConfigFile   = "pkg/clouds/pulumi/testdata/secrets/aws-e2e-config.yaml"
+	testCfConfigFile    = "pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml"
+	testMongoConfigFile = "pkg/clouds/pulumi/testdata/secrets/mongodb-e2e-config.yaml"
 )
 
 type E2ETestConfig struct {
 	GcpCredentials   *gcloud.Credentials
 	AwsCredentials   *awsApi.AccountConfig
+	MongoConfig      *mongodb.AtlasConfig
 	ConfigFile       *api.ConfigFile
 	Cryptor          secrets.Cryptor
 	CloudflareConfig *cloudflare.RegistrarConfig
@@ -57,12 +60,14 @@ func PrepareE2Etest() E2ETestConfig {
 	gcpCreds := ReadTestSecretConfig(cryptor, testGCPConfigFile, &gcloud.Credentials{})
 	awsCreds := ReadTestSecretConfig(cryptor, testAwsConfigFile, &awsApi.AccountConfig{})
 	cfCreds := ReadTestSecretConfig(cryptor, testCfConfigFile, &cloudflare.RegistrarConfig{})
+	mongoCreds := ReadTestSecretConfig(cryptor, testMongoConfigFile, &mongodb.AtlasConfig{})
 	return E2ETestConfig{
 		ConfigFile:       cfg,
 		Cryptor:          cryptor,
 		CloudflareConfig: cfCreds,
 		AwsCredentials:   awsCreds,
 		GcpCredentials:   gcpCreds,
+		MongoConfig:      mongoCreds,
 		StacksDir:        path.Join(cryptor.Workdir(), rootDirRelPath),
 	}
 }

@@ -489,6 +489,9 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 						"api",
 						"ui",
 					},
+					Env: map[string]string{
+						"JWT_SECRET": "${secret:JWT_SECRET}",
+					},
 				},
 			},
 		},
@@ -505,6 +508,9 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 					Runs: []string{
 						"api",
 						"ui",
+					},
+					Env: map[string]string{
+						"JWT_SECRET": "${secret:JWT_SECRET}",
 					},
 				},
 			},

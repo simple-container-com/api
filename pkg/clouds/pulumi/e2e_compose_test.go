@@ -4,6 +4,7 @@ package pulumi
 
 import (
 	"fmt"
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -92,6 +93,45 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 
 	runProvisionAndDeployTest(stack, cfg, childStackName)
 	runDestroyTest(stack, cfg, childStackName)
+}
+
+func Test_CreateParentStackWithMongodb(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := secretTestutil.PrepareE2Etest()
+	parentStackName := tmpResName(e2eCreateStackName)
+	stack := api.Stack{
+		Name: parentStackName,
+		Server: e2eServerDescriptorForGcp(e2eConfig{
+			gcpCreds:       *cfg.GcpCredentials,
+			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
+			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
+			templates: map[string]api.StackDescriptor{
+				"stack-per-app": {
+					Type: gcloud.TemplateTypeGcpCloudrun,
+					Config: api.Config{Config: &gcloud.TemplateConfig{
+						Credentials: *cfg.GcpCredentials,
+					}},
+				},
+			},
+			resources: map[string]api.PerEnvResourcesDescriptor{
+				"test": {
+					Template: "stack-per-app",
+					Resources: map[string]api.ResourceDescriptor{
+						"mongodb": {
+							Type: mongodb.ResourceTypeMongodbAtlas,
+							Config: api.Config{
+								Config: cfg.MongoConfig,
+							},
+						},
+					},
+				},
+			},
+		}),
+	}
+
+	runProvisionTest(stack, cfg)
+	runDestroyParentTest(stack, cfg)
 }
 
 func Test_CreateComposeStackAWS(t *testing.T) {

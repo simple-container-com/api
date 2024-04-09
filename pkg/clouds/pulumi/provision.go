@@ -58,10 +58,12 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 			return errors.Wrapf(err, "failed to init registar")
 		}
 
-		if _, err := p.registrar.ProvisionRecords(ctx, pApi.ProvisionParams{
-			Log: p.logger,
-		}); err != nil {
-			return errors.Wrapf(err, "failed to provision base DNS records for stack %q", stack.Name)
+		if _, nc := p.registrar.(*notConfigured); !nc && p.registrar != nil {
+			if _, err := p.registrar.ProvisionRecords(ctx, pApi.ProvisionParams{
+				Log: p.logger,
+			}); err != nil {
+				return errors.Wrapf(err, "failed to provision base DNS records for stack %q", stack.Name)
+			}
 		}
 
 		for env, resources := range stack.Server.Resources.Resources {
@@ -102,17 +104,15 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 
 func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack) error {
 	registrarType := stack.Server.Resources.Registrar.Type
-	if registrarType != "" {
-		p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
-		if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
-			return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
-		} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
-			Log: p.logger,
-		}); err != nil {
-			return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
-		} else {
-			p.registrar = reg
-		}
+	p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
+	if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
+		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
+	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
+		Log: p.logger,
+	}); err != nil {
+		return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
+	} else {
+		p.registrar = reg
 	}
 	return nil
 }

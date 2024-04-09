@@ -12,7 +12,7 @@ stacks:
       runs:
         - api
         - ui
-      secrets:
+      env:
         JWT_SECRET: ${secret:JWT_SECRET}
   prod:
     <<: *staging
