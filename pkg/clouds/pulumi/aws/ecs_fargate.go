@@ -107,9 +107,11 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	dependsOnOpt := sdk.DependsOn(params.ComputeContext.Dependencies())
 
-	ecsClusterName := awsResName(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment), "ecs")
+	ecsClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 	// Create an ECS task execution IAM role
-	taskExecRole, err := iam.NewRole(ctx, fmt.Sprintf("%s-exec-role", ecsClusterName), &iam.RoleArgs{
+	roleName := fmt.Sprintf("%s-exec-role", ecsClusterName)
+	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
+		Name: sdk.String(ecsClusterName),
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -184,7 +186,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "creating ECS Fargate cluster for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	cluster, err := legacyEcs.NewCluster(ctx, ecsClusterName, &legacyEcs.ClusterArgs{
-		Name: sdk.String(ecsClusterName),
+		Name: sdk.String(awsResName(ecsClusterName, "cluster")),
 		Configuration: legacyEcs.ClusterConfigurationArgs{
 			ExecuteCommandConfiguration: legacyEcs.ClusterConfigurationExecuteCommandConfigurationArgs{
 				Logging: sdk.String("DEFAULT"),
@@ -202,7 +204,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		stack.Name, deployParams.Environment, iContainer.Name)
 	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
 		Cluster:      cluster.Arn,
-		Name:         sdk.String(ecsClusterName),
+		Name:         sdk.String(awsResName(ecsClusterName, "svc")),
 		DesiredCount: sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
 		TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
 			Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
@@ -343,11 +345,11 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 
 func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, imageName string) (EcsFargateRepository, error) {
 	res := EcsFargateRepository{}
-	ecrRepoName := awsResName(fmt.Sprintf("%s-%s", stack.Name, imageName), "ecr")
+	ecrRepoName := fmt.Sprintf("%s-%s", stack.Name, imageName)
 	params.Log.Info(ctx.Context(), "provisioning ECR repository %q for stack %q in %q...", ecrRepoName, stack.Name, deployParams.Environment)
 	ecrRepo, err := ecr.NewRepository(ctx, ecrRepoName, &ecr.RepositoryArgs{
 		ForceDelete: sdk.BoolPtr(true),
-		Name:        sdk.String(ecrRepoName),
+		Name:        sdk.String(awsResName(ecrRepoName, "ecr")),
 	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
 	if err != nil {
 		return res, errors.Wrapf(err, "failed to provision ECR repository %q for stack %q in %q", ecrRepoName, stack.Name, deployParams.Environment)

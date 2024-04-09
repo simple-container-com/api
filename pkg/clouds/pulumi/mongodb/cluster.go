@@ -177,8 +177,8 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 		return nil, errors.Wrapf(err, "failed to create database user %q", user.userName)
 	}
 	ctx.Export(userObjectName, dbUser.Username)
-	ctx.Export(fmt.Sprintf("%s-password", user.userName), dbUser.Password)
-	ctx.Export(fmt.Sprintf("%s-dbUri", user.userName), sdk.String(user.dbUri))
+	ctx.Export(fmt.Sprintf("%s-password", user.userName), sdk.ToSecret(dbUser.Password))
+	ctx.Export(fmt.Sprintf("%s-db-uri", user.userName), sdk.String(user.dbUri))
 
 	return dbUser, nil
 }
