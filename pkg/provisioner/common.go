@@ -122,16 +122,16 @@ func (p *provisioner) Init(ctx context.Context, params api.InitParams) error {
 	}
 	p.rootDir = params.RootDir
 
-	if p.phResolver == nil {
-		p.phResolver = placeholders.New(p.log)
-	}
-
 	if p.gitRepo == nil {
 		if repo, err := git.New(); err != nil {
 			return errors.Wrapf(err, "failed to init git")
 		} else {
 			p.gitRepo = repo
 		}
+	}
+
+	if p.phResolver == nil {
+		p.phResolver = placeholders.New(p.log, placeholders.WithGitRepo(p.gitRepo))
 	}
 
 	if p.rootDir == "" {

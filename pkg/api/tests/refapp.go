@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"fmt"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -480,7 +481,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "staging.sc-refapp.org",
-					DockerComposeFile: "./docker-compose.yaml",
+					DockerComposeFile: "${git:root}/docker-compose.yaml",
 					Uses: []string{
 						"mongodb",
 					},
@@ -497,7 +498,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "prod.sc-refapp.org",
-					DockerComposeFile: "./docker-compose.yaml",
+					DockerComposeFile: "${git:root}/docker-compose.yaml",
 					Uses: []string{
 						"mongodb",
 					},
@@ -509,4 +510,17 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 	},
+}
+
+func ResolvedRefappClientDescriptor(gitRoot string) *api.ClientDescriptor {
+	res := RefappClientDescriptor.Copy()
+	staging := res.Stacks["staging"]
+	stagingCompose := staging.Config.Config.(*api.StackConfigCompose)
+	stagingCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)
+	res.Stacks["staging"] = staging
+	prod := res.Stacks["prod"]
+	prodCompose := prod.Config.Config.(*api.StackConfigCompose)
+	prodCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)
+	res.Stacks["prod"] = prod
+	return &res
 }

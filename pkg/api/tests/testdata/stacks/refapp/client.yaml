@@ -6,7 +6,7 @@ stacks:
     parent: refapp
     config: &config
       domain: staging.sc-refapp.org
-      dockerComposeFile: ./docker-compose.yaml # uses listed containers from docker-compose.yaml
+      dockerComposeFile: ${git:root}/docker-compose.yaml # uses listed containers from docker-compose.yaml
       uses:
         - mongodb
       runs:

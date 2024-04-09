@@ -1,6 +1,7 @@
 package placeholders
 
 import (
+	"github.com/simple-container-com/api/pkg/api/git"
 	"reflect"
 	"strings"
 
@@ -23,13 +24,22 @@ type Placeholders interface {
 
 type Option func(tpl *template.Template)
 
+type InitOption func(p *placeholders)
+
 type placeholders struct {
 	log logger.Logger
+	git git.Repo
 }
 
 func WithExtensions(extensions map[string]template.Extension) Option {
 	return func(tpl *template.Template) {
 		tpl.WithExtensions(extensions)
+	}
+}
+
+func WithGitRepo(gitRepo git.Repo) InitOption {
+	return func(p *placeholders) {
+		p.git = gitRepo
 	}
 }
 
@@ -43,6 +53,7 @@ func (p *placeholders) Resolve(stacks api.StacksMap) error {
 	for stackName, stack := range iterStacks {
 		opts := []Option{
 			WithExtensions(map[string]template.Extension{
+				"git":    p.tplGit(stackName),
 				"auth":   p.tplAuth(stackName, stack, stacks),
 				"secret": p.tplSecrets(stackName, stack, stacks),
 				"var":    p.tplVars(stackName, stack, stacks),
@@ -99,6 +110,21 @@ func (p *placeholders) tplSecrets(stackName string, stack api.Stack, stacks api.
 	}
 }
 
+func (p *placeholders) tplGit(stackName string) func(source string, path string, value *string) (string, error) {
+	return func(noSubs, path string, value *string) (string, error) {
+		vars := map[string]string{}
+		if p.git != nil {
+			vars["root"] = p.git.Workdir()
+		}
+
+		if val, found := vars[path]; !found {
+			return noSubs, errors.Errorf("value %q not found for stack %q", path, stackName)
+		} else {
+			return val, nil
+		}
+	}
+}
+
 func (p *placeholders) tplAuth(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
 		pathParts := strings.SplitN(path, ".", 2)
@@ -130,10 +156,16 @@ func (p *placeholders) tplAuth(stackName string, stack api.Stack, stacks api.Sta
 	}
 }
 
-func New(log logger.Logger) Placeholders {
-	return &placeholders{
+func New(log logger.Logger, opts ...InitOption) Placeholders {
+	res := &placeholders{
 		log: log,
 	}
+
+	for _, opt := range opts {
+		opt(res)
+	}
+
+	return res
 }
 
 func (p *placeholders) initTemplate(opts []Option) *template.Template {

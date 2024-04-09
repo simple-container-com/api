@@ -68,7 +68,7 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "staging.sc-refapp.org",
-					DockerComposeFile: "./docker-compose.yaml",
+					DockerComposeFile: "${git:root}/docker-compose.yaml",
 					Uses: []string{
 						"mongodb",
 					},
@@ -85,7 +85,7 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 			Config: api.Config{
 				Config: &api.StackConfigCompose{
 					Domain:            "prod.sc-refapp.org",
-					DockerComposeFile: "./docker-compose.yaml",
+					DockerComposeFile: "${git:root}/docker-compose.yaml",
 					Uses: []string{
 						"mongodb",
 					},

@@ -207,7 +207,7 @@ func Test_Deploy(t *testing.T) {
 						Name:    "refapp",
 						Secrets: *tests.CommonSecretsDescriptor,
 						Server:  *tests.ResolvedRefappServerDescriptor,
-						Client:  *tests.RefappClientDescriptor,
+						Client:  *tests.ResolvedRefappClientDescriptor("testdata"),
 					}
 					return assert.EqualValuesf(t, expected, actual, "%v failed", ttName)
 				}), mock.MatchedBy(func(actual any) bool {
@@ -253,7 +253,7 @@ func Test_Deploy(t *testing.T) {
 				pulumiMock.On("SetPublicKey", mock.Anything).Return()
 			}
 			p, err = New(
-				WithPlaceholders(placeholders.New(logger.New())),
+				WithPlaceholders(placeholders.New(logger.New(), placeholders.WithGitRepo(gitRepoMock))),
 				WithOverrideProvisioner(pulumiMock),
 				WithGitRepo(gitRepoMock),
 			)

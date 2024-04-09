@@ -2,6 +2,7 @@ package placeholders
 
 import (
 	"fmt"
+	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -23,6 +24,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 		name    string
 		stacks  api.StacksMap
 		wantErr string
+		init    func(t *testing.T, ph *placeholders)
 		check   func(t *testing.T, stacks api.StacksMap)
 	}{
 		{
@@ -67,6 +69,11 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				"common": tests.CommonStack,
 				"refapp": tests.RefappStack,
 			},
+			init: func(t *testing.T, ph *placeholders) {
+				gitMock := git_mocks.NewGitRepoMock(t)
+				gitMock.On("Workdir").Return("<root-dir>")
+				ph.git = gitMock
+			},
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp"]).NotTo(BeNil())
 				resPgCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["postgres"].Config.Config
@@ -90,6 +97,14 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(mongoConfig.ProjectId).To(Equal("5b89110a4e6581562623c59c"))
 				Expect(mongoConfig.ProjectName).To(Equal("refapp"))
 				Expect(mongoConfig.Region).To(Equal("US_SOUTH_1"))
+
+				// client
+				Expect(stacks["refapp"].Client.Stacks).To(HaveKey("staging"))
+				Expect(stacks["refapp"].Client.Stacks["staging"].Config.Config).NotTo(BeNil())
+				stagingCfg := stacks["refapp"].Client.Stacks["staging"].Config.Config
+				Expect(stagingCfg).To(BeAssignableToTypeOf(&api.StackConfigCompose{}))
+				stagingClientCfg := stagingCfg.(*api.StackConfigCompose)
+				Expect(stagingClientCfg.DockerComposeFile).To(Equal("<root-dir>/docker-compose.yaml"))
 			},
 		},
 		{
@@ -111,8 +126,13 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 	t.Parallel()
 	for _, tt := range tcs {
 		t.Run(tt.name, func(t *testing.T) {
+
 			ph := &placeholders{
 				log: logger.New(),
+			}
+
+			if tt.init != nil {
+				tt.init(t, ph)
 			}
 
 			err := ph.Resolve(tt.stacks)
