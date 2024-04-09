@@ -114,10 +114,10 @@ func WithKeysFromScConfig(profile string) Option {
 				}
 			}
 			if cfg.PublicKey != "" {
-				c.currentPublicKey = cfg.PublicKey
+				c.currentPublicKey = strings.TrimSpace(cfg.PublicKey)
 			}
 			if cfg.PrivateKey != "" {
-				c.currentPrivateKey = cfg.PrivateKey
+				c.currentPrivateKey = strings.TrimSpace(cfg.PrivateKey)
 			}
 			return nil
 		},
@@ -127,7 +127,7 @@ func WithKeysFromScConfig(profile string) Option {
 func WithPublicKey(key string) Option {
 	return Option{
 		f: func(c *cryptor) error {
-			c.currentPublicKey = key
+			c.currentPublicKey = strings.TrimSpace(key)
 			return nil
 		},
 	}
