@@ -59,7 +59,7 @@ VERSION_COMPARE="$(vercomp "$CURRENT" "$VERSION" || echo "2")"
 if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "2" ]]; then
   (
     cd $BINDIR &&
-    curl -fL "https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}.tar.gz" | tar -xzp sc  &&
+    curl -s -fL "https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}.tar.gz" | tar -xzp sc  &&
     chmod +x sc &&
     cd -
   )
