@@ -43,9 +43,9 @@ func NewProvisionCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 }
 
 func RegisterProvisionFlags(cmd *cobra.Command, p *api.ProvisionParams) {
-	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile")
-	cmd.Flags().StringSliceVarP(&p.Stacks, "stacks", "s", []string{}, "Stacks to provision")
-	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations")
+	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: 'default')")
+	cmd.Flags().StringSliceVarP(&p.Stacks, "stacks", "s", []string{}, "Stacks to provision (default: all)")
+	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 }
 
 func PrintPreview(pRes *api.PreviewResult) {
