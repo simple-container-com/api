@@ -3,8 +3,6 @@ on:
   push:
     branches:
       - 'main'
-permissions:
-  contents: write
 jobs:
   prepare:
     name: Prepare build
@@ -54,6 +52,8 @@ jobs:
     name: Finalize build
     runs-on: ubuntu-latest
     if: ${{ always() }}
+    permissions:
+      contents: write
     needs:
       - prepare
       - build
