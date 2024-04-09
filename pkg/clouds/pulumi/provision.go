@@ -135,7 +135,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	} else if s != nil {
 		return s, nil
 	} else {
-		return nil, errors.Errorf("failed to get stack %q: ref is nil", p.stackRef)
+		return nil, errors.Errorf("failed to get stack %q: ref is nil", p.stackRef.FullyQualifiedName())
 	}
 }
 

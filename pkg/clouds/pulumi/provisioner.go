@@ -106,7 +106,7 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 }
 
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) (*api.PreviewResult, error) {
-	_, err := p.getStack(ctx, cfg, parentStack)
+	err := p.createStackIfNotExists(ctx, cfg, parentStack)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}

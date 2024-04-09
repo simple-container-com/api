@@ -49,8 +49,9 @@ func RegisterProvisionFlags(cmd *cobra.Command, p *api.ProvisionParams) {
 }
 
 func PrintPreview(pRes *api.PreviewResult) {
-	fmt.Println("  Stack: " + pRes.StackName)
+	fmt.Println("=== Stack: " + pRes.StackName)
 	for op, cnt := range pRes.Operations {
 		fmt.Println(fmt.Sprintf("    %s: %d", op, cnt))
 	}
+	fmt.Println(pRes.Summary)
 }

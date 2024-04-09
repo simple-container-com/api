@@ -57,6 +57,7 @@ type DeployParams struct {
 
 type PreviewResult struct {
 	StackName  string         `json:"stackName" yaml:"stackName"`
+	Summary    string         `json:"summary" yaml:"summary"`
 	Operations map[string]int `json:"operations" yaml:"operations"`
 }
 

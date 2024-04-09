@@ -70,6 +70,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *api.PreviewResult {
 	return &api.PreviewResult{
 		StackName: stackName,
+		Summary:   result.StdOut,
 		Operations: lo.MapKeys(result.ChangeSummary, func(value int, key apitype.OpType) string {
 			return string(key)
 		}),
