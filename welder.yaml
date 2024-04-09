@@ -44,8 +44,8 @@ tasks:
       - ${project:root}/bin/golangci-lint linters
       - go build ./...
       - welder run build -a os=linux -a arch=amd64
-#      - welder run build -a os=darwin -a arch=arm64
-#      - welder run build -a os=darwin -a arch=amd64
+      - welder run build -a os=darwin -a arch=arm64
+      - welder run build -a os=darwin -a arch=amd64
       - cp ${project:root}/sc.sh ${project:root}/stacks/dist/bundle/sc.sh
       - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/stacks/dist/bundle/sc.sh
   build:
