@@ -1,3 +1,3 @@
 package build
 
-var Version string = "latest"
+var Version string = "0.0.0"

@@ -42,6 +42,7 @@ func main() {
 			return nil
 		},
 	}
+	rootCmd.SetVersionTemplate("{{printf \"%s\\n\" .Version}}")
 
 	rootCmd.AddCommand(
 		cmd_secrets.NewSecretsCmd(rootCmdInstance),

@@ -177,7 +177,7 @@ func (c *cryptor) DecryptAll() error {
 	}
 
 	if _, ok := c.secrets.Secrets[c.currentPublicKey]; !ok {
-		return errors.New("current public key is not found in secrets: no decryption can be made")
+		return errors.Errorf("current public key (%s) is not found in secrets: no decryption can be made", c.currentPublicKey)
 	}
 
 	for _, sFile := range c.secrets.Secrets[c.currentPublicKey].Files {

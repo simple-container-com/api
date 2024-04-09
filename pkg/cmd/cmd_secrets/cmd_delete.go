@@ -1,9 +1,10 @@
 package cmd_secrets
 
 import (
-	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 )
 
 type deleteCmd struct {
