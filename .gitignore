@@ -1,6 +1,6 @@
 .idea
 bin
-dist
+/dist
 *.iml
 .sc/cfg.default.yaml
 .sc/cfg.github.yaml
@@ -9,5 +9,5 @@ dist
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/aws-e2e-config.yaml
-stacks/dist/secrets.yaml
 pkg/clouds/pulumi/testdata/secrets/pulumi-e2e-config.yaml
+.sc/stacks/dist/secrets.yaml

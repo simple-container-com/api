@@ -19,6 +19,7 @@ modules:
     build:
       steps:
         - task: tools
+        - task: test
         - task: build-all
     deploy:
       environments:
@@ -39,15 +40,18 @@ tasks:
   build-all:
     runOn: host
     script:
-      - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
       - ${project:root}/bin/gofumpt -l -w .
       - ${project:root}/bin/golangci-lint linters
       - go build ./...
       - welder run build -a os=linux -a arch=amd64
       - welder run build -a os=darwin -a arch=arm64
       - welder run build -a os=darwin -a arch=amd64
-      - cp ${project:root}/sc.sh ${project:root}/stacks/dist/bundle/sc.sh
-      - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/stacks/dist/bundle/sc.sh
+      - cp ${project:root}/sc.sh ${project:root}/.sc/stacks/dist/bundle/sc.sh
+      - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/.sc/stacks/dist/bundle/sc.sh
+  test:
+    runOn: host
+    script:
+      - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
   build:
     runOn: host
     env:
@@ -56,10 +60,10 @@ tasks:
     script:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/sdist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
       - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
-      - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
-      - cp ${project:root}/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz
+      - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
+      - cp ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz
   deploy:
     runOn: host
     script:

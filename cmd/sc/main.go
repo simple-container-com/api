@@ -8,6 +8,7 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_upgrade"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/spf13/cobra"
 )
@@ -50,6 +51,7 @@ func main() {
 		cmd_provision.NewProvisionCmd(rootCmdInstance),
 		cmd_deploy.NewDeployCmd(rootCmdInstance),
 		cmd_cancel.NewCancelCmd(rootCmdInstance),
+		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

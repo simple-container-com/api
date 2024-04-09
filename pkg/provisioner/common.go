@@ -37,7 +37,7 @@ type Provisioner interface {
 
 const (
 	DefaultProfile       = "default"
-	DefaultStacksRootDir = "stacks"
+	DefaultStacksRootDir = api.ScConfigDirectory + "/stacks"
 )
 
 type provisioner struct {
