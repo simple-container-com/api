@@ -78,10 +78,15 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
 		}
 
-		if params.StacksDir == "" {
-			return errors.Errorf("stacks directory must be specified")
+		stackDir := params.StackDir
+
+		if stackDir == "" {
+			// assuming stack's directory is related to stacks
+			if params.StacksDir == "" {
+				return errors.Errorf("either single stack's or all stacks directory must be specified")
+			}
+			stackDir = filepath.Join(params.StacksDir, params.StackName)
 		}
-		stackDir := filepath.Join(params.StacksDir, params.StackName)
 
 		clientStackDesc, err := api.PrepareClientConfigForDeploy(ctx.Context(), stackDir, fullStackName, stackDesc, stackClientDesc)
 		if err != nil {
@@ -98,8 +103,19 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, params.Environment); err != nil {
 				p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", resName, res.Type, stack.Name, err.Error())
 				continue
-			} else if _, err := fnc(ctx, stack, api.ResourceInput{Descriptor: &res}, parentRefString, collector, provisionParams); err != nil {
-				return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, params.Environment)
+			} else {
+				provisionParams.ParentStack = &pApi.ParentInfo{
+					StackName: parentStack,
+					RefString: parentRefString,
+				}
+				provisionParams.ComputeContext = collector
+				_, err := fnc(ctx, stack, api.ResourceInput{
+					Descriptor:   &res,
+					DeployParams: &params,
+				}, collector, provisionParams)
+				if err != nil {
+					return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, params.Environment)
+				}
 			}
 		}
 
@@ -113,13 +129,13 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if err != nil {
 			return errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
 		}
+		provisionParams.ComputeContext = collector
 
 		if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
 			return errors.Errorf("unknown resource type %q", resDesc.Type)
 		} else if _, err := fnc(ctx, stack, api.ResourceInput{
-			Descriptor:     &resDesc,
-			DeployParams:   &params,
-			ComputeContext: collector,
+			Descriptor:   &resDesc,
+			DeployParams: &params,
 		}, provisionParams); err != nil {
 			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
 		}
@@ -129,7 +145,9 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 func getSecretValueFromStack(ctx *sdk.Context, refName, outName string, proc func(val string) error) error {
 	// Create a StackReference to the parent stack
-	ref, err := sdk.NewStackReference(ctx, refName, nil)
+	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", outName), &sdk.StackReferenceArgs{
+		Name: sdk.String(refName).ToStringOutput(),
+	})
 	if err != nil {
 		return err
 	}

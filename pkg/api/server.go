@@ -2,15 +2,6 @@ package api
 
 const ServerSchemaVersion = "1.0"
 
-type ComputeContext interface {
-	EnvVariables() map[string]string
-}
-
-type ComputeContextCollector interface {
-	EnvVariables() map[string]string
-	AddEnvVariable(name, value string)
-}
-
 type ProvisionParams struct {
 	StacksDir string   `json:"rootDir" yaml:"rootDir"`
 	Profile   string   `json:"profile" yaml:"profile"`
@@ -83,9 +74,8 @@ type ResourceDescriptor struct {
 }
 
 type ResourceInput struct {
-	Descriptor     *ResourceDescriptor `json:"descriptor" yaml:"descriptor"`
-	DeployParams   *StackParams        `json:"deployParams" yaml:"deployParams"`
-	ComputeContext ComputeContext      `json:"computeContext" yaml:"computeContext"`
+	Descriptor   *ResourceDescriptor `json:"descriptor" yaml:"descriptor"`
+	DeployParams *StackParams        `json:"deployParams" yaml:"deployParams"`
 }
 
 type ResourceOutput struct {

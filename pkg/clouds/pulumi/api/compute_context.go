@@ -1,14 +1,16 @@
 package api
 
 import (
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
-	"github.com/simple-container-com/api/pkg/api"
 )
 
 type Collector struct {
 	Stack   string            `json:"stackName" yaml:"stackName"`
 	Env     string            `json:"environment" yaml:"environment"`
 	EnvVars map[string]string `json:"envVariables" yaml:"envVariables"`
+
+	dependencies []sdk.Resource
 }
 
 func (c *Collector) EnvVariables() map[string]string {
@@ -21,7 +23,15 @@ func (c *Collector) AddEnvVariable(name string, value string) {
 	})
 }
 
-func NewComputeContextCollector(stackName string, environment string) api.ComputeContextCollector {
+func (c *Collector) AddDependency(res sdk.Resource) {
+	c.dependencies = append(c.dependencies, res)
+}
+
+func (c *Collector) Dependencies() []sdk.Resource {
+	return c.dependencies
+}
+
+func NewComputeContextCollector(stackName string, environment string) ComputeContextCollector {
 	return &Collector{
 		Stack:   stackName,
 		Env:     environment,

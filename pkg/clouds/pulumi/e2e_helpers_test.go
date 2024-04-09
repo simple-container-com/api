@@ -135,8 +135,8 @@ func runProvisionAndDeployTest(stack api.Stack, cfg secretTestutil.E2ETestConfig
 
 	err = deployProv.DeployStack(ctx, cfg.ConfigFile, stack, api.DeployParams{
 		StackParams: api.StackParams{
+			StackDir:    cfg.StacksDir,
 			StackName:   deployStackName,
-			StacksDir:   cfg.StacksDir,
 			Environment: "test",
 		},
 	})
@@ -191,6 +191,6 @@ func runDestroyParentTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
 }
 
 func tmpResName(name string) string {
-	// return fmt.Sprintf("%s-%d", name, 1712558587)
+	// return fmt.Sprintf("%s-%d", name, 1712558588)
 	return fmt.Sprintf("%s-%d", name, time.Now().Unix())
 }

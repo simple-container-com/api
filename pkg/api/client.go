@@ -44,6 +44,7 @@ type StackConfigStatic struct {
 
 type StackParams struct {
 	StacksDir   string `json:"stacksDir" yaml:"stacksDir"`
+	StackDir    string `json:"stackDir" yaml:"stackDir"`
 	Profile     string `json:"profile" yaml:"profile"`
 	StackName   string `json:"stack" yaml:"stack"`
 	Environment string `json:"environment" yaml:"environment"`

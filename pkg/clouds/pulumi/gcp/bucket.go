@@ -30,7 +30,7 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 	return &api.ResourceOutput{Ref: bucket}, nil
 }
 
-func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, parentRefString string, collector api.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	params.Log.Error(ctx.Context(), "Not implemented for gcp bucket")
 
 	return &api.ResourceOutput{

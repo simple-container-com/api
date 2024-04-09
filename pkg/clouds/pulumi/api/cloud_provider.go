@@ -6,7 +6,26 @@ import (
 )
 
 type ProvisionParams struct {
-	Provider  sdk.ProviderResource
-	Registrar Registrar
-	Log       logger.Logger
+	Provider       sdk.ProviderResource
+	Registrar      Registrar
+	Log            logger.Logger
+	ParentStack    *ParentInfo
+	ComputeContext ComputeContext
+}
+
+type ParentInfo struct {
+	StackName string
+	RefString string
+}
+
+type ComputeContext interface {
+	EnvVariables() map[string]string
+	Dependencies() []sdk.Resource
+}
+
+type ComputeContextCollector interface {
+	EnvVariables() map[string]string
+	AddEnvVariable(name, value string)
+	AddDependency(resource sdk.Resource)
+	Dependencies() []sdk.Resource
 }

@@ -18,7 +18,7 @@ import (
 
 type (
 	provisionFunc        func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error)
-	computeProcessorFunc func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, parentRefString string, collector api.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error)
+	computeProcessorFunc func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error)
 )
 
 type registrarInitFunc func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error)

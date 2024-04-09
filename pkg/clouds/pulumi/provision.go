@@ -68,6 +68,7 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 
 		for env, resources := range stack.Server.Resources.Resources {
 			p.logger.Info(ctx.Context(), "provisioning resources for stack %q in env %q...", stack.Name, env)
+			collector := pApi.NewComputeContextCollector(stack.Name, env)
 			for resName, res := range resources.Resources {
 				p.logger.Info(ctx.Context(), "provisioning resource %q for stack %q in env %q", resName, stack.Name, env)
 
@@ -75,6 +76,7 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 				if err != nil {
 					return errors.Wrapf(err, "failed to init provision params for %q", res.Type)
 				}
+				provisionParams.ComputeContext = collector
 
 				if fnc, ok := provisionFuncByType[res.Type]; !ok {
 					return errors.Errorf("unknown resource type %q", res.Type)

@@ -105,6 +105,8 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 }
 
 func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
+	dependsOnOpt := sdk.DependsOn(params.ComputeContext.Dependencies())
+
 	ecsClusterName := awsResName(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment), "ecs")
 	// Create an ECS task execution IAM role
 	taskExecRole, err := iam.NewRole(ctx, fmt.Sprintf("%s-exec-role", ecsClusterName), &iam.RoleArgs{
@@ -118,7 +120,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
                     }
                 }]
             }`),
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(params.Provider), dependsOnOpt)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create IAM role for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -128,19 +130,22 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
 		func(image *EcsFargateImage, index int) EcsContainerDef {
+			// get env variables from resources defined for stack
+			image.Container.Env = lo.Assign(image.Container.Env, params.ComputeContext.EnvVariables())
+			envVariables := append(ecs.TaskDefinitionKeyValuePairArray{}, lo.MapToSlice(image.Container.Env, func(key string, value string) ecs.TaskDefinitionKeyValuePairInput {
+				return ecs.TaskDefinitionKeyValuePairArgs{
+					Name:  sdk.StringPtr(key),
+					Value: sdk.StringPtr(value),
+				}
+			})...)
 			return EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
-					Name:      sdk.String(image.Container.Name),
-					Image:     image.Image.ImageName,
-					Cpu:       sdk.IntPtr(lo.If(crInput.Config.Cpu == 0, 256).Else(crInput.Config.Cpu)),
-					Memory:    sdk.IntPtr(lo.If(crInput.Config.Memory == 0, 512).Else(crInput.Config.Memory)),
-					Essential: sdk.BoolPtr(true),
-					Environment: append(ecs.TaskDefinitionKeyValuePairArray{}, lo.MapToSlice(image.Container.Env, func(key string, value string) ecs.TaskDefinitionKeyValuePairInput {
-						return ecs.TaskDefinitionKeyValuePairArgs{
-							Name:  sdk.StringPtr(key),
-							Value: sdk.StringPtr(value),
-						}
-					})...),
+					Name:        sdk.String(image.Container.Name),
+					Image:       image.Image.ImageName,
+					Cpu:         sdk.IntPtr(lo.If(crInput.Config.Cpu == 0, 256).Else(crInput.Config.Cpu)),
+					Memory:      sdk.IntPtr(lo.If(crInput.Config.Memory == 0, 512).Else(crInput.Config.Memory)),
+					Essential:   sdk.BoolPtr(true),
+					Environment: envVariables,
 					PortMappings: ecs.TaskDefinitionPortMappingArray{
 						ecs.TaskDefinitionPortMappingArgs{
 							ContainerPort: sdk.IntPtr(image.Container.Port),
@@ -166,7 +171,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		DefaultTargetGroup: &lb.TargetGroupArgs{
 			Name: sdk.String(targetGroupName),
 		},
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(params.Provider), dependsOnOpt)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -185,7 +190,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				Logging: sdk.String("DEFAULT"),
 			},
 		},
-	})
+	}, sdk.Provider(params.Provider), dependsOnOpt)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ECS cluster for %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -218,7 +223,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
 			},
 		},
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(params.Provider), dependsOnOpt)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -251,7 +256,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			}
 			return sdk.String(policyJSON).ToStringOutput(), nil
 		}).(sdk.StringOutput),
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(params.Provider), dependsOnOpt)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create policy for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -262,7 +267,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	execPolicyAttachment, err := iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 		Role:      taskExecRole.Name,
 		PolicyArn: sdk.String("arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"),
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(params.Provider), dependsOnOpt)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create policy attachment stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -282,7 +287,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					params.Log.Info(ctx.Context(), "attaching policy %q to role %q", ccPolicyName, roleName)
 					return roleName
 				}),
-			}, sdk.Provider(params.Provider))
+			}, sdk.Provider(params.Provider), dependsOnOpt)
 		})
 	})
 
@@ -314,7 +319,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 				Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
 				Password: repository.Password,
 			},
-		})
+		}, sdk.DependsOn(params.ComputeContext.Dependencies()))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to build and push image for container %q in stack %q env %q", container.Name, stack.Name, deployParams.Environment)
 		}
@@ -343,7 +348,7 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	ecrRepo, err := ecr.NewRepository(ctx, ecrRepoName, &ecr.RepositoryArgs{
 		ForceDelete: sdk.BoolPtr(true),
 		Name:        sdk.String(ecrRepoName),
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
 	if err != nil {
 		return res, errors.Wrapf(err, "failed to provision ECR repository %q for stack %q in %q", ecrRepoName, stack.Name, deployParams.Environment)
 	}

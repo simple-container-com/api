@@ -6,7 +6,7 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, parentRefString string, collector api.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	parentStackName := stack.Client.Stacks[input.DeployParams.StackName].ParentStack
 
 	params.Log.Error(ctx.Context(), "not implemented yet for s3 buckets")

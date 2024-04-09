@@ -10,15 +10,26 @@ import (
 	"github.com/simple-container-com/api/pkg/util"
 )
 
-func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, parentRefString string, collector api.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	parentStackName := stack.Client.Stacks[input.DeployParams.StackName].ParentStack
-	clusterName := toClusterName(parentStackName, input)
+func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	if params.ParentStack == nil {
+		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
+	}
+	clusterName := toClusterName(params.ParentStack.StackName, input)
+	projectName := toProjectName(params.ParentStack.StackName, input)
 
-	projectId, err := getParentOutput(ctx, toProjectIdExport(toProjectName(stack.Name, input)), parentRefString)
+	// Create a StackReference to the parent stack
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-%s-mongodb-atlas-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{
+		Name: sdk.String(params.ParentStack.RefString).ToStringOutput(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	projectId, err := getParentOutput(parentRef, toProjectIdExport(projectName), params.ParentStack.RefString)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q", stack.Name)
 	}
-	mongoUri, err := getParentOutput(ctx, toMongoUriWithOptionsExport(clusterName), parentRefString)
+	mongoUri, err := getParentOutput(parentRef, toMongoUriWithOptionsExport(clusterName), params.ParentStack.RefString)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q", stack.Name)
 	}
@@ -45,9 +56,10 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	ctx.Export(fmt.Sprintf("%s-username", userName), sdk.String(userName))
 	ctx.Export(fmt.Sprintf("%s-password", userName), dbUser.Password)
 
-	dbUser.Password.ApplyT(func(password string) (any, error) {
+	collector.AddDependency(dbUser)
+	dbUser.Password.ApplyT(func(password *string) (any, error) {
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), password)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password)
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri)
 		return nil, nil
 	})
@@ -57,13 +69,7 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	}, nil
 }
 
-func getParentOutput(ctx *sdk.Context, outName string, parentRefString string) (string, error) {
-	// Create a StackReference to the parent stack
-	ref, err := sdk.NewStackReference(ctx, parentRefString, nil)
-	if err != nil {
-		return "", err
-	}
-
+func getParentOutput(ref *sdk.StackReference, outName string, parentRefString string) (string, error) {
 	parentOutput, err := ref.GetOutputDetails(outName)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to get output %q from %q", outName, parentRefString)
