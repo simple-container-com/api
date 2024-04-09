@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 
@@ -75,7 +76,7 @@ func (c *cryptor) AddFile(filePath string) error {
 }
 
 func (c *cryptor) RemovePublicKey(pubKey string) error {
-	delete(c.secrets.Secrets, pubKey)
+	delete(c.secrets.Secrets, strings.TrimSpace(pubKey))
 	err := c.EncryptChanged()
 	if err != nil {
 		return err
@@ -92,7 +93,7 @@ func (c *cryptor) AddPublicKey(pubKey string) error {
 	if err := c.initData(); err != nil {
 		return err
 	}
-	c.secrets.Secrets[pubKey] = EncryptedSecrets{}
+	c.secrets.Secrets[strings.TrimSpace(pubKey)] = EncryptedSecrets{}
 	err := c.EncryptChanged()
 	if err != nil {
 		return err

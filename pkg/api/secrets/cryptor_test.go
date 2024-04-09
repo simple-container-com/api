@@ -3,6 +3,7 @@ package secrets
 import (
 	"os"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
@@ -192,16 +193,18 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 	Expect(err).To(BeNil())
 	anotherPrivKey := ciphers.MarshalRSAPrivateKey(anotherPrivKeyBytes)
 
+	anotherPubKeyString := strings.TrimSpace(string(anotherPubKey))
+
 	t.Run("allow another key", func(t *testing.T) {
-		Expect(c.AddPublicKey(string(anotherPubKey))).To(BeNil())
+		Expect(c.AddPublicKey(anotherPubKeyString)).To(BeNil())
 		Expect(c.ReadSecretFiles()).To(BeNil())
 		knownKeys := c.GetKnownPublicKeys()
 		Expect(knownKeys).To(ContainElement(c.PublicKey()))
-		Expect(knownKeys).To(ContainElement(string(anotherPubKey)))
+		Expect(knownKeys).To(ContainElement(anotherPubKeyString))
 	})
 
 	// clone to another dir
-	anotherC, cleanup, err := cloneWorkdir(c, wd, string(anotherPubKey), anotherPrivKey)
+	anotherC, cleanup, err := cloneWorkdir(c, wd, anotherPubKeyString, anotherPrivKey)
 	Expect(err).To(BeNil())
 	defer cleanup()
 
@@ -210,7 +213,7 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(anotherC.ReadSecretFiles()).To(BeNil())
 		knownKeys := anotherC.GetKnownPublicKeys()
 		Expect(knownKeys).To(ContainElement(c.PublicKey()))
-		Expect(knownKeys).To(ContainElement(string(anotherPubKey)))
+		Expect(knownKeys).To(ContainElement(anotherPubKeyString))
 		Expect(anotherC.DecryptAll()).To(BeNil())
 
 		newSecretFileContent, err := os.ReadFile(path.Join(anotherC.Workdir(), "stacks/common/secrets.yaml"))
@@ -223,13 +226,13 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 	})
 
 	t.Run("disallow another key", func(t *testing.T) {
-		Expect(c.GetKnownPublicKeys()).To(ContainElement(string(anotherPubKey)))
-		Expect(c.RemovePublicKey(string(anotherPubKey))).To(BeNil())
-		Expect(c.GetKnownPublicKeys()).NotTo(ContainElement(string(anotherPubKey)))
+		Expect(c.GetKnownPublicKeys()).To(ContainElement(anotherPubKeyString))
+		Expect(c.RemovePublicKey(anotherPubKeyString)).To(BeNil())
+		Expect(c.GetKnownPublicKeys()).NotTo(ContainElement(anotherPubKeyString))
 	})
 
 	// clone to another dir
-	anotherC, cleanup, err = cloneWorkdir(c, wd, string(anotherPubKey), anotherPrivKey)
+	anotherC, cleanup, err = cloneWorkdir(c, wd, anotherPubKeyString, anotherPrivKey)
 	Expect(err).To(BeNil())
 	defer cleanup()
 
@@ -238,10 +241,10 @@ func happyPathScenario(t *testing.T, c Cryptor, wd string) {
 		Expect(anotherC.ReadSecretFiles()).To(BeNil())
 		knownKeys := anotherC.GetKnownPublicKeys()
 		Expect(knownKeys).To(ContainElement(c.PublicKey()))
-		Expect(knownKeys).NotTo(ContainElement(string(anotherPubKey)))
+		Expect(knownKeys).NotTo(ContainElement(anotherPubKeyString))
 		decryptErr := anotherC.DecryptAll()
 		Expect(decryptErr).NotTo(BeNil())
-		Expect(decryptErr.Error()).To(MatchRegexp("current public key is not found in secrets"))
+		Expect(decryptErr.Error()).To(MatchRegexp("current public key .* is not found in secrets"))
 	})
 
 	t.Run("remove file", func(t *testing.T) {
