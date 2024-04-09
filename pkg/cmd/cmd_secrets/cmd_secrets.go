@@ -20,7 +20,7 @@ func NewSecretsCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		NewKnownKeysCmd(sCmd),
+		NewAllowedKeysCmd(sCmd),
 		NewListCmd(sCmd),
 		NewHideCmd(sCmd),
 		NewRevealCmd(sCmd),
