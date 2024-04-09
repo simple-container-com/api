@@ -34,7 +34,6 @@ jobs:
           cat << EOF > ./.sc/cfg.test.yaml
           ${{ secrets.SC_CONFIG }}
           EOF
-          bash <(curl -Ls "https://dist.simple-container.com/sc.sh") secrets reveal
       - name: build sc tool
         shell: bash
         env:
