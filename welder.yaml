@@ -60,7 +60,7 @@ tasks:
     script:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/sdist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
       - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
       - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
       - cp ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz

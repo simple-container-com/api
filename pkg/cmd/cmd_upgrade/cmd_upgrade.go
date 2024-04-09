@@ -28,7 +28,7 @@ func NewUpgradeCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 				return err
 			}
 
-			fmt.Println("Upgraded sc CLI to v", string(stdout))
+			fmt.Println(fmt.Sprintf("Upgraded sc CLI to v%s", string(stdout)))
 			return nil
 		},
 	}
