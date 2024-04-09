@@ -39,16 +39,20 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 
 	var projectId sdk.StringOutput
+	opts := []sdk.ResourceOption{
+		sdk.Provider(params.Provider),
+	}
 	if atlasCfg.ProjectId == "" {
 		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
 			Name:  sdk.String(projectName),
 			OrgId: sdk.String(atlasCfg.OrgId),
-		}, sdk.Provider(params.Provider))
+		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create mongodb project for stack %q", stack.Name)
 		}
 		out.Project = project
 		projectId = project.ID().ToStringOutput()
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{project}))
 	} else {
 		projectRes, err := mongodbatlas.LookupProject(ctx, &mongodbatlas.LookupProjectArgs{
 			ProjectId: &atlasCfg.ProjectId,
@@ -72,7 +76,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		ProjectId:                projectId,
 		BackingProviderName:      sdk.StringPtrFromPtr(lo.If(isSharedInstanceSize, &atlasCfg.CloudProvider).Else(nil)),
 		ProviderName:             sdk.String(lo.If(isSharedInstanceSize, "TENANT").Else(atlasCfg.CloudProvider)),
-	}, sdk.Provider(params.Provider))
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb cluster for stack %q", stack.Name)
 	}
@@ -85,7 +89,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		CidrBlock: sdk.StringPtr("0.0.0.0/0"),
 		Comment:   sdk.StringPtr("Allow all access to the cluster (TODO: restrict to our cluster only)"),
 		ProjectId: projectId,
-	}, sdk.Provider(params.Provider))
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb ip access list for stack %q", stack.Name)
 	}
