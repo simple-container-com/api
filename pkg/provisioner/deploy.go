@@ -9,7 +9,7 @@ import (
 )
 
 func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params)
+	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
 	if err != nil {
 		return err
 	}
@@ -19,7 +19,7 @@ func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error
 	return pv.DeployStack(ctx, cfg, *stack, params)
 }
 
-func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.DeployParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
+func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
 	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)

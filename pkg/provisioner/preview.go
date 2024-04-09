@@ -9,7 +9,7 @@ import (
 )
 
 func (p *provisioner) Preview(ctx context.Context, params api.DeployParams) (*api.PreviewResult, error) {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params)
+	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
 	if err != nil {
 		return nil, err
 	}

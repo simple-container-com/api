@@ -7,7 +7,7 @@ import (
 )
 
 func (p *provisioner) Cancel(ctx context.Context, params api.DeployParams) error {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params)
+	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
 	if err != nil {
 		return err
 	}

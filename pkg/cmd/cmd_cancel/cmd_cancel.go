@@ -25,6 +25,6 @@ func NewCancelCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 
-	cmd_deploy.RegisterDeployFlags(cmd, &pCmd.Params)
+	cmd_deploy.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
 	return cmd
 }

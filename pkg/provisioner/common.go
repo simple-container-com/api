@@ -31,6 +31,9 @@ type Provisioner interface {
 	Cancel(ctx context.Context, params api.DeployParams) error
 	Stacks() api.StacksMap
 
+	DestroyProvision(ctx context.Context, params api.ProvisionParams) error
+	Destroy(ctx context.Context, params api.DestroyParams) error
+
 	GitRepo() git.Repo
 
 	Cryptor() secrets.Cryptor

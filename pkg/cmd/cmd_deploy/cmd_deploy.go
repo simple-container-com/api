@@ -37,12 +37,12 @@ func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 
-	RegisterDeployFlags(cmd, &pCmd.Params)
+	RegisterStackFlags(cmd, &pCmd.Params.StackParams)
 	cmd.Flags().BoolVarP(&pCmd.Preview, "preview", "P", pCmd.Preview, "Preview instead of provision (dry-run)")
 	return cmd
 }
 
-func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
+func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams) {
 	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
 	cmd.Flags().StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
 	_ = cmd.MarkFlagRequired("stack")

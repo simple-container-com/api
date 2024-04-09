@@ -5,6 +5,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
@@ -51,6 +52,7 @@ func main() {
 		cmd_provision.NewProvisionCmd(rootCmdInstance),
 		cmd_deploy.NewDeployCmd(rootCmdInstance),
 		cmd_cancel.NewCancelCmd(rootCmdInstance),
+		cmd_destroy.NewDestroyCmd(rootCmdInstance),
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 	)
 
