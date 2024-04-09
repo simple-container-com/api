@@ -27,7 +27,7 @@ const (
 	e2eKmsTestKeyringName = "e2e--kms-keyring"
 )
 
-func Test_CreateComposeStackGCP(t *testing.T) {
+func Test_CreateComposeStackGCPWithBucket(t *testing.T) {
 	RegisterTestingT(t)
 
 	cfg := secretTestutil.PrepareE2Etest()
@@ -96,11 +96,13 @@ func Test_CreateComposeStackGCP(t *testing.T) {
 	runDestroyTest(stack, cfg, childStackName)
 }
 
-func Test_CreateParentStackWithMongodb(t *testing.T) {
+func Test_CreateComposeStackGCPWithMongo(t *testing.T) {
 	RegisterTestingT(t)
 
-	cfg := secretTestutil.PrepareE2Etest()
 	parentStackName := tmpResName(e2eCreateStackName)
+	childStackName := tmpResName(e2eDeployStackName)
+
+	cfg := secretTestutil.PrepareE2Etest()
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForGcp(e2eConfig{
@@ -129,10 +131,30 @@ func Test_CreateParentStackWithMongodb(t *testing.T) {
 				},
 			},
 		}),
+		Client: api.ClientDescriptor{
+			Stacks: map[string]api.StackClientDescriptor{
+				"test": {
+					Type:        api.ClientTypeCloudCompose,
+					ParentStack: parentStackName,
+					Config: api.Config{
+						Config: &api.StackConfigCompose{
+							Domain:            fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("cloudrun")),
+							DockerComposeFile: "docker-compose.yaml",
+							Uses: []string{
+								"test-bucket",
+							},
+							Runs: []string{
+								"backend",
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
-	runProvisionTest(stack, cfg)
-	runDestroyParentTest(stack, cfg)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
+	runDestroyTest(stack, cfg, childStackName)
 }
 
 func Test_CreateComposeStackAWS(t *testing.T) {

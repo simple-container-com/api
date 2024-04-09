@@ -16,7 +16,10 @@ import (
 	mongodbImpl "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 )
 
-type provisionFunc func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error)
+type (
+	provisionFunc        func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error)
+	computeProcessorFunc func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, parentRefString string, collector api.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error)
+)
 
 type registrarInitFunc func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error)
 
@@ -51,4 +54,10 @@ var providerFuncByType = map[string]provisionFunc{
 	awsApi.ProviderType: awsImpl.ProvisionProvider,
 	// mongodb-atlas
 	mongodb.ProviderType: mongodbImpl.ProvisionProvider,
+}
+
+var computeProcessorFuncByType = map[string]computeProcessorFunc{
+	mongodb.ResourceTypeMongodbAtlas: mongodbImpl.MongodbClusterComputeProcessor,
+	awsApi.StateStorageTypeS3Bucket:  awsImpl.BucketComputeProcessor,
+	gcpApi.ResourceTypeBucket:        gcpImpl.BucketComputeProcessor,
 }

@@ -60,8 +60,7 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 
 		if _, nc := p.registrar.(*notConfigured); !nc && p.registrar != nil {
 			if _, err := p.registrar.ProvisionRecords(ctx, pApi.ProvisionParams{
-				Log:       p.logger,
-				Collector: pApi.NewCollector(stack.Name, ""),
+				Log: p.logger,
 			}); err != nil {
 				return errors.Wrapf(err, "failed to provision base DNS records for stack %q", stack.Name)
 			}
@@ -84,11 +83,6 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 				}, provisionParams); err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
-
-				outputName := stackDescriptorTemplateName(stack.Name, env)
-				p.logger.Debug(ctx.Context(), "preserving outputs of stack %q for env %q as %q...", stack.Name, env, outputName)
-				secretOutput := sdk.ToSecret(provisionParams.Collector.ToJson())
-				ctx.Export(outputName, secretOutput)
 			}
 		}
 		for templateName, stackDesc := range stack.Server.Templates {
@@ -114,8 +108,7 @@ func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, environment st
 	if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
 		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
 	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
-		Log:       p.logger,
-		Collector: pApi.NewCollector(stack.Name, environment),
+		Log: p.logger,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
 	} else {
@@ -160,14 +153,12 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		},
 	}, pApi.ProvisionParams{
 		Log:       p.logger,
-		Collector: pApi.NewCollector(stack.Name, environment),
 		Registrar: p.registrar,
 	}); err != nil {
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	}
 	return pApi.ProvisionParams{
-		Collector: pApi.NewCollector(stack.Name, environment),
 		Provider:  provider,
 		Registrar: p.registrar,
 		Log:       p.logger,

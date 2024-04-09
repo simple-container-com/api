@@ -31,9 +31,8 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		return nil, errors.Errorf("failed to convert mongodb atlas config for %q", input.Descriptor.Type)
 	}
 
-	clusterName := fmt.Sprintf("%s-%s", stack.Name, input.Descriptor.Name)
-
-	projectName := fmt.Sprintf("%s-project", clusterName)
+	clusterName := toClusterName(stack.Name, input)
+	projectName := toProjectName(stack.Name, input)
 
 	if atlasCfg.ProjectName != "" {
 		projectName = atlasCfg.ProjectName
@@ -48,7 +47,6 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create mongodb project for stack %q", stack.Name)
 		}
-		ctx.Export(fmt.Sprintf("%s-project-id", clusterName), project.ID())
 		out.Project = project
 		projectId = project.ID().ToStringOutput()
 	} else {
@@ -60,6 +58,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		}
 		projectId = sdk.String(*projectRes.ProjectId).ToStringOutput()
 	}
+	ctx.Export(toProjectIdExport(projectName), projectId)
 
 	sharedInstanceSizes := []string{"M0", "M2", "M5"}
 	_, isSharedInstanceSize := lo.Find(sharedInstanceSizes, func(size string) bool {
@@ -77,12 +76,10 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb cluster for stack %q", stack.Name)
 	}
-	ctx.Export(fmt.Sprintf("%s-cluster-id", clusterName), cluster.ClusterId)
-	ctx.Export(fmt.Sprintf("%s-cluster-uri", clusterName), cluster.MongoUri)
+	ctx.Export(toClusterIdExport(clusterName), cluster.ClusterId)
+	ctx.Export(toMongoUriExport(clusterName), cluster.MongoUri)
+	ctx.Export(toMongoUriWithOptionsExport(clusterName), cluster.MongoUri)
 	out.Cluster = cluster
-
-	params.Collector.ExportEnvVariable(fmt.Sprintf("MONGO_URI"), cluster.MongoUri)
-	params.Collector.ExportEnvVariable(fmt.Sprintf("MONGO_URI_WITH_OPTIONS"), cluster.MongoUriWithOptions)
 
 	ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
 		CidrBlock: sdk.StringPtr("0.0.0.0/0"),
@@ -92,7 +89,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb ip access list for stack %q", stack.Name)
 	}
-	ctx.Export(fmt.Sprintf("%s-ip-access-list-id", clusterName), ipAccessList.ID())
+	ctx.Export(fmt.Sprintf("%s-ip-list-id", clusterName), ipAccessList.ID())
 
 	usersOutput := sdk.All(projectId, cluster.MongoUri).ApplyT(func(args []any) (any, error) {
 		projectId := args[0].(string)
@@ -105,17 +102,41 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
+func toMongoUriExport(clusterName string) string {
+	return fmt.Sprintf("%s-mongo-uri", clusterName)
+}
+
+func toMongoUriWithOptionsExport(clusterName string) string {
+	return fmt.Sprintf("%s-mongo-uri-options", clusterName)
+}
+
+func toClusterIdExport(clusterName string) string {
+	return fmt.Sprintf("%s-cluster-id", clusterName)
+}
+
+func toProjectIdExport(projectName string) string {
+	return fmt.Sprintf("%s-id", projectName)
+}
+
+func toProjectName(stackName string, input api.ResourceInput) string {
+	return fmt.Sprintf("%s-project", toClusterName(stackName, input))
+}
+
+func toClusterName(stackName string, input api.ResourceInput) string {
+	return fmt.Sprintf("%s-%s", stackName, input.Descriptor.Name)
+}
+
 type dbRole struct {
 	dbName string
 	role   string
 }
 
 type dbUserInput struct {
-	projectId string
-	dbUri     string
-	userName  string
-	roles     []dbRole
-	cluster   *mongodbatlas.Cluster
+	projectId  string
+	dbUri      string
+	userName   string
+	roles      []dbRole
+	dependency sdk.Resource
 }
 
 func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (*mongodbatlas.DatabaseUser, error) {
@@ -139,19 +160,25 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 			DatabaseName: sdk.String(role.dbName),
 		})
 	}
+	opts := []sdk.ResourceOption{
+		sdk.Provider(params.Provider),
+	}
+	if user.dependency != nil {
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{user.dependency}))
+	}
 	dbUser, err := mongodbatlas.NewDatabaseUser(ctx, userObjectName, &mongodbatlas.DatabaseUserArgs{
 		AuthDatabaseName: sdk.String("admin"),
 		Password:         password.Result,
 		ProjectId:        sdk.String(user.projectId),
 		Roles:            roles,
 		Username:         sdk.String(user.userName),
-	}, sdk.Provider(params.Provider), sdk.DependsOn([]sdk.Resource{user.cluster}))
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create database user %q", user.userName)
 	}
 	ctx.Export(userObjectName, dbUser.Username)
 	ctx.Export(fmt.Sprintf("%s-password", user.userName), dbUser.Password)
-	ctx.Export(fmt.Sprintf("%s-dbUrl", user.userName), sdk.String(user.dbUri))
+	ctx.Export(fmt.Sprintf("%s-dbUri", user.userName), sdk.String(user.dbUri))
 
 	return dbUser, nil
 }
@@ -160,11 +187,11 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, projec
 	var res []sdk.Output
 	for _, usr := range cfg.Admins {
 		dbUser, err := createDatabaseUser(ctx, dbUserInput{
-			cluster:   cluster,
-			projectId: projectId,
-			dbUri:     dbUri,
-			userName:  usr,
-			roles:     []dbRole{{dbName: "admin", role: "readWriteAnyDatabase"}},
+			dependency: cluster,
+			projectId:  projectId,
+			dbUri:      dbUri,
+			userName:   usr,
+			roles:      []dbRole{{dbName: "admin", role: "readWriteAnyDatabase"}},
 		}, params)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
@@ -173,11 +200,11 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, projec
 	}
 	for _, usr := range cfg.Developers {
 		dbUser, err := createDatabaseUser(ctx, dbUserInput{
-			cluster:   cluster,
-			projectId: projectId,
-			dbUri:     dbUri,
-			userName:  usr,
-			roles:     []dbRole{{dbName: "admin", role: "readAnyDatabase"}},
+			dependency: cluster,
+			projectId:  projectId,
+			dbUri:      dbUri,
+			userName:   usr,
+			roles:      []dbRole{{dbName: "admin", role: "readAnyDatabase"}},
 		}, params)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)

@@ -77,36 +77,38 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if err != nil {
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
 		}
-		// get outputs from parent
-		outputsRef := stackOutputValuesName(parentStack, params.Environment)
-		var outputs pApi.OutputsCollector
-		err = getSecretValueFromStack(ctx, parentRefString, outputsRef, func(val string) error {
-			outputs = pApi.CollectorFromJson(val)
-			return nil
-		})
-		if err != nil {
-			return errors.Wrapf(err, "failed to get outputs for stack %q in %q", parentStack, params.Environment)
-		}
-		p.logger.Info(ctx.Context(), "got outputs from parent stack", outputs)
 
 		if params.StacksDir == "" {
 			return errors.Errorf("stacks directory must be specified")
 		}
 		stackDir := filepath.Join(params.StacksDir, params.StackName)
 
-		deployInput, err := api.PrepareClientConfigForDeploy(ctx.Context(), stackDir, fullStackName, stackDesc, stackClientDesc)
+		clientStackDesc, err := api.PrepareClientConfigForDeploy(ctx.Context(), stackDir, fullStackName, stackDesc, stackClientDesc)
 		if err != nil {
 			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
 		}
 
-		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", deployInput)
+		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
+
+		collector := pApi.NewComputeContextCollector(stack.Name, params.Environment)
+		for resName, res := range stack.Server.Resources.Resources[params.Environment].Resources {
+			if fnc, ok := computeProcessorFuncByType[res.Type]; !ok {
+				p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", resName, res.Type)
+				continue
+			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, params.Environment); err != nil {
+				p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", resName, res.Type, stack.Name, err.Error())
+				continue
+			} else if _, err := fnc(ctx, stack, api.ResourceInput{Descriptor: &res}, parentRefString, collector, provisionParams); err != nil {
+				return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, params.Environment)
+			}
+		}
 
 		resDesc := api.ResourceDescriptor{
-			Type:   deployInput.Type,
+			Type:   clientStackDesc.Type,
 			Name:   fullStackName,
-			Config: deployInput.Config,
+			Config: clientStackDesc.Config,
 		}
-		p.logger.Debug(ctx.Context(), "getting provisioning params for %q in stack %q", deployInput)
+		p.logger.Debug(ctx.Context(), "getting provisioning params for %q in stack %q", clientStackDesc)
 		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment)
 		if err != nil {
 			return errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
@@ -115,8 +117,9 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
 			return errors.Errorf("unknown resource type %q", resDesc.Type)
 		} else if _, err := fnc(ctx, stack, api.ResourceInput{
-			Descriptor:   &resDesc,
-			DeployParams: &params,
+			Descriptor:     &resDesc,
+			DeployParams:   &params,
+			ComputeContext: collector,
 		}, provisionParams); err != nil {
 			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
 		}
