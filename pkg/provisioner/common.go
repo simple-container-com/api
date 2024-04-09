@@ -138,15 +138,19 @@ func (p *provisioner) Init(ctx context.Context, params api.InitParams) error {
 		p.rootDir = p.gitRepo.Workdir()
 	}
 
-	if err := p.gitRepo.InitOrOpen(p.rootDir); err != nil {
+	if err := p.gitRepo.InitOrOpen(p.rootDir); err != nil && !params.IgnoreWorkdirErrors {
 		return errors.Wrapf(err, "failed to init git repo")
 	}
 	if p.cryptor == nil {
-		if cryptor, err := secrets.NewCryptor(p.rootDir, secrets.WithProfile(p.profile), secrets.WithGitRepo(p.gitRepo)); err != nil {
+		if cryptor, err := secrets.NewCryptor(p.rootDir, secrets.WithProfile(p.profile), secrets.WithGitRepo(p.gitRepo)); err != nil && !params.IgnoreWorkdirErrors {
 			return errors.Wrapf(err, "failed to init cryptor")
 		} else {
 			p.cryptor = cryptor
 		}
+	}
+
+	if params.SkipScDirCreation {
+		return nil
 	}
 
 	// create .sc dir

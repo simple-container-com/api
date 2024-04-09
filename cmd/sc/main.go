@@ -30,7 +30,7 @@ func main() {
 		Long:    "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://simple-container.com/docs",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Name() != "init" {
-				if err := rootCmdInstance.Init(false); err != nil {
+				if err := rootCmdInstance.Init(true, true); err != nil {
 					return err
 				}
 				if rootParams.Verbose {

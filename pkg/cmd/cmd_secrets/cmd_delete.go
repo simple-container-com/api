@@ -33,7 +33,10 @@ func NewDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 			if len(args) != 0 {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
-			return sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Registry.Files, cobra.ShellCompDirectiveNoFileComp
+			if err := sCmd.Root.Init(true, true); err == nil {
+				return sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Registry.Files, cobra.ShellCompDirectiveNoFileComp
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 	}
 	cmd.Flags().BoolVarP(&dCmd.RemoveFile, "file", "f", dCmd.RemoveFile, "Delete file from file system")

@@ -18,10 +18,13 @@ func NewDisallowCmd(sCmd *secretsCmd) *cobra.Command {
 			if len(args) != 0 {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
-			knownKeys := lo.MapToSlice(sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Secrets, func(key string, _ secrets.EncryptedSecrets) string {
-				return key
-			})
-			return knownKeys, cobra.ShellCompDirectiveNoFileComp
+			if err := sCmd.Root.Init(true, true); err == nil {
+				return lo.MapToSlice(sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Secrets, func(key string, _ secrets.EncryptedSecrets) string {
+					return key
+				}), cobra.ShellCompDirectiveNoFileComp
+
+			}
+			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
 	}
 	return cmd

@@ -29,6 +29,8 @@ type InitParams struct {
 	Profile             string `json:"profile,omitempty" yaml:"profile"`
 	SkipInitialCommit   bool   `json:"skipInitialCommit" yaml:"skipInitialCommit"`
 	SkipProfileCreation bool   `json:"skipProfileCreation" yaml:"skipProfileCreation"`
+	SkipScDirCreation   bool   `json:"skipScDirCreation" yaml:"skipScDirCreation"`
+	IgnoreWorkdirErrors bool   `json:"skipCreateConfigDir" yaml:"skipCreateConfigDir"`
 	GenerateKeyPair     bool   `json:"generateKeyPair" yaml:"generateKeyPair"`
 }
 

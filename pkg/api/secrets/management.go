@@ -128,7 +128,7 @@ func (c *cryptor) unmarshalSecretsFile() error {
 
 	var err error
 	var file billy.File
-	file, err = c.gitRepo.OpenFile(secretsFilePath, os.O_CREATE|os.O_RDONLY, os.ModePerm)
+	file, err = c.gitRepo.OpenFile(secretsFilePath, os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		return err
 	}

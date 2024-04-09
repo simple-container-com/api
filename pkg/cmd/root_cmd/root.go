@@ -27,7 +27,7 @@ type RootCmd struct {
 	Provisioner provisioner.Provisioner
 }
 
-func (c *RootCmd) Init(skipConfigRead bool) error {
+func (c *RootCmd) Init(skipScDirCreation bool, ignoreConfigDirError bool) error {
 	ctx := context.Background()
 
 	c.Logger = logger.New()
@@ -50,20 +50,18 @@ func (c *RootCmd) Init(skipConfigRead bool) error {
 		RootDir:             gitRepo.Workdir(),
 		SkipInitialCommit:   true,
 		SkipProfileCreation: true,
+		SkipScDirCreation:   skipScDirCreation,
+		IgnoreWorkdirErrors: skipScDirCreation,
 		Profile:             c.Params.Profile,
 		GenerateKeyPair:     c.Params.GenerateKeyPair,
 	}); err != nil {
 		return err
 	}
 
-	if skipConfigRead {
-		return nil
-	}
-
-	if err := c.Provisioner.Cryptor().ReadProfileConfig(); err != nil {
+	if err := c.Provisioner.Cryptor().ReadProfileConfig(); err != nil && !ignoreConfigDirError {
 		return errors.Wrapf(err, "failed to read profile config, did you run `init`?")
 	}
-	if err := c.Provisioner.Cryptor().ReadSecretFiles(); err != nil {
+	if err := c.Provisioner.Cryptor().ReadSecretFiles(); err != nil && !ignoreConfigDirError {
 		return errors.Wrapf(err, "failed to read secrets file, did you run `init`?")
 	}
 
