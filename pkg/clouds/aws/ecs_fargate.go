@@ -20,10 +20,9 @@ const ComposeLabelIngressContainer = "simple-container.com/ingress"
 type EcsFargateConfig struct {
 	api.Credentials `json:",inline" yaml:",inline"`
 	AccountConfig   `json:",inline" yaml:",inline"`
-	Account         string `json:"account" yaml:"account"`
-	Region          string `json:"region" yaml:"region"`
 	Cpu             int    `json:"cpu" yaml:"cpu"`
 	Memory          int    `json:"memory" yaml:"memory"`
+	Version         string `json:"version" yaml:"version"`
 }
 
 type ImagePlatform string
@@ -111,12 +110,17 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		return nil, errors.Errorf("template config is nil")
 	}
 
+	accountConfig := &AccountConfig{}
+	err := api.ConvertAuth(&templateCfg.AccountConfig, accountConfig)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert aws account config")
+	}
 	res := &EcsFargateInput{
 		TemplateConfig: *templateCfg,
 		Config: EcsFargateConfig{
 			Credentials:   templateCfg.Credentials,
-			AccountConfig: templateCfg.AccountConfig,
-			Region:        templateCfg.Region,
+			AccountConfig: *accountConfig,
+			Version:       stackCfg.Version,
 		},
 	}
 

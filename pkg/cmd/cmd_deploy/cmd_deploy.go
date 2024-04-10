@@ -1,6 +1,7 @@
 package cmd_deploy
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -33,7 +34,16 @@ func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 				cmd_provision.PrintPreview(res)
 				return nil
 			}
-			return pCmd.Root.Provisioner.Deploy(cmd.Context(), pCmd.Params)
+			err := pCmd.Root.Provisioner.Deploy(cmd.Context(), pCmd.Params)
+			if err != nil && !rootCmd.IsCanceled.Load() {
+				return err
+			} else if rootCmd.IsCanceled.Load() {
+				ctx, _ := context.WithCancel(context.Background())
+				err = pCmd.Root.Provisioner.Cancel(ctx, pCmd.Params)
+			} else {
+				return nil
+			}
+			return err
 		},
 	}
 

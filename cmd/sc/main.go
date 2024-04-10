@@ -1,6 +1,11 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
@@ -12,17 +17,31 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_upgrade"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/spf13/cobra"
+	"go.uber.org/atomic"
 )
 
 func main() {
 	rootParams := &root_cmd.Params{
-		Verbose: false,
-		Silent:  false,
+		Verbose:    false,
+		Silent:     false,
+		IsCanceled: atomic.NewBool(false),
+		CancelFunc: func() {},
 	}
 
 	rootCmdInstance := &root_cmd.RootCmd{
 		Params: rootParams,
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	rootParams.CancelFunc = cancel
+
+	quit := make(chan os.Signal)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-quit
+		rootParams.IsCanceled.Store(true)
+		cancel()
+	}()
 
 	rootCmd := &cobra.Command{
 		Use:     "sc",
@@ -44,6 +63,7 @@ func main() {
 			return nil
 		},
 	}
+	rootCmd.SetContext(ctx)
 	rootCmd.SetVersionTemplate("{{printf \"%s\\n\" .Version}}")
 
 	rootCmd.AddCommand(

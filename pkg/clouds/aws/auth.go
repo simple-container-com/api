@@ -3,6 +3,8 @@ package aws
 import (
 	"fmt"
 
+	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
 )
 
@@ -43,7 +45,7 @@ func (r *AccountConfig) ProviderType() string {
 }
 
 func (r *AccountConfig) CredentialsValue() string {
-	return api.AuthToString(r)
+	return lo.If(r.Credentials.Credentials == "", api.AuthToString(r)).Else(r.Credentials.Credentials)
 }
 
 func (r *AccountConfig) ProjectIdValue() string {

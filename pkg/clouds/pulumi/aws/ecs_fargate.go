@@ -124,7 +124,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	contextEnvVariables := params.ComputeContext.EnvVariables()
 	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(contextEnvVariables), stack.Name, deployParams.Environment)
 	secrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
-		secretName := secretName(deployParams, v.ResourceType, v.ResourceName, v.Name)
+		secretName := toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, crInput.Config.Version)
 		secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
 			Name: sdk.String(secretName),
 		}, opts...)
@@ -163,10 +163,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
                     }
                 }]
             }`),
-		ManagedPolicyArns: sdk.StringArray{
-			// ARN for AmazonECSServiceRolePolicy managed policy
-			sdk.String("arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy"),
-		},
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create IAM role for stack %q in %q", stack.Name, deployParams.Environment)
@@ -207,7 +203,16 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Essential:   sdk.BoolPtr(true),
 					Environment: envVariables,
 					Secrets:     secretsVariables,
-					PortMappings: ecs.TaskDefinitionPortMappingArray{
+					LogConfiguration: ecs.TaskDefinitionLogConfigurationArgs{
+						LogDriver: sdk.String("awslogs"),
+						Options: sdk.StringMap{
+							"awslogs-create-group":  sdk.String("true"),
+							"awslogs-group":         sdk.String(fmt.Sprintf("/ecs/%s", ecsClusterName)),
+							"awslogs-region":        sdk.String(crInput.Config.Region),
+							"awslogs-stream-prefix": sdk.String("ecs"),
+						},
+						// `secretOptions` is omitted since it's null in the provided configuration.
+					}, PortMappings: ecs.TaskDefinitionPortMappingArray{
 						ecs.TaskDefinitionPortMappingArgs{
 							ContainerPort: sdk.IntPtr(image.Container.Port),
 							HostPort:      sdk.IntPtr(image.Container.Port),
@@ -225,8 +230,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		})
 
 	params.Log.Info(ctx.Context(), "creating application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
-	loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb", stack.Name, deployParams.Environment), 30, "-")
-	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg", stack.Name, deployParams.Environment), 30, "-")
+	loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 		Name: sdk.String(loadBalancerName),
 		DefaultTargetGroup: &lb.TargetGroupArgs{
@@ -271,12 +276,17 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 						"Effect":   "Allow",
 						"Resource": "*",
 						"Action": []string{
+							"ssm:StartSession",
 							"ssmmessages:CreateControlChannel",
 							"ssmmessages:CreateDataChannel",
 							"ssmmessages:OpenControlChannel",
 							"ssmmessages:OpenDataChannel",
 							"secretsmanager:GetSecretValue",
 							"ecr:GetAuthorizationToken",
+							"logs:CreateLogStream",
+							"logs:CreateLogGroup",
+							"logs:DescribeLogStreams",
+							"logs:PutLogEvents",
 						},
 					},
 				},
@@ -306,6 +316,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
 			Containers: containers,
 			ExecutionRole: &awsx.DefaultRoleWithPolicyArgs{
+				RoleArn: taskExecRole.Arn,
+			},
+			TaskRole: &awsx.DefaultRoleWithPolicyArgs{
 				RoleArn: taskExecRole.Arn,
 			},
 		},
@@ -360,8 +373,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	return nil
 }
 
-func secretName(params api.StackParams, resType, resName, varName string) string {
-	return fmt.Sprintf("%s--%s--%s--%s--%s", params.StackName, params.Environment, resType, resName, varName)
+func toSecretName(params api.StackParams, resType, resName, varName, suffix string) string {
+	return fmt.Sprintf("%s--%s--%s--%s--%s%s", params.StackName, params.Environment, resType, resName, varName, suffix)
 }
 
 func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {

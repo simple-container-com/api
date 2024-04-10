@@ -4,6 +4,8 @@ import (
 	"context"
 	"path"
 
+	"go.uber.org/atomic"
+
 	"github.com/pkg/errors"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
@@ -17,6 +19,8 @@ type Params struct {
 	Profile string
 
 	api.InitParams
+	IsCanceled *atomic.Bool
+	CancelFunc func()
 }
 
 type RootCmd struct {
