@@ -78,7 +78,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 	ctx.Export(toClusterIdExport(clusterName), cluster.ClusterId)
 	ctx.Export(toMongoUriExport(clusterName), cluster.MongoUri)
-	ctx.Export(toMongoUriWithOptionsExport(clusterName), cluster.MongoUri)
+	ctx.Export(toMongoUriWithOptionsExport(clusterName), cluster.MongoUriWithOptions)
 	out.Cluster = cluster
 
 	ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
