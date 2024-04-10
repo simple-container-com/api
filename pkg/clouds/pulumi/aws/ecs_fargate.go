@@ -163,6 +163,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
                     }
                 }]
             }`),
+		ManagedPolicyArns: sdk.StringArray{
+			// ARN for AmazonECSServiceRolePolicy managed policy
+			sdk.String("arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy"),
+		},
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create IAM role for stack %q in %q", stack.Name, deployParams.Environment)
@@ -290,88 +294,67 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.Policy = ccPolicy
 	ctx.Export(fmt.Sprintf("%s-policy", ecsClusterName), ccPolicy.Arn)
 
-	ccPolicy.Arn.ApplyT(func(policyArn string) (any, error) {
-		params.Log.Info(ctx.Context(), "creating Fargate service for %q in %q with ingress container %q...",
-			stack.Name, deployParams.Environment, iContainer.Name)
-		service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
-			Cluster:      cluster.Arn,
-			Name:         sdk.String(awsResName(ecsClusterName, "svc")),
-			DesiredCount: sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
-			TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
-				Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
-				Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
-				Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
-				Containers: containers,
-				ExecutionRole: &awsx.DefaultRoleWithPolicyArgs{
-					Args: &awsx.RoleWithPolicyArgs{
-						ManagedPolicyArns: sdk.ToStringArray([]string{
-							"arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy",
-						}),
-						PolicyArns: []string{
-							policyArn,
-						},
-					},
-				},
-				TaskRole: &awsx.DefaultRoleWithPolicyArgs{
-					Args: &awsx.RoleWithPolicyArgs{
-						ManagedPolicyArns: sdk.ToStringArray([]string{
-							"arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy",
-						}),
-						PolicyArns: []string{
-							policyArn,
-						},
-					},
-				},
+	params.Log.Info(ctx.Context(), "creating Fargate service for %q in %q with ingress container %q...",
+		stack.Name, deployParams.Environment, iContainer.Name)
+	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
+		Cluster:      cluster.Arn,
+		Name:         sdk.String(awsResName(ecsClusterName, "svc")),
+		DesiredCount: sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
+		TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
+			Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
+			Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
+			Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
+			Containers: containers,
+			ExecutionRole: &awsx.DefaultRoleWithPolicyArgs{
+				RoleArn: taskExecRole.Arn,
 			},
-			ForceNewDeployment:   sdk.BoolPtr(true),
-			EnableExecuteCommand: sdk.BoolPtr(true),
-			Tags: sdk.StringMap{
-				"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
+		},
+		ForceNewDeployment:   sdk.BoolPtr(true),
+		EnableExecuteCommand: sdk.BoolPtr(true),
+		Tags: sdk.StringMap{
+			"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
+		},
+		AssignPublicIp: sdk.BoolPtr(true),
+		LoadBalancers: legacyEcs.ServiceLoadBalancerArray{
+			legacyEcs.ServiceLoadBalancerArgs{
+				ContainerName:  sdk.String(iContainer.Name),
+				ContainerPort:  sdk.Int(iContainer.Port),
+				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
 			},
-			AssignPublicIp: sdk.BoolPtr(true),
-			LoadBalancers: legacyEcs.ServiceLoadBalancerArray{
-				legacyEcs.ServiceLoadBalancerArgs{
-					ContainerName:  sdk.String(iContainer.Name),
-					ContainerPort:  sdk.Int(iContainer.Port),
-					TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
-				},
-			},
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
-		}
-		ref.Service = service
-		ctx.Export(fmt.Sprintf("%s-service-name", ecsClusterName), service.Service.Name())
+		},
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
+	}
+	ref.Service = service
+	ctx.Export(fmt.Sprintf("%s-service-name", ecsClusterName), service.Service.Name())
 
-		execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", ecsClusterName)
-		execPolicyAttachment, err := iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
-			Role:      taskExecRole.Name,
-			PolicyArn: ccPolicy.Arn,
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create policy attachment stack %q in %q", stack.Name, deployParams.Environment)
-		}
-		ref.ExecPolicyAttachment = execPolicyAttachment
-		ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsClusterName), execPolicyAttachment.PolicyArn)
+	execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", ecsClusterName)
+	execPolicyAttachment, err := iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
+		Role:      taskExecRole.Name,
+		PolicyArn: ccPolicy.Arn,
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create policy attachment stack %q in %q", stack.Name, deployParams.Environment)
+	}
+	ref.ExecPolicyAttachment = execPolicyAttachment
+	ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsClusterName), execPolicyAttachment.PolicyArn)
 
-		service.TaskDefinition.ApplyT(func(td *legacyEcs.TaskDefinition) any {
-			return td.TaskRoleArn.ApplyT(func(taskRoleArn *string) (*iam.RolePolicyAttachment, error) {
-				role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
-					Arn: sdk.String(lo.FromPtr(taskRoleArn)),
-				}, sdk.Provider(params.Provider))
-				ccPolicyAttachmentName := fmt.Sprintf("%s-p-cc", ecsClusterName)
-				return iam.NewRolePolicyAttachment(ctx, ccPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
-					PolicyArn: ccPolicy.Arn,
-					Role: role.Resource().ApplyT(func(roleResource string) string {
-						roleName := roleResource[strings.Index(roleResource, "/")+1:]
-						params.Log.Info(ctx.Context(), "attaching policy %q to role %q", ccPolicyName, roleName)
-						return roleName
-					}),
-				}, opts...)
-			})
+	service.TaskDefinition.ApplyT(func(td *legacyEcs.TaskDefinition) any {
+		return td.TaskRoleArn.ApplyT(func(taskRoleArn *string) (*iam.RolePolicyAttachment, error) {
+			role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
+				Arn: sdk.String(lo.FromPtr(taskRoleArn)),
+			}, sdk.Provider(params.Provider))
+			ccPolicyAttachmentName := fmt.Sprintf("%s-p-cc", ecsClusterName)
+			return iam.NewRolePolicyAttachment(ctx, ccPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
+				PolicyArn: ccPolicy.Arn,
+				Role: role.Resource().ApplyT(func(roleResource string) string {
+					roleName := roleResource[strings.Index(roleResource, "/")+1:]
+					params.Log.Info(ctx.Context(), "attaching policy %q to role %q", ccPolicyName, roleName)
+					return roleName
+				}),
+			}, opts...)
 		})
-
-		return nil, nil
 	})
 
 	return nil
