@@ -67,6 +67,16 @@ func (r *PreviewResult) String() string {
 	return string(res)
 }
 
+func (r *DestroyResult) String() string {
+	res, _ := json.Marshal(r)
+	return string(res)
+}
+
+func (r *RefreshResult) String() string {
+	res, _ := json.Marshal(r)
+	return string(res)
+}
+
 type DestroyResult struct {
 	Operations map[string]int `json:"operations" yaml:"operations"`
 }
