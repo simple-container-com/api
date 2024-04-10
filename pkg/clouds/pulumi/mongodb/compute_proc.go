@@ -18,7 +18,7 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	clusterName := toClusterName(params.ParentStack.StackName, input)
 	projectName := toProjectName(params.ParentStack.StackName, input)
 
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB", params.ParentStack.RefString)
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.RefString, input.Descriptor.Name)
 	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--mongodb-atlas-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{
 		Name: sdk.String(params.ParentStack.RefString).ToStringOutput(),
 	})

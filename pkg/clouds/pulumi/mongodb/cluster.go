@@ -144,7 +144,7 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 	passwordName := fmt.Sprintf("%s-%s-password", user.projectId, user.userName)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
 		Length:  sdk.Int(20),
-		Special: sdk.Bool(true),
+		Special: sdk.Bool(false),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to generate random password for mongodb for user %q", user.userName)
