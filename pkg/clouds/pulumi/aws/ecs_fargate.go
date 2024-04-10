@@ -272,6 +272,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 							"ssmmessages:OpenControlChannel",
 							"ssmmessages:OpenDataChannel",
 							"secretsmanager:GetSecretValue",
+							"ecr:GetAuthorizationToken",
 						},
 					},
 				},
