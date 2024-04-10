@@ -64,11 +64,9 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 		if mongoUrlParsed, err := url.Parse(mongoUri); err != nil {
 			return nil, err
 		} else {
+			mongoUrlParsed.User = url.UserPassword(userName, *password)
 			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")),
-				fmt.Sprintf("%s://%s:%s@%s%s%s", mongoUrlParsed.Scheme, userName, *password,
-					mongoUrlParsed.Host,
-					mongoUrlParsed.RequestURI(),
-					mongoUrlParsed.Query()))
+				mongoUrlParsed.String())
 		}
 
 		return nil, nil
