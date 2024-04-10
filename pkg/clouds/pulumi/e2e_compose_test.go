@@ -194,6 +194,15 @@ func Test_CreateComposeStackAWSWithMongo(t *testing.T) {
 								Config: cfg.MongoConfig,
 							},
 						},
+						"test-bucket": {
+							Type: aws.ResourceTypeS3Bucket,
+							Config: api.Config{
+								Config: &aws.S3Bucket{
+									AccountConfig: *cfg.AwsCredentials,
+									Name:          tmpResName("e2e--create--test-bucket"),
+								},
+							},
+						},
 					},
 				},
 			},
@@ -220,7 +229,7 @@ func Test_CreateComposeStackAWSWithMongo(t *testing.T) {
 		},
 	}
 
-	//runProvisionAndDeployTest(stack, cfg, childStackName)
+	runProvisionAndDeployTest(stack, cfg, childStackName)
 	runDestroyTest(stack, cfg, childStackName)
 }
 

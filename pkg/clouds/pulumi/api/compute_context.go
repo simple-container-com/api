@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 )
@@ -14,7 +15,7 @@ type Collector struct {
 	outputs      []sdk.Output
 }
 
-func (c *Collector) AddOutputs(o sdk.Output) {
+func (c *Collector) AddOutput(o sdk.Output) {
 	c.outputs = append(c.outputs, o)
 }
 
@@ -45,5 +46,24 @@ func NewComputeContextCollector(stackName string, environment string) ComputeCon
 		Stack:   stackName,
 		Env:     environment,
 		EnvVars: make(map[string]string),
+	}
+}
+
+func GetParentOutput(ref *sdk.StackReference, outName string, parentRefString string, secret bool) (string, error) {
+	parentOutput, err := ref.GetOutputDetails(outName)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to get output %q from %q", outName, parentRefString)
+	}
+	value := parentOutput.Value
+	if secret {
+		value = parentOutput.SecretValue
+	}
+	if value == nil {
+		return "", errors.Wrapf(err, "no secret value for output %q from %q", outName, parentRefString)
+	}
+	if s, ok := value.(string); ok {
+		return s, nil
+	} else {
+		return "", errors.Wrapf(err, "parent output %q is not of type string (%T)", s, value)
 	}
 }

@@ -60,6 +60,8 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision bucket %q", input.Name)
 	}
+	ctx.Export(toBucketNameExport(input.Name), bucket.Bucket)
+	ctx.Export(toBucketRegionExport(input.Name), bucket.Region)
 
 	// Apply the public access block configuration to the bucket
 	accessBlock, err := s3.NewBucketPublicAccessBlock(ctx, fmt.Sprintf("%s-access-block", input.Name), &s3.BucketPublicAccessBlockArgs{
@@ -79,6 +81,7 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision user for bucket %q", input.Name)
 	}
+	ctx.Export(toBucketUserExport(input.Name), user.Name)
 
 	accessKey, err := iam.NewAccessKey(ctx, fmt.Sprintf("%s-access-key", input.Name), &iam.AccessKeyArgs{
 		User: user.ID(),
@@ -87,6 +90,9 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision access key for bucket %q", input.Name)
 	}
+	ctx.Export(toBucketAccessKeySecretExport(input.Name), accessKey.Secret)
+	ctx.Export(toBucketAccessKeyOutputExport(input.Name), accessKey.ToAccessKeyOutput())
+	ctx.Export(toBucketAccessKeyIdExport(input.Name), accessKey.ID())
 
 	// Define the S3 Bucket Policy.
 	bucketPolicy, err := s3.NewBucketPolicy(ctx, fmt.Sprintf("%s-policy", input.Name), &s3.BucketPolicyArgs{
@@ -129,4 +135,28 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 		AccessKeySecret: accessKey.Secret,
 		BucketPolicy:    bucketPolicy,
 	}, nil
+}
+
+func toBucketAccessKeySecretExport(bucketName string) string {
+	return fmt.Sprintf("%s-access-key-secret", bucketName)
+}
+
+func toBucketAccessKeyOutputExport(bucketName string) string {
+	return fmt.Sprintf("%s-access-key-output", bucketName)
+}
+
+func toBucketAccessKeyIdExport(bucketName string) string {
+	return fmt.Sprintf("%s-access-key-name", bucketName)
+}
+
+func toBucketRegionExport(bucketName string) string {
+	return fmt.Sprintf("%s-bucket-region", bucketName)
+}
+
+func toBucketUserExport(bucketName string) string {
+	return fmt.Sprintf("%s-bucket-region", bucketName)
+}
+
+func toBucketNameExport(bucketName string) string {
+	return fmt.Sprintf("%s-bucket-name", bucketName)
 }

@@ -28,11 +28,11 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 		return nil, err
 	}
 
-	projectId, err := getParentOutput(parentRef, toProjectIdExport(projectName), params.ParentStack.RefString)
+	projectId, err := pApi.GetParentOutput(parentRef, toProjectIdExport(projectName), params.ParentStack.RefString, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q", stack.Name)
 	}
-	mongoUri, err := getParentOutput(parentRef, toMongoUriWithOptionsExport(clusterName), params.ParentStack.RefString)
+	mongoUri, err := pApi.GetParentOutput(parentRef, toMongoUriWithOptionsExport(clusterName), params.ParentStack.RefString, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q", stack.Name)
 	}
@@ -60,7 +60,7 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	ctx.Export(fmt.Sprintf("%s-password", userName), sdk.ToSecret(dbUser.Password))
 
 	collector.AddDependency(dbUser)
-	collector.AddOutputs(dbUser.Password.ApplyT(func(password *string) (any, error) {
+	collector.AddOutput(dbUser.Password.ApplyT(func(password *string) (any, error) {
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName)
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password)
 		if mongoUrlParsed, err := url.Parse(mongoUri); err != nil {
@@ -77,19 +77,4 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	return &api.ResourceOutput{
 		Ref: dbUser,
 	}, nil
-}
-
-func getParentOutput(ref *sdk.StackReference, outName string, parentRefString string) (string, error) {
-	parentOutput, err := ref.GetOutputDetails(outName)
-	if err != nil {
-		return "", errors.Wrapf(err, "failed to get output %q from %q", outName, parentRefString)
-	}
-	if parentOutput.Value == nil {
-		return "", errors.Wrapf(err, "no secret value for output %q from %q", outName, parentRefString)
-	}
-	if s, ok := parentOutput.Value.(string); ok {
-		return s, nil
-	} else {
-		return "", errors.Wrapf(err, "parent output %q is not of type string (%T)", s, parentOutput.Value)
-	}
 }

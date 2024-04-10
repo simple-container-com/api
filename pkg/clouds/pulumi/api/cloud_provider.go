@@ -29,6 +29,6 @@ type ComputeContextCollector interface {
 	AddEnvVariable(name, value string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
-	AddOutputs(o sdk.Output)
+	AddOutput(o sdk.Output)
 	Outputs() []sdk.Output
 }
