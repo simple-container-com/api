@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/samber/lo"
-
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/api"
@@ -67,8 +65,10 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 			return nil, err
 		} else {
 			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")),
-				fmt.Sprintf("%s://%s:%s@%s%s/%s", mongoUrlParsed.Scheme, userName, *password, mongoUrlParsed.Host,
-					lo.If(mongoUrlParsed.Port() != "", ":"+mongoUrlParsed.Port()).Else(""), mongoUrlParsed.RequestURI()))
+				fmt.Sprintf("%s://%s:%s@%s%s%s", mongoUrlParsed.Scheme, userName, *password,
+					mongoUrlParsed.Host,
+					mongoUrlParsed.RequestURI(),
+					mongoUrlParsed.Query()))
 		}
 
 		return nil, nil

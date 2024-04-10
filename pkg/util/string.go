@@ -24,5 +24,5 @@ func ToSnakeCase(str string) string {
 }
 
 func ToEnvVariableName(str string) string {
-	return strings.ToUpper(ToSnakeCase(str))
+	return strings.ReplaceAll(strings.ToUpper(ToSnakeCase(str)), "-", "_")
 }
