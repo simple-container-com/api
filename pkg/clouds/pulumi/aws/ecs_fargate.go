@@ -306,6 +306,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Args: &awsx.RoleWithPolicyArgs{
 						PolicyArns: []string{
 							policyArn,
+							"arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy",
 						},
 					},
 				},
@@ -313,6 +314,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Args: &awsx.RoleWithPolicyArgs{
 						PolicyArns: []string{
 							policyArn,
+							"arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy",
 						},
 					},
 				},
