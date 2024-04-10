@@ -283,6 +283,11 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 							"ssmmessages:OpenDataChannel",
 							"secretsmanager:GetSecretValue",
 							"ecr:GetAuthorizationToken",
+							"ecr:DescribeImages",
+							"ecr:DescribeRepositories",
+							"ecr:BatchGetImage",
+							"ecr:BatchCheckLayerAvailability",
+							"ecr:GetDownloadUrlForLayer",
 							"logs:CreateLogStream",
 							"logs:CreateLogGroup",
 							"logs:DescribeLogStreams",
@@ -307,9 +312,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "creating Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
-		Cluster:      cluster.Arn,
-		Name:         sdk.String(awsResName(ecsClusterName, "svc")),
-		DesiredCount: sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
+		Cluster:            cluster.Arn,
+		Name:               sdk.String(awsResName(ecsClusterName, "svc")),
+		DesiredCount:       sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
+		ForceNewDeployment: sdk.BoolPtr(true),
 		TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
 			Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
 			Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
