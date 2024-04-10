@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/secretsmanager"
+
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	legacyEcs "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
@@ -36,6 +38,12 @@ type EcsFargateImage struct {
 	Image      *docker.Image
 	Repository EcsFargateRepository
 }
+
+type CreatedSecret struct {
+	Secret *secretsmanager.Secret
+	envVar string
+}
+
 type EcsFargateOutput struct {
 	Images               []*EcsFargateImage
 	ExecRole             *iam.Role
@@ -45,6 +53,7 @@ type EcsFargateOutput struct {
 	MainDnsRecord        sdk.AnyOutput
 	Cluster              *legacyEcs.Cluster
 	Policy               *iam.Policy
+	Secrets              []*CreatedSecret
 }
 
 type EcsContainerEnv struct {
@@ -105,7 +114,37 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 }
 
 func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
-	dependsOnOpt := sdk.DependsOn(params.ComputeContext.Dependencies())
+	opts := []sdk.ResourceOption{
+		sdk.Provider(params.Provider),
+		sdk.DependsOn(params.ComputeContext.Dependencies()),
+	}
+
+	contextEnvVariables := params.ComputeContext.EnvVariables()
+	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(contextEnvVariables), stack.Name, deployParams.Environment)
+	secrets, err := util.MapErr(lo.Keys(contextEnvVariables), func(key string, _ int) (*CreatedSecret, error) {
+		secretName := secretName(stack, deployParams, key)
+		secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
+			Name: sdk.String(secretName),
+		}, opts...)
+		if err != nil {
+			return nil, err
+		}
+		_, err = secretsmanager.NewSecretVersion(ctx, secretName, &secretsmanager.SecretVersionArgs{
+			SecretId:     secret.Arn,
+			SecretString: sdk.String(contextEnvVariables[key]),
+		}, opts...)
+		if err != nil {
+			return nil, err
+		}
+		return &CreatedSecret{
+			Secret: secret,
+			envVar: key,
+		}, nil
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to secrets for stack %q in %q", stack.Name, deployParams.Environment)
+	}
+	ref.Secrets = secrets
 
 	ecsClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 	// Create an ECS task execution IAM role
@@ -122,7 +161,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
                     }
                 }]
             }`),
-	}, sdk.Provider(params.Provider), dependsOnOpt)
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create IAM role for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -132,12 +171,25 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
 		func(image *EcsFargateImage, index int) EcsContainerDef {
-			// get env variables from resources defined for stack
-			image.Container.Env = lo.Assign(image.Container.Env, params.ComputeContext.EnvVariables())
-			envVariables := append(ecs.TaskDefinitionKeyValuePairArray{}, lo.MapToSlice(image.Container.Env, func(key string, value string) ecs.TaskDefinitionKeyValuePairInput {
+			envVariables := ecs.TaskDefinitionKeyValuePairArray{}
+			for k := range lo.Assign(image.Container.Env) {
+				if _, found := lo.Find(secrets, func(s *CreatedSecret) bool {
+					return s.envVar == k
+				}); found {
+					delete(image.Container.Env, k)
+				}
+			}
+			envVariables = append(envVariables, lo.MapToSlice(image.Container.Env, func(key string, value string) ecs.TaskDefinitionKeyValuePairInput {
 				return ecs.TaskDefinitionKeyValuePairArgs{
 					Name:  sdk.StringPtr(key),
 					Value: sdk.StringPtr(value),
+				}
+			})...)
+			secretsVariables := ecs.TaskDefinitionSecretArray{}
+			secretsVariables = append(secretsVariables, lo.Map(secrets, func(item *CreatedSecret, _ int) ecs.TaskDefinitionSecretInput {
+				return ecs.TaskDefinitionSecretArgs{
+					Name:      sdk.String(item.envVar),
+					ValueFrom: item.Secret.Arn,
 				}
 			})...)
 			return EcsContainerDef{
@@ -148,6 +200,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Memory:      sdk.IntPtr(lo.If(crInput.Config.Memory == 0, 512).Else(crInput.Config.Memory)),
 					Essential:   sdk.BoolPtr(true),
 					Environment: envVariables,
+					Secrets:     secretsVariables,
 					PortMappings: ecs.TaskDefinitionPortMappingArray{
 						ecs.TaskDefinitionPortMappingArgs{
 							ContainerPort: sdk.IntPtr(image.Container.Port),
@@ -173,7 +226,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		DefaultTargetGroup: &lb.TargetGroupArgs{
 			Name: sdk.String(targetGroupName),
 		},
-	}, sdk.Provider(params.Provider), dependsOnOpt)
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -192,7 +245,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				Logging: sdk.String("DEFAULT"),
 			},
 		},
-	}, sdk.Provider(params.Provider), dependsOnOpt)
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ECS cluster for %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -225,7 +278,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
 			},
 		},
-	}, sdk.Provider(params.Provider), dependsOnOpt)
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -248,6 +301,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 							"ssmmessages:CreateDataChannel",
 							"ssmmessages:OpenControlChannel",
 							"ssmmessages:OpenDataChannel",
+							"secretsmanager:GetSecretValue",
 						},
 					},
 				},
@@ -258,7 +312,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			}
 			return sdk.String(policyJSON).ToStringOutput(), nil
 		}).(sdk.StringOutput),
-	}, sdk.Provider(params.Provider), dependsOnOpt)
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create policy for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -268,8 +322,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", ecsClusterName)
 	execPolicyAttachment, err := iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 		Role:      taskExecRole.Name,
-		PolicyArn: sdk.String("arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"),
-	}, sdk.Provider(params.Provider), dependsOnOpt)
+		PolicyArn: ccPolicy.Arn,
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create policy attachment stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -289,11 +343,15 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					params.Log.Info(ctx.Context(), "attaching policy %q to role %q", ccPolicyName, roleName)
 					return roleName
 				}),
-			}, sdk.Provider(params.Provider), dependsOnOpt)
+			}, opts...)
 		})
 	})
 
 	return nil
+}
+
+func secretName(stack api.Stack, params api.StackParams, key string) string {
+	return fmt.Sprintf("%s--%s--%s", params.StackName, params.Environment, key)
 }
 
 func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {

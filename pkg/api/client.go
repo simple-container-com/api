@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/pkg/errors"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
@@ -59,6 +60,11 @@ type PreviewResult struct {
 	StackName  string         `json:"stackName" yaml:"stackName"`
 	Summary    string         `json:"summary" yaml:"summary"`
 	Operations map[string]int `json:"operations" yaml:"operations"`
+}
+
+func (r *PreviewResult) String() string {
+	res, _ := json.Marshal(r)
+	return string(res)
 }
 
 type DestroyResult struct {

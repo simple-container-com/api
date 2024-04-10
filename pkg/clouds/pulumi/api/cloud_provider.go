@@ -21,6 +21,7 @@ type ParentInfo struct {
 type ComputeContext interface {
 	EnvVariables() map[string]string
 	Dependencies() []sdk.Resource
+	Outputs() []sdk.Output
 }
 
 type ComputeContextCollector interface {
@@ -28,4 +29,6 @@ type ComputeContextCollector interface {
 	AddEnvVariable(name, value string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
+	AddOutputs(o sdk.Output)
+	Outputs() []sdk.Output
 }

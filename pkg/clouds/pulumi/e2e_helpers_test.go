@@ -3,7 +3,6 @@ package pulumi
 import (
 	"context"
 	"fmt"
-	"time"
 
 	. "github.com/onsi/gomega"
 	"github.com/simple-container-com/api/pkg/api"
@@ -191,6 +190,6 @@ func runDestroyParentTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
 }
 
 func tmpResName(name string) string {
-	// return fmt.Sprintf("%s-%d", name, 1712558588)
-	return fmt.Sprintf("%s-%d", name, time.Now().Unix())
+	return fmt.Sprintf("%s-%d", name, 1712558588)
+	// return fmt.Sprintf("%s-%d", name, time.Now().Unix())
 }

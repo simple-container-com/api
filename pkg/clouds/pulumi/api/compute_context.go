@@ -11,6 +11,15 @@ type Collector struct {
 	EnvVars map[string]string `json:"envVariables" yaml:"envVariables"`
 
 	dependencies []sdk.Resource
+	outputs      []sdk.Output
+}
+
+func (c *Collector) AddOutputs(o sdk.Output) {
+	c.outputs = append(c.outputs, o)
+}
+
+func (c *Collector) Outputs() []sdk.Output {
+	return c.outputs
 }
 
 func (c *Collector) EnvVariables() map[string]string {

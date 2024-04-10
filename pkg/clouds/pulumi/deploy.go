@@ -122,26 +122,29 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 		}
 
-		resDesc := api.ResourceDescriptor{
-			Type:   clientStackDesc.Type,
-			Name:   fullStackName,
-			Config: clientStackDesc.Config,
-		}
-		p.logger.Debug(ctx.Context(), "getting provisioning params for %q in stack %q", clientStackDesc)
-		provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment)
-		if err != nil {
-			return errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
-		}
-		provisionParams.ComputeContext = collector
+		sdk.ToArrayOutput(collector.Outputs()).ApplyT(func(args []any) (any, error) {
+			resDesc := api.ResourceDescriptor{
+				Type:   clientStackDesc.Type,
+				Name:   fullStackName,
+				Config: clientStackDesc.Config,
+			}
+			p.logger.Debug(ctx.Context(), "getting provisioning params for %q in stack %q", clientStackDesc)
+			provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
+			}
+			provisionParams.ComputeContext = collector
 
-		if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
-			return errors.Errorf("unknown resource type %q", resDesc.Type)
-		} else if _, err := fnc(ctx, stack, api.ResourceInput{
-			Descriptor:   &resDesc,
-			DeployParams: &params,
-		}, provisionParams); err != nil {
-			return errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
-		}
+			if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
+				return nil, errors.Errorf("unknown resource type %q", resDesc.Type)
+			} else if _, err := fnc(ctx, stack, api.ResourceInput{
+				Descriptor:   &resDesc,
+				DeployParams: &params,
+			}, provisionParams); err != nil {
+				return nil, errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
+			}
+			return nil, nil
+		})
 		return nil
 	}
 }

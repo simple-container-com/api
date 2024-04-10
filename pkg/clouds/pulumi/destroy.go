@@ -3,6 +3,8 @@ package pulumi
 import (
 	"context"
 
+	"github.com/samber/lo"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -41,7 +43,7 @@ func (p *pulumi) destroyChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Removed child stack: %t", res)
+	p.logger.Info(ctx, "Removed child stack: %s", lo.If(res, "WARN: some resources have remained!").Else("all resources have been destroyed"))
 	return nil
 }
 
@@ -78,7 +80,7 @@ func (p *pulumi) destroyParentStack(ctx context.Context, cfg *api.ConfigFile, st
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Removed parent stack: %t", res)
+	p.logger.Info(ctx, "Removed parent stack: %s", lo.If(res, "WARN: some resources have remained!").Else("all resources have been destroyed"))
 
 	return nil
 }

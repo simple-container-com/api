@@ -184,13 +184,13 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 	}
 
 	if !secretsProviderCfg.IsProvisionEnabled() {
-		p.logger.Info(ctx.Context(), "Skipping provisioning of secrets provider for stack %q", stack.Name)
+		p.logger.Info(ctx.Context(), "skip provisioning of secrets provider for stack %q", stack.Name)
 		return nil
 	}
-	p.logger.Info(ctx.Context(), "Provisioning secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
+	p.logger.Info(ctx.Context(), "provisioning secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
 
 	if provisionerCfg.SecretsProvider.Type == "pulumi-cloud" {
-		p.logger.Info(ctx.Context(), "Do not need to provision secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
+		p.logger.Info(ctx.Context(), "do not need to provision secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
 		return nil
 	}
 

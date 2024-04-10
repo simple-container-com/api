@@ -2,6 +2,9 @@ package mongodb
 
 import (
 	"fmt"
+	"net/url"
+
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -57,12 +60,19 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	ctx.Export(fmt.Sprintf("%s-password", userName), sdk.ToSecret(dbUser.Password))
 
 	collector.AddDependency(dbUser)
-	dbUser.Password.ApplyT(func(password *string) (any, error) {
+	collector.AddOutputs(dbUser.Password.ApplyT(func(password *string) (any, error) {
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName)
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri)
+		if mongoUrlParsed, err := url.Parse(mongoUri); err != nil {
+			return nil, err
+		} else {
+			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")),
+				fmt.Sprintf("%s://%s:%s@%s%s/%s", mongoUrlParsed.Scheme, userName, *password, mongoUrlParsed.Host,
+					lo.If(mongoUrlParsed.Port() != "", ":"+mongoUrlParsed.Port()).Else(""), mongoUrlParsed.RequestURI()))
+		}
+
 		return nil, nil
-	})
+	}))
 
 	return &api.ResourceOutput{
 		Ref: dbUser,
