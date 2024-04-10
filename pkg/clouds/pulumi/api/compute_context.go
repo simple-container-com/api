@@ -3,13 +3,12 @@ package api
 import (
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/samber/lo"
 )
 
 type Collector struct {
-	Stack   string            `json:"stackName" yaml:"stackName"`
-	Env     string            `json:"environment" yaml:"environment"`
-	EnvVars map[string]string `json:"envVariables" yaml:"envVariables"`
+	Stack   string               `json:"stackName" yaml:"stackName"`
+	Env     string               `json:"environment" yaml:"environment"`
+	EnvVars []ComputeEnvVariable `json:"envVariables" yaml:"envVariables"`
 
 	dependencies []sdk.Resource
 	outputs      []sdk.Output
@@ -23,13 +22,17 @@ func (c *Collector) Outputs() []sdk.Output {
 	return c.outputs
 }
 
-func (c *Collector) EnvVariables() map[string]string {
+func (c *Collector) EnvVariables() []ComputeEnvVariable {
 	return c.EnvVars
 }
 
-func (c *Collector) AddEnvVariable(name string, value string) {
-	c.EnvVars = lo.Assign(c.EnvVars, map[string]string{
-		name: value,
+func (c *Collector) AddEnvVariable(name, value, resType, resName, stackName string) {
+	c.EnvVars = append(c.EnvVars, ComputeEnvVariable{
+		Name:         name,
+		Value:        value,
+		ResourceName: resName,
+		ResourceType: resType,
+		StackName:    stackName,
 	})
 }
 
@@ -45,7 +48,7 @@ func NewComputeContextCollector(stackName string, environment string) ComputeCon
 	return &Collector{
 		Stack:   stackName,
 		Env:     environment,
-		EnvVars: make(map[string]string),
+		EnvVars: make([]ComputeEnvVariable, 0),
 	}
 }
 

@@ -18,15 +18,23 @@ type ParentInfo struct {
 	RefString string
 }
 
+type ComputeEnvVariable struct {
+	Name         string
+	Value        string
+	ResourceName string
+	ResourceType string
+	StackName    string
+}
+
 type ComputeContext interface {
-	EnvVariables() map[string]string
+	EnvVariables() []ComputeEnvVariable
 	Dependencies() []sdk.Resource
 	Outputs() []sdk.Output
 }
 
 type ComputeContextCollector interface {
-	EnvVariables() map[string]string
-	AddEnvVariable(name, value string)
+	EnvVariables() []ComputeEnvVariable
+	AddEnvVariable(name, value, resType, resName, stackName string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
 	AddOutput(o sdk.Output)

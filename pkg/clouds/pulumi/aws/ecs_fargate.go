@@ -123,8 +123,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	contextEnvVariables := params.ComputeContext.EnvVariables()
 	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(contextEnvVariables), stack.Name, deployParams.Environment)
-	secrets, err := util.MapErr(lo.Keys(contextEnvVariables), func(key string, _ int) (*CreatedSecret, error) {
-		secretName := secretName(stack, deployParams, key)
+	secrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
+		secretName := secretName(deployParams, v.ResourceType, v.ResourceName, v.Name)
 		secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
 			Name: sdk.String(secretName),
 		}, opts...)
@@ -133,14 +133,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		}
 		_, err = secretsmanager.NewSecretVersion(ctx, secretName, &secretsmanager.SecretVersionArgs{
 			SecretId:     secret.Arn,
-			SecretString: sdk.String(contextEnvVariables[key]),
+			SecretString: sdk.String(v.Value),
 		}, opts...)
 		if err != nil {
 			return nil, err
 		}
 		return &CreatedSecret{
 			Secret: secret,
-			envVar: key,
+			envVar: v.Name,
 		}, nil
 	})
 	if err != nil {
@@ -377,8 +377,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	return nil
 }
 
-func secretName(stack api.Stack, params api.StackParams, key string) string {
-	return fmt.Sprintf("%s--%s--%s", params.StackName, params.Environment, key)
+func secretName(params api.StackParams, resType, resName, varName string) string {
+	return fmt.Sprintf("%s--%s--%s--%s--%s", params.StackName, params.Environment, resType, resName, varName)
 }
 
 func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {

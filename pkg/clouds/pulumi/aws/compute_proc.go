@@ -52,14 +52,23 @@ func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	}
 
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_REGION", bucketCfg.Name)), resBucketRegion)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_BUCKET", bucketCfg.Name)), resBucketName)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_ACCESS_KEY", bucketCfg.Name)), resAccessKeyId)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketCfg.Name)), resAccessKeySecret)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_REGION")), resBucketRegion)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_BUCKET")), resBucketName)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_ACCESS_KEY")), resAccessKeyId)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_SECRET_KEY")), resAccessKeySecret)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_REGION", bucketCfg.Name)), resBucketRegion,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_BUCKET", bucketCfg.Name)), resBucketName,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_ACCESS_KEY", bucketCfg.Name)), resAccessKeyId,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketCfg.Name)), resAccessKeySecret,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_REGION")), resBucketRegion,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_BUCKET")), resBucketName,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_ACCESS_KEY")), resAccessKeyId,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("S3_SECRET_KEY")), resAccessKeySecret,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+
 		return nil
 	}))
 

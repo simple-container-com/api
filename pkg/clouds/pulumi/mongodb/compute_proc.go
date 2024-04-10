@@ -59,14 +59,17 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 
 	collector.AddDependency(dbUser)
 	collector.AddOutput(dbUser.Password.ApplyT(func(password *string) (any, error) {
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName)
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password)
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
+			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password,
+			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 		if mongoUrlParsed, err := url.Parse(mongoUri); err != nil {
 			return nil, err
 		} else {
 			mongoUrlParsed.User = url.UserPassword(userName, *password)
-			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")),
-				mongoUrlParsed.String())
+			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUrlParsed.String(),
+				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 		}
 
 		return nil, nil
