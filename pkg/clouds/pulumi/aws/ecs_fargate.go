@@ -121,6 +121,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
 	}
 
+	iContainer := crInput.IngressContainer
+
 	contextEnvVariables := params.ComputeContext.EnvVariables()
 	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(contextEnvVariables), stack.Name, deployParams.Environment)
 	secrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
@@ -173,6 +175,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
 		func(image *EcsFargateImage, index int) EcsContainerDef {
+			hostPort := image.Container.Port
 			envVariables := ecs.TaskDefinitionKeyValuePairArray{}
 			for k := range lo.Assign(image.Container.Env) {
 				if _, found := lo.Find(secrets, func(s *CreatedSecret) bool {
@@ -194,7 +197,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					ValueFrom: item.Secret.Arn,
 				}
 			})...)
-			return EcsContainerDef{
+			cDef := EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
 					Name:        sdk.String(image.Container.Name),
 					Image:       image.Image.ImageName,
@@ -212,15 +215,24 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 							"awslogs-stream-prefix": sdk.String("ecs"),
 						},
 						// `secretOptions` is omitted since it's null in the provided configuration.
-					}, PortMappings: ecs.TaskDefinitionPortMappingArray{
+					},
+					PortMappings: ecs.TaskDefinitionPortMappingArray{
 						ecs.TaskDefinitionPortMappingArgs{
 							ContainerPort: sdk.IntPtr(image.Container.Port),
-							HostPort:      sdk.IntPtr(image.Container.Port),
+							HostPort:      sdk.IntPtr(hostPort),
 						},
 					},
 				},
 				Name: image.Container.Name,
 			}
+			if image.Container.LivenessProbe.HttpGet.Port != 0 {
+				// TODO
+			} else if len(image.Container.LivenessProbe.Command) > 0 {
+				cDef.HealthCheck = ecs.TaskDefinitionHealthCheckArgs{
+					Command: sdk.ToStringArray(image.Container.LivenessProbe.Command),
+				}
+			}
+			return cDef
 		}),
 		func(container EcsContainerDef) string {
 			return container.Name
@@ -244,8 +256,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.LoadBalancer = loadBalancer
 	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsClusterName), loadBalancer.LoadBalancer.Arn())
 	ctx.Export(fmt.Sprintf("%s-alb-name", ecsClusterName), loadBalancer.LoadBalancer.Name())
-
-	iContainer := crInput.IngressContainer
 
 	params.Log.Info(ctx.Context(), "creating ECS Fargate cluster for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)

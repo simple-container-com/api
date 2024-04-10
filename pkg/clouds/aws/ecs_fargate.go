@@ -38,6 +38,7 @@ type EcsFargateImage struct {
 }
 
 type EcsFargateProbe struct {
+	Command             []string     `json:"command" yaml:"command"`
 	HttpGet             ProbeHttpGet `json:"httpGet" yaml:"httpGet"`
 	InitialDelaySeconds int          `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
 	TimeoutSeconds      int          `json:"timeoutSeconds" yaml:"timeoutSeconds"`
@@ -198,28 +199,18 @@ func toResources(svc types.ServiceConfig) EcsFargateResources {
 }
 
 func toStartupProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {
-	res := EcsFargateProbe{
-		HttpGet: ProbeHttpGet{
-			Path: "/",
-			Port: port,
-		},
-	}
-	res.FromHealthCheck(svc.HealthCheck)
+	res := EcsFargateProbe{}
+	res.FromHealthCheck(svc.HealthCheck, port)
 	return res, nil
 }
 
 func toLivenessProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {
-	res := EcsFargateProbe{
-		HttpGet: ProbeHttpGet{
-			Path: "/",
-			Port: port,
-		},
-	}
-	res.FromHealthCheck(svc.HealthCheck)
+	res := EcsFargateProbe{}
+	res.FromHealthCheck(svc.HealthCheck, port)
 	return res, nil
 }
 
-func (p *EcsFargateProbe) FromHealthCheck(check *types.HealthCheckConfig) {
+func (p *EcsFargateProbe) FromHealthCheck(check *types.HealthCheckConfig, port int) {
 	if check != nil {
 		if check.Interval != nil {
 			p.IntervalSeconds = int(time.Duration(lo.FromPtr(check.Interval)).Seconds())
@@ -230,6 +221,16 @@ func (p *EcsFargateProbe) FromHealthCheck(check *types.HealthCheckConfig) {
 		if check.StartPeriod != nil {
 			p.InitialDelaySeconds = int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds())
 		}
+		if len(check.Test) > 0 {
+			p.Command = check.Test
+		}
+		if len(check.Test) == 0 {
+			p.HttpGet = ProbeHttpGet{
+				Path: "/",
+				Port: port,
+			}
+		}
+
 	}
 }
 

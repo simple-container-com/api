@@ -2,7 +2,7 @@ package mongodb
 
 import (
 	"fmt"
-	"net/url"
+	"strings"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -64,13 +64,13 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 
 		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password,
 			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
-		if mongoUrlParsed, err := url.Parse(mongoUri); err != nil {
-			return nil, err
+		if strings.HasPrefix(mongoUri, "mongodb+srv://") {
+			mongoUri = strings.ReplaceAll(mongoUri, "mongodb+srv://", fmt.Sprintf("mongodb+srv://%s:%s@", userName, *password))
 		} else {
-			mongoUrlParsed.User = url.UserPassword(userName, *password)
-			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUrlParsed.String(),
-				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+			mongoUri = strings.ReplaceAll(mongoUri, "mongodb://", fmt.Sprintf("mongodb://%s:%s@", userName, *password))
 		}
+		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
+			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
 		return nil, nil
 	}))
