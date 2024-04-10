@@ -89,15 +89,15 @@ type DestroyParams struct {
 	StackParams `json:",inline" yaml:",inline"`
 }
 
-func PrepareCloudComposeForDeploy(ctx context.Context, rootDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {
+func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
 	}
 
-	composeCfg, err := compose.ReadDockerCompose(ctx, rootDir, clientConfig.DockerComposeFile)
+	composeCfg, err := compose.ReadDockerCompose(ctx, stackDir, clientConfig.DockerComposeFile)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read docker-compose config from %q/%q", rootDir, clientConfig.DockerComposeFile)
+		return nil, errors.Wrapf(err, "failed to read docker-compose config from %q/%q", stackDir, clientConfig.DockerComposeFile)
 	}
 
 	if tplFun, found := cloudComposeConverterMapping[stackDesc.Type]; !found {

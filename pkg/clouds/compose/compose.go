@@ -17,6 +17,8 @@ func ReadDockerCompose(ctx context.Context, workingDir, composeFilePath string) 
 	var res Config
 	if !filepath.IsAbs(composeFilePath) {
 		composeFilePath = path.Join(workingDir, composeFilePath)
+	} else {
+		workingDir = path.Dir(composeFilePath)
 	}
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir: workingDir,
