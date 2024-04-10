@@ -12,10 +12,11 @@ const (
 )
 
 const (
-	LogLevelDebug = iota
-	LogLevelInfo  = iota
-	LogLevelWarn  = iota
-	LogLevelError = iota
+	LogLevelDebug  = iota
+	LogLevelInfo   = iota
+	LogLevelWarn   = iota
+	LogLevelError  = iota
+	LogLevelSilent = 99
 
 	defaultLogLevel = LogLevelInfo
 )
@@ -26,6 +27,7 @@ type Logger interface {
 	Info(ctx context.Context, format string, a ...any)
 	Debug(ctx context.Context, format string, a ...any)
 	SetLogLevel(ctx context.Context, logLevel int) context.Context
+	Silent(ctx context.Context) context.Context
 }
 
 type logger struct{}
@@ -58,7 +60,11 @@ func (l logger) Debug(ctx context.Context, format string, a ...any) {
 	}
 }
 
-func (l *logger) SetLogLevel(ctx context.Context, logLevel int) context.Context {
+func (l logger) Silent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, logLevel, LogLevelSilent)
+}
+
+func (l logger) SetLogLevel(ctx context.Context, logLevel int) context.Context {
 	return context.WithValue(ctx, logLevel, logLevel)
 }
 

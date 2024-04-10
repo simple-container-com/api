@@ -1,6 +1,7 @@
 package mongodb
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -55,26 +56,33 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 			},
 		},
 	}, params)
-	ctx.Export(fmt.Sprintf("%s-username", userName), sdk.String(userName))
-	ctx.Export(fmt.Sprintf("%s-password", userName), sdk.ToSecret(dbUser.Password))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create service user for database %q", dbName)
+	}
+	if dbUser != nil {
+		ctx.Export(fmt.Sprintf("%s-service-user", clusterName), dbUser.(sdk.Output))
 
-	collector.AddDependency(dbUser)
-	collector.AddOutput(dbUser.Password.ApplyT(func(password *string) (any, error) {
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
-			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+		collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
+			dbUserOutJson := dbUserOut.(string)
+			dbUser := DbUserOutput{}
+			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
 
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), *password,
-			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
-		if strings.HasPrefix(mongoUri, "mongodb+srv://") {
-			mongoUri = strings.ReplaceAll(mongoUri, "mongodb+srv://", fmt.Sprintf("mongodb+srv://%s:%s@", userName, *password))
-		} else {
-			mongoUri = strings.ReplaceAll(mongoUri, "mongodb://", fmt.Sprintf("mongodb://%s:%s@", userName, *password))
-		}
-		collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
-			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
+				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
-		return nil, nil
-	}))
+			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
+				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+			if strings.HasPrefix(mongoUri, "mongodb+srv://") {
+				mongoUri = strings.ReplaceAll(mongoUri, "mongodb+srv://", fmt.Sprintf("mongodb+srv://%s:%s@", userName, dbUser.Password))
+			} else {
+				mongoUri = strings.ReplaceAll(mongoUri, "mongodb://", fmt.Sprintf("mongodb://%s:%s@", userName, dbUser.Password))
+			}
+			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
+				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+
+			return nil, nil
+		}))
+	}
 
 	return &api.ResourceOutput{
 		Ref: dbUser,

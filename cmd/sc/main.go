@@ -6,6 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/simple-container-com/api/pkg/cmd/cmd_outputs"
+
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
@@ -74,6 +76,7 @@ func main() {
 		cmd_cancel.NewCancelCmd(rootCmdInstance),
 		cmd_destroy.NewDestroyCmd(rootCmdInstance),
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
+		cmd_outputs.NewOutputsCmd(rootCmdInstance),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

@@ -63,6 +63,11 @@ type PreviewResult struct {
 	Operations map[string]int `json:"operations" yaml:"operations"`
 }
 
+type OutputsResult struct {
+	StackName string         `json:"stackName" yaml:"stackName"`
+	Outputs   map[string]any `json:"outputs" yaml:"outputs"`
+}
+
 func (r *PreviewResult) String() string {
 	res, _ := json.Marshal(r)
 	return string(res)

@@ -1,8 +1,8 @@
 package mongodb
 
 import (
+	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
@@ -92,9 +92,10 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 	ctx.Export(fmt.Sprintf("%s-ip-list-id", clusterName), ipAccessList.ID())
 
-	usersOutput := sdk.All(projectId).ApplyT(func(args []any) (any, error) {
-		return nil, createDatabaseUsers(ctx, cluster, atlasCfg, params)
+	usersOutput := sdk.All(projectId).ApplyT(func(args []any) any {
+		return createDatabaseUsers(ctx, cluster, atlasCfg, params)
 	})
+	ctx.Export(fmt.Sprintf("%s-users", clusterName), usersOutput)
 
 	out.DbUsers = usersOutput
 
@@ -139,9 +140,18 @@ type dbUserInput struct {
 	dependency  sdk.Resource
 }
 
-var exportMutex = sync.Mutex{}
+type DbUserOutput struct {
+	UserName string `json:"userName" yaml:"userName"`
+	Password string `json:"password" yaml:"password"`
+	DbUri    string `json:"dbUri" yaml:"dbUri"`
+}
 
-func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (*mongodbatlas.DatabaseUser, error) {
+func (o DbUserOutput) ToJson() string {
+	res, _ := json.Marshal(o)
+	return string(res)
+}
+
+func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (any, error) {
 	// Generate a random password for the MongoDB Atlas database user.
 	passwordName := fmt.Sprintf("%s-%s-password", user.projectId, user.userName)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
@@ -153,7 +163,7 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 	}
 	ctx.Export(passwordName, password.Result)
 
-	userObjectName := fmt.Sprintf("%s-user", user.userName)
+	userObjectName := fmt.Sprintf("%s-%s-user", user.clusterName, user.userName)
 	roles := mongodbatlas.DatabaseUserRoleArray{}
 
 	for _, role := range user.roles {
@@ -178,23 +188,20 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create database user %q", user.userName)
 	}
-	sdk.All(dbUser.Username, dbUser.Password).ApplyT(func(args []any) (any, error) {
-		exportMutex.Lock()
-		defer exportMutex.Unlock()
+	return sdk.All(dbUser.Username, dbUser.Password).ApplyT(func(args []any) (any, error) {
 		username := args[0].(string)
 		password := args[1].(*string)
-		ctx.Export(fmt.Sprintf("%s-%s-password", user.clusterName, username), sdk.ToSecret(*password))
-		ctx.Export(fmt.Sprintf("%s-%s-username", user.clusterName, username), sdk.String(user.dbUri))
-		ctx.Export(fmt.Sprintf("%s-%s-db-uri", user.clusterName, username), sdk.String(user.dbUri))
-		return nil, nil
-	})
-
-	return dbUser, nil
+		return DbUserOutput{
+			UserName: username,
+			Password: *password,
+			DbUri:    user.dbUri,
+		}.ToJson(), nil
+	}), nil
 }
 
-func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *mongodb.AtlasConfig, params pApi.ProvisionParams) error {
-	var res []sdk.Output
-	sdk.All(cluster.Name, cluster.ProjectId, cluster.MongoUriWithOptions).ApplyT(func(args []any) (any, error) {
+func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *mongodb.AtlasConfig, params pApi.ProvisionParams) any {
+	return sdk.All(cluster.Name, cluster.ProjectId, cluster.MongoUriWithOptions).ApplyT(func(args []any) (any, error) {
+		res := make(map[string]any)
 		clusterName := args[0].(string)
 		projectId := args[1].(string)
 		mongoUri := args[2].(string)
@@ -211,7 +218,7 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
 			}
-			res = append(res, dbUser.Username)
+			res[usr] = dbUser
 		}
 		for _, usr := range cfg.Developers {
 			dbUser, err := createDatabaseUser(ctx, dbUserInput{
@@ -225,9 +232,10 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
 			}
-			res = append(res, dbUser.Username)
+			res[usr] = dbUser
 		}
-		return nil, nil
+		return sdk.ToMapOutput(lo.MapValues(res, func(value any, key string) sdk.Output {
+			return value.(sdk.Output)
+		})), nil
 	})
-	return nil
 }

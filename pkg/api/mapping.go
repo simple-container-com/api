@@ -105,7 +105,10 @@ type Provisioner interface {
 	DestroyChildStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
 
 	PreviewStack(ctx context.Context, cfg *ConfigFile, parentStack Stack) (*PreviewResult, error)
+
 	PreviewChildStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) (*PreviewResult, error)
+
+	OutputsStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params StackParams) (*OutputsResult, error)
 
 	CancelStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) error
 

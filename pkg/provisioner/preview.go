@@ -23,6 +23,28 @@ func (p *provisioner) Preview(ctx context.Context, params api.DeployParams) (*ap
 	return pv.PreviewChildStack(ctx, cfg, *stack, params)
 }
 
+func (p *provisioner) Outputs(ctx context.Context, params api.StackParams) (*api.OutputsResult, error) {
+	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
+	}
+
+	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
+		StacksDir: params.StacksDir,
+		Profile:   params.Profile,
+	}, false); err != nil {
+		return nil, errors.Wrapf(err, "failed to read stacks")
+	}
+	stack, ok := p.stacks[params.StackName]
+	if !ok {
+		return nil, errors.Errorf("stack %q is not configured", params.StackName)
+	}
+
+	pv, err := p.getProvisionerForStack(ctx, stack)
+
+	return pv.OutputsStack(ctx, cfg, stack, params)
+}
+
 func (p *provisioner) PreviewProvision(ctx context.Context, params api.ProvisionParams) ([]*api.PreviewResult, error) {
 	cfg, err := p.readConfigForProvision(ctx, params)
 	if err != nil {

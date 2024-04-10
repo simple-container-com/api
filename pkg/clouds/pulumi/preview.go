@@ -2,6 +2,9 @@ package pulumi
 
 import (
 	"context"
+	"encoding/json"
+
+	"github.com/pkg/errors"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/samber/lo"
@@ -65,6 +68,41 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	}
 	p.logger.Info(ctx, "Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
 	return p.toPreviewResult(stackSource.Name(), previewResult), nil
+}
+
+func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.StackParams) (*api.OutputsResult, error) {
+	if params.Environment != "" && params.StackName != "" {
+		stack = toChildStack(stack, params)
+	}
+	s, err := p.getStack(ctx, cfg, stack)
+	if err != nil {
+		return nil, err
+	}
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := stackSource.Outputs(ctx)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get outputs")
+	}
+	return p.toOutputsResult(stackSource.Name(), res), nil
+}
+
+func (p *pulumi) toOutputsResult(stackName string, result auto.OutputMap) *api.OutputsResult {
+	return &api.OutputsResult{
+		StackName: stackName,
+		Outputs: lo.MapValues(result, func(value auto.OutputValue, key string) any {
+			var res string
+			if s, ok := value.Value.(string); ok {
+				res = s
+			} else if value.Secret {
+				j, _ := json.Marshal(value)
+				res = string(j)
+			}
+			return res
+		}),
+	}
 }
 
 func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *api.PreviewResult {
