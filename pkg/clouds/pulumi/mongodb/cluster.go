@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
@@ -91,10 +92,8 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 	ctx.Export(fmt.Sprintf("%s-ip-list-id", clusterName), ipAccessList.ID())
 
-	usersOutput := sdk.All(projectId, cluster.MongoUri).ApplyT(func(args []any) (any, error) {
-		projectId := args[0].(string)
-		mongoUri := args[1].(string)
-		return createDatabaseUsers(ctx, cluster, projectId, mongoUri, atlasCfg, params)
+	usersOutput := sdk.All(projectId).ApplyT(func(args []any) (any, error) {
+		return nil, createDatabaseUsers(ctx, cluster, atlasCfg, params)
 	})
 
 	out.DbUsers = usersOutput
@@ -132,12 +131,15 @@ type dbRole struct {
 }
 
 type dbUserInput struct {
-	projectId  string
-	dbUri      string
-	userName   string
-	roles      []dbRole
-	dependency sdk.Resource
+	projectId   string
+	clusterName string
+	dbUri       string
+	userName    string
+	roles       []dbRole
+	dependency  sdk.Resource
 }
+
+var exportMutex = sync.Mutex{}
 
 func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (*mongodbatlas.DatabaseUser, error) {
 	// Generate a random password for the MongoDB Atlas database user.
@@ -176,40 +178,56 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create database user %q", user.userName)
 	}
-	ctx.Export(userObjectName, dbUser.Username)
-	ctx.Export(fmt.Sprintf("%s-password", user.userName), sdk.ToSecret(dbUser.Password))
-	ctx.Export(fmt.Sprintf("%s-db-uri", user.userName), sdk.String(user.dbUri))
+	sdk.All(dbUser.Username, dbUser.Password).ApplyT(func(args []any) (any, error) {
+		exportMutex.Lock()
+		defer exportMutex.Unlock()
+		username := args[0].(string)
+		password := args[1].(*string)
+		ctx.Export(fmt.Sprintf("%s-%s-password", user.clusterName, username), sdk.ToSecret(*password))
+		ctx.Export(fmt.Sprintf("%s-%s-username", user.clusterName, username), sdk.String(user.dbUri))
+		ctx.Export(fmt.Sprintf("%s-%s-db-uri", user.clusterName, username), sdk.String(user.dbUri))
+		return nil, nil
+	})
 
 	return dbUser, nil
 }
 
-func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, projectId string, dbUri string, cfg *mongodb.AtlasConfig, params pApi.ProvisionParams) (any, error) {
+func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *mongodb.AtlasConfig, params pApi.ProvisionParams) error {
 	var res []sdk.Output
-	for _, usr := range cfg.Admins {
-		dbUser, err := createDatabaseUser(ctx, dbUserInput{
-			dependency: cluster,
-			projectId:  projectId,
-			dbUri:      dbUri,
-			userName:   usr,
-			roles:      []dbRole{{dbName: "admin", role: "readWriteAnyDatabase"}},
-		}, params)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
+	sdk.All(cluster.Name, cluster.ProjectId, cluster.MongoUriWithOptions).ApplyT(func(args []any) (any, error) {
+		clusterName := args[0].(string)
+		projectId := args[1].(string)
+		mongoUri := args[2].(string)
+
+		for _, usr := range cfg.Admins {
+			dbUser, err := createDatabaseUser(ctx, dbUserInput{
+				dependency:  cluster,
+				clusterName: clusterName,
+				projectId:   projectId,
+				dbUri:       mongoUri,
+				userName:    usr,
+				roles:       []dbRole{{dbName: "admin", role: "readWriteAnyDatabase"}},
+			}, params)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
+			}
+			res = append(res, dbUser.Username)
 		}
-		res = append(res, dbUser.Username)
-	}
-	for _, usr := range cfg.Developers {
-		dbUser, err := createDatabaseUser(ctx, dbUserInput{
-			dependency: cluster,
-			projectId:  projectId,
-			dbUri:      dbUri,
-			userName:   usr,
-			roles:      []dbRole{{dbName: "admin", role: "readAnyDatabase"}},
-		}, params)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
+		for _, usr := range cfg.Developers {
+			dbUser, err := createDatabaseUser(ctx, dbUserInput{
+				dependency:  cluster,
+				clusterName: clusterName,
+				projectId:   projectId,
+				dbUri:       mongoUri,
+				userName:    usr,
+				roles:       []dbRole{{dbName: "admin", role: "readAnyDatabase"}},
+			}, params)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
+			}
+			res = append(res, dbUser.Username)
 		}
-		res = append(res, dbUser.Username)
-	}
-	return res, nil
+		return nil, nil
+	})
+	return nil
 }

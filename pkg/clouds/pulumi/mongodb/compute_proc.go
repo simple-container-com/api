@@ -40,9 +40,10 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	userName := stack.Name
 
 	dbUser, err := createDatabaseUser(ctx, dbUserInput{
-		projectId: projectId,
-		dbUri:     mongoUri,
-		userName:  userName,
+		clusterName: clusterName,
+		projectId:   projectId,
+		dbUri:       mongoUri,
+		userName:    userName,
 		roles: []dbRole{
 			{
 				dbName: dbName,
