@@ -26,7 +26,7 @@ func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resourc
 
 	// Create a StackReference to the parent stack
 	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for s3 bucket", params.ParentStack.RefString)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-%s-s3-bucket-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--s3-bucket-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{
 		Name: sdk.String(params.ParentStack.RefString).ToStringOutput(),
 	})
 	if err != nil {

@@ -91,7 +91,6 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 		return nil, errors.Wrapf(err, "failed to provision access key for bucket %q", input.Name)
 	}
 	ctx.Export(toBucketAccessKeySecretExport(input.Name), accessKey.Secret)
-	ctx.Export(toBucketAccessKeyOutputExport(input.Name), accessKey.ToAccessKeyOutput())
 	ctx.Export(toBucketAccessKeyIdExport(input.Name), accessKey.ID())
 
 	// Define the S3 Bucket Policy.
@@ -139,10 +138,6 @@ func createPrivateBucket(ctx *sdk.Context, input PrivateBucketInput) (*PrivateBu
 
 func toBucketAccessKeySecretExport(bucketName string) string {
 	return fmt.Sprintf("%s-access-key-secret", bucketName)
-}
-
-func toBucketAccessKeyOutputExport(bucketName string) string {
-	return fmt.Sprintf("%s-access-key-output", bucketName)
 }
 
 func toBucketAccessKeyIdExport(bucketName string) string {
