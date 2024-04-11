@@ -167,7 +167,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 				Platform:   ImagePlatformLinuxAmd64,
 				Dockerfile: svc.Build.Dockerfile,
 			},
-			Env:           toRunEnv(svc.Environment),
+			Env:           lo.Assign(toRunEnv(svc.Environment), stackCfg.Env),
 			Secrets:       secrets,
 			Port:          port,
 			LivenessProbe: liveProbe,
