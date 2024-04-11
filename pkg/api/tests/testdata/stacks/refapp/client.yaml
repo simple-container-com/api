@@ -14,6 +14,7 @@ stacks:
         - ui
       env:
         JWT_SECRET: ${secret:JWT_SECRET}
+      secrets: {}
   prod:
     <<: *staging
     config:
