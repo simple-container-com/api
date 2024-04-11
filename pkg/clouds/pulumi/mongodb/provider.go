@@ -16,7 +16,7 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Errorf("failed to cast config to *mongodb.AtlasConfig")
 	}
 
-	provider, err := mongodbatlas.NewProvider(ctx, input.Descriptor.Name, &mongodbatlas.ProviderArgs{
+	provider, err := mongodbatlas.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &mongodbatlas.ProviderArgs{
 		PrivateKey: sdk.StringPtr(authCfg.PrivateKey),
 		PublicKey:  sdk.StringPtr(authCfg.PublicKey),
 		Region:     sdk.StringPtr(authCfg.Region),

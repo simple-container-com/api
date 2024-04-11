@@ -29,13 +29,13 @@ func (p *pulumi) destroyChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.YellowFmt("Refresh child summary: %q", p.toRefreshResult(refreshResult)))
+	p.logger.Info(ctx, color.YellowFmt("Refresh child summary: \n%s", p.toRefreshResult(refreshResult)))
 	p.logger.Info(ctx, color.RedFmt("Destroying child stack %q...", stackSource.Name()))
 	destroyResult, err := stackSource.Destroy(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.RedFmt("Destroy child summary: %q", p.toDestroyResult(destroyResult)))
+	p.logger.Info(ctx, color.RedFmt("Destroy child summary: \n%s", p.toDestroyResult(destroyResult)))
 	s, err = p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return err

@@ -18,7 +18,7 @@ func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 	}
 
 	// Create a new KMS Key for encryption/decryption operations
-	key, err := kms.NewKey(ctx, kmsInput.KeyName, &kms.KeyArgs{
+	key, err := kms.NewKey(ctx, input.ToResName(kmsInput.KeyName), &kms.KeyArgs{
 		Tags: sdk.StringMap{
 			"stack": sdk.String(stack.Name),
 		},

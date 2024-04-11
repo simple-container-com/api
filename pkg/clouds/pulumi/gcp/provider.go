@@ -26,7 +26,7 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
 
-	provider, err := gcp.NewProvider(ctx, input.Descriptor.Name, &gcp.ProviderArgs{
+	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
 		Credentials: sdk.String(creds),
 		Project:     sdk.String(projectId),
 	})

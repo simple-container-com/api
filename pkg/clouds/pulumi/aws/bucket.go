@@ -40,7 +40,7 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 	}
 
 	res, err := createPrivateBucket(ctx, PrivateBucketInput{
-		Name:     bucketCfg.Name,
+		Name:     input.ToResName(bucketCfg.Name),
 		Provider: params.Provider,
 	})
 	if err != nil {

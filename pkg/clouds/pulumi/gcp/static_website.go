@@ -71,7 +71,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		},
 	}, sdk.Provider(params.Provider))
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create storage bucket for stack %q in %q", stack.Name, input.DeployParams.Environment)
+		return nil, errors.Wrapf(err, "failed to create storage bucket for stack %q in %q", stack.Name, input.StackParams.Environment)
 	}
 	ctx.Export(fmt.Sprintf("%s-bucket-name", stack.Name), bucket.Name)
 	ctx.Export(fmt.Sprintf("%s-url", stack.Name), bucket.Url)
@@ -86,7 +86,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		},
 	}, sdk.Provider(params.Provider))
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create read iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.DeployParams.Environment)
+		return nil, errors.Wrapf(err, "failed to create read iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.StackParams.Environment)
 	}
 	ctx.Export(fmt.Sprintf("%s-iam-read-id", stack.Name), iamReadBinding.ID())
 	out.IamReadBinding = iamReadBinding
@@ -107,12 +107,12 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		},
 	}, sdk.Provider(params.Provider))
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create write iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.DeployParams.Environment)
+		return nil, errors.Wrapf(err, "failed to create write iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.StackParams.Environment)
 	}
 	ctx.Export(fmt.Sprintf("%s-iam-write-id", stack.Name), iamWriteBinding.ID())
 	out.IamWriteBinding = iamWriteBinding
 
-	params.Log.Info(ctx.Context(), "copying all files from %q to gs://%s for %q in %q...", in.BundleDir, bucketName, stack.Name, input.DeployParams.Environment)
+	params.Log.Info(ctx.Context(), "copying all files from %q to gs://%s for %q in %q...", in.BundleDir, bucketName, stack.Name, input.StackParams.Environment)
 	uploadRes := sdk.All(bucket.Name, iamWriteBinding).ApplyT(func(a []interface{}) (any, error) {
 		bucketName := a[0].(string)
 		if ctx.DryRun() {
@@ -122,7 +122,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	})
 	ctx.Export(fmt.Sprintf("%s-uploaded", stack.Name), uploadRes)
 
-	params.Log.Info(ctx.Context(), "provisioning CNAME DNS record %q for %q in %q...", bucketName, stack.Name, input.DeployParams.Environment)
+	params.Log.Info(ctx.Context(), "provisioning CNAME DNS record %q for %q in %q...", bucketName, stack.Name, input.StackParams.Environment)
 	bucketDomain := fmt.Sprintf("%s.storage.googleapis.com", bucketName)
 	dnsRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
 		Name:    domain,
@@ -131,12 +131,12 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		Proxied: true,
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.DeployParams.Environment)
+		return nil, errors.Wrapf(err, "failed to create iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.StackParams.Environment)
 	}
 	ctx.Export(fmt.Sprintf("%s-dns-record-id", stack.Name), dnsRecord.Ref.(sdk.Output))
 	out.DnsRecord = dnsRecord
 
-	params.Log.Info(ctx.Context(), "creating override header rule from %q to %q for %q in %q...", domain, bucketDomain, stack.Name, input.DeployParams.Environment)
+	params.Log.Info(ctx.Context(), "creating override header rule from %q to %q for %q in %q...", domain, bucketDomain, stack.Name, input.StackParams.Environment)
 	overrideHeaderRule, err := params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
 		FromHost: domain,
 		ToHost:   bucketDomain,

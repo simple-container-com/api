@@ -12,7 +12,7 @@ import (
 )
 
 func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	parentStackName := stack.Client.Stacks[input.DeployParams.StackName].ParentStack
+	parentStackName := stack.Client.Stacks[input.StackParams.StackName].ParentStack
 
 	if params.ParentStack == nil {
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
@@ -23,7 +23,7 @@ func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
-	bucketName := bucketCfg.Name
+	bucketName := input.ToResName(bucketCfg.Name)
 
 	// Create a StackReference to the parent stack
 	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for s3 bucket %q", params.ParentStack.RefString, bucketName)

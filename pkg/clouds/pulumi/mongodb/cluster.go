@@ -32,16 +32,17 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		return nil, errors.Errorf("failed to convert mongodb atlas config for %q", input.Descriptor.Type)
 	}
 
-	clusterName := toClusterName(stack.Name, input)
-	projectName := toProjectName(stack.Name, input)
+	clusterName := input.ToResName(toClusterName(stack.Name, input))
+	projectName := input.ToResName(toProjectName(stack.Name, input))
 
 	var projectId sdk.StringOutput
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 	}
 	if atlasCfg.ProjectId == "" {
+		projName := lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)
 		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
-			Name:  sdk.String(lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)),
+			Name:  sdk.String(input.ToResName(projName)),
 			OrgId: sdk.String(atlasCfg.OrgId),
 		}, opts...)
 		if err != nil {

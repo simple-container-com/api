@@ -75,10 +75,10 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	if input.Descriptor.Type != aws.TemplateTypeEcsFargate {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}
-	if input.DeployParams == nil {
+	if input.StackParams == nil {
 		return nil, errors.Errorf("missing deploy params for %q in stack %q", input.Descriptor.Type, stack.Name)
 	}
-	deployParams := *input.DeployParams
+	deployParams := *input.StackParams
 
 	ref := &EcsFargateOutput{}
 	output := &api.ResourceOutput{Ref: ref}

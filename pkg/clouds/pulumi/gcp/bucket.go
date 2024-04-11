@@ -20,7 +20,7 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 	}
 
 	bucket, err := storage.NewBucket(ctx, bucketCfg.Name, &storage.BucketArgs{
-		Name:     sdk.String(bucketCfg.Name),
+		Name:     sdk.String(input.ToResName(bucketCfg.Name)),
 		Location: sdk.String(bucketCfg.Location),
 	}, sdk.Provider(params.Provider))
 	if err != nil {

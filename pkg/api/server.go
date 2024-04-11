@@ -1,5 +1,11 @@
 package api
 
+import (
+	"fmt"
+
+	"github.com/samber/lo"
+)
+
 const ServerSchemaVersion = "1.0"
 
 type ProvisionParams struct {
@@ -74,8 +80,13 @@ type ResourceDescriptor struct {
 }
 
 type ResourceInput struct {
-	Descriptor   *ResourceDescriptor `json:"descriptor" yaml:"descriptor"`
-	DeployParams *StackParams        `json:"deployParams" yaml:"deployParams"`
+	Descriptor  *ResourceDescriptor `json:"descriptor" yaml:"descriptor"`
+	StackParams *StackParams        `json:"deployParams" yaml:"deployParams"`
+}
+
+func (r *ResourceInput) ToResName(resName string) string {
+	return fmt.Sprintf("%s%s", resName,
+		lo.If(r.StackParams.Environment != "", "--"+r.StackParams.Environment).Else(""))
 }
 
 type ResourceOutput struct {

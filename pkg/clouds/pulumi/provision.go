@@ -84,6 +84,10 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 					return errors.Errorf("unknown resource type %q", res.Type)
 				} else if _, err := fnc(ctx, stack, api.ResourceInput{
 					Descriptor: &res,
+					StackParams: &api.StackParams{
+						StackName:   stack.Name,
+						Environment: env,
+					},
 				}, provisionParams); err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
@@ -143,7 +147,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 
 func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string) (pApi.ProvisionParams, error) {
 	var provider sdk.ProviderResource
-	providerName := fmt.Sprintf("%s-%s-provider", stack.Name, res.Type)
+	providerName := fmt.Sprintf("%s-%s-%s-provider", stack.Name, res.Type, environment)
 
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
@@ -154,6 +158,10 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 			Type:   res.Type,
 			Name:   providerName,
 			Config: res.Config,
+		},
+		StackParams: &api.StackParams{
+			StackName:   stack.Name,
+			Environment: environment,
 		},
 	}, pApi.ProvisionParams{
 		Log:       p.logger,
@@ -207,6 +215,9 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 	if fnc, ok := provisionFuncByType[provisionerCfg.SecretsProvider.Type]; ok {
 		out, err := fnc(ctx, stack, api.ResourceInput{
 			Descriptor: &resDescriptor,
+			StackParams: &api.StackParams{
+				StackName: stack.Name,
+			},
 		}, provisionParams)
 		if err != nil {
 			return errors.Wrapf(err, "failed to provision secrets provider of type %q", provisionerCfg.SecretsProvider.Type)

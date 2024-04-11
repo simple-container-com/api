@@ -20,7 +20,7 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
 
-	provider, err := sdkAws.NewProvider(ctx, input.Descriptor.Name, &sdkAws.ProviderArgs{
+	provider, err := sdkAws.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &sdkAws.ProviderArgs{
 		AccessKey: sdk.String(pcfg.AccessKey),
 		SecretKey: sdk.String(pcfg.SecretAccessKey),
 		Region:    sdk.String(pcfg.Region),

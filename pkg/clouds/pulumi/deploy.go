@@ -124,8 +124,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				}
 				provisionParams.ComputeContext = collector
 				_, err := fnc(ctx, stack, api.ResourceInput{
-					Descriptor:   &res,
-					DeployParams: &params,
+					Descriptor:  &res,
+					StackParams: &params,
 				}, collector, provisionParams)
 				if err != nil {
 					return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, params.Environment)
@@ -149,8 +149,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
 				return nil, errors.Errorf("unknown resource type %q", resDesc.Type)
 			} else if _, err := fnc(ctx, stack, api.ResourceInput{
-				Descriptor:   &resDesc,
-				DeployParams: &params,
+				Descriptor:  &resDesc,
+				StackParams: &params,
 			}, provisionParams); err != nil {
 				return nil, errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
 			}
