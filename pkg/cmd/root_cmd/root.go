@@ -4,6 +4,8 @@ import (
 	"context"
 	"path"
 
+	"github.com/spf13/cobra"
+
 	"go.uber.org/atomic"
 
 	"github.com/pkg/errors"
@@ -70,4 +72,21 @@ func (c *RootCmd) Init(skipScDirCreation bool, ignoreConfigDirError bool) error 
 	}
 
 	return nil
+}
+
+func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
+	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
+	cmd.Flags().StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
+	_ = cmd.MarkFlagRequired("stack")
+	cmd.Flags().StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
+	_ = cmd.MarkFlagRequired("env")
+	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
+}
+
+func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams) {
+	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
+	cmd.Flags().StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
+	_ = cmd.MarkFlagRequired("stack")
+	cmd.Flags().StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
+	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 }

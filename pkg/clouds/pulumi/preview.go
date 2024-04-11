@@ -74,7 +74,7 @@ func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if params.Environment != "" && params.StackName != "" {
 		stack = toChildStack(stack, params)
 	}
-	s, err := p.getStack(ctx, cfg, stack)
+	s, err := p.selectStack(ctx, cfg, stack)
 	if err != nil {
 		return nil, err
 	}

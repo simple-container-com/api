@@ -6,8 +6,8 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
-func (p *provisioner) Cancel(ctx context.Context, params api.DeployParams) error {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
+func (p *provisioner) Cancel(ctx context.Context, params api.StackParams) error {
+	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params)
 	if err != nil {
 		return err
 	}

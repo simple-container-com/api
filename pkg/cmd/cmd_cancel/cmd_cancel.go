@@ -2,7 +2,6 @@ package cmd_cancel
 
 import (
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
@@ -21,10 +20,10 @@ func NewCancelCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		Use:   "cancel",
 		Short: "Cancels deployment for a stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return pCmd.Root.Provisioner.Cancel(cmd.Context(), pCmd.Params)
+			return pCmd.Root.Provisioner.Cancel(cmd.Context(), pCmd.Params.StackParams)
 		},
 	}
 
-	cmd_deploy.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
+	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
 	return cmd
 }

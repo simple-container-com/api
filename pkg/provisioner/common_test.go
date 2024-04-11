@@ -56,7 +56,7 @@ func Test_Provision(t *testing.T) {
 					Name:    "refapp",
 					Secrets: *tests.CommonSecretsDescriptor,
 					Server:  *tests.ResolvedRefappServerDescriptor,
-					Client:  *tests.RefappClientDescriptor,
+					Client:  *tests.ResolvedRefappClientDescriptor("testdata"),
 				},
 			},
 		},
@@ -80,7 +80,7 @@ func Test_Provision(t *testing.T) {
 					Name:    "refapp-aws",
 					Secrets: *tests.CommonSecretsDescriptor,
 					Server:  *tests.ResolvedRefappAwsServerDescriptor,
-					Client:  *tests.RefappAwsClientDescriptor,
+					Client:  *tests.ResolvedRefappAwsClientDescriptor("testdata"),
 				},
 			},
 		},
@@ -150,7 +150,7 @@ func Test_Provision(t *testing.T) {
 					pulumiMock.On("SetPublicKey", mock.Anything).Return()
 					tt.opts = []Option{
 						WithGitRepo(gitRepoMock),
-						WithPlaceholders(placeholders.New(logger.New())),
+						WithPlaceholders(placeholders.New(logger.New(), placeholders.WithGitRepo(gitRepoMock))),
 						WithOverrideProvisioner(pulumiMock),
 					}
 				}

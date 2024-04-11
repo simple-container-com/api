@@ -16,7 +16,7 @@ type PulumiMock struct {
 }
 
 // CancelStack provides a mock function with given fields: ctx, cfg, parentStack, params
-func (_m *PulumiMock) CancelStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {
+func (_m *PulumiMock) CancelStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.StackParams) error {
 	ret := _m.Called(ctx, cfg, parentStack, params)
 
 	if len(ret) == 0 {
@@ -24,7 +24,7 @@ func (_m *PulumiMock) CancelStack(ctx context.Context, cfg *api.ConfigFile, pare
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.DeployParams) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.StackParams) error); ok {
 		r0 = rf(ctx, cfg, parentStack, params)
 	} else {
 		r0 = ret.Error(0)
@@ -85,6 +85,36 @@ func (_m *PulumiMock) DestroyParentStack(ctx context.Context, cfg *api.ConfigFil
 	}
 
 	return r0
+}
+
+// OutputsStack provides a mock function with given fields: ctx, cfg, parentStack, params
+func (_m *PulumiMock) OutputsStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.StackParams) (*api.OutputsResult, error) {
+	ret := _m.Called(ctx, cfg, parentStack, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for OutputsStack")
+	}
+
+	var r0 *api.OutputsResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.StackParams) (*api.OutputsResult, error)); ok {
+		return rf(ctx, cfg, parentStack, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.StackParams) *api.OutputsResult); ok {
+		r0 = rf(ctx, cfg, parentStack, params)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*api.OutputsResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *api.ConfigFile, api.Stack, api.StackParams) error); ok {
+		r1 = rf(ctx, cfg, parentStack, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // PreviewChildStack provides a mock function with given fields: ctx, cfg, parentStack, params

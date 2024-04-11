@@ -99,6 +99,12 @@ type EcsFargateInput struct {
 	IngressContainer EcsFargateContainer   `json:"ingressContainer" yaml:"ingressContainer"`
 	Config           EcsFargateConfig      `json:"config" yaml:"config"`
 	Domain           string                `json:"domain" yaml:"domain"`
+	RefResourceNames []string              `json:"refResourceNames" yaml:"refResourceNames"`
+	Secrets          map[string]string     `json:"secrets" yaml:"secrets"`
+}
+
+func (i *EcsFargateInput) Uses() []string {
+	return i.RefResourceNames
 }
 
 func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -117,12 +123,14 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
 	res := &EcsFargateInput{
-		TemplateConfig: *templateCfg,
+		TemplateConfig:   *templateCfg,
+		RefResourceNames: stackCfg.Uses,
 		Config: EcsFargateConfig{
 			Credentials:   templateCfg.Credentials,
 			AccountConfig: *accountConfig,
 			Version:       stackCfg.Version,
 		},
+		Secrets: stackCfg.Secrets,
 	}
 
 	if composeCfg.Project == nil {

@@ -86,7 +86,7 @@ func (p *pulumi) SetPublicKey(pubKey string) {
 }
 
 func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) error {
-	_, err := p.getStack(ctx, cfg, parentStack)
+	_, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
@@ -94,12 +94,12 @@ func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, pa
 }
 
 func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
-	_, err := p.getStack(ctx, cfg, parentStack)
+	_, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
 	childStack := toChildStack(parentStack, params.StackParams)
-	if _, err = p.getStack(ctx, cfg, childStack); err != nil {
+	if _, err = p.selectStack(ctx, cfg, childStack); err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
 	return p.destroyChildStack(ctx, cfg, childStack, params)
@@ -122,7 +122,7 @@ func (p *pulumi) PreviewChildStack(ctx context.Context, cfg *api.ConfigFile, par
 }
 
 func (p *pulumi) initChildStackForDeploy(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.Stack, error) {
-	_, err := p.getStack(ctx, cfg, parentStack)
+	_, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
@@ -135,14 +135,6 @@ func (p *pulumi) initChildStackForDeploy(ctx context.Context, cfg *api.ConfigFil
 
 func toChildStack(parentStack api.Stack, params api.StackParams) api.Stack {
 	return parentStack.ChildStack(fmt.Sprintf("%s--%s", params.StackName, params.Environment))
-}
-
-func (p *pulumi) CancelStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {
-	childStack, err := p.initChildStackForDeploy(ctx, cfg, parentStack, params)
-	if err != nil {
-		return err
-	}
-	return p.cancelStack(ctx, cfg, *childStack, params)
 }
 
 func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {

@@ -106,6 +106,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(stagingCfg).To(BeAssignableToTypeOf(&api.StackConfigCompose{}))
 				stagingClientCfg := stagingCfg.(*api.StackConfigCompose)
 				Expect(stagingClientCfg.DockerComposeFile).To(Equal("<root-dir>/docker-compose.yaml"))
+				Expect(stagingClientCfg.Env["JWT_SECRET"]).To(Equal("<encrypted-secret>"))
 			},
 		},
 		{

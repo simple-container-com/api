@@ -30,7 +30,7 @@ type Provisioner interface {
 	Preview(ctx context.Context, params api.DeployParams) (*api.PreviewResult, error)
 
 	Outputs(ctx context.Context, params api.StackParams) (*api.OutputsResult, error)
-	Cancel(ctx context.Context, params api.DeployParams) error
+	Cancel(ctx context.Context, params api.StackParams) error
 	Stacks() api.StacksMap
 	DestroyParent(ctx context.Context, params api.ProvisionParams) error
 	Destroy(ctx context.Context, params api.DestroyParams) error

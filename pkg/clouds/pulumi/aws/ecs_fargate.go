@@ -43,7 +43,7 @@ type EcsFargateImage struct {
 
 type CreatedSecret struct {
 	Secret *secretsmanager.Secret
-	envVar string
+	EnvVar string
 }
 
 type EcsFargateOutput struct {
@@ -115,6 +115,26 @@ func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	return output, nil
 }
 
+func createSecret(ctx *sdk.Context, secretName, envVar, value string, opts ...sdk.ResourceOption) (*CreatedSecret, error) {
+	secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
+		Name: sdk.String(secretName),
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	_, err = secretsmanager.NewSecretVersion(ctx, secretName, &secretsmanager.SecretVersionArgs{
+		SecretId:     secret.Arn,
+		SecretString: sdk.String(value),
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &CreatedSecret{
+		Secret: secret,
+		EnvVar: envVar,
+	}, nil
+}
+
 func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
@@ -124,30 +144,24 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	iContainer := crInput.IngressContainer
 
 	contextEnvVariables := params.ComputeContext.EnvVariables()
-	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(contextEnvVariables), stack.Name, deployParams.Environment)
-	secrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
-		secretName := toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, crInput.Config.Version)
-		secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
-			Name: sdk.String(secretName),
-		}, opts...)
-		if err != nil {
-			return nil, err
-		}
-		_, err = secretsmanager.NewSecretVersion(ctx, secretName, &secretsmanager.SecretVersionArgs{
-			SecretId:     secret.Arn,
-			SecretString: sdk.String(v.Value),
-		}, opts...)
-		if err != nil {
-			return nil, err
-		}
-		return &CreatedSecret{
-			Secret: secret,
-			envVar: v.Name,
-		}, nil
+
+	var secrets []*CreatedSecret
+	ctxSecrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
+		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, crInput.Config.Version), v.Name, v.Value, opts...)
 	})
 	if err != nil {
-		return errors.Wrapf(err, "failed to secrets for stack %q in %q", stack.Name, deployParams.Environment)
+		return errors.Wrapf(err, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
 	}
+	secrets = append(secrets, ctxSecrets...)
+	for name, sRef := range crInput.Secrets {
+		value := stack.Secrets.Values[sRef]
+		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, crInput.Config.Version), name, value, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create secret")
+		}
+		secrets = append(secrets, s)
+	}
+	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
 	ref.Secrets = secrets
 
 	ecsClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
@@ -179,7 +193,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			envVariables := ecs.TaskDefinitionKeyValuePairArray{}
 			for k := range lo.Assign(image.Container.Env) {
 				if _, found := lo.Find(secrets, func(s *CreatedSecret) bool {
-					return s.envVar == k
+					return s.EnvVar == k
 				}); found {
 					delete(image.Container.Env, k)
 				}
@@ -193,7 +207,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			secretsVariables := ecs.TaskDefinitionSecretArray{}
 			secretsVariables = append(secretsVariables, lo.Map(secrets, func(item *CreatedSecret, _ int) ecs.TaskDefinitionSecretInput {
 				return ecs.TaskDefinitionSecretArgs{
-					Name:      sdk.String(item.envVar),
+					Name:      sdk.String(item.EnvVar),
 					ValueFrom: item.Secret.Arn,
 				}
 			})...)

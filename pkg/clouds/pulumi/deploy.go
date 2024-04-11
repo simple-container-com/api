@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/samber/lo"
+
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"gopkg.in/yaml.v3"
@@ -93,10 +95,21 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
 		}
 
+		uses := make(map[string]bool)
+		if a, resAware := clientStackDesc.Config.Config.(api.ResourceAware); resAware {
+			uses = lo.Associate(a.Uses(), func(resName string) (string, bool) {
+				return resName, true
+			})
+		}
+
 		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
 
 		collector := pApi.NewComputeContextCollector(stack.Name, params.Environment)
 		for resName, res := range stack.Server.Resources.Resources[params.Environment].Resources {
+			if !uses[resName] {
+				p.logger.Info(ctx.Context(), "stack %q does not use resource %q, skipping...", stack.Name, resName)
+				continue
+			}
 			if fnc, ok := computeProcessorFuncByType[res.Type]; !ok {
 				p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", resName, res.Type)
 				continue

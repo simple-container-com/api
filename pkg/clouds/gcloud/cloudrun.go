@@ -76,9 +76,14 @@ type MaxErrorConfig struct {
 }
 
 type CloudRunInput struct {
-	TemplateConfig `json:"templateConfig" yaml:"templateConfig"`
-	Scale          CloudRunScale       `json:"scale" yaml:"scale"`
-	Containers     []CloudRunContainer `json:"containers" yaml:"containers"`
+	TemplateConfig   `json:"templateConfig" yaml:"templateConfig"`
+	Scale            CloudRunScale       `json:"scale" yaml:"scale"`
+	Containers       []CloudRunContainer `json:"containers" yaml:"containers"`
+	RefResourceNames []string            `json:"refResourceNames" yaml:"refResourceNames"`
+}
+
+func (i *CloudRunInput) Uses() []string {
+	return i.RefResourceNames
 }
 
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -91,7 +96,8 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackCon
 	}
 
 	res := &CloudRunInput{
-		TemplateConfig: *templateCfg,
+		TemplateConfig:   *templateCfg,
+		RefResourceNames: stackCfg.Uses,
 	}
 	if composeCfg.Project == nil {
 		return nil, errors.Errorf("compose config is nil")

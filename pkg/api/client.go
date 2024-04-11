@@ -33,6 +33,7 @@ type StackConfigCompose struct {
 	Uses              []string          `json:"uses" yaml:"uses"`
 	Runs              []string          `json:"runs" yaml:"runs"`
 	Env               map[string]string `json:"env" yaml:"env"`
+	Secrets           map[string]string `json:"secrets" yaml:"secrets"`
 	Version           string            `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
 }
 

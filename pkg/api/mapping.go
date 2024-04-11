@@ -110,7 +110,7 @@ type Provisioner interface {
 
 	OutputsStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params StackParams) (*OutputsResult, error)
 
-	CancelStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) error
+	CancelStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params StackParams) error
 
 	DestroyParentStack(ctx context.Context, cfg *ConfigFile, parentStack Stack) error
 

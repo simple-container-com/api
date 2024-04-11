@@ -470,6 +470,7 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 		"GITHUB_TOKEN":              "<encrypted-secret>",
 		"MONGODB_ATLAS_PRIVATE_KEY": "<encrypted-secret>",
 		"MONGODB_ATLAS_PUBLIC_KEY":  "<encrypted-secret>",
+		"JWT_SECRET":                "<encrypted-secret>",
 	},
 }
 
@@ -493,6 +494,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 					Env: map[string]string{
 						"JWT_SECRET": "${secret:JWT_SECRET}",
 					},
+					Secrets: map[string]string{},
 				},
 			},
 		},
@@ -513,14 +515,15 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 					Env: map[string]string{
 						"JWT_SECRET": "${secret:JWT_SECRET}",
 					},
+					Secrets: map[string]string{},
 				},
 			},
 		},
 	},
 }
 
-func ResolvedRefappClientDescriptor(gitRoot string) *api.ClientDescriptor {
-	res := RefappClientDescriptor.Copy()
+func ResolvedRefappAwsClientDescriptor(gitRoot string) *api.ClientDescriptor {
+	res := RefappAwsClientDescriptor.Copy()
 	staging := res.Stacks["staging"]
 	stagingCompose := staging.Config.Config.(*api.StackConfigCompose)
 	stagingCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)
@@ -528,6 +531,21 @@ func ResolvedRefappClientDescriptor(gitRoot string) *api.ClientDescriptor {
 	prod := res.Stacks["prod"]
 	prodCompose := prod.Config.Config.(*api.StackConfigCompose)
 	prodCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)
+	res.Stacks["prod"] = prod
+	return &res
+}
+
+func ResolvedRefappClientDescriptor(gitRoot string) *api.ClientDescriptor {
+	res := RefappClientDescriptor.Copy()
+	staging := res.Stacks["staging"]
+	stagingCompose := staging.Config.Config.(*api.StackConfigCompose)
+	stagingCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)
+	stagingCompose.Env["JWT_SECRET"] = "<encrypted-secret>"
+	res.Stacks["staging"] = staging
+	prod := res.Stacks["prod"]
+	prodCompose := prod.Config.Config.(*api.StackConfigCompose)
+	prodCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)
+	prodCompose.Env["JWT_SECRET"] = "<encrypted-secret>"
 	res.Stacks["prod"] = prod
 	return &res
 }

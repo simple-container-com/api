@@ -88,6 +88,10 @@ type StackDescriptor struct {
 	Inherit `json:",inline" yaml:",inline"`
 }
 
+type ResourceAware interface {
+	Uses() []string
+}
+
 type CloudComposeDescriptor struct {
 	StackName       string `json:"stackName" yaml:"stackName"`
 	StackDescriptor `json:",inline" yaml:",inline"`

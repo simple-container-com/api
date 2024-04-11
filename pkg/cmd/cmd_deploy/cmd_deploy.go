@@ -39,7 +39,7 @@ func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 				return err
 			} else if rootCmd.IsCanceled.Load() {
 				ctx, _ := context.WithCancel(context.Background())
-				err = pCmd.Root.Provisioner.Cancel(ctx, pCmd.Params)
+				err = pCmd.Root.Provisioner.Cancel(ctx, pCmd.Params.StackParams)
 			} else {
 				return nil
 			}
@@ -47,16 +47,7 @@ func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 
-	RegisterStackFlags(cmd, &pCmd.Params.StackParams)
+	root_cmd.RegisterDeployFlags(cmd, &pCmd.Params)
 	cmd.Flags().BoolVarP(&pCmd.Preview, "preview", "P", pCmd.Preview, "Preview instead of provision (dry-run)")
 	return cmd
-}
-
-func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams) {
-	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
-	cmd.Flags().StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
-	_ = cmd.MarkFlagRequired("stack")
-	cmd.Flags().StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
-	_ = cmd.MarkFlagRequired("env")
-	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 }

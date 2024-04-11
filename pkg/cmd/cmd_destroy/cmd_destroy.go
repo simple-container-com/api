@@ -1,7 +1,7 @@
 package cmd_destroy
 
 import (
-	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
+	"context"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/spf13/cobra"
@@ -29,20 +29,26 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 					Profile:   pCmd.Params.Profile,
 					Stacks:    []string{pCmd.Params.StackName},
 				})
-				if err != nil {
+				if err != nil && !rootCmd.IsCanceled.Load() {
 					return err
+				} else if rootCmd.IsCanceled.Load() {
+					ctx, _ := context.WithCancel(context.Background())
+					err = pCmd.Root.Provisioner.Cancel(ctx, pCmd.Params.StackParams)
 				}
-			} else {
-				err := pCmd.Root.Provisioner.Destroy(cmd.Context(), pCmd.Params)
-				if err != nil {
-					return err
-				}
+				return nil
+			}
+			err := pCmd.Root.Provisioner.Destroy(cmd.Context(), pCmd.Params)
+			if err != nil && !rootCmd.IsCanceled.Load() {
+				return err
+			} else if rootCmd.IsCanceled.Load() {
+				ctx, _ := context.WithCancel(context.Background())
+				err = pCmd.Root.Provisioner.Cancel(ctx, pCmd.Params.StackParams)
 			}
 			return nil
 		},
 	}
 
-	cmd_deploy.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
+	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
 	cmd.Flags().BoolVar(&pCmd.ParentStack, "parent", pCmd.ParentStack, "Destroy parent stack")
 	return cmd
 }

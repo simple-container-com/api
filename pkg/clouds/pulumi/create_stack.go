@@ -10,7 +10,7 @@ import (
 )
 
 func (p *pulumi) createStackIfNotExists(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
-	s, err := p.getStack(ctx, cfg, stack)
+	s, err := p.selectStack(ctx, cfg, stack)
 	if s != nil {
 		p.logger.Debug(ctx, "found stack %q, not going to create", p.stackRef.FullyQualifiedName().String())
 		return nil
@@ -26,7 +26,7 @@ func (p *pulumi) createStackIfNotExists(ctx context.Context, cfg *api.ConfigFile
 	return err
 }
 
-func (p *pulumi) getStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (backend.Stack, error) {
+func (p *pulumi) selectStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (backend.Stack, error) {
 	err := p.login(ctx, cfg, stack)
 	if err != nil {
 		return nil, err
