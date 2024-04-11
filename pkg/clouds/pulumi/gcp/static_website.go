@@ -113,14 +113,16 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	out.IamWriteBinding = iamWriteBinding
 
 	params.Log.Info(ctx.Context(), "copying all files from %q to gs://%s for %q in %q...", in.BundleDir, bucketName, stack.Name, input.StackParams.Environment)
-	uploadRes := sdk.All(bucket.Name, iamWriteBinding).ApplyT(func(a []interface{}) (any, error) {
-		bucketName := a[0].(string)
-		if ctx.DryRun() {
-			return 0, nil
-		}
-		return copyAllFilesToBucket(ctx.Context(), bucketName, in.StackDir, in.BundleDir, gcpCreds, params)
+	_, err = NewGcpBucketUploader(ctx, bucketName, BucketUploaderArgs{
+		bucketName: bucket.Name,
+		stackDir:   in.StackDir,
+		relDir:     in.BundleDir,
+		gcpCreds:   gcpCreds,
+		params:     params,
 	})
-	ctx.Export(fmt.Sprintf("%s-uploaded", stack.Name), uploadRes)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to sync bucket")
+	}
 
 	params.Log.Info(ctx.Context(), "provisioning CNAME DNS record %q for %q in %q...", bucketName, stack.Name, input.StackParams.Environment)
 	bucketDomain := fmt.Sprintf("%s.storage.googleapis.com", bucketName)
@@ -148,6 +150,46 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	out.OverrideHeaderRule = overrideHeaderRule
 
 	return &api.ResourceOutput{Ref: out}, nil
+}
+
+type GcpBucketUploader struct {
+	sdk.ResourceState
+}
+
+type BucketUploaderArgs struct {
+	bucketName sdk.StringInput
+	stackDir   string
+	relDir     string
+	gcpCreds   string
+	params     pApi.ProvisionParams
+}
+
+func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs, opts ...sdk.ResourceOption) (*GcpBucketUploader, error) {
+	resource := &GcpBucketUploader{}
+	err := ctx.RegisterComponentResource("simple-container.com:module:GcpBucketUploader", name, resource, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	totals := args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
+		if ctx.DryRun() {
+			return 0, nil
+		}
+		total, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.stackDir, args.relDir, args.gcpCreds, args.params)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to sync files to GCP bucket %q", args.bucketName)
+		}
+		return total, nil
+	})
+
+	// Complete the component resource creation
+	err = ctx.RegisterResourceOutputs(resource, sdk.Map{
+		"totalBytesUploaded": totals,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resource, nil
 }
 
 func copyAllFilesToBucket(ctx context.Context, bucketName string, stackDir, relDir, gcpCreds string, params pApi.ProvisionParams) (int64, error) {
