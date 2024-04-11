@@ -35,7 +35,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 
 	var organization string
 	if provisionerCfg.Organization == "" {
-		p.logger.Warn(ctx, "pulumi organization is empty, assuming 'organization'")
+		p.logger.Debug(ctx, "pulumi organization is empty, assuming 'organization'")
 		organization = "organization"
 	} else {
 		organization = provisionerCfg.Organization
