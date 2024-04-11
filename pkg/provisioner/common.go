@@ -195,18 +195,20 @@ func (p *provisioner) InitProfile(generateKeyPair bool) error {
 
 	// create .sc/cfg.yaml.template
 	tplFilePath := path.Join(api.ScConfigDirectory, "cfg.yaml.template")
-	if tplFile, err := p.gitRepo.CreateFile(tplFilePath); err != nil {
-		return errors.Wrapf(err, "failed to init config template file")
-	} else if cfgTpl, err := misc.Templates.ReadFile("embed/templates/cfg.yaml.template"); err != nil {
-		return errors.Wrapf(err, "failed to read config template file")
-	} else {
-		defer func() { _ = tplFile.Close() }()
-		if _, err := io.WriteString(tplFile, fmt.Sprintf(string(cfgTpl), p.projectName)); err != nil {
-			return errors.Wrapf(err, "failed to write config template file %q", tplFile.Name())
-		}
-		err := p.gitRepo.AddFileToGit(tplFilePath)
-		if err != nil {
-			return errors.Wrapf(err, "failed to add template file to git")
+	if !p.gitRepo.Exists(tplFilePath) { // no need to re-create file if already exists
+		if tplFile, err := p.gitRepo.CreateFile(tplFilePath); err != nil {
+			return errors.Wrapf(err, "failed to init config template file")
+		} else if cfgTpl, err := misc.Templates.ReadFile("embed/templates/cfg.yaml.template"); err != nil {
+			return errors.Wrapf(err, "failed to read config template file")
+		} else {
+			defer func() { _ = tplFile.Close() }()
+			if _, err := io.WriteString(tplFile, fmt.Sprintf(string(cfgTpl), p.projectName)); err != nil {
+				return errors.Wrapf(err, "failed to write config template file %q", tplFile.Name())
+			}
+			err := p.gitRepo.AddFileToGit(tplFilePath)
+			if err != nil {
+				return errors.Wrapf(err, "failed to add template file to git")
+			}
 		}
 	}
 

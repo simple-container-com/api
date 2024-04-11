@@ -138,14 +138,21 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Version:       stackCfg.Version,
 		},
 		Secrets: stackCfg.Secrets,
-		Scale: EcsFargateScale{
+	}
+	if stackCfg.Scale != nil {
+		res.Scale = EcsFargateScale{
 			Min: lo.If(stackCfg.Scale.Min == 0, 1).Else(stackCfg.Scale.Min),
 			Max: lo.If(stackCfg.Scale.Max == 0, 1).Else(stackCfg.Scale.Max),
-			Update: FargateRollingUpdate{
-				MinHealthyPercent: 100,
-				MaxPercent:        200,
-			},
-		},
+		}
+	} else {
+		res.Scale = EcsFargateScale{
+			Min: 1,
+			Max: 2,
+		}
+	}
+	res.Scale.Update = FargateRollingUpdate{
+		MinHealthyPercent: 100,
+		MaxPercent:        200,
 	}
 
 	if composeCfg.Project == nil {

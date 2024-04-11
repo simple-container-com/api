@@ -8,26 +8,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
-
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/secretsmanager"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	legacyEcs "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/secretsmanager"
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
+	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
 	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
-	"github.com/simple-container-com/api/pkg/util"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type EcsFargateRepository struct {
@@ -401,7 +400,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		})
 	})
 
-	return nil
+	return attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
 }
 
 func toSecretName(params api.StackParams, resType, resName, varName, suffix string) string {
@@ -452,6 +451,50 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 			ctx.Export(fmt.Sprintf("%s--%s--%s--image", stack.Name, deployParams.Environment, image.Container.Name), image.Image.ImageName)
 		}
 	}
+	return nil
+}
+
+func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *legacyEcs.Cluster, service *ecs.FargateService) error {
+	scalePolicyName := fmt.Sprintf("%s-ecs-scale", stack.Name)
+
+	// Register the ECS service as a scalable target
+	scalableTarget, err := appautoscaling.NewTarget(ctx, scalePolicyName, &appautoscaling.TargetArgs{
+		MaxCapacity: sdk.Int(crInput.Scale.Max),
+		MinCapacity: sdk.Int(crInput.Scale.Min),
+		ResourceId: sdk.All(cluster.Name, service.Service.Name()).ApplyT(func(args []any) (string, error) {
+			clusterName := args[0].(string)
+			svcName := args[1].(string)
+			return fmt.Sprintf("service/%s/%s", clusterName, svcName), nil
+		}).(sdk.StringOutput),
+		ScalableDimension: sdk.String("ecs:service:DesiredCount"),
+		ServiceNamespace:  sdk.String("ecs"),
+	}, sdk.Provider(params.Provider))
+	if err != nil {
+		return errors.Wrapf(err, "failed to create autoscaling target for ecs service in %q", stack.Name)
+	}
+	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-target-arn", stack.Name), scalableTarget.Arn)
+
+	// Create an autoscaling policy for the target based on CPU utilization
+	policy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
+		PolicyType:        sdk.String("TargetTrackingScaling"),
+		ResourceId:        scalableTarget.ResourceId,
+		ScalableDimension: scalableTarget.ScalableDimension,
+		ServiceNamespace:  scalableTarget.ServiceNamespace,
+		TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
+			// TODO: allow specifying these from client descriptor
+			TargetValue:      sdk.Float64(70.0), // Target CPU utilization of 70%
+			ScaleInCooldown:  sdk.Int(60),       // Wait 60s between scale-in activities
+			ScaleOutCooldown: sdk.Int(60),       // Wait 60s between scale-out activities
+			PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
+				PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+			},
+		},
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to create autoscaling policy for ecs service in %q", stack.Name)
+	}
+	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-arn", stack.Name), policy.Arn)
+
 	return nil
 }
 
