@@ -9,6 +9,7 @@ require (
 	github.com/MShekow/directory-checksum v1.4.2
 	github.com/atombender/go-jsonschema v0.15.0
 	github.com/compose-spec/compose-go v1.20.2
+	github.com/fatih/color v1.16.0
 	github.com/go-git/go-billy/v5 v5.5.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/golangci/golangci-lint v1.57.2
@@ -156,7 +157,6 @@ require (
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
-	github.com/fatih/color v1.16.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/firefart/nonamedreturns v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect

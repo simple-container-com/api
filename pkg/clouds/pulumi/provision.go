@@ -32,13 +32,13 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refresh summary: %q", p.toRefreshResult(refreshResult))
+	p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
 	p.logger.Info(ctx, "Previewing stack %q...", s.Ref().FullyQualifiedName())
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
+	p.logger.Info(ctx, "Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult))
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err

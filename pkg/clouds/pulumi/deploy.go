@@ -5,17 +5,15 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/samber/lo"
-
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-
-	"gopkg.in/yaml.v3"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
 func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) error {
@@ -23,7 +21,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Deploying stack %q...", s.Ref().FullyQualifiedName())
+	p.logger.Info(ctx, color.GreenFmt("Deploying stack %q...", s.Ref().FullyQualifiedName()))
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
 
@@ -32,19 +30,19 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refreshing stack %q...", stackSource.Name())
+	p.logger.Info(ctx, color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
 	refreshResult, err := stackSource.Refresh(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refresh summary: %q", p.toRefreshResult(refreshResult))
-	p.logger.Info(ctx, "Preview stack %q...", stackSource.Name())
+	p.logger.Info(ctx, color.GreenFmt("Refresh summary: \n%q", p.toRefreshResult(refreshResult)))
+	p.logger.Info(ctx, color.GreenFmt("Preview stack %q...", stackSource.Name()))
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Preview summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
-	p.logger.Info(ctx, "Updating stack %q...", stackSource.Name())
+	p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
+	p.logger.Info(ctx, color.GreenFmt("Updating stack %q...", stackSource.Name()))
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err

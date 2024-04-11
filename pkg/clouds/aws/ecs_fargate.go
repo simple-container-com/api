@@ -71,6 +71,13 @@ type EcsFargateContainer struct {
 type EcsFargateScale struct {
 	Min int `json:"min" yaml:"min"`
 	Max int `json:"max" yaml:"max"`
+
+	Update FargateRollingUpdate `json:"update" yaml:"update"`
+}
+
+type FargateRollingUpdate struct {
+	MinHealthyPercent int `json:"minHealthyPercent" yaml:"minHealthyPercent"`
+	MaxPercent        int `json:"maxPercent" yaml:"maxPercent"`
 }
 
 type AlertsConfig struct {
@@ -131,6 +138,14 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Version:       stackCfg.Version,
 		},
 		Secrets: stackCfg.Secrets,
+		Scale: EcsFargateScale{
+			Min: lo.If(stackCfg.Scale.Min == 0, 1).Else(stackCfg.Scale.Min),
+			Max: lo.If(stackCfg.Scale.Max == 0, 1).Else(stackCfg.Scale.Max),
+			Update: FargateRollingUpdate{
+				MinHealthyPercent: 100,
+				MaxPercent:        200,
+			},
+		},
 	}
 
 	if composeCfg.Project == nil {

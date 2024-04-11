@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 
 	"github.com/pkg/errors"
-
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
 func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*api.PreviewResult, error) {
@@ -18,24 +18,24 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Previewing parent stack %q...", s.Ref().FullyQualifiedName().String())
+	p.logger.Info(ctx, color.GreenFmt("Previewing parent stack %q...", s.Ref().FullyQualifiedName().String()))
 	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack))
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refreshing parent stack %q...", stackSource.Name())
+	p.logger.Info(ctx, color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
 	refreshResult, err := stackSource.Refresh(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refresh parent summary: %q", p.toRefreshResult(refreshResult))
+	p.logger.Info(ctx, color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
 
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
+	p.logger.Info(ctx, color.GreenFmt("Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
 	return p.toPreviewResult(stackSource.Name(), previewResult), nil
 }
 
@@ -44,7 +44,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Previewing child stack %q...", s.Ref().FullyQualifiedName().String())
+	p.logger.Info(ctx, color.GreenFmt("Previewing child stack %q...", s.Ref().FullyQualifiedName().String()))
 
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
@@ -54,19 +54,19 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refreshing child stack %q...", stackSource.Name())
+	p.logger.Info(ctx, color.GreenFmt("Refreshing child stack %q...", stackSource.Name()))
 	refreshResult, err := stackSource.Refresh(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Refresh child summary: %q", p.toRefreshResult(refreshResult))
+	p.logger.Info(ctx, color.GreenFmt("Refresh child summary: %q", p.toRefreshResult(refreshResult)))
 
-	p.logger.Info(ctx, "Preview child stack %q...", stackSource.Name())
+	p.logger.Info(ctx, color.GreenFmt("Preview child stack %q...", stackSource.Name()))
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult))
+	p.logger.Info(ctx, color.GreenFmt("Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
 	return p.toPreviewResult(stackSource.Name(), previewResult), nil
 }
 

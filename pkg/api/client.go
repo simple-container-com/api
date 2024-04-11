@@ -28,13 +28,19 @@ type StackClientDescriptor struct {
 }
 
 type StackConfigCompose struct {
-	DockerComposeFile string            `json:"dockerComposeFile" yaml:"dockerComposeFile"`
-	Domain            string            `json:"domain" yaml:"domain"`
-	Uses              []string          `json:"uses" yaml:"uses"`
-	Runs              []string          `json:"runs" yaml:"runs"`
-	Env               map[string]string `json:"env" yaml:"env"`
-	Secrets           map[string]string `json:"secrets" yaml:"secrets"`
-	Version           string            `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
+	DockerComposeFile string                   `json:"dockerComposeFile" yaml:"dockerComposeFile"`
+	Domain            string                   `json:"domain" yaml:"domain"`
+	Uses              []string                 `json:"uses" yaml:"uses"`
+	Runs              []string                 `json:"runs" yaml:"runs"`
+	Env               map[string]string        `json:"env" yaml:"env"`
+	Secrets           map[string]string        `json:"secrets" yaml:"secrets"`
+	Version           string                   `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
+	Scale             *StackConfigComposeScale `json:"scale" yaml:"scale"`
+}
+
+type StackConfigComposeScale struct {
+	Min int `yaml:"min" json:"min"`
+	Max int `yaml:"max" json:"max"`
 }
 
 type StackConfigStatic struct {
