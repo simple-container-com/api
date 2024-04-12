@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/compose-spec/compose-go/types"
@@ -150,6 +151,14 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Version:       stackCfg.Version,
 		},
 		Secrets: stackCfg.Secrets,
+	}
+	if stackCfg.Size != nil {
+		if res.Config.Cpu, err = strconv.Atoi(stackCfg.Size.Cpu); err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cpu size %q to ECS fargate cpu size: must be a number (e.g. 256)", stackCfg.Size.Cpu)
+		}
+		if res.Config.Memory, err = strconv.Atoi(stackCfg.Size.Memory); err != nil {
+			return nil, errors.Wrapf(err, "failed to convert memory size %q to ECS fargate memory size: must be a number (e.g. 512)", stackCfg.Size.Memory)
+		}
 	}
 	if stackCfg.Scale != nil {
 		res.Scale = EcsFargateScale{

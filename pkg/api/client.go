@@ -35,9 +35,15 @@ type StackConfigCompose struct {
 	Env               map[string]string        `json:"env" yaml:"env"`
 	Secrets           map[string]string        `json:"secrets" yaml:"secrets"`
 	Version           string                   `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
+	Size              *StackConfigComposeSize  `json:"size" yaml:"size"`
 	Scale             *StackConfigComposeScale `json:"scale" yaml:"scale"`
 }
 
+type StackConfigComposeSize struct {
+	Name   string `yaml:"name" json:"name"`
+	Cpu    string `yaml:"cpu" json:"cpu"`
+	Memory string `yaml:"memory" json:"memory"`
+}
 type StackConfigComposeScale struct {
 	Min int `yaml:"min" json:"min"`
 	Max int `yaml:"max" json:"max"`
