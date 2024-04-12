@@ -91,6 +91,6 @@ func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool)
 	flags.StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
 	flags.StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
 	_ = cmd.MarkFlagRequired("stack")
-	flags.StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
+	flags.StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy")
 	flags.StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 }
