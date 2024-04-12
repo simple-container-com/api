@@ -140,7 +140,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	ctx.Export(fmt.Sprintf("%s-dns-record-id", stack.Name), dnsRecord.Ref.(sdk.Output))
 	out.DnsRecord = dnsRecord
 
-	params.Log.Info(ctx.Context(), "creating override header rule from %q to %q for %q in %q...", domain, bucketDomain, stack.Name, input.StackParams.Environment)
+	params.Log.Info(ctx.Context(), "configure override header rule from %q to %q for %q in %q...", domain, bucketDomain, stack.Name, input.StackParams.Environment)
 	overrideHeaderRule, err := params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
 		FromHost: domain,
 		ToHost:   bucketDomain,

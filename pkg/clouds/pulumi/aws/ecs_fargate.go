@@ -160,7 +160,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		}
 		secrets = append(secrets, s)
 	}
-	params.Log.Info(ctx.Context(), "creating secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
+	params.Log.Info(ctx.Context(), "configure secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
 	ref.Secrets = secrets
 
 	ecsClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
@@ -254,7 +254,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return value[0].TaskDefinitionContainerDefinitionArgs
 		})
 
-	params.Log.Info(ctx.Context(), "creating application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
+	params.Log.Info(ctx.Context(), "configure application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
 	loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
@@ -270,7 +270,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsClusterName), loadBalancer.LoadBalancer.Arn())
 	ctx.Export(fmt.Sprintf("%s-alb-name", ecsClusterName), loadBalancer.LoadBalancer.Name())
 
-	params.Log.Info(ctx.Context(), "creating ECS Fargate cluster for %q in %q with ingress container %q...",
+	params.Log.Info(ctx.Context(), "configure ECS Fargate cluster for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	cluster, err := legacyEcs.NewCluster(ctx, ecsClusterName, &legacyEcs.ClusterArgs{
 		Name: sdk.String(awsResName(ecsClusterName, "cluster")),
@@ -332,7 +332,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.Policy = ccPolicy
 	ctx.Export(fmt.Sprintf("%s-policy", ecsClusterName), ccPolicy.Arn)
 
-	params.Log.Info(ctx.Context(), "creating Fargate service for %q in %q with ingress container %q...",
+	params.Log.Info(ctx.Context(), "configure Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	ecsServiceName := fmt.Sprintf("%s-service", ecsClusterName)
 	service, err := ecs.NewFargateService(ctx, ecsServiceName, &ecs.FargateServiceArgs{
