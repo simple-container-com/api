@@ -206,7 +206,7 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 
 	resDescriptor := api.ResourceDescriptor{
 		Type:   provisionerCfg.SecretsProvider.Type,
-		Name:   fmt.Sprintf("%s-secrets-provider", stack.Name),
+		Name:   fmt.Sprintf("%s--secrets-provider", stack.Name),
 		Config: provisionerCfg.SecretsProvider.Config,
 	}
 	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "")
