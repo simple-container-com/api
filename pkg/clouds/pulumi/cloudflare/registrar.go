@@ -95,7 +95,7 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 
 func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
 	ruleName := fmt.Sprintf("%s-host-override", stack.Name)
-	r.log.Info(ctx.Context(), "Provisioning cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
+	r.log.Info(ctx.Context(), "configure cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
 	scriptName := fmt.Sprintf("%s-script", ruleName)
 	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
 		Name:      sdk.String(scriptName),
