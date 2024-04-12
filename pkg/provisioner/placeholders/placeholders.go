@@ -9,7 +9,6 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
-	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/welder/pkg/template"
 	"github.com/simple-container-com/welder/pkg/welder/types"
 )
@@ -27,7 +26,6 @@ type Option func(tpl *template.Template)
 type InitOption func(p *placeholders)
 
 type placeholders struct {
-	log logger.Logger
 	git git.Repo
 }
 
@@ -156,10 +154,8 @@ func (p *placeholders) tplAuth(stackName string, stack api.Stack, stacks api.Sta
 	}
 }
 
-func New(log logger.Logger, opts ...InitOption) Placeholders {
-	res := &placeholders{
-		log: log,
-	}
+func New(opts ...InitOption) Placeholders {
+	res := &placeholders{}
 
 	for _, opt := range opts {
 		opt(res)

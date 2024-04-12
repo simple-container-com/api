@@ -4,6 +4,7 @@ import (
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
+	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 	"github.com/simple-container-com/welder/pkg/template"
 )
 
@@ -17,8 +18,8 @@ type Collector struct {
 	tplExtensions map[string]template.Extension
 }
 
-func (c *Collector) TplExtensions() map[string]template.Extension {
-	return lo.Assign(c.tplExtensions)
+func (c *Collector) ResolvePlaceholders(obj any) error {
+	return placeholders.New().Apply(obj, placeholders.WithExtensions(c.tplExtensions))
 }
 
 func (c *Collector) AddTplExtensions(m map[string]template.Extension) {

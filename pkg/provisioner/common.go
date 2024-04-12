@@ -157,7 +157,7 @@ func (p *provisioner) Init(ctx context.Context, params api.InitParams) error {
 	}
 
 	if p.phResolver == nil {
-		p.phResolver = placeholders.New(p.log, placeholders.WithGitRepo(p.gitRepo))
+		p.phResolver = placeholders.New(placeholders.WithGitRepo(p.gitRepo))
 	}
 
 	if p.rootDir == "" {

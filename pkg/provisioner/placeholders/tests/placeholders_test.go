@@ -8,7 +8,6 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
-	"github.com/simple-container-com/api/pkg/api/logger"
 	tests "github.com/simple-container-com/api/pkg/api/tests"
 	testutils "github.com/simple-container-com/api/pkg/api/tests/testutil"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
@@ -136,7 +135,7 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			if tt.initOpts != nil {
 				initOpts = tt.initOpts(t)
 			}
-			ph := placeholders.New(logger.New(), initOpts...)
+			ph := placeholders.New(initOpts...)
 
 			err := ph.Resolve(tt.stacks)
 

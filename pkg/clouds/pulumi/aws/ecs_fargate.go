@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 	"strconv"
 	"strings"
 	"time"
@@ -153,8 +152,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	secrets = append(secrets, ctxSecrets...)
-	if err := placeholders.New(params.Log).Apply(&crInput.Secrets, placeholders.WithExtensions(params.ComputeContext.TplExtensions())); err != nil {
-		return errors.Wrapf(err, "failed to apply placeholders for secrets in stack %q in %q", stack.Name, deployParams.Environment)
+	if err := params.ComputeContext.ResolvePlaceholders(&crInput.Secrets); err != nil {
+		return errors.Wrapf(err, "failed to resolve placeholders for secrets in stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	for name, sRef := range crInput.Secrets {
 		value, found := stack.Secrets.Values[sRef]

@@ -32,7 +32,7 @@ type ComputeContext interface {
 	EnvVariables() []ComputeEnvVariable
 	Dependencies() []sdk.Resource
 	Outputs() []sdk.Output
-	TplExtensions() map[string]template.Extension
+	ResolvePlaceholders(obj any) error
 }
 
 type ComputeContextCollector interface {
@@ -42,6 +42,6 @@ type ComputeContextCollector interface {
 	Dependencies() []sdk.Resource
 	AddOutput(o sdk.Output)
 	Outputs() []sdk.Output
-	TplExtensions() map[string]template.Extension
+	ResolvePlaceholders(obj any) error
 	AddTplExtensions(map[string]template.Extension)
 }

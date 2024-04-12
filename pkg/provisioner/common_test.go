@@ -18,7 +18,6 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
-	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/tests"
 	"github.com/simple-container-com/api/pkg/api/tests/testutil"
 	pulumi_mocks "github.com/simple-container-com/api/pkg/clouds/pulumi/mocks"
@@ -123,7 +122,7 @@ func Test_Provision(t *testing.T) {
 					Return(errors.New("failed to create stacks"))
 				pulumiMock.On("SetPublicKey", mock.Anything).Return()
 				return New(
-					WithPlaceholders(placeholders.New(logger.New())),
+					WithPlaceholders(placeholders.New()),
 					WithOverrideProvisioner(pulumiMock),
 					WithGitRepo(gitRepo),
 				)
@@ -150,7 +149,7 @@ func Test_Provision(t *testing.T) {
 					pulumiMock.On("SetPublicKey", mock.Anything).Return()
 					tt.opts = []Option{
 						WithGitRepo(gitRepoMock),
-						WithPlaceholders(placeholders.New(logger.New(), placeholders.WithGitRepo(gitRepoMock))),
+						WithPlaceholders(placeholders.New(placeholders.WithGitRepo(gitRepoMock))),
 						WithOverrideProvisioner(pulumiMock),
 					}
 				}
@@ -253,7 +252,7 @@ func Test_Deploy(t *testing.T) {
 				pulumiMock.On("SetPublicKey", mock.Anything).Return()
 			}
 			p, err = New(
-				WithPlaceholders(placeholders.New(logger.New(), placeholders.WithGitRepo(gitRepoMock))),
+				WithPlaceholders(placeholders.New(placeholders.WithGitRepo(gitRepoMock))),
 				WithOverrideProvisioner(pulumiMock),
 				WithGitRepo(gitRepoMock),
 			)
@@ -296,7 +295,7 @@ func Test_Init(t *testing.T) {
 				ProjectName: "test-project",
 				RootDir:     "testdata/refapp",
 			},
-			opts:  []Option{WithPlaceholders(placeholders.New(logger.New()))},
+			opts:  []Option{WithPlaceholders(placeholders.New())},
 			check: checkInitSuccess,
 		},
 		{
@@ -308,7 +307,7 @@ func Test_Init(t *testing.T) {
 			init: func(wd string) Provisioner {
 				gitRepo, err := git.New(git.WithGitDir("gitdir"), git.WithRootDir(wd))
 				Expect(err).To(BeNil())
-				p, err := New(WithGitRepo(gitRepo), WithPlaceholders(placeholders.New(logger.New())))
+				p, err := New(WithGitRepo(gitRepo), WithPlaceholders(placeholders.New()))
 				Expect(err).To(BeNil())
 				return p
 			},
@@ -328,7 +327,7 @@ func Test_Init(t *testing.T) {
 				RootDir:             "testdata/refapp",
 				SkipProfileCreation: true,
 			},
-			opts: []Option{WithPlaceholders(placeholders.New(logger.New()))},
+			opts: []Option{WithPlaceholders(placeholders.New())},
 			check: func(t *testing.T, wd string, p Provisioner) {
 				profileFile := path.Join(wd, ".sc/cfg.default.yaml")
 				Expect(profileFile).NotTo(BeAnExistingFile())
@@ -341,7 +340,7 @@ func Test_Init(t *testing.T) {
 				RootDir:           "testdata/refapp",
 				SkipInitialCommit: true,
 			},
-			opts: []Option{WithPlaceholders(placeholders.New(logger.New()))},
+			opts: []Option{WithPlaceholders(placeholders.New())},
 			check: func(t *testing.T, wd string, p Provisioner) {
 				checkProfileIsCreated(t, wd, p)
 				commits := p.GitRepo().Log()
