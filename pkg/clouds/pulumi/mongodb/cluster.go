@@ -48,7 +48,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		}, sdk.Provider(params.Provider))
 		if err != nil {
 			// ignore error
-			params.Log.Warn(ctx.Context(), "failed to lookup project by name %q", projName)
+			params.Log.Info(ctx.Context(), "mongodb atlas project %q does not exist yet", projName)
 		}
 		if projectRes != nil {
 			projectId = sdk.String(*projectRes.ProjectId).ToStringOutput()
