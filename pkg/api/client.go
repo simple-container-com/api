@@ -41,6 +41,16 @@ type StackConfigCompose struct {
 type StackConfigComposeScale struct {
 	Min int `yaml:"min" json:"min"`
 	Max int `yaml:"max" json:"max"`
+
+	Policy *StackConfigComposeScalePolicy `json:"policy" yaml:"policy"`
+}
+
+type StackConfigComposeScalePolicy struct {
+	Cpu *StackConfigComposeScaleCpu `yaml:"cpu" json:"cpu"`
+}
+
+type StackConfigComposeScaleCpu struct {
+	Max int `yaml:"max" json:"max"`
 }
 
 type StackConfigStatic struct {

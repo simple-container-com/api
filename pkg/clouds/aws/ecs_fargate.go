@@ -72,12 +72,24 @@ type EcsFargateScale struct {
 	Min int `json:"min" yaml:"min"`
 	Max int `json:"max" yaml:"max"`
 
-	Update FargateRollingUpdate `json:"update" yaml:"update"`
+	Policy *EcsFargateScalePolicy `json:"policy" yaml:"policy"`
+	Update FargateRollingUpdate   `json:"update" yaml:"update"`
 }
 
 type FargateRollingUpdate struct {
 	MinHealthyPercent int `json:"minHealthyPercent" yaml:"minHealthyPercent"`
 	MaxPercent        int `json:"maxPercent" yaml:"maxPercent"`
+}
+
+type EcsFargateScalePolicyType string
+
+var ScaleCpu EcsFargateScalePolicyType = "cpu"
+
+type EcsFargateScalePolicy struct {
+	Type             EcsFargateScalePolicyType `json:"type" yaml:"type"`
+	TargetValue      int                       `yaml:"targetValue" json:"targetValue"`
+	ScaleInCooldown  int                       `json:"scaleInCooldown" json:"scaleInCooldown"`
+	ScaleOutCooldown int                       `json:"scaleOutCooldown" json:"scaleOutCooldown"`
 }
 
 type AlertsConfig struct {
@@ -143,6 +155,14 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		res.Scale = EcsFargateScale{
 			Min: lo.If(stackCfg.Scale.Min == 0, 1).Else(stackCfg.Scale.Min),
 			Max: lo.If(stackCfg.Scale.Max == 0, 1).Else(stackCfg.Scale.Max),
+		}
+		if stackCfg.Scale.Policy != nil && stackCfg.Scale.Policy.Cpu != nil {
+			res.Scale.Policy = &EcsFargateScalePolicy{
+				Type:             ScaleCpu,
+				TargetValue:      lo.If(stackCfg.Scale.Policy.Cpu.Max != 0, stackCfg.Scale.Policy.Cpu.Max).Else(70), // Target CPU utilization of 70%
+				ScaleInCooldown:  60,                                                                                // Wait 60s between scale-in activities
+				ScaleOutCooldown: 60,                                                                                // Wait 60s between scale-out activities
+			}
 		}
 	} else {
 		res.Scale = EcsFargateScale{

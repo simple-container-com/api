@@ -334,7 +334,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	params.Log.Info(ctx.Context(), "creating Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
+	ecsServiceName := fmt.Sprintf("%s-service", ecsClusterName)
+	service, err := ecs.NewFargateService(ctx, ecsServiceName, &ecs.FargateServiceArgs{
 		Cluster:                         cluster.Arn,
 		Name:                            sdk.String(awsResName(ecsClusterName, "svc")),
 		DesiredCount:                    sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
@@ -401,7 +402,13 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		})
 	})
 
-	return attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
+	if crInput.Scale.Policy != nil {
+		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
+		if err != nil {
+			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsClusterName, ecsServiceName)
+		}
+	}
+	return nil
 }
 
 func toSecretName(params api.StackParams, resType, resName, varName, suffix string) string {
@@ -474,27 +481,27 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create autoscaling target for ecs service in %q", stack.Name)
 	}
 	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-target-arn", stack.Name), scalableTarget.Arn)
-
-	// Create an autoscaling policy for the target based on CPU utilization
-	policy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
-		PolicyType:        sdk.String("TargetTrackingScaling"),
-		ResourceId:        scalableTarget.ResourceId,
-		ScalableDimension: scalableTarget.ScalableDimension,
-		ServiceNamespace:  scalableTarget.ServiceNamespace,
-		TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
-			// TODO: allow specifying these from client descriptor
-			TargetValue:      sdk.Float64(70.0), // Target CPU utilization of 70%
-			ScaleInCooldown:  sdk.Int(60),       // Wait 60s between scale-in activities
-			ScaleOutCooldown: sdk.Int(60),       // Wait 60s between scale-out activities
-			PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
-				PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+	if crInput.Scale.Policy.Type == aws.ScaleCpu {
+		// Create an autoscaling policy for the target based on CPU utilization
+		policy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
+			PolicyType:        sdk.String("TargetTrackingScaling"),
+			ResourceId:        scalableTarget.ResourceId,
+			ScalableDimension: scalableTarget.ScalableDimension,
+			ServiceNamespace:  scalableTarget.ServiceNamespace,
+			TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
+				TargetValue:      sdk.Float64(lo.If(crInput.Scale.Policy.TargetValue != 0, float32(crInput.Scale.Policy.TargetValue)).Else(70.0)),
+				ScaleInCooldown:  sdk.Int(lo.If(crInput.Scale.Policy.ScaleInCooldown != 0, crInput.Scale.Policy.ScaleInCooldown).Else(60)),
+				ScaleOutCooldown: sdk.Int(lo.If(crInput.Scale.Policy.ScaleOutCooldown != 0, crInput.Scale.Policy.ScaleOutCooldown).Else(60)),
+				PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
+					PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+				},
 			},
-		},
-	}, sdk.Provider(params.Provider))
-	if err != nil {
-		return errors.Wrapf(err, "failed to create autoscaling policy for ecs service in %q", stack.Name)
+		}, sdk.Provider(params.Provider))
+		if err != nil {
+			return errors.Wrapf(err, "failed to create autoscaling policy for ecs service in %q", stack.Name)
+		}
+		ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-arn", stack.Name), policy.Arn)
 	}
-	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-arn", stack.Name), policy.Arn)
 
 	return nil
 }

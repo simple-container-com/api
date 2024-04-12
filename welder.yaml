@@ -19,6 +19,7 @@ modules:
     build:
       steps:
         - task: tools
+        - task: linters
         - task: test
         - task: build-all
     deploy:
@@ -37,11 +38,14 @@ tasks:
       - go mod download
       - go generate -tags tools
       - go mod tidy
-  build-all:
+  linters:
     runOn: host
     script:
       - ${project:root}/bin/gofumpt -l -w .
       - ${project:root}/bin/golangci-lint linters
+  build-all:
+    runOn: host
+    script:
       - go build ./...
       - welder run build -a os=linux -a arch=amd64
       - welder run build -a os=darwin -a arch=arm64
