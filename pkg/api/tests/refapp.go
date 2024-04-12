@@ -493,6 +493,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 					},
 					Env: map[string]string{
 						"JWT_SECRET": "${secret:JWT_SECRET}",
+						"MONGO_URI":  "${resource:mongodb.uri}",
 					},
 					Secrets: map[string]string{},
 				},
@@ -514,6 +515,7 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 					},
 					Env: map[string]string{
 						"JWT_SECRET": "${secret:JWT_SECRET}",
+						"MONGO_URI":  "${resource:mongodb.uri}",
 					},
 					Secrets: map[string]string{},
 				},

@@ -3,6 +3,7 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/simple-container-com/welder/pkg/template"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -79,6 +80,23 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 			}
 			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+
+			collector.AddTplExtensions(map[string]template.Extension{
+				"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
+					pathParts := strings.SplitN(path, ".", 2)
+					if pathParts[0] != input.Descriptor.Name {
+						return noSubs, nil
+					}
+					if value, ok := map[string]string{
+						"uri":      mongoUri,
+						"password": dbUser.Password,
+						"user":     userName,
+					}[pathParts[1]]; ok {
+						return value, nil
+					}
+					return noSubs, nil
+				},
+			})
 
 			return nil, nil
 		}))

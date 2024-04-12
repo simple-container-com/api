@@ -41,16 +41,29 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 	if atlasCfg.ProjectId == "" {
 		projName := lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)
-		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
-			Name:  sdk.String(input.ToResName(projName)),
-			OrgId: sdk.String(atlasCfg.OrgId),
-		}, opts...)
+
+		// to avoid conflicts with existing projects, we first try to lookup the project by name
+		projectRes, err := mongodbatlas.LookupProject(ctx, &mongodbatlas.LookupProjectArgs{
+			Name: &projName,
+		}, sdk.Provider(params.Provider))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create mongodb project for stack %q", stack.Name)
+			// ignore error
+			params.Log.Warn(ctx.Context(), "failed to lookup project by name %q", projName)
 		}
-		out.Project = project
-		projectId = project.ID().ToStringOutput()
-		opts = append(opts, sdk.DependsOn([]sdk.Resource{project}))
+		if projectRes != nil {
+			projectId = sdk.String(*projectRes.ProjectId).ToStringOutput()
+		} else {
+			project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
+				Name:  sdk.String(input.ToResName(projName)),
+				OrgId: sdk.String(atlasCfg.OrgId),
+			}, opts...)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create mongodb project for stack %q", stack.Name)
+			}
+			out.Project = project
+			projectId = project.ID().ToStringOutput()
+			opts = append(opts, sdk.DependsOn([]sdk.Resource{project}))
+		}
 	} else {
 		projectRes, err := mongodbatlas.LookupProject(ctx, &mongodbatlas.LookupProjectArgs{
 			ProjectId: &atlasCfg.ProjectId,

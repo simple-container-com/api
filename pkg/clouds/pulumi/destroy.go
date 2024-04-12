@@ -24,12 +24,14 @@ func (p *pulumi) destroyChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.YellowFmt("Refreshing child stack %q...", stackSource.Name()))
-	refreshResult, err := stackSource.Refresh(ctx)
-	if err != nil {
-		return err
+	if !params.SkipRefresh {
+		p.logger.Info(ctx, color.YellowFmt("Refreshing child stack %q...", stackSource.Name()))
+		refreshResult, err := stackSource.Refresh(ctx)
+		if err != nil {
+			return err
+		}
+		p.logger.Info(ctx, color.YellowFmt("Refresh child summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
-	p.logger.Info(ctx, color.YellowFmt("Refresh child summary: \n%s", p.toRefreshResult(refreshResult)))
 	p.logger.Info(ctx, color.RedFmt("Destroying child stack %q...", stackSource.Name()))
 	destroyResult, err := stackSource.Destroy(ctx)
 	if err != nil {

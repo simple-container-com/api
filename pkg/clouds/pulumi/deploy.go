@@ -106,6 +106,9 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 		collector := pApi.NewComputeContextCollector(stack.Name, params.Environment)
 		for resName, res := range stack.Server.Resources.Resources[params.Environment].Resources {
+			if res.Name == "" {
+				res.Name = resName
+			}
 			if !uses[resName] {
 				p.logger.Info(ctx.Context(), "stack %q does not use resource %q, skipping...", stack.Name, resName)
 				continue
@@ -117,9 +120,6 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", resName, res.Type, stack.Name, err.Error())
 				continue
 			} else {
-				if res.Name == "" {
-					res.Name = resName
-				}
 				provisionParams.ParentStack = &pApi.ParentInfo{
 					StackName: parentStack,
 					RefString: parentRefString,

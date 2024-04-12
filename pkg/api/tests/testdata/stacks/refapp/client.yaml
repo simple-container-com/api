@@ -14,7 +14,8 @@ stacks:
         - ui
       env:
         JWT_SECRET: ${secret:JWT_SECRET}
-      secrets: {}
+        MONGO_URI: ${resource:mongodb.uri}
+      secrets: { }
   prod:
     <<: *staging
     config:

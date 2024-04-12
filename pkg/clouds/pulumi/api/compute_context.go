@@ -3,6 +3,8 @@ package api
 import (
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	"github.com/simple-container-com/welder/pkg/template"
 )
 
 type Collector struct {
@@ -10,8 +12,17 @@ type Collector struct {
 	Env     string               `json:"environment" yaml:"environment"`
 	EnvVars []ComputeEnvVariable `json:"envVariables" yaml:"envVariables"`
 
-	dependencies []sdk.Resource
-	outputs      []sdk.Output
+	dependencies  []sdk.Resource
+	outputs       []sdk.Output
+	tplExtensions map[string]template.Extension
+}
+
+func (c *Collector) TplExtensions() map[string]template.Extension {
+	return lo.Assign(c.tplExtensions)
+}
+
+func (c *Collector) AddTplExtensions(m map[string]template.Extension) {
+	c.tplExtensions = lo.Assign(c.tplExtensions, m)
 }
 
 func (c *Collector) AddOutput(o sdk.Output) {
@@ -46,9 +57,10 @@ func (c *Collector) Dependencies() []sdk.Resource {
 
 func NewComputeContextCollector(stackName string, environment string) ComputeContextCollector {
 	return &Collector{
-		Stack:   stackName,
-		Env:     environment,
-		EnvVars: make([]ComputeEnvVariable, 0),
+		Stack:         stackName,
+		Env:           environment,
+		EnvVars:       make([]ComputeEnvVariable, 0),
+		tplExtensions: make(map[string]template.Extension),
 	}
 }
 

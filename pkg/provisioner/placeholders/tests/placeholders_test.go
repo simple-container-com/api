@@ -1,14 +1,13 @@
-package placeholders
+package tests
 
 import (
 	"fmt"
 	"testing"
 
-	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
-
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api"
+	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	tests "github.com/simple-container-com/api/pkg/api/tests"
 	testutils "github.com/simple-container-com/api/pkg/api/tests/testutil"
@@ -16,17 +15,18 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
+	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
 func Test_placeholders_ProcessStacks(t *testing.T) {
 	RegisterTestingT(t)
 
 	tcs := []struct {
-		name    string
-		stacks  api.StacksMap
-		wantErr string
-		init    func(t *testing.T, ph *placeholders)
-		check   func(t *testing.T, stacks api.StacksMap)
+		name     string
+		stacks   api.StacksMap
+		wantErr  string
+		initOpts func(t *testing.T) []placeholders.InitOption
+		check    func(t *testing.T, stacks api.StacksMap)
 	}{
 		{
 			name: "common stack",
@@ -70,10 +70,12 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				"common": tests.CommonStack,
 				"refapp": tests.RefappStack,
 			},
-			init: func(t *testing.T, ph *placeholders) {
+			initOpts: func(t *testing.T) []placeholders.InitOption {
 				gitMock := git_mocks.NewGitRepoMock(t)
 				gitMock.On("Workdir").Return("<root-dir>")
-				ph.git = gitMock
+				return []placeholders.InitOption{
+					placeholders.WithGitRepo(gitMock),
+				}
 			},
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp"]).NotTo(BeNil())
@@ -107,6 +109,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				stagingClientCfg := stagingCfg.(*api.StackConfigCompose)
 				Expect(stagingClientCfg.DockerComposeFile).To(Equal("<root-dir>/docker-compose.yaml"))
 				Expect(stagingClientCfg.Env["JWT_SECRET"]).To(Equal("<encrypted-secret>"))
+				// must not process ${resource:} refs at this time
+				Expect(stagingClientCfg.Env["MONGO_URI"]).To(Equal("${resource:mongodb.uri}"))
 			},
 		},
 		{
@@ -128,13 +132,11 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 	t.Parallel()
 	for _, tt := range tcs {
 		t.Run(tt.name, func(t *testing.T) {
-			ph := &placeholders{
-				log: logger.New(),
+			var initOpts []placeholders.InitOption
+			if tt.initOpts != nil {
+				initOpts = tt.initOpts(t)
 			}
-
-			if tt.init != nil {
-				tt.init(t, ph)
-			}
+			ph := placeholders.New(logger.New(), initOpts...)
 
 			err := ph.Resolve(tt.stacks)
 
