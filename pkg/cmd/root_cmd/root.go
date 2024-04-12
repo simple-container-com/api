@@ -83,10 +83,14 @@ func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
 	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 }
 
-func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams) {
-	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
-	cmd.Flags().StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
+func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool) {
+	flags := cmd.Flags()
+	if persistent {
+		flags = cmd.PersistentFlags()
+	}
+	flags.StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
+	flags.StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
 	_ = cmd.MarkFlagRequired("stack")
-	cmd.Flags().StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
-	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
+	flags.StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
+	flags.StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 }

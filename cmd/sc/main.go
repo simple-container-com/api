@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
 	"os"
 	"os/signal"
 	"syscall"
@@ -77,6 +78,7 @@ func main() {
 		cmd_destroy.NewDestroyCmd(rootCmdInstance),
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 		cmd_outputs.NewOutputsCmd(rootCmdInstance),
+		cmd_stack.NewStackCmd(rootCmdInstance),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

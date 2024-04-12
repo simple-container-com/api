@@ -32,6 +32,8 @@ type Provisioner interface {
 	Outputs(ctx context.Context, params api.StackParams) (*api.OutputsResult, error)
 	Cancel(ctx context.Context, params api.StackParams) error
 	Stacks() api.StacksMap
+
+	GetStack(ctx context.Context, params api.StackParams) (*api.Stack, error)
 	DestroyParent(ctx context.Context, params api.ProvisionParams) error
 	Destroy(ctx context.Context, params api.DestroyParams) error
 
@@ -95,6 +97,25 @@ func New(opts ...Option) (Provisioner, error) {
 
 func (p *provisioner) Stacks() api.StacksMap {
 	return p.stacks
+}
+
+func (p *provisioner) GetStack(ctx context.Context, params api.StackParams) (*api.Stack, error) {
+	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
+	}
+	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
+		StacksDir: params.StacksDir,
+		Profile:   params.Profile,
+		Stacks:    []string{params.StackName},
+	}, false); err != nil {
+		return nil, err
+	}
+	if stack, found := p.stacks[params.StackName]; !found {
+		return nil, errors.Errorf("stack %q is not configured", params.StackName)
+	} else {
+		return &stack, nil
+	}
 }
 
 func (p *provisioner) withReadLock() func() {

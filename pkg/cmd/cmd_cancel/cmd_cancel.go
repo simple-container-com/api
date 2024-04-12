@@ -24,6 +24,6 @@ func NewCancelCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 
-	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
+	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams, false)
 	return cmd
 }

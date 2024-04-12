@@ -48,7 +48,7 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 
-	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams)
+	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams, false)
 	cmd.Flags().BoolVar(&pCmd.ParentStack, "parent", pCmd.ParentStack, "Destroy parent stack")
 	return cmd
 }

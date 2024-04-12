@@ -35,6 +35,6 @@ func NewOutputsCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 
-	root_cmd.RegisterStackFlags(cmd, &pCmd.Params)
+	root_cmd.RegisterStackFlags(cmd, &pCmd.Params, false)
 	return cmd
 }
