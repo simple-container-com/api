@@ -67,10 +67,10 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 		}
 
 		for env, resources := range stack.Server.Resources.Resources {
-			p.logger.Info(ctx.Context(), "provisioning resources for stack %q in env %q...", stack.Name, env)
+			p.logger.Info(ctx.Context(), "configure resources for stack %q in env %q...", stack.Name, env)
 			collector := pApi.NewComputeContextCollector(stack.Name, env)
 			for resName, res := range resources.Resources {
-				p.logger.Info(ctx.Context(), "provisioning resource %q for stack %q in env %q", resName, stack.Name, env)
+				p.logger.Info(ctx.Context(), "configure resource %q for stack %q in env %q", resName, stack.Name, env)
 				if res.Name == "" {
 					res.Name = resName
 				}
@@ -112,7 +112,7 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 
 func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, environment string) error {
 	registrarType := stack.Server.Resources.Registrar.Type
-	p.logger.Info(ctx.Context(), "provisioning registrar of type %q for stack %q...", registrarType, stack.Name)
+	p.logger.Info(ctx.Context(), "configure registrar of type %q for stack %q...", registrarType, stack.Name)
 	if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
 		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
 	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
@@ -195,7 +195,7 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		p.logger.Info(ctx.Context(), "skip provisioning of secrets provider for stack %q", stack.Name)
 		return nil
 	}
-	p.logger.Info(ctx.Context(), "provisioning secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
+	p.logger.Info(ctx.Context(), "configure secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
 
 	if provisionerCfg.SecretsProvider.Type == "pulumi-cloud" {
 		p.logger.Info(ctx.Context(), "do not need to provision secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)

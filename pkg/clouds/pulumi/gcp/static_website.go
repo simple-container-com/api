@@ -124,7 +124,7 @@ func ProvisionStaticWebsite(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		return nil, errors.Wrapf(err, "failed to sync bucket")
 	}
 
-	params.Log.Info(ctx.Context(), "provisioning CNAME DNS record %q for %q in %q...", bucketName, stack.Name, input.StackParams.Environment)
+	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", bucketName, stack.Name, input.StackParams.Environment)
 	bucketDomain := fmt.Sprintf("%s.storage.googleapis.com", bucketName)
 	dnsRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
 		Name:    domain,

@@ -83,6 +83,14 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		return errors.Errorf("credentials for pulumi backend must not be empty")
 	}
 
+	if authCfg, ok := provisionerCfg.StateStorage.Config.Config.(api.AuthConfig); !ok {
+		p.logger.Warn(ctx, "state storage config is not of type api.AuthConfig")
+	} else if fnc, ok := initStateStoreFuncByType[authCfg.ProviderType()]; !ok {
+		p.logger.Warn(ctx, "could not find init state storage function for provider %q, skipping init", authCfg.ProviderType())
+	} else if err := fnc(ctx, authCfg); err != nil {
+		return errors.Wrapf(err, "failed to init state storage for provider %q", authCfg.ProviderType())
+	}
+
 	switch provisionerCfg.StateStorage.Type {
 	case BackendTypePulumiCloud:
 		// hackily set access token env variable, so that lm can access it

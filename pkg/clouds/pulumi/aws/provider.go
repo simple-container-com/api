@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -11,6 +12,25 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
+
+func InitStateStore(ctx context.Context, authCfg api.AuthConfig) error {
+	var pcfg aws.AccountConfig
+	if err := api.ConvertAuth(authCfg, &pcfg); err != nil {
+		return errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
+	}
+
+	// hackily set aws creds env variable, so that we can access AWS state storage
+	if err := os.Setenv("AWS_ACCESS_KEY", pcfg.AccessKey); err != nil {
+		fmt.Println("Failed to set AWS_ACCESS_KEY env variable: ", err.Error())
+	}
+	if err := os.Setenv("AWS_SECRET_ACCESS_KEY", pcfg.SecretAccessKey); err != nil {
+		fmt.Println("Failed to set AWS_SECRET_ACCESS_KEY env variable: ", err.Error())
+	}
+	if err := os.Setenv("AWS_DEFAULT_REGION", pcfg.Region); err != nil {
+		fmt.Println("Failed to set AWS_DEFAULT_REGION env variable: ", err.Error())
+	}
+	return nil
+}
 
 func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	authCfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
@@ -23,15 +43,8 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
 
-	// hackily set aws creds env variable, so that we can access AWS state storage
-	if err := os.Setenv("AWS_ACCESS_KEY", pcfg.AccessKey); err != nil {
-		fmt.Println("Failed to set AWS_ACCESS_KEY env variable: ", err.Error())
-	}
-	if err := os.Setenv("AWS_SECRET_ACCESS_KEY", pcfg.SecretAccessKey); err != nil {
-		fmt.Println("Failed to set AWS_SECRET_ACCESS_KEY env variable: ", err.Error())
-	}
-	if err := os.Setenv("AWS_DEFAULT_REGION", pcfg.Region); err != nil {
-		fmt.Println("Failed to set AWS_DEFAULT_REGION env variable: ", err.Error())
+	if err := InitStateStore(ctx.Context(), authCfg); err != nil {
+		return nil, errors.Wrapf(err, "failed to re-init state store")
 	}
 
 	provider, err := sdkAws.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &sdkAws.ProviderArgs{

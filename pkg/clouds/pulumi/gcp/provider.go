@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -12,6 +13,14 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
+func InitStateStore(ctx context.Context, authCfg api.AuthConfig) error {
+	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
+	if err := os.Setenv("GOOGLE_CREDENTIALS", authCfg.CredentialsValue()); err != nil {
+		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
+	}
+	return nil
+}
+
 func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	pcfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
@@ -21,9 +30,8 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	creds := pcfg.CredentialsValue()
 	projectId := pcfg.ProjectIdValue()
 
-	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
-	if err := os.Setenv("GOOGLE_CREDENTIALS", creds); err != nil {
-		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
+	if err := InitStateStore(ctx.Context(), pcfg); err != nil {
+		return nil, errors.Wrapf(err, "failed to re-init state store")
 	}
 
 	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
