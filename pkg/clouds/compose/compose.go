@@ -32,7 +32,7 @@ func ReadDockerCompose(ctx context.Context, workingDir, composeFilePath string) 
 		options.Interpolate.LookupValue = func(key string) (string, bool) {
 			return "", false
 		}
-	})
+	}, loader.WithDiscardEnvFiles)
 	if err != nil {
 		return res, err
 	}
