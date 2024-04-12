@@ -2,6 +2,9 @@ package pulumi
 
 import (
 	"context"
+	"os"
+
+	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -31,6 +34,14 @@ var initStateStoreFuncByType = map[string]initStateStoreFunc{
 	gcpApi.ProviderType: gcpImpl.InitStateStore,
 	// aws
 	awsApi.ProviderType: awsImpl.InitStateStore,
+	// pulumi
+	ProvisionerTypePulumi: func(ctx context.Context, authCfg api.AuthConfig) error {
+		// hackily set access token env variable, so that lm can access it
+		if err := os.Setenv(httpstate.AccessTokenEnvVar, authCfg.CredentialsValue()); err != nil {
+			return err
+		}
+		return nil
+	},
 }
 
 var providerFuncByType = map[string]provisionFunc{

@@ -93,10 +93,6 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 
 	switch provisionerCfg.StateStorage.Type {
 	case BackendTypePulumiCloud:
-		// hackily set access token env variable, so that lm can access it
-		if err := os.Setenv(httpstate.AccessTokenEnvVar, creds); err != nil {
-			p.logger.Warn(ctx, "failed to set %q value: %q", httpstate.AccessTokenEnvVar, err.Error())
-		}
 		cloudUrl := "https://api.pulumi.com"
 		_, err := httpstate.NewLoginManager().Login(ctx, cloudUrl, false, "pulumi", "Pulumi stacks", httpstate.WelcomeUser, true /*current*/, display.Options{
 			Color: cmdutil.GetGlobalColorization(),
