@@ -29,6 +29,7 @@ func ReadDockerCompose(ctx context.Context, workingDir, composeFilePath string) 
 		// todo: figure out options
 		options.SkipNormalization = true
 		options.SkipConsistencyCheck = true
+		options.SkipResolveEnvironment = true
 		options.Interpolate.LookupValue = func(key string) (string, bool) {
 			return "", false
 		}
