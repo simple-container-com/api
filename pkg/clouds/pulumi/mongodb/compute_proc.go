@@ -17,8 +17,8 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 	if params.ParentStack == nil {
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
 	}
-	clusterName := input.ToResName(toClusterName(params.ParentStack.StackName, input))
-	projectName := input.ToResName(toProjectName(params.ParentStack.StackName, input))
+	projectName := toProjectName(params.ParentStack.StackName, input)
+	clusterName := toClusterName(params.ParentStack.StackName, input)
 
 	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.RefString, input.Descriptor.Name)
 	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--mongodb-atlas-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{

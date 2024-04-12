@@ -3,7 +3,6 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
@@ -12,6 +11,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type MongodbClusterOutput struct {
@@ -32,8 +32,8 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		return nil, errors.Errorf("failed to convert mongodb atlas config for %q", input.Descriptor.Type)
 	}
 
-	clusterName := input.ToResName(toClusterName(stack.Name, input))
-	projectName := input.ToResName(toProjectName(stack.Name, input))
+	projectName := toProjectName(stack.Name, input)
+	clusterName := toClusterName(stack.Name, input)
 
 	var projectId sdk.StringOutput
 	opts := []sdk.ResourceOption{
@@ -54,7 +54,7 @@ func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 			projectId = sdk.String(*projectRes.ProjectId).ToStringOutput()
 		} else {
 			project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
-				Name:  sdk.String(input.ToResName(projName)),
+				Name:  sdk.String(projName),
 				OrgId: sdk.String(atlasCfg.OrgId),
 			}, opts...)
 			if err != nil {
@@ -133,11 +133,12 @@ func toProjectIdExport(projectName string) string {
 }
 
 func toProjectName(stackName string, input api.ResourceInput) string {
-	return fmt.Sprintf("%s-project", toClusterName(stackName, input))
+	return input.ToResName(fmt.Sprintf("%s--%s", stackName, input.Descriptor.Name))
 }
 
 func toClusterName(stackName string, input api.ResourceInput) string {
-	return fmt.Sprintf("%s-%s", stackName, input.Descriptor.Name)
+	projectName := toProjectName(stackName, input)
+	return util.TrimStringMiddle(projectName, 21, "--") //  Atlas truncates cluster names to 23 characters
 }
 
 type dbRole struct {
