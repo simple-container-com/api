@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -64,10 +65,10 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
-		parentRefString := fmt.Sprintf("%s/%s/%s", p.provisionerCfg.Organization, p.configFile.ProjectName, parentStack)
+		parentRefString := expandStackReference(parentStack, p.provisionerCfg.Organization, p.configFile.ProjectName)
 
 		// get template from parent
-		templateRef := stackDescriptorTemplateName(parentStack, templateName)
+		templateRef := stackDescriptorTemplateName(parentRefString, templateName)
 		var stackDesc api.StackDescriptor
 		err := getSecretValueFromStack(ctx, parentRefString, templateRef, func(val string) error {
 			err := yaml.Unmarshal([]byte(val), &stackDesc)
@@ -165,6 +166,17 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return nil, nil
 		})
 		return nil
+	}
+}
+
+func expandStackReference(parentStack string, organization string, projectName string) string {
+	parentStackParts := strings.SplitN(parentStack, "/", 3)
+	if len(parentStackParts) == 3 {
+		return parentStack
+	} else if len(parentStackParts) == 2 {
+		return fmt.Sprintf("%s/%s", organization, parentStack)
+	} else {
+		return fmt.Sprintf("%s/%s/%s", organization, projectName, parentStack)
 	}
 }
 

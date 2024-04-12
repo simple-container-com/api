@@ -23,7 +23,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 	p.logger.Info(ctx, "Found stack %q", s.Ref().FullyQualifiedName())
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack))
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack, cfg))
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	return nil
 }
 
-func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error {
+func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx *sdk.Context) error {
 	program := func(ctx *sdk.Context) error {
 		if err := p.initialProvisionProgram(ctx); err != nil {
 			return errors.Wrapf(err, "failed to provision init program")
@@ -101,7 +101,8 @@ func (p *pulumi) provisionProgram(stack api.Stack) func(ctx *sdk.Context) error 
 				return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 			}
 
-			outputName := stackDescriptorTemplateName(stack.Name, templateName)
+			fullStackRef := expandStackReference(stack.Name, p.provisionerCfg.Organization, cfg.ProjectName)
+			outputName := stackDescriptorTemplateName(fullStackRef, templateName)
 			p.logger.Debug(ctx.Context(), "preserving template %q in the stack's %q outputs as %q...", templateName, stack.Name, outputName)
 			secretOutput := sdk.ToSecret(string(serializedStackDesc))
 			ctx.Export(outputName, secretOutput)

@@ -60,7 +60,7 @@ func (p *pulumi) destroyParentStack(ctx context.Context, cfg *api.ConfigFile, st
 
 	p.logger.Info(ctx, color.RedFmt("Found parent stack %q", s.Ref().String()))
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack))
+	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack, cfg))
 	if err != nil {
 		return err
 	}
