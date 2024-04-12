@@ -3,6 +3,7 @@ package aws
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 
@@ -40,7 +41,7 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 	}
 
 	res, err := createPrivateBucket(ctx, PrivateBucketInput{
-		Name:     input.ToResName(bucketCfg.Name),
+		Name:     input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name)),
 		Provider: params.Provider,
 	})
 	if err != nil {
