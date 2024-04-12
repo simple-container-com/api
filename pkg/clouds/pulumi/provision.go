@@ -149,7 +149,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 
 func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string) (pApi.ProvisionParams, error) {
 	var provider sdk.ProviderResource
-	providerName := fmt.Sprintf("%s-%s-%s-provider", stack.Name, res.Type, environment)
+	providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, res.Type, res.Name, environment)
 
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
