@@ -152,14 +152,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	secrets = append(secrets, ctxSecrets...)
-	if err := params.ComputeContext.ResolvePlaceholders(&crInput.Secrets); err != nil {
-		return errors.Wrapf(err, "failed to resolve placeholders for secrets in stack %q in %q", stack.Name, deployParams.Environment)
-	}
-	for name, sRef := range crInput.Secrets {
-		value, found := stack.Secrets.Values[sRef]
-		if !found {
-			return errors.Errorf("failed to create secret: value %q not found in stack's secrets", sRef)
-		}
+	for name, value := range crInput.Secrets {
 		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, crInput.Config.Version), name, value, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create secret")
