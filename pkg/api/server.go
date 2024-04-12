@@ -84,6 +84,7 @@ type ResourceInput struct {
 	StackParams *StackParams        `json:"deployParams" yaml:"deployParams"`
 }
 
+// ToResName adds environment suffix if environment is specified in the resource input
 func (r *ResourceInput) ToResName(resName string) string {
 	return fmt.Sprintf("%s%s", resName,
 		lo.If(r.StackParams.Environment != "", "--"+r.StackParams.Environment).Else(""))

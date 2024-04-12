@@ -48,6 +48,7 @@ tasks:
       - welder run build -a os=darwin -a arch=amd64
       - cp ${project:root}/sc.sh ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/.sc/stacks/dist/bundle/sc.sh
+      - echo "${project:version}" > ${project:root}/.sc/stacks/dist/bundle/version
   test:
     runOn: host
     script:

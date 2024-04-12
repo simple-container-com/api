@@ -19,7 +19,7 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
-	bucket, err := storage.NewBucket(ctx, bucketCfg.Name, &storage.BucketArgs{
+	bucket, err := storage.NewBucket(ctx, input.ToResName(bucketCfg.Name), &storage.BucketArgs{
 		Name:     sdk.String(input.ToResName(bucketCfg.Name)),
 		Location: sdk.String(bucketCfg.Location),
 	}, sdk.Provider(params.Provider))
