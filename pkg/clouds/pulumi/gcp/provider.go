@@ -30,10 +30,6 @@ func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	creds := pcfg.CredentialsValue()
 	projectId := pcfg.ProjectIdValue()
 
-	if err := InitStateStore(ctx.Context(), pcfg); err != nil {
-		return nil, errors.Wrapf(err, "failed to re-init state store")
-	}
-
 	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
 		Credentials: sdk.String(creds),
 		Project:     sdk.String(projectId),
