@@ -9,6 +9,8 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/simple-container-com/api/pkg/api/logger/color"
+
 	gcpStorage "cloud.google.com/go/storage"
 
 	"github.com/pkg/errors"
@@ -212,7 +214,7 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, stackDir, relD
 		if err != nil {
 			return err
 		}
-		params.Log.Info(ctx, "uploading file %q to gs://%s/%s...", filePath, bucketName, copyPath)
+		params.Log.Info(ctx, color.YellowFmt("uploading file %q to gs://%s/%s...", filePath, bucketName, copyPath))
 		f, err := os.Open(path.Join(fullDirPath, copyPath))
 		if err != nil {
 			params.Log.Error(ctx, "Error uploading %s: %v", filePath, err)
@@ -232,7 +234,7 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, stackDir, relD
 			params.Log.Error(ctx, "Error closing bucket object %s: %v", filePath, err)
 			return fmt.Errorf("Writer.Close: %v", err)
 		}
-		params.Log.Info(ctx, "DONE gs://%s/%s (%d bytes)", bucketName, copyPath, bytesCopied)
+		params.Log.Info(ctx, color.GreenFmt("DONE gs://%s/%s (%d bytes)", bucketName, copyPath, bytesCopied))
 		return nil
 	})
 	return totalBytes.Load(), err
