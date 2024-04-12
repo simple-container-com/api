@@ -73,6 +73,7 @@ type StackParams struct {
 	Profile     string `json:"profile" yaml:"profile"`
 	StackName   string `json:"stack" yaml:"stack"`
 	Environment string `json:"environment" yaml:"environment"`
+	SkipRefresh bool   `json:"skipRefresh" yaml:"skipRefresh"`
 }
 
 type DeployParams struct {

@@ -9,9 +9,10 @@ import (
 const ServerSchemaVersion = "1.0"
 
 type ProvisionParams struct {
-	StacksDir string   `json:"rootDir" yaml:"rootDir"`
-	Profile   string   `json:"profile" yaml:"profile"`
-	Stacks    []string `json:"stacks" yaml:"stacks"`
+	StacksDir   string   `json:"rootDir" yaml:"rootDir"`
+	Profile     string   `json:"profile" yaml:"profile"`
+	Stacks      []string `json:"stacks" yaml:"stacks"`
+	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
 }
 
 // ServerDescriptor describes the server schema

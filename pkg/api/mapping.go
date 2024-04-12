@@ -96,7 +96,7 @@ func RegisterCloudStaticSiteConverter(mapping CloudStaticSiteConfigRegister) {
 }
 
 type Provisioner interface {
-	ProvisionStack(ctx context.Context, cfg *ConfigFile, stack Stack) error
+	ProvisionStack(ctx context.Context, cfg *ConfigFile, stack Stack, params ProvisionParams) error
 
 	SetPublicKey(pubKey string)
 

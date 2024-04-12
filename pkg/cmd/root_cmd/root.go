@@ -81,6 +81,7 @@ func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
 	cmd.Flags().StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
 	_ = cmd.MarkFlagRequired("env")
 	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
+	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before deploy")
 }
 
 func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool) {

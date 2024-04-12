@@ -54,13 +54,6 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Refreshing child stack %q...", stackSource.Name()))
-	refreshResult, err := stackSource.Refresh(ctx)
-	if err != nil {
-		return nil, err
-	}
-	p.logger.Info(ctx, color.GreenFmt("Refresh child summary: %q", p.toRefreshResult(refreshResult)))
-
 	p.logger.Info(ctx, color.GreenFmt("Preview child stack %q...", stackSource.Name()))
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {

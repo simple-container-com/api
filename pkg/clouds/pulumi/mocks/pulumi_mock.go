@@ -177,17 +177,17 @@ func (_m *PulumiMock) PreviewStack(ctx context.Context, cfg *api.ConfigFile, par
 	return r0, r1
 }
 
-// ProvisionStack provides a mock function with given fields: ctx, cfg, stack
-func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
-	ret := _m.Called(ctx, cfg, stack)
+// ProvisionStack provides a mock function with given fields: ctx, cfg, stack, params
+func (_m *PulumiMock) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.ProvisionParams) error {
+	ret := _m.Called(ctx, cfg, stack, params)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ProvisionStack")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack) error); ok {
-		r0 = rf(ctx, cfg, stack)
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.ProvisionParams) error); ok {
+		r0 = rf(ctx, cfg, stack, params)
 	} else {
 		r0 = ret.Error(0)
 	}

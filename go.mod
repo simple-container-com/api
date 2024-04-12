@@ -16,8 +16,7 @@ require (
 	github.com/onsi/gomega v1.31.1
 	github.com/otiai10/copy v1.14.0
 	github.com/pkg/errors v0.9.1
-	github.com/pulumi/pulumi-aws/sdk/v5 v5.35.0
-	github.com/pulumi/pulumi-aws/sdk/v6 v6.24.0
+	github.com/pulumi/pulumi-aws/sdk/v6 v6.30.0
 	github.com/pulumi/pulumi-awsx/sdk v1.0.6
 	github.com/pulumi/pulumi-cloudflare/sdk/v5 v5.23.0
 	github.com/pulumi/pulumi-command/sdk v0.9.2
@@ -323,6 +322,7 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
 	github.com/pulumi/esc v0.6.2 // indirect
+	github.com/pulumi/pulumi-aws/sdk/v5 v5.35.0 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.2 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
 	github.com/quasilyte/regex/syntax v0.0.0-20210819130434-b3f0c404a727 // indirect

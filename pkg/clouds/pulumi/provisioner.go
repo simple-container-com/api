@@ -74,11 +74,11 @@ func (p *pulumi) SetConfigReader(f api.ProvisionerFieldConfigReaderFunc) {
 	p.fieldConfigReader = f
 }
 
-func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
+func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.ProvisionParams) error {
 	if err := p.createStackIfNotExists(ctx, cfg, stack); err != nil {
 		return errors.Wrapf(err, "failed to create stack %q if not exists", stack.Name)
 	}
-	return p.provisionStack(ctx, cfg, stack)
+	return p.provisionStack(ctx, cfg, stack, params)
 }
 
 func (p *pulumi) SetPublicKey(pubKey string) {

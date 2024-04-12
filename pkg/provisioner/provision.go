@@ -23,7 +23,7 @@ func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get provisioner for stack %q", stack.Name)
 		}
-		if err := pv.ProvisionStack(ctx, cfg, stack); err != nil {
+		if err := pv.ProvisionStack(ctx, cfg, stack, params); err != nil {
 			return errors.Wrapf(err, "failed to create stack %q", stack.Name)
 		}
 	}

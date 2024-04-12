@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	legacyEcs "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/secretsmanager"
+	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/secretsmanager"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
@@ -52,7 +52,7 @@ type EcsFargateOutput struct {
 	Service              *ecs.FargateService
 	LoadBalancer         *lb.ApplicationLoadBalancer
 	MainDnsRecord        sdk.AnyOutput
-	Cluster              *legacyEcs.Cluster
+	Cluster              *ecsV5.Cluster
 	Policy               *iam.Policy
 	Secrets              []*CreatedSecret
 }
@@ -272,10 +272,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	params.Log.Info(ctx.Context(), "configure ECS Fargate cluster for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	cluster, err := legacyEcs.NewCluster(ctx, ecsClusterName, &legacyEcs.ClusterArgs{
+	cluster, err := ecsV5.NewCluster(ctx, ecsClusterName, &ecsV5.ClusterArgs{
 		Name: sdk.String(awsResName(ecsClusterName, "cluster")),
-		Configuration: legacyEcs.ClusterConfigurationArgs{
-			ExecuteCommandConfiguration: legacyEcs.ClusterConfigurationExecuteCommandConfigurationArgs{
+		Configuration: ecsV5.ClusterConfigurationArgs{
+			ExecuteCommandConfiguration: ecsV5.ClusterConfigurationExecuteCommandConfigurationArgs{
 				Logging: sdk.String("DEFAULT"),
 			},
 		},
@@ -360,8 +360,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
 		},
 		AssignPublicIp: sdk.BoolPtr(true),
-		LoadBalancers: legacyEcs.ServiceLoadBalancerArray{
-			legacyEcs.ServiceLoadBalancerArgs{
+		LoadBalancers: ecsV5.ServiceLoadBalancerArray{
+			ecsV5.ServiceLoadBalancerArgs{
 				ContainerName:  sdk.String(iContainer.Name),
 				ContainerPort:  sdk.Int(iContainer.Port),
 				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
@@ -385,7 +385,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.ExecPolicyAttachment = execPolicyAttachment
 	ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsClusterName), execPolicyAttachment.PolicyArn)
 
-	service.TaskDefinition.ApplyT(func(td *legacyEcs.TaskDefinition) any {
+	service.TaskDefinition.ApplyT(func(td *ecsV5.TaskDefinition) any {
 		return td.TaskRoleArn.ApplyT(func(taskRoleArn *string) (*iam.RolePolicyAttachment, error) {
 			role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
 				Arn: sdk.String(lo.FromPtr(taskRoleArn)),
@@ -462,7 +462,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 	return nil
 }
 
-func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *legacyEcs.Cluster, service *ecs.FargateService) error {
+func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *ecsV5.Cluster, service *ecs.FargateService) error {
 	scalePolicyName := fmt.Sprintf("%s-ecs-scale", stack.Name)
 
 	// Register the ECS service as a scalable target

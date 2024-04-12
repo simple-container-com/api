@@ -15,7 +15,7 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
+func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.ProvisionParams) error {
 	s, err := p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return err
@@ -27,12 +27,14 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
-	refreshResult, err := stackSource.Refresh(ctx)
-	if err != nil {
-		return err
+	if !params.SkipRefresh {
+		p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
+		refreshResult, err := stackSource.Refresh(ctx)
+		if err != nil {
+			return err
+		}
+		p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
 	}
-	p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
 	p.logger.Info(ctx, "Previewing stack %q...", s.Ref().FullyQualifiedName())
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {

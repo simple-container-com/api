@@ -11,6 +11,7 @@ type ProvisionParams struct {
 	Log            logger.Logger
 	ParentStack    *ParentInfo
 	ComputeContext ComputeContext
+	SkipRefresh    bool
 }
 
 type ParentInfo struct {

@@ -150,7 +150,7 @@ func runProvisionTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
 
 	createProv.SetPublicKey(cfg.Cryptor.PublicKey())
 
-	err = createProv.ProvisionStack(ctx, cfg.ConfigFile, stack)
+	err = createProv.ProvisionStack(ctx, cfg.ConfigFile, stack, api.ProvisionParams{})
 	Expect(err).To(BeNil())
 }
 
