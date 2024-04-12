@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
 
 	"github.com/simple-container-com/api/pkg/cmd/cmd_outputs"
 

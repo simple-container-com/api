@@ -2,13 +2,13 @@ package cmd_stack
 
 import (
 	"fmt"
+
 	"github.com/pkg/errors"
 
 	"github.com/spf13/cobra"
 )
 
 func NewSecretGetCmd(sCmd *stackCmd) *cobra.Command {
-
 	cmd := &cobra.Command{
 		Use:   "secret-get",
 		Short: "Get secret value specified in secrets.yaml for stack",
