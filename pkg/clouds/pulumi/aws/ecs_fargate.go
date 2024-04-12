@@ -490,7 +490,7 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
 			},
 		},
-	})
+	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return errors.Wrapf(err, "failed to create autoscaling policy for ecs service in %q", stack.Name)
 	}
