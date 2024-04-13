@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"os"
 	"strings"
 
@@ -116,12 +117,14 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 
 	if secretsProviderCfg.IsProvisionEnabled() && secretsProviderCfg.ProviderType() != BackendTypePulumiCloud && p.secretsProviderUrl == "" {
 		defer p.withPulumiPassphrase(ctx)()
-		ref, err := be.ParseStackReference(secretsProviderStackRefString)
+		secretsStackRef, err := be.ParseStackReference(secretsProviderStackRefString)
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse secrets provider stack reference %q", secretsProviderStackRefString)
 		}
-		p.secretsStackRef = ref
-		if secretsProviderStackSource, err := p.prepareStackForOperations(ctx, ref, cfg, nil); err != nil {
+		p.secretsStackRef = secretsStackRef
+		if secretsProviderStackSource, err := p.prepareStackForOperations(ctx, secretsStackRef, cfg, func(ctx *sdk.Context) error {
+			return p.provisionSecretsProvider(ctx, provisionerCfg, stack, secretsProviderUrlExportName)
+		}); err != nil {
 			return errors.Wrapf(err, "failed to prepare secrets stack for operations for stack %q", stackRefString)
 		} else if out, err := secretsProviderStackSource.Outputs(ctx); err != nil {
 			return errors.Wrapf(err, "failed to get outputs for stack %q before update", stackRefString)
