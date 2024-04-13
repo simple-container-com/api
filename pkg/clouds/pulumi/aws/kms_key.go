@@ -18,6 +18,11 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 		return nil, errors.Errorf("failed to convert KmsKeyInput for %q", input.Descriptor.Type)
 	}
 
+	var pcfg aws.AccountConfig
+	if err := api.ConvertAuth(kmsInput, &pcfg); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
+	}
+
 	// Create a new KMS Key for encryption/decryption operations
 	key, err := kms.NewKey(ctx, input.Descriptor.Name, &kms.KeyArgs{
 		Tags: sdk.StringMap{
@@ -29,7 +34,7 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 
 	ctx.Export(input.Descriptor.Name, key.KeyId.ApplyT(func(keyId string) (string, error) {
-		return fmt.Sprintf("awskms://%s?region=%s", keyId, kmsInput.Region), nil
+		return fmt.Sprintf("awskms://%s?region=%s", keyId, pcfg.Region), nil
 	}))
 
 	return &api.ResourceOutput{
