@@ -39,7 +39,11 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 	}, api.ReadIgnoreNoAnyCfg); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
-	p.stacks = *p.stacks.ReconcileForDeploy()
+	if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
+	} else {
+		p.stacks = *stacks
+	}
 
 	stack, ok := p.stacks[params.StackName]
 	if !ok {

@@ -3,6 +3,8 @@ package api
 import (
 	"strings"
 
+	"github.com/pkg/errors"
+
 	"github.com/samber/lo"
 )
 
@@ -32,21 +34,29 @@ var (
 	ReadIgnoreNoAnyCfg              = ReadOpts{IgnoreSecretsMissing: true, IgnoreServerMissing: true, IgnoreClientMissing: true}
 )
 
-func (m *StacksMap) ReconcileForDeploy() *StacksMap {
+func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 	current := *m
 	iterMap := lo.Assign(current)
 	for stackName, stack := range iterMap {
-		for _, clientCfg := range stack.Client.Stacks {
-			parentStackParts := strings.SplitN(clientCfg.ParentStack, "/", 3)
-			parentStackName := parentStackParts[len(parentStackParts)-1]
-			if parentStack, ok := current[parentStackName]; ok {
-				stack.Server = parentStack.Server.Copy()
-				stack.Secrets = parentStack.Secrets.Copy()
-			}
+		if len(stack.Client.Stacks) == 0 {
+			// skip server-only stack
+			continue
+		}
+		clientDesc, ok := stack.Client.Stacks[params.Environment]
+		if !ok {
+			return nil, errors.Errorf("client stack %q is not configured for %q", stackName, params.Environment)
+		}
+		parentStackParts := strings.SplitN(clientDesc.ParentStack, "/", 3)
+		parentStackName := parentStackParts[len(parentStackParts)-1]
+		if parentStack, ok := current[parentStackName]; ok {
+			stack.Server = parentStack.Server.Copy()
+			stack.Secrets = parentStack.Secrets.Copy()
+		} else {
+			return nil, errors.Errorf("parent stack %q is not configured for %q in %q", clientDesc.ParentStack, stackName, params.Environment)
 		}
 		current[stackName] = stack
 	}
-	return &current
+	return &current, nil
 }
 
 func (m *StacksMap) ResolveInheritance() *StacksMap {
