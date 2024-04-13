@@ -31,11 +31,13 @@ func init() {
 	})
 
 	pApi.RegisterRegistrar("", NotConfiguredRegistrar)
-	pApi.RegisterInitStateStore(ProvisionerTypePulumi, func(ctx context.Context, authCfg api.AuthConfig) error {
+	setPulumiCloudAccessToken := func(ctx context.Context, authCfg api.AuthConfig) error {
 		// hackily set access token env variable, so that lm can access it
 		if err := os.Setenv(httpstate.AccessTokenEnvVar, authCfg.CredentialsValue()); err != nil {
 			return err
 		}
 		return nil
-	})
+	}
+	pApi.RegisterInitStateStore(ProvisionerTypePulumi, setPulumiCloudAccessToken)
+	pApi.RegisterInitStateStore(BackendTypePulumiCloud, setPulumiCloudAccessToken)
 }

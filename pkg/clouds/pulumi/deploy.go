@@ -71,6 +71,9 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		templateRef := stackDescriptorTemplateName(parentRefString, templateName)
 		var stackDesc api.StackDescriptor
 		err := getSecretValueFromStack(ctx, parentRefString, templateRef, func(val string) error {
+			if val == "" {
+				return errors.Errorf("no template descriptor for stack %q in %q, consider re-provisioning of parent stack", parentStack, params.Environment)
+			}
 			err := yaml.Unmarshal([]byte(val), &stackDesc)
 			if err != nil {
 				return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)

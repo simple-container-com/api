@@ -31,7 +31,7 @@ func (d *TokenAuthDescriptor) KeyUrl() string {
 }
 
 func (d *TokenAuthDescriptor) ProviderType() string {
-	return "pulumi"
+	return BackendTypePulumiCloud
 }
 
 func (d *TokenAuthDescriptor) ProjectIdValue() string {
