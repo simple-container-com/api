@@ -18,7 +18,11 @@ func NewInitCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		Use:   "init",
 		Short: "Init simple-container.com managed repository",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := sCmd.Root.Init(false, true); err != nil {
+			if err := sCmd.Root.Init(root_cmd.InitOpts{
+				SkipScDirCreation:    false,
+				IgnoreConfigDirError: true,
+				ReturnOnGitError:     false,
+			}); err != nil {
 				return err
 			}
 			if err := sCmd.Root.Provisioner.InitProfile(false); err != nil {

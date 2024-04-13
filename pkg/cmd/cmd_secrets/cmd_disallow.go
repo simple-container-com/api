@@ -3,6 +3,7 @@ package cmd_secrets
 import (
 	"github.com/samber/lo"
 	"github.com/simple-container-com/api/pkg/api/secrets"
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +19,7 @@ func NewDisallowCmd(sCmd *secretsCmd) *cobra.Command {
 			if len(args) != 0 {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
-			if err := sCmd.Root.Init(true, true); err == nil {
+			if err := sCmd.Root.Init(root_cmd.IgnoreAllErrors); err == nil {
 				return lo.MapToSlice(sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Secrets, func(key string, _ secrets.EncryptedSecrets) string {
 					return key
 				}), cobra.ShellCompDirectiveNoFileComp

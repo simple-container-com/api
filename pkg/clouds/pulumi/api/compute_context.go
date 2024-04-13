@@ -63,7 +63,7 @@ func (c *Collector) AddEnvVariableIfNotExist(name, value, resType, resName, stac
 	if _, found := lo.Find(c.EnvVars, func(v ComputeEnvVariable) bool {
 		return v.Name == name
 	}); found {
-		c.log.Warn(c.ctx, "env variable %q already exists, skipping", name)
+		c.log.Info(c.ctx, "env variable %q already exists, skipping", name)
 		return
 	}
 	c.EnvVars = append(c.EnvVars, ComputeEnvVariable{

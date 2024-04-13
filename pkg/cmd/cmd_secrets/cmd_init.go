@@ -1,6 +1,7 @@
 package cmd_secrets
 
 import (
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +16,11 @@ func NewInitCmd(sCmd *secretsCmd) *cobra.Command {
 		Use:   "init",
 		Short: "Init repository secrets with initial commit",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := sCmd.Root.Init(false, true); err != nil {
+			if err := sCmd.Root.Init(root_cmd.InitOpts{
+				SkipScDirCreation:    false,
+				IgnoreConfigDirError: true,
+				ReturnOnGitError:     false,
+			}); err != nil {
 				return err
 			}
 			if err := sCmd.Root.Provisioner.InitProfile(iCmd.GenerateKeyPair); err != nil {

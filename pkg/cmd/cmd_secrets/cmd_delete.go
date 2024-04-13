@@ -1,6 +1,7 @@
 package cmd_secrets
 
 import (
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"os"
 	"path/filepath"
 
@@ -33,7 +34,7 @@ func NewDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 			if len(args) != 0 {
 				return nil, cobra.ShellCompDirectiveNoFileComp
 			}
-			if err := sCmd.Root.Init(true, true); err == nil {
+			if err := sCmd.Root.Init(root_cmd.IgnoreAllErrors); err == nil {
 				return sCmd.Root.Provisioner.Cryptor().GetSecretFiles().Registry.Files, cobra.ShellCompDirectiveNoFileComp
 			}
 			return nil, cobra.ShellCompDirectiveNoFileComp

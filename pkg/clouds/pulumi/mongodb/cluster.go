@@ -43,6 +43,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if atlasCfg.ProjectId == "" {
 		projName := lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)
 
+		params.Log.Info(ctx.Context(), "configure MongoDB Atlas project %d for stack %q in %q", projName, input.StackParams.StackName, input.StackParams.Environment)
 		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
 			Name:  sdk.String(projName),
 			OrgId: sdk.String(atlasCfg.OrgId),
@@ -68,6 +69,8 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	_, isSharedInstanceSize := lo.Find(sharedInstanceSizes, func(size string) bool {
 		return size == atlasCfg.InstanceSize
 	})
+
+	params.Log.Info(ctx.Context(), "configure MongoDB Atlas cluster %d for stack %q in %q", clusterName, input.StackParams.StackName, input.StackParams.Environment)
 	cluster, err := mongodbatlas.NewCluster(ctx, fmt.Sprintf("%s-cluster", clusterName), &mongodbatlas.ClusterArgs{
 		Name:                     sdk.StringPtr(clusterName),
 		ProviderRegionName:       sdk.StringPtr(atlasCfg.Region),
@@ -85,6 +88,8 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	ctx.Export(toMongoUriWithOptionsExport(clusterName), cluster.MongoUriWithOptions)
 	out.Cluster = cluster
 
+	params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for stack %q in %q",
+		clusterName, input.StackParams.StackName, input.StackParams.Environment)
 	ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
 		CidrBlock: sdk.StringPtr("0.0.0.0/0"),
 		Comment:   sdk.StringPtr("Allow all access to the cluster (TODO: restrict to our cluster only)"),

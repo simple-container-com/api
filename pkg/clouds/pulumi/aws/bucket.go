@@ -41,8 +41,12 @@ func PrivateS3Bucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
+	bucketName := input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name))
+	params.Log.Info(ctx.Context(), "configure private s3 bucket %q for %q in %q",
+		bucketName, input.StackParams.StackName, input.StackParams.Environment)
+
 	res, err := createPrivateBucket(ctx, PrivateBucketInput{
-		Name:     input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name)),
+		Name:     bucketName,
 		Provider: params.Provider,
 	})
 	if err != nil {

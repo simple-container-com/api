@@ -33,16 +33,31 @@ type RootCmd struct {
 	Provisioner provisioner.Provisioner
 }
 
-func (c *RootCmd) Init(skipScDirCreation bool, ignoreConfigDirError bool) error {
+type InitOpts struct {
+	SkipScDirCreation    bool
+	IgnoreConfigDirError bool
+	ReturnOnGitError     bool
+}
+
+var IgnoreAllErrors = InitOpts{
+	SkipScDirCreation:    true,
+	IgnoreConfigDirError: true,
+	ReturnOnGitError:     true,
+}
+
+func (c *RootCmd) Init(opts InitOpts) error {
 	ctx := context.Background()
 
 	c.Logger = logger.New()
 	gitRepo, err := git.New(
 		git.WithDetectRootDir(),
 	)
-	if err != nil {
+	if err != nil && !opts.ReturnOnGitError {
 		return err
+	} else if err != nil && opts.ReturnOnGitError {
+		return nil
 	}
+
 	c.Provisioner, err = provisioner.New(
 		provisioner.WithGitRepo(gitRepo),
 		provisioner.WithLogger(c.Logger),
@@ -56,18 +71,18 @@ func (c *RootCmd) Init(skipScDirCreation bool, ignoreConfigDirError bool) error 
 		RootDir:             gitRepo.Workdir(),
 		SkipInitialCommit:   true,
 		SkipProfileCreation: true,
-		SkipScDirCreation:   skipScDirCreation,
-		IgnoreWorkdirErrors: skipScDirCreation,
+		SkipScDirCreation:   opts.SkipScDirCreation,
+		IgnoreWorkdirErrors: opts.SkipScDirCreation,
 		Profile:             c.Params.Profile,
 		GenerateKeyPair:     c.Params.GenerateKeyPair,
 	}); err != nil {
 		return err
 	}
 
-	if err := c.Provisioner.Cryptor().ReadProfileConfig(); err != nil && !ignoreConfigDirError {
+	if err := c.Provisioner.Cryptor().ReadProfileConfig(); err != nil && !opts.IgnoreConfigDirError {
 		return errors.Wrapf(err, "failed to read profile config, did you run `init`?")
 	}
-	if err := c.Provisioner.Cryptor().ReadSecretFiles(); err != nil && !ignoreConfigDirError {
+	if err := c.Provisioner.Cryptor().ReadSecretFiles(); err != nil && !opts.IgnoreConfigDirError {
 		return errors.Wrapf(err, "failed to read secrets file, did you run `init`?")
 	}
 
