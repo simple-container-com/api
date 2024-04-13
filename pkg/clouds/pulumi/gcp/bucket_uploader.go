@@ -99,7 +99,7 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDi
 		params.Log.Info(ctx, color.YellowFmt("uploading file %q to gs://%s/%s...", filePath, bucketName, copyPath))
 		f, err := os.Open(path.Join(fullDirPath, copyPath))
 		if err != nil {
-			params.Log.Error(ctx, "Error uploading %s: %v", filePath, err)
+			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
 			return fmt.Errorf("os.Open: %v", err)
 		}
 		defer func(f *os.File) {
@@ -108,12 +108,12 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDi
 		wc := bucketRef.Object(copyPath).NewWriter(ctx)
 		bytesCopied, err := io.Copy(wc, f)
 		if err != nil {
-			params.Log.Error(ctx, "Error uploading %s: %v", filePath, err)
+			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
 			return fmt.Errorf("io.Copy: %v", err)
 		}
 		totalBytes.Add(bytesCopied)
 		if err := wc.Close(); err != nil {
-			params.Log.Error(ctx, "Error closing bucket object %s: %v", filePath, err)
+			params.Log.Error(ctx, color.RedFmt("Error closing bucket object %s: %v", filePath, err))
 			return fmt.Errorf("Writer.Close: %v", err)
 		}
 		params.Log.Info(ctx, color.GreenFmt("DONE gs://%s/%s (%d bytes)", bucketName, copyPath, bytesCopied))
