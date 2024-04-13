@@ -3,6 +3,7 @@ package aws
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/samber/lo"
 
 	"github.com/pkg/errors"

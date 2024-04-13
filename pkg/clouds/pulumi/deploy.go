@@ -137,7 +137,6 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		}
 
 		sdk.ToArrayOutput(collector.Outputs()).ApplyT(func(args []any) (any, error) {
-
 			// resolve resource-dependent client placeholders that have remained after initial resolve of basic values
 			if err := collector.ResolvePlaceholders(&clientStackDesc.Config.Config); err != nil {
 				return nil, errors.Wrapf(err, "failed to resolve placeholders for secrets in stack %q in %q", stack.Name, params.Environment)

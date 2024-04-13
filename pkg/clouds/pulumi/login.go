@@ -3,12 +3,13 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	"os"
-	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
 
@@ -23,8 +24,10 @@ import (
 	"github.com/simple-container-com/api/pkg/api/git/path_util"
 )
 
-const ConfigPassphraseEnvVar = "PULUMI_CONFIG_PASSPHRASE"
-const DefaultPulumiPassphrase = "simple-container.com"
+const (
+	ConfigPassphraseEnvVar  = "PULUMI_CONFIG_PASSPHRASE"
+	DefaultPulumiPassphrase = "simple-container.com"
+)
 
 func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	cmdutil.DisableInteractive = true

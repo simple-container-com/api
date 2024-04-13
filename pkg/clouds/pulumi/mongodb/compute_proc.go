@@ -3,8 +3,9 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/simple-container-com/welder/pkg/template"
 	"strings"
+
+	"github.com/simple-container-com/welder/pkg/template"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"

@@ -69,17 +69,17 @@ func (_m *PulumiMock) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile
 	return r0
 }
 
-// DestroyParentStack provides a mock function with given fields: ctx, cfg, parentStack
-func (_m *PulumiMock) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) error {
-	ret := _m.Called(ctx, cfg, parentStack)
+// DestroyParentStack provides a mock function with given fields: ctx, cfg, parentStack, params
+func (_m *PulumiMock) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
+	ret := _m.Called(ctx, cfg, parentStack, params)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DestroyParentStack")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack) error); ok {
-		r0 = rf(ctx, cfg, parentStack)
+	if rf, ok := ret.Get(0).(func(context.Context, *api.ConfigFile, api.Stack, api.DestroyParams) error); ok {
+		r0 = rf(ctx, cfg, parentStack, params)
 	} else {
 		r0 = ret.Error(0)
 	}

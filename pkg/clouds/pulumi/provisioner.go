@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
