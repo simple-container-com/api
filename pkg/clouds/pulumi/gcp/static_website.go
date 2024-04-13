@@ -54,10 +54,15 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		bucketName = in.BucketName
 	}
 
+	bucketLocation := in.Location
+	if bucketLocation == "" {
+		return nil, errors.Errorf("location is required for gcp bucket, but wasn't set for %q in %q", stack.Name, input.StackParams.Environment)
+	}
+
 	// Create a GCP storage bucket for the static website.
 	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
 		Name:         sdk.String(bucketName),
-		Location:     sdk.String(in.Location),
+		Location:     sdk.String(bucketLocation),
 		ForceDestroy: sdk.BoolPtr(false),
 		Website: &storage.BucketWebsiteArgs{
 			MainPageSuffix: sdk.String("index.html"),

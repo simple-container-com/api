@@ -67,6 +67,7 @@ type StackConfigStatic struct {
 	ProvisionWwwDomain bool   `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
 
 	BucketName string `json:"bucketName" yaml:"bucketName"` // if necessary to override bucket name, only applicable in some clouds (e.g. gcp)
+	Location   string `json:"location" yaml:"location"`
 }
 
 type StackParams struct {

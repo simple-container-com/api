@@ -31,6 +31,11 @@ func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.Stack
 		StackConfigStatic: stackCfg,
 		StackDir:          stackDir,
 		StackName:         stackName,
+		Location:          stackCfg.Location,
+	}
+
+	if stackCfg.Location == "" {
+		return nil, errors.Errorf("location is required for gcp bucket")
 	}
 
 	return res, nil
