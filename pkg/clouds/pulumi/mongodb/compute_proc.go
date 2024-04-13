@@ -60,6 +60,10 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 				dbName: dbName,
 				role:   "readWrite",
 			},
+			{
+				dbName: "admin",
+				role:   "readAnyDatabase",
+			},
 		},
 	}, params)
 	if err != nil {
