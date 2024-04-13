@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
@@ -105,40 +105,54 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	if !ok {
 		return errors.Errorf("secrets provider config is not of type api.SecretsProviderConfig for %q", provisionerCfg.SecretsProvider.Type)
 	}
+	ref, err := be.ParseStackReference(stackRefString)
+	if err != nil {
+		return err
+	}
+	p.stackRef = ref
+	p.provisionerCfg = provisionerCfg
 
-	if secretsProviderCfg.IsProvisionEnabled() && secretsProviderCfg.ProviderType() != BackendTypePulumiCloud {
-		secretsProviderUrlExportName := fmt.Sprintf("%s-%s-sc", cfg.ProjectName, stack.Name)
+	secretsProviderUrlExportName := fmt.Sprintf("%s-%s-sc", cfg.ProjectName, stack.Name)
+
+	if secretsProviderCfg.IsProvisionEnabled() && secretsProviderCfg.ProviderType() != BackendTypePulumiCloud && p.secretsProviderUrl == "" {
 		defer p.withPulumiPassphrase(ctx)()
-		p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
-		secretsProviderStackSource, err := auto.UpsertStackInlineSource(ctx, secretsProviderStackRefString, cfg.ProjectName, func(ctx *sdk.Context) error {
-			return p.provisionSecretsProvider(ctx, provisionerCfg, stack, secretsProviderUrlExportName)
-		})
-		if err != nil {
-			return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
-		}
-		upRes, err := secretsProviderStackSource.Up(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
-		}
-		p.logger.Debug(ctx, color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
-		out, err := secretsProviderStackSource.Outputs(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get outputs from secrets provider stack %q", secretsProviderStackSource.Name())
-		}
-		if e, ok := out[secretsProviderUrlExportName]; !ok {
-			return errors.Errorf("failed to get secrets provider url from stack %q", secretsProviderStackSource.Name())
-		} else if e.Value == nil || e.Value.(string) == "" {
-			return errors.Errorf("secrets provider url is empty from stack %q", secretsProviderStackSource.Name())
-		} else {
-			p.wsOpts = append(p.wsOpts, auto.SecretsProvider(e.Value.(string)))
-			p.secretsProviderUrl = e.Value.(string)
-		}
 		ref, err := be.ParseStackReference(secretsProviderStackRefString)
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse secrets provider stack reference %q", secretsProviderStackRefString)
 		}
 		p.secretsStackRef = ref
-	} else if secretsProviderCfg.ProviderType() != BackendTypePulumiCloud {
+		if secretsProviderStackSource, err := p.prepareStackForOperations(ctx, ref, cfg, nil); err != nil {
+			return errors.Wrapf(err, "failed to prepare secrets stack for operations for stack %q", stackRefString)
+		} else if out, err := secretsProviderStackSource.Outputs(ctx); err != nil {
+			return errors.Wrapf(err, "failed to get outputs for stack %q before update", stackRefString)
+		} else if e, ok := out[secretsProviderUrlExportName]; !ok && secretsProviderCfg.KeyUrl() == "" {
+			p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
+			if err != nil {
+				return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
+			}
+			upRes, err := secretsProviderStackSource.Up(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
+			}
+			p.logger.Debug(ctx, color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
+			out, err := secretsProviderStackSource.Outputs(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get outputs from secrets provider stack %q", secretsProviderStackSource.Name())
+			}
+			if e, ok := out[secretsProviderUrlExportName]; !ok {
+				return errors.Errorf("failed to get secrets provider url from stack %q", secretsProviderStackSource.Name())
+			} else if e.Value == nil || e.Value.(string) == "" {
+				return errors.Errorf("secrets provider url is empty from stack %q", secretsProviderStackSource.Name())
+			} else {
+				p.wsOpts = append(p.wsOpts, auto.SecretsProvider(e.Value.(string)))
+				p.secretsProviderUrl = e.Value.(string)
+			}
+		} else {
+			p.wsOpts = append(p.wsOpts, auto.SecretsProvider(e.Value.(string)))
+			p.secretsProviderUrl = e.Value.(string)
+		}
+
+	} else if secretsProviderCfg.ProviderType() != BackendTypePulumiCloud && p.secretsProviderUrl == "" {
 		if secretsProviderCfg.KeyUrl() == "" {
 			return errors.Errorf("secrets provider key url is empty for %q in stack %q", secretsProviderCfg.ProviderType(), stack.Name)
 		}
@@ -152,13 +166,6 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 	p.logger.Debug(ctx, "name: %s, orgs: [%s], tokenInfo: %s", name, strings.Join(apiOrgs, ","), tokenInfo)
 
-	ref, err := be.ParseStackReference(stackRefString)
-	if err != nil {
-		return err
-	}
-	p.stackRef = ref
-
-	p.provisionerCfg = provisionerCfg
 	p.configFile = cfg
 	p.backend = be
 	p.project = project
