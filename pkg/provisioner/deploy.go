@@ -44,6 +44,9 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 	} else {
 		p.stacks = *stacks
 	}
+	if err := p.resolvePlaceholders(); err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
+	}
 
 	stack, ok := p.stacks[params.StackName]
 	if !ok {

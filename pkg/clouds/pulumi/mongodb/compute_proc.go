@@ -3,9 +3,6 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
-
-	"github.com/simple-container-com/welder/pkg/template"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -85,23 +82,10 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
-			collector.AddTplExtensions(map[string]template.Extension{
-				"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
-					pathParts := strings.SplitN(path, ".", 2)
-					refResName := pathParts[0]
-					if refResName != input.Descriptor.Name {
-						return noSubs, nil
-					}
-					refValue := pathParts[1]
-					if value, ok := map[string]string{
-						"uri":      mongoUri,
-						"password": dbUser.Password,
-						"user":     userName,
-					}[refValue]; ok {
-						return value, nil
-					}
-					return noSubs, nil
-				},
+			collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
+				"uri":      mongoUri,
+				"password": dbUser.Password,
+				"user":     userName,
 			})
 
 			return nil, nil

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"strings"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -11,24 +12,39 @@ import (
 	"github.com/simple-container-com/welder/pkg/template"
 )
 
-type Collector struct {
-	Stack   string               `json:"stackName" yaml:"stackName"`
-	Env     string               `json:"environment" yaml:"environment"`
-	EnvVars []ComputeEnvVariable `json:"envVariables" yaml:"envVariables"`
+type (
+	perResTplValues map[string]map[string]string
+	Collector       struct {
+		Stack   string               `json:"stackName" yaml:"stackName"`
+		Env     string               `json:"environment" yaml:"environment"`
+		EnvVars []ComputeEnvVariable `json:"envVariables" yaml:"envVariables"`
 
-	dependencies  []sdk.Resource
-	outputs       []sdk.Output
-	tplExtensions map[string]template.Extension
-	log           logger.Logger
-	ctx           context.Context
-}
+		dependencies     []sdk.Resource
+		outputs          []sdk.Output
+		resTplExtensions perResTplValues
+		log              logger.Logger
+		ctx              context.Context
+	}
+)
 
 func (c *Collector) ResolvePlaceholders(obj any) error {
-	return placeholders.New().Apply(obj, placeholders.WithExtensions(c.tplExtensions))
+	return placeholders.New().Apply(obj, placeholders.WithExtensions(map[string]template.Extension{
+		"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
+			pathParts := strings.SplitN(path, ".", 2)
+			refResName := pathParts[0]
+			refValue := pathParts[1]
+			if values, ok := c.resTplExtensions[refResName]; ok {
+				if value, ok := values[refValue]; ok {
+					return value, nil
+				}
+			}
+			return noSubs, nil
+		},
+	}))
 }
 
-func (c *Collector) AddTplExtensions(m map[string]template.Extension) {
-	c.tplExtensions = lo.Assign(c.tplExtensions, m)
+func (c *Collector) AddResourceTplExtension(resName string, values map[string]string) {
+	c.resTplExtensions[resName] = values
 }
 
 func (c *Collector) AddOutput(o sdk.Output) {
@@ -69,10 +85,10 @@ func (c *Collector) Dependencies() []sdk.Resource {
 
 func NewComputeContextCollector(ctx context.Context, log logger.Logger, stackName string, environment string) ComputeContextCollector {
 	return &Collector{
-		Stack:         stackName,
-		Env:           environment,
-		EnvVars:       make([]ComputeEnvVariable, 0),
-		tplExtensions: make(map[string]template.Extension),
+		Stack:            stackName,
+		Env:              environment,
+		EnvVars:          make([]ComputeEnvVariable, 0),
+		resTplExtensions: make(perResTplValues),
 
 		log: log,
 		ctx: ctx,

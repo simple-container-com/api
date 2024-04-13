@@ -3,7 +3,6 @@ package api
 import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/simple-container-com/api/pkg/api/logger"
-	"github.com/simple-container-com/welder/pkg/template"
 )
 
 type ProvisionParams struct {
@@ -43,5 +42,5 @@ type ComputeContextCollector interface {
 	AddOutput(o sdk.Output)
 	Outputs() []sdk.Output
 	ResolvePlaceholders(obj any) error
-	AddTplExtensions(map[string]template.Extension)
+	AddResourceTplExtension(resName string, value map[string]string)
 }

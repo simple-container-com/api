@@ -2,7 +2,6 @@ package aws
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/samber/lo"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
-	"github.com/simple-container-com/welder/pkg/template"
 )
 
 func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -85,22 +83,11 @@ func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_SECRET_KEY")), resAccessKeySecret,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 
-		collector.AddTplExtensions(map[string]template.Extension{
-			"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
-				pathParts := strings.SplitN(path, ".", 2)
-				if pathParts[0] != input.Descriptor.Name {
-					return noSubs, nil
-				}
-				if value, ok := map[string]string{
-					"bucket":     resBucketName,
-					"region":     resBucketRegion,
-					"access-key": resAccessKeyId,
-					"secret-key": resAccessKeySecret,
-				}[pathParts[1]]; ok {
-					return value, nil
-				}
-				return noSubs, nil
-			},
+		collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
+			"bucket":     resBucketName,
+			"region":     resBucketRegion,
+			"access-key": resAccessKeyId,
+			"secret-key": resAccessKeySecret,
 		})
 
 		return nil

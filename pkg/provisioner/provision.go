@@ -125,6 +125,15 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		p.stacks[stackName] = stack
 	}
 
+	err := p.resolvePlaceholders()
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+func (p *provisioner) resolvePlaceholders() error {
 	provisioners := map[string]api.Provisioner{}
 	for stackName, stack := range p.stacks {
 		provisioners[stackName] = stack.Server.Provisioner.GetProvisioner()
@@ -139,8 +148,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		stack.Server.Provisioner.SetProvisioner(provisioners[name])
 		return stack
 	})
-
-	return err
+	return nil
 }
 
 func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*api.ServerDescriptor, error) {
