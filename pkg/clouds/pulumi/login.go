@@ -125,7 +125,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			return errors.Wrapf(err, "failed to prepare secrets stack for operations for stack %q", stackRefString)
 		} else if out, err := secretsProviderStackSource.Outputs(ctx); err != nil {
 			return errors.Wrapf(err, "failed to get outputs for stack %q before update", stackRefString)
-		} else if e, ok := out[secretsProviderUrlExportName]; (!ok || e.Value == nil) && secretsProviderCfg.KeyUrl() == "" {
+		} else if e, ok := out[secretsProviderUrlExportName]; !ok || e.Value == nil {
 			p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
 			if err != nil {
 				return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
@@ -147,6 +147,8 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 				p.wsOpts = append(p.wsOpts, auto.SecretsProvider(e.Value.(string)))
 				p.secretsProviderUrl = e.Value.(string)
 			}
+		} else if e.Value == nil {
+			return errors.Errorf("secrets provider url is empty for %q in stack %q", secretsProviderCfg.ProviderType(), stack.Name)
 		} else {
 			p.wsOpts = append(p.wsOpts, auto.SecretsProvider(e.Value.(string)))
 			p.secretsProviderUrl = e.Value.(string)
