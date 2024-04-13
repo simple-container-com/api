@@ -63,7 +63,7 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
 		Name:         sdk.String(bucketName),
 		Location:     sdk.String(bucketLocation),
-		ForceDestroy: sdk.BoolPtr(false),
+		ForceDestroy: sdk.BoolPtr(true),
 		Website: &storage.BucketWebsiteArgs{
 			MainPageSuffix: sdk.String("index.html"),
 			NotFoundPage:   sdk.String("404.html"),
