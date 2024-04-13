@@ -21,7 +21,7 @@ func InitStateStore(ctx context.Context, authCfg api.AuthConfig) error {
 	return nil
 }
 
-func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	pcfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to cast config to api.AuthConfig")

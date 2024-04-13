@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
@@ -26,11 +25,11 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
 
-	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)
+	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName))
 	if err != nil {
 		return err
 	}
+
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
 		refreshResult, err := stackSource.Refresh(ctx)
@@ -46,10 +45,11 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	}
 	p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	p.logger.Info(ctx, color.GreenFmt("Updating stack %q...", stackSource.Name()))
-	_, err = stackSource.Up(ctx)
+	upRes, err := stackSource.Up(ctx)
 	if err != nil {
 		return err
 	}
+	p.logger.Info(ctx, color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), upRes)))
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				p.logger.Info(ctx.Context(), "stack %q does not use resource %q, skipping...", stack.Name, resName)
 				continue
 			}
-			if fnc, ok := computeProcessorFuncByType[res.Type]; !ok {
+			if fnc, ok := pApi.ComputeProcessorFuncByType[res.Type]; !ok {
 				p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", resName, res.Type)
 				continue
 			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, params.Environment); err != nil {
@@ -155,7 +155,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 			provisionParams.ComputeContext = collector
 
-			if fnc, ok := provisionFuncByType[resDesc.Type]; !ok {
+			if fnc, ok := pApi.ProvisionFuncByType[resDesc.Type]; !ok {
 				return nil, errors.Errorf("unknown resource type %q", resDesc.Type)
 			} else if _, err := fnc(ctx, stack, api.ResourceInput{
 				Descriptor:  &resDesc,

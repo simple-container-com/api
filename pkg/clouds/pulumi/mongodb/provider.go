@@ -10,7 +10,7 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func ProvisionProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	authCfg, ok := input.Descriptor.Config.Config.(*mongodb.AtlasConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to cast config to *mongodb.AtlasConfig")

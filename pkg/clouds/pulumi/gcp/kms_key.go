@@ -3,8 +3,6 @@ package gcp
 import (
 	"fmt"
 
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-
 	"github.com/pkg/errors"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/kms"
@@ -13,22 +11,21 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	kmsInput, ok := input.Descriptor.Config.Config.(*gcloud.SecretsProviderConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert KmsKeyInput for %q", input.Descriptor.Type)
 	}
 
-	keyRingName := kmsInput.KeyRingName
-	if keyRingName == "" {
-		keyRingName = fmt.Sprintf("%s-keyring", stack.Name)
-	}
+	projectId := kmsInput.ProjectIdValue()
+	keyRingName := input.Descriptor.Name
 
 	// Create a new KeyRing for stack
-	keyRing, err := kms.NewKeyRing(ctx, input.ToResName(stack.Name), &kms.KeyRingArgs{
-		Name:     sdk.String(input.ToResName(keyRingName)),
+	keyRing, err := kms.NewKeyRing(ctx, keyRingName, &kms.KeyRingArgs{
+		Name:     sdk.String(keyRingName),
 		Location: sdk.String(kmsInput.KeyLocation),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
@@ -38,8 +35,8 @@ func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 	// Create a new CryptoKey associated with the KeyRing.
 	rotationPeriod := lo.If(kmsInput.KeyRotationPeriod == "", "100000s").Else(kmsInput.KeyRotationPeriod)
 
-	key, err := kms.NewCryptoKey(ctx, input.ToResName(kmsInput.KeyName), &kms.CryptoKeyArgs{
-		Name:           sdk.String(input.ToResName(kmsInput.KeyName)),
+	key, err := kms.NewCryptoKey(ctx, input.ToResName(input.Descriptor.Name), &kms.CryptoKeyArgs{
+		Name:           sdk.String(input.Descriptor.Name),
 		KeyRing:        keyRing.ID(),               // Reference the ID of the KeyRing created above.
 		RotationPeriod: sdk.String(rotationPeriod), // Define key rotation period in seconds.
 		VersionTemplate: &kms.CryptoKeyVersionTemplateArgs{
@@ -51,8 +48,11 @@ func ProvisionKmsKey(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		return nil, err
 	}
 
-	// Output the KeyRing name to access after the program runs
-	ctx.Export(fmt.Sprintf("%s-keyring", kmsInput.KeyRingName), keyRing.Name)
-	ctx.Export(fmt.Sprintf("%s-key", kmsInput.KeyName), key.Name)
+	ctx.Export(input.Descriptor.Name, sdk.All(keyRing.Name, key.Name).ApplyT(func(args []any) (string, error) {
+		keyRingName, keyName := args[0].(string), args[1].(string)
+		return fmt.Sprintf("gcpkms://projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s",
+			projectId, kmsInput.KeyLocation, keyRingName, keyName), nil
+	}))
+
 	return &api.ResourceOutput{Ref: key}, nil
 }

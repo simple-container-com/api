@@ -112,7 +112,7 @@ type Provisioner interface {
 
 	CancelStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params StackParams) error
 
-	DestroyParentStack(ctx context.Context, cfg *ConfigFile, parentStack Stack) error
+	DestroyParentStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DestroyParams) error
 
 	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }
@@ -141,6 +141,7 @@ type StateStorageConfig interface {
 type SecretsProviderConfig interface {
 	AuthConfig
 	IsProvisionEnabled() bool
+	KeyUrl() string
 }
 
 type Credentials struct {

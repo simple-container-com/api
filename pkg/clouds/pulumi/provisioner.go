@@ -3,12 +3,12 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/pkg/errors"
@@ -26,17 +26,18 @@ type pulumi struct {
 	logger logger.Logger
 	pubKey string
 
-	initialProvisionProgram func(ctx *sdk.Context) error
-	stack                   *auto.Stack
-	backend                 backend.Backend
-	stackRef                backend.StackReference
-	registrar               pApi.Registrar
+	preProvisionProgram func(ctx *sdk.Context) error
+	backend             backend.Backend
+	stackRef            backend.StackReference
+	secretsStackRef     backend.StackReference
+	secretsProviderUrl  string
+	registrar           pApi.Registrar
+	wsOpts              []auto.LocalWorkspaceOption
 
-	secretsProviderOutput *SecretsProviderOutput
-	fieldConfigReader     api.ProvisionerFieldConfigReaderFunc
-	provisionerCfg        *ProvisionerConfig
-	configFile            *api.ConfigFile
-	project               *workspace.Project
+	fieldConfigReader api.ProvisionerFieldConfigReaderFunc
+	provisionerCfg    *ProvisionerConfig
+	configFile        *api.ConfigFile
+	project           *workspace.Project
 }
 
 func InitPulumiProvisioner(config api.Config, opts ...api.ProvisionerOption) (api.Provisioner, error) {
@@ -85,12 +86,12 @@ func (p *pulumi) SetPublicKey(pubKey string) {
 	p.pubKey = pubKey
 }
 
-func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) error {
-	_, err := p.selectStack(ctx, cfg, parentStack)
+func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
+	s, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	return p.destroyParentStack(ctx, cfg, parentStack)
+	return p.destroyStack(ctx, cfg, s, params.SkipRefresh)
 }
 
 func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
@@ -99,10 +100,11 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
 	childStack := toChildStack(parentStack, params.StackParams)
-	if _, err = p.selectStack(ctx, cfg, childStack); err != nil {
+	s, err := p.selectStack(ctx, cfg, childStack)
+	if err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
-	return p.destroyChildStack(ctx, cfg, childStack, params)
+	return p.destroyStack(ctx, cfg, s, params.SkipRefresh)
 }
 
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) (*api.PreviewResult, error) {

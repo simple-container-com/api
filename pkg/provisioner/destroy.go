@@ -23,8 +23,8 @@ func (p *provisioner) Destroy(ctx context.Context, params api.DestroyParams) err
 	return pv.DestroyChildStack(ctx, cfg, *stack, params)
 }
 
-func (p *provisioner) DestroyParent(ctx context.Context, params api.ProvisionParams) error {
-	cfg, err := p.readConfigForProvision(ctx, params)
+func (p *provisioner) DestroyParent(ctx context.Context, params api.DestroyParams) error {
+	cfg, err := p.readConfigForProvision(ctx, params.ToProvisionParams())
 	if err != nil {
 		return err
 	}
@@ -34,7 +34,7 @@ func (p *provisioner) DestroyParent(ctx context.Context, params api.ProvisionPar
 		if err != nil {
 			return errors.Wrapf(err, "failed to get provisioner for stack %q", stack.Name)
 		}
-		if err := pv.DestroyParentStack(ctx, cfg, stack); err != nil {
+		if err := pv.DestroyParentStack(ctx, cfg, stack, params); err != nil {
 			return errors.Wrapf(err, "failed to preview for stack %q", stack.Name)
 		}
 	}

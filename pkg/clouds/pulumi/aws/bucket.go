@@ -30,7 +30,7 @@ type PrivateBucketOutput struct {
 	BucketPolicy    *s3.BucketPolicy
 }
 
-func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func PrivateS3Bucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != aws.ResourceTypeS3Bucket {
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}

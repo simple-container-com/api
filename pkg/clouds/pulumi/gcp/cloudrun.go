@@ -11,7 +11,7 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
-func ProvisionCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func Cloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != gcloud.TemplateTypeGcpCloudrun {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}

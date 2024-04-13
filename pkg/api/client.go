@@ -81,6 +81,12 @@ type DeployParams struct {
 	Vars        VariableValues `json:"vars" yaml:"vars"`
 }
 
+type UpdateResult struct {
+	StackName  string         `json:"stackName" yaml:"stackName"`
+	Summary    string         `json:"summary" yaml:"summary"`
+	Operations map[string]int `json:"operations" yaml:"operations"`
+}
+
 type PreviewResult struct {
 	StackName  string         `json:"stackName" yaml:"stackName"`
 	Summary    string         `json:"summary" yaml:"summary"`
@@ -90,6 +96,11 @@ type PreviewResult struct {
 type OutputsResult struct {
 	StackName string         `json:"stackName" yaml:"stackName"`
 	Outputs   map[string]any `json:"outputs" yaml:"outputs"`
+}
+
+func (r *UpdateResult) String() string {
+	res, _ := json.Marshal(r)
+	return string(res)
 }
 
 func (r *PreviewResult) String() string {
@@ -116,6 +127,15 @@ type RefreshResult struct {
 
 type DestroyParams struct {
 	StackParams `json:",inline" yaml:",inline"`
+}
+
+func (p *DestroyParams) ToProvisionParams() ProvisionParams {
+	return ProvisionParams{
+		StacksDir:   p.StacksDir,
+		Profile:     p.Profile,
+		Stacks:      []string{p.StackName},
+		SkipRefresh: p.SkipRefresh,
+	}
 }
 
 func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {

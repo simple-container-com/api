@@ -266,7 +266,7 @@ func (p *placeholders) applyTemplatesRecursive(copy, original reflect.Value, opt
 		} else if _, ok := originalVal.(types.StringValue); ok {
 			processed = p.applyTemplateOnString(string(originalVal.(types.StringValue)), opts)
 		} else {
-			processed = p.applyTemplateOnString(string(originalVal.(types.RunOnType)), opts)
+			processed = p.applyTemplateOnString(reflect.ValueOf(originalVal).String(), opts)
 		}
 		copy.SetString(processed)
 

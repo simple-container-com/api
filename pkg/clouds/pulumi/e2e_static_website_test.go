@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	e2eStaticParentStackName    = "e2e-static-parent--stack"
-	e2eStaticChildStackName     = "e2e-static-child--stack"
-	e2eStaticKmsTestKeyName     = "e2e-static--kms-key"
-	e2eStaticKmsTestKeyringName = "e2e-static--kms-keyring"
+	e2eStaticParentStackName = "e2e-static-parent--stack"
+	e2eStaticChildStackName  = "e2e-static-child--stack"
+	e2eStaticKmsTestKeyName  = "e2e-static--kms-key"
 )
 
 func Test_CreateStaticStackGCP(t *testing.T) {
@@ -35,9 +34,8 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForGcp(e2eConfig{
-			gcpCreds:       *cfg.GcpCredentials,
-			kmsKeyName:     tmpResName(e2eStaticKmsTestKeyName),
-			kmsKeyringName: tmpResName(e2eStaticKmsTestKeyringName),
+			gcpCreds:   *cfg.GcpCredentials,
+			kmsKeyName: tmpResName(e2eStaticKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"static-website": {
 					Type: gcloud.TemplateTypeStaticWebsite,
@@ -89,10 +87,9 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForAws(e2eConfig{
-			gcpCreds:       *cfg.GcpCredentials,
-			awsCreds:       *cfg.AwsCredentials,
-			kmsKeyName:     tmpResName(e2eStaticKmsTestKeyName),
-			kmsKeyringName: tmpResName(e2eStaticKmsTestKeyringName),
+			gcpCreds:   *cfg.GcpCredentials,
+			awsCreds:   *cfg.AwsCredentials,
+			kmsKeyName: tmpResName(e2eStaticKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"static-website": {
 					Type: aws.TemplateTypeStaticWebsite,

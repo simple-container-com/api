@@ -19,11 +19,15 @@ func (d *TokenAuthDescriptor) StorageUrl() string {
 }
 
 func (d *TokenAuthDescriptor) IsProvisionEnabled() bool {
-	return true
+	return false
 }
 
 func (d *TokenAuthDescriptor) CredentialsValue() string {
 	return d.Credentials
+}
+
+func (d *TokenAuthDescriptor) KeyUrl() string {
+	return ""
 }
 
 func (d *TokenAuthDescriptor) ProviderType() string {

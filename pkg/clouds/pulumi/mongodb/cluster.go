@@ -14,18 +14,18 @@ import (
 	"github.com/simple-container-com/api/pkg/util"
 )
 
-type MongodbClusterOutput struct {
+type ClusterOutput struct {
 	DbUsers sdk.Output
 	Cluster *mongodbatlas.Cluster
 	Project *mongodbatlas.Project
 }
 
-func ProvisionCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != mongodb.ResourceTypeMongodbAtlas {
 		return nil, errors.Errorf("unsupported mongodb-atlas type %q", input.Descriptor.Type)
 	}
 
-	out := &MongodbClusterOutput{}
+	out := &ClusterOutput{}
 
 	atlasCfg, ok := input.Descriptor.Config.Config.(*mongodb.AtlasConfig)
 	if !ok {

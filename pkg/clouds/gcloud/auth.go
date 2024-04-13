@@ -36,12 +36,18 @@ type StateStorageConfig struct {
 }
 
 type SecretsProviderConfig struct {
-	Credentials       `json:",inline" yaml:",inline"`
-	KeyRingName       string `json:"keyRingName" yaml:"keyRingName"`
-	KeyName           string `json:"keyName" yaml:"keyName"`
-	KeyLocation       string `json:"keyLocation" yaml:"keyLocation"`
+	Credentials `json:",inline" yaml:",inline"`
+	// format:
+	// "gcpkms://projects/%s/locations/%s/keyRings/%s/cryptoKeys/%s"
+	KeyName string `json:"keyName" yaml:"keyName"`
+
+	// only applicable when provision=true
+	KeyLocation string `json:"keyLocation" yaml:"keyLocation"`
+	// only applicable when provision=true
 	KeyRotationPeriod string `json:"keyRotationPeriod" yaml:"keyRotationPeriod"`
-	Provision         bool   `json:"provision" yaml:"provision"`
+
+	// whether to provision key
+	Provision bool `json:"provision" yaml:"provision"`
 }
 
 func (sa *StateStorageConfig) StorageUrl() string {
@@ -54,6 +60,10 @@ func (sa *StateStorageConfig) IsProvisionEnabled() bool {
 
 func (r *SecretsProviderConfig) IsProvisionEnabled() bool {
 	return r.Provision
+}
+
+func (r *SecretsProviderConfig) KeyUrl() string {
+	return r.KeyName
 }
 
 func (r *Credentials) ProviderType() string {

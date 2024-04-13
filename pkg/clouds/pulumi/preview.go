@@ -19,7 +19,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 		return nil, err
 	}
 	p.logger.Info(ctx, color.GreenFmt("Previewing parent stack %q...", s.Ref().FullyQualifiedName().String()))
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack, cfg))
+	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.provisionProgram(stack, cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	fullStackName := s.Ref().FullyQualifiedName().String()
 
 	program := p.deployStackProgram(stack, params.StackParams, parentStack, fullStackName)
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, program)
+	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, program)
 	if err != nil {
 		return nil, err
 	}
@@ -71,10 +71,12 @@ func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, nil)
+
+	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, nil)
 	if err != nil {
 		return nil, err
 	}
+
 	res, err := stackSource.Outputs(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get outputs")
@@ -95,6 +97,18 @@ func (p *pulumi) toOutputsResult(stackName string, result auto.OutputMap) *api.O
 			}
 			return res
 		}),
+	}
+}
+
+func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.UpdateResult {
+	changes := map[string]int{}
+	if result.Summary.ResourceChanges != nil {
+		changes = *result.Summary.ResourceChanges
+	}
+	return &api.UpdateResult{
+		StackName:  stackName,
+		Summary:    result.StdOut,
+		Operations: changes,
 	}
 }
 

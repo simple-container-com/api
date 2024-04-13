@@ -16,14 +16,13 @@ const (
 )
 
 type e2eConfig struct {
-	kmsKeyName     string
-	kmsKeyringName string
-	templates      map[string]api.StackDescriptor
-	resources      map[string]api.PerEnvResourcesDescriptor
-	registrar      api.RegistrarDescriptor
-	gcpCreds       gcloud.Credentials
-	awsCreds       aws.AccountConfig
-	pulumiCreds    TokenAuthDescriptor
+	kmsKeyName  string
+	templates   map[string]api.StackDescriptor
+	resources   map[string]api.PerEnvResourcesDescriptor
+	registrar   api.RegistrarDescriptor
+	gcpCreds    gcloud.Credentials
+	awsCreds    aws.AccountConfig
+	pulumiCreds TokenAuthDescriptor
 }
 
 func e2eServerDescriptorForPulumi(config e2eConfig) api.ServerDescriptor {
@@ -72,7 +71,6 @@ func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {
 						Config: api.Config{Config: &gcloud.SecretsProviderConfig{
 							KeyName:     config.kmsKeyName,
 							KeyLocation: "global",
-							KeyRingName: config.kmsKeyringName,
 							Provision:   true,
 							Credentials: config.gcpCreds,
 						}},
@@ -185,11 +183,11 @@ func runDestroyParentTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
 
 	destroyProv.SetPublicKey(cfg.Cryptor.PublicKey())
 
-	err = destroyProv.DestroyParentStack(ctx, cfg.ConfigFile, stack)
+	err = destroyProv.DestroyParentStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{})
 	Expect(err).To(BeNil())
 }
 
 func tmpResName(name string) string {
-	return fmt.Sprintf("%s-%d", name, 1712558591)
+	return fmt.Sprintf("%s-%d", name, 1712558595)
 	// return fmt.Sprintf("%s-%d", name, time.Now().Unix())
 }

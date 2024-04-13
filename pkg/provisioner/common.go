@@ -34,7 +34,7 @@ type Provisioner interface {
 	Stacks() api.StacksMap
 
 	GetStack(ctx context.Context, params api.StackParams) (*api.Stack, error)
-	DestroyParent(ctx context.Context, params api.ProvisionParams) error
+	DestroyParent(ctx context.Context, params api.DestroyParams) error
 	Destroy(ctx context.Context, params api.DestroyParams) error
 
 	GitRepo() git.Repo

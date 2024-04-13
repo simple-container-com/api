@@ -1,7 +1,19 @@
 package pulumi
 
 import (
+	"context"
+	"os"
+
+	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
+
 	"github.com/simple-container-com/api/pkg/api"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+
+	// Register all the providers
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudflare"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 )
 
 func init() {
@@ -16,5 +28,14 @@ func init() {
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{
 		BackendTypePulumiCloud: ReadAuthConfig,
+	})
+
+	pApi.RegisterRegistrar("", NotConfiguredRegistrar)
+	pApi.RegisterInitStateStore(ProvisionerTypePulumi, func(ctx context.Context, authCfg api.AuthConfig) error {
+		// hackily set access token env variable, so that lm can access it
+		if err := os.Setenv(httpstate.AccessTokenEnvVar, authCfg.CredentialsValue()); err != nil {
+			return err
+		}
+		return nil
 	})
 }

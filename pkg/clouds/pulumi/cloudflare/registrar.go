@@ -24,7 +24,7 @@ type provisioner struct {
 	log       logger.Logger
 }
 
-func NewCloudflare(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error) {
+func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error) {
 	cfg, ok := config.Config.Config.(*cfApi.RegistrarConfig)
 	if !ok {
 		return nil, errors.Errorf("invalid config type %T is not *cloudflare.RegistrarConfig", config.Config.Config)

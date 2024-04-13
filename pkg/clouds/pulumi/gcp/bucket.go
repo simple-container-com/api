@@ -9,7 +9,7 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != gcloud.ResourceTypeBucket {
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}
@@ -31,7 +31,7 @@ func ProvisionBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 }
 
 func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	params.Log.Error(ctx.Context(), "Not implemented for gcp bucket")
+	params.Log.Error(ctx.Context(), "not implemented for gcp bucket")
 
 	return &api.ResourceOutput{
 		Ref: nil,

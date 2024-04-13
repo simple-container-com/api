@@ -11,5 +11,4 @@ func appendUserPasswordToMongoUri(mongoUri string, user, password string) string
 		mongoUrlParsed.User = url.UserPassword(user, password)
 		return mongoUrlParsed.String()
 	}
-	return mongoUri
 }

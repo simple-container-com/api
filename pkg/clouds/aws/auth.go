@@ -36,8 +36,11 @@ type StateStorageConfig struct {
 
 type SecretsProviderConfig struct {
 	AccountConfig `json:",inline" yaml:",inline"`
-	Provision     bool   `json:"provision" yaml:"provision"`
-	KeyName       string `json:"keyName" yaml:"keyName"`
+	Provision     bool `json:"provision" yaml:"provision"`
+
+	// must be in the format:
+	// awskms://1234abcd-12ab-34cd-56ef-1234567890ab?region=us-east-1
+	KeyName string `json:"keyName" yaml:"keyName"`
 }
 
 func (r *AccountConfig) ProviderType() string {
@@ -58,6 +61,10 @@ func (sa *StateStorageConfig) IsProvisionEnabled() bool {
 
 func (sa *SecretsProviderConfig) IsProvisionEnabled() bool {
 	return sa.Provision
+}
+
+func (sa *SecretsProviderConfig) KeyUrl() string {
+	return sa.KeyName
 }
 
 func (sa *StateStorageConfig) StorageUrl() string {

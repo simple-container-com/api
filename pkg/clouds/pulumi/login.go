@@ -3,12 +3,14 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"os"
 	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
@@ -17,13 +19,12 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git/path_util"
 )
 
 const ConfigPassphraseEnvVar = "PULUMI_CONFIG_PASSPHRASE"
+const DefaultPulumiPassphrase = "simple-container.com"
 
 func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	cmdutil.DisableInteractive = true
@@ -54,38 +55,24 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			p.logger.Warn(ctx, "failed to set %s var", "PATH")
 		}
 	}
-	if os.Getenv(ConfigPassphraseEnvVar) == "" {
-		// TODO: figure out how to set this properly
-		if err := os.Setenv(ConfigPassphraseEnvVar, cfg.ProjectName); err != nil {
-			p.logger.Warn(ctx, "failed to set %s var", ConfigPassphraseEnvVar)
-		}
-	}
 
-	p.initialProvisionProgram = func(ctx *sdk.Context) error {
-		if err := p.provisionSecretsProvider(ctx, provisionerCfg, stack); err != nil {
-			return err
-		}
-		return nil
-	}
 	project := &workspace.Project{
 		Name: tokens.PackageName(cfg.ProjectName),
 	}
-	stackRefString := fmt.Sprintf("%s/%s/%s", organization, project.Name, stack.Name)
-	pStack, _ := auto.SelectStackInlineSource(ctx, stackRefString, cfg.ProjectName, p.initialProvisionProgram)
+
 	var be backend.Backend
 	stateStorageCfg, ok := provisionerCfg.StateStorage.Config.Config.(api.StateStorageConfig)
 	if !ok {
 		return errors.Errorf("state storage config is not of type api.StateStorageConfig for %q", provisionerCfg.StateStorage.Type)
 	}
 	creds := stateStorageCfg.CredentialsValue()
-
 	if creds == "" {
 		return errors.Errorf("credentials for pulumi backend must not be empty")
 	}
 
 	if authCfg, ok := provisionerCfg.StateStorage.Config.Config.(api.AuthConfig); !ok {
 		p.logger.Warn(ctx, "state storage config is not of type api.AuthConfig")
-	} else if fnc, ok := initStateStoreFuncByType[authCfg.ProviderType()]; !ok {
+	} else if fnc, ok := pApi.InitStateStoreFuncByType[authCfg.ProviderType()]; !ok {
 		p.logger.Warn(ctx, "could not find init state storage function for provider %q, skipping init", authCfg.ProviderType())
 	} else if err := fnc(ctx, authCfg); err != nil {
 		return errors.Wrapf(err, "failed to init state storage for provider %q", authCfg.ProviderType())
@@ -108,6 +95,51 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		return err
 	}
 
+	stackRefString := fmt.Sprintf("%s/%s/%s", organization, project.Name, stack.Name)
+	secretsProviderStackRefString := fmt.Sprintf("%s--sc", stackRefString)
+
+	secretsProviderCfg, ok := provisionerCfg.SecretsProvider.Config.Config.(api.SecretsProviderConfig)
+	if !ok {
+		return errors.Errorf("secrets provider config is not of type api.SecretsProviderConfig for %q", provisionerCfg.SecretsProvider.Type)
+	}
+
+	if secretsProviderCfg.IsProvisionEnabled() && secretsProviderCfg.ProviderType() != BackendTypePulumiCloud {
+		secretsProviderUrlExportName := fmt.Sprintf("%s-%s-sc", cfg.ProjectName, stack.Name)
+		defer p.withPulumiPassphrase(ctx)()
+		p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
+		secretsProviderStackSource, err := auto.UpsertStackInlineSource(ctx, secretsProviderStackRefString, cfg.ProjectName, func(ctx *sdk.Context) error {
+			return p.provisionSecretsProvider(ctx, provisionerCfg, stack, secretsProviderUrlExportName)
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
+		}
+		upRes, err := secretsProviderStackSource.Up(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
+		}
+		p.logger.Debug(ctx, color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
+		out, err := secretsProviderStackSource.Outputs(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get outputs from secrets provider stack %q", secretsProviderStackSource.Name())
+		}
+		if e, ok := out[secretsProviderUrlExportName]; !ok {
+			return errors.Errorf("failed to get secrets provider url from stack %q", secretsProviderStackSource.Name())
+		} else if e.Value == nil || e.Value.(string) == "" {
+			return errors.Errorf("secrets provider url is empty from stack %q", secretsProviderStackSource.Name())
+		} else {
+			p.wsOpts = append(p.wsOpts, auto.SecretsProvider(e.Value.(string)))
+			p.secretsProviderUrl = e.Value.(string)
+		}
+		ref, err := be.ParseStackReference(secretsProviderStackRefString)
+		if err != nil {
+			return err
+		}
+		p.secretsStackRef = ref
+	} else if secretsProviderCfg.ProviderType() != BackendTypePulumiCloud {
+		p.wsOpts = append(p.wsOpts, auto.SecretsProvider(secretsProviderCfg.KeyUrl()))
+		p.secretsProviderUrl = secretsProviderCfg.KeyUrl()
+	}
+
 	name, apiOrgs, tokenInfo, err := be.CurrentUser()
 	if err != nil {
 		return err
@@ -122,11 +154,21 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 
 	p.provisionerCfg = provisionerCfg
 	p.configFile = cfg
-	p.stack = &pStack
 	p.backend = be
 	p.project = project
 
 	return nil
+}
+
+func (p *pulumi) withPulumiPassphrase(ctx context.Context) func() {
+	if os.Getenv(ConfigPassphraseEnvVar) == "" {
+		if err := os.Setenv(ConfigPassphraseEnvVar, DefaultPulumiPassphrase); err != nil {
+			p.logger.Warn(ctx, "failed to set %s var", ConfigPassphraseEnvVar)
+		}
+	}
+	return func() {
+		_ = os.Unsetenv(ConfigPassphraseEnvVar)
+	}
 }
 
 func (p *pulumi) getProvisionerConfig(stack api.Stack) (*ProvisionerConfig, error) {

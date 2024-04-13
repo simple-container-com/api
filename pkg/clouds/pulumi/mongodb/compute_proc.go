@@ -13,7 +13,7 @@ import (
 	"github.com/simple-container-com/api/pkg/util"
 )
 
-func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if params.ParentStack == nil {
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
 	}
@@ -73,25 +73,23 @@ func MongodbClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api
 
 			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
-			if strings.HasPrefix(mongoUri, "mongodb+srv://") {
-				mongoUri = strings.ReplaceAll(mongoUri, "mongodb+srv://", fmt.Sprintf("mongodb+srv://%s:%s@", userName, dbUser.Password))
-			} else {
-				mongoUri = strings.ReplaceAll(mongoUri, "mongodb://", fmt.Sprintf("mongodb://%s:%s@", userName, dbUser.Password))
-			}
+			mongoUri = appendUserPasswordToMongoUri(mongoUri, userName, dbUser.Password)
 			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
 			collector.AddTplExtensions(map[string]template.Extension{
 				"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
 					pathParts := strings.SplitN(path, ".", 2)
-					if pathParts[0] != input.Descriptor.Name {
+					refResName := pathParts[0]
+					if refResName != input.Descriptor.Name {
 						return noSubs, nil
 					}
+					refValue := pathParts[1]
 					if value, ok := map[string]string{
 						"uri":      mongoUri,
 						"password": dbUser.Password,
 						"user":     userName,
-					}[pathParts[1]]; ok {
+					}[refValue]; ok {
 						return value, nil
 					}
 					return noSubs, nil

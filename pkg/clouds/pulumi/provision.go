@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"gopkg.in/yaml.v3"
@@ -23,10 +24,11 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 	p.logger.Info(ctx, "Found stack %q", s.Ref().FullyQualifiedName())
 
-	stackSource, err := auto.UpsertStackInlineSource(ctx, s.Ref().FullyQualifiedName().String(), cfg.ProjectName, p.provisionProgram(stack, cfg))
+	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.provisionProgram(stack, cfg))
 	if err != nil {
 		return err
 	}
+
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
 		refreshResult, err := stackSource.Refresh(ctx)
@@ -35,26 +37,40 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		}
 		p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
 	}
-	p.logger.Info(ctx, "Previewing stack %q...", s.Ref().FullyQualifiedName())
+	p.logger.Info(ctx, color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
 	previewResult, err := stackSource.Preview(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, "Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult))
+	p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	_, err = stackSource.Up(ctx)
 	if err != nil {
 		return err
 	}
+	p.logger.Info(ctx, color.GreenFmt("Update summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	return nil
+}
+
+func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.StackReference, cfg *api.ConfigFile, program sdk.RunFunc) (auto.Stack, error) {
+	stackSource, err := auto.UpsertStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, program, p.wsOpts...)
+	if err != nil {
+		return stackSource, err
+	}
+	if p.secretsProviderUrl != "" {
+		if err = stackSource.ChangeSecretsProvider(ctx, p.secretsProviderUrl, nil); err != nil {
+			return stackSource, err
+		}
+	}
+	return stackSource, nil
 }
 
 func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx *sdk.Context) error {
 	program := func(ctx *sdk.Context) error {
-		if err := p.initialProvisionProgram(ctx); err != nil {
-			return errors.Wrapf(err, "failed to provision init program")
+		if p.preProvisionProgram != nil {
+			if err := p.preProvisionProgram(ctx); err != nil {
+				return errors.Wrapf(err, "failed to provision init program")
+			}
 		}
-
-		p.logger.Debug(ctx.Context(), "secrets provider output: %v", p.secretsProviderOutput)
 
 		if err := p.initRegistrar(ctx, stack, ""); err != nil {
 			return errors.Wrapf(err, "failed to init registar")
@@ -82,7 +98,7 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 				}
 				provisionParams.ComputeContext = collector
 
-				if fnc, ok := provisionFuncByType[res.Type]; !ok {
+				if fnc, ok := pApi.ProvisionFuncByType[res.Type]; !ok {
 					return errors.Errorf("unknown resource type %q", res.Type)
 				} else if _, err := fnc(ctx, stack, api.ResourceInput{
 					Descriptor: &res,
@@ -116,7 +132,7 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, environment string) error {
 	registrarType := stack.Server.Resources.Registrar.Type
 	p.logger.Info(ctx.Context(), "configure registrar of type %q for stack %q...", registrarType, stack.Name)
-	if registrarInit, ok := registrarInitFuncByType[registrarType]; !ok {
+	if registrarInit, ok := pApi.RegistrarFuncByType[registrarType]; !ok {
 		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
 	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
 		Log: p.logger,
@@ -154,7 +170,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
-	} else if providerFunc, ok := providerFuncByType[authCfg.ProviderType()]; !ok {
+	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("unsupported provider type %q for resource type %q in stack %q", authCfg.ProviderType(), res.Type, stack.Name)
 	} else if out, err := providerFunc(ctx, stack, api.ResourceInput{
 		Descriptor: &api.ResourceDescriptor{
@@ -184,11 +200,7 @@ func stackDescriptorTemplateName(stackName, templateName string) string {
 	return fmt.Sprintf("%s/%s", stackName, templateName)
 }
 
-func stackOutputValuesName(stackName string, env string) string {
-	return fmt.Sprintf("%s/%s", stackName, env)
-}
-
-func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack) error {
+func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *ProvisionerConfig, stack api.Stack, exportName string) error {
 	secretsProviderCfg, ok := provisionerCfg.SecretsProvider.Config.Config.(api.SecretsProviderConfig)
 	if !ok {
 		return errors.Errorf("secrets provider config is not of type api.SecretsProviderConfig for %q", provisionerCfg.SecretsProvider.Type)
@@ -200,14 +212,9 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 	}
 	p.logger.Info(ctx.Context(), "configure secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
 
-	if provisionerCfg.SecretsProvider.Type == "pulumi-cloud" {
-		p.logger.Info(ctx.Context(), "do not need to provision secrets provider of type %s for stack %q...", provisionerCfg.SecretsProvider.Type, stack.Name)
-		return nil
-	}
-
 	resDescriptor := api.ResourceDescriptor{
 		Type:   provisionerCfg.SecretsProvider.Type,
-		Name:   fmt.Sprintf("%s--secrets-provider", stack.Name),
+		Name:   exportName,
 		Config: provisionerCfg.SecretsProvider.Config,
 	}
 	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "")
@@ -215,8 +222,8 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		return errors.Wrapf(err, "failed to init provision params for %q in stack %q", provisionerCfg.SecretsProvider.Type, stack.Name)
 	}
 
-	if fnc, ok := provisionFuncByType[provisionerCfg.SecretsProvider.Type]; ok {
-		out, err := fnc(ctx, stack, api.ResourceInput{
+	if fnc, ok := pApi.ProvisionFuncByType[provisionerCfg.SecretsProvider.Type]; ok {
+		_, err := fnc(ctx, stack, api.ResourceInput{
 			Descriptor: &resDescriptor,
 			StackParams: &api.StackParams{
 				StackName: stack.Name,
@@ -225,16 +232,7 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		if err != nil {
 			return errors.Wrapf(err, "failed to provision secrets provider of type %q", provisionerCfg.SecretsProvider.Type)
 		}
-		p.secretsProviderOutput = &SecretsProviderOutput{
-			Provider: provisionParams.Provider,
-			Resource: out.Ref.(sdk.ComponentResource),
-		}
 		return nil
 	}
 	return errors.Errorf("unknown secrets provider type %q", provisionerCfg.SecretsProvider.Type)
-}
-
-type SecretsProviderOutput struct {
-	Provider sdk.ProviderResource
-	Resource sdk.ComponentResource
 }

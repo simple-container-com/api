@@ -71,7 +71,7 @@ type EcsContainerDef struct {
 	ecs.TaskDefinitionContainerDefinitionArgs
 }
 
-func ProvisionEcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != aws.TemplateTypeEcsFargate {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}

@@ -21,10 +21,9 @@ import (
 )
 
 const (
-	e2eCreateStackName    = "e2e-parent--stack"
-	e2eDeployStackName    = "e2e-child--stack"
-	e2eKmsTestKeyName     = "e2e--kms-key"
-	e2eKmsTestKeyringName = "e2e--kms-keyring"
+	e2eCreateStackName = "e2e-parent--stack"
+	e2eDeployStackName = "e2e-child--stack"
+	e2eKmsTestKeyName  = "e2e--kms-key"
 )
 
 func Test_CreateComposeStackGCPWithBucket(t *testing.T) {
@@ -36,9 +35,8 @@ func Test_CreateComposeStackGCPWithBucket(t *testing.T) {
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForGcp(e2eConfig{
-			gcpCreds:       *cfg.GcpCredentials,
-			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
-			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
+			gcpCreds:   *cfg.GcpCredentials,
+			kmsKeyName: tmpResName(e2eKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
 					Type: gcloud.TemplateTypeGcpCloudrun,
@@ -106,9 +104,8 @@ func Test_CreateComposeStackGCPWithMongo(t *testing.T) {
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForGcp(e2eConfig{
-			gcpCreds:       *cfg.GcpCredentials,
-			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
-			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
+			gcpCreds:   *cfg.GcpCredentials,
+			kmsKeyName: tmpResName(e2eKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
 					Type: gcloud.TemplateTypeGcpCloudrun,
@@ -167,9 +164,8 @@ func Test_CreateComposeStackAWSWithMongo(t *testing.T) {
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForAws(e2eConfig{
-			awsCreds:       *cfg.AwsCredentials,
-			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
-			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
+			awsCreds:   *cfg.AwsCredentials,
+			kmsKeyName: tmpResName(e2eKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
 					Type: aws.TemplateTypeEcsFargate,
@@ -243,9 +239,8 @@ func Test_CreateComposeStackAWSWithBucket(t *testing.T) {
 	stack := api.Stack{
 		Name: parentStackName,
 		Server: e2eServerDescriptorForAws(e2eConfig{
-			awsCreds:       *cfg.AwsCredentials,
-			kmsKeyName:     tmpResName(e2eKmsTestKeyName),
-			kmsKeyringName: tmpResName(e2eKmsTestKeyringName),
+			awsCreds:   *cfg.AwsCredentials,
+			kmsKeyName: tmpResName(e2eKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
 					Type: aws.TemplateTypeEcsFargate,
