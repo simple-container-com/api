@@ -49,6 +49,11 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	bucketName := fmt.Sprintf("%s--%s", ctx.Project(), stack.Name)
 	domain := in.Domain
 
+	if in.BucketName != "" {
+		// override bucket name
+		bucketName = in.BucketName
+	}
+
 	// Create a GCP storage bucket for the static website.
 	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
 		Name:         sdk.String(bucketName),

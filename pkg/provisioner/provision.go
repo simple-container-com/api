@@ -72,7 +72,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 
 	stacks := params.Stacks
 	if len(stacks) == 0 {
-		p.log.Info(ctx, "stacks list is not provided, reading from %q", stacksDir)
+		p.log.Debug(ctx, "stacks list is not provided, reading from %q", stacksDir)
 		dirs, err := os.ReadDir(stacksDir)
 		if err != nil {
 			return errors.Wrapf(err, "failed to read stacks dir")
@@ -87,7 +87,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		}), func(d os.DirEntry, _ int) string {
 			return d.Name()
 		})
-		p.log.Info(ctx, "read stacks from %q: %q", stacksDir, strings.Join(stacks, ", "))
+		p.log.Info(ctx, "reading stacks from %q: [\"%s\"]", stacksDir, strings.Join(stacks, "\",\""))
 	}
 
 	for _, stackName := range stacks {
