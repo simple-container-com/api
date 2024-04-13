@@ -21,21 +21,28 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 	projectName := toProjectName(params.ParentStack.StackName, input)
 	clusterName := toClusterName(params.ParentStack.StackName, input)
 
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.RefString, input.Descriptor.Name)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--mongodb-atlas-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{
-		Name: sdk.String(params.ParentStack.RefString).ToStringOutput(),
-	})
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.FulReference, input.Descriptor.Name)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--mongodb-atlas-ref", stack.Name, input.Descriptor.Name, params.ParentStack.StackName),
+		&sdk.StackReferenceArgs{
+			Name: sdk.String(params.ParentStack.FulReference).ToStringOutput(),
+		})
 	if err != nil {
 		return nil, err
 	}
 
-	projectId, err := pApi.GetParentOutput(parentRef, toProjectIdExport(projectName), params.ParentStack.RefString, false)
+	projectIdExport := toProjectIdExport(projectName)
+	projectId, err := pApi.GetParentOutput(parentRef, projectIdExport, params.ParentStack.FulReference, false)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q", stack.Name)
+		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q (%q)", stack.Name, projectIdExport)
+	} else if projectId == "" {
+		return nil, errors.Errorf("project id is empty for %q (%q)", stack.Name, projectIdExport)
 	}
-	mongoUri, err := pApi.GetParentOutput(parentRef, toMongoUriWithOptionsExport(clusterName), params.ParentStack.RefString, false)
+	mongoUriExport := toMongoUriWithOptionsExport(clusterName)
+	mongoUri, err := pApi.GetParentOutput(parentRef, mongoUriExport, params.ParentStack.FulReference, false)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q", stack.Name)
+		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q (%q)", stack.Name, mongoUriExport)
+	} else if mongoUri == "" {
+		return nil, errors.Errorf("mongo uri is empty for %q (%q)", stack.Name, mongoUriExport)
 	}
 
 	// set both dbname and user name to stack name

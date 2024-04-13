@@ -2,6 +2,7 @@ package aws
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -15,43 +16,54 @@ import (
 )
 
 func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	parentStackName := stack.Client.Stacks[input.StackParams.StackName].ParentStack
-
 	if params.ParentStack == nil {
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
 	}
+	parentStackName := params.ParentStack.StackName
 
 	bucketCfg, ok := input.Descriptor.Config.Config.(*aws.S3Bucket)
 	if !ok {
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
-	bucketName := input.ToResName(bucketCfg.Name)
+	bucketName := input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name))
 
 	// Create a StackReference to the parent stack
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for s3 bucket %q", params.ParentStack.RefString, bucketName)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--s3-bucket-ref", stack.Name, params.ParentStack.StackName), &sdk.StackReferenceArgs{
-		Name: sdk.String(params.ParentStack.RefString).ToStringOutput(),
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for s3 bucket %q", params.ParentStack.FulReference, bucketName)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--s3-bucket-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name), &sdk.StackReferenceArgs{
+		Name: sdk.String(params.ParentStack.FulReference).ToStringOutput(),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	resBucketName, err := pApi.GetParentOutput(parentRef, toBucketNameExport(bucketName), params.ParentStack.RefString, false)
+	bucketNameExport := toBucketNameExport(bucketName)
+	resBucketName, err := pApi.GetParentOutput(parentRef, bucketNameExport, params.ParentStack.FulReference, false)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get bucket name from parent stack for %q", stack.Name)
+		return nil, errors.Wrapf(err, "failed to get bucket name from parent stack for %q (%q)", stack.Name, bucketNameExport)
+	} else if resBucketName == "" {
+		return nil, errors.Errorf("bucket name is empty for %q (%q)", stack.Name, bucketNameExport)
 	}
-	resAccessKeySecret, err := pApi.GetParentOutput(parentRef, toBucketAccessKeySecretExport(bucketName), params.ParentStack.RefString, true)
+	secretKeyExport := toBucketAccessKeySecretExport(bucketName)
+	resAccessKeySecret, err := pApi.GetParentOutput(parentRef, secretKeyExport, params.ParentStack.FulReference, true)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get bucket access key secret from parent stack for %q", stack.Name)
+		return nil, errors.Wrapf(err, "failed to get bucket access key secret from parent stack for %q (%q)", stack.Name, secretKeyExport)
+	} else if resAccessKeySecret == "" {
+		return nil, errors.Errorf("bucket access key secret is empty for %q (%q)", stack.Name, secretKeyExport)
 	}
-	resAccessKeyId, err := pApi.GetParentOutput(parentRef, toBucketAccessKeyIdExport(bucketName), params.ParentStack.RefString, false)
+	keyIdExport := toBucketAccessKeyIdExport(bucketName)
+	resAccessKeyId, err := pApi.GetParentOutput(parentRef, keyIdExport, params.ParentStack.FulReference, false)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get bucket access key secret from parent stack for %q", stack.Name)
+		return nil, errors.Wrapf(err, "failed to get bucket access key secret from parent stack for %q (%q)", stack.Name, keyIdExport)
+	} else if resAccessKeyId == "" {
+		return nil, errors.Errorf("bucket access key id is empty for %q (%q)", stack.Name, keyIdExport)
 	}
-	resBucketRegion, err := pApi.GetParentOutput(parentRef, toBucketRegionExport(bucketName), params.ParentStack.RefString, false)
+	regionExport := toBucketRegionExport(bucketName)
+	resBucketRegion, err := pApi.GetParentOutput(parentRef, regionExport, params.ParentStack.FulReference, false)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get bucket region from parent stack for %q", stack.Name)
+		return nil, errors.Wrapf(err, "failed to get bucket region from parent stack for %q (%q)", stack.Name, regionExport)
+	} else if resBucketRegion == "" {
+		return nil, errors.Errorf("bucket region is empty for %q (%q)", stack.Name, regionExport)
 	}
 
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {

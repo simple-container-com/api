@@ -67,12 +67,13 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
-		parentRefString := expandStackReference(parentStack, p.provisionerCfg.Organization, p.configFile.ProjectName)
+		parentFullReference := expandStackReference(parentStack, p.provisionerCfg.Organization, p.configFile.ProjectName)
+		parentNameOnly := collapseStackReference(parentFullReference)
 
 		// get template from parent
-		templateRef := stackDescriptorTemplateName(parentRefString, templateName)
+		templateRef := stackDescriptorTemplateName(parentFullReference, templateName)
 		var stackDesc api.StackDescriptor
-		err := getSecretValueFromStack(ctx, parentRefString, templateRef, func(val string) error {
+		err := getSecretValueFromStack(ctx, parentFullReference, templateRef, func(val string) error {
 			if val == "" {
 				return errors.Errorf("no template descriptor for stack %q in %q, consider re-provisioning of parent stack", parentStack, params.Environment)
 			}
@@ -127,8 +128,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				continue
 			} else {
 				provisionParams.ParentStack = &pApi.ParentInfo{
-					StackName: parentStack,
-					RefString: parentRefString,
+					StackName:    parentNameOnly,
+					FulReference: parentFullReference,
 				}
 				provisionParams.ComputeContext = collector
 				_, err := fnc(ctx, stack, api.ResourceInput{
@@ -182,6 +183,11 @@ func expandStackReference(parentStack string, organization string, projectName s
 	} else {
 		return fmt.Sprintf("%s/%s/%s", organization, projectName, parentStack)
 	}
+}
+
+func collapseStackReference(stackRef string) string {
+	stackRefParts := strings.SplitN(stackRef, "/", 3)
+	return stackRefParts[len(stackRefParts)-1]
 }
 
 func getSecretValueFromStack(ctx *sdk.Context, refName, outName string, proc func(val string) error) error {

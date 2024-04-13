@@ -16,8 +16,8 @@ type ProvisionParams struct {
 }
 
 type ParentInfo struct {
-	StackName string
-	RefString string
+	StackName    string
+	FulReference string
 }
 
 type ComputeEnvVariable struct {
