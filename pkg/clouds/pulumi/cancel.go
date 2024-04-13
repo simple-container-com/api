@@ -3,6 +3,8 @@ package pulumi
 import (
 	"context"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -34,5 +36,19 @@ func (p *pulumi) cancelStack(ctx context.Context, cfg *api.ConfigFile) error {
 	if err != nil {
 		return err
 	}
+
+	if p.secretsStackRef != nil {
+		defer p.withPulumiPassphrase(ctx)()
+		ssSource, err := auto.UpsertStackInlineSource(ctx, p.secretsStackRef.FullyQualifiedName().String(), cfg.ProjectName, nil)
+		if err != nil {
+			return err
+		}
+		p.logger.Info(ctx, color.RedFmt("Canceling stack %q...", ssSource.Name()))
+		err = ssSource.Cancel(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
