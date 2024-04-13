@@ -43,28 +43,16 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if atlasCfg.ProjectId == "" {
 		projName := lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)
 
-		// to avoid conflicts with existing projects, we first try to lookup the project by name
-		projectRes, err := mongodbatlas.LookupProject(ctx, &mongodbatlas.LookupProjectArgs{
-			Name: &projName,
-		}, sdk.Provider(params.Provider))
+		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
+			Name:  sdk.String(projName),
+			OrgId: sdk.String(atlasCfg.OrgId),
+		}, opts...)
 		if err != nil {
-			// ignore error
-			params.Log.Info(ctx.Context(), "mongodb atlas project %q does not exist yet", projName)
+			return nil, errors.Wrapf(err, "failed to create mongodb project for stack %q", stack.Name)
 		}
-		if projectRes != nil {
-			projectId = sdk.String(*projectRes.ProjectId).ToStringOutput()
-		} else {
-			project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
-				Name:  sdk.String(projName),
-				OrgId: sdk.String(atlasCfg.OrgId),
-			}, opts...)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to create mongodb project for stack %q", stack.Name)
-			}
-			out.Project = project
-			projectId = project.ID().ToStringOutput()
-			opts = append(opts, sdk.DependsOn([]sdk.Resource{project}))
-		}
+		out.Project = project
+		projectId = project.ID().ToStringOutput()
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{project}))
 	} else {
 		projectRes, err := mongodbatlas.LookupProject(ctx, &mongodbatlas.LookupProjectArgs{
 			ProjectId: &atlasCfg.ProjectId,
