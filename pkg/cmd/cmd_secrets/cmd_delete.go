@@ -1,9 +1,10 @@
 package cmd_secrets
 
 import (
-	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"os"
 	"path/filepath"
+
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 
 	"github.com/spf13/cobra"
 )
