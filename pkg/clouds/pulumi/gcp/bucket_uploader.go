@@ -2,12 +2,17 @@ package gcp
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/MShekow/directory-checksum/directory_checksum"
+	"github.com/spf13/afero"
 
 	gcpStorage "cloud.google.com/go/storage"
 	"github.com/pkg/errors"
@@ -38,7 +43,19 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 		return nil, err
 	}
 
-	totals := args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
+	syncDir := path.Join(args.rootDir, args.relDir)
+
+	var checksum string
+	if dir, err := directory_checksum.ScanDirectory(syncDir, afero.NewOsFs()); err != nil {
+		return nil, errors.Wrapf(err, "failed to scan directory %q", syncDir)
+	} else if checksums, err := dir.ComputeDirectoryChecksums(); err != nil {
+		return nil, errors.Wrapf(err, "failed to calculate directory checksums")
+	} else {
+		sum := md5.Sum([]byte(checksums))
+		checksum = hex.EncodeToString(sum[:])
+	}
+
+	_ = args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
 		if ctx.DryRun() {
 			return 0, nil
 		}
@@ -51,7 +68,7 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 
 	// Complete the component resource creation
 	err = ctx.RegisterResourceOutputs(resource, sdk.Map{
-		"totalBytesUploaded": totals,
+		"dirChecksum": sdk.String(checksum),
 	})
 	if err != nil {
 		return nil, err
