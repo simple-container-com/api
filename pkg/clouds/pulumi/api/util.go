@@ -20,3 +20,7 @@ func CollapseStackReference(stackRef string) string {
 	stackRefParts := strings.SplitN(stackRef, "/", 3)
 	return stackRefParts[len(stackRefParts)-1]
 }
+
+func StackNameInEnv(stackName string, environment string) string {
+	return fmt.Sprintf("%s--%s", stackName, environment)
+}

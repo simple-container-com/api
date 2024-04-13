@@ -2,8 +2,6 @@ package pulumi
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
@@ -137,7 +135,7 @@ func (p *pulumi) initChildStackForDeploy(ctx context.Context, cfg *api.ConfigFil
 }
 
 func toChildStack(parentStack api.Stack, params api.StackParams) api.Stack {
-	return parentStack.ChildStack(fmt.Sprintf("%s--%s", params.StackName, params.Environment))
+	return parentStack.ChildStack(pApi.StackNameInEnv(params.StackName, params.Environment))
 }
 
 func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {

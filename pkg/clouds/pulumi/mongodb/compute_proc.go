@@ -145,7 +145,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
 	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
 	userName := fmt.Sprintf("%s-to-%s", params.stack.Name, ownerStackName)
-	dbName := ownerStackName
+	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
 
 	dbUser, err := createDatabaseUser(ctx, dbUserInput{
 		clusterName: params.clusterName,

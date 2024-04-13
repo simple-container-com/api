@@ -60,7 +60,7 @@ func (c *Collector) ResolvePlaceholders(obj any) error {
 }
 
 func (c *Collector) AddDependencyTplExtension(depName string, resName string, values map[string]string) {
-	c.resTplExtensions[fmt.Sprintf("%s.%s", depName, resName)] = values
+	c.dependTplExtensions[fmt.Sprintf("%s.%s", depName, resName)] = values
 }
 
 func (c *Collector) AddResourceTplExtension(resName string, values map[string]string) {
