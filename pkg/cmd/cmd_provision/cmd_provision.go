@@ -46,6 +46,8 @@ func RegisterProvisionFlags(cmd *cobra.Command, p *api.ProvisionParams) {
 	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: 'default')")
 	cmd.Flags().StringSliceVarP(&p.Stacks, "stacks", "s", []string{}, "Stacks to provision (default: all)")
 	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
+	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before provision")
+	cmd.Flags().BoolVarP(&p.SkipPreview, "skip-preview", "S", p.SkipPreview, "Skip preview before provision")
 }
 
 func PrintPreview(pRes *api.PreviewResult) {

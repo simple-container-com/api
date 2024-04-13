@@ -75,13 +75,8 @@ func (c *RootCmd) Init(skipScDirCreation bool, ignoreConfigDirError bool) error 
 }
 
 func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
-	cmd.Flags().StringVarP(&p.Profile, "profile", "p", p.Profile, "Use profile (default: `default`)")
-	cmd.Flags().StringVarP(&p.StackName, "stack", "s", p.StackName, "Stack name to deploy (required)")
-	_ = cmd.MarkFlagRequired("stack")
-	cmd.Flags().StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy (required)")
+	RegisterStackFlags(cmd, &p.StackParams, false)
 	_ = cmd.MarkFlagRequired("env")
-	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
-	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before deploy")
 }
 
 func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool) {
@@ -95,4 +90,5 @@ func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool)
 	flags.StringVarP(&p.Environment, "env", "e", p.Environment, "Environment to deploy")
 	flags.StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before deploy")
+	cmd.Flags().BoolVarP(&p.SkipPreview, "skip-preview", "S", p.SkipPreview, "Skip preview before deploy")
 }

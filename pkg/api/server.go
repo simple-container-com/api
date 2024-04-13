@@ -13,6 +13,7 @@ type ProvisionParams struct {
 	Profile     string   `json:"profile" yaml:"profile"`
 	Stacks      []string `json:"stacks" yaml:"stacks"`
 	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
+	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
 }
 
 // ServerDescriptor describes the server schema

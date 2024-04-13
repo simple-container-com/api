@@ -3,7 +3,6 @@ package pulumi
 import (
 	"context"
 	"fmt"
-
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
@@ -38,17 +37,19 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		}
 		p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
 	}
-	p.logger.Info(ctx, color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
-	previewResult, err := stackSource.Preview(ctx)
+	if !params.SkipPreview {
+		p.logger.Info(ctx, color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
+		previewResult, err := stackSource.Preview(ctx)
+		if err != nil {
+			return err
+		}
+		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
+	}
+	updateRes, err := stackSource.Up(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
-	_, err = stackSource.Up(ctx)
-	if err != nil {
-		return err
-	}
-	p.logger.Info(ctx, color.GreenFmt("Update summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
+	p.logger.Info(ctx, color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), updateRes)))
 	return nil
 }
 

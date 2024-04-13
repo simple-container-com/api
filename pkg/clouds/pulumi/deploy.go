@@ -38,12 +38,14 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		}
 		p.logger.Info(ctx, color.GreenFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
-	p.logger.Info(ctx, color.GreenFmt("Preview stack %q...", stackSource.Name()))
-	previewResult, err := stackSource.Preview(ctx)
-	if err != nil {
-		return err
+	if !params.SkipPreview {
+		p.logger.Info(ctx, color.GreenFmt("Preview stack %q...", stackSource.Name()))
+		previewResult, err := stackSource.Preview(ctx)
+		if err != nil {
+			return err
+		}
+		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
-	p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	p.logger.Info(ctx, color.GreenFmt("Updating stack %q...", stackSource.Name()))
 	upRes, err := stackSource.Up(ctx)
 	if err != nil {
