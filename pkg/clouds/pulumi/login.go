@@ -132,10 +132,13 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		}
 		ref, err := be.ParseStackReference(secretsProviderStackRefString)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "failed to parse secrets provider stack reference %q", secretsProviderStackRefString)
 		}
 		p.secretsStackRef = ref
 	} else if secretsProviderCfg.ProviderType() != BackendTypePulumiCloud {
+		if secretsProviderCfg.KeyUrl() == "" {
+			return errors.Errorf("secrets provider key url is empty for %q in stack %q", secretsProviderCfg.ProviderType(), stack.Name)
+		}
 		p.wsOpts = append(p.wsOpts, auto.SecretsProvider(secretsProviderCfg.KeyUrl()))
 		p.secretsProviderUrl = secretsProviderCfg.KeyUrl()
 	}
