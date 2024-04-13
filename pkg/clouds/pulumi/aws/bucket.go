@@ -151,7 +151,7 @@ func toBucketRegionExport(bucketName string) string {
 }
 
 func toBucketUserExport(bucketName string) string {
-	return fmt.Sprintf("%s-bucket-region", bucketName)
+	return fmt.Sprintf("%s-bucket-user", bucketName)
 }
 
 func toBucketNameExport(bucketName string) string {

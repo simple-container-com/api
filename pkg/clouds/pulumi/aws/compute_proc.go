@@ -68,13 +68,13 @@ func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	}
 
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_REGION", bucketCfg.Name)), resBucketRegion,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_REGION", bucketName)), resBucketRegion,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_BUCKET", bucketCfg.Name)), resBucketName,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_BUCKET", bucketName)), resBucketName,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_ACCESS_KEY", bucketCfg.Name)), resAccessKeyId,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_ACCESS_KEY", bucketName)), resAccessKeyId,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketCfg.Name)), resAccessKeySecret,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketName)), resAccessKeySecret,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_REGION")), resBucketRegion,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
