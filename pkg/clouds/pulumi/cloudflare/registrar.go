@@ -29,6 +29,11 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 	if !ok {
 		return nil, errors.Errorf("invalid config type %T is not *cloudflare.RegistrarConfig", config.Config.Config)
 	}
+	baseZoneName := cfg.ZoneName
+	if params.DnsPreference != nil && params.DnsPreference.BaseZone != "" {
+		baseZoneName = params.DnsPreference.BaseZone
+		params.Log.Info(ctx.Context(), "stack overrides preferred base DNS zone from %q to %q", cfg.ZoneName, baseZoneName)
+	}
 
 	provider, err := cfImpl.NewProvider(ctx, cfg.AccountId, &cfImpl.ProviderArgs{
 		ApiToken: sdk.StringPtr(cfg.AuthConfig.Credentials.Credentials),
@@ -38,10 +43,10 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 	}
 
 	cfZone, err := cfImpl.LookupZone(ctx, &cfImpl.LookupZoneArgs{
-		Name: &cfg.ZoneName,
+		Name: &baseZoneName,
 	}, sdk.Provider(provider))
 	if err != nil {
-		return nil, errors.Wrapf(err, "error retrieving zone ID for domain %q", cfg.ZoneName)
+		return nil, errors.Wrapf(err, "error retrieving zone ID for domain %q", baseZoneName)
 	}
 
 	return &provisioner{

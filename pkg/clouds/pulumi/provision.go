@@ -75,7 +75,7 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 			}
 		}
 
-		if err := p.initRegistrar(ctx, stack, ""); err != nil {
+		if err := p.initRegistrar(ctx, stack, nil); err != nil {
 			return errors.Wrapf(err, "failed to init registar")
 		}
 
@@ -132,13 +132,14 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 	return program
 }
 
-func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, environment string) error {
+func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, dnsPreference *pApi.DnsPreference) error {
 	registrarType := stack.Server.Resources.Registrar.Type
 	p.logger.Info(ctx.Context(), "configure registrar of type %q for stack %q...", registrarType, stack.Name)
 	if registrarInit, ok := pApi.RegistrarFuncByType[registrarType]; !ok {
 		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
 	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
-		Log: p.logger,
+		Log:           p.logger,
+		DnsPreference: dnsPreference,
 	}); err != nil {
 		return errors.Wrapf(err, "failed to init registrar for stack %q", stack.Name)
 	} else {

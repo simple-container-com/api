@@ -121,10 +121,15 @@ type EcsFargateInput struct {
 	Domain           string                `json:"domain" yaml:"domain"`
 	RefResourceNames []string              `json:"refResourceNames" yaml:"refResourceNames"`
 	Secrets          map[string]string     `json:"secrets" yaml:"secrets"`
+	BaseDnsZone      string                `yaml:"baseDnsZone" json:"baseDnsZone"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
 	return i.RefResourceNames
+}
+
+func (i *EcsFargateInput) OverriddenBaseZone() string {
+	return i.BaseDnsZone
 }
 
 func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -143,6 +148,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
 	res := &EcsFargateInput{
+		BaseDnsZone:      stackCfg.BaseDnsZone,
 		TemplateConfig:   *templateCfg,
 		RefResourceNames: stackCfg.Uses,
 		Config: EcsFargateConfig{

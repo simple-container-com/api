@@ -106,6 +106,10 @@ type ResourceAware interface {
 	Uses() []string
 }
 
+type DnsConfigAware interface {
+	OverriddenBaseZone() string
+}
+
 type CloudComposeDescriptor struct {
 	StackName       string `json:"stackName" yaml:"stackName"`
 	StackDescriptor `json:",inline" yaml:",inline"`

@@ -11,9 +11,13 @@ type ProvisionParams struct {
 	Log            logger.Logger
 	ParentStack    *ParentInfo
 	ComputeContext ComputeContext
+	DnsPreference  *DnsPreference
 	SkipRefresh    bool
 }
 
+type DnsPreference struct {
+	BaseZone string
+}
 type ParentInfo struct {
 	StackName    string
 	FulReference string

@@ -63,10 +63,6 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Errorf("no template configured for stack %q in env %q", parentStack, params.Environment)
 		}
 
-		if err := p.initRegistrar(ctx, stack, params.Environment); err != nil {
-			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
-		}
-
 		parentFullReference := expandStackReference(parentStack, p.provisionerCfg.Organization, p.configFile.ProjectName)
 		parentNameOnly := collapseStackReference(parentFullReference)
 
@@ -100,6 +96,14 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		clientStackDesc, err := api.PrepareClientConfigForDeploy(ctx.Context(), stackDir, fullStackName, stackDesc, stackClientDesc)
 		if err != nil {
 			return errors.Wrapf(err, "failed to prepare client descriptor for deploy for stack %q in env %q", fullStackName, params.Environment)
+		}
+
+		dnsPreference := &pApi.DnsPreference{}
+		if a, dnsAware := clientStackDesc.Config.Config.(api.DnsConfigAware); dnsAware {
+			dnsPreference.BaseZone = a.OverriddenBaseZone()
+		}
+		if err := p.initRegistrar(ctx, stack, dnsPreference); err != nil {
+			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
 		uses := make(map[string]bool)

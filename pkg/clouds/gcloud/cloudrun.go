@@ -80,10 +80,15 @@ type CloudRunInput struct {
 	Scale            CloudRunScale       `json:"scale" yaml:"scale"`
 	Containers       []CloudRunContainer `json:"containers" yaml:"containers"`
 	RefResourceNames []string            `json:"refResourceNames" yaml:"refResourceNames"`
+	BaseDnsZone      string              `json:"baseDnsZOne" yaml:"baseDnsZOne"`
 }
 
 func (i *CloudRunInput) Uses() []string {
 	return i.RefResourceNames
+}
+
+func (i *CloudRunInput) OverriddenBaseZone() string {
+	return i.BaseDnsZone
 }
 
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -98,6 +103,7 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackCon
 	res := &CloudRunInput{
 		TemplateConfig:   *templateCfg,
 		RefResourceNames: stackCfg.Uses,
+		BaseDnsZone:      stackCfg.BaseDnsZone,
 	}
 	if composeCfg.Project == nil {
 		return nil, errors.Errorf("compose config is nil")

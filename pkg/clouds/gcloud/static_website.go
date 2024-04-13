@@ -14,6 +14,11 @@ type StaticSiteInput struct {
 	StackDir               string `json:"stackDir" yaml:"stackDir"`
 	StackName              string `json:"stackName" yaml:"stackName"`
 	Location               string `json:"location" yaml:"location"`
+	BaseDnsZone            string `json:"baseDnsZone" yaml:"baseDnsZone"`
+}
+
+func (i *StaticSiteInput) OverriddenBaseZone() string {
+	return i.BaseDnsZone
 }
 
 func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.StackConfigStatic) (any, error) {
@@ -31,6 +36,7 @@ func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.Stack
 		StackConfigStatic: stackCfg,
 		StackDir:          stackDir,
 		StackName:         stackName,
+		BaseDnsZone:       stackCfg.BaseDnsZone,
 		Location:          stackCfg.Location,
 	}
 

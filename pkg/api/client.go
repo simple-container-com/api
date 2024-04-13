@@ -30,6 +30,7 @@ type StackClientDescriptor struct {
 type StackConfigCompose struct {
 	DockerComposeFile string                   `json:"dockerComposeFile" yaml:"dockerComposeFile"`
 	Domain            string                   `json:"domain" yaml:"domain"`
+	BaseDnsZone       string                   `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	Uses              []string                 `json:"uses" yaml:"uses"`
 	Runs              []string                 `json:"runs" yaml:"runs"`
 	Env               map[string]string        `json:"env" yaml:"env"`
@@ -62,6 +63,7 @@ type StackConfigComposeScaleCpu struct {
 type StackConfigStatic struct {
 	BundleDir          string `json:"bundleDir" yaml:"bundleDir"`
 	Domain             string `json:"domain" yaml:"domain"`
+	BaseDnsZone        string `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	IndexDocument      string `json:"indexDocument" yaml:"indexDocument"`
 	ErrorDocument      string `json:"errorDocument" yaml:"errorDocument"`
 	ProvisionWwwDomain bool   `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
