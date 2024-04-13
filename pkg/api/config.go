@@ -12,6 +12,7 @@ import (
 const (
 	ScConfigDirectory     = ".sc"
 	EnvConfigFileTemplate = "cfg.%s.yaml"
+	ScConfigEnvVariable   = "SIMPLE_CONTAINER_CONFIG"
 )
 
 type ConfigFile struct {
@@ -35,6 +36,14 @@ type InitParams struct {
 }
 
 func ReadConfigFile(workDir, profile string) (*ConfigFile, error) {
+	configFromEnv := os.Getenv(ScConfigEnvVariable)
+	if configFromEnv != "" {
+		if res, err := UnmarshalDescriptor[ConfigFile]([]byte(configFromEnv)); err != nil {
+			return nil, errors.Wrapf(err, "%q env variable is set, but failed to unmarshal config", ScConfigEnvVariable)
+		} else {
+			return res, nil
+		}
+	}
 	res, err := ReadDescriptor(ConfigFilePath(workDir, profile), &ConfigFile{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "profile does not exist: %q", profile)
