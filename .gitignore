@@ -2,9 +2,7 @@
 bin
 /dist
 *.iml
-.sc/cfg.default.yaml
-.sc/cfg.github.yaml
-.sc/cfg.test.yaml
+.sc/cfg.*.yaml
 
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml
