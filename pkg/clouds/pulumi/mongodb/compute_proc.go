@@ -3,6 +3,7 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -42,15 +43,58 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		return nil, errors.Errorf("mongo uri is empty for %q (%q)", stack.Name, mongoUriExport)
 	}
 
+	appendContextParams := appendParams{
+		stack:           stack,
+		collector:       collector,
+		input:           input,
+		clusterName:     clusterName,
+		projectName:     projectName,
+		projectId:       projectId,
+		mongoUri:        mongoUri,
+		provisionParams: params,
+	}
+	if params.UseResources[input.Descriptor.Name] {
+		if err := appendUsesResourceContext(ctx, appendContextParams); err != nil {
+			return nil, errors.Wrapf(err, "failed to append consumes resource context")
+		}
+	}
+
+	for _, dep := range lo.Filter(params.DependOnResources, func(d api.StackConfigDependResource, _ int) bool {
+		return d.Resource == input.Descriptor.Name
+	}) {
+		appendContextParams.dependency = dep
+		if err := appendDependsOnResourceContext(ctx, appendContextParams); err != nil {
+			return nil, err
+		}
+	}
+
+	return &api.ResourceOutput{
+		Ref: nil,
+	}, nil
+}
+
+type appendParams struct {
+	stack           api.Stack
+	collector       pApi.ComputeContextCollector
+	input           api.ResourceInput
+	clusterName     string
+	projectName     string
+	projectId       string
+	mongoUri        string
+	provisionParams pApi.ProvisionParams
+	dependency      api.StackConfigDependResource
+}
+
+func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 	// set both dbname and user name to stack name
-	dbName := stack.Name
-	userName := stack.Name
+	dbName := params.stack.Name
+	userName := params.stack.Name
 
 	dbUser, err := createDatabaseUser(ctx, dbUserInput{
-		clusterName: clusterName,
-		projectId:   projectId,
-		dbUri:       mongoUri,
-		userName:    userName,
+		clusterName: params.clusterName,
+		projectId:   params.projectId,
+		dbUri:       params.mongoUri,
+		userName:    params.stack.Name,
 		roles: []dbRole{
 			{
 				dbName: dbName,
@@ -60,35 +104,31 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 				dbName: dbName,
 				role:   "readWrite",
 			},
-			{
-				dbName: "admin",
-				role:   "readAnyDatabase",
-			},
 		},
-	}, params)
+	}, params.provisionParams)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create service user for database %q", dbName)
+		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
 	}
 	if dbUser != nil {
-		ctx.Export(fmt.Sprintf("%s-service-user", clusterName), dbUser.(sdk.Output))
+		ctx.Export(fmt.Sprintf("%s-service-user", params.clusterName), dbUser.(sdk.Output))
 
-		collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
+		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
 			dbUserOutJson := dbUserOut.(string)
 			dbUser := DbUserOutput{}
 			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
 
-			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
-				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
-				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			mongoUri = appendUserPasswordAndDBToMongoUri(mongoUri, userName, dbUser.Password, dbName)
+			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
 
-			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
-				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
+			params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{
 				"uri":      mongoUri,
 				"password": dbUser.Password,
 				"user":     userName,
@@ -98,7 +138,61 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		}))
 	}
 
-	return &api.ResourceOutput{
-		Ref: dbUser,
-	}, nil
+	return nil
+}
+
+func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
+	ownerStackName := params.dependency.Owner
+	userName := fmt.Sprintf("%s-to-%s", params.stack.Name, ownerStackName)
+	dbName := ownerStackName
+
+	dbUser, err := createDatabaseUser(ctx, dbUserInput{
+		clusterName: params.clusterName,
+		projectId:   params.projectId,
+		dbUri:       params.mongoUri,
+		userName:    params.stack.Name,
+		roles: []dbRole{
+			{
+				dbName: dbName,
+				role:   "dbAdmin",
+			},
+			{
+				dbName: dbName,
+				role:   "readWrite",
+			},
+		},
+	}, params.provisionParams)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
+	}
+	if dbUser != nil {
+		ctx.Export(fmt.Sprintf("%s-service-user-to-%s", params.clusterName, ownerStackName), dbUser.(sdk.Output))
+
+		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
+			dbUserOutJson := dbUserOut.(string)
+			dbUser := DbUserOutput{}
+			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
+
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_USER", ownerStackName)), userName,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_PASSWORD", ownerStackName)), dbUser.Password,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+
+			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
+
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_URI", ownerStackName)), mongoUri,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+
+			params.collector.AddDependencyTplExtension(params.dependency.Name, params.input.Descriptor.Name, map[string]string{
+				"uri":      mongoUri,
+				"password": dbUser.Password,
+				"user":     userName,
+			})
+
+			return nil, nil
+		}))
+	}
+
+	return nil
 }

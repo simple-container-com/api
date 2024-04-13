@@ -113,6 +113,14 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			})
 		}
 
+		var dependsOnResourcesList []api.StackConfigDependResource
+		if info, withDependsOnResources := clientStackDesc.Config.Config.(api.WithDependsOnResources); withDependsOnResources {
+			dependsOnResourcesList = append(dependsOnResourcesList, info.DependsOnResources()...)
+		}
+		dependsOn := lo.Associate(dependsOnResourcesList, func(dep api.StackConfigDependResource) (string, bool) {
+			return dep.Resource, true
+		})
+
 		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
 
 		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, params.Environment)
@@ -120,8 +128,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			if res.Name == "" {
 				res.Name = resName
 			}
-			if !uses[resName] {
-				p.logger.Info(ctx.Context(), "stack %q does not use resource %q, skipping...", stack.Name, resName)
+			if !uses[resName] && !dependsOn[resName] {
+				p.logger.Info(ctx.Context(), "stack %q does not use or depend on resource %q, skipping...", stack.Name, resName)
 				continue
 			}
 			if fnc, ok := pApi.ComputeProcessorFuncByType[res.Type]; !ok {
@@ -135,6 +143,9 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 					StackName:    parentNameOnly,
 					FulReference: parentFullReference,
 				}
+				provisionParams.UseResources = uses
+				provisionParams.DependOnResources = dependsOnResourcesList
+				provisionParams.StackDescriptor = clientStackDesc
 				provisionParams.ComputeContext = collector
 				_, err := fnc(ctx, stack, api.ResourceInput{
 					Descriptor:  &res,

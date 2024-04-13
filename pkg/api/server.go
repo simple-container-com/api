@@ -102,6 +102,10 @@ type StackDescriptor struct {
 	Inherit `json:",inline" yaml:",inline"`
 }
 
+type WithDependsOnResources interface {
+	DependsOnResources() []StackConfigDependResource
+}
+
 type ResourceAware interface {
 	Uses() []string
 }

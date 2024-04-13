@@ -2,17 +2,22 @@ package api
 
 import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
 type ProvisionParams struct {
+	// normally required to be present
 	Provider       sdk.ProviderResource
 	Registrar      Registrar
 	Log            logger.Logger
-	ParentStack    *ParentInfo
 	ComputeContext ComputeContext
-	DnsPreference  *DnsPreference
-	SkipRefresh    bool
+	// optionally set on per-case basis
+	DnsPreference     *DnsPreference
+	ParentStack       *ParentInfo
+	StackDescriptor   *api.StackDescriptor
+	UseResources      map[string]bool
+	DependOnResources []api.StackConfigDependResource
 }
 
 type DnsPreference struct {
@@ -47,4 +52,5 @@ type ComputeContextCollector interface {
 	Outputs() []sdk.Output
 	ResolvePlaceholders(obj any) error
 	AddResourceTplExtension(resName string, value map[string]string)
+	AddDependencyTplExtension(depName string, resName string, values map[string]string)
 }

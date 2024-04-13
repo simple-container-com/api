@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -19,17 +20,32 @@ type (
 		Env     string               `json:"environment" yaml:"environment"`
 		EnvVars []ComputeEnvVariable `json:"envVariables" yaml:"envVariables"`
 
-		dependencies     []sdk.Resource
-		outputs          []sdk.Output
-		resTplExtensions perResTplValues
-		log              logger.Logger
-		ctx              context.Context
+		dependencies        []sdk.Resource
+		outputs             []sdk.Output
+		resTplExtensions    perResTplValues
+		dependTplExtensions perResTplValues
+		log                 logger.Logger
+		ctx                 context.Context
 	}
 )
 
 func (c *Collector) ResolvePlaceholders(obj any) error {
 	return placeholders.New().Apply(obj, placeholders.WithExtensions(map[string]template.Extension{
+		"dependency": func(noSubs string, path string, defaultValue *string) (string, error) {
+			// e.g. ${dependency:<name>.<resource>.uri}
+			pathParts := strings.SplitN(path, ".", 3)
+			depName := pathParts[0]
+			refResName := pathParts[1]
+			refValue := pathParts[2]
+			if values, ok := c.dependTplExtensions[fmt.Sprintf("%s.%s", depName, refResName)]; ok {
+				if value, ok := values[refValue]; ok {
+					return value, nil
+				}
+			}
+			return noSubs, nil
+		},
 		"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
+			// e.g. ${resource:<resource>.uri}
 			pathParts := strings.SplitN(path, ".", 2)
 			refResName := pathParts[0]
 			refValue := pathParts[1]
@@ -41,6 +57,10 @@ func (c *Collector) ResolvePlaceholders(obj any) error {
 			return noSubs, nil
 		},
 	}))
+}
+
+func (c *Collector) AddDependencyTplExtension(depName string, resName string, values map[string]string) {
+	c.resTplExtensions[fmt.Sprintf("%s.%s", depName, resName)] = values
 }
 
 func (c *Collector) AddResourceTplExtension(resName string, values map[string]string) {
