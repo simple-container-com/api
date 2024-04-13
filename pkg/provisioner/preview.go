@@ -32,7 +32,7 @@ func (p *provisioner) Outputs(ctx context.Context, params api.StackParams) (*api
 	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
 		StacksDir: params.StacksDir,
 		Profile:   params.Profile,
-	}, false); err != nil {
+	}, api.ReadOpts{IgnoreClientMissing: true}); err != nil {
 		return nil, errors.Wrapf(err, "failed to read stacks")
 	}
 	stack, ok := p.stacks[params.StackName]

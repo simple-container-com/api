@@ -19,7 +19,7 @@ import (
 )
 
 type Provisioner interface {
-	ReadStacks(ctx context.Context, cfg *api.ConfigFile, params api.ProvisionParams, ignoreErrors bool) error
+	ReadStacks(ctx context.Context, cfg *api.ConfigFile, params api.ProvisionParams, opts api.ReadOpts) error
 
 	Init(ctx context.Context, params api.InitParams) error
 	InitProfile(generateKeyPair bool) error
@@ -33,7 +33,7 @@ type Provisioner interface {
 	Cancel(ctx context.Context, params api.StackParams) error
 	Stacks() api.StacksMap
 
-	GetStack(ctx context.Context, params api.StackParams) (*api.Stack, error)
+	GetStack(ctx context.Context, params api.StackParams, opts api.ReadOpts) (*api.Stack, error)
 	DestroyParent(ctx context.Context, params api.DestroyParams) error
 	Destroy(ctx context.Context, params api.DestroyParams) error
 
@@ -99,7 +99,7 @@ func (p *provisioner) Stacks() api.StacksMap {
 	return p.stacks
 }
 
-func (p *provisioner) GetStack(ctx context.Context, params api.StackParams) (*api.Stack, error) {
+func (p *provisioner) GetStack(ctx context.Context, params api.StackParams, opts api.ReadOpts) (*api.Stack, error) {
 	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
@@ -108,7 +108,7 @@ func (p *provisioner) GetStack(ctx context.Context, params api.StackParams) (*ap
 		StacksDir: params.StacksDir,
 		Profile:   params.Profile,
 		Stacks:    []string{params.StackName},
-	}, false); err != nil {
+	}, opts); err != nil {
 		return nil, err
 	}
 	if stack, found := p.stacks[params.StackName]; !found {

@@ -36,9 +36,11 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
 		StacksDir: params.StacksDir,
 		Profile:   params.Profile,
-	}, false); err != nil {
+	}, api.ReadIgnoreNoAnyCfg); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
+	p.stacks = *p.stacks.ReconcileForDeploy()
+
 	stack, ok := p.stacks[params.StackName]
 	if !ok {
 		return nil, nil, nil, errors.Errorf("stack %q is not configured", params.StackName)

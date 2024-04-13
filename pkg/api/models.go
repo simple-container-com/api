@@ -18,6 +18,37 @@ type Stack struct {
 	Client  ClientDescriptor  `json:"client" yaml:"client"`
 }
 
+type ReadOpts struct {
+	IgnoreServerMissing  bool
+	IgnoreClientMissing  bool
+	IgnoreSecretsMissing bool
+}
+
+var (
+	ReadIgnoreNoClientCfg           = ReadOpts{IgnoreClientMissing: true}
+	ReadIgnoreNoServerCfg           = ReadOpts{IgnoreServerMissing: true, IgnoreSecretsMissing: true}
+	ReadIgnoreNoSecretsAndClientCfg = ReadOpts{IgnoreSecretsMissing: true, IgnoreClientMissing: true}
+	ReadIgnoreNoSecretsAndServerCfg = ReadOpts{IgnoreSecretsMissing: true, IgnoreServerMissing: true}
+	ReadIgnoreNoAnyCfg              = ReadOpts{IgnoreSecretsMissing: true, IgnoreServerMissing: true, IgnoreClientMissing: true}
+)
+
+func (m *StacksMap) ReconcileForDeploy() *StacksMap {
+	current := *m
+	iterMap := lo.Assign(current)
+	for stackName, stack := range iterMap {
+		for _, clientCfg := range stack.Client.Stacks {
+			parentStackParts := strings.SplitN(clientCfg.ParentStack, "/", 3)
+			parentStackName := parentStackParts[len(parentStackParts)-1]
+			if parentStack, ok := current[parentStackName]; ok {
+				stack.Server = parentStack.Server.Copy()
+				stack.Secrets = parentStack.Secrets.Copy()
+			}
+		}
+		current[stackName] = stack
+	}
+	return &current
+}
+
 func (m *StacksMap) ResolveInheritance() *StacksMap {
 	current := *m
 	iterMap := lo.Assign(current)

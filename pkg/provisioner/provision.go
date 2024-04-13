@@ -36,7 +36,7 @@ func (p *provisioner) readConfigForProvision(ctx context.Context, params api.Pro
 		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
 	}
 
-	if err := p.ReadStacks(ctx, cfg, params, false); err != nil {
+	if err := p.ReadStacks(ctx, cfg, params, api.ReadIgnoreNoSecretsAndClientCfg); err != nil {
 		return nil, errors.Wrapf(err, "failed to read stacks")
 	}
 
@@ -67,7 +67,7 @@ func (p *provisioner) getProvisionerForStack(ctx context.Context, stack api.Stac
 	return pv, nil
 }
 
-func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, params api.ProvisionParams, ignoreErrors bool) error {
+func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, params api.ProvisionParams, readOpts api.ReadOpts) error {
 	stacksDir := p.getStacksDir(cfg, params.StacksDir)
 
 	stacks := params.Stacks
@@ -95,14 +95,16 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && !ignoreErrors {
+		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && !readOpts.IgnoreServerMissing {
 			return err
 		} else if serverDesc != nil {
 			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
 			stack.Server = *serverDesc
+		} else {
+			p.log.Debug(ctx, "Server descriptor not found for %s", stackName)
 		}
 
-		if clientDesc, err := p.optionallyReadClientDescriptor(stacksDir, stackName); err != nil {
+		if clientDesc, err := p.readClientDescriptor(stacksDir, stackName); err != nil && !readOpts.IgnoreClientMissing {
 			return err
 		} else if clientDesc != nil {
 			p.log.Debug(ctx, "Successfully read client descriptor: %q", clientDesc)
@@ -111,7 +113,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
-		if secretsDesc, err := p.optionallyReadSecretsDescriptor(stacksDir, stackName); err != nil {
+		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && !readOpts.IgnoreSecretsMissing {
 			return err
 		} else if secretsDesc != nil {
 			p.log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
@@ -150,31 +152,31 @@ func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*a
 	}
 }
 
-func (p *provisioner) optionallyReadSecretsDescriptor(rootDir string, stackName string) (*api.SecretsDescriptor, error) {
+func (p *provisioner) readSecretsDescriptor(rootDir string, stackName string) (*api.SecretsDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.SecretsDescriptorFileName)
 	if _, err := os.Stat(descFilePath); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, errors.Wrapf(err, "file not found: %q", descFilePath)
 	}
-	return p.readSecretsDescriptor(descFilePath)
+	return p.readSecretsDescriptorFromFile(descFilePath)
 }
 
-func (p *provisioner) readSecretsDescriptor(descFilePath string) (*api.SecretsDescriptor, error) {
+func (p *provisioner) readSecretsDescriptorFromFile(descFilePath string) (*api.SecretsDescriptor, error) {
 	if desc, err := api.ReadSecretsDescriptor(descFilePath); err != nil {
-		return nil, errors.Wrapf(err, "failed to read client descriptor from %q", descFilePath)
+		return nil, errors.Wrapf(err, "failed to read secrets descriptor from %q", descFilePath)
 	} else {
 		return desc, nil
 	}
 }
 
-func (p *provisioner) optionallyReadClientDescriptor(rootDir string, stackName string) (*api.ClientDescriptor, error) {
+func (p *provisioner) readClientDescriptor(rootDir string, stackName string) (*api.ClientDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.ClientDescriptorFileName)
 	if _, err := os.Stat(descFilePath); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, errors.Wrapf(err, "file not found: %q", descFilePath)
 	}
-	return p.readClientDescriptor(descFilePath)
+	return p.readClientDescriptorFromFile(descFilePath)
 }
 
-func (p *provisioner) readClientDescriptor(path string) (*api.ClientDescriptor, error) {
+func (p *provisioner) readClientDescriptorFromFile(path string) (*api.ClientDescriptor, error) {
 	if desc, err := api.ReadClientDescriptor(path); err != nil {
 		return nil, errors.Wrapf(err, "failed to read client descriptor from %q", path)
 	} else {

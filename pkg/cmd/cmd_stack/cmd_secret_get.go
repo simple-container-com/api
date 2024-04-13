@@ -2,6 +2,7 @@ package cmd_stack
 
 import (
 	"fmt"
+	"github.com/simple-container-com/api/pkg/api"
 
 	"github.com/pkg/errors"
 
@@ -13,7 +14,7 @@ func NewSecretGetCmd(sCmd *stackCmd) *cobra.Command {
 		Use:   "secret-get",
 		Short: "Get secret value specified in secrets.yaml for stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			stack, err := sCmd.Root.Provisioner.GetStack(cmd.Context(), sCmd.Params)
+			stack, err := sCmd.Root.Provisioner.GetStack(cmd.Context(), sCmd.Params, api.ReadIgnoreNoClientCfg)
 			if err != nil {
 				return err
 			}
