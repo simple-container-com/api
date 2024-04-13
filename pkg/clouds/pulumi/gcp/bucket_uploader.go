@@ -45,30 +45,30 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 
 	syncDir := path.Join(args.rootDir, args.relDir)
 
-	var checksum string
-	if dir, err := directory_checksum.ScanDirectory(syncDir, afero.NewOsFs()); err != nil {
-		return nil, errors.Wrapf(err, "failed to scan directory %q", syncDir)
-	} else if checksums, err := dir.ComputeDirectoryChecksums(); err != nil {
-		return nil, errors.Wrapf(err, "failed to calculate directory checksums")
-	} else {
-		sum := md5.Sum([]byte(checksums))
-		checksum = hex.EncodeToString(sum[:])
-	}
-
-	_ = args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
-		if ctx.DryRun() {
-			return 0, nil
+	syncOutput := args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
+		var checksum string
+		if dir, err := directory_checksum.ScanDirectory(syncDir, afero.NewOsFs()); err != nil {
+			return nil, errors.Wrapf(err, "failed to scan directory %q", syncDir)
+		} else if checksums, err := dir.ComputeDirectoryChecksums(); err != nil {
+			return nil, errors.Wrapf(err, "failed to calculate directory checksums")
+		} else {
+			sum := md5.Sum([]byte(checksums))
+			checksum = hex.EncodeToString(sum[:])
 		}
-		total, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.rootDir, args.relDir, args.gcpCreds, args.params)
+
+		if ctx.DryRun() {
+			return checksum, nil
+		}
+		_, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.rootDir, args.relDir, args.gcpCreds, args.params)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to sync files to GCP bucket %q", args.bucketName)
 		}
-		return total, nil
+		return checksum, nil
 	})
 
 	// Complete the component resource creation
 	err = ctx.RegisterResourceOutputs(resource, sdk.Map{
-		"dirChecksum": sdk.String(checksum),
+		"dirChecksum": syncOutput,
 	})
 	if err != nil {
 		return nil, err
