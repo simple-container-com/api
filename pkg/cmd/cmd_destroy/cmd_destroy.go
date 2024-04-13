@@ -24,12 +24,7 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		Short: "Destroys stacks defined in stacks directory",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if pCmd.ParentStack {
-				err := pCmd.Root.Provisioner.DestroyParent(cmd.Context(), api.ProvisionParams{
-					StacksDir:   pCmd.Params.StacksDir,
-					Profile:     pCmd.Params.Profile,
-					Stacks:      []string{pCmd.Params.StackName},
-					SkipRefresh: pCmd.Params.SkipRefresh,
-				})
+				err := pCmd.Root.Provisioner.DestroyParent(cmd.Context(), pCmd.Params)
 				if err != nil && !rootCmd.IsCanceled.Load() {
 					return err
 				} else if rootCmd.IsCanceled.Load() {
