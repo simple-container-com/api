@@ -78,7 +78,9 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 
 			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
-			mongoUri = appendUserPasswordToMongoUri(mongoUri, userName, dbUser.Password)
+
+			mongoUri = appendUserPasswordAndDBToMongoUri(mongoUri, userName, dbUser.Password, dbName)
+
 			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
