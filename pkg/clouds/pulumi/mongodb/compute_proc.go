@@ -76,13 +76,13 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 			dbUser := DbUserOutput{}
 			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
 
-			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
-			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 			mongoUri = appendUserPasswordToMongoUri(mongoUri, userName, dbUser.Password)
-			collector.AddEnvVariable(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
 				input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
 			collector.AddTplExtensions(map[string]template.Extension{

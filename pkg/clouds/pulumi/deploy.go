@@ -111,7 +111,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
 
-		collector := pApi.NewComputeContextCollector(stack.Name, params.Environment)
+		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, params.Environment)
 		for resName, res := range stack.Server.Resources.Resources[params.Environment].Resources {
 			if res.Name == "" {
 				res.Name = resName

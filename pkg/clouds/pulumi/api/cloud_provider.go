@@ -37,7 +37,7 @@ type ComputeContext interface {
 
 type ComputeContextCollector interface {
 	EnvVariables() []ComputeEnvVariable
-	AddEnvVariable(name, value, resType, resName, stackName string)
+	AddEnvVariableIfNotExist(name, value, resType, resName, stackName string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
 	AddOutput(o sdk.Output)

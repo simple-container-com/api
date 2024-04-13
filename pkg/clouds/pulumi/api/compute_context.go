@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
+
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 	"github.com/simple-container-com/welder/pkg/template"
 )
@@ -16,6 +19,8 @@ type Collector struct {
 	dependencies  []sdk.Resource
 	outputs       []sdk.Output
 	tplExtensions map[string]template.Extension
+	log           logger.Logger
+	ctx           context.Context
 }
 
 func (c *Collector) ResolvePlaceholders(obj any) error {
@@ -38,7 +43,13 @@ func (c *Collector) EnvVariables() []ComputeEnvVariable {
 	return c.EnvVars
 }
 
-func (c *Collector) AddEnvVariable(name, value, resType, resName, stackName string) {
+func (c *Collector) AddEnvVariableIfNotExist(name, value, resType, resName, stackName string) {
+	if _, found := lo.Find(c.EnvVars, func(v ComputeEnvVariable) bool {
+		return v.Name == name
+	}); found {
+		c.log.Warn(c.ctx, "env variable %q already exists, skipping", name)
+		return
+	}
 	c.EnvVars = append(c.EnvVars, ComputeEnvVariable{
 		Name:         name,
 		Value:        value,
@@ -56,12 +67,15 @@ func (c *Collector) Dependencies() []sdk.Resource {
 	return c.dependencies
 }
 
-func NewComputeContextCollector(stackName string, environment string) ComputeContextCollector {
+func NewComputeContextCollector(ctx context.Context, log logger.Logger, stackName string, environment string) ComputeContextCollector {
 	return &Collector{
 		Stack:         stackName,
 		Env:           environment,
 		EnvVars:       make([]ComputeEnvVariable, 0),
 		tplExtensions: make(map[string]template.Extension),
+
+		log: log,
+		ctx: ctx,
 	}
 }
 
