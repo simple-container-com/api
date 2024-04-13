@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -63,8 +62,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			return errors.Errorf("no template configured for stack %q in env %q", parentStack, params.Environment)
 		}
 
-		parentFullReference := expandStackReference(parentStack, p.provisionerCfg.Organization, p.configFile.ProjectName)
-		parentNameOnly := collapseStackReference(parentFullReference)
+		parentFullReference := pApi.ExpandStackReference(parentStack, p.provisionerCfg.Organization, p.configFile.ProjectName)
+		parentNameOnly := pApi.CollapseStackReference(parentFullReference)
 
 		// get template from parent
 		templateRef := stackDescriptorTemplateName(parentFullReference, templateName)
@@ -113,11 +112,11 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			})
 		}
 
-		var dependsOnResourcesList []api.StackConfigDependResource
+		var dependsOnResourcesList []api.StackConfigDependencyResource
 		if info, withDependsOnResources := clientStackDesc.Config.Config.(api.WithDependsOnResources); withDependsOnResources {
 			dependsOnResourcesList = append(dependsOnResourcesList, info.DependsOnResources()...)
 		}
-		dependsOn := lo.Associate(dependsOnResourcesList, func(dep api.StackConfigDependResource) (string, bool) {
+		dependsOn := lo.Associate(dependsOnResourcesList, func(dep api.StackConfigDependencyResource) (string, bool) {
 			return dep.Resource, true
 		})
 
@@ -187,22 +186,6 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		})
 		return nil
 	}
-}
-
-func expandStackReference(parentStack string, organization string, projectName string) string {
-	parentStackParts := strings.SplitN(parentStack, "/", 3)
-	if len(parentStackParts) == 3 {
-		return parentStack
-	} else if len(parentStackParts) == 2 {
-		return fmt.Sprintf("%s/%s", organization, parentStack)
-	} else {
-		return fmt.Sprintf("%s/%s/%s", organization, projectName, parentStack)
-	}
-}
-
-func collapseStackReference(stackRef string) string {
-	stackRefParts := strings.SplitN(stackRef, "/", 3)
-	return stackRefParts[len(stackRefParts)-1]
 }
 
 func getSecretValueFromStack(ctx *sdk.Context, refName, outName string, proc func(val string) error) error {

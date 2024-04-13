@@ -120,7 +120,7 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 				return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 			}
 
-			fullStackRef := expandStackReference(stack.Name, p.provisionerCfg.Organization, cfg.ProjectName)
+			fullStackRef := pApi.ExpandStackReference(stack.Name, p.provisionerCfg.Organization, cfg.ProjectName)
 			outputName := stackDescriptorTemplateName(fullStackRef, templateName)
 			p.logger.Debug(ctx.Context(), "preserving template %q in the stack's %q outputs as %q...", templateName, stack.Name, outputName)
 			secretOutput := sdk.ToSecret(string(serializedStackDesc))

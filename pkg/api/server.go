@@ -103,7 +103,7 @@ type StackDescriptor struct {
 }
 
 type WithDependsOnResources interface {
-	DependsOnResources() []StackConfigDependResource
+	DependsOnResources() []StackConfigDependencyResource
 }
 
 type ResourceAware interface {

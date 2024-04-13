@@ -17,7 +17,7 @@ type ProvisionParams struct {
 	ParentStack       *ParentInfo
 	StackDescriptor   *api.StackDescriptor
 	UseResources      map[string]bool
-	DependOnResources []api.StackConfigDependResource
+	DependOnResources []api.StackConfigDependencyResource
 }
 
 type DnsPreference struct {

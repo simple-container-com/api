@@ -113,16 +113,16 @@ type MaxErrorConfig struct {
 }
 
 type EcsFargateInput struct {
-	TemplateConfig        `json:"templateConfig" yaml:"templateConfig"`
-	Scale                 EcsFargateScale                 `json:"scale" yaml:"scale"`
-	Containers            []EcsFargateContainer           `json:"containers" yaml:"containers"`
-	IngressContainer      EcsFargateContainer             `json:"ingressContainer" yaml:"ingressContainer"`
-	Config                EcsFargateConfig                `json:"config" yaml:"config"`
-	Domain                string                          `json:"domain" yaml:"domain"`
-	RefResourceNames      []string                        `json:"refResourceNames" yaml:"refResourceNames"`
-	Secrets               map[string]string               `json:"secrets" yaml:"secrets"`
-	BaseDnsZone           string                          `yaml:"baseDnsZone" json:"baseDnsZone"`
-	SharedResourcesConfig []api.StackConfigDependResource `json:"sharedResources" yaml:"sharedResources"`
+	TemplateConfig   `json:"templateConfig" yaml:"templateConfig"`
+	Scale            EcsFargateScale                     `json:"scale" yaml:"scale"`
+	Containers       []EcsFargateContainer               `json:"containers" yaml:"containers"`
+	IngressContainer EcsFargateContainer                 `json:"ingressContainer" yaml:"ingressContainer"`
+	Config           EcsFargateConfig                    `json:"config" yaml:"config"`
+	Domain           string                              `json:"domain" yaml:"domain"`
+	RefResourceNames []string                            `json:"refResourceNames" yaml:"refResourceNames"`
+	Secrets          map[string]string                   `json:"secrets" yaml:"secrets"`
+	BaseDnsZone      string                              `yaml:"baseDnsZone" json:"baseDnsZone"`
+	Dependencies     []api.StackConfigDependencyResource `json:"dependencies" yaml:"dependencies"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
@@ -132,8 +132,9 @@ func (i *EcsFargateInput) Uses() []string {
 func (i *EcsFargateInput) OverriddenBaseZone() string {
 	return i.BaseDnsZone
 }
-func (i *EcsFargateInput) DependsOnResources() []api.StackConfigDependResource {
-	return i.SharedResourcesConfig
+
+func (i *EcsFargateInput) DependsOnResources() []api.StackConfigDependencyResource {
+	return i.Dependencies
 }
 
 func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -152,10 +153,10 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
 	res := &EcsFargateInput{
-		BaseDnsZone:           stackCfg.BaseDnsZone,
-		TemplateConfig:        *templateCfg,
-		RefResourceNames:      stackCfg.Uses,
-		SharedResourcesConfig: stackCfg.SharedResources,
+		BaseDnsZone:      stackCfg.BaseDnsZone,
+		TemplateConfig:   *templateCfg,
+		RefResourceNames: stackCfg.Uses,
+		Dependencies:     stackCfg.Dependencies,
 		Config: EcsFargateConfig{
 			Credentials:   templateCfg.Credentials,
 			AccountConfig: *accountConfig,

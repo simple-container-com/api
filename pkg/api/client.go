@@ -28,21 +28,21 @@ type StackClientDescriptor struct {
 }
 
 type StackConfigCompose struct {
-	DockerComposeFile string                      `json:"dockerComposeFile" yaml:"dockerComposeFile"`
-	Domain            string                      `json:"domain" yaml:"domain"`
-	BaseDnsZone       string                      `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
-	Uses              []string                    `json:"uses" yaml:"uses"`
-	Runs              []string                    `json:"runs" yaml:"runs"`
-	Env               map[string]string           `json:"env" yaml:"env"`
-	Secrets           map[string]string           `json:"secrets" yaml:"secrets"`
-	Version           string                      `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
-	Size              *StackConfigComposeSize     `json:"size" yaml:"size"`
-	Scale             *StackConfigComposeScale    `json:"scale" yaml:"scale"`
-	SharedResources   []StackConfigDependResource `json:"sharedResources" yaml:"sharedResources"` // when service wants to use resources from another service
+	DockerComposeFile string                          `json:"dockerComposeFile" yaml:"dockerComposeFile"`
+	Domain            string                          `json:"domain" yaml:"domain"`
+	BaseDnsZone       string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
+	Uses              []string                        `json:"uses" yaml:"uses"`
+	Runs              []string                        `json:"runs" yaml:"runs"`
+	Env               map[string]string               `json:"env" yaml:"env"`
+	Secrets           map[string]string               `json:"secrets" yaml:"secrets"`
+	Version           string                          `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
+	Size              *StackConfigComposeSize         `json:"size" yaml:"size"`
+	Scale             *StackConfigComposeScale        `json:"scale" yaml:"scale"`
+	Dependencies      []StackConfigDependencyResource `json:"dependencies" yaml:"dependencies"` // when service wants to use resources from another service
 }
 
-// StackConfigDependResource when stack depends on resource context of another stack
-type StackConfigDependResource struct {
+// StackConfigDependencyResource when stack depends on resource context of another stack
+type StackConfigDependencyResource struct {
 	Name     string `json:"name" yaml:"name"`
 	Owner    string `json:"owner" yaml:"owner"`
 	Resource string `json:"resource" yaml:"resource"`

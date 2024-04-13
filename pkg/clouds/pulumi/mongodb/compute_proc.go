@@ -3,6 +3,7 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
@@ -59,7 +60,7 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		}
 	}
 
-	for _, dep := range lo.Filter(params.DependOnResources, func(d api.StackConfigDependResource, _ int) bool {
+	for _, dep := range lo.Filter(params.DependOnResources, func(d api.StackConfigDependencyResource, _ int) bool {
 		return d.Resource == input.Descriptor.Name
 	}) {
 		appendContextParams.dependency = dep
@@ -82,7 +83,7 @@ type appendParams struct {
 	projectId       string
 	mongoUri        string
 	provisionParams pApi.ProvisionParams
-	dependency      api.StackConfigDependResource
+	dependency      api.StackConfigDependencyResource
 }
 
 func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
@@ -142,7 +143,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 }
 
 func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
-	ownerStackName := params.dependency.Owner
+	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
 	userName := fmt.Sprintf("%s-to-%s", params.stack.Name, ownerStackName)
 	dbName := ownerStackName
 
