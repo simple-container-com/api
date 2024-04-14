@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/samber/lo"
-
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
@@ -144,14 +144,14 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 
 func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
 	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
-	userName := fmt.Sprintf("%s-to-%s", params.stack.Name, ownerStackName)
+	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
 	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
 
 	dbUser, err := createDatabaseUser(ctx, dbUserInput{
 		clusterName: params.clusterName,
 		projectId:   params.projectId,
 		dbUri:       params.mongoUri,
-		userName:    params.stack.Name,
+		userName:    userName,
 		roles: []dbRole{
 			{
 				dbName: dbName,
@@ -167,7 +167,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
 	}
 	if dbUser != nil {
-		ctx.Export(fmt.Sprintf("%s-d-%s", params.clusterName, ownerStackName), dbUser.(sdk.Output))
+		ctx.Export(fmt.Sprintf("%s--to--%s--%s", params.clusterName, ownerStackName, params.dependency.Resource), dbUser.(sdk.Output))
 
 		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
 			dbUserOutJson := dbUserOut.(string)
