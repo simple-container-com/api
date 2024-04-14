@@ -23,6 +23,7 @@ func NewStackCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 
 	cmd.AddCommand(
 		NewSecretGetCmd(&sCmd),
+		NewOutputsCmd(&sCmd),
 	)
 
 	root_cmd.RegisterStackFlags(cmd, &sCmd.Params, true)

@@ -77,4 +77,4 @@ tasks:
   rebuild:
     runOn: host
     script:
-      - go build -o ${project:root}/bin/sc ./cmd/sc
+      - go build -o ${project:root}/bin/sc ./cmd/sc && cp -f ./bin/sc ~/.local/bin/sc

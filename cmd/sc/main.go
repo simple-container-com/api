@@ -8,8 +8,6 @@ import (
 
 	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
 
-	"github.com/simple-container-com/api/pkg/cmd/cmd_outputs"
-
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
@@ -78,7 +76,6 @@ func main() {
 		cmd_cancel.NewCancelCmd(rootCmdInstance),
 		cmd_destroy.NewDestroyCmd(rootCmdInstance),
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
-		cmd_outputs.NewOutputsCmd(rootCmdInstance),
 		cmd_stack.NewStackCmd(rootCmdInstance),
 	)
 
