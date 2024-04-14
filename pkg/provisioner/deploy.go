@@ -9,14 +9,25 @@ import (
 )
 
 func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
+	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
 		return err
+	}
+	return pv.DeployStack(ctx, cfg, *stack, params)
+}
+
+func (p *provisioner) prepareForChildStack(ctx context.Context, params *api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
+	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, *params)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if pv == nil {
+		return nil, nil, nil, errors.Errorf("provisioner is not initialized properly for stack %q", params.StackName)
 	}
 	if params.StacksDir == "" {
 		params.StacksDir = p.getStacksDir(cfg, params.StacksDir)
 	}
-	return pv.DeployStack(ctx, cfg, *stack, params)
+	return cfg, stack, pv, nil
 }
 
 func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {

@@ -13,7 +13,7 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
-	cfg, err := p.readConfigForProvision(ctx, params)
+	cfg, err := p.prepareForParentStack(ctx, params)
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams)
 	return nil
 }
 
-func (p *provisioner) readConfigForProvision(ctx context.Context, params api.ProvisionParams) (*api.ConfigFile, error) {
+func (p *provisioner) prepareForParentStack(ctx context.Context, params api.ProvisionParams) (*api.ConfigFile, error) {
 	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)

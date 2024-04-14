@@ -9,22 +9,15 @@ import (
 )
 
 func (p *provisioner) Destroy(ctx context.Context, params api.DestroyParams) error {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
+	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
 		return err
 	}
-	if pv == nil {
-		return errors.Errorf("provisioner is not initialized properly")
-	}
-	if params.StacksDir == "" {
-		params.StacksDir = p.getStacksDir(cfg, params.StacksDir)
-	}
-
 	return pv.DestroyChildStack(ctx, cfg, *stack, params)
 }
 
 func (p *provisioner) DestroyParent(ctx context.Context, params api.DestroyParams) error {
-	cfg, err := p.readConfigForProvision(ctx, params.ToProvisionParams())
+	cfg, err := p.prepareForParentStack(ctx, params.ToProvisionParams())
 	if err != nil {
 		return err
 	}

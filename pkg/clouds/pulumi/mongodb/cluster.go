@@ -103,7 +103,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	usersOutput := sdk.All(projectId).ApplyT(func(args []any) any {
 		return createDatabaseUsers(ctx, cluster, atlasCfg, params)
 	})
-	ctx.Export(fmt.Sprintf("%s-users", clusterName), usersOutput)
+	ctx.Export(fmt.Sprintf("%s-users", projectName), usersOutput)
 
 	out.DbUsers = usersOutput
 

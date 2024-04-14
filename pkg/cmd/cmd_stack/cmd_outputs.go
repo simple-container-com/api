@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
 func NewOutputsCmd(sCmd *stackCmd) *cobra.Command {
@@ -25,7 +23,5 @@ func NewOutputsCmd(sCmd *stackCmd) *cobra.Command {
 			return nil
 		},
 	}
-
-	root_cmd.RegisterStackFlags(cmd, &sCmd.Params, false)
 	return cmd
 }

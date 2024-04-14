@@ -2,51 +2,42 @@ package provisioner
 
 import (
 	"context"
-
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
 
 func (p *provisioner) Preview(ctx context.Context, params api.DeployParams) (*api.PreviewResult, error) {
-	cfg, stack, pv, err := p.initProvisionerForDeploy(ctx, params.StackParams)
+	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
 		return nil, err
 	}
-	if pv == nil {
-		return nil, errors.Errorf("provisioner is not initialized properly")
-	}
-	if params.StacksDir == "" {
-		params.StacksDir = p.getStacksDir(cfg, params.StacksDir)
-	}
-
 	return pv.PreviewChildStack(ctx, cfg, *stack, params)
 }
 
 func (p *provisioner) Outputs(ctx context.Context, params api.StackParams) (*api.OutputsResult, error) {
-	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	if params.Environment != "" {
+		cfg, stack, pv, err := p.prepareForChildStack(ctx, &params)
+		if err != nil {
+			return nil, err
+		}
+		return pv.OutputsStack(ctx, cfg, *stack, params)
+	}
+	cfg, err := p.prepareForParentStack(ctx, params.ToProvisionParams())
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
+		return nil, err
 	}
-
-	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
-		StacksDir: params.StacksDir,
-		Profile:   params.Profile,
-	}, api.ReadOpts{IgnoreClientMissing: true}); err != nil {
-		return nil, errors.Wrapf(err, "failed to read stacks")
+	if stack, found := p.stacks[params.StackName]; !found {
+		return nil, errors.Errorf("stack %q is not found in configurations", params.StackName)
+	} else if pv, err := p.getProvisionerForStack(ctx, stack); err != nil {
+		return nil, errors.Wrapf(err, "failed to get provisioner for stack %q", stack.Name)
+	} else {
+		return pv.OutputsStack(ctx, cfg, stack, params)
 	}
-	stack, ok := p.stacks[params.StackName]
-	if !ok {
-		return nil, errors.Errorf("stack %q is not configured", params.StackName)
-	}
-
-	pv, err := p.getProvisionerForStack(ctx, stack)
-
-	return pv.OutputsStack(ctx, cfg, stack, params)
 }
 
 func (p *provisioner) PreviewProvision(ctx context.Context, params api.ProvisionParams) ([]*api.PreviewResult, error) {
-	cfg, err := p.readConfigForProvision(ctx, params)
+	cfg, err := p.prepareForParentStack(ctx, params)
 	if err != nil {
 		return nil, err
 	}

@@ -143,7 +143,7 @@ type DestroyParams struct {
 	StackParams `json:",inline" yaml:",inline"`
 }
 
-func (p *DestroyParams) ToProvisionParams() ProvisionParams {
+func (p *StackParams) ToProvisionParams() ProvisionParams {
 	return ProvisionParams{
 		StacksDir:   p.StacksDir,
 		Profile:     p.Profile,
