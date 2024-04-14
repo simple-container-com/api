@@ -105,10 +105,11 @@ func (c *Collector) Dependencies() []sdk.Resource {
 
 func NewComputeContextCollector(ctx context.Context, log logger.Logger, stackName string, environment string) ComputeContextCollector {
 	return &Collector{
-		Stack:            stackName,
-		Env:              environment,
-		EnvVars:          make([]ComputeEnvVariable, 0),
-		resTplExtensions: make(perResTplValues),
+		Stack:               stackName,
+		Env:                 environment,
+		EnvVars:             make([]ComputeEnvVariable, 0),
+		resTplExtensions:    make(perResTplValues),
+		dependTplExtensions: make(perResTplValues),
 
 		log: log,
 		ctx: ctx,
