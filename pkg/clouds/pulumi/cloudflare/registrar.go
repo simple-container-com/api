@@ -113,6 +113,10 @@ addEventListener('fetch', event => {
 async function handleRequest(request) {
 	const overrideHost = "%s";
 	const url = new URL(request.url);
+	if (url.pathname.endsWith('/')) {
+      url.pathname += 'index.html';
+    }
+	
 	url.hostname = overrideHost;
 	return await fetch(url.toString(), request);
 };

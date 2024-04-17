@@ -1,1 +1,2 @@
 bundle/*
+!bundle/index.html
