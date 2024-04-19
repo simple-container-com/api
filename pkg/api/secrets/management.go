@@ -2,14 +2,14 @@ package secrets
 
 import (
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/asn1"
+	"encoding/pem"
+	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"io"
 	"io/fs"
 	"os"
 	"path"
-	"strings"
-
-	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 
 	"github.com/simple-container-com/api/pkg/api"
 
@@ -76,7 +76,7 @@ func (c *cryptor) AddFile(filePath string) error {
 }
 
 func (c *cryptor) RemovePublicKey(pubKey string) error {
-	delete(c.secrets.Secrets, strings.TrimSpace(pubKey))
+	delete(c.secrets.Secrets, TrimPubKey(pubKey))
 	err := c.EncryptChanged()
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func (c *cryptor) AddPublicKey(pubKey string) error {
 	if err := c.initData(); err != nil {
 		return err
 	}
-	c.secrets.Secrets[strings.TrimSpace(pubKey)] = EncryptedSecrets{}
+	c.secrets.Secrets[TrimPubKey(pubKey)] = EncryptedSecrets{}
 	err := c.EncryptChanged()
 	if err != nil {
 		return err
@@ -191,6 +191,9 @@ func (c *cryptor) DecryptAll() error {
 }
 
 func (c *cryptor) EncryptChanged() error {
+	c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
+		return TrimPubKey(key)
+	})
 	for publicKey := range c.secrets.Secrets {
 		filteredSecrets := c.secrets.Secrets[publicKey]
 		filteredSecrets.Files = lo.Filter(filteredSecrets.Files, func(file EncryptedSecretFile, _ int) bool {
@@ -299,8 +302,24 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 
 	var key *rsa.PrivateKey
 	var err error
-	if rawKey, err := ssh.ParseRawPrivateKey([]byte(c.currentPrivateKey)); err != nil && errors.As(err, &asn1.StructuralError{}) {
+
+	privPem, _ := pem.Decode([]byte(c.currentPrivateKey))
+	if x509.IsEncryptedPEMBlock(privPem) && c.privateKeyPassphrase == "" {
+		return nil, errors.Errorf("paassphrase is required to decrypt private key, but wasn't specified")
+	}
+	var rawKey any
+	if c.privateKeyPassphrase != "" {
+		if rawKey, err = ssh.ParseRawPrivateKeyWithPassphrase([]byte(c.currentPrivateKey), []byte(c.privateKeyPassphrase)); err != nil {
+			return nil, errors.Wrapf(err, "failed to parse private key with passphrase")
+		}
+	} else {
+		rawKey, err = ssh.ParseRawPrivateKey([]byte(c.currentPrivateKey))
+	}
+
+	if err != nil && errors.As(err, new(*asn1.StructuralError)) {
 		return nil, errors.Wrapf(err, "invalid key format")
+	} else if err != nil && errors.As(err, new(*ssh.PassphraseMissingError)) {
+		return nil, errors.Wrapf(err, "failed to parse private key with passphrase (did you configure privateKeyPassword?)")
 	} else if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse private key")
 	} else if castedKey, ok := rawKey.(*rsa.PrivateKey); !ok {
@@ -406,7 +425,7 @@ func (c *cryptor) GenerateKeyPairWithProfile(projectName string, profile string)
 		return errors.Wrapf(err, "failed to serialize public key")
 	}
 
-	c.currentPublicKey = string(mPubKey)
+	c.currentPublicKey = TrimPubKey(string(mPubKey))
 
 	config := &api.ConfigFile{
 		ProjectName: projectName,

@@ -102,6 +102,22 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 	ruleName := fmt.Sprintf("%s-host-override", stack.Name)
 	r.log.Info(ctx.Context(), "configure cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
 	scriptName := fmt.Sprintf("%s-script", ruleName)
+
+	pagesCode := ""
+	if rule.OverridePages != nil {
+		if rule.OverridePages.IndexPage != "" {
+			pagesCode += fmt.Sprintf(`url.pathname = '/%s';`, rule.OverridePages.IndexPage)
+		}
+		if rule.OverridePages.NotFoundPage != "" {
+			pagesCode += fmt.Sprintf(`const res = await fetch(url.toString(), request);
+	if (res.status == 404) {
+		url.pathname = '/%s';
+	} else {
+		return res;
+	}
+`, rule.OverridePages.NotFoundPage)
+		}
+	}
 	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
 		Name:      sdk.String(scriptName),
 		AccountId: sdk.String(r.accountId),
@@ -113,14 +129,12 @@ addEventListener('fetch', event => {
 async function handleRequest(request) {
 	const overrideHost = "%s";
 	const url = new URL(request.url);
-	if (url.pathname.endsWith('/')) {
-      url.pathname += 'index.html';
-    }
-	
 	url.hostname = overrideHost;
+
+	%s
 	return await fetch(url.toString(), request);
 };
-`, rule.ToHost)),
+`, rule.ToHost, pagesCode)),
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		return nil, err

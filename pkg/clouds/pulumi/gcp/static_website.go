@@ -11,19 +11,6 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-type StaticSiteInput struct {
-	ServiceName        string
-	Provider           sdk.ProviderResource
-	Registrar          pApi.Registrar
-	Ctx                *sdk.Context
-	BundleDir          string
-	IndexDocument      string
-	ErrorDocument      string
-	Domain             string
-	ProvisionWwwDomain bool
-	Account            gcloud.Credentials
-}
-
 type StaticSiteOutput struct {
 	Bucket             *storage.Bucket
 	IamReadBinding     *storage.BucketIAMBinding
@@ -141,6 +128,10 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	overrideHeaderRule, err := params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
 		FromHost: domain,
 		ToHost:   bucketDomain,
+		OverridePages: &pApi.OverridePagesRule{
+			IndexPage:    in.IndexDocument,
+			NotFoundPage: in.ErrorDocument,
+		},
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", domain, bucketDomain)

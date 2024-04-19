@@ -44,10 +44,11 @@ type cryptor struct {
 
 	gitRepo git.Repo
 
-	_lock             sync.RWMutex // для защиты secrets & registry
-	currentPrivateKey string
-	currentPublicKey  string
-	secrets           EncryptedSecretFiles
+	_lock                sync.RWMutex // для защиты secrets & registry
+	currentPrivateKey    string
+	currentPublicKey     string
+	privateKeyPassphrase string
+	secrets              EncryptedSecretFiles
 }
 
 func (c *cryptor) Workdir() string {

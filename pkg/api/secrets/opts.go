@@ -114,10 +114,13 @@ func WithKeysFromScConfig(profile string) Option {
 				}
 			}
 			if cfg.PublicKey != "" {
-				c.currentPublicKey = strings.TrimSpace(cfg.PublicKey)
+				c.currentPublicKey = TrimPubKey(cfg.PublicKey)
 			}
 			if cfg.PrivateKey != "" {
-				c.currentPrivateKey = strings.TrimSpace(cfg.PrivateKey)
+				c.currentPrivateKey = TrimPrivKey(cfg.PrivateKey)
+			}
+			if cfg.PrivateKeyPassword != "" {
+				c.privateKeyPassphrase = cfg.PrivateKeyPassword
 			}
 			return nil
 		},
@@ -127,7 +130,7 @@ func WithKeysFromScConfig(profile string) Option {
 func WithPublicKey(key string) Option {
 	return Option{
 		f: func(c *cryptor) error {
-			c.currentPublicKey = strings.TrimSpace(key)
+			c.currentPublicKey = TrimPubKey(key)
 			return nil
 		},
 	}
@@ -154,7 +157,7 @@ func WithPublicKeyPath(filePath string) Option {
 			if data, err := io.ReadAll(file); err != nil {
 				return err
 			} else {
-				c.currentPublicKey = strings.TrimSpace(string(data))
+				c.currentPublicKey = TrimPubKey(string(data))
 			}
 			return nil
 		},

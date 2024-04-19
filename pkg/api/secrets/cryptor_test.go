@@ -58,6 +58,15 @@ func TestNewCryptor(t *testing.T) {
 			actions: happyPathScenario,
 		},
 		{
+			name:           "happy path with passphrase",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				withGitDir("gitdir"),
+				WithKeysFromScConfig("local-key-files-passphrase"),
+			},
+			actions: happyPathScenario,
+		},
+		{
 			name:           "happy path with profile",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
@@ -66,6 +75,21 @@ func TestNewCryptor(t *testing.T) {
 				WithKeysFromCurrentProfile(),
 			},
 			actions: happyPathScenario,
+		},
+		{
+			name:           "happy path without passphrase",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				withGitDir("gitdir"),
+				WithKeysFromScConfig("local-key-files-no-passphrase"),
+			},
+			actions: func(t *testing.T, c Cryptor, wd string) {
+				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.EncryptChanged()).To(BeNil())
+				err := c.DecryptAll()
+				Expect(err).NotTo(BeNil())
+				Expect(err.Error()).To(MatchRegexp(".*failed to parse private key with passphrase.*"))
+			},
 		},
 		{
 			name:           "bad workdir",

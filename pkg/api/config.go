@@ -16,12 +16,13 @@ const (
 )
 
 type ConfigFile struct {
-	ProjectName    string `json:"projectName" yaml:"projectName"`
-	PrivateKeyPath string `yaml:"privateKeyPath" json:"privateKeyPath"`
-	PublicKeyPath  string `yaml:"publicKeyPath" json:"publicKeyPath"`
-	PrivateKey     string `yaml:"privateKey" json:"privateKey"`
-	PublicKey      string `yaml:"publicKey" json:"publicKey"`
-	StacksDir      string `yaml:"stacksDir" json:"stacksDir"`
+	ProjectName        string `json:"projectName" yaml:"projectName"`
+	PrivateKeyPath     string `yaml:"privateKeyPath,omitempty" json:"privateKeyPath,omitempty"`
+	PublicKeyPath      string `yaml:"publicKeyPath,omitempty" json:"publicKeyPath,omitempty"`
+	PrivateKey         string `yaml:"privateKey,omitempty" json:"privateKey,omitempty"`
+	PrivateKeyPassword string `yaml:"privateKeyPassword,omitempty" json:"privateKeyPassword,omitempty"`
+	PublicKey          string `yaml:"publicKey,omitempty" json:"publicKey,omitempty"`
+	StacksDir          string `yaml:"stacksDir,omitempty" json:"stacksDir,omitempty"`
 }
 
 type InitParams struct {
