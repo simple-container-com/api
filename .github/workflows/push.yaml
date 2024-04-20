@@ -1,6 +1,11 @@
 name: Build simple-container-com CLI
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'main'
+
+runs-on: self-hosted
 
 jobs:
   prepare:
