@@ -65,6 +65,14 @@ if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "2" ]]; then
   )
 fi
 
+if ! [ -x "$(command -v pulumi)" ]; then
+  if [[ "$PLATFORM" == "linux" ]]; then
+    curl -fsSL https://get.pulumi.com | sh
+  elif [[ "$PLATFORM" == "darwin" ]]; then
+    brew install pulumi/tap/pulumi
+  fi
+fi
+
 export PATH="$PATH:$BINDIR"
 
 # Add completions
