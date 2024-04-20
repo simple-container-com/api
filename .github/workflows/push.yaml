@@ -5,12 +5,11 @@ on:
     branches:
       - 'main'
 
-runs-on: self-hosted
 
 jobs:
   prepare:
     name: Prepare build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -25,7 +24,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: prepare
     steps:
       - uses: actions/checkout@v3
@@ -53,7 +52,7 @@ jobs:
 
   finalize:
     name: Finalize build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: ${{ always() }}
     permissions:
       contents: write
