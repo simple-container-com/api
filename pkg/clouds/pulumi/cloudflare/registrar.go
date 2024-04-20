@@ -106,7 +106,7 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 	pagesCode := ""
 	if rule.OverridePages != nil {
 		if rule.OverridePages.IndexPage != "" {
-			pagesCode += fmt.Sprintf(`url.pathname = '/%s';`, rule.OverridePages.IndexPage)
+			pagesCode += fmt.Sprintf(`if (res.pathname.endsWith('/')) { url.pathname = '/%s'; }`, rule.OverridePages.IndexPage)
 		}
 		if rule.OverridePages.NotFoundPage != "" {
 			pagesCode += fmt.Sprintf(`let res = await fetch(url.toString(), request);
