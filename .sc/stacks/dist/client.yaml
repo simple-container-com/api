@@ -6,4 +6,5 @@ stacks:
     config:
       bundleDir: ./bundle
       domain: dist.simple-container.com
+      indexDocument: index.html
       location: EUROPE-CENTRAL2
