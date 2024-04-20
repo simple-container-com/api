@@ -7,4 +7,5 @@ stacks:
       bundleDir: ./bundle
       domain: dist.simple-container.com
       indexDocument: index.html
+      errorDocument: 404.html
       location: EUROPE-CENTRAL2
