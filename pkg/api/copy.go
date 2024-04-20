@@ -4,6 +4,10 @@ import (
 	"github.com/samber/lo"
 )
 
+type WithCopy[T any] interface {
+	Copy() T
+}
+
 func (s *SecretsDescriptor) Copy() SecretsDescriptor {
 	return SecretsDescriptor{
 		SchemaVersion: s.SchemaVersion,
@@ -106,6 +110,11 @@ func (s *CiCdDescriptor) Copy() CiCdDescriptor {
 }
 
 func (s *Config) Copy() Config {
+	if withCopy, ok := s.Config.(WithCopy[any]); ok {
+		return Config{
+			Config: withCopy.Copy(),
+		}
+	}
 	return Config{
 		Config: s.Config,
 	}
@@ -146,12 +155,18 @@ func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	}
 }
 
-func (s *StackConfigCompose) Copy() StackConfigCompose {
-	return StackConfigCompose{
+func (s *StackConfigCompose) Copy() any {
+	return &StackConfigCompose{
 		DockerComposeFile: s.DockerComposeFile,
+		Domain:            s.Domain,
+		BaseDnsZone:       s.BaseDnsZone,
 		Uses:              s.Uses,
 		Runs:              s.Runs,
-		Domain:            s.Domain,
 		Env:               lo.Assign(s.Env),
+		Secrets:           lo.Assign(s.Secrets),
+		Version:           s.Version,
+		Size:              s.Size,
+		Scale:             s.Scale,
+		Dependencies:      lo.If(s.Dependencies == nil, []StackConfigDependencyResource{}).Else(s.Dependencies),
 	}
 }

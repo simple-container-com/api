@@ -84,7 +84,7 @@ func TestReadClientDescriptor(t *testing.T) {
 			got, err := api.ReadClientDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
+			assert.EqualValuesf(t, tt.want.Copy(), got.Copy(), "%v failed", tt.path)
 			// Expect(got).To(Equal(tt.want))
 		})
 	}

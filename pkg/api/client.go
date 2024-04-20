@@ -36,9 +36,9 @@ type StackConfigCompose struct {
 	Env               map[string]string               `json:"env" yaml:"env"`
 	Secrets           map[string]string               `json:"secrets" yaml:"secrets"`
 	Version           string                          `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
-	Size              *StackConfigComposeSize         `json:"size" yaml:"size"`
-	Scale             *StackConfigComposeScale        `json:"scale" yaml:"scale"`
-	Dependencies      []StackConfigDependencyResource `json:"dependencies" yaml:"dependencies"` // when service wants to use resources from another service
+	Size              *StackConfigComposeSize         `json:"size,omitempty" yaml:"size,omitempty"`
+	Scale             *StackConfigComposeScale        `json:"scale,omitempty" yaml:"scale,omitempty"`
+	Dependencies      []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack
