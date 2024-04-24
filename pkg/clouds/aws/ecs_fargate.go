@@ -254,10 +254,10 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		cpu := 256
 		memory := 512
 
-		if cpu, err = toCpu(svc); err != nil {
+		if cpu, err = toCpu(stackCfg, svc); err != nil {
 			return EcsFargateInput{}, err
 		}
-		if memory, err = toMemory(svc); err != nil {
+		if memory, err = toMemory(stackCfg, svc); err != nil {
 			return EcsFargateInput{}, err
 		}
 
@@ -300,7 +300,15 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 	return res, nil
 }
 
-func toCpu(svc types.ServiceConfig) (int, error) {
+func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int, error) {
+	if len(cfg.Runs) == 1 && cfg.Size != nil {
+		if v, err := strconv.Atoi(cfg.Size.Cpu); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse cpu value specified for stack: %q", cfg.Size.Cpu)
+		} else {
+			return v, nil
+		}
+	}
+
 	if svc.Deploy != nil && svc.Deploy.Resources.Limits != nil {
 		if f, err := strconv.ParseFloat(svc.Deploy.Resources.Limits.NanoCPUs, 32); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse cpu limit: %q for service %q", svc.Deploy.Resources.Limits.NanoCPUs, svc.Name)
@@ -311,7 +319,15 @@ func toCpu(svc types.ServiceConfig) (int, error) {
 	return 256, nil
 }
 
-func toMemory(svc types.ServiceConfig) (int, error) {
+func toMemory(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int, error) {
+	if len(cfg.Runs) == 1 && cfg.Size != nil {
+		if v, err := strconv.Atoi(cfg.Size.Memory); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse memory value specified for stack: %q", cfg.Size.Memory)
+		} else {
+			return v, nil
+		}
+	}
+
 	if svc.Deploy != nil && svc.Deploy.Resources.Limits != nil {
 		return int(svc.Deploy.Resources.Limits.MemoryBytes) / 1024 / 1024, nil
 	}

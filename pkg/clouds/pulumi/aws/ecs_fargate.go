@@ -224,12 +224,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					SourceVolume:  sdk.String(v.SourceVolume),
 				})
 			})
+			cpu := lo.If(image.Container.Cpu == 0, 256).Else(image.Container.Cpu)
+			memory := lo.If(image.Container.Memory == 0, 512).Else(image.Container.Memory)
 			cDef := EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
 					Name:        sdk.String(image.Container.Name),
 					Image:       image.ImageName,
-					Cpu:         sdk.IntPtr(lo.If(image.Container.Cpu == 0, 256).Else(image.Container.Cpu)),
-					Memory:      sdk.IntPtr(lo.If(image.Container.Memory == 0, 512).Else(image.Container.Memory)),
+					Cpu:         sdk.IntPtr(cpu),
+					Memory:      sdk.IntPtr(memory),
 					Essential:   sdk.BoolPtr(true),
 					Environment: envVariables,
 					Secrets:     secretsVariables,
