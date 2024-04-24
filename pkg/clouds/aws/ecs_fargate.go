@@ -36,6 +36,7 @@ type EcsFargateImage struct {
 	Context    string
 	Dockerfile string
 	Platform   ImagePlatform
+	Name       string
 }
 
 type EcsFargateProbe struct {
@@ -58,15 +59,25 @@ type ProbeHttpGet struct {
 }
 
 type EcsFargateContainer struct {
-	Name          string            `json:"name" yaml:"name"`
-	Image         EcsFargateImage   `json:"image" yaml:"image"`
-	Env           map[string]string `json:"env" yaml:"env"`
-	Secrets       map[string]string `json:"secrets" yaml:"secrets"`
-	Port          int               `json:"port" yaml:"port"`
-	LivenessProbe EcsFargateProbe   `json:"livenessProbe" yaml:"livenessProbe"`
-	StartupProbe  EcsFargateProbe   `json:"startupProbe" yaml:"startupProbe"`
-	Cpu           int               `json:"cpu" yaml:"cpu"`
-	Memory        int               `json:"memory" yaml:"memory"`
+	Name          string                 `json:"name" yaml:"name"`
+	Image         EcsFargateImage        `json:"image" yaml:"image"`
+	Env           map[string]string      `json:"env" yaml:"env"`
+	Secrets       map[string]string      `json:"secrets" yaml:"secrets"`
+	Port          int                    `json:"port" yaml:"port"`
+	LivenessProbe EcsFargateProbe        `json:"livenessProbe" yaml:"livenessProbe"`
+	StartupProbe  EcsFargateProbe        `json:"startupProbe" yaml:"startupProbe"`
+	MountPoints   []EcsFargateMountPoint `json:"mountPoints" yaml:"mountPoints"`
+	Cpu           int                    `json:"cpu" yaml:"cpu"`
+	Memory        int                    `json:"memory" yaml:"memory"`
+}
+
+type EcsFargateVolume struct {
+	Name string `json:"name" yaml:"name"`
+}
+type EcsFargateMountPoint struct {
+	ContainerPath string `pulumi:"containerPath"`
+	ReadOnly      bool   `pulumi:"readOnly"`
+	SourceVolume  string `pulumi:"sourceVolume"`
 }
 
 type EcsFargateScale struct {
@@ -121,8 +132,9 @@ type EcsFargateInput struct {
 	Domain           string                              `json:"domain" yaml:"domain"`
 	RefResourceNames []string                            `json:"refResourceNames" yaml:"refResourceNames"`
 	Secrets          map[string]string                   `json:"secrets" yaml:"secrets"`
-	BaseDnsZone      string                              `yaml:"baseDnsZone" json:"baseDnsZone"`
+	BaseDnsZone      string                              `json:"baseDnsZone" yaml:"baseDnsZone"`
 	Dependencies     []api.StackConfigDependencyResource `json:"dependencies" yaml:"dependencies"`
+	Volumes          []EcsFargateVolume                  `json:"volumes" yaml:"volumes"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
@@ -163,6 +175,11 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Version:       stackCfg.Version,
 		},
 		Secrets: stackCfg.Secrets,
+		Volumes: lo.Map(lo.Entries(composeCfg.Project.Volumes), func(v lo.Entry[string, types.VolumeConfig], _ int) EcsFargateVolume {
+			return EcsFargateVolume{
+				Name: lo.If(v.Value.Name != "", v.Value.Name).Else(v.Key),
+			}
+		}),
 	}
 	if stackCfg.Size != nil {
 		if res.Config.Cpu, err = strconv.Atoi(stackCfg.Size.Cpu); err != nil {
@@ -206,7 +223,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 
 	for _, svcName := range stackCfg.Runs {
 		svc := services[svcName]
-		port, err := toRunPort(svc.Ports)
+		port, err := toRunPort(svc.Ports, svc.Expose)
 		if err != nil {
 			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
 		}
@@ -223,18 +240,43 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		if err != nil {
 			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
 		}
+		context := ""
+		dockerFile := ""
+		if svc.Build != nil {
+			context = svc.Build.Context
+			dockerFile = svc.Build.Dockerfile
+		}
+
+		if svc.Image == "" && context == "" && dockerFile == "" {
+			return EcsFargateInput{}, errors.Errorf("either `image` or `build` must be specified in docker compose file for service %s", svcName)
+		}
+
+		cpu := 256
+		memory := 512
+
+		if cpu, err = toCpu(svc); err != nil {
+			return EcsFargateInput{}, err
+		}
+		if memory, err = toMemory(svc); err != nil {
+			return EcsFargateInput{}, err
+		}
+
 		res.Containers = append(res.Containers, EcsFargateContainer{
 			Name: svcName,
 			Image: EcsFargateImage{
-				Context:    composeCfg.Project.RelativePath(svc.Build.Context),
+				Name:       svc.Image,
+				Context:    context,
 				Platform:   ImagePlatformLinuxAmd64,
-				Dockerfile: svc.Build.Dockerfile,
+				Dockerfile: dockerFile,
 			},
 			Env:           lo.Assign(toRunEnv(svc.Environment), stackCfg.Env),
 			Secrets:       secrets,
 			Port:          port,
 			LivenessProbe: liveProbe,
 			StartupProbe:  startProbe,
+			MountPoints:   toMountPoints(svc),
+			Cpu:           cpu,
+			Memory:        memory,
 			// TODO: cpu, memory
 		})
 	}
@@ -258,11 +300,46 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 	return res, nil
 }
 
-func toRunPort(ports []types.ServicePortConfig) (int, error) {
+func toCpu(svc types.ServiceConfig) (int, error) {
+	if svc.Deploy != nil && svc.Deploy.Resources.Limits != nil {
+		if f, err := strconv.ParseFloat(svc.Deploy.Resources.Limits.NanoCPUs, 32); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse cpu limit: %q for service %q", svc.Deploy.Resources.Limits.NanoCPUs, svc.Name)
+		} else {
+			return int(1024.0 * f), nil
+		}
+	}
+	return 256, nil
+}
+
+func toMemory(svc types.ServiceConfig) (int, error) {
+	if svc.Deploy != nil && svc.Deploy.Resources.Limits != nil {
+		return int(svc.Deploy.Resources.Limits.MemoryBytes) / 1024 / 1024, nil
+	}
+	return 512, nil
+}
+
+func toMountPoints(svc types.ServiceConfig) []EcsFargateMountPoint {
+	return lo.Map(svc.Volumes, func(v types.ServiceVolumeConfig, _ int) EcsFargateMountPoint {
+		return EcsFargateMountPoint{
+			ContainerPath: v.Target,
+			ReadOnly:      v.ReadOnly,
+			SourceVolume:  v.Source,
+		}
+	})
+}
+
+func toRunPort(ports []types.ServicePortConfig, expose types.StringOrNumberList) (int, error) {
 	if len(ports) == 1 {
 		return int(ports[0].Target), nil
 	}
-	return 0, errors.Errorf("expected 1 port, got %d", len(ports))
+	if len(expose) == 1 {
+		if port, err := strconv.Atoi(expose[0]); err != nil {
+			return 0, err
+		} else {
+			return port, nil
+		}
+	}
+	return 0, errors.Errorf("expected 1 port, got %d ports and %d exposed", len(ports), len(expose))
 }
 
 func toResources(svc types.ServiceConfig) EcsFargateResources {

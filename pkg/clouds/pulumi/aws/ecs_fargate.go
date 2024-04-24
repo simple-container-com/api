@@ -36,7 +36,7 @@ type EcsFargateRepository struct {
 
 type EcsFargateImage struct {
 	Container  aws.EcsFargateContainer
-	Image      *docker.Image
+	ImageName  sdk.StringOutput
 	Repository EcsFargateRepository
 }
 
@@ -184,6 +184,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.ExecRole = taskExecRole
 	ctx.Export(fmt.Sprintf("%s-exec-role-arn", ecsClusterName), taskExecRole.Arn)
 
+	var volumes ecsV5.TaskDefinitionVolumeArray
+	lo.ForEach(crInput.Volumes, func(v aws.EcsFargateVolume, _ int) {
+		volumes = append(volumes, ecsV5.TaskDefinitionVolumeArgs{
+			Name: sdk.String(v.Name),
+		})
+	})
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
 		func(image *EcsFargateImage, index int) EcsContainerDef {
@@ -209,15 +215,25 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					ValueFrom: item.Secret.Arn,
 				}
 			})...)
+
+			var mountPoints ecs.TaskDefinitionMountPointArray
+			lo.ForEach(image.Container.MountPoints, func(v aws.EcsFargateMountPoint, _ int) {
+				mountPoints = append(mountPoints, ecs.TaskDefinitionMountPointArgs{
+					ContainerPath: sdk.String(v.ContainerPath),
+					ReadOnly:      sdk.BoolPtr(v.ReadOnly),
+					SourceVolume:  sdk.String(v.SourceVolume),
+				})
+			})
 			cDef := EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
 					Name:        sdk.String(image.Container.Name),
-					Image:       image.Image.ImageName,
-					Cpu:         sdk.IntPtr(lo.If(crInput.Config.Cpu == 0, 256).Else(crInput.Config.Cpu)),
-					Memory:      sdk.IntPtr(lo.If(crInput.Config.Memory == 0, 512).Else(crInput.Config.Memory)),
+					Image:       image.ImageName,
+					Cpu:         sdk.IntPtr(lo.If(image.Container.Cpu == 0, 256).Else(image.Container.Cpu)),
+					Memory:      sdk.IntPtr(lo.If(image.Container.Memory == 0, 512).Else(image.Container.Memory)),
 					Essential:   sdk.BoolPtr(true),
 					Environment: envVariables,
 					Secrets:     secretsVariables,
+					MountPoints: mountPoints,
 					LogConfiguration: ecs.TaskDefinitionLogConfigurationArgs{
 						LogDriver: sdk.String("awslogs"),
 						Options: sdk.StringMap{
@@ -346,6 +362,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
 			Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
 			Containers: containers,
+			Volumes:    volumes,
 			ExecutionRole: &awsx.DefaultRoleWithPolicyArgs{
 				RoleArn: taskExecRole.Arn,
 			},
@@ -416,6 +433,14 @@ func toSecretName(params api.StackParams, resType, resName, varName, suffix stri
 
 func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*EcsFargateImage, error) {
+		if container.Image.Dockerfile == "" && container.Image.Context == "" {
+			// do not build and return right away
+			return &EcsFargateImage{
+				Container: container,
+				ImageName: sdk.String(container.Image.Name).ToStringOutput(),
+			}, nil
+		}
+
 		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
 		version := "latest" // TODO: support versioning
 		repository, err := createEcrRegistry(ctx, stack, params, deployParams, container.Name)
@@ -445,7 +470,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 		}
 		return &EcsFargateImage{
 			Container:  container,
-			Image:      image,
+			ImageName:  image.ImageName,
 			Repository: repository,
 		}, nil
 	})
@@ -455,7 +480,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 	ref.Images = images
 	for _, image := range images {
 		if image != nil {
-			ctx.Export(fmt.Sprintf("%s--%s--%s--image", stack.Name, deployParams.Environment, image.Container.Name), image.Image.ImageName)
+			ctx.Export(fmt.Sprintf("%s--%s--%s--image", stack.Name, deployParams.Environment, image.Container.Name), image.ImageName)
 		}
 	}
 	return nil
