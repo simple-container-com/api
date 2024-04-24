@@ -225,6 +225,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				})
 			})
 			cpu := lo.If(image.Container.Cpu == 0, 256).Else(image.Container.Cpu)
+
+			var dependsOn ecs.TaskDefinitionContainerDependencyArray
+			lo.ForEach(image.Container.DependsOn, func(dep aws.EcsFargateDependsOn, _ int) {
+				dependsOn = append(dependsOn, ecs.TaskDefinitionContainerDependencyArgs{
+					Condition:     sdk.String(dep.Condition),
+					ContainerName: sdk.String(dep.Container),
+				})
+			})
 			memory := lo.If(image.Container.Memory == 0, 512).Else(image.Container.Memory)
 			cDef := EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
@@ -236,6 +244,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Environment: envVariables,
 					Secrets:     secretsVariables,
 					MountPoints: mountPoints,
+					DependsOn:   dependsOn,
 					LogConfiguration: ecs.TaskDefinitionLogConfigurationArgs{
 						LogDriver: sdk.String("awslogs"),
 						Options: sdk.StringMap{

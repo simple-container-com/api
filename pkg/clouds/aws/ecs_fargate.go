@@ -69,6 +69,7 @@ type EcsFargateContainer struct {
 	MountPoints   []EcsFargateMountPoint `json:"mountPoints" yaml:"mountPoints"`
 	Cpu           int                    `json:"cpu" yaml:"cpu"`
 	Memory        int                    `json:"memory" yaml:"memory"`
+	DependsOn     []EcsFargateDependsOn  `json:"dependsOn" yaml:"dependsOn"`
 }
 
 type EcsFargateVolume struct {
@@ -277,6 +278,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			MountPoints:   toMountPoints(svc),
 			Cpu:           cpu,
 			Memory:        memory,
+			DependsOn:     toDependsOn(svc.DependsOn),
 			// TODO: cpu, memory
 		})
 	}
@@ -298,6 +300,21 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 	res.Domain = stackCfg.Domain
 
 	return res, nil
+}
+
+type EcsFargateDependsOn struct {
+	Container string `json:"container" yaml:"container"`
+	Condition string `json:"condition" yaml:"condition"`
+}
+
+func toDependsOn(on types.DependsOnConfig) []EcsFargateDependsOn {
+	return lo.MapToSlice(on, func(key string, value types.ServiceDependency) EcsFargateDependsOn {
+		return EcsFargateDependsOn{
+			Container: key,
+			Condition: lo.If(value.Condition == "service_healthy", "HEALTHY").Else(
+				lo.If(value.Condition == "service_started", "START").Else("HEALTHY")),
+		}
+	})
 }
 
 func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int, error) {
