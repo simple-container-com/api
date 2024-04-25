@@ -5,6 +5,10 @@ on:
     branches:
       - 'main'
 
+# allow only one concurrent build
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   prepare:
@@ -27,6 +31,7 @@ jobs:
     runs-on: self-hosted
     needs: prepare
     steps:
+      # see https://github.com/actions/runner/issues/2278
       - name: Set owner of working dir recurively (Linux)
         if: ${{ inputs.build_platform == 'linux' }}
         run: sudo chown -R $(whoami) .
