@@ -222,7 +222,10 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 				projectId:   projectId,
 				dbUri:       mongoUri,
 				userName:    usr,
-				roles:       []dbRole{{dbName: "admin", role: "readWriteAnyDatabase"}},
+				roles: []dbRole{
+					{dbName: "admin", role: "readWriteAnyDatabase"},
+					{dbName: "local", role: "read"},
+				},
 			}, params)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)
@@ -236,7 +239,10 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 				projectId:   projectId,
 				dbUri:       mongoUri,
 				userName:    usr,
-				roles:       []dbRole{{dbName: "admin", role: "readAnyDatabase"}},
+				roles: []dbRole{
+					{dbName: "admin", role: "readAnyDatabase"},
+					{dbName: "local", role: "read"},
+				},
 			}, params)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create mongodb user %q", usr)

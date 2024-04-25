@@ -105,6 +105,10 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 				dbName: dbName,
 				role:   "readWrite",
 			},
+			{
+				dbName: "local",
+				role:   "read",
+			},
 		},
 	}, params.provisionParams)
 	if err != nil {
