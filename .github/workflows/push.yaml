@@ -19,7 +19,6 @@ jobs:
     steps:
       # see https://github.com/actions/runner/issues/2278
       - name: Set owner of working dir recurively (Linux)
-        if: ${{ inputs.build_platform == 'linux' }}
         run: sudo chown -R $(whoami) .
       - uses: actions/checkout@v4
       - name: Get next version
@@ -37,7 +36,6 @@ jobs:
     steps:
       # see https://github.com/actions/runner/issues/2278
       - name: Set owner of working dir recurively (Linux)
-        if: ${{ inputs.build_platform == 'linux' }}
         run: sudo chown -R $(whoami) .
       - uses: actions/checkout@v3
       - uses: fregante/setup-git-user@v2
