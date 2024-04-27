@@ -130,6 +130,9 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 
 			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
 
+			// oplog uri is necessary for apps that would like to read mongo's oplog
+			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
+
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
@@ -137,6 +140,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 				"uri":      mongoUri,
 				"password": dbUser.Password,
 				"user":     userName,
+				"oplogUri": oplogMongoUri,
 			})
 
 			return nil, nil
@@ -190,6 +194,9 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 
 			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
 
+			// oplog uri is necessary for apps that would like to read mongo's oplog
+			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
+
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_URI", ownerStackName)), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
@@ -197,6 +204,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 				"uri":      mongoUri,
 				"password": dbUser.Password,
 				"user":     userName,
+				"oplogUri": oplogMongoUri,
 			})
 
 			return nil, nil
