@@ -208,6 +208,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Value: sdk.StringPtr(value),
 				}
 			})...)
+			envVariables = append(envVariables, lo.Map(lo.Entries(params.BaseEnvVariables), func(e lo.Entry[string, string], index int) ecs.TaskDefinitionKeyValuePairInput {
+				return ecs.TaskDefinitionKeyValuePairArgs{
+					Name:  sdk.StringPtr(e.Key),
+					Value: sdk.StringPtr(e.Value),
+				}
+			})...)
 			secretsVariables := ecs.TaskDefinitionSecretArray{}
 			secretsVariables = append(secretsVariables, lo.Map(secrets, func(item *CreatedSecret, _ int) ecs.TaskDefinitionSecretInput {
 				return ecs.TaskDefinitionSecretArgs{

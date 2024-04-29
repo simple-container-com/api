@@ -172,6 +172,10 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	var provider sdk.ProviderResource
 	providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, res.Type, res.Name, environment)
 
+	envVariables := map[string]string{
+		"SIMPLE_CONTAINER_STACK": stack.Name,
+		"SIMPLE_CONTAINER_ENV":   environment,
+	}
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
 	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
@@ -190,13 +194,17 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		Log:       p.logger,
 		Registrar: p.registrar,
 	}); err != nil {
+		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init provider for %q in stack %q", res.Type, stack.Name)
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
+	} else {
+		envVariables["SIMPLE_CONTAINER_RESOURCE_TYPE"] = res.Type
 	}
 	return pApi.ProvisionParams{
-		Provider:  provider,
-		Registrar: p.registrar,
-		Log:       p.logger,
+		Provider:         provider,
+		Registrar:        p.registrar,
+		Log:              p.logger,
+		BaseEnvVariables: envVariables,
 	}, nil
 }
 

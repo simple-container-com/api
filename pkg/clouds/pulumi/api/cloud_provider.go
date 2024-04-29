@@ -18,6 +18,7 @@ type ProvisionParams struct {
 	StackDescriptor   *api.StackDescriptor
 	UseResources      map[string]bool
 	DependOnResources []api.StackConfigDependencyResource
+	BaseEnvVariables  map[string]string
 }
 
 type DnsPreference struct {
