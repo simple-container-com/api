@@ -474,6 +474,9 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 			Build: &docker.DockerBuildArgs{
 				Context:    sdk.String(container.Image.Context),
 				Dockerfile: sdk.String(container.Image.Dockerfile),
+				Args: map[string]sdk.StringInput{
+					"VERSION": sdk.String(version),
+				},
 			},
 			ImageName: imageFullUrl,
 			Registry: docker.ImageRegistryArgs{
