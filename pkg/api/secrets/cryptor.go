@@ -3,6 +3,8 @@ package secrets
 import (
 	"sync"
 
+	"github.com/simple-container-com/welder/pkg/util"
+
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api/git"
@@ -49,6 +51,8 @@ type cryptor struct {
 	currentPublicKey     string
 	privateKeyPassphrase string
 	secrets              EncryptedSecretFiles
+	consoleWriter        util.ConsoleWriter
+	consoleReader        util.ConsoleReader
 }
 
 func (c *cryptor) Workdir() string {

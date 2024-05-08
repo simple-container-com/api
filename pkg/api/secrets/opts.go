@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/simple-container-com/welder/pkg/util"
+
 	"github.com/simple-container-com/api/pkg/api/git"
 
 	"github.com/pkg/errors"
@@ -16,6 +18,26 @@ import (
 type Option struct {
 	f          func(*cryptor) error
 	beforeInit bool
+}
+
+func WithConsoleWriter(writer util.ConsoleWriter) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			c.consoleWriter = writer
+			return nil
+		},
+	}
+}
+
+func WithConsoleReader(reader util.ConsoleReader) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			c.consoleReader = reader
+			return nil
+		},
+	}
 }
 
 func WithGitRepo(gitRepo git.Repo) Option {

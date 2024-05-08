@@ -2,13 +2,13 @@ package secrets
 
 import (
 	"crypto/rsa"
-	"crypto/x509"
 	"encoding/asn1"
-	"encoding/pem"
 	"io"
 	"io/fs"
 	"os"
 	"path"
+
+	"github.com/simple-container-com/welder/pkg/util"
 
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 
@@ -304,10 +304,15 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 	var key *rsa.PrivateKey
 	var err error
 
-	privPem, _ := pem.Decode([]byte(c.currentPrivateKey))
-	if x509.IsEncryptedPEMBlock(privPem) && c.privateKeyPassphrase == "" {
-		return nil, errors.Errorf("paassphrase is required to decrypt private key, but wasn't specified")
+	if _, err := ssh.ParseRawPrivateKey([]byte(c.currentPrivateKey)); errors.As(err, new(*ssh.PassphraseMissingError)) && c.privateKeyPassphrase == "" {
+		c.consoleWriter.Println("Enter password: ")
+		if passphrase, err := c.consoleReader.ReadLine(); err != nil {
+			return nil, errors.Wrapf(err, "failed to read password for passpharse-protected key")
+		} else {
+			c.privateKeyPassphrase = passphrase
+		}
 	}
+
 	var rawKey any
 	if c.privateKeyPassphrase != "" {
 		if rawKey, err = ssh.ParseRawPrivateKeyWithPassphrase([]byte(c.currentPrivateKey), []byte(c.privateKeyPassphrase)); err != nil {
@@ -392,8 +397,10 @@ func (c *cryptor) withWriteLock() func() {
 
 func NewCryptor(workDir string, opts ...Option) (Cryptor, error) {
 	c := &cryptor{
-		workDir: workDir,
-		options: opts,
+		workDir:       workDir,
+		options:       opts,
+		consoleReader: util.DefaultConsoleReader,
+		consoleWriter: util.DefaultConsoleWriter,
 	}
 
 	beforeInitOpts := lo.Filter(opts, func(item Option, index int) bool {

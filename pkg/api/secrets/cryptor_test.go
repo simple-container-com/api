@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/simple-container-com/welder/pkg/util/test"
+
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 
 	. "github.com/onsi/gomega"
@@ -29,6 +31,10 @@ func withGitDir(gitDir string) Option {
 	}
 }
 
+type mocks struct {
+	consoleReaderMock *test.ConsoleReaderMock
+}
+
 func TestNewCryptor(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -36,7 +42,7 @@ func TestNewCryptor(t *testing.T) {
 		name           string
 		testExampleDir string
 		opts           []Option
-		actions        func(t *testing.T, c Cryptor, wd string)
+		actions        func(t *testing.T, c Cryptor, m *mocks, wd string)
 		wantErr        string
 	}{
 		{
@@ -77,18 +83,34 @@ func TestNewCryptor(t *testing.T) {
 			actions: happyPathScenario,
 		},
 		{
-			name:           "happy path without passphrase",
+			name:           "happy path with invalid passphrase from console",
 			testExampleDir: "testdata/repo",
 			opts: []Option{
 				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files-no-passphrase"),
 			},
-			actions: func(t *testing.T, c Cryptor, wd string) {
+			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
+				m.consoleReaderMock.On("ReadLine").Return("invalid-passphrase", nil)
 				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
 				Expect(c.EncryptChanged()).To(BeNil())
 				err := c.DecryptAll()
 				Expect(err).NotTo(BeNil())
 				Expect(err.Error()).To(MatchRegexp(".*failed to parse private key with passphrase.*"))
+			},
+		},
+		{
+			name:           "happy path with valid passphrase from console",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				withGitDir("gitdir"),
+				WithKeysFromScConfig("local-key-files-no-passphrase"),
+			},
+			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
+				m.consoleReaderMock.On("ReadLine").Return("test", nil)
+				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.EncryptChanged()).To(BeNil())
+				err := c.DecryptAll()
+				Expect(err).To(BeNil())
 			},
 		},
 		{
@@ -109,8 +131,8 @@ func TestNewCryptor(t *testing.T) {
 				WithProfile("test-profile"),
 				WithGeneratedKeys("test-project", "test-profile"),
 			},
-			actions: func(t *testing.T, c Cryptor, wd string) {
-				happyPathScenario(t, c, wd)
+			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
+				happyPathScenario(t, c, m, wd)
 				cfg, err := api.ReadConfigFile(wd, "test-profile")
 				Expect(err).To(BeNil())
 				Expect(cfg.PrivateKey).To(ContainSubstring(c.PrivateKey()))
@@ -131,7 +153,7 @@ func TestNewCryptor(t *testing.T) {
 		{
 			name:           "public key not configured",
 			testExampleDir: "testdata/repo",
-			actions: func(t *testing.T, c Cryptor, wd string) {
+			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				Expect(c.AddFile("stacks/common/secrets.yaml")).
 					To(MatchError("public key is not configured"))
 			},
@@ -148,6 +170,10 @@ func TestNewCryptor(t *testing.T) {
 	t.Parallel()
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			m := &mocks{
+				consoleReaderMock: &test.ConsoleReaderMock{},
+			}
+
 			workDir, cleanup, err := testutil.CopyTempProject(tt.testExampleDir)
 			defer cleanup()
 
@@ -155,6 +181,8 @@ func TestNewCryptor(t *testing.T) {
 				Expect(err.Error()).Should(MatchRegexp(tt.wantErr))
 				return
 			}
+
+			tt.opts = append(tt.opts, WithConsoleReader(m.consoleReaderMock))
 
 			got, err := NewCryptor(workDir, tt.opts...)
 
@@ -166,13 +194,13 @@ func TestNewCryptor(t *testing.T) {
 			}
 
 			if tt.actions != nil {
-				tt.actions(t, got, workDir)
+				tt.actions(t, got, m, workDir)
 			}
 		})
 	}
 }
 
-func happyPathScenario(t *testing.T, c Cryptor, wd string) {
+func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	oldSecretFile1Content, err := os.ReadFile("testdata/repo/stacks/common/secrets.yaml")
 	Expect(err).To(BeNil())
 	oldSecretFile2Content, err := os.ReadFile("testdata/repo/stacks/refapp/secrets.yaml")
