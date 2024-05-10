@@ -40,6 +40,7 @@ type StackConfigCompose struct {
 	Size              *StackConfigComposeSize         `json:"size,omitempty" yaml:"size,omitempty"`
 	Scale             *StackConfigComposeScale        `json:"scale,omitempty" yaml:"scale,omitempty"`
 	Dependencies      []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
+	Alerts            *AlertsConfig                   `json:"alerts,omitempty" yaml:"alerts,omitempty"`
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack

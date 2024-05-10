@@ -105,8 +105,10 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 
 	if parsedCryptoKey, ok := parsed.(ssh.CryptoPublicKey); !ok {
 		return nil, errors.New("failed to parse public key: not a CryptoPublicKey")
+	} else if res, ok := parsedCryptoKey.CryptoPublicKey().(crypto.PublicKey); !ok { //nolint: gosimple
+		return nil, errors.New("failed to parse public key: not a RSA public key")
 	} else {
-		return parsedCryptoKey, nil
+		return res, nil
 	}
 }
 

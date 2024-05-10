@@ -20,6 +20,7 @@ type ProvisionParams struct {
 	UseResources      map[string]bool
 	DependOnResources []api.StackConfigDependencyResource
 	BaseEnvVariables  map[string]string
+	HelpersImage      string
 }
 
 type DnsPreference struct {

@@ -11,6 +11,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
+	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
@@ -197,13 +198,14 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	} else {
-		envVariables["SIMPLE_CONTAINER_RESOURCE_TYPE"] = res.Type
+		envVariables[api.ScContainerResourceTypeEnvVariable] = res.Type
 	}
 	return pApi.ProvisionParams{
 		Provider:         provider,
 		Registrar:        p.registrar,
 		Log:              p.logger,
 		BaseEnvVariables: envVariables,
+		HelpersImage:     fmt.Sprintf("simplecontainer/cloud-helpers:%s", build.Version),
 	}, nil
 }
 

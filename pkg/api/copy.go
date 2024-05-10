@@ -167,6 +167,7 @@ func (s *StackConfigCompose) Copy() any {
 		Version:           s.Version,
 		Size:              s.Size,
 		Scale:             s.Scale,
+		Alerts:            s.Alerts,
 		Dependencies:      lo.If(s.Dependencies == nil, []StackConfigDependencyResource{}).Else(s.Dependencies),
 	}
 }

@@ -75,6 +75,7 @@ type EcsFargateContainer struct {
 type EcsFargateVolume struct {
 	Name string `json:"name" yaml:"name"`
 }
+
 type EcsFargateMountPoint struct {
 	ContainerPath string `pulumi:"containerPath"`
 	ReadOnly      bool   `pulumi:"readOnly"`
@@ -105,25 +106,6 @@ type EcsFargateScalePolicy struct {
 	ScaleOutCooldown int                       `json:"scaleOutCooldown" yaml:"scaleOutCooldown"`
 }
 
-type AlertsConfig struct {
-	MaxErrors MaxErrorConfig `json:"maxErrors" yaml:"maxErrors"`
-	Discord   DiscordCfg     `json:"discord" yaml:"discord"`
-	Telegram  TelegramCfg    `json:"telegram" yaml:"telegram"`
-}
-
-type TelegramCfg struct {
-	DefaultChatId string `json:"defaultChatId" yaml:"defaultChatId"`
-}
-
-type DiscordCfg struct {
-	WebhookId string `json:"webhookId" yaml:"webhookId"`
-}
-
-type MaxErrorConfig struct {
-	ErrorLogMessageRegexp string `json:"errorLogMessageRegexp" yaml:"errorLogMessageRegexp"`
-	MaxErrorCount         int    `json:"maxErrorCount" yaml:"maxErrorCount"`
-}
-
 type EcsFargateInput struct {
 	TemplateConfig   `json:"templateConfig" yaml:"templateConfig"`
 	Scale            EcsFargateScale                     `json:"scale" yaml:"scale"`
@@ -136,6 +118,7 @@ type EcsFargateInput struct {
 	BaseDnsZone      string                              `json:"baseDnsZone" yaml:"baseDnsZone"`
 	Dependencies     []api.StackConfigDependencyResource `json:"dependencies" yaml:"dependencies"`
 	Volumes          []EcsFargateVolume                  `json:"volumes" yaml:"volumes"`
+	Alerts           *api.AlertsConfig                   `json:"alerts" yaml:"alerts"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
@@ -175,6 +158,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			AccountConfig: *accountConfig,
 			Version:       stackCfg.Version,
 		},
+		Alerts:  stackCfg.Alerts,
 		Secrets: stackCfg.Secrets,
 		Volumes: lo.Map(lo.Entries(composeCfg.Project.Volumes), func(v lo.Entry[string, types.VolumeConfig], _ int) EcsFargateVolume {
 			return EcsFargateVolume{

@@ -14,7 +14,6 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/secretsmanager"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
@@ -37,11 +36,6 @@ type EcsFargateImage struct {
 	Container  aws.EcsFargateContainer
 	ImageName  sdk.StringOutput
 	Repository EcsFargateRepository
-}
-
-type CreatedSecret struct {
-	Secret *secretsmanager.Secret
-	EnvVar string
 }
 
 type EcsFargateOutput struct {
@@ -111,26 +105,6 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
 
 	return output, nil
-}
-
-func createSecret(ctx *sdk.Context, secretName, envVar, value string, opts ...sdk.ResourceOption) (*CreatedSecret, error) {
-	secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
-		Name: sdk.String(secretName),
-	}, opts...)
-	if err != nil {
-		return nil, err
-	}
-	_, err = secretsmanager.NewSecretVersion(ctx, secretName, &secretsmanager.SecretVersionArgs{
-		SecretId:     secret.Arn,
-		SecretString: sdk.String(value),
-	}, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return &CreatedSecret{
-		Secret: secret,
-		EnvVar: envVar,
-	}, nil
 }
 
 func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
@@ -440,11 +414,74 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsClusterName, ecsServiceName)
 		}
 	}
+
+	if crInput.Alerts != nil {
+		cluster.Name.ApplyT(func(clusterName string) any {
+			return createEcsAlerts(ctx, clusterName, crInput, deployParams, params, opts...)
+		})
+	}
 	return nil
 }
 
-func toSecretName(params api.StackParams, resType, resName, varName, suffix string) string {
-	return fmt.Sprintf("%s--%s--%s--%s--%s%s", params.StackName, params.Environment, resType, resName, varName, suffix)
+func createEcsAlerts(ctx *sdk.Context, clusterName string, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
+	alerts := crInput.Alerts
+	if alerts.MaxCPU != nil {
+		if eventRule, err := createEcsEventRule(ctx, eventRuleCfg{
+			name:           alerts.MaxCPU.AlertName,
+			ecsClusterName: clusterName,
+			description:    alerts.MaxCPU.Description,
+			opts:           opts,
+			metricsJson: fmt.Sprintf(`
+				"CPUUtilization": {
+					"comparisonOperator": "GreaterThanThreshold",
+					"threshold": %s
+				}
+			`, alerts.MaxCPU.Threshold),
+		}); err != nil {
+			return errors.Wrapf(err, "failed to create max CPU event")
+		} else if err := createAlert(ctx, alertCfg{
+			name:            alerts.MaxCPU.AlertName,
+			description:     alerts.MaxCPU.Description,
+			eventRule:       eventRule,
+			telegramConfig:  alerts.Telegram,
+			discordConfig:   alerts.Discord,
+			deployParams:    deployParams,
+			provisionParams: params,
+			secretSuffix:    crInput.Config.Version,
+			opts:            opts,
+		}); err != nil {
+			return errors.Wrapf(err, "failed to create max CPU alert")
+		}
+	}
+	if alerts.MaxMemory != nil {
+		if eventRule, err := createEcsEventRule(ctx, eventRuleCfg{
+			name:           alerts.MaxMemory.AlertName,
+			ecsClusterName: clusterName,
+			description:    alerts.MaxMemory.Description,
+			opts:           opts,
+			metricsJson: fmt.Sprintf(`
+				"MemoryUtilization": {
+					"comparisonOperator": "GreaterThanThreshold",
+					"threshold": %s
+				}
+			`, alerts.MaxMemory.Threshold),
+		}); err != nil {
+			return errors.Wrapf(err, "failed to create max memory event")
+		} else if err := createAlert(ctx, alertCfg{
+			name:            alerts.MaxMemory.AlertName,
+			description:     alerts.MaxMemory.Description,
+			eventRule:       eventRule,
+			telegramConfig:  alerts.Telegram,
+			discordConfig:   alerts.Discord,
+			deployParams:    deployParams,
+			provisionParams: params,
+			secretSuffix:    crInput.Config.Version,
+			opts:            opts,
+		}); err != nil {
+			return errors.Wrapf(err, "failed to create max memory alert")
+		}
+	}
+	return nil
 }
 
 func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
