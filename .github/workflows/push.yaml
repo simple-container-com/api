@@ -54,25 +54,3 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod --timestamps
-
-  finalize:
-    name: Finalize build
-    runs-on: self-hosted
-    if: ${{ always() }}
-    permissions:
-      contents: write
-    needs:
-      - prepare
-      - build
-    steps:
-      - uses: actions/checkout@v4
-        if: ${{ always() }}
-      # Creating release tag
-      - uses: rickstaa/action-create-tag@v1
-        if: ${{ always() && contains(needs.*.result, 'success') }}
-        id: "tag_create"
-        with:
-          tag: "v${{ needs.prepare.outputs.version }}"
-          tag_exists_error: false
-          force_push_tag: true
-          message: "Release v${{ needs.prepare.outputs.version }}"

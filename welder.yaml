@@ -38,6 +38,9 @@ modules:
         tags:
           - simplecontainer/cloud-helpers:latest
           - simplecontainer/cloud-helpers:${project:version}
+        runAfterPush:
+          tasks:
+            - tag-release
 tasks:
   tools:
     runOn: host
@@ -95,6 +98,11 @@ tasks:
     script:
       - ${project:root}/bin/sc secrets reveal
       - ${project:root}/bin/sc deploy -s dist -e prod
+  tag-release:
+    runOn: host
+    script:
+      - git tag ${project:version} || echo "Already set tag ${project:version}"
+      - git push -f origin ${project:version} || echo "Tag ${project:version} already exists in origin"
   rebuild:
     runOn: host
     script:
