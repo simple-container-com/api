@@ -49,7 +49,7 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/username/repo.git
+          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make --timestamps
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") docker build --push --timestamps
       - name: publish sc tool
