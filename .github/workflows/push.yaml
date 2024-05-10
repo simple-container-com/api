@@ -27,7 +27,7 @@ jobs:
           use_api: "true"
 
   build:
-    name: Build
+    name: Build and release simple-container
     runs-on: self-hosted
     needs: prepare
     steps:
