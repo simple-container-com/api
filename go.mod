@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/storage v1.35.1
 	github.com/MShekow/directory-checksum v1.4.2
 	github.com/atombender/go-jsonschema v0.15.0
+	github.com/aws/aws-lambda-go v1.13.3
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/fatih/color v1.16.0
 	github.com/go-git/go-billy/v5 v5.5.0

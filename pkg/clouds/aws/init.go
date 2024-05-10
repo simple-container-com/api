@@ -30,4 +30,8 @@ func init() {
 	api.RegisterCloudStaticSiteConverter(api.CloudStaticSiteConfigRegister{
 		TemplateTypeStaticWebsite: ToStaticSiteConfig,
 	})
+
+	api.RegisterCloudHelper(api.CloudHelpersRegisterMap{
+		CloudHelperLambda: NewLambdaHelper,
+	})
 }

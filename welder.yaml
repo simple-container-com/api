@@ -6,6 +6,7 @@ default:
   build:
     args:
       package: github.com/simple-container-com/api
+      ld-flags: "-s -w -X=${arg:package}/internal/build.Version=${project:version}"
 profiles:
   skip-tools:
   skip-test:
@@ -22,6 +23,8 @@ modules:
         - task: linters
         - task: test
         - task: build-all
+        - task: docker-login
+        - task: build-cloud-helpers
     deploy:
       environments:
         prod:
@@ -29,6 +32,12 @@ modules:
       steps:
         - task: rebuild
         - task: deploy
+    dockerImages:
+      - name: cloud-helpers
+        dockerFile: ${project:root}/cloud-helpers.Dockerfile
+        tags:
+          - simplecontainer/cloud-helpers:latest
+          - simplecontainer/cloud-helpers:${project:version}
 tasks:
   tools:
     runOn: host
@@ -53,6 +62,18 @@ tasks:
       - cp ${project:root}/sc.sh ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - echo "${project:version}" > ${project:root}/.sc/stacks/dist/bundle/version
+  docker-login:
+    runOn: host
+    script:
+      - |-
+        bash -c '
+          bash <(curl -Ls "https://dist.simple-container.com/sc.sh") secrets reveal
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+        '
+  build-cloud-helpers:
+    runOn: host
+    script:
+      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
   test:
     runOn: host
     script:
@@ -65,7 +86,7 @@ tasks:
     script:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${project:version}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
       - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
       - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
       - cp ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz

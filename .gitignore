@@ -3,6 +3,7 @@ bin
 /dist
 *.iml
 .sc/cfg.*.yaml
+.welder-out/*
 
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml

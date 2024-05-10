@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	ScConfigDirectory     = ".sc"
-	EnvConfigFileTemplate = "cfg.%s.yaml"
-	ScConfigEnvVariable   = "SIMPLE_CONTAINER_CONFIG"
+	ScConfigDirectory            = ".sc"
+	EnvConfigFileTemplate        = "cfg.%s.yaml"
+	ScConfigEnvVariable          = "SIMPLE_CONTAINER_CONFIG"
+	ScCloudHelperTypeEnvVariable = "SIMPLE_CONTAINER_CLOUD_HELPER_TYPE"
 )
 
 type ConfigFile struct {

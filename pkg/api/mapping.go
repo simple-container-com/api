@@ -17,13 +17,21 @@ type ConfigReaderFunc func(config *Config) (Config, error)
 
 type ProvisionerInitFunc func(config Config, opts ...ProvisionerOption) (Provisioner, error)
 
-type ConfigRegisterMap map[string]ConfigReaderFunc
+type (
+	CloudHelperInitFunc func(opts ...CloudHelperOption) (CloudHelper, error)
+	ConfigRegisterMap   map[string]ConfigReaderFunc
+)
 
-type ProvisionerRegisterMap map[string]ProvisionerInitFunc
+type (
+	ProvisionerRegisterMap  map[string]ProvisionerInitFunc
+	CloudHelpersRegisterMap map[string]CloudHelperInitFunc
+)
 
 var providerConfigMapping = ConfigRegisterMap{}
 
 var provisionerConfigMapping = ProvisionerRegisterMap{}
+
+var cloudHelpersConfigMapping = CloudHelpersRegisterMap{}
 
 type (
 	ProvisionerFieldConfigReadFunc   func(config *Config) (Config, error)
@@ -95,6 +103,14 @@ func RegisterCloudStaticSiteConverter(mapping CloudStaticSiteConfigRegister) {
 	cloudStaticSiteConverterMapping = lo.Assign(cloudStaticSiteConverterMapping, mapping)
 }
 
+func RegisterCloudHelper(mapping CloudHelpersRegisterMap) {
+	cloudHelpersConfigMapping = lo.Assign(cloudHelpersConfigMapping, mapping)
+}
+
+type CloudHelper interface {
+	Run() error
+}
+
 type Provisioner interface {
 	ProvisionStack(ctx context.Context, cfg *ConfigFile, stack Stack, params ProvisionParams) error
 
@@ -118,6 +134,8 @@ type Provisioner interface {
 }
 
 type ProvisionerOption func(p Provisioner) error
+
+type CloudHelperOption func(c CloudHelper) error
 
 func WithFieldConfigReader(f ProvisionerFieldConfigReaderFunc) ProvisionerOption {
 	return func(p Provisioner) error {
