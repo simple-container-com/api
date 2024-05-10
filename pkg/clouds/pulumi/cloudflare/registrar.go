@@ -3,15 +3,13 @@ package cloudflare
 import (
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/api/logger"
-
-	"github.com/samber/lo"
-
 	"github.com/pkg/errors"
 	cfImpl "github.com/pulumi/pulumi-cloudflare/sdk/v5/go/cloudflare"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	cfApi "github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )

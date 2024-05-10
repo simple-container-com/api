@@ -5,9 +5,8 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
-	"github.com/simple-container-com/api/pkg/api/logger/color"
-
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
 func (p *pulumi) CancelStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.StackParams) error {

@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
-
 	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
 type deleteCmd struct {

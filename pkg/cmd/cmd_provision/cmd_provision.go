@@ -3,9 +3,9 @@ package cmd_provision
 import (
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/api"
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -53,7 +53,7 @@ func RegisterProvisionFlags(cmd *cobra.Command, p *api.ProvisionParams) {
 func PrintPreview(pRes *api.PreviewResult) {
 	fmt.Println("=== Stack: " + pRes.StackName)
 	for op, cnt := range pRes.Operations {
-		fmt.Println(fmt.Sprintf("    %s: %d", op, cnt))
+		fmt.Printf("    %s: %d\n", op, cnt)
 	}
 	fmt.Println(pRes.Summary)
 }

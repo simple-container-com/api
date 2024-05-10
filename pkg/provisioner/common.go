@@ -118,13 +118,6 @@ func (p *provisioner) GetStack(ctx context.Context, params api.StackParams, opts
 	}
 }
 
-func (p *provisioner) withReadLock() func() {
-	p._lock.RLock()
-	return func() {
-		p._lock.RUnlock()
-	}
-}
-
 func (p *provisioner) withWriteLock() func() {
 	p._lock.Lock()
 	return func() {

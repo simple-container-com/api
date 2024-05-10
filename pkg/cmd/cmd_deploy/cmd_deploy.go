@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -38,8 +38,7 @@ func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 			if err != nil && !rootCmd.IsCanceled.Load() {
 				return err
 			} else if rootCmd.IsCanceled.Load() {
-				ctx, _ := context.WithCancel(context.Background())
-				err = pCmd.Root.Provisioner.Cancel(ctx, pCmd.Params.StackParams)
+				err = pCmd.Root.Provisioner.Cancel(context.Background(), pCmd.Params.StackParams)
 			} else {
 				return nil
 			}

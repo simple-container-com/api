@@ -11,14 +11,14 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/MShekow/directory-checksum/directory_checksum"
-	"github.com/spf13/afero"
-
 	gcpStorage "cloud.google.com/go/storage"
-	"github.com/pkg/errors"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"go.uber.org/atomic"
 	gcpOptions "google.golang.org/api/option"
+
+	"github.com/MShekow/directory-checksum/directory_checksum"
+	"github.com/pkg/errors"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/spf13/afero"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
@@ -88,8 +88,12 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDi
 	fullDirPath := path.Join(rootDir, relDir)
 	totalBytes := atomic.NewInt64(0)
 	params.Log.Info(ctx, "scanning directory %s...", fullDirPath)
-	err = filepath.Walk(fullDirPath, func(filePath string, info fs.FileInfo, err error) error {
+	err = filepath.Walk(fullDirPath, func(filePath string, info fs.FileInfo, walkErr error) error {
 		if info == nil || info.IsDir() {
+			return nil
+		}
+		if walkErr != nil {
+			params.Log.Error(ctx, color.RedFmt("failed to walk through path %q: %v", filePath, walkErr))
 			return nil
 		}
 		copyPath, err := filepath.Rel(fullDirPath, filePath)

@@ -21,7 +21,7 @@ type ServerDescriptor struct {
 	SchemaVersion string                        `json:"schemaVersion" yaml:"schemaVersion"`
 	Provisioner   ProvisionerDescriptor         `json:"provisioner" yaml:"provisioner"`
 	Secrets       SecretsConfigDescriptor       `json:"secrets" yaml:"secrets"`
-	CiCd          CiCdDescriptor                `json:"cicd" json:"cicd"`
+	CiCd          CiCdDescriptor                `json:"cicd" yaml:"cicd"`
 	Templates     map[string]StackDescriptor    `json:"templates" yaml:"templates"`
 	Resources     PerStackResourcesDescriptor   `json:"resources" yaml:"resources"`
 	Variables     map[string]VariableDescriptor `json:"variables" yaml:"variables"`

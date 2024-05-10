@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/pkg/errors"
-
-	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 )

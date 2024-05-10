@@ -5,11 +5,9 @@ import (
 	"fmt"
 )
 
-type logConfigKey int
+type logConfigKey struct{}
 
-const (
-	logLevel logConfigKey = iota
-)
+var logLevel logConfigKey = struct{}{}
 
 const (
 	LogLevelDebug  = iota
@@ -64,8 +62,8 @@ func (l logger) Silent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, logLevel, LogLevelSilent)
 }
 
-func (l logger) SetLogLevel(ctx context.Context, logLevel int) context.Context {
-	return context.WithValue(ctx, logLevel, logLevel)
+func (l logger) SetLogLevel(ctx context.Context, level int) context.Context {
+	return context.WithValue(ctx, logLevel, level)
 }
 
 func getLogLevel(ctx context.Context) int {

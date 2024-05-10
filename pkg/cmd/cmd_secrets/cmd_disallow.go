@@ -2,9 +2,10 @@ package cmd_secrets
 
 import (
 	"github.com/samber/lo"
+	"github.com/spf13/cobra"
+
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
-	"github.com/spf13/cobra"
 )
 
 func NewDisallowCmd(sCmd *secretsCmd) *cobra.Command {

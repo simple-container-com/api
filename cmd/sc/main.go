@@ -6,7 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
+	"go.uber.org/atomic"
+
+	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
@@ -16,10 +18,9 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_upgrade"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
-	"github.com/spf13/cobra"
-	"go.uber.org/atomic"
 )
 
 func main() {
@@ -37,7 +38,7 @@ func main() {
 
 	rootParams.CancelFunc = cancel
 
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-quit

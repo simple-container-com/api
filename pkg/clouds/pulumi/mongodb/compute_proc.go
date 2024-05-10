@@ -122,10 +122,10 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 			dbUser := DbUserOutput{}
 			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_USER")), userName,
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_USER"), userName,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_PASSWORD")), dbUser.Password,
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_PASSWORD"), dbUser.Password,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
@@ -133,7 +133,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 			// oplog uri is necessary for apps that would like to read mongo's oplog
 			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_URI")), mongoUri,
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_URI"), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 			params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{

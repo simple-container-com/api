@@ -8,16 +8,15 @@ import (
 	"os"
 	"path"
 
-	"github.com/simple-container-com/welder/pkg/util"
-
-	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
-
-	"github.com/simple-container-com/api/pkg/api"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"golang.org/x/crypto/ssh"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
+	"github.com/simple-container-com/welder/pkg/util"
 )
 
 func (c *cryptor) ReadProfileConfig() error {

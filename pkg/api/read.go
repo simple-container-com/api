@@ -3,8 +3,9 @@ package api
 import (
 	"os"
 
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pkg/errors"
 )
 
 const (
@@ -54,7 +55,9 @@ func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 
 func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
 	descriptor, err := ReadDescriptor(path, &SecretsDescriptor{})
-
+	if err != nil {
+		return nil, err
+	}
 	res, err := ReadSecretsConfigs(descriptor)
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read secret configs for %s", path)

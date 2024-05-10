@@ -6,24 +6,21 @@ import (
 	"os"
 	"strings"
 
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-
-	"github.com/simple-container-com/api/pkg/api/logger/color"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-
-	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/pkg/v3/backend/display"
+	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git/path_util"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
 const (
@@ -86,7 +83,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	switch provisionerCfg.StateStorage.Type {
 	case BackendTypePulumiCloud:
 		cloudUrl := "https://api.pulumi.com"
-		_, err := httpstate.NewLoginManager().Login(ctx, cloudUrl, false, "pulumi", "Pulumi stacks", httpstate.WelcomeUser, true /*current*/, display.Options{
+		_, err = httpstate.NewLoginManager().Login(ctx, cloudUrl, false, "pulumi", "Pulumi stacks", httpstate.WelcomeUser, true /*current*/, display.Options{
 			Color: cmdutil.GetGlobalColorization(),
 		})
 		if err != nil {

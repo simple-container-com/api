@@ -101,8 +101,8 @@ var ScaleCpu EcsFargateScalePolicyType = "cpu"
 type EcsFargateScalePolicy struct {
 	Type             EcsFargateScalePolicyType `json:"type" yaml:"type"`
 	TargetValue      int                       `yaml:"targetValue" json:"targetValue"`
-	ScaleInCooldown  int                       `json:"scaleInCooldown" json:"scaleInCooldown"`
-	ScaleOutCooldown int                       `json:"scaleOutCooldown" json:"scaleOutCooldown"`
+	ScaleInCooldown  int                       `json:"scaleInCooldown" yaml:"scaleInCooldown"`
+	ScaleOutCooldown int                       `json:"scaleOutCooldown" yaml:"scaleOutCooldown"`
 }
 
 type AlertsConfig struct {
@@ -252,8 +252,8 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			return EcsFargateInput{}, errors.Errorf("either `image` or `build` must be specified in docker compose file for service %s", svcName)
 		}
 
-		cpu := 256
-		memory := 512
+		var cpu int
+		var memory int
 
 		if cpu, err = toCpu(stackCfg, svc); err != nil {
 			return EcsFargateInput{}, err
@@ -373,10 +373,6 @@ func toRunPort(ports []types.ServicePortConfig, expose types.StringOrNumberList)
 		}
 	}
 	return 0, errors.Errorf("expected 1 port, got %d ports and %d exposed", len(ports), len(expose))
-}
-
-func toResources(svc types.ServiceConfig) EcsFargateResources {
-	return EcsFargateResources{}
 }
 
 func toStartupProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {

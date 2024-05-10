@@ -3,11 +3,10 @@ package cmd_stack
 import (
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/api"
-
 	"github.com/pkg/errors"
-
 	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 func NewSecretGetCmd(sCmd *stackCmd) *cobra.Command {

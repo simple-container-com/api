@@ -12,10 +12,10 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/ed25519"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"golang.org/x/crypto/ssh"
 )
 
 // GenerateKeyPair generates a new key pair
@@ -105,10 +105,8 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 
 	if parsedCryptoKey, ok := parsed.(ssh.CryptoPublicKey); !ok {
 		return nil, errors.New("failed to parse public key: not a CryptoPublicKey")
-	} else if res, ok := parsedCryptoKey.CryptoPublicKey().(crypto.PublicKey); !ok {
-		return nil, errors.New("failed to parse public key: not a RSA public key")
 	} else {
-		return res, nil
+		return parsedCryptoKey, nil
 	}
 }
 

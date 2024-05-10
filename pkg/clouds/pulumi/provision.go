@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/api/logger/color"
-
-	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
+	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 

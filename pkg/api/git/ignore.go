@@ -57,7 +57,7 @@ func (r *repo) readIgnore(flag int) ([]byte, billy.File, error) {
 	filename := ".gitignore"
 	var file billy.File
 	var err error
-	if _, err := r.wdFs.Stat(filename); os.IsNotExist(err) {
+	if _, err = r.wdFs.Stat(filename); os.IsNotExist(err) {
 		file, err = r.wdFs.Create(filename)
 	} else if err == nil {
 		file, err = r.wdFs.OpenFile(filename, os.O_CREATE|os.O_RDWR|flag, os.ModePerm)

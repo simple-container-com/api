@@ -5,9 +5,9 @@ import (
 	"path"
 	"testing"
 
-	"github.com/simple-container-com/api/pkg/api/tests/testutil"
-
 	. "github.com/onsi/gomega"
+
+	"github.com/simple-container-com/api/pkg/api/tests/testutil"
 )
 
 func TestOpenRepo(t *testing.T) {

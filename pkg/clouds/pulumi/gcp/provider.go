@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
 	"github.com/simple-container-com/api/pkg/api"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
 func InitStateStore(ctx context.Context, authCfg api.AuthConfig) error {

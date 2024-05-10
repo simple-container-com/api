@@ -6,18 +6,16 @@ import (
 	"path"
 	"testing"
 
-	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
-
-	"github.com/stretchr/testify/assert"
-
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
+	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 	"github.com/simple-container-com/api/pkg/api/tests"
 	"github.com/simple-container-com/api/pkg/api/tests/testutil"
 	pulumi_mocks "github.com/simple-container-com/api/pkg/clouds/pulumi/mocks"

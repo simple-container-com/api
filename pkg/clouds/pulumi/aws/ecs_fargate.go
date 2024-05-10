@@ -12,7 +12,6 @@ import (
 	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/secretsmanager"
@@ -589,32 +588,4 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 func awsResName(name string, suffix string) string {
 	return strings.ReplaceAll(fmt.Sprintf("%s-%s", name, suffix), "--", "_")
-}
-
-func getOrCreateDefaultSubnetsInRegion(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) ([]*ec2.DefaultSubnet, error) {
-	// Get all availability zones in provided region
-	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
-		Filters: []awsImpl.GetAvailabilityZonesFilter{
-			{
-				Name:   "region-name",
-				Values: []string{account.Region},
-			},
-		},
-	}, sdk.Provider(params.Provider))
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
-	}
-
-	// Create default subnet in each availability zone
-	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (*ec2.DefaultSubnet, error) {
-		subnetName := fmt.Sprintf("default-subnet-%s", zone)
-		subnet, err := ec2.NewDefaultSubnet(ctx, subnetName, &ec2.DefaultSubnetArgs{
-			AvailabilityZone: sdk.String(zone),
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create default subnet %s in %q", subnetName, account.Region)
-		}
-		return subnet, nil
-	})
-	return subnets, err
 }

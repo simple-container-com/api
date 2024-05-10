@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 	"github.com/simple-container-com/welder/pkg/template"

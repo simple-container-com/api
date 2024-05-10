@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/simple-container-com/api/pkg/clouds/mongodb"
+	"gopkg.in/yaml.v3"
 
 	. "github.com/onsi/gomega"
-	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
-	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
-	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets"
+	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
+	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
+	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 )
 
 const (

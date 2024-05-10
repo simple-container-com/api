@@ -3,10 +3,9 @@ package aws
 import (
 	"fmt"
 
-	"github.com/samber/lo"
-
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -74,13 +73,13 @@ func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketName)), resAccessKeySecret,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_REGION")), resBucketRegion,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_REGION"), resBucketRegion,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_BUCKET")), resBucketName,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_BUCKET"), resBucketName,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_ACCESS_KEY")), resAccessKeyId,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_ACCESS_KEY"), resAccessKeyId,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_SECRET_KEY")), resAccessKeySecret,
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_SECRET_KEY"), resAccessKeySecret,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 
 		collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{

@@ -3,18 +3,15 @@ package pulumi
 import (
 	"context"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
-
-	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-
-	"github.com/pulumi/pulumi/pkg/v3/backend"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-
 	"github.com/pkg/errors"
+	"github.com/pulumi/pulumi/pkg/v3/backend"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
 //go:generate ../../../bin/mockery --name Pulumi --output ./mocks --filename pulumi_mock.go --outpkg pulumi_mocks --structname PulumiMock

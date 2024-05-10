@@ -4,13 +4,11 @@ import (
 	"context"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
-
-	"github.com/simple-container-com/api/pkg/api/logger/color"
-
+	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
 func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, skipRefresh bool) error {

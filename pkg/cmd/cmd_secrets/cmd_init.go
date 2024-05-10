@@ -1,8 +1,9 @@
 package cmd_secrets
 
 import (
-	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
 type initCmd struct {

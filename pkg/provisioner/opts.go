@@ -3,12 +3,10 @@ package provisioner
 import (
 	"context"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/secrets"
-
-	"github.com/simple-container-com/api/pkg/api"
-
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 

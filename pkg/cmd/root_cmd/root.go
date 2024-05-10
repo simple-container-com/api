@@ -4,11 +4,11 @@ import (
 	"context"
 	"path"
 
-	"github.com/spf13/cobra"
-
 	"go.uber.org/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"

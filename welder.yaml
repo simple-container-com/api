@@ -21,6 +21,7 @@ modules:
       steps:
         - task: tools
         - task: linters
+        - task: fmt
         - task: test
         - task: build-all
         - task: docker-login
@@ -53,8 +54,13 @@ tasks:
   linters:
     runOn: host
     script:
-      - ${project:root}/bin/gofumpt -l -w .
-      - ${project:root}/bin/golangci-lint linters
+      - ${project:root}/bin/golangci-lint run --fast --timeout 5m
+  fmt:
+    runOn: host
+    script:
+      - go mod tidy
+      - ${project:root}/bin/gofumpt -l -w ./
+      - ${project:root}/bin/golangci-lint run --fix
   build-all:
     runOn: host
     script:
