@@ -18,7 +18,7 @@ type Cryptor interface {
 	AddFile(path string) error
 	RemoveFile(path string) error
 	DecryptAll() error
-	EncryptChanged() error
+	EncryptChanged(force bool) error
 	ReadSecretFiles() error
 	MarshalSecretsFile() error
 	GetSecretFiles() EncryptedSecretFiles

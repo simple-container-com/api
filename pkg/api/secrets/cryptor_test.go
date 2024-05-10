@@ -92,7 +92,7 @@ func TestNewCryptor(t *testing.T) {
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				m.consoleReaderMock.On("ReadLine").Return("invalid-passphrase", nil)
 				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
-				Expect(c.EncryptChanged()).To(BeNil())
+				Expect(c.EncryptChanged(true)).To(BeNil())
 				err := c.DecryptAll()
 				Expect(err).NotTo(BeNil())
 				Expect(err.Error()).To(MatchRegexp(".*failed to parse private key with passphrase.*"))
@@ -108,7 +108,7 @@ func TestNewCryptor(t *testing.T) {
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				m.consoleReaderMock.On("ReadLine").Return("test", nil)
 				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
-				Expect(c.EncryptChanged()).To(BeNil())
+				Expect(c.EncryptChanged(true)).To(BeNil())
 				err := c.DecryptAll()
 				Expect(err).To(BeNil())
 			},
@@ -275,6 +275,13 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 		newSecretFileContent, err = os.ReadFile(path.Join(anotherC.Workdir(), "stacks/refapp/secrets.yaml"))
 		Expect(err).To(BeNil())
 		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
+	})
+
+	t.Run("do not re-encrypt if no changes", func(t *testing.T) {
+		prevEncrypted := c.GetSecretFiles().Secrets[c.PublicKey()].Files
+		Expect(c.EncryptChanged(false)).To(BeNil())
+		newEncrypted := c.GetSecretFiles().Secrets[c.PublicKey()].Files
+		Expect(prevEncrypted).To(Equal(newEncrypted))
 	})
 
 	t.Run("disallow another key", func(t *testing.T) {

@@ -64,7 +64,7 @@ func (c *cryptor) AddFile(filePath string) error {
 	if lo.IndexOf(c.secrets.Registry.Files, filePath) < 0 {
 		c.secrets.Registry.Files = append(c.secrets.Registry.Files, filePath)
 	}
-	if err := c.EncryptChanged(); err != nil {
+	if err := c.EncryptChanged(true); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	if err := c.MarshalSecretsFile(); err != nil {
@@ -78,7 +78,7 @@ func (c *cryptor) AddFile(filePath string) error {
 
 func (c *cryptor) RemovePublicKey(pubKey string) error {
 	delete(c.secrets.Secrets, TrimPubKey(pubKey))
-	err := c.EncryptChanged()
+	err := c.EncryptChanged(true)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (c *cryptor) AddPublicKey(pubKey string) error {
 		return err
 	}
 	c.secrets.Secrets[TrimPubKey(pubKey)] = EncryptedSecrets{}
-	err := c.EncryptChanged()
+	err := c.EncryptChanged(true)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	c.secrets.Registry.Files = lo.Filter(c.secrets.Registry.Files, func(s string, _ int) bool {
 		return s != filePath
 	})
-	if err := c.EncryptChanged(); err != nil {
+	if err := c.EncryptChanged(true); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	err := c.MarshalSecretsFile()
@@ -191,7 +191,7 @@ func (c *cryptor) DecryptAll() error {
 	return nil
 }
 
-func (c *cryptor) EncryptChanged() error {
+func (c *cryptor) EncryptChanged(force bool) error {
 	c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
 		return TrimPubKey(key)
 	})
@@ -209,18 +209,15 @@ func (c *cryptor) EncryptChanged() error {
 		}
 		secrets := c.secrets.Secrets[c.currentPublicKey]
 
+		currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath))
+		if currentContent != nil && string(secretData) == string(currentContent) && !force {
+			// skip re-encrypting for unchanged secret
+			continue
+		}
+
 		// for all other public keys
 		for publicKey := range c.secrets.Secrets {
 			pKeySecrets := c.secrets.Secrets[publicKey]
-
-			currentContent, _ := c.decryptSecretData(pKeySecrets.GetEncryptedContent(relFilePath))
-			_, found := lo.Find(pKeySecrets.Files, func(file EncryptedSecretFile) bool {
-				return file.Path == relFilePath
-			})
-			if currentContent != nil && string(secretData) == string(currentContent) && found {
-				// skip re-encrypting for unchanged secret
-				continue
-			}
 
 			sFile, err := c.encryptSecretsFileWith(publicKey, relFilePath)
 			if err != nil {
@@ -231,12 +228,6 @@ func (c *cryptor) EncryptChanged() error {
 			}
 			pKeySecrets.AddFileIfNotExist(sFile)
 			c.secrets.Secrets[publicKey] = pKeySecrets
-		}
-
-		currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath))
-		if currentContent != nil && string(secretData) == string(currentContent) {
-			// skip re-encrypting for unchanged secret
-			continue
 		}
 
 		sFile, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
