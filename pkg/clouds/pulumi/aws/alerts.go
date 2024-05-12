@@ -20,11 +20,11 @@ type alertCfg struct {
 	description     string
 	deployParams    api.StackParams
 	provisionParams pApi.ProvisionParams
-	eventRule       *cloudwatch.EventRule
 	discordConfig   *api.DiscordCfg
 	telegramConfig  *api.TelegramCfg
 	secretSuffix    string
 	opts            []sdk.ResourceOption
+	metricAlarmArgs cloudwatch.MetricAlarmArgs
 }
 
 func createAlert(ctx *sdk.Context, cfg alertCfg) error {
@@ -95,51 +95,15 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		return errors.Wrapf(err, "failed to create lambda function")
 	}
 
-	// Set up Lambda as the target for the CloudWatch Event Rule
-	_, err = cloudwatch.NewEventTarget(ctx, fmt.Sprintf("%s-event-target", cfg.name), &cloudwatch.EventTargetArgs{
-		Rule: cfg.eventRule.Name,
-		Arn:  lambdaFunc.Arn,
-	}, cfg.opts...)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create event target")
+	cfg.metricAlarmArgs.AlarmActions = sdk.Array{
+		lambdaFunc.Arn,
 	}
-
-	// Give CloudWatch Events permission to invoke the Lambda function
-	_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-lambda-permission", cfg.name), &lambda.PermissionArgs{
-		Action:    pulumi.String("lambda:InvokeFunction"),
-		Function:  lambdaFunc.Name,
-		Principal: pulumi.String("events.amazonaws.com"),
-		SourceArn: cfg.eventRule.Arn,
-	}, cfg.opts...)
+	_, err = cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-metric-alarm", cfg.name), &cfg.metricAlarmArgs, cfg.opts...)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed to create metric alarm")
 	}
 
 	// Output the Lambda function's ARN
 	ctx.Export(fmt.Sprintf("%s-lambda-arn", cfg.name), lambdaFunc.Arn)
 	return nil
-}
-
-type eventRuleCfg struct {
-	name           string
-	ecsClusterName string
-	description    string
-	metricsJson    string
-	opts           []sdk.ResourceOption
-}
-
-func createEcsEventRule(ctx *pulumi.Context, cfg eventRuleCfg) (*cloudwatch.EventRule, error) {
-	return cloudwatch.NewEventRule(ctx, fmt.Sprintf("%s-eventRule", cfg.name), &cloudwatch.EventRuleArgs{
-		Description: pulumi.String(cfg.description),
-		EventPattern: pulumi.String(fmt.Sprintf(`{
-				"source": ["aws.ecs"],
-				"detail-type": ["ECS Container Instance State Change"],
-				"detail": {
-					"clusterArn": ["arn:aws:ecs:region:account-id:cluster/%s"],
-					"metrics": {
-						%s
-					}
-				}
-			}`, cfg.ecsClusterName, cfg.metricsJson)),
-	}, cfg.opts...)
 }

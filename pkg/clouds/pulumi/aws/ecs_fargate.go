@@ -12,6 +12,7 @@ import (
 	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
@@ -426,57 +427,57 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 func createEcsAlerts(ctx *sdk.Context, clusterName string, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
 	alerts := crInput.Alerts
 	if alerts.MaxCPU != nil {
-		if eventRule, err := createEcsEventRule(ctx, eventRuleCfg{
-			name:           alerts.MaxCPU.AlertName,
-			ecsClusterName: clusterName,
-			description:    alerts.MaxCPU.Description,
-			opts:           opts,
-			metricsJson: fmt.Sprintf(`
-				"CPUUtilization": {
-					"comparisonOperator": "GreaterThanThreshold",
-					"threshold": %s
-				}
-			`, alerts.MaxCPU.Threshold),
-		}); err != nil {
-			return errors.Wrapf(err, "failed to create max CPU event")
-		} else if err := createAlert(ctx, alertCfg{
+		if err := createAlert(ctx, alertCfg{
 			name:            alerts.MaxCPU.AlertName,
 			description:     alerts.MaxCPU.Description,
-			eventRule:       eventRule,
 			telegramConfig:  alerts.Telegram,
 			discordConfig:   alerts.Discord,
 			deployParams:    deployParams,
 			provisionParams: params,
 			secretSuffix:    crInput.Config.Version,
 			opts:            opts,
+			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+				ComparisonOperator: sdk.String("GreaterThanThreshold"),
+				EvaluationPeriods:  sdk.Int(1),
+				MetricName:         sdk.String("CPUUtilization"),
+				Namespace:          sdk.String("AWS/ECS"),
+				Threshold:          sdk.Float64(alerts.MaxCPU.Threshold),
+				Period:             sdk.Int(lo.If(alerts.MaxCPU.PeriodSec == 0, 60).Else(alerts.MaxCPU.PeriodSec)),
+				Statistic:          sdk.String("Average"),
+				Dimensions: sdk.StringMap{
+					"ClusterName": sdk.String(clusterName),
+				},
+				AlarmDescription: sdk.String(alerts.MaxCPU.Description),
+				TreatMissingData: sdk.String("missing"),
+			},
 		}); err != nil {
 			return errors.Wrapf(err, "failed to create max CPU alert")
 		}
 	}
 	if alerts.MaxMemory != nil {
-		if eventRule, err := createEcsEventRule(ctx, eventRuleCfg{
-			name:           alerts.MaxMemory.AlertName,
-			ecsClusterName: clusterName,
-			description:    alerts.MaxMemory.Description,
-			opts:           opts,
-			metricsJson: fmt.Sprintf(`
-				"MemoryUtilization": {
-					"comparisonOperator": "GreaterThanThreshold",
-					"threshold": %s
-				}
-			`, alerts.MaxMemory.Threshold),
-		}); err != nil {
-			return errors.Wrapf(err, "failed to create max memory event")
-		} else if err := createAlert(ctx, alertCfg{
+		if err := createAlert(ctx, alertCfg{
 			name:            alerts.MaxMemory.AlertName,
 			description:     alerts.MaxMemory.Description,
-			eventRule:       eventRule,
 			telegramConfig:  alerts.Telegram,
 			discordConfig:   alerts.Discord,
 			deployParams:    deployParams,
 			provisionParams: params,
 			secretSuffix:    crInput.Config.Version,
 			opts:            opts,
+			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+				ComparisonOperator: sdk.String("GreaterThanThreshold"),
+				EvaluationPeriods:  sdk.Int(1),
+				MetricName:         sdk.String("MemoryUtilization"),
+				Namespace:          sdk.String("AWS/ECS"),
+				Threshold:          sdk.Float64(alerts.MaxMemory.Threshold),
+				Period:             sdk.Int(lo.If(alerts.MaxMemory.PeriodSec == 0, 60).Else(alerts.MaxMemory.PeriodSec)),
+				Statistic:          sdk.String("Average"),
+				Dimensions: sdk.StringMap{
+					"ClusterName": sdk.String(clusterName),
+				},
+				AlarmDescription: sdk.String(alerts.MaxMemory.Description),
+				TreatMissingData: sdk.String("missing"),
+			},
 		}); err != nil {
 			return errors.Wrapf(err, "failed to create max memory alert")
 		}

@@ -25,9 +25,10 @@ type AlertsConfig struct {
 }
 
 type CommonAlertConfig struct {
-	Threshold   string `json:"threshold" yaml:"threshold"`
-	AlertName   string `json:"alertName" yaml:"alertName"`
-	Description string `json:"description" yaml:"description"`
+	Threshold   float64 `json:"threshold" yaml:"threshold"`
+	PeriodSec   int     `json:"periodSec" yaml:"periodSec"`
+	AlertName   string  `json:"alertName" yaml:"alertName"`
+	Description string  `json:"description" yaml:"description"`
 }
 
 type MaxCPUConfig struct {
