@@ -205,7 +205,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		Registrar:        p.registrar,
 		Log:              p.logger,
 		BaseEnvVariables: envVariables,
-		HelpersImage:     fmt.Sprintf("simplecontainer/cloud-helpers:%s", build.Version),
+		HelpersImage:     fmt.Sprintf("docker.io/simplecontainer/cloud-helpers:%s", build.Version),
 	}, nil
 }
 
