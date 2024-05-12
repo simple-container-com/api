@@ -2,6 +2,8 @@ package aws
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
@@ -44,18 +46,41 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 
 	// Pull the existing image from Docker Hub.
 	helpersImageName := fmt.Sprintf("%s-image", cfg.imageName)
-	image, err := docker.NewRemoteImage(ctx, helpersImageName, &docker.RemoteImageArgs{
+	chImage, err := docker.NewRemoteImage(ctx, helpersImageName, &docker.RemoteImageArgs{
 		Name: pulumi.String(cfg.provisionParams.HelpersImage),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to pull helpers image")
 	}
 
-	// Push the image to our ECR repository.
+	cfg.provisionParams.Log.Info(ctx.Context(), "creating temporary Dockerfile for cloud-helpers...")
+
+	// hack taken from here https://github.com/pulumi/pulumi-docker/issues/54#issuecomment-772250411
+	var dockerFilePath string
+	if depDir, err := os.MkdirTemp(os.TempDir(), cfg.imageName); err != nil {
+		return nil, errors.Wrapf(err, "failed to create tempDir")
+	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}"), os.ModePerm); err != nil {
+		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
+	} else {
+		dockerFilePath = filepath.Join(depDir, "Dockerfile")
+	}
+
+	imageFullUrl := ecrRepo.Repository.RepositoryUrl.ApplyT(func(repoUri string) string {
+		cfg.provisionParams.Log.Info(ctx.Context(), "preparing push for cloud-helpers image to %q...", repoUri)
+		return fmt.Sprintf("%s:latest", repoUri)
+	}).(sdk.StringOutput)
+
+	cfg.provisionParams.Log.Info(ctx.Context(), "pushing cloud-helpers image...")
 	ecrImage, err := docker.NewImage(ctx, helpersImageName, &docker.ImageArgs{
-		ImageName:      image.ImageId,
-		LocalImageName: image.ImageId,
-		SkipPush:       sdk.Bool(false),
+		ImageName: imageFullUrl,
+		SkipPush:  sdk.Bool(false),
+		Build: &docker.DockerBuildArgs{
+			Context:    sdk.String("."),
+			Dockerfile: sdk.String(dockerFilePath),
+			Args: map[string]sdk.StringInput{
+				"SOURCE_IMAGE": chImage.Name,
+			},
+		},
 		Registry: docker.ImageRegistryArgs{
 			Server:   ecrRepo.Repository.RepositoryUrl,
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
