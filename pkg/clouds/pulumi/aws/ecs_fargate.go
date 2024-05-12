@@ -418,24 +418,36 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	if crInput.Alerts != nil {
 		cluster.Name.ApplyT(func(clusterName string) any {
-			return createEcsAlerts(ctx, clusterName, crInput, deployParams, params, opts...)
+			return createEcsAlerts(ctx, clusterName, stack, crInput, deployParams, params, opts...)
 		})
 	}
 	return nil
 }
 
-func createEcsAlerts(ctx *sdk.Context, clusterName string, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
+func createEcsAlerts(ctx *sdk.Context, clusterName string, stack api.Stack, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
 	alerts := crInput.Alerts
+
+	helpersImage, err := pushHelpersImageToECR(ctx, helperCfg{
+		imageName:       "sc-cloud-helpers",
+		opts:            opts,
+		provisionParams: params,
+		stack:           stack,
+		deployParams:    deployParams,
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to push cloud-helpers image")
+	}
+
 	if alerts.MaxCPU != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:            alerts.MaxCPU.AlertName,
-			description:     alerts.MaxCPU.Description,
-			telegramConfig:  alerts.Telegram,
-			discordConfig:   alerts.Discord,
-			deployParams:    deployParams,
-			provisionParams: params,
-			secretSuffix:    crInput.Config.Version,
-			opts:            opts,
+			name:           alerts.MaxCPU.AlertName,
+			description:    alerts.MaxCPU.Description,
+			telegramConfig: alerts.Telegram,
+			discordConfig:  alerts.Discord,
+			deployParams:   deployParams,
+			helpersImage:   helpersImage,
+			secretSuffix:   crInput.Config.Version,
+			opts:           opts,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -456,14 +468,14 @@ func createEcsAlerts(ctx *sdk.Context, clusterName string, crInput *aws.EcsFarga
 	}
 	if alerts.MaxMemory != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:            alerts.MaxMemory.AlertName,
-			description:     alerts.MaxMemory.Description,
-			telegramConfig:  alerts.Telegram,
-			discordConfig:   alerts.Discord,
-			deployParams:    deployParams,
-			provisionParams: params,
-			secretSuffix:    crInput.Config.Version,
-			opts:            opts,
+			name:           alerts.MaxMemory.AlertName,
+			description:    alerts.MaxMemory.Description,
+			telegramConfig: alerts.Telegram,
+			discordConfig:  alerts.Discord,
+			deployParams:   deployParams,
+			secretSuffix:   crInput.Config.Version,
+			helpersImage:   helpersImage,
+			opts:           opts,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
