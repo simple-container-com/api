@@ -119,7 +119,7 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 			params.Log.Error(ctx, color.RedFmt("Error closing bucket object %s: %v", filePath, err))
 			return fmt.Errorf("Writer.Close: %v", err)
 		}
-		contentType := "<unknown>"
+		var contentType string
 		if attrs, err := updateContentType(ctx, object, filePath); err != nil {
 			return errors.Wrapf(err, "failed to update content type for %s", filePath)
 		} else {
