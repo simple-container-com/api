@@ -174,7 +174,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-permission", cfg.name), &lambda.PermissionArgs{
 		Action:    pulumi.String("lambda:InvokeFunction"),
 		Function:  lambdaFunc.Name,
-		Principal: pulumi.String("events.amazonaws.com"),
+		Principal: pulumi.String("lambda.alarms.cloudwatch.amazonaws.com"),
 		SourceArn: alarm.Arn,
 	}, cfg.opts...)
 	if err != nil {
