@@ -165,9 +165,20 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	cfg.metricAlarmArgs.AlarmActions = sdk.Array{
 		lambdaFunc.Arn,
 	}
-	_, err = cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-metric-alarm", cfg.name), &cfg.metricAlarmArgs, cfg.opts...)
+	alarm, err := cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-metric-alarm", cfg.name), &cfg.metricAlarmArgs, cfg.opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create metric alarm")
+	}
+
+	// Define the permission for CloudWatch to invoke the Lambda function
+	_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-permission", cfg.name), &lambda.PermissionArgs{
+		Action:    pulumi.String("lambda:InvokeFunction"),
+		Function:  lambdaFunc.Name,
+		Principal: pulumi.String("events.amazonaws.com"),
+		SourceArn: alarm.Arn,
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to create permission")
 	}
 
 	// Output the Lambda function's ARN
