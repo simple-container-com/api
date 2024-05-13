@@ -108,9 +108,6 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 			_ = f.Close()
 		}(f)
 		object := bucketRef.Object(copyPath)
-		if err := updateContentType(ctx, object, filePath); err != nil {
-			return errors.Wrapf(err, "failed to update content type for %s", filePath)
-		}
 		wc := object.NewWriter(ctx)
 		bytesCopied, err := io.Copy(wc, f)
 		if err != nil {
@@ -122,18 +119,30 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 			params.Log.Error(ctx, color.RedFmt("Error closing bucket object %s: %v", filePath, err))
 			return fmt.Errorf("Writer.Close: %v", err)
 		}
-		params.Log.Info(ctx, color.GreenFmt("DONE gs://%s/%s (%d bytes)", bucketName, copyPath, bytesCopied))
+		contentType := "<unknown>"
+		if attrs, err := updateContentType(ctx, object, filePath); err != nil {
+			return errors.Wrapf(err, "failed to update content type for %s", filePath)
+		} else {
+			contentType = attrs.ContentType
+		}
+		params.Log.Info(ctx, color.GreenFmt("DONE gs://%s/%s (MIME: %s) (%d bytes)", bucketName, copyPath, contentType, bytesCopied))
 		return nil
 	})
 	return totalBytes.Load(), err
 }
 
-func updateContentType(ctx context.Context, object *gcpStorage.ObjectHandle, filePath string) error {
+func updateContentType(ctx context.Context, object *gcpStorage.ObjectHandle, filePath string) (*gcpStorage.ObjectAttrs, error) {
 	contentType := ""
 	ext := filepath.Ext(strings.ToLower(filePath))
+	if strings.HasSuffix(filepath.Base(filePath), ".min.css.map") {
+		ext = ".css"
+	} else if strings.HasSuffix(filepath.Base(filePath), ".min.js") {
+		ext = ".js"
+	}
 	switch ext {
 	case ".css":
 		contentType = "text/css"
+	case ".min.js":
 	case ".js":
 		contentType = "text/javascript"
 	case ".png":
@@ -154,15 +163,16 @@ func updateContentType(ctx context.Context, object *gcpStorage.ObjectHandle, fil
 	}
 	if contentType == "" {
 		if filebytes, err := os.ReadFile(filePath); err != nil {
-			return errors.Wrapf(err, "failed to read file %s", filePath)
+			return nil, errors.Wrapf(err, "failed to read file %s", filePath)
 		} else {
 			contentType = http.DetectContentType(filebytes)
 		}
 	}
-	if _, err := object.Update(ctx, gcpStorage.ObjectAttrsToUpdate{
+	if attrs, err := object.Update(ctx, gcpStorage.ObjectAttrsToUpdate{
 		ContentType: contentType,
 	}); err != nil {
-		return errors.Wrapf(err, "failed to update content type for %s", filePath)
+		return nil, errors.Wrapf(err, "failed to update content type for %s", filePath)
+	} else {
+		return attrs, nil
 	}
-	return nil
 }
