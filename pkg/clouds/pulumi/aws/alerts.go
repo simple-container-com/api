@@ -176,7 +176,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		Function:  lambdaFunc.Name,
 		Principal: pulumi.String("events.amazonaws.com"),
 		SourceArn: alarm.Arn,
-	})
+	}, cfg.opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create permission")
 	}
