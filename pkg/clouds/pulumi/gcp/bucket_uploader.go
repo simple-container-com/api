@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	gcpStorage "cloud.google.com/go/storage"
 	"go.uber.org/atomic"
@@ -105,7 +107,11 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 		defer func(f *os.File) {
 			_ = f.Close()
 		}(f)
-		wc := bucketRef.Object(copyPath).NewWriter(ctx)
+		object := bucketRef.Object(copyPath)
+		if err := updateContentType(ctx, object, filePath); err != nil {
+			return errors.Wrapf(err, "failed to update content type for %s", filePath)
+		}
+		wc := object.NewWriter(ctx)
 		bytesCopied, err := io.Copy(wc, f)
 		if err != nil {
 			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
@@ -120,4 +126,43 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 		return nil
 	})
 	return totalBytes.Load(), err
+}
+
+func updateContentType(ctx context.Context, object *gcpStorage.ObjectHandle, filePath string) error {
+	contentType := ""
+	ext := filepath.Ext(strings.ToLower(filePath))
+	switch ext {
+	case ".css":
+		contentType = "text/css"
+	case ".js":
+		contentType = "text/javascript"
+	case ".png":
+		contentType = "image/png"
+	case ".apng":
+		contentType = "image/apng"
+	case ".avif":
+		contentType = "image/avig"
+	case ".gif":
+		contentType = "image/gif"
+	case ".jpeg":
+	case ".jpg":
+		contentType = "image/jpeg"
+	case ".svg":
+		contentType = "image/svg+xml"
+	case ".webp":
+		contentType = "image/webp"
+	}
+	if contentType == "" {
+		if filebytes, err := os.ReadFile(filePath); err != nil {
+			return errors.Wrapf(err, "failed to read file %s", filePath)
+		} else {
+			contentType = http.DetectContentType(filebytes)
+		}
+	}
+	if _, err := object.Update(ctx, gcpStorage.ObjectAttrsToUpdate{
+		ContentType: contentType,
+	}); err != nil {
+		return errors.Wrapf(err, "failed to update content type for %s", filePath)
+	}
+	return nil
 }
