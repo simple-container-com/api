@@ -19,6 +19,7 @@ modules:
   - name: api
     build:
       steps:
+        - task: clean
         - task: tools
         - task: linters
         - task: fmt
@@ -43,6 +44,13 @@ modules:
           tasks:
             - tag-release
 tasks:
+  clean:
+    runOn: host
+    script:
+      - mkdir -p ${project:root}/dist
+      - rm -fR ${project:root}/dist/*
+      - mkdir -p ${project:root}/.sc/stacks/dist/bundle
+      - rm -fR ${project:root}/.sc/stacks/dist/bundle/*
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"
