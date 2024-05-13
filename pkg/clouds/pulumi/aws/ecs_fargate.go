@@ -340,10 +340,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	params.Log.Info(ctx.Context(), "configure Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	ecsServiceName := fmt.Sprintf("%s-service", ecsClusterName)
-	service, err := ecs.NewFargateService(ctx, ecsServiceName, &ecs.FargateServiceArgs{
+	serviceName := awsResName(ecsClusterName, "svc")
+	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
 		Cluster:                         cluster.Arn,
-		Name:                            sdk.String(awsResName(ecsClusterName, "svc")),
+		Name:                            sdk.String(serviceName),
 		DesiredCount:                    sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
 		DeploymentMaximumPercent:        sdk.IntPtr(lo.If(crInput.Scale.Update.MaxPercent == 0, 200).Else(crInput.Scale.Update.MaxPercent)),
 		DeploymentMinimumHealthyPercent: sdk.IntPtr(lo.If(crInput.Scale.Update.MinHealthyPercent == 0, 100).Else(crInput.Scale.Update.MinHealthyPercent)),
@@ -412,19 +412,19 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	if crInput.Scale.Policy != nil {
 		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
 		if err != nil {
-			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsClusterName, ecsServiceName)
+			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsClusterName, fmt.Sprintf("%s-service", ecsClusterName))
 		}
 	}
 
 	if crInput.Alerts != nil {
 		cluster.Name.ApplyT(func(clusterName string) any {
-			return createEcsAlerts(ctx, clusterName, stack, crInput, deployParams, params, opts...)
+			return createEcsAlerts(ctx, clusterName, serviceName, stack, crInput, deployParams, params, opts...)
 		})
 	}
 	return nil
 }
 
-func createEcsAlerts(ctx *sdk.Context, clusterName string, stack api.Stack, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
+func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack api.Stack, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
 	alerts := crInput.Alerts
 
 	helpersImage, err := pushHelpersImageToECR(ctx, helperCfg{
@@ -458,6 +458,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName string, stack api.Stack, crIn
 				Statistic:          sdk.String("Average"),
 				Dimensions: sdk.StringMap{
 					"ClusterName": sdk.String(clusterName),
+					"ServiceName": sdk.String(serviceName),
 				},
 				AlarmDescription: sdk.String(alerts.MaxCPU.Description),
 				TreatMissingData: sdk.String("missing"),
@@ -486,6 +487,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName string, stack api.Stack, crIn
 				Statistic:          sdk.String("Average"),
 				Dimensions: sdk.StringMap{
 					"ClusterName": sdk.String(clusterName),
+					"ServiceName": sdk.String(serviceName),
 				},
 				AlarmDescription: sdk.String(alerts.MaxMemory.Description),
 				TreatMissingData: sdk.String("missing"),
