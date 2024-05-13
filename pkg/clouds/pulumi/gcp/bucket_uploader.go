@@ -30,8 +30,7 @@ type GcpBucketUploader struct {
 
 type BucketUploaderArgs struct {
 	bucketName sdk.StringInput
-	rootDir    string
-	bundleDir  string
+	syncDir    string
 	gcpCreds   string
 	params     pApi.ProvisionParams
 }
@@ -45,8 +44,8 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 
 	syncOutput := args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
 		var checksum string
-		if dir, err := directory_checksum.ScanDirectory(args.bundleDir, afero.NewOsFs()); err != nil {
-			return nil, errors.Wrapf(err, "failed to scan directory %q", args.bundleDir)
+		if dir, err := directory_checksum.ScanDirectory(args.syncDir, afero.NewOsFs()); err != nil {
+			return nil, errors.Wrapf(err, "failed to scan directory %q", args.syncDir)
 		} else if checksums, err := dir.ComputeDirectoryChecksums(); err != nil {
 			return nil, errors.Wrapf(err, "failed to calculate directory checksums")
 		} else {
@@ -57,7 +56,7 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 		if ctx.DryRun() {
 			return checksum, nil
 		}
-		_, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.rootDir, args.bundleDir, args.gcpCreds, args.params)
+		_, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.syncDir, args.gcpCreds, args.params)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to sync files to GCP bucket %q", args.bucketName)
 		}
@@ -74,7 +73,7 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 	return resource, nil
 }
 
-func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDir, gcpCreds string, params pApi.ProvisionParams) (int64, error) {
+func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCreds string, params pApi.ProvisionParams) (int64, error) {
 	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(gcpCreds)))
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to initialize gcp client")
@@ -83,10 +82,9 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDi
 		_ = client.Close()
 	}(client)
 	bucketRef := client.Bucket(bucketName)
-	fullDirPath := path.Join(rootDir, relDir)
 	totalBytes := atomic.NewInt64(0)
-	params.Log.Info(ctx, "scanning directory %s...", fullDirPath)
-	err = filepath.Walk(fullDirPath, func(filePath string, info fs.FileInfo, walkErr error) error {
+	params.Log.Info(ctx, "scanning directory %s...", syncDir)
+	err = filepath.Walk(syncDir, func(filePath string, info fs.FileInfo, walkErr error) error {
 		if info == nil || info.IsDir() {
 			return nil
 		}
@@ -94,12 +92,12 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, rootDir, relDi
 			params.Log.Error(ctx, color.RedFmt("failed to walk through path %q: %v", filePath, walkErr))
 			return nil
 		}
-		copyPath, err := filepath.Rel(fullDirPath, filePath)
+		copyPath, err := filepath.Rel(syncDir, filePath)
 		if err != nil {
 			return err
 		}
 		params.Log.Info(ctx, color.YellowFmt("uploading file %q to gs://%s/%s...", filePath, bucketName, copyPath))
-		f, err := os.Open(path.Join(fullDirPath, copyPath))
+		f, err := os.Open(path.Join(syncDir, copyPath))
 		if err != nil {
 			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
 			return fmt.Errorf("os.Open: %v", err)
