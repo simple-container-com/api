@@ -154,6 +154,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		PackageType: pulumi.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    cfg.helpersImage.ImageName,
+		Timeout:     sdk.IntPtr(10),
 		Environment: lambda.FunctionEnvironmentArgs{
 			Variables: envVariables,
 		},
