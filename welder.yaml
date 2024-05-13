@@ -79,6 +79,7 @@ tasks:
       - cp ${project:root}/sc.sh ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - echo "${project:version}" > ${project:root}/.sc/stacks/dist/bundle/version
+      - cp ${project:root}/.sc/stacks/dist/site/* ${project:root}/.sc/stacks/dist/bundle/
   docker-login:
     runOn: host
     script:
