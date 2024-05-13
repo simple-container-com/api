@@ -30,12 +30,16 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Errorf("failed to convert static site input to *aws.StaticSiteInput for %q", stack.Name)
 	}
 
+	bundleDir := staticSiteCfg.BundleDir
+	if !path.IsAbs(bundleDir) {
+		bundleDir = path.Join(staticSiteCfg.StackDir, staticSiteCfg.BundleDir)
+	}
 	ref, err := provisionStaticSite(&StaticSiteInput{
 		ServiceName:        stack.Name,
 		Provider:           params.Provider,
 		Registrar:          params.Registrar,
 		Ctx:                ctx,
-		BundleDir:          path.Join(staticSiteCfg.StackDir, staticSiteCfg.BundleDir),
+		BundleDir:          bundleDir,
 		IndexDocument:      staticSiteCfg.IndexDocument,
 		ErrorDocument:      staticSiteCfg.ErrorDocument,
 		Domain:             staticSiteCfg.Domain,

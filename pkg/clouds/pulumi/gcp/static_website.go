@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/storage"
@@ -100,10 +101,14 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	out.IamWriteBinding = iamWriteBinding
 
 	params.Log.Info(ctx.Context(), "copying all files from %q to gs://%s for %q in %q...", in.BundleDir, bucketName, stack.Name, input.StackParams.Environment)
+	bundleDir := in.BundleDir
+	if !path.IsAbs(bundleDir) {
+		bundleDir = path.Join(in.StackDir, in.BundleDir)
+	}
 	_, err = NewGcpBucketUploader(ctx, bucketName, BucketUploaderArgs{
 		bucketName: bucket.Name,
 		rootDir:    in.StackDir,
-		relDir:     in.BundleDir,
+		bundleDir:  bundleDir,
 		gcpCreds:   gcpCreds,
 		params:     params,
 	})

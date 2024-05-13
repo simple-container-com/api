@@ -31,7 +31,7 @@ type GcpBucketUploader struct {
 type BucketUploaderArgs struct {
 	bucketName sdk.StringInput
 	rootDir    string
-	relDir     string
+	bundleDir  string
 	gcpCreds   string
 	params     pApi.ProvisionParams
 }
@@ -43,12 +43,10 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 		return nil, err
 	}
 
-	syncDir := path.Join(args.rootDir, args.relDir)
-
 	syncOutput := args.bucketName.ToStringOutput().ApplyT(func(bucketName string) (any, error) {
 		var checksum string
-		if dir, err := directory_checksum.ScanDirectory(syncDir, afero.NewOsFs()); err != nil {
-			return nil, errors.Wrapf(err, "failed to scan directory %q", syncDir)
+		if dir, err := directory_checksum.ScanDirectory(args.bundleDir, afero.NewOsFs()); err != nil {
+			return nil, errors.Wrapf(err, "failed to scan directory %q", args.bundleDir)
 		} else if checksums, err := dir.ComputeDirectoryChecksums(); err != nil {
 			return nil, errors.Wrapf(err, "failed to calculate directory checksums")
 		} else {
@@ -59,7 +57,7 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 		if ctx.DryRun() {
 			return checksum, nil
 		}
-		_, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.rootDir, args.relDir, args.gcpCreds, args.params)
+		_, err := copyAllFilesToBucket(ctx.Context(), bucketName, args.rootDir, args.bundleDir, args.gcpCreds, args.params)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to sync files to GCP bucket %q", args.bucketName)
 		}
