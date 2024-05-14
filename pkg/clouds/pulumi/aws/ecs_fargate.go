@@ -634,9 +634,10 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 				"rulePriority": 2,
 				"description":  "Keep last 3 tagged images",
 				"selection": map[string]interface{}{
-					"tagStatus":   "tagged",
-					"countType":   "imageCountMoreThan",
-					"countNumber": 3,
+					"tagStatus":      "tagged",
+					"tagPatternList": []string{"*"},
+					"countType":      "imageCountMoreThan",
+					"countNumber":    3,
 				},
 				"action": map[string]interface{}{
 					"type": "expire",
