@@ -653,6 +653,9 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		Repository: ecrRepo.Name,
 		Policy:     sdk.String(lifecyclePolicyDocument),
 	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
+	if err != nil {
+		return res, errors.Wrapf(err, "failed to create ecr lifecycle policy for ecr registry %s", ecrRepoName)
+	}
 
 	registryPassword := ecrRepo.RegistryId.ApplyT(func(registryId string) (string, error) {
 		// Fetch the auth token for the registry
