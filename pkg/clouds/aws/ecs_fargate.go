@@ -16,7 +16,11 @@ const (
 	TemplateTypeEcsFargate = "ecs-fargate"
 )
 
-const ComposeLabelIngressContainer = "simple-container.com/ingress"
+const (
+	ComposeLabelIngressContainer        = "simple-container.com/ingress"
+	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
+	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
+)
 
 type EcsFargateConfig struct {
 	api.Credentials `json:",inline" yaml:",inline"`
@@ -54,8 +58,9 @@ type EcsFargateResources struct {
 }
 
 type ProbeHttpGet struct {
-	Path string `json:"path" yaml:"path"`
-	Port int    `json:"port" yaml:"port"`
+	Path         string `json:"path" yaml:"path"`
+	Port         int    `json:"port" yaml:"port"`
+	SuccessCodes string `json:"successCodes" yaml:"successCodes"`
 }
 
 type EcsFargateContainer struct {
@@ -361,17 +366,18 @@ func toRunPort(ports []types.ServicePortConfig, expose types.StringOrNumberList)
 
 func toStartupProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {
 	res := EcsFargateProbe{}
-	res.FromHealthCheck(svc.HealthCheck, port)
+	res.FromHealthCheck(svc, port)
 	return res, nil
 }
 
 func toLivenessProbe(svc types.ServiceConfig, port int) (EcsFargateProbe, error) {
 	res := EcsFargateProbe{}
-	res.FromHealthCheck(svc.HealthCheck, port)
+	res.FromHealthCheck(svc, port)
 	return res, nil
 }
 
-func (p *EcsFargateProbe) FromHealthCheck(check *types.HealthCheckConfig, port int) {
+func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
+	check := svc.HealthCheck
 	if check != nil {
 		if check.Interval != nil {
 			p.IntervalSeconds = int(time.Duration(lo.FromPtr(check.Interval)).Seconds())
@@ -390,6 +396,12 @@ func (p *EcsFargateProbe) FromHealthCheck(check *types.HealthCheckConfig, port i
 				Path: "/",
 				Port: port,
 			}
+		}
+		if sc, ok := svc.Labels[ComposeLabelHealthcheckSuccessCodes]; ok {
+			p.HttpGet.SuccessCodes = sc
+		}
+		if path, ok := svc.Labels[ComposeLabelHealthcheckPath]; ok {
+			p.HttpGet.Path = path
 		}
 
 	}

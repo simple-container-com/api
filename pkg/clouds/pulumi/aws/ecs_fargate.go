@@ -10,6 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
+	lbV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
@@ -263,10 +264,20 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "configure application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
 	loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+
+	var lbHC *lbV5.TargetGroupHealthCheckArgs
+	if iContainer.LivenessProbe.HttpGet.Path != "" || iContainer.LivenessProbe.HttpGet.SuccessCodes != "" {
+		lbHC = &lbV5.TargetGroupHealthCheckArgs{
+			Port:    sdk.StringPtr(strconv.Itoa(iContainer.Port)),
+			Path:    sdk.StringPtr(iContainer.LivenessProbe.HttpGet.Path),
+			Matcher: sdk.StringPtr(iContainer.LivenessProbe.HttpGet.SuccessCodes),
+		}
+	}
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 		Name: sdk.String(loadBalancerName),
 		DefaultTargetGroup: &lb.TargetGroupArgs{
-			Name: sdk.String(targetGroupName),
+			Name:        sdk.String(targetGroupName),
+			HealthCheck: lbHC,
 		},
 	}, opts...)
 	if err != nil {
