@@ -1,5 +1,5 @@
-FROM gcr.io/distroless/base-debian12
-#FROM public.ecr.aws/lambda/provided:al2023
+#FROM gcr.io/distroless/base-debian12
+FROM public.ecr.aws/lambda/provided:al2023
 
 WORKDIR /
 

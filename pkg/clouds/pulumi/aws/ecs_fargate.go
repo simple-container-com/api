@@ -616,6 +616,44 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	ctx.Export(fmt.Sprintf("%s-url", ecrRepoName), ecrRepo.RepositoryUrl)
 	ctx.Export(fmt.Sprintf("%s-id", ecrRepoName), ecrRepo.RegistryId)
 
+	lifecyclePolicyDocument, err := json.Marshal(map[string][]map[string]interface{}{
+		"rules": {
+			{
+				"rulePriority": 1,
+				"description":  "Remove untagged images",
+				"selection": map[string]interface{}{
+					"tagStatus":   "untagged",
+					"countType":   "imageCountMoreThan",
+					"countNumber": 100,
+				},
+				"action": map[string]interface{}{
+					"type": "expire",
+				},
+			},
+			{
+				"rulePriority": 2,
+				"description":  "Keep last 3 tagged images",
+				"selection": map[string]interface{}{
+					"tagStatus":   "tagged",
+					"countType":   "imageCountMoreThan",
+					"countNumber": 3,
+				},
+				"action": map[string]interface{}{
+					"type": "expire",
+				},
+			},
+		},
+	})
+	if err != nil {
+		return res, errors.Wrapf(err, "failed to marshal ecr lifecycle policy for ecr registry %s", ecrRepoName)
+	}
+
+	// Apply the lifecycle policy to the ECR repository.
+	_, err = ecr.NewLifecyclePolicy(ctx, fmt.Sprintf("%s-lc-policy", ecrRepoName), &ecr.LifecyclePolicyArgs{
+		Repository: ecrRepo.Name,
+		Policy:     sdk.String(lifecyclePolicyDocument),
+	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
+
 	registryPassword := ecrRepo.RegistryId.ApplyT(func(registryId string) (string, error) {
 		// Fetch the auth token for the registry
 		creds, err := ecr.GetCredentials(ctx, &ecr.GetCredentialsArgs{
