@@ -620,24 +620,11 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		"rules": {
 			{
 				"rulePriority": 1,
-				"description":  "Remove untagged images",
+				"description":  "Keep only 3 last images",
 				"selection": map[string]interface{}{
-					"tagStatus":   "untagged",
+					"tagStatus":   "any",
 					"countType":   "imageCountMoreThan",
-					"countNumber": 100,
-				},
-				"action": map[string]interface{}{
-					"type": "expire",
-				},
-			},
-			{
-				"rulePriority": 2,
-				"description":  "Keep last 3 tagged images",
-				"selection": map[string]interface{}{
-					"tagStatus":      "tagged",
-					"tagPatternList": []string{"*"},
-					"countType":      "imageCountMoreThan",
-					"countNumber":    3,
+					"countNumber": 3,
 				},
 				"action": map[string]interface{}{
 					"type": "expire",
