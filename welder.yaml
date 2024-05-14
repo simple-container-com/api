@@ -118,6 +118,15 @@ tasks:
     script:
       - git tag ${project:version} || echo "Already set tag ${project:version}"
       - git push -f origin ${project:version} || echo "Tag ${project:version} already exists in origin"
+  debug-aws-cloud-helpers:
+    runOn: host
+    env:
+      AWS_LAMBDA_FUNCTION_TIMEOUT: 60
+      SIMPLE_CONTAINER_DEBUG: true
+      SIMPLE_CONTAINER_CLOUD_HELPER_TYPE: sc-helper-aws-lambda
+    script:
+      - go build -gcflags="all=-N -l" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
+      - aws-lambda-rie ${project:root}/bin/dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ${project:root}/dist/cloud-helpers
   rebuild:
     runOn: host
     script:

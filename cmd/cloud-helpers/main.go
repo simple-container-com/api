@@ -11,6 +11,7 @@ import (
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -34,7 +35,7 @@ func main() {
 		Short:   "Simple Container is a handy tool for provisioning your cloud clusters. Cloud Helpers allow to run certain operations within clouds.",
 		Long:    "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://docs.simple-container.com",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ch, err := api.NewCloudHelper(chType)
+			ch, err := api.NewCloudHelper(chType, api.WithLogger(logger.New()))
 			if err != nil {
 				return errors.Wrapf(err, "failed to init cloud helper, did you pass %q env variable?", api.ScCloudHelperTypeEnvVariable)
 			}

@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
@@ -109,6 +110,7 @@ func RegisterCloudHelper(mapping CloudHelpersRegisterMap) {
 
 type CloudHelper interface {
 	Run() error
+	SetLogger(l logger.Logger)
 }
 
 type Provisioner interface {
@@ -136,6 +138,13 @@ type Provisioner interface {
 type ProvisionerOption func(p Provisioner) error
 
 type CloudHelperOption func(c CloudHelper) error
+
+func WithLogger(l logger.Logger) CloudHelperOption {
+	return func(c CloudHelper) error {
+		c.SetLogger(l)
+		return nil
+	}
+}
 
 func WithFieldConfigReader(f ProvisionerFieldConfigReaderFunc) ProvisionerOption {
 	return func(p Provisioner) error {
