@@ -166,6 +166,9 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	cfg.metricAlarmArgs.AlarmActions = sdk.Array{
 		lambdaFunc.Arn,
 	}
+	cfg.metricAlarmArgs.OkActions = sdk.Array{
+		lambdaFunc.Arn,
+	}
 	alarm, err := cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-metric-alarm", cfg.name), &cfg.metricAlarmArgs, cfg.opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create metric alarm")
