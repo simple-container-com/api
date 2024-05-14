@@ -1,9 +1,12 @@
 package aws
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	awsApi "github.com/simple-container-com/api/pkg/clouds/aws/helpers"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
@@ -14,7 +17,6 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
-	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
@@ -121,10 +123,54 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		return errors.Wrapf(err, "failed to create iam policy attachment")
 	}
 
+	// Custom policy allowing to read secrets
+	extraPolicyName := fmt.Sprintf("%s-xpolicy", cfg.name)
+	extraPolicy, err := iam.NewPolicy(ctx, extraPolicyName, &iam.PolicyArgs{
+		Description: sdk.String("Allows reading secrets for alerts cloud helper"),
+		Name:        sdk.String(extraPolicyName),
+		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
+			policy := map[string]interface{}{
+				"Version": "2012-10-17",
+				"Statement": []map[string]any{
+					{
+						"Effect":   "Allow",
+						"Resource": "*",
+						"Action": []string{
+							"secretsmanager:GetSecretValue",
+							"logs:CreateLogStream",
+							"logs:CreateLogGroup",
+							"logs:DescribeLogStreams",
+							"logs:PutLogEvents",
+						},
+					},
+				},
+			}
+			policyJSON, err := json.Marshal(policy)
+			if err != nil {
+				return sdk.StringOutput{}, err
+			}
+			return sdk.String(policyJSON).ToStringOutput(), nil
+		}).(sdk.StringOutput),
+	}, cfg.opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create extra policy for lambda role")
+	}
+
+	extraPolicyAttachmentName := fmt.Sprintf("%s-xp-attach", cfg.name)
+	_, err = iam.NewRolePolicyAttachment(ctx, extraPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
+		Role:      lambdaExecutionRole.Name,
+		PolicyArn: extraPolicy.Arn,
+	}, cfg.opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create extra policy attachment for lambda role")
+	}
+
 	envVariables := sdk.StringMap{
-		api.ScCloudHelperTypeEnvVariable:     sdk.String(awsApi.CloudHelperLambda),
+		api.CloudHelpersEnv.Type:             sdk.String(awsApi.CHCloudwatchAlertLambda),
 		api.CloudHelpersEnv.AlertName:        sdk.String(cfg.name),
 		api.CloudHelpersEnv.AlertDescription: sdk.String(cfg.description),
+		api.CloudHelpersEnv.StackName:        sdk.String(cfg.deployParams.StackName),
+		api.CloudHelpersEnv.StackEnv:         sdk.String(cfg.deployParams.Environment),
 	}
 
 	if cfg.discordConfig != nil {

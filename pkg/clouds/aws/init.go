@@ -2,6 +2,7 @@ package aws
 
 import (
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/aws/helpers"
 )
 
 const ProviderType = "aws"
@@ -32,6 +33,6 @@ func init() {
 	})
 
 	api.RegisterCloudHelper(api.CloudHelpersRegisterMap{
-		CloudHelperLambda: NewLambdaHelper,
+		helpers.CHCloudwatchAlertLambda: helpers.NewLambdaHelper,
 	})
 }

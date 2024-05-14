@@ -122,8 +122,8 @@ tasks:
     runOn: host
     env:
       AWS_LAMBDA_FUNCTION_TIMEOUT: 60
-      SIMPLE_CONTAINER_DEBUG: true
-      SIMPLE_CONTAINER_CLOUD_HELPER_TYPE: sc-helper-aws-lambda
+      SIMPLE_CONTAINER_STARTUP_DELAY: 10s
+      SIMPLE_CONTAINER_CLOUD_HELPER_TYPE: sc-helper-aws-cloudwatch-alert-lambda
     script:
       - go build -gcflags="all=-N -l" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
       - aws-lambda-rie ${project:root}/bin/dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ${project:root}/dist/cloud-helpers

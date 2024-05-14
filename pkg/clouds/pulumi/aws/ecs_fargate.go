@@ -295,7 +295,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	ccPolicyName := fmt.Sprintf("%s-policy", ecsClusterName)
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
-		Description: sdk.String("Allows CreateControlChannel operationa and reading secrets"),
+		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
 		Name:        sdk.String(ccPolicyName),
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"time"
 
 	"go.uber.org/atomic"
 
@@ -27,7 +28,7 @@ func main() {
 
 	rootParams.CancelFunc = cancel
 
-	chType := os.Getenv(api.ScCloudHelperTypeEnvVariable)
+	chType := os.Getenv(api.CloudHelpersEnv.Type)
 
 	handlerCmd := &cobra.Command{
 		Use:     "cloud-helpers",
@@ -37,7 +38,14 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ch, err := api.NewCloudHelper(chType, api.WithLogger(logger.New()))
 			if err != nil {
-				return errors.Wrapf(err, "failed to init cloud helper, did you pass %q env variable?", api.ScCloudHelperTypeEnvVariable)
+				return errors.Wrapf(err, "failed to init cloud helper, did you pass %q env variable?", api.CloudHelpersEnv.Type)
+			}
+			if os.Getenv("SIMPLE_CONTAINER_STARTUP_DELAY") != "" {
+				delay, err := time.ParseDuration(os.Getenv("SIMPLE_CONTAINER_STARTUP_DELAY"))
+				if err != nil {
+					return errors.Wrapf(err, "failed to parse provided duration")
+				}
+				time.Sleep(delay)
 			}
 			return ch.Run()
 		},

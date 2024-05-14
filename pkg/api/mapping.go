@@ -25,7 +25,7 @@ type (
 
 type (
 	ProvisionerRegisterMap  map[string]ProvisionerInitFunc
-	CloudHelpersRegisterMap map[string]CloudHelperInitFunc
+	CloudHelpersRegisterMap map[CloudHelperType]CloudHelperInitFunc
 )
 
 var providerConfigMapping = ConfigRegisterMap{}
