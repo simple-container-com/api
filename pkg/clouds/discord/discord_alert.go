@@ -6,6 +6,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/webhook"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -16,8 +17,9 @@ type alertSender struct {
 }
 
 func (a *alertSender) Send(alert api.Alert) error {
+	icon := lo.If(alert.AlertType == api.AlertResolved, "✅").Else("❌")
 	_, err := a.client.CreateMessage(discord.WebhookMessageCreate{
-		Content: fmt.Sprintf("**%s** [%s](%s) for **%s** in *%s*", alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv),
+		Content: icon + fmt.Sprintf(" **%s** [%s](%s) for **%s** in *%s*", alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv),
 	})
 	return err
 }
