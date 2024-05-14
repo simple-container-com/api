@@ -136,6 +136,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 						"Resource": "*",
 						"Action": []string{
 							"secretsmanager:GetSecretValue",
+							"secretsmanager:DescribeSecret",
 							"logs:CreateLogStream",
 							"logs:CreateLogGroup",
 							"logs:DescribeLogStreams",
