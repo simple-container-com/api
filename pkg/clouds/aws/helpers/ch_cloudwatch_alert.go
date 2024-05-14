@@ -26,16 +26,16 @@ type AlarmState struct {
 }
 
 type AlarmEvent struct {
-	AccountId     string     `json:"accountId"` // 471112843480
-	AlarmArn      string     `json:"alarmArn"`  // arn:aws:cloudwatch:eu-central-1:471112843480:alarm:seeact-max-cpu-metric-alarm-a275ddf
-	AlarmData     AlarmData  `json:"alarmData"`
-	State         AlarmState `json:"state"`
-	PreviousState AlarmState `json:"previousState"`
-	Region        string     `json:"region"` // eu-central-1
+	AccountId string    `json:"accountId"` // 471112843480
+	AlarmArn  string    `json:"alarmArn"`  // arn:aws:cloudwatch:eu-central-1:471112843480:alarm:seeact-max-cpu-metric-alarm-a275ddf
+	AlarmData AlarmData `json:"alarmData"`
+	Region    string    `json:"region"` // eu-central-1
 }
 
 type AlarmData struct {
 	AlarmName     string      `json:"alarmName"` // seeact-max-cpu-metric-alarm-a275ddf
+	State         AlarmState  `json:"state"`
+	PreviousState AlarmState  `json:"previousState"`
 	Configuration AlarmConfig `json:"configuration"`
 }
 
@@ -68,15 +68,18 @@ func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 
 	stackName := os.Getenv(api.CloudHelpersEnv.StackName)
 	stackEnv := os.Getenv(api.CloudHelpersEnv.StackEnv)
+	alertName := os.Getenv(api.CloudHelpersEnv.AlertName)
+	alertDescription := os.Getenv(api.CloudHelpersEnv.AlertDescription)
 
 	l.log.Info(ctx, "sending event for stack %q in %q", stackName, stackEnv)
 
 	nfAlert := api.Alert{
-		Title:       alarmEvent.AlarmData.Configuration.Description,
-		Description: alarmEvent.State.Reason,
-		StackName:   stackName,
-		StackEnv:    stackEnv,
-		AlertType:   lo.If(alarmEvent.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
+		Name:      alertName,
+		Title:     alertDescription,
+		Reason:    alarmEvent.AlarmData.State.Reason,
+		StackName: stackName,
+		StackEnv:  stackEnv,
+		AlertType: lo.If(alarmEvent.AlarmData.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
 	}
 
 	// send discord notifications if configured

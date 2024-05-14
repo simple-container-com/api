@@ -70,7 +70,9 @@ const (
 )
 
 type Alert struct {
+	Name        string    `json:"name" yaml:"name"`
 	Title       string    `json:"title" yaml:"title"`
+	Reason      string    `json:"reason" yaml:"reason"`
 	Description string    `json:"description" yaml:"description"`
 	StackName   string    `json:"stackName" yaml:"stackName"`
 	StackEnv    string    `json:"stackEnv" yaml:"stackEnv"`

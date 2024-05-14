@@ -18,11 +18,11 @@ func Test_lambdaCloudHelper_handler(t *testing.T) {
 			event: map[string]any{
 				"accountId": "471112843480",
 				"alarmArn":  "arn:aws:cloudwatch:eu-central-1:471112843480:alarm:seeact-max-cpu-metric-alarm-a275ddf",
-				"state": map[string]any{
-					"reason": "Threshold Crossed: 1 datapoint [6.638074000676473 (14/05/24 09:53:00)] was not greater than the threshold (10.0).",
-					"value":  "ALARM",
-				},
 				"alarmData": map[string]any{
+					"state": map[string]any{
+						"reason": "Threshold Crossed: 1 datapoint [6.638074000676473 (14/05/24 09:53:00)] was not greater than the threshold (10.0).",
+						"value":  "ALARM",
+					},
 					"alarmName": "seeact-max-cpu-metric-alarm-a275ddf",
 					"configuration": map[string]any{
 						"description": "SeeAct CPU usage exceeds 10%",
