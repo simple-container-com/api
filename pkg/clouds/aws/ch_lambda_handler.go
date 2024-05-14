@@ -18,7 +18,7 @@ import (
 const CloudHelperLambda = "sc-helper-aws-lambda"
 
 func (l *lambdaCloudHelper) handler(ctx context.Context, event *events.CloudWatchEvent) error {
-	l.log.Info(context.Background(), fmt.Sprintf("lambda executing handler with event... %v", event))
+	l.log.Info(ctx, fmt.Sprintf("lambda executing handler with event... %v", event))
 	return nil
 }
 
