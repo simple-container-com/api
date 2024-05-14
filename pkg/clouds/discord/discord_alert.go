@@ -17,7 +17,7 @@ type alertSender struct {
 }
 
 func (a *alertSender) Send(alert api.Alert) error {
-	icon := lo.If(alert.AlertType == api.AlertResolved, "✅").Else("❌")
+	icon := lo.If(alert.AlertType == api.AlertResolved, "✅").Else("⚠️")
 	_, err := a.client.CreateMessage(discord.WebhookMessageCreate{
 		Content: icon + fmt.Sprintf(" **%s** [%s](%s) for **%s** in *%s*", alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv),
 	})
