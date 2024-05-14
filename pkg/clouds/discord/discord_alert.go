@@ -17,7 +17,7 @@ type alertSender struct {
 
 func (a *alertSender) Send(alert api.Alert) error {
 	_, err := a.client.CreateMessage(discord.WebhookMessageCreate{
-		Content: fmt.Sprintf("**%s** `%s` for **%s** in *%s*", alert.AlertType, alert.Description, alert.StackName, alert.StackEnv),
+		Content: fmt.Sprintf("**%s** [%s](%s) for **%s** in *%s*", alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv),
 	})
 	return err
 }

@@ -80,6 +80,8 @@ func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 		StackName: stackName,
 		StackEnv:  stackEnv,
 		AlertType: lo.If(alarmEvent.AlarmData.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
+		DetailsUrl: fmt.Sprintf("https://%s.console.aws.amazon.com/cloudwatch/home?region=%s#alarmsV2:alarm/%s",
+			alarmEvent.Region, alarmEvent.Region, alarmEvent.AlarmData.AlarmName),
 	}
 
 	// send discord notifications if configured
