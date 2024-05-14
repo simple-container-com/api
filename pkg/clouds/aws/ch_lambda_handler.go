@@ -8,7 +8,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -17,7 +16,7 @@ import (
 
 const CloudHelperLambda = "sc-helper-aws-lambda"
 
-func (l *lambdaCloudHelper) handler(ctx context.Context, event *events.CloudWatchEvent) error {
+func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 	l.log.Info(ctx, fmt.Sprintf("lambda executing handler with event... %v", event))
 	return nil
 }
