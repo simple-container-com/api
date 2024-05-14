@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	awsApi "github.com/simple-container-com/api/pkg/clouds/aws/helpers"
-
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
@@ -17,6 +15,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	awsApi "github.com/simple-container-com/api/pkg/clouds/aws/helpers"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 

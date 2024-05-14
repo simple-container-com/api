@@ -9,7 +9,9 @@ require (
 	github.com/MShekow/directory-checksum v1.4.2
 	github.com/atombender/go-jsonschema v0.16.0
 	github.com/aws/aws-lambda-go v1.47.0
+	github.com/aws/aws-secretsmanager-caching-go v1.1.3
 	github.com/compose-spec/compose-go v1.20.2
+	github.com/disgoorg/disgo v0.18.5
 	github.com/fatih/color v1.16.0
 	github.com/go-delve/delve v1.22.1
 	github.com/go-git/go-billy/v5 v5.5.0
@@ -150,6 +152,8 @@ require (
 	github.com/deckarep/golang-set/v2 v2.5.0 // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/derekparker/trie v0.0.0-20230829180723-39f4de51ef7d // indirect
+	github.com/disgoorg/json v1.1.0 // indirect
+	github.com/disgoorg/snowflake/v2 v2.0.1 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/djherbis/times v1.5.0 // indirect
 	github.com/docker/cli v20.10.22+incompatible // indirect
@@ -350,6 +354,7 @@ require (
 	github.com/sanity-io/litter v1.5.5 // indirect
 	github.com/sanposhiho/wastedassign/v2 v2.0.7 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
+	github.com/sasha-s/go-csync v0.0.0-20240107134140-fcbab37b09ad // indirect
 	github.com/sashamelentyev/interfacebloat v1.1.0 // indirect
 	github.com/sashamelentyev/usestdlibvars v1.25.0 // indirect
 	github.com/securego/gosec/v2 v2.19.0 // indirect

@@ -3,14 +3,19 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/pkg/errors"
-	"github.com/simple-container-com/api/pkg/util"
+	"github.com/samber/lo"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-secretsmanager-caching-go/secretcache"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/clouds/discord"
+	"github.com/simple-container-com/api/pkg/clouds/telegram"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 const CHCloudwatchAlertLambda api.CloudHelperType = "sc-helper-aws-cloudwatch-alert-lambda"
@@ -45,6 +50,8 @@ const (
 	OK    AlarmStateValue = "OK"
 )
 
+var secretCache, _ = secretcache.New()
+
 func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 	l.log.Info(ctx, fmt.Sprintf("lambda executing handler with event... %v", event))
 
@@ -57,8 +64,43 @@ func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 		alarmEvent = e
 	}
 
-	// TODO: read secrets from secret manager to obtain discord webhook and telegram token
-	l.log.Info(ctx, fmt.Sprintf("unmarshalled cloudwatch event: %v", alarmEvent))
+	l.log.Info(ctx, "unmarshalled cloudwatch event: %v", alarmEvent)
+
+	stackName := os.Getenv(api.CloudHelpersEnv.StackName)
+	stackEnv := os.Getenv(api.CloudHelpersEnv.StackEnv)
+
+	l.log.Info(ctx, "sending event for stack %q in %q", stackName, stackEnv)
+
+	nfAlert := api.Alert{
+		Title:       alarmEvent.AlarmData.Configuration.Description,
+		Description: alarmEvent.State.Reason,
+		StackName:   stackName,
+		StackEnv:    stackEnv,
+		AlertType:   lo.If(alarmEvent.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
+	}
+
+	// send discord notifications if configured
+	if discordWebhookSecret := os.Getenv(api.CloudHelpersEnv.DiscordWebhookUrl); discordWebhookSecret == "" {
+		l.log.Info(ctx, "discord notification isn't configured")
+	} else if discordWebhook, err := secretCache.GetSecretString(discordWebhookSecret); err != nil {
+		l.log.Error(ctx, "failed to get discord webhook secret value: %v", err)
+	} else if d, err := discord.New(discordWebhook); err != nil {
+		l.log.Error(ctx, "failed to create discord webhook client: %v", err)
+	} else if err := d.Send(nfAlert); err != nil {
+		l.log.Error(ctx, "failed to send alert to discord: %v", err)
+	}
+
+	// send telegram notification if configured
+	telegramChatId := os.Getenv(api.CloudHelpersEnv.TelegramChatID)
+	if telegramTokenSecret := os.Getenv(api.CloudHelpersEnv.TelegramToken); telegramTokenSecret == "" {
+		l.log.Info(ctx, "telegram notification isn't configured")
+	} else if telegramToken, err := secretCache.GetSecretString(telegramTokenSecret); err != nil {
+		l.log.Error(ctx, "failed to get discord webhook secret value: %v", err)
+	} else {
+		if err := telegram.New(telegramChatId, telegramToken).Send(nfAlert); err != nil {
+			l.log.Error(ctx, "failed to send alert to telegram: %v", err)
+		}
+	}
 
 	return nil
 }

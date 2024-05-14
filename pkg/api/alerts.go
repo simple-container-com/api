@@ -61,3 +61,23 @@ type MaxErrorConfig struct {
 	CommonAlertConfig     `json:",inline" yaml:",inline"`
 	ErrorLogMessageRegexp string `json:"errorLogMessageRegexp" yaml:"errorLogMessageRegexp"`
 }
+
+type AlertType string
+
+const (
+	AlertTriggered AlertType = "TRIGGERED"
+	AlertResolved  AlertType = "RESOLVED"
+)
+
+type Alert struct {
+	Title       string    `json:"title" yaml:"title"`
+	Description string    `json:"description" yaml:"description"`
+	StackName   string    `json:"stackName" yaml:"stackName"`
+	StackEnv    string    `json:"stackEnv" yaml:"stackEnv"`
+	DetailsUrl  string    `json:"detailsUrl" yaml:"detailsUrl"`
+	AlertType   AlertType `json:"alertType" yaml:"alertType"`
+}
+
+type AlertSender interface {
+	Send(Alert) error
+}
