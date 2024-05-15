@@ -10,6 +10,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/welder/pkg/template"
+	"github.com/simple-container-com/welder/pkg/util"
 	"github.com/simple-container-com/welder/pkg/welder/types"
 )
 
@@ -21,7 +22,10 @@ type Placeholders interface {
 	Resolve(stacks api.StacksMap) error
 }
 
-type Option func(tpl *template.Template)
+type (
+	MapData util.Data
+	Option  func(tpl *template.Template)
+)
 
 type InitOption func(p *placeholders)
 
@@ -32,6 +36,12 @@ type placeholders struct {
 func WithExtensions(extensions map[string]template.Extension) Option {
 	return func(tpl *template.Template) {
 		tpl.WithExtensions(extensions)
+	}
+}
+
+func WithData(data MapData) Option {
+	return func(tpl *template.Template) {
+		tpl.WithData(util.Data(data))
 	}
 }
 

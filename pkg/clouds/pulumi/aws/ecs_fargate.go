@@ -518,6 +518,16 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		})
 	})
 
+	params.Log.Info(ctx.Context(), "configure Cloudwatch dashboard for ecs cluster %q...", ecsClusterName)
+	if err := createEcsCloudwatchDashboard(ctx, ecsCloudwatchDashboardCfg{
+		ecsClusterName: ecsClusterName,
+		ecsServiceName: serviceName,
+		stackName:      stack.Name,
+		region:         crInput.Region,
+	}, params); err != nil {
+		return errors.Wrapf(err, "failed to create ECS cw dashboard")
+	}
+
 	if crInput.Scale.Policy != nil {
 		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
 		if err != nil {
