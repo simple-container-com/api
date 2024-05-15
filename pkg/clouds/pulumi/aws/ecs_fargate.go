@@ -655,6 +655,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 					"VERSION": sdk.String(version),
 				},
 			},
+			SkipPush:  sdk.Bool(ctx.DryRun()),
 			ImageName: imageFullUrl,
 			Registry: docker.ImageRegistryArgs{
 				Server:   repository.Repository.RepositoryUrl,
