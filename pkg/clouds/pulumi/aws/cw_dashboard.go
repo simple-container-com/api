@@ -59,7 +59,7 @@ const ecsDashboardTemplate = `
             "x": 0,
             "type": "log",
             "properties": {
-                "query": "SOURCE '/ecs/${ecsServiceName}' | fields @timestamp, @message, @logStream, @log\n| sort @timestamp desc\n| limit 1000",
+                "query": "SOURCE '${logGroupName}' | fields @timestamp, @message, @logStream, @log\n| sort @timestamp desc\n| limit 1000",
                 "region": "${region}",
                 "stacked": false,
                 "view": "table",
@@ -74,6 +74,7 @@ type ecsCloudwatchDashboardCfg struct {
 	region         string
 	stackName      string
 	ecsServiceName string
+	logGroupName   string
 	ecsClusterName string
 }
 
@@ -83,6 +84,7 @@ func createEcsCloudwatchDashboard(ctx *sdk.Context, cfg ecsCloudwatchDashboardCf
 		"stackName":      cfg.stackName,
 		"region":         cfg.region,
 		"ecsServiceName": cfg.ecsServiceName,
+		"logGroupName":   cfg.logGroupName,
 		"ecsClusterName": cfg.ecsClusterName,
 	}
 	if err := placeholders.New().Apply(&dashboardJSON, placeholders.WithData(data)); err != nil {

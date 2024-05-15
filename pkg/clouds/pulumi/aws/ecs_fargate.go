@@ -251,6 +251,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			},
 		})
 	}
+	logGroupName := fmt.Sprintf("/ecs/%s", ecsSimpleClusterName)
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
 		func(image *EcsFargateImage, index int) EcsContainerDef {
@@ -316,7 +317,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 						LogDriver: sdk.String("awslogs"),
 						Options: sdk.StringMap{
 							"awslogs-create-group":  sdk.String("true"),
-							"awslogs-group":         sdk.String(fmt.Sprintf("/ecs/%s", ecsSimpleClusterName)),
+							"awslogs-group":         sdk.String(logGroupName),
 							"awslogs-region":        sdk.String(crInput.Config.Region),
 							"awslogs-stream-prefix": sdk.String("ecs"),
 						},
@@ -523,6 +524,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	if err := createEcsCloudwatchDashboard(ctx, ecsCloudwatchDashboardCfg{
 		ecsClusterName: ecsClusterName,
 		ecsServiceName: serviceName,
+		logGroupName:   logGroupName,
 		stackName:      stack.Name,
 		region:         crInput.Region,
 	}, params); err != nil {
