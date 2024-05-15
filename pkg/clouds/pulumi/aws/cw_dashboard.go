@@ -89,7 +89,7 @@ func createEcsCloudwatchDashboard(ctx *sdk.Context, cfg ecsCloudwatchDashboardCf
 		return errors.Wrapf(err, "failed to apply placeholders on dashboard template")
 	}
 	_, err := cloudwatch.NewDashboard(ctx, "main", &cloudwatch.DashboardArgs{
-		DashboardName: sdk.String(fmt.Sprintf("%s status", cfg.stackName)),
+		DashboardName: sdk.String(fmt.Sprintf("%s-status", cfg.stackName)),
 		DashboardBody: sdk.String(dashboardJSON),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
