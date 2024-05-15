@@ -176,6 +176,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		"SIMPLE_CONTAINER_STACK": stack.Name,
 		"SIMPLE_CONTAINER_ENV":   environment,
 	}
+	var providerType string
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
 	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
@@ -199,14 +200,19 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
 	} else {
 		envVariables[api.ScContainerResourceTypeEnvVariable] = res.Type
+		providerType = authCfg.ProviderType()
 	}
 	return pApi.ProvisionParams{
 		Provider:         provider,
 		Registrar:        p.registrar,
 		Log:              p.logger,
 		BaseEnvVariables: envVariables,
-		HelpersImage:     fmt.Sprintf("docker.io/simplecontainer/cloud-helpers:%s", build.Version),
+		HelpersImage:     p.cloudHelpersImage(providerType),
 	}, nil
+}
+
+func (p *pulumi) cloudHelpersImage(providerType string) string {
+	return fmt.Sprintf("docker.io/simplecontainer/cloud-helpers:%s-%s", providerType, build.Version)
 }
 
 func stackDescriptorTemplateName(stackName, templateName string) string {

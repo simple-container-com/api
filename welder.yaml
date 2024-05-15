@@ -35,11 +35,11 @@ modules:
         - task: rebuild
         - task: deploy
     dockerImages:
-      - name: cloud-helpers
-        dockerFile: ${project:root}/cloud-helpers.Dockerfile
+      - name: cloud-helpers-aws
+        dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:
-          - simplecontainer/cloud-helpers:latest
-          - simplecontainer/cloud-helpers:${project:version}
+          - simplecontainer/cloud-helpers:aws-latest
+          - simplecontainer/cloud-helpers:aws-${project:version}
         runAfterPush:
           tasks:
             - tag-release
