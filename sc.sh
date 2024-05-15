@@ -35,7 +35,7 @@ function vercomp () {
    return 0
 }
 
-PLATFORM=linux
+PLATFORM=${PLATFORM:-linux}
 if [ "$(uname)" == "Darwin" ]; then
   PLATFORM=darwin
 fi
@@ -80,35 +80,39 @@ export PATH="$PATH:$BINDIR"
 if [[ -f "$HOME/.bashrc" ]]; then
   path_export="export PATH=\"\$PATH:$BINDIR\""
   if [[ "$(cat $HOME/.bashrc | grep "$path_export")" == "" ]]; then
-    echo "$path_export" >> $HOME/.bashrc
+    echo "$path_export" >> "$HOME/.bashrc"
   fi
   completion_bash="source <(sc completion bash)"
   if [[ "$(cat $HOME/.bashrc | grep "$completion_bash")" == "" ]]; then
-    echo "$completion_bash" >> $HOME/.bashrc
+    echo "$completion_bash" >> "$HOME/.bashrc"
   fi
   unalias_cmd="unalias sc > /dev/null 2>/dev/null || true" # in case sc is defined as global alias
   if [[ "$(cat $HOME/.bashrc | grep "$unalias_cmd")" == "" ]]; then
-    echo "$unalias_cmd" >> $HOME/.bashrc
+    echo "$unalias_cmd" >> "$HOME/.bashrc"
   fi
 fi
 
 # zsh
-if [[ -f "$HOME/.zshrc"  ]]; then
+if [[ "${PLATFORM}" == "darwin" && ! -f "$HOME/.zshrc" ]]; then
+  touch "$HOME/.zshrc"
+fi
+
+if [[ -f "$HOME/.zshrc" ]]; then
   if [[ "$(cat $HOME/.zshrc | grep "$path_export")" == "" ]]; then
     # shellcheck disable=SC2129
-    echo "$path_export" >> $HOME/.zshrc
-    echo "unalias sc || echo ''" >> $HOME/.zshrc
-    echo "autoload -U compinit; compinit" >> $HOME/.zshrc
+    echo "$path_export" >> "$HOME/.zshrc"
+    echo "unalias sc >/dev/null 2>/dev/null || true" >> "$HOME/.zshrc"
+    echo "autoload -U compinit; compinit" >> "$HOME/.zshrc"
     if [[ "$PLATFORM" == "darwin" ]]; then
       $BINDIR/sc completion zsh > $(brew --prefix)/share/zsh/site-functions/_sc || echo ""
     fi
   fi
   completion_zsh="source <(sc completion zsh)"
   if [[ "$(cat $HOME/.zshrc | grep "$completion_zsh")" == "" ]]; then
-    echo "$completion_zsh" >> $HOME/.zshrc
+    echo "$completion_zsh" >> "$HOME/.zshrc"
   fi
   if [[ "$(cat $HOME/.zshrc | grep "$unalias_cmd")" == "" ]]; then
-    echo "$unalias_cmd" >> $HOME/.zshrc
+    echo "$unalias_cmd" >> "$HOME/.zshrc"
   fi
 fi
 
