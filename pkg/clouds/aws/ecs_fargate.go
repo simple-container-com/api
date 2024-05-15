@@ -124,6 +124,7 @@ type EcsFargateInput struct {
 	Dependencies     []api.StackConfigDependencyResource `json:"dependencies" yaml:"dependencies"`
 	Volumes          []EcsFargateVolume                  `json:"volumes" yaml:"volumes"`
 	Alerts           *api.AlertsConfig                   `json:"alerts" yaml:"alerts"`
+	ComposeDir       string                              `json:"composeDir" yaml:"composeDir"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
@@ -163,8 +164,9 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			AccountConfig: *accountConfig,
 			Version:       stackCfg.Version,
 		},
-		Alerts:  stackCfg.Alerts,
-		Secrets: stackCfg.Secrets,
+		Alerts:     stackCfg.Alerts,
+		Secrets:    stackCfg.Secrets,
+		ComposeDir: composeCfg.Project.WorkingDir,
 		Volumes: lo.Map(lo.Entries(composeCfg.Project.Volumes), func(v lo.Entry[string, types.VolumeConfig], _ int) EcsFargateVolume {
 			return EcsFargateVolume{
 				Name: lo.If(v.Value.Name != "", v.Value.Name).Else(v.Key),

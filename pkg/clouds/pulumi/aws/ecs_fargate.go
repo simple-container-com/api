@@ -4,12 +4,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/efs"
 	lbV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
@@ -82,6 +85,10 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	if !ok {
 		return output, errors.Errorf("failed to convert ecs_fargate config for %q in stack %q in %q", input.Descriptor.Type, stack.Name, deployParams.Environment)
 	}
+	if err := api.ConvertAuth(crInput, &crInput.AccountConfig); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
+	}
+
 	params.Log.Debug(ctx.Context(), "configure ECS Fargate for stack %q in %q: %q...", stack.Name, deployParams.Environment, crInput)
 
 	err := buildAndPushImages(ctx, stack, params, deployParams, crInput, ref)
@@ -138,6 +145,52 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.Secrets = secrets
 
 	ecsClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
+
+	// Create a new VPC for our ECS tasks.
+	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsClusterName)
+	vpcName := fmt.Sprintf("%s-vpc", ecsClusterName)
+	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsClusterName)
+	}
+
+	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsClusterName)
+	securityGroupName := fmt.Sprintf("%s-sg", ecsClusterName)
+	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
+		VpcId: vpc.ID(),
+		Ingress: ec2.SecurityGroupIngressArray{
+			&ec2.SecurityGroupIngressArgs{
+				Description:    sdk.String("Allow ALL inbound traffic"),
+				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(0),
+				ToPort:         sdk.Int(65535),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+		},
+		Egress: ec2.SecurityGroupEgressArray{
+			&ec2.SecurityGroupEgressArgs{
+				Description:    sdk.String("Allow ALL outbound traffic"),
+				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(0),
+				ToPort:         sdk.Int(65535),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+			&ec2.SecurityGroupEgressArgs{
+				Description:    sdk.String("Allow NFS outbound traffic"),
+				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(2049),
+				ToPort:         sdk.Int(2049),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+		},
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to crate security group for ECS cluster %q", ecsClusterName)
+	}
+
 	// Create an ECS task execution IAM role
 	roleName := fmt.Sprintf("%s-exec-role", ecsClusterName)
 	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
@@ -159,12 +212,45 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.ExecRole = taskExecRole
 	ctx.Export(fmt.Sprintf("%s-exec-role-arn", ecsClusterName), taskExecRole.Arn)
 
+	subnets, err := getOrCreateDefaultSubnetsInRegion(ctx, crInput.AccountConfig, params)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get or create default subnets in region")
+	}
+	params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), crInput.AccountConfig.Region)
 	var volumes ecsV5.TaskDefinitionVolumeArray
-	lo.ForEach(crInput.Volumes, func(v aws.EcsFargateVolume, _ int) {
+	for _, v := range crInput.Volumes {
+		efsName := fmt.Sprintf("%s-%s-fs", ecsClusterName, v.Name)
+		params.Log.Info(ctx.Context(), "configure efs file system %s for volume %s...", efsName, v.Name)
+		fs, err := efs.NewFileSystem(ctx, efsName, &efs.FileSystemArgs{}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create file system for persistent volume %s of stack %s", v.Name, stack.Name)
+		}
+		_, err = util.MapErr(subnets, func(subnet *ec2.DefaultSubnet, i int) (*efs.MountTarget, error) {
+			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsClusterName, v.Name, i)
+			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)
+			return efs.NewMountTarget(ctx, mountTargetName, &efs.MountTargetArgs{
+				FileSystemId: fs.ID(),
+				SubnetId:     subnet.ID(),
+				SecurityGroups: sdk.StringArray{
+					securityGroup.ID(),
+				},
+			}, opts...)
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to create mount targets for efs %s for volume %s of stack %s", efsName, v.Name, stack.Name)
+		}
 		volumes = append(volumes, ecsV5.TaskDefinitionVolumeArgs{
 			Name: sdk.String(v.Name),
+			EfsVolumeConfiguration: ecsV5.TaskDefinitionVolumeEfsVolumeConfigurationArgs{
+				FileSystemId:      fs.ID(),
+				RootDirectory:     sdk.String("/"),
+				TransitEncryption: sdk.String("ENABLED"),
+				AuthorizationConfig: ecsV5.TaskDefinitionVolumeEfsVolumeConfigurationAuthorizationConfigArgs{
+					Iam: sdk.String("ENABLED"),
+				},
+			},
 		})
-	})
+	}
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
 		func(image *EcsFargateImage, index int) EcsContainerDef {
@@ -332,6 +418,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 							"logs:CreateLogGroup",
 							"logs:DescribeLogStreams",
 							"logs:PutLogEvents",
+							"elasticfilesystem:ClientMount",
+							"elasticfilesystem:ClientWrite",
+							"elasticfilesystem:DescribeMountTargets",
+							"elasticfilesystem:DescribeFileSystems",
 						},
 					},
 				},
@@ -377,7 +467,15 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		Tags: sdk.StringMap{
 			"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
 		},
-		AssignPublicIp: sdk.BoolPtr(true),
+		NetworkConfiguration: ecsV5.ServiceNetworkConfigurationArgs{
+			AssignPublicIp: sdk.BoolPtr(true),
+			SecurityGroups: sdk.StringArray{
+				securityGroup.ID(),
+			},
+			Subnets: sdk.StringArray(lo.Map(subnets, func(subnet *ec2.DefaultSubnet, _ int) sdk.StringInput {
+				return subnet.ID()
+			})),
+		},
 		LoadBalancers: ecsV5.ServiceLoadBalancerArray{
 			ecsV5.ServiceLoadBalancerArgs{
 				ContainerName:  sdk.String(iContainer.Name),
@@ -512,12 +610,16 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 
 func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*EcsFargateImage, error) {
-		if container.Image.Dockerfile == "" && container.Image.Context == "" {
+		dockerfile := container.Image.Dockerfile
+		if dockerfile == "" && container.Image.Context == "" {
 			// do not build and return right away
 			return &EcsFargateImage{
 				Container: container,
 				ImageName: sdk.String(container.Image.Name).ToStringOutput(),
 			}, nil
+		}
+		if !filepath.IsAbs(dockerfile) {
+			dockerfile = filepath.Join(crInput.ComposeDir, dockerfile)
 		}
 
 		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
@@ -535,7 +637,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 		image, err := docker.NewImage(ctx, imageName, &docker.ImageArgs{
 			Build: &docker.DockerBuildArgs{
 				Context:    sdk.String(container.Image.Context),
-				Dockerfile: sdk.String(container.Image.Dockerfile),
+				Dockerfile: sdk.String(dockerfile),
 				Args: map[string]sdk.StringInput{
 					"VERSION": sdk.String(version),
 				},
@@ -680,4 +782,32 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 func awsResName(name string, suffix string) string {
 	return strings.ReplaceAll(fmt.Sprintf("%s-%s", name, suffix), "--", "_")
+}
+
+func getOrCreateDefaultSubnetsInRegion(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) ([]*ec2.DefaultSubnet, error) {
+	// Get all availability zones in provided region
+	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
+		Filters: []awsImpl.GetAvailabilityZonesFilter{
+			{
+				Name:   "region-name",
+				Values: []string{account.Region},
+			},
+		},
+	}, sdk.Provider(params.Provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
+	}
+
+	// Create default subnet in each availability zone
+	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (*ec2.DefaultSubnet, error) {
+		subnetName := fmt.Sprintf("default-subnet-%s", zone)
+		subnet, err := ec2.NewDefaultSubnet(ctx, subnetName, &ec2.DefaultSubnetArgs{
+			AvailabilityZone: sdk.String(zone),
+		}, sdk.Provider(params.Provider))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create default subnet %s in %q", subnetName, account.Region)
+		}
+		return subnet, nil
+	})
+	return subnets, err
 }

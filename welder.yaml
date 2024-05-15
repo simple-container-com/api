@@ -130,4 +130,4 @@ tasks:
   rebuild:
     runOn: host
     script:
-      - go build -o ${project:root}/bin/sc ./cmd/sc && cp -f ./bin/sc ~/.local/bin/sc
+      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=${date:time}" -o ${project:root}/bin/sc ./cmd/sc && cp -f ./bin/sc ~/.local/bin/sc
