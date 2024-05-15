@@ -77,8 +77,8 @@ export PATH="$PATH:$BINDIR"
 
 # Add completions
 # bash
+path_export="export PATH=\"\$PATH:$BINDIR\""
 if [[ -f "$HOME/.bashrc" ]]; then
-  path_export="export PATH=\"\$PATH:$BINDIR\""
   if [[ "$(cat $HOME/.bashrc | grep "$path_export")" == "" ]]; then
     echo "$path_export" >> "$HOME/.bashrc"
   fi
@@ -98,7 +98,7 @@ if [[ "${PLATFORM}" == "darwin" && ! -f "$HOME/.zshrc" ]]; then
 fi
 
 if [[ -f "$HOME/.zshrc" ]]; then
-  if [[ "$(cat $HOME/.zshrc | grep "$path_export")" == "" ]]; then
+  if [[ "$(cat "$HOME/.zshrc" | grep "$path_export")" == "" ]]; then
     # shellcheck disable=SC2129
     echo "$path_export" >> "$HOME/.zshrc"
     echo "unalias sc >/dev/null 2>/dev/null || true" >> "$HOME/.zshrc"
