@@ -443,10 +443,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	params.Log.Info(ctx.Context(), "configure Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	serviceName := awsResName(ecsSimpleClusterName, "svc")
+	ecsServiceName := awsResName(ecsSimpleClusterName, "svc")
 	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsSimpleClusterName), &ecs.FargateServiceArgs{
 		Cluster:                         cluster.Arn,
-		Name:                            sdk.String(serviceName),
+		Name:                            sdk.String(ecsServiceName),
 		DesiredCount:                    sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
 		DeploymentMaximumPercent:        sdk.IntPtr(lo.If(crInput.Scale.Update.MaxPercent == 0, 200).Else(crInput.Scale.Update.MaxPercent)),
 		DeploymentMinimumHealthyPercent: sdk.IntPtr(lo.If(crInput.Scale.Update.MinHealthyPercent == 0, 100).Else(crInput.Scale.Update.MinHealthyPercent)),
@@ -523,7 +523,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "configure Cloudwatch dashboard for ecs cluster %q...", ecsClusterName)
 	if err := createEcsCloudwatchDashboard(ctx, ecsCloudwatchDashboardCfg{
 		ecsClusterName: ecsClusterName,
-		ecsServiceName: serviceName,
+		ecsServiceName: ecsServiceName,
 		logGroupName:   logGroupName,
 		stackName:      stack.Name,
 		region:         crInput.Region,
@@ -540,7 +540,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	if crInput.Alerts != nil {
 		cluster.Name.ApplyT(func(clusterName string) any {
-			return createEcsAlerts(ctx, clusterName, serviceName, stack, crInput, deployParams, params, opts...)
+			return createEcsAlerts(ctx, clusterName, ecsServiceName, stack, crInput, deployParams, params, opts...)
 		})
 	}
 	return nil

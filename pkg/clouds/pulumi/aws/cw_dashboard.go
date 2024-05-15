@@ -79,6 +79,7 @@ type ecsCloudwatchDashboardCfg struct {
 }
 
 func createEcsCloudwatchDashboard(ctx *sdk.Context, cfg ecsCloudwatchDashboardCfg, params pApi.ProvisionParams) error {
+	params.Log.Info(ctx.Context(), "configure ecs cloudwatch dashboard with config: %v ...", cfg)
 	dashboardJSON := ecsDashboardTemplate
 	data := placeholders.MapData{
 		"stackName":      cfg.stackName,
