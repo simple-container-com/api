@@ -144,18 +144,18 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "configure secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
 	ref.Secrets = secrets
 
-	ecsClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
+	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
 	// Create a new VPC for our ECS tasks.
-	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsClusterName)
-	vpcName := fmt.Sprintf("%s-vpc", ecsClusterName)
+	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
+	vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
 	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
 	if err != nil {
-		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsClusterName)
+		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
 	}
 
-	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsClusterName)
-	securityGroupName := fmt.Sprintf("%s-sg", ecsClusterName)
+	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
+	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		VpcId: vpc.ID(),
 		Ingress: ec2.SecurityGroupIngressArray{
@@ -188,13 +188,13 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		},
 	}, opts...)
 	if err != nil {
-		return errors.Wrapf(err, "failed to crate security group for ECS cluster %q", ecsClusterName)
+		return errors.Wrapf(err, "failed to crate security group for ECS cluster %q", ecsSimpleClusterName)
 	}
 
 	// Create an ECS task execution IAM role
-	roleName := fmt.Sprintf("%s-exec-role", ecsClusterName)
+	roleName := fmt.Sprintf("%s-exec-role", ecsSimpleClusterName)
 	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
-		Name: sdk.String(ecsClusterName),
+		Name: sdk.String(ecsSimpleClusterName),
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -210,7 +210,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create IAM role for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.ExecRole = taskExecRole
-	ctx.Export(fmt.Sprintf("%s-exec-role-arn", ecsClusterName), taskExecRole.Arn)
+	ctx.Export(fmt.Sprintf("%s-exec-role-arn", ecsSimpleClusterName), taskExecRole.Arn)
 
 	subnets, err := getOrCreateDefaultSubnetsInRegion(ctx, crInput.AccountConfig, params)
 	if err != nil {
@@ -219,14 +219,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), crInput.AccountConfig.Region)
 	var volumes ecsV5.TaskDefinitionVolumeArray
 	for _, v := range crInput.Volumes {
-		efsName := fmt.Sprintf("%s-%s-fs", ecsClusterName, v.Name)
+		efsName := fmt.Sprintf("%s-%s-fs", ecsSimpleClusterName, v.Name)
 		params.Log.Info(ctx.Context(), "configure efs file system %s for volume %s...", efsName, v.Name)
 		fs, err := efs.NewFileSystem(ctx, efsName, &efs.FileSystemArgs{}, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create file system for persistent volume %s of stack %s", v.Name, stack.Name)
 		}
 		_, err = util.MapErr(subnets, func(subnet *ec2.DefaultSubnet, i int) (*efs.MountTarget, error) {
-			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsClusterName, v.Name, i)
+			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsSimpleClusterName, v.Name, i)
 			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)
 			return efs.NewMountTarget(ctx, mountTargetName, &efs.MountTargetArgs{
 				FileSystemId: fs.ID(),
@@ -316,7 +316,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 						LogDriver: sdk.String("awslogs"),
 						Options: sdk.StringMap{
 							"awslogs-create-group":  sdk.String("true"),
-							"awslogs-group":         sdk.String(fmt.Sprintf("/ecs/%s", ecsClusterName)),
+							"awslogs-group":         sdk.String(fmt.Sprintf("/ecs/%s", ecsSimpleClusterName)),
 							"awslogs-region":        sdk.String(crInput.Config.Region),
 							"awslogs-stream-prefix": sdk.String("ecs"),
 						},
@@ -370,13 +370,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.LoadBalancer = loadBalancer
-	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsClusterName), loadBalancer.LoadBalancer.Arn())
-	ctx.Export(fmt.Sprintf("%s-alb-name", ecsClusterName), loadBalancer.LoadBalancer.Name())
+	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsSimpleClusterName), loadBalancer.LoadBalancer.Arn())
+	ctx.Export(fmt.Sprintf("%s-alb-name", ecsSimpleClusterName), loadBalancer.LoadBalancer.Name())
 
 	params.Log.Info(ctx.Context(), "configure ECS Fargate cluster for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	cluster, err := ecsV5.NewCluster(ctx, ecsClusterName, &ecsV5.ClusterArgs{
-		Name: sdk.String(awsResName(ecsClusterName, "cluster")),
+	ecsClusterName := awsResName(ecsSimpleClusterName, "cluster")
+	cluster, err := ecsV5.NewCluster(ctx, ecsSimpleClusterName, &ecsV5.ClusterArgs{
+		Name: sdk.String(ecsClusterName),
 		Configuration: ecsV5.ClusterConfigurationArgs{
 			ExecuteCommandConfiguration: ecsV5.ClusterConfigurationExecuteCommandConfigurationArgs{
 				Logging: sdk.String("DEFAULT"),
@@ -387,10 +388,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create ECS cluster for %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.Cluster = cluster
-	ctx.Export(fmt.Sprintf("%s-arn", ecsClusterName), cluster.Arn)
-	ctx.Export(fmt.Sprintf("%s-name", ecsClusterName), cluster.Name)
+	ctx.Export(fmt.Sprintf("%s-arn", ecsSimpleClusterName), cluster.Arn)
+	ctx.Export(fmt.Sprintf("%s-name", ecsSimpleClusterName), cluster.Name)
 
-	ccPolicyName := fmt.Sprintf("%s-policy", ecsClusterName)
+	ccPolicyName := fmt.Sprintf("%s-policy", ecsSimpleClusterName)
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
 		Name:        sdk.String(ccPolicyName),
@@ -437,12 +438,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create policy for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.Policy = ccPolicy
-	ctx.Export(fmt.Sprintf("%s-policy", ecsClusterName), ccPolicy.Arn)
+	ctx.Export(fmt.Sprintf("%s-policy", ecsSimpleClusterName), ccPolicy.Arn)
 
 	params.Log.Info(ctx.Context(), "configure Fargate service for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
-	serviceName := awsResName(ecsClusterName, "svc")
-	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsClusterName), &ecs.FargateServiceArgs{
+	serviceName := awsResName(ecsSimpleClusterName, "svc")
+	service, err := ecs.NewFargateService(ctx, fmt.Sprintf("%s-service", ecsSimpleClusterName), &ecs.FargateServiceArgs{
 		Cluster:                         cluster.Arn,
 		Name:                            sdk.String(serviceName),
 		DesiredCount:                    sdk.Int(lo.If(crInput.Scale.Min == 0, 1).Else(crInput.Scale.Min)),
@@ -488,9 +489,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.Service = service
-	ctx.Export(fmt.Sprintf("%s-service-name", ecsClusterName), service.Service.Name())
+	ctx.Export(fmt.Sprintf("%s-service-name", ecsSimpleClusterName), service.Service.Name())
 
-	execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", ecsClusterName)
+	execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", ecsSimpleClusterName)
 	execPolicyAttachment, err := iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 		Role:      taskExecRole.Name,
 		PolicyArn: ccPolicy.Arn,
@@ -499,14 +500,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create policy attachment stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	ref.ExecPolicyAttachment = execPolicyAttachment
-	ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsClusterName), execPolicyAttachment.PolicyArn)
+	ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsSimpleClusterName), execPolicyAttachment.PolicyArn)
 
 	service.TaskDefinition.ApplyT(func(td *ecsV5.TaskDefinition) any {
 		return td.TaskRoleArn.ApplyT(func(taskRoleArn *string) (*iam.RolePolicyAttachment, error) {
 			role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
 				Arn: sdk.String(lo.FromPtr(taskRoleArn)),
 			}, sdk.Provider(params.Provider))
-			ccPolicyAttachmentName := fmt.Sprintf("%s-p-cc", ecsClusterName)
+			ccPolicyAttachmentName := fmt.Sprintf("%s-p-cc", ecsSimpleClusterName)
 			return iam.NewRolePolicyAttachment(ctx, ccPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 				PolicyArn: ccPolicy.Arn,
 				Role: role.Resource().ApplyT(func(roleResource string) string {
@@ -531,7 +532,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	if crInput.Scale.Policy != nil {
 		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
 		if err != nil {
-			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsClusterName, fmt.Sprintf("%s-service", ecsClusterName))
+			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsSimpleClusterName, fmt.Sprintf("%s-service", ecsSimpleClusterName))
 		}
 	}
 
