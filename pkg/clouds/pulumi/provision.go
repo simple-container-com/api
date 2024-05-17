@@ -55,7 +55,13 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 }
 
 func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.StackReference, cfg *api.ConfigFile, program sdk.RunFunc) (auto.Stack, error) {
-	stackSource, err := auto.UpsertStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, program, p.wsOpts...)
+	var stackSource auto.Stack
+	var err error
+	if program != nil {
+		stackSource, err = auto.UpsertStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, program, p.wsOpts...)
+	} else {
+		stackSource, err = auto.SelectStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, nil, p.wsOpts...)
+	}
 	if err != nil {
 		return stackSource, err
 	}
