@@ -236,7 +236,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", stackConfig.Domain, stack.Name, deployParams.Environment)
-	mainRecord := sdk.All(apiGw.ApiEndpoint, stage.Name).ApplyT(func(vals []string) (*api.ResourceOutput, error) {
+	mainRecord := sdk.All(apiGw.ApiEndpoint, stage.Name).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
 		apiEndpoint, stageName := vals[0], vals[1]
 		return params.Registrar.NewRecord(ctx, api.DnsRecord{
 			Name:    stackConfig.Domain,
