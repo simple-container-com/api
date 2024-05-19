@@ -3,6 +3,7 @@ package aws
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/apigatewayv2"
@@ -250,23 +251,26 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// Define the stage. This is the URL path where your API will be accessible
 	params.Log.Info(ctx.Context(), "configure API gateway stage for %q in %q...", deployParams.StackName, deployParams.Environment)
-	stage, err := apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", deployParams.StackName), &apigatewayv2.StageArgs{
+	_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", deployParams.StackName), &apigatewayv2.StageArgs{
 		ApiId:        apiGw.ID(),
 		AutoDeploy:   sdk.Bool(true),
 		DeploymentId: deployment.ID(),
-		Name:         sdk.String("default"),
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create API gateway stage")
 	}
 
 	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", stackConfig.Domain, stack.Name, deployParams.Environment)
-	mainRecord := sdk.All(apiGw.ApiEndpoint, stage.Name).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
-		apiEndpoint, stageName := vals[0], vals[1]
+	mainRecord := sdk.All(apiGw.ApiEndpoint).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
+		apiEndpointUrl, err := url.Parse(fmt.Sprintf("%s", vals[0]))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to parse URL %q", vals[0])
+		}
+
 		return params.Registrar.NewRecord(ctx, api.DnsRecord{
 			Name:    stackConfig.Domain,
 			Type:    "CNAME",
-			Value:   fmt.Sprintf("%s/%s", apiEndpoint, stageName),
+			Value:   apiEndpointUrl.Host,
 			Proxied: true,
 		})
 	}).(sdk.AnyOutput)
