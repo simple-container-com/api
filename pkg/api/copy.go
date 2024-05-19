@@ -151,6 +151,7 @@ func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	return StackClientDescriptor{
 		Type:        s.Type,
 		ParentStack: s.ParentStack,
+		Template:    s.Template,
 		Config:      s.Config.Copy(),
 	}
 }
