@@ -80,6 +80,8 @@ func (r *provisioner) MainDomain() string {
 }
 
 func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error) {
+	r.log.Info(ctx.Context(), "configure DNS record %q with type %q and value %q", dnsRecord.Name, dnsRecord.Type, dnsRecord.Value)
+
 	ref, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", dnsRecord.Name), &cfImpl.RecordArgs{
 		ZoneId:  sdk.String(r.zone.ZoneId),
 		Name:    sdk.String(dnsRecord.Name),
