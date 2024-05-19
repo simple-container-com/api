@@ -30,19 +30,6 @@ type EcsFargateConfig struct {
 	Version         string `json:"version" yaml:"version"`
 }
 
-type ImagePlatform string
-
-const (
-	ImagePlatformLinuxAmd64 ImagePlatform = "linux/amd64"
-)
-
-type EcsFargateImage struct {
-	Context    string
-	Dockerfile string
-	Platform   ImagePlatform
-	Name       string
-}
-
 type EcsFargateProbe struct {
 	Command             []string     `json:"command" yaml:"command"`
 	HttpGet             ProbeHttpGet `json:"httpGet" yaml:"httpGet"`
@@ -65,7 +52,7 @@ type ProbeHttpGet struct {
 
 type EcsFargateContainer struct {
 	Name          string                 `json:"name" yaml:"name"`
-	Image         EcsFargateImage        `json:"image" yaml:"image"`
+	Image         api.ContainerImage     `json:"image" yaml:"image"`
 	Env           map[string]string      `json:"env" yaml:"env"`
 	Secrets       map[string]string      `json:"secrets" yaml:"secrets"`
 	Port          int                    `json:"port" yaml:"port"`
@@ -255,10 +242,9 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 
 		res.Containers = append(res.Containers, EcsFargateContainer{
 			Name: svcName,
-			Image: EcsFargateImage{
-				Name:       svc.Image,
+			Image: api.ContainerImage{
 				Context:    context,
-				Platform:   ImagePlatformLinuxAmd64,
+				Platform:   api.ImagePlatformLinuxAmd64,
 				Dockerfile: dockerFile,
 			},
 			Env:           lo.Assign(toRunEnv(svc.Environment), stackCfg.Env),

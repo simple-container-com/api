@@ -12,6 +12,7 @@ func init() {
 		// gcloud
 		SecretsTypeAWSSecretsManager: ReadSecretsConfig,
 		TemplateTypeEcsFargate:       ReadTemplateConfig,
+		TemplateTypeAwsLambda:        ReadTemplateConfig,
 		TemplateTypeStaticWebsite:    ReadTemplateConfig,
 		AuthTypeAWSToken:             ReadAuthServiceAccountConfig,
 
@@ -30,6 +31,10 @@ func init() {
 
 	api.RegisterCloudStaticSiteConverter(api.CloudStaticSiteConfigRegister{
 		TemplateTypeStaticWebsite: ToStaticSiteConfig,
+	})
+
+	api.RegisterCloudSingleImageConverter(api.CloudSingleImageConfigRegister{
+		TemplateTypeAwsLambda: ToAwsLambdaConfig,
 	})
 
 	api.RegisterCloudHelper(api.CloudHelpersRegisterMap{

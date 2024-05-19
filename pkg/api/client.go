@@ -14,6 +14,7 @@ const (
 
 	ClientTypeCloudCompose = "cloud-compose"
 	ClientTypeStatic       = "static"
+	ClientTypeSingleImage  = "single-image"
 )
 
 // ClientDescriptor describes the client schema
@@ -25,7 +26,47 @@ type ClientDescriptor struct {
 type StackClientDescriptor struct {
 	Type        string `json:"type" yaml:"type"`
 	ParentStack string `json:"parent" yaml:"parent"`
+	Template    string `json:"template" yaml:"template"`
 	Config      Config `json:",inline" yaml:",inline"`
+}
+
+type ImagePlatform string
+
+const (
+	ImagePlatformLinuxAmd64 ImagePlatform = "linux/amd64"
+)
+
+type ContainerImage struct {
+	Dockerfile string               `json:"dockerfile" yaml:"dockerfile"`
+	Context    string               `json:"context" yaml:"context"`
+	Build      *ContainerImageBuild `json:"build" yaml:"build"`
+	Platform   ImagePlatform        `json:"platform" yaml:"platform"`
+}
+
+type Container struct {
+	ContainerImage `json:",inline" yaml:",inline"`
+	Name           string `json:"name" yaml:"name"`
+}
+
+type ContainerImageBuild struct {
+	Args []ContainerImageArg `json:"args" yaml:"args"`
+}
+
+type ContainerImageArg struct {
+	Name  string `json:"name" yaml:"name"`
+	Value string `json:"value" yaml:"value"`
+}
+
+type StackConfigSingleImage struct {
+	Image       *ContainerImage   `json:"image" yaml:"image"`
+	Domain      string            `json:"domain" yaml:"domain"`
+	BaseDnsZone string            `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
+	Env         map[string]string `json:"env" yaml:"env"`
+	Secrets     map[string]string `json:"secrets" yaml:"secrets"`
+	Min         int               `yaml:"min" json:"min"`
+	Max         int               `yaml:"max" json:"max"`
+	Version     string            `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
+	Timeout     *int              `json:"timeout" yaml:"timeout"`
 }
 
 type StackConfigCompose struct {
@@ -154,6 +195,25 @@ func (p *StackParams) ToProvisionParams() ProvisionParams {
 	}
 }
 
+func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigSingleImage) (*StackDescriptor, error) {
+	stackDesc, err := DetectTemplateType(tpl)
+	if err != nil {
+		return nil, err
+	}
+	if tplFun, found := cloudSingleImageConverterMapping[stackDesc.Type]; !found {
+		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
+	} else if input, err := tplFun(stackDesc.Config.Config, clientConfig); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert single image for type %q in stack %q", stackDesc.Type, stackName)
+	} else {
+		return &StackDescriptor{
+			Type: stackDesc.Type,
+			Config: Config{
+				Config: input,
+			},
+		}, nil
+	}
+}
+
 func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
@@ -166,7 +226,7 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 	}
 
 	if tplFun, found := cloudComposeConverterMapping[stackDesc.Type]; !found {
-		return nil, errors.Errorf("unknown template type %q for %q", stackDesc.Type, stackName)
+		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
 	} else if input, err := tplFun(stackDesc.Config.Config, composeCfg, clientConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert cloud compose for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
@@ -186,7 +246,7 @@ func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl
 	}
 
 	if tplFun, found := cloudStaticSiteConverterMapping[stackDesc.Type]; !found {
-		return nil, errors.Errorf("unknown template type %q for %q", stackDesc.Type, stackName)
+		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
 	} else if input, err := tplFun(stackDesc.Config.Config, stackDir, stackName, clientConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert cloud static site for type %q in stack %q", stackDesc.Type, stackName)
 	} else {

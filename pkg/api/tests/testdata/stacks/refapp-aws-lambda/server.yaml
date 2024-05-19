@@ -1,0 +1,23 @@
+schemaVersion: 1.0
+provisioner:
+  inherit: common
+secrets:
+  inherit: common
+cicd:
+  inherit: common
+templates:
+  lambda-per-app:
+    type: aws-lambda
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
+resources:
+  registrar:
+    inherit: common
+  resources:
+    staging:
+      template: lambda-per-app
+      resources: &resources
+    prod:
+      template: lambda-per-app
+      resources: *resources

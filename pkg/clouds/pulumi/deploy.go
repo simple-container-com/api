@@ -58,7 +58,11 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, parentStack string, fullStackName string) func(ctx *sdk.Context) error {
 	return func(ctx *sdk.Context) error {
 		stackClientDesc := stack.Client.Stacks[params.Environment]
+
 		templateName := stack.Server.Resources.Resources[params.Environment].Template
+		if stackClientDesc.Template != "" {
+			templateName = stackClientDesc.Template
+		}
 		if templateName == "" {
 			return errors.Errorf("no template configured for stack %q in env %q", parentStack, params.Environment)
 		}

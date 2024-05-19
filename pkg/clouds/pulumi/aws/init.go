@@ -13,6 +13,7 @@ func init() {
 		aws.ResourceTypeS3Bucket:      PrivateS3Bucket,
 		aws.SecretsProviderTypeAwsKms: KmsKeySecretsProvider,
 		aws.TemplateTypeEcsFargate:    EcsFargate,
+		aws.TemplateTypeAwsLambda:     Lambda,
 		aws.TemplateTypeStaticWebsite: StaticWebsite,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{

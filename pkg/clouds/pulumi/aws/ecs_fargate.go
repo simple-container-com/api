@@ -22,7 +22,6 @@ import (
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
-	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 
@@ -37,14 +36,13 @@ type EcsFargateRepository struct {
 	Password   sdk.StringOutput
 }
 
-type EcsFargateImage struct {
-	Container  aws.EcsFargateContainer
-	ImageName  sdk.StringOutput
-	Repository EcsFargateRepository
+type ECRImage struct {
+	Container aws.EcsFargateContainer
+	ImageName sdk.StringOutput
 }
 
 type EcsFargateOutput struct {
-	Images               []*EcsFargateImage
+	Images               []*ECRImage
 	ExecRole             *iam.Role
 	ExecPolicyAttachment *iam.RolePolicyAttachment
 	Service              *ecs.FargateService
@@ -91,7 +89,7 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 
 	params.Log.Debug(ctx.Context(), "configure ECS Fargate for stack %q in %q: %q...", stack.Name, deployParams.Environment, crInput)
 
-	err := buildAndPushImages(ctx, stack, params, deployParams, crInput, ref)
+	err := buildAndPushECSFargateImages(ctx, stack, params, deployParams, crInput, ref)
 	if err != nil {
 		return output, errors.Wrapf(err, "failed to build and push images for stack %q in %q", stack.Name, deployParams.Environment)
 	}
@@ -254,7 +252,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	logGroupName := fmt.Sprintf("/ecs/%s", ecsSimpleClusterName)
 	containers := lo.MapValues(lo.GroupBy(lo.Map(
 		ref.Images,
-		func(image *EcsFargateImage, index int) EcsContainerDef {
+		func(image *ECRImage, index int) EcsContainerDef {
 			hostPort := image.Container.Port
 			envVariables := ecs.TaskDefinitionKeyValuePairArray{}
 			for k := range lo.Assign(image.Container.Env) {
@@ -621,14 +619,14 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 	return nil
 }
 
-func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
-	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*EcsFargateImage, error) {
+func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
+	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*ECRImage, error) {
 		dockerfile := container.Image.Dockerfile
 		if dockerfile == "" && container.Image.Context == "" {
 			// do not build and return right away
-			return &EcsFargateImage{
+			return &ECRImage{
 				Container: container,
-				ImageName: sdk.String(container.Image.Name).ToStringOutput(),
+				ImageName: sdk.String(container.Name).ToStringOutput(),
 			}, nil
 		}
 		if !filepath.IsAbs(dockerfile) {
@@ -637,39 +635,19 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, params pApi.Provision
 
 		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
 		version := "latest" // TODO: support versioning
-		repository, err := createEcrRegistry(ctx, stack, params, deployParams, container.Name)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create ecr repository")
-		}
 
-		imageFullUrl := repository.Repository.RepositoryUrl.ApplyT(func(repoUri string) string {
-			return fmt.Sprintf("%s:%s", repoUri, version)
-		}).(sdk.StringOutput)
-		params.Log.Info(ctx.Context(), "building and pushing docker image %q (from %q) for service %q in stack %q env %q",
-			imageName, container.Image.Context, container.Name, stack.Name, deployParams.Environment)
-		image, err := docker.NewImage(ctx, imageName, &docker.ImageArgs{
-			Build: &docker.DockerBuildArgs{
-				Context:    sdk.String(container.Image.Context),
-				Dockerfile: sdk.String(dockerfile),
-				Args: map[string]sdk.StringInput{
-					"VERSION": sdk.String(version),
-				},
-			},
-			SkipPush:  sdk.Bool(ctx.DryRun()),
-			ImageName: imageFullUrl,
-			Registry: docker.ImageRegistryArgs{
-				Server:   repository.Repository.RepositoryUrl,
-				Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
-				Password: repository.Password,
-			},
-		}, sdk.DependsOn(params.ComputeContext.Dependencies()))
+		image, err := buildAndPushDockerImage(ctx, stack, params, deployParams, dockerImage{
+			name:       imageName,
+			dockerfile: dockerfile,
+			context:    container.Image.Context,
+			version:    version,
+		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to build and push image for container %q in stack %q env %q", container.Name, stack.Name, deployParams.Environment)
 		}
-		return &EcsFargateImage{
-			Container:  container,
-			ImageName:  image.ImageName,
-			Repository: repository,
+		return &ECRImage{
+			Container: container,
+			ImageName: image.ImageName,
 		}, nil
 	})
 	if err != nil {

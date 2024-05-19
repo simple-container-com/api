@@ -29,6 +29,10 @@ func TestReadServerDescriptor(t *testing.T) {
 			path: "testdata/stacks/refapp-aws/server.yaml",
 			want: RefappAwsServerDescriptor,
 		},
+		{
+			path: "testdata/stacks/refapp-aws-lambda/server.yaml",
+			want: RefappAwsLambdaServerDescriptor,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -76,6 +80,10 @@ func TestReadClientDescriptor(t *testing.T) {
 		{
 			path: "testdata/stacks/refapp/client.yaml",
 			want: RefappClientDescriptor,
+		},
+		{
+			path: "testdata/stacks/refapp-aws-lambda/client.yaml",
+			want: RefappAwsLambdaClientDescriptor,
 		},
 	}
 	for _, tt := range tests {

@@ -40,14 +40,17 @@ type (
 	ProvisionerFieldConfigReaderFunc func(cType string, c *Config) (Config, error)
 	ToCloudComposeConvertFunc        func(tpl any, composeCfg compose.Config, stackCfg *StackConfigCompose) (any, error)
 	CloudComposeConfigRegister       map[string]ToCloudComposeConvertFunc
+	ToCloudSingleImageConvertFunc    func(tpl any, stackCfg *StackConfigSingleImage) (any, error)
+	CloudSingleImageConfigRegister   map[string]ToCloudSingleImageConvertFunc
 	ToCloudStaticSiteConvertFunc     func(tpl any, rootDir, stackName string, stackCfg *StackConfigStatic) (any, error)
 	CloudStaticSiteConfigRegister    map[string]ToCloudStaticSiteConvertFunc
 )
 
 var (
-	provisionerFieldConfigMapping   = ProvisionerFieldConfigRegister{}
-	cloudComposeConverterMapping    = CloudComposeConfigRegister{}
-	cloudStaticSiteConverterMapping = CloudStaticSiteConfigRegister{}
+	provisionerFieldConfigMapping    = ProvisionerFieldConfigRegister{}
+	cloudComposeConverterMapping     = CloudComposeConfigRegister{}
+	cloudSingleImageConverterMapping = CloudSingleImageConfigRegister{}
+	cloudStaticSiteConverterMapping  = CloudStaticSiteConfigRegister{}
 )
 
 func ConvertDescriptor[T any](from any, to *T) (*T, error) {
@@ -94,6 +97,10 @@ func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
 
 func RegisterProvisionerFieldConfig(mapping ProvisionerFieldConfigRegister) {
 	provisionerFieldConfigMapping = lo.Assign(provisionerFieldConfigMapping, mapping)
+}
+
+func RegisterCloudSingleImageConverter(mapping CloudSingleImageConfigRegister) {
+	cloudSingleImageConverterMapping = lo.Assign(cloudSingleImageConverterMapping, mapping)
 }
 
 func RegisterCloudComposeConverter(mapping CloudComposeConfigRegister) {
@@ -193,6 +200,13 @@ var clientConfigsPrepareMap = map[string]clientConfigPrepareFunc{
 		}
 		return PrepareCloudComposeForDeploy(ctx, stackDir, stackName, tpl, configCompose)
 	},
+	ClientTypeSingleImage: func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
+		configSingleImage, ok := clientDesc.Config.Config.(*StackConfigSingleImage)
+		if !ok {
+			return nil, errors.Errorf("client config is not of type *StackConfigSingleImage")
+		}
+		return PrepareCloudSingleImageForDeploy(ctx, stackDir, stackName, tpl, configSingleImage)
+	},
 	ClientTypeStatic: func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 		configStatic, ok := clientDesc.Config.Config.(*StackConfigStatic)
 		if !ok {
@@ -205,6 +219,9 @@ var clientConfigsPrepareMap = map[string]clientConfigPrepareFunc{
 var clientConfigsConvertMap = map[string]clientConfigConvertFunc{
 	ClientTypeStatic: func(cfg *Config) (Config, error) {
 		return ConvertConfig(cfg, &StackConfigStatic{})
+	},
+	ClientTypeSingleImage: func(cfg *Config) (Config, error) {
+		return ConvertConfig(cfg, &StackConfigSingleImage{})
 	},
 	ClientTypeCloudCompose: func(cfg *Config) (Config, error) {
 		return ConvertConfig(cfg, &StackConfigCompose{})
