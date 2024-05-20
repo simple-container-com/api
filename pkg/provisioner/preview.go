@@ -9,6 +9,8 @@ import (
 )
 
 func (p *provisioner) Preview(ctx context.Context, params api.DeployParams) (*api.PreviewResult, error) {
+	p.logWelcome(ctx)
+
 	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
 		return nil, err

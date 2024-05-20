@@ -9,6 +9,8 @@ import (
 )
 
 func (p *provisioner) Destroy(ctx context.Context, params api.DestroyParams) error {
+	p.logWelcome(ctx)
+
 	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
 		return err
