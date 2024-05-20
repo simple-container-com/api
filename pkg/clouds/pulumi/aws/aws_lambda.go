@@ -191,6 +191,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    image.ImageName,
+		MemorySize:  sdk.IntPtr(lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))),
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
 		LoggingConfig: lambda.FunctionLoggingConfigArgs{
 			LogFormat:      sdk.String("JSON"),
