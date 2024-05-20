@@ -67,6 +67,7 @@ type StackConfigSingleImage struct {
 	Max         int               `yaml:"max" json:"max"`
 	Version     string            `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
 	Timeout     *int              `json:"timeout" yaml:"timeout"`
+	BasePath    string            `json:"basePath" yaml:"basePath"` // base path where API will listen on (e.g. for aws apigateway -> lambda integration)
 }
 
 type StackConfigCompose struct {

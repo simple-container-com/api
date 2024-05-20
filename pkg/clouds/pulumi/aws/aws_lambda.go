@@ -261,7 +261,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	params.Log.Info(ctx.Context(), "configure API gateway stage for %q in %q...", stack.Name, deployParams.Environment)
 	_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", stack.Name), &apigatewayv2.StageArgs{
 		ApiId: apiGw.ID(),
-		Name:  sdk.String("api"),
+		Name:  sdk.String(lo.If(stackConfig.BasePath == "", "api").Else(stackConfig.BasePath)),
 		Description: route.ID().ApplyT(func(routeId string) string {
 			return fmt.Sprintf("stage for route %s", routeId)
 		}).(sdk.StringOutput),
