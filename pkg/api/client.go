@@ -69,6 +69,7 @@ type StackConfigSingleImage struct {
 	Timeout     *int              `json:"timeout" yaml:"timeout"`
 	BasePath    string            `json:"basePath" yaml:"basePath"`   // base path where API will listen on (e.g. for aws apigateway -> lambda integration)
 	MaxMemory   *int              `json:"maxMemory" yaml:"maxMemory"` // max memory to use for container
+	Uses        []string          `json:"uses" yaml:"uses"`
 }
 
 type StackConfigCompose struct {
