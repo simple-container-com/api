@@ -7,6 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/apigatewayv2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -49,7 +50,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	image, err := buildAndPushDockerImage(ctx, stack, params, deployParams, dockerImage{
-		name:       deployParams.StackName,
+		name:       stack.Name,
 		dockerfile: stackConfig.Image.Dockerfile,
 		context:    stackConfig.Image.Context,
 		version:    "latest", // TODO: support versioning
@@ -61,7 +62,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	contextEnvVariables := params.ComputeContext.EnvVariables()
 
 	// Create IAM Role for Lambda Function
-	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", deployParams.StackName)
+	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", stack.Name)
 	params.Log.Info(ctx.Context(), "configure lambda execution role %q for %q in %q...", lambdaExecutionRoleName, stack.Name, deployParams.Environment)
 	lambdaExecutionRole, err := iam.NewRole(ctx, lambdaExecutionRoleName, &iam.RoleArgs{
 		AssumeRolePolicy: sdk.String(`{
@@ -80,7 +81,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	// Attach the necessary AWS managed policies to the role created
-	rolePolicyAttachmentName := fmt.Sprintf("%s-policy-attachment", deployParams.StackName)
+	rolePolicyAttachmentName := fmt.Sprintf("%s-policy-attachment", stack.Name)
 	params.Log.Info(ctx.Context(), "configure role policy attachment %q for %q in %q...", rolePolicyAttachmentName, stack.Name, deployParams.Environment)
 	_, err = iam.NewRolePolicyAttachment(ctx, rolePolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 		Role:      lambdaExecutionRole.Name,
@@ -91,10 +92,10 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	// Custom policy allowing to read secrets
-	extraPolicyName := fmt.Sprintf("%s-xpolicy", deployParams.StackName)
+	extraPolicyName := fmt.Sprintf("%s-xpolicy", stack.Name)
 	params.Log.Info(ctx.Context(), "configure extra policy %q for %q in %q...", extraPolicyName, stack.Name, deployParams.Environment)
 	extraPolicy, err := iam.NewPolicy(ctx, extraPolicyName, &iam.PolicyArgs{
-		Description: sdk.String(fmt.Sprintf("Allows reading secrets in lambda for stack %s", deployParams.StackName)),
+		Description: sdk.String(fmt.Sprintf("Allows reading secrets in lambda for stack %s", stack.Name)),
 		Name:        sdk.String(extraPolicyName),
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{
@@ -125,7 +126,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to create extra policy for lambda role")
 	}
 
-	extraPolicyAttachmentName := fmt.Sprintf("%s-xp-attach", deployParams.StackName)
+	extraPolicyAttachmentName := fmt.Sprintf("%s-xp-attach", stack.Name)
 	params.Log.Info(ctx.Context(), "configure IAM policy attachment %q for %q in %q...", extraPolicyAttachmentName, stack.Name, deployParams.Environment)
 	_, err = iam.NewRolePolicyAttachment(ctx, extraPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 		Role:      lambdaExecutionRole.Name,
@@ -155,7 +156,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// ENV VARIABLES
 	envVariables := sdk.StringMap{
-		api.CloudHelpersEnv.StackName: sdk.String(deployParams.StackName),
+		api.CloudHelpersEnv.StackName: sdk.String(stack.Name),
 		api.CloudHelpersEnv.StackEnv:  sdk.String(deployParams.Environment),
 	}
 
@@ -176,12 +177,26 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		envVariables[name] = sdk.String(value)
 	}
 
+	accessLogGroupName := fmt.Sprintf("%s-access-logs", stack.Name)
+	params.Log.Info(ctx.Context(), "configure cloudwatch access log group for %q in %q...", stack.Name, deployParams.Environment)
+	logGroup, err := cloudwatch.NewLogGroup(ctx, accessLogGroupName, &cloudwatch.LogGroupArgs{
+		Name: sdk.String(accessLogGroupName),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create access logs group for api gateway")
+	}
+
 	params.Log.Info(ctx.Context(), "configure lambda callback for %q in %q...", stack.Name, deployParams.Environment)
-	lambdaFunc, err := lambda.NewFunction(ctx, fmt.Sprintf("%s-callback", deployParams.StackName), &lambda.FunctionArgs{
+	lambdaFunc, err := lambda.NewFunction(ctx, fmt.Sprintf("%s-callback", stack.Name), &lambda.FunctionArgs{
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    image.ImageName,
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
+		LoggingConfig: lambda.FunctionLoggingConfigArgs{
+			LogFormat:      sdk.String("JSON"),
+			LogGroup:       sdk.String(accessLogGroupName),
+			SystemLogLevel: sdk.String("DEBUG"),
+		},
 		Environment: lambda.FunctionEnvironmentArgs{
 			Variables: envVariables,
 		},
@@ -192,7 +207,9 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// Create an HTTP API Gateway for the Lambda Function
 	params.Log.Info(ctx.Context(), "configure API gateway for %q in %q...", stack.Name, deployParams.Environment)
-	apiGw, err := apigatewayv2.NewApi(ctx, fmt.Sprintf("%s-api-gw", deployParams.StackName), &apigatewayv2.ApiArgs{
+	apiGwName := fmt.Sprintf("%s-api-gw", stack.Name)
+	apiGw, err := apigatewayv2.NewApi(ctx, apiGwName, &apigatewayv2.ApiArgs{
+		Name:         sdk.String(apiGwName),
 		ProtocolType: sdk.String("HTTP"),
 	}, opts...)
 	if err != nil {
@@ -201,7 +218,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// Create an integration between the HTTP API Gateway and the Lambda Function
 	params.Log.Info(ctx.Context(), "configure API gateway lambda integration for %q in %q...", stack.Name, deployParams.Environment)
-	integration, err := apigatewayv2.NewIntegration(ctx, fmt.Sprintf("%s-api-lambda-integration", deployParams.StackName),
+	integration, err := apigatewayv2.NewIntegration(ctx, fmt.Sprintf("%s-api-lambda-integration", stack.Name),
 		&apigatewayv2.IntegrationArgs{
 			ApiId:           apiGw.ID(),
 			IntegrationType: sdk.String("AWS_PROXY"),
@@ -211,22 +228,13 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to create API gateway lambda integration")
 	}
 
-	// Grant the API Gateway permission to invoke the Lambda function
-	_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-permission", deployParams.StackName), &lambda.PermissionArgs{
-		Action:    sdk.String("lambda:InvokeFunction"),
-		Function:  lambdaFunc.Arn,
-		Principal: sdk.String("apigateway.amazonaws.com"),
-		SourceArn: apiGw.ExecutionArn,
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create permission for api gateway to invoke lambda")
-	}
-
 	// Create a route for the HTTP API Gateway for invoking the Lambda Function
-	params.Log.Info(ctx.Context(), "configure API gateway route for %q in %q...", deployParams.StackName, deployParams.Environment)
-	route, err := apigatewayv2.NewRoute(ctx, fmt.Sprintf("%s-route", deployParams.StackName), &apigatewayv2.RouteArgs{
-		ApiId:    apiGw.ID(),
-		RouteKey: sdk.String("ANY /{proxy+}"), // Define the catch-all route
+	params.Log.Info(ctx.Context(), "configure API gateway route for %q in %q...", stack.Name, deployParams.Environment)
+	routeName := fmt.Sprintf("%s-route", stack.Name)
+	route, err := apigatewayv2.NewRoute(ctx, routeName, &apigatewayv2.RouteArgs{
+		ApiId:         apiGw.ID(),
+		OperationName: sdk.String("ANY"),
+		RouteKey:      sdk.String("$default"), // Define the catch-all route
 		Target: integration.ID().ApplyT(func(id string) string {
 			return fmt.Sprintf("integrations/%s", id)
 		}).(sdk.StringOutput),
@@ -235,26 +243,33 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to create API gateway route for lambda")
 	}
 
-	params.Log.Info(ctx.Context(), "configure API gateway deployment for %q in %q...", stack.Name, deployParams.Environment)
-	deployment, err := apigatewayv2.NewDeployment(ctx, fmt.Sprintf("%s-deployment", deployParams.StackName), &apigatewayv2.DeploymentArgs{
-		ApiId: apiGw.ID(),
-		Description: route.ID().ApplyT(func(routeId any) string {
-			return fmt.Sprintf("Deployment for route ID %s", routeId)
+	// Grant the API Gateway permission to invoke the Lambda function
+	_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-permission", stack.Name), &lambda.PermissionArgs{
+		Action:    sdk.String("lambda:InvokeFunction"),
+		Function:  lambdaFunc.Arn,
+		Principal: sdk.String("apigateway.amazonaws.com"),
+		SourceArn: sdk.All(apiGw.ExecutionArn, route.RouteKey).ApplyT(func(args []any) string {
+			executionArn, routeKey := args[0], args[1]
+			return fmt.Sprintf("%s/*/%s", executionArn, routeKey)
 		}).(sdk.StringOutput),
-		Triggers: sdk.StringMap{
-			"redeployment": sdk.String("changes-in-the-blueprint"),
-		},
 	}, opts...)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create deployment of API gateway")
+		return nil, errors.Wrapf(err, "failed to create permission for api gateway to invoke lambda")
 	}
 
 	// Define the stage. This is the URL path where your API will be accessible
-	params.Log.Info(ctx.Context(), "configure API gateway stage for %q in %q...", deployParams.StackName, deployParams.Environment)
-	_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", deployParams.StackName), &apigatewayv2.StageArgs{
-		ApiId:        apiGw.ID(),
-		AutoDeploy:   sdk.Bool(true),
-		DeploymentId: deployment.ID(),
+	params.Log.Info(ctx.Context(), "configure API gateway stage for %q in %q...", stack.Name, deployParams.Environment)
+	_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", stack.Name), &apigatewayv2.StageArgs{
+		ApiId: apiGw.ID(),
+		Name:  sdk.String("api"),
+		Description: route.ID().ApplyT(func(routeId string) string {
+			return fmt.Sprintf("stage for route %s", routeId)
+		}).(sdk.StringOutput),
+		AutoDeploy: sdk.Bool(true),
+		AccessLogSettings: apigatewayv2.StageAccessLogSettingsArgs{
+			DestinationArn: logGroup.Arn,
+			Format:         sdk.String(`{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller":"$context.identity.caller", "user":"$context.identity.user", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "resourcePath":"$context.resourcePath", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength", "integrationError":"$context.integrationErrorMessage"}`),
+		},
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create API gateway stage")
@@ -265,6 +280,13 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		apiEndpointUrl, err := url.Parse(fmt.Sprintf("%s", vals[0]))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to parse URL %q", vals[0])
+		}
+		_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
+			FromHost: stackConfig.Domain,
+			ToHost:   apiEndpointUrl.Host,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", stackConfig.Domain, apiEndpointUrl.Host)
 		}
 
 		return params.Registrar.NewRecord(ctx, api.DnsRecord{
