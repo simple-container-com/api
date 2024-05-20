@@ -235,7 +235,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	route, err := apigatewayv2.NewRoute(ctx, routeName, &apigatewayv2.RouteArgs{
 		ApiId:         apiGw.ID(),
 		OperationName: sdk.String("ANY"),
-		RouteKey:      sdk.String("$default"), // Define the catch-all route
+		RouteKey:      sdk.String("ANY /{proxy+}"), // Define the catch-all route
 		Target: integration.ID().ApplyT(func(id string) string {
 			return fmt.Sprintf("integrations/%s", id)
 		}).(sdk.StringOutput),
@@ -250,8 +250,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		Function:  lambdaFunc.Arn,
 		Principal: sdk.String("apigateway.amazonaws.com"),
 		SourceArn: sdk.All(apiGw.ExecutionArn, route.RouteKey).ApplyT(func(args []any) string {
-			executionArn, routeKey := args[0], args[1]
-			return fmt.Sprintf("%s/*/%s", executionArn, routeKey)
+			executionArn, _ := args[0], args[1]
+			return fmt.Sprintf("%s/*/*/{proxy+}", executionArn)
 		}).(sdk.StringOutput),
 	}, opts...)
 	if err != nil {
