@@ -3,6 +3,7 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
@@ -80,6 +81,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		ProjectId:                projectId,
 		BackingProviderName:      sdk.StringPtrFromPtr(lo.If(isSharedInstanceSize, &atlasCfg.CloudProvider).Else(nil)),
 		ProviderName:             sdk.String(lo.If(isSharedInstanceSize, "TENANT").Else(atlasCfg.CloudProvider)),
+		BackupEnabled:            sdk.BoolPtr(lo.If(atlasCfg.Backup != nil, true).Else(false)),
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb cluster for stack %q", stack.Name)
@@ -88,6 +90,48 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	ctx.Export(toMongoUriExport(clusterName), cluster.MongoUri)
 	ctx.Export(toMongoUriWithOptionsExport(clusterName), cluster.MongoUriWithOptions)
 	out.Cluster = cluster
+
+	if atlasCfg.Backup != nil {
+		// Configure the backup schedule
+		backupArgs := &mongodbatlas.CloudBackupScheduleArgs{
+			ProjectId:       projectId,
+			ClusterName:     cluster.Name,
+			UpdateSnapshots: sdk.Bool(true),
+		}
+		every, err := time.ParseDuration(atlasCfg.Backup.Every)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to parse schedule %q", atlasCfg.Backup.Every)
+		}
+		retention, err := time.ParseDuration(atlasCfg.Backup.Retention)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to parse retention %q", atlasCfg.Backup.Retention)
+		}
+		if every.Hours() < 24 {
+			backupArgs.PolicyItemHourly = &mongodbatlas.CloudBackupSchedulePolicyItemHourlyArgs{
+				FrequencyInterval: sdk.Int(every.Hours()),
+				RetentionUnit:     sdk.String("days"),
+				RetentionValue:    sdk.Int(retention.Hours() / 24),
+			}
+		} else if every.Hours()/24/7 > 0 {
+			backupArgs.PolicyItemWeeklies = mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArray{
+				&mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArgs{
+					FrequencyInterval: sdk.Int(every.Hours() / 24 / 7),
+					RetentionUnit:     sdk.String("days"),
+					RetentionValue:    sdk.Int(retention.Hours() / 24),
+				},
+			}
+		} else if every.Hours() > 24 {
+			backupArgs.PolicyItemDaily = &mongodbatlas.CloudBackupSchedulePolicyItemDailyArgs{
+				FrequencyInterval: sdk.Int(every.Hours() / 24),
+				RetentionUnit:     sdk.String("days"),
+				RetentionValue:    sdk.Int(retention.Hours() / 24),
+			}
+		}
+		_, err = mongodbatlas.NewCloudBackupSchedule(ctx, fmt.Sprintf("%s-backups-schedule", clusterName), backupArgs, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create mongodb backups schedule for stack %q", stack.Name)
+		}
+	}
 
 	params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for stack %q in %q",
 		clusterName, input.StackParams.StackName, input.StackParams.Environment)

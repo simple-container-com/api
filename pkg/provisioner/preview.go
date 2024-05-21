@@ -40,6 +40,8 @@ func (p *provisioner) Outputs(ctx context.Context, params api.StackParams) (*api
 }
 
 func (p *provisioner) PreviewProvision(ctx context.Context, params api.ProvisionParams) ([]*api.PreviewResult, error) {
+	p.logWelcome(ctx)
+
 	cfg, err := p.prepareForParentStack(ctx, params)
 	if err != nil {
 		return nil, err
