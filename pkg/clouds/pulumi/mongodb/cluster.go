@@ -45,7 +45,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if atlasCfg.ProjectId == "" {
 		projName := lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)
 
-		params.Log.Info(ctx.Context(), "configure MongoDB Atlas project %d for stack %q in %q", projName, input.StackParams.StackName, input.StackParams.Environment)
+		params.Log.Info(ctx.Context(), "configure MongoDB Atlas project %q for stack %q in %q", projName, input.StackParams.StackName, input.StackParams.Environment)
 		project, err := mongodbatlas.NewProject(ctx, projectName, &mongodbatlas.ProjectArgs{
 			Name:  sdk.String(projName),
 			OrgId: sdk.String(atlasCfg.OrgId),
@@ -72,7 +72,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		return size == atlasCfg.InstanceSize
 	})
 
-	params.Log.Info(ctx.Context(), "configure MongoDB Atlas cluster %d for stack %q in %q", clusterName, input.StackParams.StackName, input.StackParams.Environment)
+	params.Log.Info(ctx.Context(), "configure MongoDB Atlas cluster %q for stack %q in %q", clusterName, input.StackParams.StackName, input.StackParams.Environment)
 	cluster, err := mongodbatlas.NewCluster(ctx, fmt.Sprintf("%s-cluster", clusterName), &mongodbatlas.ClusterArgs{
 		Name:                     sdk.StringPtr(clusterName),
 		ProviderRegionName:       sdk.StringPtr(atlasCfg.Region),
@@ -81,7 +81,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		ProjectId:                projectId,
 		BackingProviderName:      sdk.StringPtrFromPtr(lo.If(isSharedInstanceSize, &atlasCfg.CloudProvider).Else(nil)),
 		ProviderName:             sdk.String(lo.If(isSharedInstanceSize, "TENANT").Else(atlasCfg.CloudProvider)),
-		BackupEnabled:            sdk.BoolPtr(lo.If(atlasCfg.Backup != nil, true).Else(false)),
+		CloudBackup:              sdk.BoolPtr(lo.If(atlasCfg.Backup != nil, true).Else(false)),
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb cluster for stack %q", stack.Name)
