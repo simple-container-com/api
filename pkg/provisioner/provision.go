@@ -13,7 +13,7 @@ import (
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
-	p.logWelcome(ctx)
+	p.logWelcome(ctx, nil)
 
 	cfg, err := p.prepareForParentStack(ctx, params)
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 )
 
 func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error {
-	p.logWelcome(ctx)
+	p.logWelcome(ctx, &params)
 
 	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
@@ -21,8 +21,11 @@ func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error
 	return pv.DeployStack(ctx, cfg, *stack, params)
 }
 
-func (p *provisioner) logWelcome(ctx context.Context) {
+func (p *provisioner) logWelcome(ctx context.Context, deployParams *api.DeployParams) {
 	p.log.Info(ctx, color.GreenString("Simple Container CLI version: %s", build.Version))
+	if deployParams != nil {
+		p.log.Info(ctx, color.GreenString("Deploy version: %s", deployParams.Version))
+	}
 }
 
 func (p *provisioner) prepareForChildStack(ctx context.Context, params *api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {

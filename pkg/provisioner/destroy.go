@@ -9,7 +9,7 @@ import (
 )
 
 func (p *provisioner) Destroy(ctx context.Context, params api.DestroyParams) error {
-	p.logWelcome(ctx)
+	p.logWelcome(ctx, nil)
 
 	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {

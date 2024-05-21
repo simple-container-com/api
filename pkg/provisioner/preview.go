@@ -9,7 +9,7 @@ import (
 )
 
 func (p *provisioner) Preview(ctx context.Context, params api.DeployParams) (*api.PreviewResult, error) {
-	p.logWelcome(ctx)
+	p.logWelcome(ctx, &params)
 
 	cfg, stack, pv, err := p.prepareForChildStack(ctx, &params.StackParams)
 	if err != nil {
@@ -40,7 +40,7 @@ func (p *provisioner) Outputs(ctx context.Context, params api.StackParams) (*api
 }
 
 func (p *provisioner) PreviewProvision(ctx context.Context, params api.ProvisionParams) ([]*api.PreviewResult, error) {
-	p.logWelcome(ctx)
+	p.logWelcome(ctx, nil)
 
 	cfg, err := p.prepareForParentStack(ctx, params)
 	if err != nil {
