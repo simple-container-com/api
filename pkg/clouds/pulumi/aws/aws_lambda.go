@@ -53,7 +53,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		name:       stack.Name,
 		dockerfile: stackConfig.Image.Dockerfile,
 		context:    stackConfig.Image.Context,
-		version:    "latest", // TODO: support versioning
+		version:    lo.If(deployParams.Version != "", deployParams.Version).Else("latest"),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push image for lambda in stack %q env %q", stack.Name, deployParams.Environment)

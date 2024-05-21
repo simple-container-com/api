@@ -2,6 +2,7 @@ package root_cmd
 
 import (
 	"context"
+	"os"
 	"path"
 
 	"go.uber.org/atomic"
@@ -92,6 +93,7 @@ func (c *RootCmd) Init(opts InitOpts) error {
 func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
 	RegisterStackFlags(cmd, &p.StackParams, false)
 	_ = cmd.MarkFlagRequired("env")
+	cmd.Flags().StringVarP(&p.Version, "deploy-version", "V", os.Getenv("VERSION"), "Deploy version (default: `latest`)")
 }
 
 func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool) {

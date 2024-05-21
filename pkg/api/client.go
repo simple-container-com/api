@@ -134,6 +134,7 @@ type StackParams struct {
 	Environment string `json:"environment" yaml:"environment"`
 	SkipRefresh bool   `json:"skipRefresh" yaml:"skipRefresh"`
 	SkipPreview bool   `json:"skipPreview" yaml:"skipPreview"`
+	Version     string `json:"version" yaml:"version"`
 }
 
 type DeployParams struct {

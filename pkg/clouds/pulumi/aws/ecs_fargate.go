@@ -634,13 +634,11 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 		}
 
 		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
-		version := "latest" // TODO: support versioning
-
 		image, err := buildAndPushDockerImage(ctx, stack, params, deployParams, dockerImage{
 			name:       imageName,
 			dockerfile: dockerfile,
 			context:    container.Image.Context,
-			version:    version,
+			version:    lo.If(deployParams.Version != "", deployParams.Version).Else("latest"),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to build and push image for container %q in stack %q env %q", container.Name, stack.Name, deployParams.Environment)
