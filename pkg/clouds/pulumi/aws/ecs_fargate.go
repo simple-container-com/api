@@ -560,7 +560,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 
 	if alerts.MaxCPU != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:           fmt.Sprintf("%s-%s", stack.Name, alerts.MaxCPU.AlertName),
+			name:           fmt.Sprintf("%s--%s", alerts.MaxCPU.AlertName, deployParams.Environment),
 			description:    alerts.MaxCPU.Description,
 			telegramConfig: alerts.Telegram,
 			discordConfig:  alerts.Discord,
@@ -589,7 +589,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 	}
 	if alerts.MaxMemory != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:           fmt.Sprintf("%s-%s", stack.Name, alerts.MaxMemory.AlertName),
+			name:           fmt.Sprintf("%s--%s", alerts.MaxMemory.AlertName, deployParams.Environment),
 			description:    alerts.MaxMemory.Description,
 			telegramConfig: alerts.Telegram,
 			discordConfig:  alerts.Discord,
