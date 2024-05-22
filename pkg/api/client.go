@@ -49,12 +49,7 @@ type Container struct {
 }
 
 type ContainerImageBuild struct {
-	Args []ContainerImageArg `json:"args" yaml:"args"`
-}
-
-type ContainerImageArg struct {
-	Name  string `json:"name" yaml:"name"`
-	Value string `json:"value" yaml:"value"`
+	Args map[string]string `json:"args" yaml:"args"`
 }
 
 type StackConfigSingleImage struct {

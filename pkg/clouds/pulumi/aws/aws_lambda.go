@@ -53,6 +53,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		name:       stack.Name,
 		dockerfile: stackConfig.Image.Dockerfile,
 		context:    stackConfig.Image.Context,
+		args:       lo.FromPtr(stackConfig.Image.Build).Args,
 		version:    lo.If(deployParams.Version != "", deployParams.Version).Else("latest"),
 	})
 	if err != nil {

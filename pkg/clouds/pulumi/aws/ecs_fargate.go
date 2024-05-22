@@ -638,6 +638,7 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 			name:       imageName,
 			dockerfile: dockerfile,
 			context:    container.Image.Context,
+			args:       lo.FromPtr(container.Image.Build).Args,
 			version:    lo.If(deployParams.Version != "", deployParams.Version).Else("latest"),
 		})
 		if err != nil {

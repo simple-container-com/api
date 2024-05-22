@@ -14,6 +14,7 @@ import (
 type dockerImage struct {
 	name       string
 	dockerfile string
+	args       map[string]string
 	context    string
 	version    string
 }
@@ -29,13 +30,17 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}).(sdk.StringOutput)
 	params.Log.Info(ctx.Context(), "building and pushing docker image %q (from %q) for stack %q env %q",
 		image.name, image.context, stack.Name, deployParams.Environment)
+	args := map[string]sdk.StringInput{
+		"VERSION": sdk.String(image.version),
+	}
+	for k, v := range image.args {
+		args[k] = sdk.String(v)
+	}
 	res, err := docker.NewImage(ctx, image.name, &docker.ImageArgs{
 		Build: &docker.DockerBuildArgs{
 			Context:    sdk.String(image.context),
 			Dockerfile: sdk.String(image.dockerfile),
-			Args: map[string]sdk.StringInput{
-				"VERSION": sdk.String(image.version),
-			},
+			Args:       args,
 		},
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
