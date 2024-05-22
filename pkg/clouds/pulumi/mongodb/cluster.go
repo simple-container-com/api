@@ -133,7 +133,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		}
 	}
 
-	params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for stack %q in %q",
+	params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for cluster %q in stack %q in %q",
 		clusterName, input.StackParams.StackName, input.StackParams.Environment)
 	ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
 		CidrBlock: sdk.StringPtr("0.0.0.0/0"),
