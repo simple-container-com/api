@@ -18,6 +18,9 @@ func init() {
 
 		// bucket
 		ResourceTypeS3Bucket: S3BucketReadConfig,
+
+		// rds
+		ResourceTypeRdsPostgres: ReadRdsPostgresConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{

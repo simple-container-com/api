@@ -15,6 +15,7 @@ func init() {
 		aws.TemplateTypeEcsFargate:    EcsFargate,
 		aws.TemplateTypeAwsLambda:     Lambda,
 		aws.TemplateTypeStaticWebsite: StaticWebsite,
+		aws.ResourceTypeRdsPostgres:   RdsPostgres,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
 		aws.StateStorageTypeS3Bucket: S3BucketComputeProcessor,
