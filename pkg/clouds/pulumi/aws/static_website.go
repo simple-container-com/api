@@ -9,7 +9,6 @@ import (
 
 	"github.com/MShekow/directory-checksum/directory_checksum"
 	"github.com/pkg/errors"
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/s3"
 	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -96,13 +95,14 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 	}
 
 	// Configure public access block for the new S3 bucket
-	publicAccessBlock, err := s3.NewBucketPublicAccessBlock(ctx, fmt.Sprintf("%s-public-access-block", input.ServiceName), &s3.BucketPublicAccessBlockArgs{
-		Bucket:                mainBucket.Bucket,
-		BlockPublicAcls:       sdk.Bool(false),
-		IgnorePublicAcls:      sdk.Bool(true),
-		BlockPublicPolicy:     sdk.Bool(false),
-		RestrictPublicBuckets: sdk.Bool(false),
-	}, provider)
+	publicAccessBlock, err := s3.NewBucketPublicAccessBlock(ctx, fmt.Sprintf("%s-public-access-block", input.ServiceName),
+		&s3.BucketPublicAccessBlockArgs{
+			Bucket:                mainBucket.Bucket,
+			BlockPublicAcls:       sdk.Bool(false),
+			IgnorePublicAcls:      sdk.Bool(true),
+			BlockPublicPolicy:     sdk.Bool(false),
+			RestrictPublicBuckets: sdk.Bool(false),
+		}, provider)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision bucket public access block")
 	}
@@ -118,16 +118,12 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		return nil, errors.Wrapf(err, "failed to provision ownership controls")
 	}
 
-	awsIdentity, err := awsImpl.GetCallerIdentity(ctx, nil, provider)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get caller identity")
-	}
 	// Define the S3 Bucket Policy.
 	mainBucketPolicy, err := s3.NewBucketPolicy(ctx, fmt.Sprintf("%s-policy", input.ServiceName), &s3.BucketPolicyArgs{
 		Bucket: mainBucket.ID(), // Reference to the bucket created above.
 		Policy: sdk.All(mainBucket.Arn, mainBucket.ID()).ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			arn := args[0].(string)
-			bucketID := args[1].(sdk.ID)
+			// bucketID := args[1].(sdk.ID)
 			policy := map[string]interface{}{
 				"Version": "2012-10-17",
 				"Statement": []map[string]interface{}{
@@ -136,17 +132,6 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 						"Principal": "*",
 						"Action":    []string{"s3:GetObject"},
 						"Resource":  []string{arn + "/*"},
-					},
-					{
-						"Effect": "Allow",
-						"Principal": map[string]interface{}{
-							"AWS": awsIdentity.Arn,
-						},
-						"Action": "s3:*",
-						"Resource": []string{
-							fmt.Sprintf("arn:aws:s3:::%s", bucketID),
-							fmt.Sprintf("arn:aws:s3:::%s/*", bucketID),
-						},
 					},
 				},
 			}
