@@ -94,10 +94,10 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 		}
 
 		for env, resources := range stack.Server.Resources.Resources {
-			p.logger.Info(ctx.Context(), "configure resources for stack %q in env %q...", color.Yellow(stack.Name), color.Yellow(env))
+			p.logger.Info(ctx.Context(), "configure resources for stack %q in env %q...", stack.Name, env)
 			collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, env)
 			for resName, res := range resources.Resources {
-				p.logger.Info(ctx.Context(), "configure resource %q for stack %q in env %q", color.Yellow(resName), color.Yellow(stack.Name), color.Yellow(env))
+				p.logger.Info(ctx.Context(), "configure resource %q for stack %q in env %q", resName, stack.Name, env)
 				if res.Name == "" {
 					res.Name = resName
 				}

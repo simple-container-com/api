@@ -26,6 +26,13 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		return nil, errors.Errorf("failed to convert postgres config for %q", input.Descriptor.Type)
 	}
 
+	accountConfig := &aws.AccountConfig{}
+	err := api.ConvertAuth(&postgresCfg.AccountConfig, accountConfig)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert aws account config")
+	}
+	postgresCfg.AccountConfig = *accountConfig
+
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 	}
@@ -36,7 +43,8 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	}
 	params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), postgresCfg.AccountConfig.Region)
 
-	postgresName := input.ToResName(lo.If(postgresCfg.Name == "", input.Descriptor.Name).Else(postgresCfg.Name))
+	postgresResName := lo.If(postgresCfg.Name == "", input.Descriptor.Name).Else(postgresCfg.Name)
+	postgresName := toRdsPostgresName(postgresResName, input.StackParams.Environment)
 	params.Log.Info(ctx.Context(), "configure postgres RDS cluster %q for %q in %q",
 		postgresName, input.StackParams.StackName, input.StackParams.Environment)
 
@@ -63,7 +71,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
 			},
 		},
-	})
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create security group for postgres cluster %q", postgresName)
 	}
@@ -76,19 +84,23 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		SubnetIds: sdk.StringArray(lo.Map(subnets, func(subnet *ec2.DefaultSubnet, _ int) sdk.StringInput {
 			return subnet.ID()
 		})),
-	})
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create subnet group for rds postgres cluster")
 	}
 
 	// Create an RDS Postgres instance.
 	params.Log.Info(ctx.Context(), "configure rds postgres instance %s...", postgresName)
+	var dbName sdk.StringPtrInput
+	if postgresCfg.DatabaseName != nil {
+		dbName = sdk.StringPtr(*postgresCfg.DatabaseName)
+	}
 	postgresInstance, err := rds.NewInstance(ctx, postgresName, &rds.InstanceArgs{
-		DbName:            sdk.String(postgresName),
-		InstanceClass:     sdk.String(lo.If(postgresCfg.InstanceClass != "", postgresCfg.InstanceClass).Else("db.t2.micro")),
+		DbName:            dbName,
+		InstanceClass:     sdk.String(lo.If(postgresCfg.InstanceClass != "", postgresCfg.InstanceClass).Else("db.t3.micro")),
 		AllocatedStorage:  sdk.Int(lo.If(postgresCfg.AllocateStorage != nil, lo.FromPtr(postgresCfg.AllocateStorage)).Else(20)),
 		Engine:            sdk.String("postgres"),
-		EngineVersion:     sdk.String(lo.If(postgresCfg.EngineVersion != "", postgresCfg.EngineVersion).Else("13")),
+		EngineVersion:     sdk.String(lo.If(postgresCfg.EngineVersion != "", postgresCfg.EngineVersion).Else("16")),
 		DbSubnetGroupName: subnetGroup.Name,
 		VpcSecurityGroupIds: sdk.StringArray{
 			rdsSg.ID(),
@@ -96,7 +108,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		Username:          sdk.String(lo.If(postgresCfg.Username != "", postgresCfg.Username).Else("postgres")),
 		Password:          sdk.String(lo.If(postgresCfg.Password != "", postgresCfg.Password).Else("postgres")),
 		SkipFinalSnapshot: sdk.Bool(true),
-	})
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create rds postgres instance")
 	}
@@ -105,6 +117,10 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	ctx.Export(toPostgresInstanceEndpointExport(postgresName), postgresInstance.Endpoint)
 
 	return &api.ResourceOutput{Ref: nil}, nil
+}
+
+func toRdsPostgresName(name string, env string) string {
+	return fmt.Sprintf("%s-%s", name, env)
 }
 
 func toPostgresInstanceArnExport(postgresName string) string {
