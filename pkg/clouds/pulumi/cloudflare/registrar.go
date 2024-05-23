@@ -1,6 +1,8 @@
 package cloudflare
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -58,7 +60,15 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 
 func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	res := lo.Map(r.config.Records, func(record api.DnsRecord, _ int) sdk.Output {
-		res, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", record.Name), &cfImpl.RecordArgs{
+		var suffix string
+		if lo.CountBy(r.config.Records, func(item api.DnsRecord) bool {
+			return record.Name == item.Name
+		}) > 1 {
+			sum := md5.Sum([]byte(record.Value))
+			suffix = hex.EncodeToString(sum[:])
+		}
+		recordName := fmt.Sprintf("%s%s-record", record.Name, suffix)
+		res, err := cfImpl.NewRecord(ctx, recordName, &cfImpl.RecordArgs{
 			ZoneId:  sdk.String(r.zone.ZoneId),
 			Name:    sdk.String(record.Name),
 			Type:    sdk.String(record.Type),
