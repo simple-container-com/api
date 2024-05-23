@@ -118,7 +118,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		return nil, errors.Wrapf(err, "failed to provision ownership controls")
 	}
 
-	awsIdentity, err := awsImpl.GetCallerIdentity(ctx, nil, nil)
+	awsIdentity, err := awsImpl.GetCallerIdentity(ctx, nil, provider)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get caller identity")
 	}
@@ -207,7 +207,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 			Website: s3.BucketWebsiteArgs{
 				RedirectAllRequestsTo: sdk.StringPtr(input.Domain),
 			},
-		})
+		}, provider)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision www bucket")
 		}

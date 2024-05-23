@@ -29,6 +29,13 @@ func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.Stack
 		return nil, errors.Errorf("stack config is nil")
 	}
 
+	accountConfig := &AccountConfig{}
+	err := api.ConvertAuth(&templateCfg.AccountConfig, accountConfig)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert aws account config")
+	}
+	templateCfg.AccountConfig = *accountConfig
+
 	res := &StaticSiteInput{
 		TemplateConfig:    *templateCfg,
 		StackConfigStatic: *stackCfg,
