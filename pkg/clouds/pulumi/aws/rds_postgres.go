@@ -37,10 +37,12 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		sdk.Provider(params.Provider),
 	}
 
-	subnets, err := getOrCreateDefaultSubnetsInRegion(ctx, postgresCfg.AccountConfig, params)
+	subnets, err := createDefaultSubnetsInRegionV5(ctx, postgresCfg.AccountConfig, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get or create default subnets in region")
 	}
+	opts = append(opts, sdk.DependsOn(subnets.Resources()))
+
 	params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), postgresCfg.AccountConfig.Region)
 
 	postgresResName := lo.If(postgresCfg.Name == "", input.Descriptor.Name).Else(postgresCfg.Name)
@@ -56,7 +58,6 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		return nil, errors.Wrapf(err, "failed to create default vpc for rds postgres cluster %q", postgresName)
 	}
 
-	// Create a Security Group for RDS to allow PostgreSQL traffic.
 	securityGroupName := fmt.Sprintf("%s-sg", postgresName)
 	params.Log.Info(ctx.Context(), "configure security group for rds postgres cluster %s...", securityGroupName)
 	rdsSg, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
@@ -80,10 +81,8 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	subnetGroupName := fmt.Sprintf("%s-subnet-group", postgresName)
 	params.Log.Info(ctx.Context(), "configure subnet group for rds postgres cluster %s...", subnetGroupName)
 	subnetGroup, err := rds.NewSubnetGroup(ctx, subnetGroupName, &rds.SubnetGroupArgs{
-		Name: sdk.String(subnetGroupName),
-		SubnetIds: sdk.StringArray(lo.Map(subnets, func(subnet *ec2.DefaultSubnet, _ int) sdk.StringInput {
-			return subnet.ID()
-		})),
+		Name:      sdk.String(subnetGroupName),
+		SubnetIds: subnets.Ids(),
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create subnet group for rds postgres cluster")
@@ -115,6 +114,8 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 
 	ctx.Export(toPostgresInstanceArnExport(postgresName), postgresInstance.Arn)
 	ctx.Export(toPostgresInstanceEndpointExport(postgresName), postgresInstance.Endpoint)
+	ctx.Export(toPostgresInstanceUsernameExport(postgresName), postgresInstance.Username)
+	ctx.Export(toPostgresInstancePasswordExport(postgresName), sdk.ToSecret(postgresInstance.Password))
 
 	return &api.ResourceOutput{Ref: nil}, nil
 }
@@ -125,6 +126,14 @@ func toRdsPostgresName(name string, env string) string {
 
 func toPostgresInstanceArnExport(postgresName string) string {
 	return fmt.Sprintf("%s-arn", postgresName)
+}
+
+func toPostgresInstanceUsernameExport(postgresName string) string {
+	return fmt.Sprintf("%s-username", postgresName)
+}
+
+func toPostgresInstancePasswordExport(postgresName string) string {
+	return fmt.Sprintf("%s-password", postgresName)
 }
 
 func toPostgresInstanceEndpointExport(postgresName string) string {

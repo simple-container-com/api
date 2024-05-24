@@ -27,8 +27,8 @@ type DnsPreference struct {
 	BaseZone string
 }
 type ParentInfo struct {
-	StackName    string
-	FulReference string
+	StackName     string
+	FullReference string
 }
 
 type ComputeEnvVariable struct {

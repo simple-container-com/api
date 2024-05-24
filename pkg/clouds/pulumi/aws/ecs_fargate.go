@@ -144,6 +144,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
+	subnets, err := createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, params)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get or create default subnets in region")
+	}
+	opts = append(opts, sdk.DependsOn(subnets.Resources()))
+
 	// Create a new VPC for our ECS tasks.
 	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
 	vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
@@ -210,10 +216,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.ExecRole = taskExecRole
 	ctx.Export(fmt.Sprintf("%s-exec-role-arn", ecsSimpleClusterName), taskExecRole.Arn)
 
-	subnets, err := getOrCreateDefaultSubnetsInRegion(ctx, crInput.AccountConfig, params)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get or create default subnets in region")
-	}
 	params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), crInput.AccountConfig.Region)
 	var volumes ecsV5.TaskDefinitionVolumeArray
 	for _, v := range crInput.Volumes {
@@ -223,12 +225,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		if err != nil {
 			return errors.Wrapf(err, "failed to create file system for persistent volume %s of stack %s", v.Name, stack.Name)
 		}
-		_, err = util.MapErr(subnets, func(subnet *ec2.DefaultSubnet, i int) (*efs.MountTarget, error) {
+		_, err = util.MapErr(subnets, func(subnet defaultSubnet, i int) (*efs.MountTarget, error) {
 			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsSimpleClusterName, v.Name, i)
 			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)
 			return efs.NewMountTarget(ctx, mountTargetName, &efs.MountTargetArgs{
 				FileSystemId: fs.ID(),
-				SubnetId:     subnet.ID(),
+				SubnetId:     subnet.id,
 				SecurityGroups: sdk.StringArray{
 					securityGroup.ID(),
 				},
@@ -472,9 +474,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			SecurityGroups: sdk.StringArray{
 				securityGroup.ID(),
 			},
-			Subnets: sdk.StringArray(lo.Map(subnets, func(subnet *ec2.DefaultSubnet, _ int) sdk.StringInput {
-				return subnet.ID()
-			})),
+			Subnets: subnets.Ids(),
 		},
 		LoadBalancers: ecsV5.ServiceLoadBalancerArray{
 			ecsV5.ServiceLoadBalancerArgs{
@@ -773,32 +773,4 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 func awsResName(name string, suffix string) string {
 	return strings.ReplaceAll(fmt.Sprintf("%s-%s", name, suffix), "--", "_")
-}
-
-func getOrCreateDefaultSubnetsInRegion(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) ([]*ec2.DefaultSubnet, error) {
-	// Get all availability zones in provided region
-	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
-		Filters: []awsImpl.GetAvailabilityZonesFilter{
-			{
-				Name:   "region-name",
-				Values: []string{account.Region},
-			},
-		},
-	}, sdk.Provider(params.Provider))
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
-	}
-
-	// Create default subnet in each availability zone
-	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (*ec2.DefaultSubnet, error) {
-		subnetName := fmt.Sprintf("default-subnet-%s", zone)
-		subnet, err := ec2.NewDefaultSubnet(ctx, subnetName, &ec2.DefaultSubnetArgs{
-			AvailabilityZone: sdk.String(zone),
-		}, sdk.Provider(params.Provider))
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create default subnet %s in %q", subnetName, account.Region)
-		}
-		return subnet, nil
-	})
-	return subnets, err
 }

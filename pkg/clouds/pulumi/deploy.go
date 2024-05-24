@@ -144,8 +144,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				continue
 			} else {
 				provisionParams.ParentStack = &pApi.ParentInfo{
-					StackName:    parentNameOnly,
-					FulReference: parentFullReference,
+					StackName:     parentNameOnly,
+					FullReference: parentFullReference,
 				}
 				provisionParams.UseResources = uses
 				provisionParams.DependOnResources = dependsOnResourcesList

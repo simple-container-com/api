@@ -20,24 +20,24 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 	projectName := toProjectName(params.ParentStack.StackName, input)
 	clusterName := toClusterName(params.ParentStack.StackName, input)
 
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.FulReference, input.Descriptor.Name)
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.FullReference, input.Descriptor.Name)
 	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--mongodb-atlas-ref", stack.Name, input.Descriptor.Name, params.ParentStack.StackName),
 		&sdk.StackReferenceArgs{
-			Name: sdk.String(params.ParentStack.FulReference).ToStringOutput(),
+			Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
 		})
 	if err != nil {
 		return nil, err
 	}
 
 	projectIdExport := toProjectIdExport(projectName)
-	projectId, err := pApi.GetParentOutput(parentRef, projectIdExport, params.ParentStack.FulReference, false)
+	projectId, err := pApi.GetParentOutput(parentRef, projectIdExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q (%q)", stack.Name, projectIdExport)
 	} else if projectId == "" {
 		return nil, errors.Errorf("project id is empty for %q (%q)", stack.Name, projectIdExport)
 	}
 	mongoUriExport := toMongoUriWithOptionsExport(clusterName)
-	mongoUri, err := pApi.GetParentOutput(parentRef, mongoUriExport, params.ParentStack.FulReference, false)
+	mongoUri, err := pApi.GetParentOutput(parentRef, mongoUriExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q (%q)", stack.Name, mongoUriExport)
 	} else if mongoUri == "" {
