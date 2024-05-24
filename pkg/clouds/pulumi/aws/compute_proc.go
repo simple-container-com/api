@@ -13,6 +13,17 @@ import (
 	"github.com/simple-container-com/api/pkg/util"
 )
 
+func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	if params.ParentStack == nil {
+		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
+	}
+	parentStackName := params.ParentStack.StackName
+
+	return &api.ResourceOutput{
+		Ref: parentStackName,
+	}, nil
+}
+
 func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if params.ParentStack == nil {
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)

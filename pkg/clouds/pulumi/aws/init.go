@@ -18,6 +18,7 @@ func init() {
 		aws.ResourceTypeRdsPostgres:   RdsPostgres,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
-		aws.StateStorageTypeS3Bucket: S3BucketComputeProcessor,
+		aws.ResourceTypeS3Bucket:    S3BucketComputeProcessor,
+		aws.ResourceTypeRdsPostgres: RdsPostgresComputeProcessor,
 	})
 }
