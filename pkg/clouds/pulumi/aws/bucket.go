@@ -186,7 +186,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 
 	var domainRecord sdk.AnyOutput
 	if staticSite.Domain != "" {
-		domainRecord = bucket.WebsiteEndpoint.ApplyT(func(endpoint string) (*api.ResourceOutput, error) {
+		domainRecord = bucket.BucketDomainName.ApplyT(func(endpoint string) (*api.ResourceOutput, error) {
 			_, err = input.Registrar.NewOverrideHeaderRule(ctx, input.Stack, pApi.OverrideHeaderRule{
 				Name:     input.Name,
 				FromHost: staticSite.Domain,
