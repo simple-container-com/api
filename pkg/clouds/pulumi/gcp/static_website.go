@@ -131,7 +131,6 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 	params.Log.Info(ctx.Context(), "configure override header rule from %q to %q for %q in %q...", domain, bucketDomain, stack.Name, input.StackParams.Environment)
 	overrideHeaderRule, err := params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
-		Name:     bucketName,
 		FromHost: domain,
 		ToHost:   bucketDomain,
 		OverridePages: &pApi.OverridePagesRule{
