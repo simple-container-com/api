@@ -12,12 +12,12 @@ require (
 	github.com/aws/aws-secretsmanager-caching-go v1.1.3
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/disgoorg/disgo v0.18.5
-	github.com/fatih/color v1.16.0
+	github.com/fatih/color v1.17.0
 	github.com/go-delve/delve v1.22.1
 	github.com/go-git/go-billy/v5 v5.5.0
 	github.com/go-git/go-git/v5 v5.11.0
-	github.com/golangci/golangci-lint v1.58.1
-	github.com/onsi/gomega v1.31.1
+	github.com/golangci/golangci-lint v1.58.2
+	github.com/onsi/gomega v1.33.1
 	github.com/otiai10/copy v1.14.0
 	github.com/pkg/errors v0.9.1
 	github.com/pulumi/pulumi-aws/sdk/v5 v5.35.0
@@ -36,7 +36,7 @@ require (
 	github.com/spf13/afero v1.11.0
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0
-	github.com/vektra/mockery/v2 v2.43.0
+	github.com/vektra/mockery/v2 v2.43.1
 	go.uber.org/atomic v1.10.0
 	golang.org/x/crypto v0.23.0
 	google.golang.org/api v0.152.0
@@ -59,7 +59,7 @@ require (
 	github.com/Abirdcfly/dupword v0.0.14 // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.7 // indirect
 	github.com/Antonboom/errname v0.1.13 // indirect
-	github.com/Antonboom/nilnil v0.1.8 // indirect
+	github.com/Antonboom/nilnil v0.1.9 // indirect
 	github.com/Antonboom/testifylint v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.9.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.4.0 // indirect
@@ -266,7 +266,7 @@ require (
 	github.com/kunwardeep/paralleltest v1.0.10 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/kyoh86/exportloopref v0.1.11 // indirect
-	github.com/lasiar/canonicalheader v1.0.6 // indirect
+	github.com/lasiar/canonicalheader v1.1.1 // indirect
 	github.com/ldez/gomoddirectives v0.2.4 // indirect
 	github.com/ldez/tagliatelle v0.5.0 // indirect
 	github.com/leonklingele/grouper v1.1.2 // indirect
@@ -357,7 +357,7 @@ require (
 	github.com/sasha-s/go-csync v0.0.0-20240107134140-fcbab37b09ad // indirect
 	github.com/sashamelentyev/interfacebloat v1.1.0 // indirect
 	github.com/sashamelentyev/usestdlibvars v1.25.0 // indirect
-	github.com/securego/gosec/v2 v2.19.0 // indirect
+	github.com/securego/gosec/v2 v2.20.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.3.5 // indirect
 	github.com/segmentio/textio v1.2.0 // indirect
@@ -405,7 +405,7 @@ require (
 	github.com/ykadowak/zerologlint v0.1.5 // indirect
 	github.com/zclconf/go-cty v1.13.2 // indirect
 	gitlab.com/bosi/decorder v0.4.2 // indirect
-	go-simpler.org/musttag v0.12.1 // indirect
+	go-simpler.org/musttag v0.12.2 // indirect
 	go-simpler.org/sloglint v0.6.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.starlark.net v0.0.0-20231101134539-556fd59b42f6 // indirect

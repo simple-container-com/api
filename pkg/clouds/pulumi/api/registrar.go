@@ -14,6 +14,7 @@ type Registrar interface {
 }
 
 type OverrideHeaderRule struct {
+	Name     string
 	FromHost string
 	ToHost   string
 

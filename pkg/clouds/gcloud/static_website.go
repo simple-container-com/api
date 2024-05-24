@@ -36,7 +36,7 @@ func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.Stack
 		StackConfigStatic: stackCfg,
 		StackDir:          stackDir,
 		StackName:         stackName,
-		BaseDnsZone:       stackCfg.BaseDnsZone,
+		BaseDnsZone:       stackCfg.Site.BaseDnsZone,
 		Location:          stackCfg.Location,
 	}
 

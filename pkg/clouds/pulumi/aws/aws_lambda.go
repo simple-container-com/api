@@ -188,7 +188,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	params.Log.Info(ctx.Context(), "configure lambda callback for %q in %q...", stack.Name, deployParams.Environment)
-	lambdaFunc, err := lambda.NewFunction(ctx, fmt.Sprintf("%s-callback", stack.Name), &lambda.FunctionArgs{
+	lambdaName := fmt.Sprintf("%s-callback", stack.Name)
+	lambdaFunc, err := lambda.NewFunction(ctx, lambdaName, &lambda.FunctionArgs{
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    image.ImageName,
@@ -284,6 +285,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 			return nil, errors.Wrapf(err, "failed to parse URL %q", vals[0])
 		}
 		_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
+			Name:     lambdaName,
 			FromHost: stackConfig.Domain,
 			ToHost:   apiEndpointUrl.Host,
 		})

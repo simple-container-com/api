@@ -109,16 +109,19 @@ type StackConfigComposeScaleCpu struct {
 	Max int `yaml:"max" json:"max"`
 }
 
-type StackConfigStatic struct {
-	BundleDir          string `json:"bundleDir" yaml:"bundleDir"`
+type StaticSiteConfig struct {
 	Domain             string `json:"domain" yaml:"domain"`
 	BaseDnsZone        string `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	IndexDocument      string `json:"indexDocument" yaml:"indexDocument"`
 	ErrorDocument      string `json:"errorDocument" yaml:"errorDocument"`
 	ProvisionWwwDomain bool   `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
+}
 
-	BucketName string `json:"bucketName" yaml:"bucketName"` // if necessary to override bucket name, only applicable in some clouds (e.g. gcp)
-	Location   string `json:"location" yaml:"location"`
+type StackConfigStatic struct {
+	BundleDir  string           `json:"bundleDir" yaml:"bundleDir"`
+	Site       StaticSiteConfig `json:",inline" yaml:",inline"`
+	BucketName string           `json:"bucketName" yaml:"bucketName"` // if necessary to override bucket name, only applicable in some clouds (e.g. gcp)
+	Location   string           `json:"location" yaml:"location"`
 }
 
 type StackParams struct {

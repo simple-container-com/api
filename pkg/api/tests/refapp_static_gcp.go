@@ -92,7 +92,9 @@ var RefappStaticGCPClientDescriptor = &api.ClientDescriptor{
 			Config: api.Config{
 				Config: &api.StackConfigStatic{
 					BundleDir: "./bundle",
-					Domain:    "staging.sc-refapp.org",
+					Site: api.StaticSiteConfig{
+						Domain: "staging.sc-refapp.org",
+					},
 				},
 			},
 		},
@@ -102,7 +104,9 @@ var RefappStaticGCPClientDescriptor = &api.ClientDescriptor{
 			Config: api.Config{
 				Config: &api.StackConfigStatic{
 					BundleDir: "./bundle",
-					Domain:    "prod.sc-refapp.org",
+					Site: api.StaticSiteConfig{
+						Domain: "prod.sc-refapp.org",
+					},
 				},
 			},
 		},

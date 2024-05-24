@@ -24,14 +24,14 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Errorf("unsupported bucket type %q", input.Descriptor.Type)
 	}
 
-	staticSiteCfg, ok := input.Descriptor.Config.Config.(*aws.StaticSiteInput)
+	cfg, ok := input.Descriptor.Config.Config.(*aws.StaticSiteInput)
 	if !ok {
 		return nil, errors.Errorf("failed to convert static site input to *aws.StaticSiteInput for %q", stack.Name)
 	}
 
-	bundleDir := staticSiteCfg.BundleDir
+	bundleDir := cfg.BundleDir
 	if !path.IsAbs(bundleDir) {
-		bundleDir = path.Join(staticSiteCfg.StackDir, staticSiteCfg.BundleDir)
+		bundleDir = path.Join(cfg.StackDir, cfg.BundleDir)
 	}
 	ref, err := provisionStaticSite(&StaticSiteInput{
 		ServiceName:        stack.Name,
@@ -39,11 +39,11 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		Registrar:          params.Registrar,
 		Ctx:                ctx,
 		BundleDir:          bundleDir,
-		IndexDocument:      staticSiteCfg.IndexDocument,
-		ErrorDocument:      staticSiteCfg.ErrorDocument,
-		Domain:             staticSiteCfg.Domain,
-		ProvisionWwwDomain: staticSiteCfg.ProvisionWwwDomain,
-		Account:            staticSiteCfg.AccountConfig,
+		IndexDocument:      cfg.Site.IndexDocument,
+		ErrorDocument:      cfg.Site.ErrorDocument,
+		Domain:             cfg.Site.Domain,
+		ProvisionWwwDomain: cfg.Site.ProvisionWwwDomain,
+		Account:            cfg.AccountConfig,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision static website for stack %q", stack.Name)

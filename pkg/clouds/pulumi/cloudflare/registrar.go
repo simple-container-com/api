@@ -109,7 +109,7 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 }
 
 func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
-	ruleName := fmt.Sprintf("%s-host-override", stack.Name)
+	ruleName := fmt.Sprintf("%s-%s-host-override", stack.Name, rule.Name)
 	r.log.Info(ctx.Context(), "configure cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
 	scriptName := fmt.Sprintf("%s-script", ruleName)
 
