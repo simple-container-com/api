@@ -3,8 +3,10 @@ package aws
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
@@ -42,18 +44,17 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	params.Log.Info(ctx.Context(), "configure exec role for %q", name)
 	execRoleName := fmt.Sprintf("%s-exec-role", name)
 	taskExecRole, err := iam.NewRole(ctx, execRoleName, &iam.RoleArgs{
+		Name: sdk.String(execRoleName),
 		AssumeRolePolicy: sdk.String(`{
-				"Version": "2012-10-17",
-				"Statement": [
-					{
-						"Effect": "Allow",
-						"Principal": {
-							"Service": "ecs-tasks.amazonaws.com"
-						},
-						"Action": "sts:AssumeRole"
-					}
-				]
-			}`),
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Action": "sts:AssumeRole",
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": "ecs-tasks.amazonaws.com"
+                    }
+                }]
+            }`),
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create IAM role for %q", name)
@@ -97,7 +98,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 				{
 					"name": "%s",
 					"image": "%s",
-					"command": ["/bin/bash", "-c", "%s"],
+					"command": ["/bin/sh", "-c", "%s"],
 					"environment": %s,
 					"logConfiguration": {
 					 	"logDriver": "awslogs",
@@ -145,8 +146,16 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 		VpcId: vpc.ID(),
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
-				Description:    sdk.String("Allow ALL outbound traffic"),
+				Description:    sdk.String("Allow ALL outbound TCP traffic"),
 				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(0),
+				ToPort:         sdk.Int(65535),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+			&ec2.SecurityGroupEgressArgs{
+				Description:    sdk.String("Allow ALL outbound UDP traffic"),
+				Protocol:       sdk.String("udp"),
 				FromPort:       sdk.Int(0),
 				ToPort:         sdk.Int(65535),
 				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
@@ -162,6 +171,61 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 		securityGroup.ID(),
 	}
 
+	ccPolicyName := fmt.Sprintf("%s-policy", name)
+	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
+		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
+		Name:        sdk.String(ccPolicyName),
+		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
+			policy := map[string]interface{}{
+				"Version": "2012-10-17",
+				"Statement": []map[string]any{
+					{
+						"Effect":   "Allow",
+						"Resource": "*",
+						"Action": []string{
+							"ssm:StartSession",
+							"ssmmessages:CreateControlChannel",
+							"ssmmessages:CreateDataChannel",
+							"ssmmessages:OpenControlChannel",
+							"ssmmessages:OpenDataChannel",
+							"secretsmanager:GetSecretValue",
+							"ecr:GetAuthorizationToken",
+							"ecr:DescribeImages",
+							"ecr:DescribeRepositories",
+							"ecr:BatchGetImage",
+							"ecr:BatchCheckLayerAvailability",
+							"ecr:GetDownloadUrlForLayer",
+							"logs:CreateLogStream",
+							"logs:CreateLogGroup",
+							"logs:DescribeLogStreams",
+							"logs:PutLogEvents",
+							"elasticfilesystem:ClientMount",
+							"elasticfilesystem:ClientWrite",
+							"elasticfilesystem:DescribeMountTargets",
+							"elasticfilesystem:DescribeFileSystems",
+						},
+					},
+				},
+			}
+			policyJSON, err := json.Marshal(policy)
+			if err != nil {
+				return sdk.StringOutput{}, err
+			}
+			return sdk.String(policyJSON).ToStringOutput(), nil
+		}).(sdk.StringOutput),
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create policy for %q", name)
+	}
+	execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", name)
+	_, err = iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
+		Role:      taskExecRole.Name,
+		PolicyArn: ccPolicy.Arn,
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create policy attachment for %q", name)
+	}
+	params.Log.Info(ctx.Context(), "configure ECS task execution %q", name)
 	sdk.All(cluster.Name, securityGroupNames, subnets.Ids(), taskDef.Arn).ApplyT(func(in []any) error {
 		clusterName := in[0].(string)
 		secGroups := in[1].([]string)
@@ -172,6 +236,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 			DesiredCount: lo.ToPtr(1),
 			LaunchType:   lo.ToPtr("FARGATE"),
 			NetworkConfiguration: &ecs.GetTaskExecutionNetworkConfiguration{
+				AssignPublicIp: lo.ToPtr(true),
 				SecurityGroups: secGroups,
 				Subnets:        subnetIds,
 			},
@@ -180,6 +245,21 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 		if err != nil {
 			return err
 		}
+		taskExecRole.Arn.ApplyT(func(taskRoleArn string) (*iam.RolePolicyAttachment, error) {
+			role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
+				Arn: sdk.String(taskRoleArn),
+			}, sdk.Provider(params.Provider))
+			ccPolicyAttachmentName := fmt.Sprintf("%s-p-cc", name)
+			return iam.NewRolePolicyAttachment(ctx, ccPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
+				PolicyArn: ccPolicy.Arn,
+				Role: role.Resource().ApplyT(func(roleResource string) string {
+					roleName := roleResource[strings.Index(roleResource, "/")+1:]
+					params.Log.Info(ctx.Context(), "attaching policy %q to role %q", ccPolicyName, roleName)
+					return roleName
+				}),
+			}, opts...)
+		})
+
 		return nil
 	})
 

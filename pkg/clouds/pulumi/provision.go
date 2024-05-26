@@ -59,14 +59,18 @@ func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.Stac
 	var err error
 	if program != nil {
 		stackSource, err = auto.UpsertStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, program, p.wsOpts...)
+		if err != nil {
+			return stackSource, err
+		}
+		if p.secretsProviderUrl != "" {
+			if err = stackSource.ChangeSecretsProvider(ctx, p.secretsProviderUrl, nil); err != nil {
+				return stackSource, err
+			}
+		}
+
 	} else {
 		stackSource, err = auto.SelectStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, nil, p.wsOpts...)
-	}
-	if err != nil {
-		return stackSource, err
-	}
-	if p.secretsProviderUrl != "" {
-		if err = stackSource.ChangeSecretsProvider(ctx, p.secretsProviderUrl, nil); err != nil {
+		if err != nil {
 			return stackSource, err
 		}
 	}

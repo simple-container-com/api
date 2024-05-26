@@ -622,11 +622,11 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, crInput *aws.EcsFargateInput, ref *EcsFargateOutput) error {
 	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*ECRImage, error) {
 		dockerfile := container.Image.Dockerfile
-		if dockerfile == "" && container.Image.Context == "" {
+		if dockerfile == "" && container.Image.Context == "" && container.Image.Name != "" {
 			// do not build and return right away
 			return &ECRImage{
 				Container: container,
-				ImageName: sdk.String(container.Name).ToStringOutput(),
+				ImageName: sdk.String(container.Image.Name).ToStringOutput(),
 			}, nil
 		}
 		if !filepath.IsAbs(dockerfile) {

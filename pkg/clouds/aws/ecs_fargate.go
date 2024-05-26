@@ -229,6 +229,10 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		if svc.Image == "" && context == "" && dockerFile == "" {
 			return EcsFargateInput{}, errors.Errorf("either `image` or `build` must be specified in docker compose file for service %s", svcName)
 		}
+		var imageName string
+		if svc.Image != "" {
+			imageName = svc.Image
+		}
 
 		var cpu int
 		var memory int
@@ -243,6 +247,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		res.Containers = append(res.Containers, EcsFargateContainer{
 			Name: svcName,
 			Image: api.ContainerImage{
+				Name:       imageName,
 				Context:    context,
 				Platform:   api.ImagePlatformLinuxAmd64,
 				Dockerfile: dockerFile,
