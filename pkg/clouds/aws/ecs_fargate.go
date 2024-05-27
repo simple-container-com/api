@@ -160,6 +160,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			}
 		}),
 	}
+
 	if stackCfg.Size != nil {
 		if res.Config.Cpu, err = strconv.Atoi(stackCfg.Size.Cpu); err != nil {
 			return nil, errors.Wrapf(err, "failed to convert cpu size %q to ECS fargate cpu size: must be a number (e.g. 256)", stackCfg.Size.Cpu)
@@ -265,6 +266,14 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		})
 	}
 
+	// keep only mounted volumes
+	res.Volumes = lo.Filter(res.Volumes, func(v EcsFargateVolume, _ int) bool {
+		return lo.ContainsBy(res.Containers, func(c EcsFargateContainer) bool {
+			return lo.ContainsBy(c.MountPoints, func(m EcsFargateMountPoint) bool {
+				return m.SourceVolume == v.Name
+			})
+		})
+	})
 	iContainers := lo.Filter(composeCfg.Project.Services, func(s types.ServiceConfig, _ int) bool {
 		v, hasLabel := s.Labels[ComposeLabelIngressContainer]
 		return hasLabel && v == "true"
