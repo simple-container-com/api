@@ -93,7 +93,7 @@ func lookupDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 	return subnets, err
 }
 
-func createDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) (defaultSubnets, error) {
+func createDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig, env string, params pApi.ProvisionParams) (defaultSubnets, error) {
 	// Get all availability zones in provided region
 	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
 		Filters: []awsImpl.GetAvailabilityZonesFilter{
@@ -109,7 +109,7 @@ func createDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 
 	// Create default subnet in each availability zone
 	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (defaultSubnet, error) {
-		subnetName := fmt.Sprintf("default-subnet-%s", zone)
+		subnetName := fmt.Sprintf("default-subnet-%s-%s", env, zone)
 		subnet, err := ec2V5.NewDefaultSubnet(ctx, subnetName, &ec2V5.DefaultSubnetArgs{
 			AvailabilityZone: sdk.String(zone),
 		}, sdk.Provider(params.Provider))

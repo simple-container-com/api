@@ -145,7 +145,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
-	subnets, err := createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, params)
+	subnets, err := createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get or create default subnets in region")
 	}

@@ -37,7 +37,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		sdk.Provider(params.Provider),
 	}
 
-	subnets, err := createDefaultSubnetsInRegionV5(ctx, postgresCfg.AccountConfig, params)
+	subnets, err := createDefaultSubnetsInRegionV5(ctx, postgresCfg.AccountConfig, input.StackParams.Environment, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get or create default subnets in region")
 	}
