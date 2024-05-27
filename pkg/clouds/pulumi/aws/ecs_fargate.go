@@ -339,11 +339,16 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				},
 				Name: image.Container.Name,
 			}
-			if image.Container.LivenessProbe.HttpGet.Port != 0 {
+			liveProbe := image.Container.LivenessProbe
+			if liveProbe.HttpGet.Port != 0 {
 				// TODO
-			} else if len(image.Container.LivenessProbe.Command) > 0 {
+			} else if len(liveProbe.Command) > 0 {
 				cDef.HealthCheck = ecs.TaskDefinitionHealthCheckArgs{
-					Command: sdk.ToStringArray(image.Container.LivenessProbe.Command),
+					Command:     sdk.ToStringArray(liveProbe.Command),
+					Interval:    sdk.IntPtr(liveProbe.IntervalSeconds),
+					Retries:     sdk.IntPtr(liveProbe.Retries),
+					StartPeriod: sdk.IntPtr(liveProbe.InitialDelaySeconds),
+					Timeout:     sdk.IntPtr(liveProbe.TimeoutSeconds),
 				}
 			}
 			return cDef
