@@ -122,10 +122,11 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	iContainer := crInput.IngressContainer
 
+	contextSecretEnvVariables := params.ComputeContext.SecretEnvVariables()
 	contextEnvVariables := params.ComputeContext.EnvVariables()
 
 	var secrets []*CreatedSecret
-	ctxSecrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
+	ctxSecrets, err := util.MapErr(contextSecretEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
 		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, crInput.Config.Version), v.Name, v.Value, opts...)
 	})
 	if err != nil {
@@ -273,6 +274,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			envVariables = append(envVariables, lo.Map(lo.Entries(params.BaseEnvVariables), func(e lo.Entry[string, string], index int) ecs.TaskDefinitionKeyValuePairInput {
 				return ecs.TaskDefinitionKeyValuePairArgs{
 					Name:  sdk.StringPtr(e.Key),
+					Value: sdk.StringPtr(e.Value),
+				}
+			})...)
+			envVariables = append(envVariables, lo.Map(contextEnvVariables, func(e pApi.ComputeEnvVariable, _ int) ecs.TaskDefinitionKeyValuePairInput {
+				return ecs.TaskDefinitionKeyValuePairArgs{
+					Name:  sdk.StringPtr(e.Name),
 					Value: sdk.StringPtr(e.Value),
 				}
 			})...)

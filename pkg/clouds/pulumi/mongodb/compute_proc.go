@@ -125,7 +125,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_USER"), userName,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_PASSWORD"), dbUser.Password,
+			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_PASSWORD"), dbUser.Password,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
@@ -189,7 +189,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_USER", ownerStackName)), userName,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_PASSWORD", ownerStackName)), dbUser.Password,
+			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_PASSWORD", ownerStackName)), dbUser.Password,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)

@@ -22,7 +22,7 @@ type ecsTaskConfig struct {
 	account aws.AccountConfig
 	params  pApi.ProvisionParams
 	image   string
-	command string
+	command []string
 	env     map[string]string
 }
 
@@ -79,6 +79,10 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	if err != nil {
 		return errors.Wrapf(err, "failed to marshal env variables for %q", name)
 	}
+	commandJSON, err := json.Marshal(config.command)
+	if err != nil {
+		return errors.Wrapf(err, "failed to marshal ECS task JSON for %q", name)
+	}
 
 	serviceName := fmt.Sprintf("%s-service", name)
 	logGroupName := fmt.Sprintf("/ecs/%s", serviceName)
@@ -98,7 +102,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 				{
 					"name": "%s",
 					"image": "%s",
-					"command": ["/bin/sh", "-c", "%s"],
+					"command": %s,
 					"environment": %s,
 					"logConfiguration": {
 					 	"logDriver": "awslogs",
@@ -112,7 +116,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 					"cpu": 256,
 					"memory": 512
 				}
-			]`, config.name, config.image, config.command, string(envsBytes), logGroupName, accountConfig.Region),
+			]`, config.name, config.image, commandJSON, string(envsBytes), logGroupName, accountConfig.Region),
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create task definition for %q", name)

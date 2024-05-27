@@ -1,9 +1,12 @@
 package aws
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 
@@ -12,6 +15,18 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
 )
+
+type DbUserOutput struct {
+	Username string `json:"username" yaml:"username"`
+	Database string `json:"database" yaml:"database"`
+	Password string `json:"password" yaml:"password"`
+	DbUri    string `json:"dbUri" yaml:"dbUri"`
+}
+
+func (o DbUserOutput) ToJson() string {
+	res, _ := json.Marshal(o)
+	return string(res)
+}
 
 func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if params.ParentStack == nil {
@@ -49,40 +64,110 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 		return nil, errors.Errorf("postgres endpoint is empty for %q (%q)", stack.Name, postgresName)
 	}
 	postgresUsernameExport := toPostgresInstanceUsernameExport(postgresName)
-	resPgUsername, err := pApi.GetParentOutput(parentRef, postgresUsernameExport, params.ParentStack.FullReference, false)
+	rootPgUsername, err := pApi.GetParentOutput(parentRef, postgresUsernameExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get postgres username from parent stack for %q (%q)", stack.Name, postgresEndpointExport)
-	} else if resPgUsername == "" {
+	} else if rootPgUsername == "" {
 		return nil, errors.Errorf("postgres username is empty for %q (%q)", stack.Name, postgresName)
 	}
 	postgresPasswordExport := toPostgresInstancePasswordExport(postgresName)
-	resPgPassword, err := pApi.GetParentOutput(parentRef, postgresPasswordExport, params.ParentStack.FullReference, true)
+	rootPgPassword, err := pApi.GetParentOutput(parentRef, postgresPasswordExport, params.ParentStack.FullReference, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get postgres password from parent stack for %q (%q)", stack.Name, postgresEndpointExport)
-	} else if resPgPassword == "" {
+	} else if rootPgPassword == "" {
 		return nil, errors.Errorf("postgres password is empty for %q (%q)", stack.Name, postgresName)
 	}
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
-		if err := execEcsTask(ctx, ecsTaskConfig{
-			name:    fmt.Sprintf("%s-pg-init", stack.Name),
-			account: postgresCfg.AccountConfig,
-			params:  params,
-			image:   "alpine:latest",
-			command: "env",
-			env: map[string]string{
-				"HELLO": "true",
-			},
-		}); err != nil {
-			return errors.Wrapf(err, "failed to run init task for rds postgres")
+		pgEpSplit := strings.SplitN(resPgEndpoint, ":", 2)
+		dbHost, dbPort := pgEpSplit[0], pgEpSplit[1]
+		dbUsername := stack.Name
+		dbName := stack.Name
+		password, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s-pg-password", dbUsername), &random.RandomPasswordArgs{
+			Length:  sdk.Int(20),
+			Special: sdk.Bool(false),
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to generate random password for postgres for stack %q", stack.Name)
 		}
 
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("POSTGRES_%s_URL", postgresResName)), resPgEndpoint,
-			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
-			"url": postgresResName,
-		})
+		return sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
+			dbPassword := args[0].(string)
 
-		return nil
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("PGHOST_%s", postgresResName)), dbHost,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("PGUSER_%s", postgresResName)), dbUsername,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("PGPORT_%s", postgresResName)), dbPort,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("PGDATABASE_%s", postgresResName)), dbName,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("PGPASSWORD_%s", postgresResName)), dbPassword,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGUSER"), dbUsername,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGHOST"), dbHost,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGPORT"), dbPort,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGDATABASE"), dbName,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("PGPASSWORD"), dbPassword,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
+				"url":      resPgEndpoint,
+				"host":     dbHost,
+				"port":     dbPort,
+				"user":     dbUsername,
+				"database": dbName,
+				"password": dbPassword,
+			})
+
+			dbUserOutputJSON := DbUserOutput{
+				Username: dbUsername,
+				Database: dbName,
+				Password: dbPassword,
+				DbUri:    resPgEndpoint,
+			}.ToJson()
+
+			command := []string{
+				"sh", "-c", `apk add --update postgresql && 
+psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || psql -U postgres -c "CREATE DATABASE \"$DB_NAME\"" &&
+psql -c "DO
+\$\$
+BEGIN
+  IF NOT EXISTS (SELECT * FROM pg_user WHERE usename = '$DB_USER') THEN
+	CREATE ROLE \"$DB_USER\" WITH LOGIN PASSWORD '$DB_PASSWORD'; 
+    GRANT ALL PRIVILEGES ON DATABASE \"$DB_NAME\" TO \"$DB_USER\";
+  END IF;
+END
+\$\$
+;
+"`,
+			}
+
+			if err := execEcsTask(ctx, ecsTaskConfig{
+				name:    fmt.Sprintf("%s-pg-init", stack.Name),
+				account: postgresCfg.AccountConfig,
+				params:  params,
+				image:   "alpine:latest",
+				command: command,
+				env: map[string]string{
+					"DB_NAME":     dbName,
+					"DB_USER":     dbUsername,
+					"DB_PASSWORD": dbPassword,
+					"PGHOST":      dbHost,
+					"PGPORT":      dbPort,
+					"PGUSER":      rootPgUsername,
+					"PGDATABASE":  "postgres",
+					"PGPASSWORD":  rootPgPassword,
+				},
+			}); err != nil {
+				return nil, errors.Wrapf(err, "failed to run init task for rds postgres")
+			}
+
+			ctx.Export(fmt.Sprintf("%s-%s", dbUsername, postgresResName), sdk.ToSecret(dbUserOutputJSON))
+			return dbUserOutputJSON, nil
+		})
 	}))
 
 	return &api.ResourceOutput{
@@ -146,17 +231,17 @@ func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_BUCKET", bucketName)), resBucketName,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_ACCESS_KEY", bucketName)), resAccessKeyId,
+		collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_ACCESS_KEY", bucketName)), resAccessKeyId,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketName)), resAccessKeySecret,
+		collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_SECRET_KEY", bucketName)), resAccessKeySecret,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_REGION"), resBucketRegion,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_BUCKET"), resBucketName,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_ACCESS_KEY"), resAccessKeyId,
+		collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("S3_ACCESS_KEY"), resAccessKeyId,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_SECRET_KEY"), resAccessKeySecret,
+		collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("S3_SECRET_KEY"), resAccessKeySecret,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 
 		collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{

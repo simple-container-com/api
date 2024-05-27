@@ -77,10 +77,18 @@ func (c *Collector) Outputs() []sdk.Output {
 }
 
 func (c *Collector) EnvVariables() []ComputeEnvVariable {
-	return c.EnvVars
+	return lo.Filter(c.EnvVars, func(v ComputeEnvVariable, _ int) bool {
+		return !v.Secret
+	})
 }
 
-func (c *Collector) AddEnvVariableIfNotExist(name, value, resType, resName, stackName string) {
+func (c *Collector) SecretEnvVariables() []ComputeEnvVariable {
+	return lo.Filter(c.EnvVars, func(v ComputeEnvVariable, _ int) bool {
+		return v.Secret
+	})
+}
+
+func (c *Collector) addEnvVarIfNotExist(name, value, resType, resName, stackName string, secret bool) {
 	if _, found := lo.Find(c.EnvVars, func(v ComputeEnvVariable) bool {
 		return v.Name == name
 	}); found {
@@ -93,7 +101,16 @@ func (c *Collector) AddEnvVariableIfNotExist(name, value, resType, resName, stac
 		ResourceName: resName,
 		ResourceType: resType,
 		StackName:    stackName,
+		Secret:       secret,
 	})
+}
+
+func (c *Collector) AddEnvVariableIfNotExist(name, value, resType, resName, stackName string) {
+	c.addEnvVarIfNotExist(name, value, resType, resName, stackName, false)
+}
+
+func (c *Collector) AddSecretEnvVariableIfNotExist(name, value, resType, resName, stackName string) {
+	c.addEnvVarIfNotExist(name, value, resType, resName, stackName, true)
 }
 
 func (c *Collector) AddDependency(res sdk.Resource) {

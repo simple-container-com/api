@@ -60,7 +60,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to build and push image for lambda in stack %q env %q", stack.Name, deployParams.Environment)
 	}
 
-	contextEnvVariables := params.ComputeContext.EnvVariables()
+	contextEnvVariables := params.ComputeContext.SecretEnvVariables()
 
 	// Create IAM Role for Lambda Function
 	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", stack.Name)

@@ -37,9 +37,11 @@ type ComputeEnvVariable struct {
 	ResourceName string
 	ResourceType string
 	StackName    string
+	Secret       bool
 }
 
 type ComputeContext interface {
+	SecretEnvVariables() []ComputeEnvVariable
 	EnvVariables() []ComputeEnvVariable
 	Dependencies() []sdk.Resource
 	Outputs() []sdk.Output
@@ -47,8 +49,10 @@ type ComputeContext interface {
 }
 
 type ComputeContextCollector interface {
+	SecretEnvVariables() []ComputeEnvVariable
 	EnvVariables() []ComputeEnvVariable
 	AddEnvVariableIfNotExist(name, value, resType, resName, stackName string)
+	AddSecretEnvVariableIfNotExist(name, value, resType, resName, stackName string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
 	AddOutput(o sdk.Output)
