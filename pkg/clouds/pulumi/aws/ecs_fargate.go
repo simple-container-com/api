@@ -365,11 +365,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 
 	var lbHC *lbV5.TargetGroupHealthCheckArgs
-	if iContainer.LivenessProbe.HttpGet.Path != "" || iContainer.LivenessProbe.HttpGet.SuccessCodes != "" {
+	liveProbe := iContainer.LivenessProbe
+	if liveProbe.HttpGet.Path != "" || liveProbe.HttpGet.SuccessCodes != "" {
 		lbHC = &lbV5.TargetGroupHealthCheckArgs{
-			Port:    sdk.StringPtr(strconv.Itoa(iContainer.Port)),
-			Path:    sdk.StringPtr(iContainer.LivenessProbe.HttpGet.Path),
-			Matcher: sdk.StringPtr(iContainer.LivenessProbe.HttpGet.SuccessCodes),
+			Port:     sdk.StringPtr(strconv.Itoa(iContainer.Port)),
+			Path:     sdk.StringPtr(liveProbe.HttpGet.Path),
+			Matcher:  sdk.StringPtr(liveProbe.HttpGet.SuccessCodes),
+			Timeout:  sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(30)),
+			Interval: sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
 		}
 	}
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
