@@ -390,6 +390,9 @@ func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
 		if check.StartPeriod != nil {
 			p.InitialDelaySeconds = int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds())
 		}
+		if check.Timeout != nil {
+			p.TimeoutSeconds = int(time.Duration(lo.FromPtr(check.Timeout)).Seconds())
+		}
 		if len(check.Test) > 0 {
 			p.Command = check.Test
 		}

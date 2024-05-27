@@ -345,10 +345,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			} else if len(liveProbe.Command) > 0 {
 				cDef.HealthCheck = ecs.TaskDefinitionHealthCheckArgs{
 					Command:     sdk.ToStringArray(liveProbe.Command),
-					Interval:    sdk.IntPtr(liveProbe.IntervalSeconds),
-					Retries:     sdk.IntPtr(liveProbe.Retries),
+					Interval:    sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
+					Retries:     sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(10)),
 					StartPeriod: sdk.IntPtr(liveProbe.InitialDelaySeconds),
-					Timeout:     sdk.IntPtr(liveProbe.TimeoutSeconds),
+					Timeout:     sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 0, liveProbe.TimeoutSeconds).Else(30)),
 				}
 			}
 			return cDef
