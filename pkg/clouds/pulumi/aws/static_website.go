@@ -9,7 +9,7 @@ import (
 
 	"github.com/MShekow/directory-checksum/directory_checksum"
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/s3"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/s3"
 	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/spf13/afero"

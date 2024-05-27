@@ -3,7 +3,7 @@ package aws
 import (
 	"fmt"
 
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/secretsmanager"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/secretsmanager"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"

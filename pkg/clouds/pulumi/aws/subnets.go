@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
 	ec2V5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 

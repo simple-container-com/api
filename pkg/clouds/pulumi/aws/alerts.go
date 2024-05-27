@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lambda"
 	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"

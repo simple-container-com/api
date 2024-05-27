@@ -10,15 +10,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/appautoscaling"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecr"
 	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/efs"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
 	lbV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
@@ -686,7 +686,7 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	if err != nil {
 		return errors.Wrapf(err, "failed to create autoscaling target for ecs service in %q", stack.Name)
 	}
-	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-target-arn", stack.Name), scalableTarget.Arn)
+	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-target-id", stack.Name), scalableTarget.ID())
 	if crInput.Scale.Policy.Type == aws.ScaleCpu {
 		// Create an autoscaling policy for the target based on CPU utilization
 		policy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{

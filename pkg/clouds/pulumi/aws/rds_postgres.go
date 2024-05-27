@@ -5,7 +5,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/rds"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/rds"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 
