@@ -348,7 +348,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Interval:    sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
 					Retries:     sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(10)),
 					StartPeriod: sdk.IntPtr(liveProbe.InitialDelaySeconds),
-					Timeout:     sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 0, liveProbe.TimeoutSeconds).Else(30)),
+					Timeout:     sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(30)),
 				}
 			}
 			return cDef
