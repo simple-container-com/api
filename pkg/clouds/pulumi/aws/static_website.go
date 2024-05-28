@@ -153,7 +153,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 	} else {
 		sum := md5.Sum([]byte(checksums))
 		checksum := hex.EncodeToString(sum[:])
-		sdk.All(mainBucket.Bucket).ApplyT(func(a []interface{}) error {
+		sdk.All(mainBucket.Bucket, mainBucketPolicy.Policy).ApplyT(func(a []interface{}) error {
 			bucketName := a[0].(string)
 			_, err = local.NewCommand(ctx, fmt.Sprintf("%s-sync", input.ServiceName), &local.CommandArgs{
 				Create:   sdk.String(fmt.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, bucketName)),
