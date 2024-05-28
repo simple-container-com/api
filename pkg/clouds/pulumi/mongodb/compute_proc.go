@@ -133,7 +133,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 			// oplog uri is necessary for apps that would like to read mongo's oplog
 			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_URI"), mongoUri,
+			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_URI"), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 			params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{
@@ -197,7 +197,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 			// oplog uri is necessary for apps that would like to read mongo's oplog
 			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
 
-			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_URI", ownerStackName)), mongoUri,
+			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_URI", ownerStackName)), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 			params.collector.AddDependencyTplExtension(params.dependency.Name, params.input.Descriptor.Name, map[string]string{
