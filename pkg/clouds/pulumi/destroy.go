@@ -5,6 +5,8 @@ import (
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -19,14 +21,14 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 
 	if !skipRefresh {
 		p.logger.Info(ctx, color.YellowFmt("Refreshing stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx)
+		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(ctx)))
 		if err != nil {
 			return err
 		}
 		p.logger.Info(ctx, color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
 	p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", stackSource.Name()))
-	destroyResult, err := stackSource.Destroy(ctx)
+	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(ctx)))
 	if err != nil {
 		return err
 	}
@@ -54,7 +56,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 			return err
 		}
 		p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", ssSource.Name()))
-		destroyResult, err = ssSource.Destroy(ctx)
+		destroyResult, err = ssSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(ctx)))
 		if err != nil {
 			return err
 		}

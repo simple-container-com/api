@@ -12,6 +12,7 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
@@ -131,7 +132,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			if err != nil {
 				return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
 			}
-			upRes, err := secretsProviderStackSource.Up(ctx)
+			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(ctx)))
 			if err != nil {
 				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
 			}

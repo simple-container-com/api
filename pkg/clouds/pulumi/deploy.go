@@ -8,6 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 
@@ -32,7 +35,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx)
+		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(ctx)))
 		if err != nil {
 			return err
 		}
@@ -40,14 +43,15 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	}
 	if !params.SkipPreview {
 		p.logger.Info(ctx, color.GreenFmt("Preview stack %q...", stackSource.Name()))
-		previewResult, err := stackSource.Preview(ctx)
+		previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(ctx)))
 		if err != nil {
 			return err
 		}
 		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
 	p.logger.Info(ctx, color.GreenFmt("Updating stack %q...", stackSource.Name()))
-	upRes, err := stackSource.Up(ctx)
+
+	upRes, err := stackSource.Up(ctx, optup.EventStreams(p.watchEvents(ctx)))
 	if err != nil {
 		return err
 	}

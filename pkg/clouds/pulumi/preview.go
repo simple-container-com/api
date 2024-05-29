@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/samber/lo"
 
@@ -31,7 +32,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	p.logger.Info(ctx, color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
 
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
-	previewResult, err := stackSource.Preview(ctx)
+	previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(ctx)))
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +56,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 		return nil, err
 	}
 	p.logger.Info(ctx, color.GreenFmt("Preview child stack %q...", stackSource.Name()))
-	previewResult, err := stackSource.Preview(ctx)
+	previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(ctx)))
 	if err != nil {
 		return nil, err
 	}
