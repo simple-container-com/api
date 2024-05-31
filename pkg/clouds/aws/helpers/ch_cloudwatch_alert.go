@@ -74,12 +74,13 @@ func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 	l.log.Info(ctx, "sending event for stack %q in %q", stackName, stackEnv)
 
 	nfAlert := api.Alert{
-		Name:      alertName,
-		Title:     alertDescription,
-		Reason:    alarmEvent.AlarmData.State.Reason,
-		StackName: stackName,
-		StackEnv:  stackEnv,
-		AlertType: lo.If(alarmEvent.AlarmData.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
+		Name:        alertName,
+		Title:       alertName,
+		Description: alertDescription,
+		Reason:      alarmEvent.AlarmData.State.Reason,
+		StackName:   stackName,
+		StackEnv:    stackEnv,
+		AlertType:   lo.If(alarmEvent.AlarmData.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
 		DetailsUrl: fmt.Sprintf("https://%s.console.aws.amazon.com/cloudwatch/home?region=%s#alarmsV2:alarm/%s",
 			alarmEvent.Region, alarmEvent.Region, alarmEvent.AlarmData.AlarmName),
 	}
