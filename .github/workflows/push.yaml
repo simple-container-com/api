@@ -16,6 +16,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare build
+    runs-on: ubuntu-latest
 #    runs-on: self-hosted
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -31,6 +32,7 @@ jobs:
 
   build:
     name: Build and release simple-container
+    runs-on: ubuntu-latest
 #    runs-on: self-hosted
     needs: prepare
     steps:
