@@ -16,7 +16,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare build
-    runs-on: self-hosted
+#    runs-on: self-hosted
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -31,7 +31,7 @@ jobs:
 
   build:
     name: Build and release simple-container
-    runs-on: self-hosted
+#    runs-on: self-hosted
     needs: prepare
     steps:
       - uses: actions/checkout@v4
