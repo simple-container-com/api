@@ -225,7 +225,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 }
 
 func (p *pulumi) cloudHelpersImage(providerType string) string {
-	return fmt.Sprintf("docker.io/simplecontainer/cloud-helpers:%s-%s", providerType, build.Version)
+	return fmt.Sprintf("docker.simple-container.com/sc/cloud-helpers:%s-%s", providerType, build.Version)
 }
 
 func stackDescriptorTemplateName(stackName, templateName string) string {
