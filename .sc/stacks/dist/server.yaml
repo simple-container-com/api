@@ -27,14 +27,14 @@ resources:
   resources:
     prod:
       template: static-website
-      resources:
-        docker-registry:
-          type: gcp-artifact-registry
-          config:
-            projectId: "${auth:gcloud.projectId}"
-            credentials: "${auth:gcloud}"
-            location: "europe-central2"
-            public: true
-            domain: registry.simple-container.com
-            docker:
-              immutableTags: true
+#      resources:
+#        docker-registry:
+#          type: gcp-artifact-registry
+#          config:
+#            projectId: "${auth:gcloud.projectId}"
+#            credentials: "${auth:gcloud}"
+#            location: "europe-central2"
+#            public: true
+#            domain: registry.simple-container.com
+#            docker:
+#              immutableTags: true
