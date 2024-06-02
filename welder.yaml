@@ -38,8 +38,8 @@ modules:
       - name: cloud-helpers-aws
         dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:
-          - docker.simple-container.com/sc/cloud-helpers:aws-latest
-          - docker.simple-container.com/sc/cloud-helpers:aws-${project:version}
+          - simplecontainer/cloud-helpers:aws-latest
+          - simplecontainer/cloud-helpers:aws-${project:version}
         runAfterPush:
           tasks:
             - tag-release

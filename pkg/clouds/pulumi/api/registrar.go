@@ -14,9 +14,10 @@ type Registrar interface {
 }
 
 type OverrideHeaderRule struct {
-	Name     string
-	FromHost string
-	ToHost   string
+	Name       string
+	FromHost   string
+	ToHost     string
+	PathPrefix string
 
 	OverridePages *OverridePagesRule
 }

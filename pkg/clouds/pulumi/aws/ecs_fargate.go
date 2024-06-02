@@ -573,6 +573,8 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		return errors.Wrapf(err, "failed to push cloud-helpers image")
 	}
 
+	opts = append(opts, sdk.DependsOn([]sdk.Resource{helpersImage}))
+
 	if alerts.MaxCPU != nil {
 		if err := createAlert(ctx, alertCfg{
 			name:           fmt.Sprintf("%s--%s", alerts.MaxCPU.AlertName, deployParams.Environment),

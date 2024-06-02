@@ -114,6 +114,9 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 	scriptName := fmt.Sprintf("%s-script", ruleName)
 
 	pagesCode := ""
+	if rule.PathPrefix != "" {
+		pagesCode += fmt.Sprintf(`url.pathname = '%s' + url.pathname;`, rule.PathPrefix)
+	}
 	if rule.OverridePages != nil {
 		if rule.OverridePages.IndexPage != "" {
 			pagesCode += fmt.Sprintf(`

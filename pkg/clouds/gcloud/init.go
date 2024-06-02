@@ -19,6 +19,9 @@ func init() {
 
 		// bucket
 		ResourceTypeBucket: GcpBucketReadConfig,
+
+		// artifact-registry
+		ResourceTypeArtifactRegistry: ArtifactRegistryConfigReadConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{
