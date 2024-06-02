@@ -35,10 +35,14 @@ jobs:
 #    runs-on: ubuntu-latest
     runs-on: self-hosted
     needs: prepare
+    outputs:
+      cicd-bot-telegram-token: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-token }}
+      cicd-bot-telegram-chat-id: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
       - name: prepare secrets
+        id: prepare-secrets
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
           ${{ secrets.SC_CONFIG }}
@@ -46,6 +50,9 @@ jobs:
           cat << EOF > ./.sc/cfg.test.yaml
           ${{ secrets.SC_CONFIG }}
           EOF
+          bash <(curl -Ls "https://dist.simple-container.com/sc.sh") secrets reveal
+          echo "cicd-bot-telegram-token=$(sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: build sc tool
         shell: bash
         env:
@@ -60,3 +67,63 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod --timestamps
+
+  finalize:
+    name: Finalize build and deploy for ${{ needs.prepare.outputs.stack-name }}
+#    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    if: ${{ always() }}
+    permissions:
+      contents: write
+    needs:
+      - prepare
+      - build
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ always() }}
+      # Creating release tag
+      - uses: rickstaa/action-create-tag@v1
+        if: ${{ success() && !contains(needs.*.result, 'failure')  }}
+        id: "tag_create"
+        with:
+          tag: "v${{ needs.prepare.outputs.version }}"
+          tag_exists_error: false
+          force_push_tag: true
+          message: "Release v${{ needs.prepare.outputs.version }}"
+
+      - name: Extract git reference
+        id: extract_git_ref
+        if: ${{ always() }}
+        shell: bash
+        run: |-
+          cat <<'EOF' >> /tmp/commit_message.txt
+            ${{ github.event.head_commit.message }}
+          EOF
+          message="$(cat /tmp/commit_message.txt | tr -d '\n')"
+          echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
+          echo "message=$message" >> $GITHUB_OUTPUT
+          echo "author=$GITHUB_ACTOR" >> $GITHUB_OUTPUT
+          echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+
+      # Notify telegram
+      - uses: yanzay/notify-telegram@v0.1.0
+        if: ${{ success() && !contains(needs.*.result, 'failure')  }}
+        continue-on-error: true
+        with:
+          chat: ${{ needs.build.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build.outputs.cicd-bot-telegram-token }}
+          status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+      - uses: yanzay/notify-telegram@v0.1.0
+        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        continue-on-error: true
+        with:
+          chat: ${{ needs.build.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build.outputs.cicd-bot-telegram-token }}
+          status: ❗ failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+
+      - name: Build failed due to previously failed steps
+        id: fail_if_needed
+        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        shell: bash
+        run: |-
+          exit 1
