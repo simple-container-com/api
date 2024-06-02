@@ -81,15 +81,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: ${{ always() }}
-      # Creating release tag
-      - uses: rickstaa/action-create-tag@v1
-        if: ${{ success() && !contains(needs.*.result, 'failure')  }}
-        id: "tag_create"
-        with:
-          tag: "v${{ needs.prepare.outputs.version }}"
-          tag_exists_error: false
-          force_push_tag: true
-          message: "Release v${{ needs.prepare.outputs.version }}"
 
       - name: Extract git reference
         id: extract_git_ref
