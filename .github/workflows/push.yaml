@@ -112,7 +112,7 @@ jobs:
         with:
           chat: ${{ needs.build.outputs.cicd-bot-telegram-chat-id }}
           token: ${{ needs.build.outputs.cicd-bot-telegram-token }}
-          status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+          status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) (v${{ needs.prepare.outputs.version }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
       - uses: yanzay/notify-telegram@v0.1.0
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
