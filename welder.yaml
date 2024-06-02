@@ -101,6 +101,7 @@ tasks:
     env:
       GOOS: ${arg:os:linux}
       GOARCH: ${arg:arch:amd64}
+      CGO_ENABLED: "0"
     script:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
