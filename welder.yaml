@@ -86,7 +86,7 @@ tasks:
       - |-
         bash -c '
           bash <(curl -Ls "https://dist.simple-container.com/sc.sh") secrets reveal
-          sc stack secret-get -s dist docker-sc-com-password | docker login docker.simple-container.com --username smecsia --password-stdin
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
         '
   build-cloud-helpers:
     runOn: host
