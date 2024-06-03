@@ -61,15 +61,15 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 	var dockerFilePath string
 	if depDir, err := os.MkdirTemp(os.TempDir(), cfg.imageName); err != nil {
 		return nil, errors.Wrapf(err, "failed to create tempDir")
-	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}"), os.ModePerm); err != nil {
+	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\nARG VERSION\n\nFROM ${SOURCE_IMAGE}\nLABEL VERSION=$VERSION"), os.ModePerm); err != nil {
 		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
 	} else {
 		dockerFilePath = filepath.Join(depDir, "Dockerfile")
 	}
 
+	version := lo.If(cfg.deployParams.Version == "", "latest").Else(cfg.deployParams.Version)
 	imageFullUrl := ecrRepo.Repository.RepositoryUrl.ApplyT(func(repoUri string) string {
 		cfg.provisionParams.Log.Info(ctx.Context(), "preparing push for cloud-helpers image to %q...", repoUri)
-		version := lo.If(cfg.deployParams.Version == "", "latest").Else(cfg.deployParams.Version)
 		return fmt.Sprintf("%s:%s", repoUri, version)
 	}).(sdk.StringOutput)
 
@@ -80,6 +80,7 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 			Dockerfile: sdk.String(dockerFilePath),
 			Args: map[string]sdk.StringInput{
 				"SOURCE_IMAGE": chImage.Name,
+				"VERSION":      sdk.String(version),
 			},
 		},
 		SkipPush:  sdk.Bool(false),
