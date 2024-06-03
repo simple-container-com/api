@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type logConfigKey struct{}
@@ -36,26 +37,31 @@ func New() Logger {
 
 func (l *logger) Error(ctx context.Context, format string, a ...any) {
 	if getLogLevel(ctx) <= LogLevelError {
-		fmt.Println("ERROR: " + fmt.Sprintf(format, a...))
+		l.println(ctx, "ERROR", format, a...)
 	}
 }
 
 func (l logger) Warn(ctx context.Context, format string, a ...any) {
 	if getLogLevel(ctx) <= LogLevelWarn {
-		fmt.Println("WARN: " + fmt.Sprintf(format, a...))
+		l.println(ctx, "WARN", format, a...)
 	}
 }
 
 func (l logger) Info(ctx context.Context, format string, a ...any) {
 	if getLogLevel(ctx) <= LogLevelInfo {
-		fmt.Println("INFO: " + fmt.Sprintf(format, a...))
+		l.println(ctx, "INFO", format, a...)
 	}
 }
 
 func (l logger) Debug(ctx context.Context, format string, a ...any) {
 	if getLogLevel(ctx) <= LogLevelDebug {
-		fmt.Println("DEBUG: " + fmt.Sprintf(format, a...))
+		l.println(ctx, "DEBUG", format, a...)
 	}
+}
+
+func (l logger) println(ctx context.Context, levelString, format string, a ...any) {
+	datePrefix := fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02T15:04:05"))
+	fmt.Println(fmt.Sprintf("%s%s: ", datePrefix, levelString) + fmt.Sprintf(format, a...))
 }
 
 func (l logger) Silent(ctx context.Context) context.Context {
