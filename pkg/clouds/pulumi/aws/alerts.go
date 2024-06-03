@@ -75,8 +75,6 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 
 	cfg.provisionParams.Log.Info(ctx.Context(), "pushing cloud-helpers image...")
 	ecrImage, err := docker.NewImage(ctx, helpersImageName, &docker.ImageArgs{
-		ImageName: imageFullUrl,
-		SkipPush:  sdk.Bool(ctx.DryRun()),
 		Build: &docker.DockerBuildArgs{
 			Context:    sdk.String("."),
 			Dockerfile: sdk.String(dockerFilePath),
@@ -84,6 +82,8 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 				"SOURCE_IMAGE": chImage.Name,
 			},
 		},
+		SkipPush:  sdk.Bool(false),
+		ImageName: imageFullUrl,
 		Registry: docker.ImageRegistryArgs{
 			Server:   ecrRepo.Repository.RepositoryUrl,
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
