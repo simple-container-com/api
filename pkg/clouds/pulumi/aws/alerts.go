@@ -13,6 +13,7 @@ import (
 	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws/helpers"
@@ -68,7 +69,8 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 
 	imageFullUrl := ecrRepo.Repository.RepositoryUrl.ApplyT(func(repoUri string) string {
 		cfg.provisionParams.Log.Info(ctx.Context(), "preparing push for cloud-helpers image to %q...", repoUri)
-		return fmt.Sprintf("%s:latest", repoUri)
+		version := lo.If(cfg.deployParams.Version == "", "latest").Else(cfg.deployParams.Version)
+		return fmt.Sprintf("%s:%s", repoUri, version)
 	}).(sdk.StringOutput)
 
 	cfg.provisionParams.Log.Info(ctx.Context(), "pushing cloud-helpers image...")
