@@ -61,7 +61,7 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 	var dockerFilePath string
 	if depDir, err := os.MkdirTemp(os.TempDir(), cfg.imageName); err != nil {
 		return nil, errors.Wrapf(err, "failed to create tempDir")
-	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\nARG VERSION\n\nFROM ${SOURCE_IMAGE}\nLABEL VERSION=$VERSION"), os.ModePerm); err != nil {
+	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=$VERSION"), os.ModePerm); err != nil {
 		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
 	} else {
 		dockerFilePath = filepath.Join(depDir, "Dockerfile")
