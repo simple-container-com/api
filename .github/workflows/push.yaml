@@ -87,8 +87,8 @@ jobs:
         if: ${{ always() }}
         shell: bash
         run: |-
-          cat <<'EOF' >> /tmp/commit_message.txt
-            ${{ github.event.head_commit.message }}
+          cat <<'EOF' > /tmp/commit_message.txt
+            ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
           EOF
           message="$(cat /tmp/commit_message.txt | tr -d '\n')"
           echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
