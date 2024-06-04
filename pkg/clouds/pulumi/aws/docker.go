@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -19,7 +20,12 @@ type dockerImage struct {
 	version    string
 }
 
-func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, image dockerImage) (*docker.Image, error) {
+type dockerImageOut struct {
+	image   *docker.Image
+	addOpts []sdk.ResourceOption
+}
+
+func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, image dockerImage) (*dockerImageOut, error) {
 	repository, err := createEcrRegistry(ctx, stack, params, deployParams, image.name)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create ecr repository")
@@ -42,7 +48,7 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Dockerfile: sdk.String(image.dockerfile),
 			Args:       args,
 		},
-		SkipPush:  sdk.Bool(false),
+		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
 		Registry: docker.ImageRegistryArgs{
 			Server:   repository.Repository.RepositoryUrl,
@@ -53,5 +59,20 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push image %q for stack %q env %q", image.name, stack.Name, deployParams.Environment)
 	}
-	return res, nil
+
+	var addOpts []sdk.ResourceOption
+	if !ctx.DryRun() {
+		cmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-push", image.name), &local.CommandArgs{
+			Create: sdk.Sprintf("docker push %s", imageFullUrl),
+			Update: sdk.Sprintf("docker push %s", imageFullUrl),
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to invoke docker push")
+		}
+		addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{cmd}))
+	}
+	return &dockerImageOut{
+		image:   res,
+		addOpts: addOpts,
+	}, nil
 }

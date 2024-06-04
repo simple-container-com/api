@@ -59,6 +59,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push image for lambda in stack %q env %q", stack.Name, deployParams.Environment)
 	}
+	opts = append(opts, image.addOpts...)
 
 	contextEnvVariables := params.ComputeContext.SecretEnvVariables()
 
@@ -192,7 +193,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	lambdaFunc, err := lambda.NewFunction(ctx, lambdaName, &lambda.FunctionArgs{
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
-		ImageUri:    image.ImageName,
+		ImageUri:    image.image.ImageName,
 		MemorySize:  sdk.IntPtr(lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))),
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
 		LoggingConfig: lambda.FunctionLoggingConfigArgs{

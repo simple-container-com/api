@@ -39,6 +39,7 @@ type EcsFargateRepository struct {
 type ECRImage struct {
 	Container aws.EcsFargateContainer
 	ImageName sdk.StringOutput
+	AddOpts   []sdk.ResourceOption
 }
 
 type EcsFargateOutput struct {
@@ -118,6 +119,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
+	}
+
+	for _, img := range ref.Images {
+		opts = append(opts, img.AddOpts...)
 	}
 
 	iContainer := crInput.IngressContainer
@@ -670,7 +675,8 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 		}
 		return &ECRImage{
 			Container: container,
-			ImageName: image.ImageName,
+			ImageName: image.image.ImageName,
+			AddOpts:   image.addOpts,
 		}, nil
 	})
 	if err != nil {
