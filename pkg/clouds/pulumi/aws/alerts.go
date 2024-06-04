@@ -83,7 +83,7 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 				"VERSION":      sdk.String(version),
 			},
 		},
-		SkipPush:  sdk.Bool(ctx.DryRun()),
+		SkipPush:  sdk.Bool(false),
 		ImageName: imageFullUrl,
 		Registry: docker.ImageRegistryArgs{
 			Server:   ecrRepo.Repository.RepositoryUrl,

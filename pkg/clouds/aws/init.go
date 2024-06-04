@@ -41,6 +41,7 @@ func init() {
 	})
 
 	api.RegisterCloudHelper(api.CloudHelpersRegisterMap{
-		helpers.CHCloudwatchAlertLambda: helpers.NewLambdaHelper,
+		helpers.CHCloudwatchAlertLambda:   helpers.NewCloudwatchLambdaHelper,
+		helpers.CHHealthBridgeAlertLambda: helpers.NewHealthBridgeLambdaHelper,
 	})
 }

@@ -42,7 +42,7 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Dockerfile: sdk.String(image.dockerfile),
 			Args:       args,
 		},
-		SkipPush:  sdk.Bool(ctx.DryRun()),
+		SkipPush:  sdk.Bool(false),
 		ImageName: imageFullUrl,
 		Registry: docker.ImageRegistryArgs{
 			Server:   repository.Repository.RepositoryUrl,

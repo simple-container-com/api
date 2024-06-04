@@ -52,7 +52,7 @@ const (
 
 var secretCache, _ = secretcache.New()
 
-func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
+func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 	l.log.Info(ctx, fmt.Sprintf("lambda executing handler with event... %v", event))
 
 	var alarmEvent *AlarmEvent
@@ -111,23 +111,23 @@ func (l *lambdaCloudHelper) handler(ctx context.Context, event any) error {
 	return nil
 }
 
-type lambdaCloudHelper struct {
+type cloudwatchEventsLambda struct {
 	log logger.Logger
 }
 
-func (l *lambdaCloudHelper) Run() error {
+func (l *cloudwatchEventsLambda) Run() error {
 	l.log.Info(context.Background(), "starting cloudwatch alerts...")
 	lambda.Start(l.handler)
 	l.log.Info(context.Background(), "lambda helper exited")
 	return nil
 }
 
-func (l *lambdaCloudHelper) SetLogger(log logger.Logger) {
+func (l *cloudwatchEventsLambda) SetLogger(log logger.Logger) {
 	l.log = log
 }
 
-func NewLambdaHelper(opts ...api.CloudHelperOption) (api.CloudHelper, error) {
-	res := &lambdaCloudHelper{}
+func NewCloudwatchLambdaHelper(opts ...api.CloudHelperOption) (api.CloudHelper, error) {
+	res := &cloudwatchEventsLambda{}
 
 	for _, opt := range opts {
 		if err := opt(res); err != nil {

@@ -35,7 +35,7 @@ func Test_lambdaCloudHelper_handler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			l := &lambdaCloudHelper{
+			l := &cloudwatchEventsLambda{
 				log: logger.New(),
 			}
 			if err := l.handler(ctx, tt.event); (err != nil) != tt.wantErr {
