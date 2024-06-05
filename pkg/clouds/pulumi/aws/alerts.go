@@ -12,7 +12,7 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lambda"
-	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
+	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -79,14 +79,14 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 		Build: &docker.DockerBuildArgs{
 			Context:    sdk.String("."),
 			Dockerfile: sdk.String(dockerFilePath),
-			Args: map[string]sdk.StringInput{
+			Args: sdk.StringMap{
 				"SOURCE_IMAGE": chImage.Name,
 				"VERSION":      sdk.String(version),
 			},
 		},
-		SkipPush:  sdk.Bool(false),
+		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
-		Registry: docker.ImageRegistryArgs{
+		Registry: docker.RegistryArgs{
 			Server:   ecrRepo.Repository.RepositoryUrl,
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
 			Password: ecrRepo.Password,

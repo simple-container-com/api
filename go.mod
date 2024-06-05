@@ -25,7 +25,6 @@ require (
 	github.com/pulumi/pulumi-awsx/sdk v1.0.6
 	github.com/pulumi/pulumi-cloudflare/sdk/v5 v5.23.0
 	github.com/pulumi/pulumi-command/sdk v0.9.2
-	github.com/pulumi/pulumi-docker/sdk/v3 v3.2.0
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.5.4
 	github.com/pulumi/pulumi-gcp/sdk/v6 v6.67.1
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.14.3
@@ -342,6 +341,7 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
 	github.com/pulumi/esc v0.6.2 // indirect
+	github.com/pulumi/pulumi-docker/sdk/v3 v3.2.0 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.2 // indirect
 	github.com/quasilyte/go-ruleguard/dsl v0.3.22 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
