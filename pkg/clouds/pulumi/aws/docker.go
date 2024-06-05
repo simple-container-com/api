@@ -65,7 +65,7 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		cmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-push", image.name), &local.CommandArgs{
 			Create: sdk.Sprintf("docker push %s", imageFullUrl),
 			Update: sdk.Sprintf("docker push %s", imageFullUrl),
-		})
+		}, sdk.DependsOn([]sdk.Resource{res}))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to invoke docker push")
 		}

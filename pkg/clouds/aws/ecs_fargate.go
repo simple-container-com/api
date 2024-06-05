@@ -220,7 +220,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		if err != nil {
 			return EcsFargateInput{}, errors.Wrapf(err, "service %s", svcName)
 		}
-		context := ""
+		context := "."
 		dockerFile := ""
 		if svc.Build != nil {
 			context = svc.Build.Context
