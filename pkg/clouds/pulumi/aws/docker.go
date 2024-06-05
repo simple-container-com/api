@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -61,16 +60,16 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}
 
 	var addOpts []sdk.ResourceOption
-	if !ctx.DryRun() {
-		cmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-push", image.name), &local.CommandArgs{
-			Create: sdk.Sprintf("docker push %s", imageFullUrl),
-			Update: sdk.Sprintf("docker push %s", imageFullUrl),
-		}, sdk.DependsOn([]sdk.Resource{res}))
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to invoke docker push")
-		}
-		addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{cmd}))
-	}
+	//if !ctx.DryRun() {
+	//	cmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-push", image.name), &local.CommandArgs{
+	//		Create: sdk.Sprintf("docker push %s", res.ImageName),
+	//		Update: sdk.Sprintf("docker push %s", res.ImageName),
+	//	}, sdk.DependsOn([]sdk.Resource{res}))
+	//	if err != nil {
+	//		return nil, errors.Wrapf(err, "failed to invoke docker push")
+	//	}
+	//	addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{cmd}))
+	//}
 	return &dockerImageOut{
 		image:   res,
 		addOpts: addOpts,
