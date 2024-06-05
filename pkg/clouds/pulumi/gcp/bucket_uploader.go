@@ -19,8 +19,9 @@ import (
 
 	"github.com/MShekow/directory-checksum/directory_checksum"
 	"github.com/pkg/errors"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/spf13/afero"
+
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"

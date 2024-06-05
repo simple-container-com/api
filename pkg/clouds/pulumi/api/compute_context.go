@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
+
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"

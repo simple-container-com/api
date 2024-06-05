@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
+
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"

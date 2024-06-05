@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+
 	sdkAws "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 

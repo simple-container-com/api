@@ -4,7 +4,8 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/pulumi/pulumi-docker/sdk/v3/go/docker"
+
+	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -35,7 +36,7 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}).(sdk.StringOutput)
 	params.Log.Info(ctx.Context(), "building and pushing docker image %q (from %q) for stack %q env %q",
 		image.name, image.context, stack.Name, deployParams.Environment)
-	args := map[string]sdk.StringInput{
+	args := sdk.StringMap{
 		"VERSION": sdk.String(image.version),
 	}
 	for k, v := range image.args {
@@ -49,7 +50,7 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		},
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
-		Registry: docker.ImageRegistryArgs{
+		Registry: docker.RegistryArgs{
 			Server:   repository.Repository.RepositoryUrl,
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
 			Password: repository.Password,

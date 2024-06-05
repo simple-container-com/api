@@ -4,10 +4,11 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
+
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
 	ec2V5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
