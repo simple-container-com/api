@@ -21,14 +21,14 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 
 	if !skipRefresh {
 		p.logger.Info(ctx, color.YellowFmt("Refreshing stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(ctx)))
+		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
 			return err
 		}
 		p.logger.Info(ctx, color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
 	p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", stackSource.Name()))
-	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(ctx)))
+	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 			return err
 		}
 		p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", ssSource.Name()))
-		destroyResult, err = ssSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(ctx)))
+		destroyResult, err = ssSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 		if err != nil {
 			return err
 		}

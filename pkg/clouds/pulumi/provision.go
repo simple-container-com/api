@@ -35,7 +35,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
-		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(ctx)))
+		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
 			return err
 		}
@@ -43,13 +43,13 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	}
 	if !params.SkipPreview {
 		p.logger.Info(ctx, color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
-		previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(ctx)))
+		previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))))
 		if err != nil {
 			return err
 		}
 		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
-	updateRes, err := stackSource.Up(ctx, optup.EventStreams(p.watchEvents(ctx)))
+	updateRes, err := stackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextProvision))))
 	if err != nil {
 		return err
 	}

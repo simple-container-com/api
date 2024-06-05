@@ -132,7 +132,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			if err != nil {
 				return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
 			}
-			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(ctx)))
+			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextInit))))
 			if err != nil {
 				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
 			}
