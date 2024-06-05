@@ -70,6 +70,7 @@ func buildAndPushDockerImage(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	//	}
 	//	addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{cmd}))
 	//}
+	addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{res}))
 	return &dockerImageOut{
 		image:   res,
 		addOpts: addOpts,
