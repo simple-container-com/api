@@ -51,7 +51,6 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	params.Log.Info(ctx.Context(), "configure postgres RDS cluster %q for %q in %q",
 		postgresName, input.StackParams.StackName, input.StackParams.Environment)
 
-	// Create a new VPC for our ECS tasks.
 	params.Log.Info(ctx.Context(), "configure VPC for rds postgres cluster %s...", postgresName)
 	vpcName := fmt.Sprintf("%s-vpc", postgresName)
 	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)

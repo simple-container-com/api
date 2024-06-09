@@ -54,7 +54,7 @@ func (s *defaultSubnets) Resources() []sdk.Resource {
 	})
 }
 
-func lookupDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) (lookedupSubnets, error) {
+func getAvailabilityZones(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) (*awsImpl.GetAvailabilityZonesResult, error) {
 	// Get all availability zones in provided region
 	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
 		Filters: []awsImpl.GetAvailabilityZonesFilter{
@@ -64,6 +64,15 @@ func lookupDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 			},
 		},
 	}, sdk.Provider(params.Provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
+	}
+	return availabilityZones, nil
+}
+
+func lookupDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) (lookedupSubnets, error) {
+	// Get all availability zones in provided region
+	availabilityZones, err := getAvailabilityZones(ctx, account, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
 	}
