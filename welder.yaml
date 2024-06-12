@@ -27,6 +27,7 @@ modules:
         - task: build-all
         - task: docker-login
         - task: build-cloud-helpers
+        - task: build-docs
     deploy:
       environments:
         prod:
@@ -51,6 +52,8 @@ tasks:
       - rm -fR ${project:root}/dist/*
       - mkdir -p ${project:root}/.sc/stacks/dist/bundle
       - rm -fR ${project:root}/.sc/stacks/dist/bundle/*
+      - mkdir -p ${project:root}/docs/site
+      - rm -fR ${project:root}/docs/site/*
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"
@@ -114,11 +117,18 @@ tasks:
     script:
       - ${project:root}/bin/sc secrets reveal
       - ${project:root}/bin/sc deploy -s dist -e prod
+      - ${project:root}/bin/sc deploy -s docs -e prod
   tag-release:
     runOn: host
     script:
       - git tag ${project:version} || echo "Already set tag ${project:version}"
       - git push -f origin ${project:version} || echo "Tag ${project:version} already exists in origin"
+  build-docs:
+    image: python:3.9.18
+    workDir: ${project:root}/docs
+    script:
+      - pip install -r requirements.txt
+      - PATH=${PATH}:~/.local/bin mkdocs build
   debug-aws-cloud-helpers:
     runOn: host
     env:
