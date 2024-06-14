@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -118,6 +119,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		"ec2:DescribeInstances",
 		"ec2:AttachNetworkInterface",
 	}
+	params.Log.Info(ctx.Context(), "adding extra roles %q for lambda %q...", strings.Join(awsCloudExtras.AwsRoles, ","), stack.Name)
 	lambdaRoles = append(lambdaRoles, awsCloudExtras.AwsRoles...)
 	extraPolicyName := fmt.Sprintf("%s-xpolicy", stack.Name)
 	params.Log.Info(ctx.Context(), "configure extra policy %q for %q in %q...", extraPolicyName, stack.Name, deployParams.Environment)
