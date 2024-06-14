@@ -46,6 +46,15 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 	stackConfig := crInput.StackConfig
 
+	awsCloudExtras := &aws.CloudExtras{}
+	if stackConfig.CloudExtras != nil {
+		var err error
+		awsCloudExtras, err = api.ConvertDescriptor(stackConfig.CloudExtras, awsCloudExtras)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloudExtras field to AWS Cloud extras format")
+		}
+	}
+
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
@@ -96,6 +105,20 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	// Custom policy allowing to read secrets
+	lambdaRoles := []string{
+		"secretsmanager:GetSecretValue",
+		"secretsmanager:DescribeSecret",
+		"logs:CreateLogStream",
+		"logs:CreateLogGroup",
+		"logs:DescribeLogStreams",
+		"logs:PutLogEvents",
+		"ec2:DescribeNetworkInterfaces",
+		"ec2:CreateNetworkInterface",
+		"ec2:DeleteNetworkInterface",
+		"ec2:DescribeInstances",
+		"ec2:AttachNetworkInterface",
+	}
+	lambdaRoles = append(lambdaRoles, awsCloudExtras.AwsRoles...)
 	extraPolicyName := fmt.Sprintf("%s-xpolicy", stack.Name)
 	params.Log.Info(ctx.Context(), "configure extra policy %q for %q in %q...", extraPolicyName, stack.Name, deployParams.Environment)
 	extraPolicy, err := iam.NewPolicy(ctx, extraPolicyName, &iam.PolicyArgs{
@@ -108,19 +131,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 					{
 						"Effect":   "Allow",
 						"Resource": "*",
-						"Action": []string{
-							"secretsmanager:GetSecretValue",
-							"secretsmanager:DescribeSecret",
-							"logs:CreateLogStream",
-							"logs:CreateLogGroup",
-							"logs:DescribeLogStreams",
-							"logs:PutLogEvents",
-							"ec2:DescribeNetworkInterfaces",
-							"ec2:CreateNetworkInterface",
-							"ec2:DeleteNetworkInterface",
-							"ec2:DescribeInstances",
-							"ec2:AttachNetworkInterface",
-						},
+						"Action":   lambdaRoles,
 					},
 				},
 			}

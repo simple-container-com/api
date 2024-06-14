@@ -67,6 +67,7 @@ type StackConfigSingleImage struct {
 	MaxMemory      *int              `json:"maxMemory" yaml:"maxMemory"` // max memory to use for container
 	Uses           []string          `json:"uses" yaml:"uses"`
 	StaticEgressIP *bool             `json:"staticEgressIP" yaml:"staticEgressIP"` // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
+	CloudExtras    *any              `json:"cloudExtras" yaml:"cloudExtras"`       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 }
 
 type StackConfigCompose struct {
