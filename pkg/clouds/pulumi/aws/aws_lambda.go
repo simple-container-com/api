@@ -178,8 +178,12 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// ENV VARIABLES
 	envVariables := sdk.StringMap{
-		api.CloudHelpersEnv.StackName: sdk.String(stack.Name),
-		api.CloudHelpersEnv.StackEnv:  sdk.String(deployParams.Environment),
+		api.ComputeEnv.StackName:    sdk.String(stack.Name),
+		api.ComputeEnv.StackEnv:     sdk.String(deployParams.Environment),
+		api.ComputeEnv.StackVersion: sdk.String(deployParams.Version),
+	}
+	for envVar, envVal := range params.BaseEnvVariables {
+		envVariables[envVar] = sdk.String(envVal)
 	}
 
 	for _, secret := range secrets {

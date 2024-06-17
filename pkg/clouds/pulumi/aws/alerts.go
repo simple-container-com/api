@@ -170,33 +170,34 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	envVariables := sdk.StringMap{
-		api.CloudHelpersEnv.Type:             sdk.String(awsApi.CHCloudwatchAlertLambda),
-		api.CloudHelpersEnv.AlertName:        sdk.String(cfg.name),
-		api.CloudHelpersEnv.AlertDescription: sdk.String(cfg.description),
-		api.CloudHelpersEnv.StackName:        sdk.String(cfg.deployParams.StackName),
-		api.CloudHelpersEnv.StackEnv:         sdk.String(cfg.deployParams.Environment),
+		api.ComputeEnv.CloudHelperType:  sdk.String(awsApi.CHCloudwatchAlertLambda),
+		api.ComputeEnv.AlertName:        sdk.String(cfg.name),
+		api.ComputeEnv.AlertDescription: sdk.String(cfg.description),
+		api.ComputeEnv.StackName:        sdk.String(cfg.deployParams.StackName),
+		api.ComputeEnv.StackEnv:         sdk.String(cfg.deployParams.Environment),
+		api.ComputeEnv.StackVersion:     sdk.String(cfg.deployParams.Version),
 	}
 
 	if cfg.discordConfig != nil {
 		if s, err := createSecret(ctx,
-			toSecretName(cfg.deployParams, "alert", cfg.name, api.CloudHelpersEnv.DiscordWebhookUrl, cfg.secretSuffix),
-			api.CloudHelpersEnv.DiscordWebhookUrl, cfg.discordConfig.WebhookUrl, cfg.opts...,
+			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.DiscordWebhookUrl, cfg.secretSuffix),
+			api.ComputeEnv.DiscordWebhookUrl, cfg.discordConfig.WebhookUrl, cfg.opts...,
 		); err != nil {
-			return errors.Wrapf(err, "failed to create secret %q", api.CloudHelpersEnv.DiscordWebhookUrl)
+			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.DiscordWebhookUrl)
 		} else {
-			envVariables[api.CloudHelpersEnv.DiscordWebhookUrl] = s.Secret.Arn
+			envVariables[api.ComputeEnv.DiscordWebhookUrl] = s.Secret.Arn
 		}
 	}
 
 	if cfg.telegramConfig != nil {
 		if s, err := createSecret(ctx,
-			toSecretName(cfg.deployParams, "alert", cfg.name, api.CloudHelpersEnv.TelegramToken, cfg.secretSuffix),
-			api.CloudHelpersEnv.TelegramToken, cfg.discordConfig.WebhookUrl, cfg.opts...,
+			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.TelegramToken, cfg.secretSuffix),
+			api.ComputeEnv.TelegramToken, cfg.discordConfig.WebhookUrl, cfg.opts...,
 		); err != nil {
-			return errors.Wrapf(err, "failed to create secret %q", api.CloudHelpersEnv.TelegramToken)
+			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.TelegramToken)
 		} else {
-			envVariables[api.CloudHelpersEnv.TelegramToken] = s.Secret.Arn
-			envVariables[api.CloudHelpersEnv.TelegramChatID] = sdk.String(cfg.telegramConfig.ChatID)
+			envVariables[api.ComputeEnv.TelegramToken] = s.Secret.Arn
+			envVariables[api.ComputeEnv.TelegramChatID] = sdk.String(cfg.telegramConfig.ChatID)
 		}
 	}
 

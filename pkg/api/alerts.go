@@ -1,8 +1,8 @@
 package api
 
 type (
-	CloudHelperType string
-	CHEnvVariables  struct {
+	CloudHelperType     string
+	ComputeEnvVariables struct {
 		DiscordWebhookUrl string
 		TelegramChatID    string
 		TelegramToken     string
@@ -10,19 +10,21 @@ type (
 		AlertDescription  string
 		StackName         string
 		StackEnv          string
-		Type              string
+		CloudHelperType   string
+		StackVersion      string
 	}
 )
 
-var CloudHelpersEnv = CHEnvVariables{
-	Type:              "SIMPLE_CONTAINER_CLOUD_HELPER_TYPE",
+var ComputeEnv = ComputeEnvVariables{
+	CloudHelperType:   "SIMPLE_CONTAINER_CLOUD_HELPER_TYPE",
 	DiscordWebhookUrl: "SIMPLE_CONTAINER_DISCORD_WEBHOOK_URL",
 	TelegramChatID:    "SIMPLE_CONTAINER_TELEGRAM_CHAT_ID",
 	TelegramToken:     "SIMPLE_CONTAINER_TELEGRAM_TOKEN",
 	AlertName:         "SIMPLE_CONTAINER_ALERT_NAME",
 	AlertDescription:  "SIMPLE_CONTAINER_ALERT_DESCRIPTION",
-	StackName:         "SIMPLE_CONTAINER_STACK_NAME",
+	StackName:         "SIMPLE_CONTAINER_STACK",
 	StackEnv:          "SIMPLE_CONTAINER_ENV",
+	StackVersion:      "SIMPLE_CONTAINER_VERSION",
 }
 
 type AlertsConfig struct {

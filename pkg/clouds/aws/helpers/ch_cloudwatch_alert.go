@@ -66,10 +66,10 @@ func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 
 	l.log.Info(ctx, "unmarshalled cloudwatch event: %v", alarmEvent)
 
-	stackName := os.Getenv(api.CloudHelpersEnv.StackName)
-	stackEnv := os.Getenv(api.CloudHelpersEnv.StackEnv)
-	alertName := os.Getenv(api.CloudHelpersEnv.AlertName)
-	alertDescription := os.Getenv(api.CloudHelpersEnv.AlertDescription)
+	stackName := os.Getenv(api.ComputeEnv.StackName)
+	stackEnv := os.Getenv(api.ComputeEnv.StackEnv)
+	alertName := os.Getenv(api.ComputeEnv.AlertName)
+	alertDescription := os.Getenv(api.ComputeEnv.AlertDescription)
 
 	l.log.Info(ctx, "sending event for stack %q in %q", stackName, stackEnv)
 
@@ -86,7 +86,7 @@ func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 	}
 
 	// send discord notifications if configured
-	if discordWebhookSecret := os.Getenv(api.CloudHelpersEnv.DiscordWebhookUrl); discordWebhookSecret == "" {
+	if discordWebhookSecret := os.Getenv(api.ComputeEnv.DiscordWebhookUrl); discordWebhookSecret == "" {
 		l.log.Info(ctx, "discord notification isn't configured")
 	} else if discordWebhook, err := secretCache.GetSecretString(discordWebhookSecret); err != nil {
 		l.log.Error(ctx, "failed to get discord webhook secret value: %v", err)
@@ -97,8 +97,8 @@ func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 	}
 
 	// send telegram notification if configured
-	telegramChatId := os.Getenv(api.CloudHelpersEnv.TelegramChatID)
-	if telegramTokenSecret := os.Getenv(api.CloudHelpersEnv.TelegramToken); telegramTokenSecret == "" {
+	telegramChatId := os.Getenv(api.ComputeEnv.TelegramChatID)
+	if telegramTokenSecret := os.Getenv(api.ComputeEnv.TelegramToken); telegramTokenSecret == "" {
 		l.log.Info(ctx, "telegram notification isn't configured")
 	} else if telegramToken, err := secretCache.GetSecretString(telegramTokenSecret); err != nil {
 		l.log.Error(ctx, "failed to get discord webhook secret value: %v", err)

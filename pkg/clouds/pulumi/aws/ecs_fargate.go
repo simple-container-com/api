@@ -283,6 +283,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					Value: sdk.StringPtr(e.Value),
 				}
 			})...)
+			envVariables = append(envVariables, ecs.TaskDefinitionKeyValuePairArgs{
+				Name:  sdk.StringPtr(api.ComputeEnv.StackVersion),
+				Value: sdk.StringPtr(deployParams.Version),
+			})
 			envVariables = append(envVariables, lo.Map(contextEnvVariables, func(e pApi.ComputeEnvVariable, _ int) ecs.TaskDefinitionKeyValuePairInput {
 				return ecs.TaskDefinitionKeyValuePairArgs{
 					Name:  sdk.StringPtr(e.Name),

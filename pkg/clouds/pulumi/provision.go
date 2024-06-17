@@ -187,8 +187,8 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, res.Type, res.Name, environment)
 
 	envVariables := map[string]string{
-		"SIMPLE_CONTAINER_STACK": stack.Name,
-		"SIMPLE_CONTAINER_ENV":   environment,
+		api.ComputeEnv.StackName: stack.Name,
+		api.ComputeEnv.StackEnv:  environment,
 	}
 	var providerType string
 	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {

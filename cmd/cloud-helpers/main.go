@@ -28,7 +28,7 @@ func main() {
 
 	rootParams.CancelFunc = cancel
 
-	chType := os.Getenv(api.CloudHelpersEnv.Type)
+	chType := os.Getenv(api.ComputeEnv.Type)
 
 	handlerCmd := &cobra.Command{
 		Use:     "cloud-helpers",
@@ -38,7 +38,7 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ch, err := api.NewCloudHelper(chType, api.WithLogger(logger.New()))
 			if err != nil {
-				return errors.Wrapf(err, "failed to init cloud helper, did you pass %q env variable?", api.CloudHelpersEnv.Type)
+				return errors.Wrapf(err, "failed to init cloud helper, did you pass %q env variable?", api.ComputeEnv.Type)
 			}
 			if os.Getenv("SIMPLE_CONTAINER_STARTUP_DELAY") != "" {
 				delay, err := time.ParseDuration(os.Getenv("SIMPLE_CONTAINER_STARTUP_DELAY"))
