@@ -408,7 +408,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	apiGwName := fmt.Sprintf("%s-api-gw", stack.Name)
 	apiGw, err := apigatewayv2.NewApi(ctx, apiGwName, &apigatewayv2.ApiArgs{
 		Name: sdk.String(apiGwName),
-		//RouteKey:     sdk.String("$default"), // TODO: figure out whether this will work
+		// RouteKey:     sdk.String("$default"), // TODO: figure out whether this will work
 		ProtocolType: sdk.String("HTTP"),
 	}, opts...)
 	if err != nil {
