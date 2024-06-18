@@ -219,6 +219,9 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		ImageUri:    image.image.ImageName,
 		MemorySize:  sdk.IntPtr(lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))),
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
+		EphemeralStorage: lambda.FunctionEphemeralStorageArgs{
+			Size: sdk.IntPtr(lo.If(stackConfig.MaxEphemeralStorage != nil, lo.FromPtr(stackConfig.MaxEphemeralStorage)).Else(1024)),
+		},
 		LoggingConfig: lambda.FunctionLoggingConfigArgs{
 			LogFormat:      sdk.String("JSON"),
 			LogGroup:       sdk.String(accessLogGroupName),
@@ -404,7 +407,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	params.Log.Info(ctx.Context(), "configure API gateway for %q in %q...", stack.Name, deployParams.Environment)
 	apiGwName := fmt.Sprintf("%s-api-gw", stack.Name)
 	apiGw, err := apigatewayv2.NewApi(ctx, apiGwName, &apigatewayv2.ApiArgs{
-		Name:         sdk.String(apiGwName),
+		Name: sdk.String(apiGwName),
+		//RouteKey:     sdk.String("$default"), // TODO: figure out whether this will work
 		ProtocolType: sdk.String("HTTP"),
 	}, opts...)
 	if err != nil {
