@@ -500,5 +500,49 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
 	ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
 
+	schedule := lo.FromPtr(awsCloudExtras).LambdaSchedule
+	if schedule != nil {
+		if schedule.Expression == "" {
+			return nil, errors.Errorf("cron expression must be specified for schedule")
+		}
+		if schedule.ApiGWRequest == "" {
+			return nil, errors.Errorf("API Gateway request must be specified for schedule to work properly")
+		}
+
+		expression := schedule.Expression
+		params.Log.Info(ctx.Context(), "configure cron schedule for lambda %s with expression %q...", lambdaName, expression)
+		scheduleName := fmt.Sprintf("%s-schedule", lambdaName)
+		scheduleRule, err := cloudwatch.NewEventRule(ctx, scheduleName, &cloudwatch.EventRuleArgs{
+			ScheduleExpression: sdk.String(expression),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create aws lambda schedule")
+		}
+
+		scheduleTargetName := fmt.Sprintf("%s-schedule-target-new", lambdaName)
+		params.Log.Info(ctx.Context(), "configure cloudwatch event target to trigger lambda %s on schedule: %q...", lambdaName, scheduleTargetName)
+		target, err := cloudwatch.NewEventTarget(ctx, scheduleTargetName, &cloudwatch.EventTargetArgs{
+			Rule:     scheduleRule.Name,
+			Arn:      lambdaFunc.Arn,
+			Input:    sdk.String(schedule.ApiGWRequest),
+			TargetId: sdk.String(scheduleTargetName),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create schedule target for lambda")
+		}
+		ctx.Export(fmt.Sprintf("%s-%s-schedule-target-id", stack.Name, deployParams.Environment), target.TargetId)
+
+		params.Log.Info(ctx.Context(), "configure permission for schedule to invoke lambda %s...", lambdaName)
+		_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-schedule-permission", stack.Name), &lambda.PermissionArgs{
+			Action:    sdk.String("lambda:InvokeFunction"),
+			Function:  lambdaFunc.Arn,
+			Principal: sdk.String("events.amazonaws.com"),
+			SourceArn: scheduleRule.Arn,
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create permission for schedule to invoke lambda")
+		}
+	}
+
 	return output, nil
 }

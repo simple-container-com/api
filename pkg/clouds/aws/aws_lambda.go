@@ -15,6 +15,11 @@ type LambdaInput struct {
 	StackConfig   api.StackConfigSingleImage `json:"stackConfig" yaml:"stackConfig"`
 }
 
+type LambdaSchedule struct {
+	Expression   string `json:"expression" yaml:"expression"`
+	ApiGWRequest string `json:"apiGWRequest" yaml:"apiGWRequest"`
+}
+
 func (l *LambdaInput) Uses() []string {
 	return l.StackConfig.Uses
 }
