@@ -410,6 +410,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to create lambda function")
 	}
 	ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
+	opts = append(opts, sdk.DependsOn([]sdk.Resource{lambdaFunc}))
 
 	var functionEndpoint sdk.StringOutput
 
@@ -514,6 +515,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 				Proxied: true,
 			})
 			if err != nil {
+				// TODO: figure out what the fuck is going on here
 				params.Log.Error(ctx.Context(), "failed to create DNS record %q: %s", stackConfig.Domain, err.Error())
 				return nil, errors.Wrapf(err, "failed to create DNS record %q", stackConfig.Domain)
 			}
