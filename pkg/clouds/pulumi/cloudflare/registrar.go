@@ -181,7 +181,17 @@ async function handleRequest(request) {
 	url.hostname = overrideHost;
 
 	%s
-	return await fetch(url.toString(), request);
+
+	let origResponse = await fetch(url.toString(), request);
+	let response = new Response(origResponse.body, {
+		status: origResponse.status,
+		statusText: origResponse.statusText,
+		headers: origResponse.headers
+	});
+
+	// hack for aws header remapping (TODO: figure out)
+	response.headers.append("www-authenticate", response.headers.get("x-amzn-remapped-www-authenticate"));
+	return response
 };
 `, rule.ToHost, pagesCode)),
 	}, sdk.Provider(r.provider))
