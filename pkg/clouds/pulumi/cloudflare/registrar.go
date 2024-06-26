@@ -144,7 +144,7 @@ func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostN
 func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
 	ruleName := fmt.Sprintf("%s%s-host-override", stack.Name, rule.Name)
 	r.log.Info(ctx.Context(), "configure cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
-	scriptName := fmt.Sprintf("%s-script", ruleName)
+	scriptName := fmt.Sprintf("%s-scrpt", ruleName)
 
 	pagesCode := ""
 	if rule.PathPrefix != "" {
@@ -167,10 +167,7 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 `, rule.OverridePages.NotFoundPage)
 		}
 	}
-	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
-		Name:      sdk.String(scriptName),
-		AccountId: sdk.String(r.accountId),
-		Content: sdk.String(fmt.Sprintf(`
+	workerScriptCode := fmt.Sprintf(`
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request));
 });
@@ -189,14 +186,18 @@ async function handleRequest(request) {
 		headers: origResponse.headers
 	});
 
-	// hack for aws header remapping (TODO: figure out)
 	response.headers.append("www-authenticate", response.headers.get("x-amzn-remapped-www-authenticate"));
 	return response
 };
-`, rule.ToHost, pagesCode)),
+`, rule.ToHost, pagesCode)
+	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
+		Name:      sdk.String(scriptName),
+		AccountId: sdk.String(r.accountId),
+		Content:   sdk.String(workerScriptCode),
 	}, sdk.Provider(r.provider))
 	if err != nil {
-		return nil, err
+		r.log.Error(ctx.Context(), "failed to create worker script: "+err.Error())
+		return nil, errors.Wrapf(err, "failed to create worker script")
 	}
 	ctx.Export(fmt.Sprintf("%s-script", ruleName), workerScript.ToWorkerScriptOutput())
 
