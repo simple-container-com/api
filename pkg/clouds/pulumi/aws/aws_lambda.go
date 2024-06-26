@@ -56,6 +56,12 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		}
 	}
 
+	lambdaRoutingType := lo.FromPtr(awsCloudExtras).LambdaRoutingType
+	if lambdaRoutingType == "" {
+		lambdaRoutingType = aws.LambdaRoutingApiGw
+	}
+	params.Log.Info(ctx.Context(), "lambda will use routing type: %q", lambdaRoutingType)
+
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
@@ -178,9 +184,10 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// ENV VARIABLES
 	envVariables := sdk.StringMap{
-		api.ComputeEnv.StackName:    sdk.String(stack.Name),
-		api.ComputeEnv.StackEnv:     sdk.String(deployParams.Environment),
-		api.ComputeEnv.StackVersion: sdk.String(deployParams.Version),
+		api.ComputeEnv.StackName:                   sdk.String(stack.Name),
+		api.ComputeEnv.StackEnv:                    sdk.String(deployParams.Environment),
+		api.ComputeEnv.StackVersion:                sdk.String(deployParams.Version),
+		"SIMPLE_CONTAINER_AWS_LAMBDA_ROUTING_TYPE": sdk.String(lambdaRoutingType),
 	}
 	for envVar, envVal := range params.BaseEnvVariables {
 		envVariables[envVar] = sdk.String(envVal)
@@ -403,102 +410,125 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to create lambda function")
 	}
 
-	// Create an HTTP API Gateway for the Lambda Function
-	params.Log.Info(ctx.Context(), "configure API gateway for %q in %q...", stack.Name, deployParams.Environment)
-	apiGwName := fmt.Sprintf("%s-api-gw", stack.Name)
-	apiGw, err := apigatewayv2.NewApi(ctx, apiGwName, &apigatewayv2.ApiArgs{
-		Name: sdk.String(apiGwName),
-		// RouteKey:     sdk.String("$default"), // TODO: figure out whether this will work
-		ProtocolType: sdk.String("HTTP"),
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create API gateway for lambda")
-	}
+	var functionEndpoint sdk.StringOutput
 
-	// Create an integration between the HTTP API Gateway and the Lambda Function
-	params.Log.Info(ctx.Context(), "configure API gateway lambda integration for %q in %q...", stack.Name, deployParams.Environment)
-	integration, err := apigatewayv2.NewIntegration(ctx, fmt.Sprintf("%s-api-lambda-integration", stack.Name),
-		&apigatewayv2.IntegrationArgs{
-			ApiId:           apiGw.ID(),
-			IntegrationType: sdk.String("AWS_PROXY"),
-			IntegrationUri:  lambdaFunc.InvokeArn,
+	if lambdaRoutingType == aws.LambdaRoutingApiGw {
+		// Create an HTTP API Gateway for the Lambda Function
+		params.Log.Info(ctx.Context(), "configure API gateway for %q in %q...", stack.Name, deployParams.Environment)
+		apiGwName := fmt.Sprintf("%s-api-gw", stack.Name)
+		apiGw, err := apigatewayv2.NewApi(ctx, apiGwName, &apigatewayv2.ApiArgs{
+			Name: sdk.String(apiGwName),
+			// RouteKey:     sdk.String("$default"), // TODO: figure out whether this will work
+			ProtocolType: sdk.String("HTTP"),
 		}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create API gateway lambda integration")
-	}
-
-	// Create a route for the HTTP API Gateway for invoking the Lambda Function
-	params.Log.Info(ctx.Context(), "configure API gateway route for %q in %q...", stack.Name, deployParams.Environment)
-	routeName := fmt.Sprintf("%s-route", stack.Name)
-	route, err := apigatewayv2.NewRoute(ctx, routeName, &apigatewayv2.RouteArgs{
-		ApiId:         apiGw.ID(),
-		OperationName: sdk.String("ANY"),
-		RouteKey:      sdk.String("ANY /{proxy+}"), // Define the catch-all route
-		Target: integration.ID().ApplyT(func(id string) string {
-			return fmt.Sprintf("integrations/%s", id)
-		}).(sdk.StringOutput),
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create API gateway route for lambda")
-	}
-
-	// Grant the API Gateway permission to invoke the Lambda function
-	_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-permission", stack.Name), &lambda.PermissionArgs{
-		Action:    sdk.String("lambda:InvokeFunction"),
-		Function:  lambdaFunc.Arn,
-		Principal: sdk.String("apigateway.amazonaws.com"),
-		SourceArn: sdk.All(apiGw.ExecutionArn, route.RouteKey).ApplyT(func(args []any) string {
-			executionArn, _ := args[0], args[1]
-			return fmt.Sprintf("%s/*/*/{proxy+}", executionArn)
-		}).(sdk.StringOutput),
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create permission for api gateway to invoke lambda")
-	}
-
-	// Define the stage. This is the URL path where your API will be accessible
-	params.Log.Info(ctx.Context(), "configure API gateway stage for %q in %q...", stack.Name, deployParams.Environment)
-	_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", stack.Name), &apigatewayv2.StageArgs{
-		ApiId: apiGw.ID(),
-		Name:  sdk.String(lo.If(stackConfig.BasePath == "", "api").Else(stackConfig.BasePath)),
-		Description: route.ID().ApplyT(func(routeId string) string {
-			return fmt.Sprintf("stage for route %s", routeId)
-		}).(sdk.StringOutput),
-		AutoDeploy: sdk.Bool(true),
-		AccessLogSettings: apigatewayv2.StageAccessLogSettingsArgs{
-			DestinationArn: logGroup.Arn,
-			Format:         sdk.String(`{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller":"$context.identity.caller", "user":"$context.identity.user", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "resourcePath":"$context.resourcePath", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength", "integrationError":"$context.integrationErrorMessage"}`),
-		},
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create API gateway stage")
-	}
-
-	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", stackConfig.Domain, stack.Name, deployParams.Environment)
-	mainRecord := sdk.All(apiGw.ApiEndpoint).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
-		apiEndpointUrl, err := url.Parse(fmt.Sprintf("%s", vals[0]))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse URL %q", vals[0])
-		}
-		_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
-			Name:     lambdaName,
-			FromHost: stackConfig.Domain,
-			ToHost:   apiEndpointUrl.Host,
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", stackConfig.Domain, apiEndpointUrl.Host)
+			return nil, errors.Wrapf(err, "failed to create API gateway for lambda")
 		}
 
-		return params.Registrar.NewRecord(ctx, api.DnsRecord{
-			Name:    stackConfig.Domain,
-			Type:    "CNAME",
-			Value:   apiEndpointUrl.Host,
-			Proxied: true,
-		})
-	}).(sdk.AnyOutput)
-	ref.MainDnsRecord = mainRecord
-	ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
-	ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
+		// Create an integration between the HTTP API Gateway and the Lambda Function
+		params.Log.Info(ctx.Context(), "configure API gateway lambda integration for %q in %q...", stack.Name, deployParams.Environment)
+		integration, err := apigatewayv2.NewIntegration(ctx, fmt.Sprintf("%s-api-lambda-integration", stack.Name),
+			&apigatewayv2.IntegrationArgs{
+				ApiId:           apiGw.ID(),
+				IntegrationType: sdk.String("AWS_PROXY"),
+				IntegrationUri:  lambdaFunc.InvokeArn,
+			}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create API gateway lambda integration")
+		}
+
+		// Create a route for the HTTP API Gateway for invoking the Lambda Function
+		params.Log.Info(ctx.Context(), "configure API gateway route for %q in %q...", stack.Name, deployParams.Environment)
+		routeName := fmt.Sprintf("%s-route", stack.Name)
+		route, err := apigatewayv2.NewRoute(ctx, routeName, &apigatewayv2.RouteArgs{
+			ApiId:         apiGw.ID(),
+			OperationName: sdk.String("ANY"),
+			RouteKey:      sdk.String("ANY /{proxy+}"), // Define the catch-all route
+			Target: integration.ID().ApplyT(func(id string) string {
+				return fmt.Sprintf("integrations/%s", id)
+			}).(sdk.StringOutput),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create API gateway route for lambda")
+		}
+
+		// Grant the API Gateway permission to invoke the Lambda function
+		_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-permission", stack.Name), &lambda.PermissionArgs{
+			Action:    sdk.String("lambda:InvokeFunction"),
+			Function:  lambdaFunc.Arn,
+			Principal: sdk.String("apigateway.amazonaws.com"),
+			SourceArn: sdk.All(apiGw.ExecutionArn, route.RouteKey).ApplyT(func(args []any) string {
+				executionArn, _ := args[0], args[1]
+				return fmt.Sprintf("%s/*/*/{proxy+}", executionArn)
+			}).(sdk.StringOutput),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create permission for api gateway to invoke lambda")
+		}
+
+		// Define the stage. This is the URL path where your API will be accessible
+		params.Log.Info(ctx.Context(), "configure API gateway stage for %q in %q...", stack.Name, deployParams.Environment)
+		_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", stack.Name), &apigatewayv2.StageArgs{
+			ApiId: apiGw.ID(),
+			Name:  sdk.String(lo.If(stackConfig.BasePath == "", "api").Else(stackConfig.BasePath)),
+			Description: route.ID().ApplyT(func(routeId string) string {
+				return fmt.Sprintf("stage for route %s", routeId)
+			}).(sdk.StringOutput),
+			AutoDeploy: sdk.Bool(true),
+			AccessLogSettings: apigatewayv2.StageAccessLogSettingsArgs{
+				DestinationArn: logGroup.Arn,
+				Format:         sdk.String(`{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "caller":"$context.identity.caller", "user":"$context.identity.user", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "resourcePath":"$context.resourcePath", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength", "integrationError":"$context.integrationErrorMessage"}`),
+			},
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create API gateway stage")
+		}
+
+		functionEndpoint = apiGw.ApiEndpoint
+
+	} else if lambdaRoutingType == aws.LambdaRoutingFunctionUrl {
+		functionUrlName := fmt.Sprintf("%s-url", lambdaName)
+		functionUrl, err := lambda.NewFunctionUrl(ctx, functionUrlName, &lambda.FunctionUrlArgs{
+			AuthorizationType: sdk.String("NONE"),
+			FunctionName:      lambdaFunc.Name,
+			InvokeMode:        sdk.String("BUFFERED"),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create lambda function url")
+		}
+		ctx.Export(fmt.Sprintf("%s-%s-function-url", stack.Name, deployParams.Environment), functionUrl.FunctionUrl)
+		functionEndpoint = functionUrl.FunctionUrl
+	}
+
+	if stackConfig.Domain != "" {
+		params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", stackConfig.Domain, stack.Name, deployParams.Environment)
+		mainRecord := sdk.All(functionEndpoint).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
+			apiEndpointUrl, err := url.Parse(fmt.Sprintf("%s", vals[0]))
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to parse URL %q", vals[0])
+			}
+			_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
+				Name:     lambdaName,
+				FromHost: stackConfig.Domain,
+				ToHost:   apiEndpointUrl.Host,
+			})
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", stackConfig.Domain, apiEndpointUrl.Host)
+			}
+
+			return params.Registrar.NewRecord(ctx, api.DnsRecord{
+				Name:    stackConfig.Domain,
+				Type:    "CNAME",
+				Value:   apiEndpointUrl.Host,
+				Proxied: true,
+			})
+		}).(sdk.AnyOutput)
+		ref.MainDnsRecord = mainRecord
+		ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
+		ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
+	} else {
+		params.Log.Warn(ctx.Context(), "skipping configuration for DNS record: no domain was provided")
+	}
 
 	schedule := lo.FromPtr(awsCloudExtras).LambdaSchedule
 	if schedule != nil {

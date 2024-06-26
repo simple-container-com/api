@@ -17,6 +17,10 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
+type Provisioner interface {
+	NewWorkerScript(ctx *sdk.Context, workerName string, hostName string, script string) (*api.ResourceOutput, error)
+}
+
 type provisioner struct {
 	provider  *cfImpl.Provider
 	config    *cfApi.RegistrarConfig
@@ -106,6 +110,34 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 
 	return &api.ResourceOutput{
 		Ref: ref.ID(),
+	}, nil
+}
+
+func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostName string, script string) (*api.ResourceOutput, error) {
+	ruleName := fmt.Sprintf("%s-worker-script", workerName)
+	r.log.Info(ctx.Context(), "configure cloudflare worker script %q...", workerName)
+	workerScript, err := cfImpl.NewWorkerScript(ctx, fmt.Sprintf("%s-worker-script", workerName), &cfImpl.WorkerScriptArgs{
+		Name:      sdk.String(workerName),
+		AccountId: sdk.String(r.accountId),
+		Content:   sdk.String(script),
+	}, sdk.Provider(r.provider))
+	if err != nil {
+		return nil, err
+	}
+	routeName := fmt.Sprintf("%s-route", ruleName)
+	workerRoute, err := cfImpl.NewWorkerRoute(ctx, routeName, &cfImpl.WorkerRouteArgs{
+		ZoneId:     sdk.String(r.zone.ZoneId),
+		Pattern:    sdk.String(fmt.Sprintf("%s/*", hostName)),
+		ScriptName: workerScript.Name,
+	}, sdk.Provider(r.provider))
+	if err != nil {
+		return nil, err
+	}
+	ctx.Export(fmt.Sprintf("%s-route", ruleName), workerRoute.ToWorkerRouteOutput())
+
+	ctx.Export(fmt.Sprintf("%s-script", ruleName), workerScript.ToWorkerScriptOutput())
+	return &api.ResourceOutput{
+		Ref: workerRoute.ID(),
 	}, nil
 }
 

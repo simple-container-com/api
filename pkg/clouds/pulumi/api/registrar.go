@@ -10,6 +10,7 @@ type Registrar interface {
 	MainDomain() string
 	ProvisionRecords(ctx *sdk.Context, params ProvisionParams) (*api.ResourceOutput, error)
 	NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error)
+	// NewOverrideHeaderRule overrides host header from one to another (only supported on certain providers)
 	NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule OverrideHeaderRule) (*api.ResourceOutput, error)
 }
 
