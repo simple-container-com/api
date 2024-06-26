@@ -409,6 +409,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create lambda function")
 	}
+	ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
 
 	var functionEndpoint sdk.StringOutput
 
@@ -513,7 +514,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 				Proxied: true,
 			})
 			if err != nil {
-				params.Log.Error(ctx.Context(), "failed to create DNS record %q", stackConfig.Domain)
+				params.Log.Error(ctx.Context(), "failed to create DNS record %q: %s", stackConfig.Domain, err.Error())
 				return nil, errors.Wrapf(err, "failed to create DNS record %q", stackConfig.Domain)
 			}
 			_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
@@ -529,7 +530,6 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		}).(sdk.AnyOutput)
 		ref.MainDnsRecord = mainRecord
 		ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
-		ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
 	} else {
 		params.Log.Warn(ctx.Context(), "skipping configuration for DNS record: no domain was provided")
 	}
