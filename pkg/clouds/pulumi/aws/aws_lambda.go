@@ -503,7 +503,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	if stackConfig.Domain != "" {
 		params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", stackConfig.Domain, stack.Name, deployParams.Environment)
-		mainRecord := sdk.All(functionEndpoint).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
+		mainRecord := sdk.All(functionEndpoint, lambdaFunc).ApplyT(func(vals []any) (*api.ResourceOutput, error) {
 			apiEndpointUrl, err := url.Parse(fmt.Sprintf("%s", vals[0]))
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to parse URL %q", vals[0])
