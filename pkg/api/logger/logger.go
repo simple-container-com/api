@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 type logConfigKey struct{}
@@ -37,7 +39,7 @@ func New() Logger {
 
 func (l *logger) Error(ctx context.Context, format string, a ...any) {
 	if getLogLevel(ctx) <= LogLevelError {
-		l.println(ctx, "ERROR", format, a...)
+		l.println(ctx, "ERROR", color.RedString(format, a...))
 	}
 }
 
