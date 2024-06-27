@@ -71,9 +71,9 @@ type StaticSiteOutput struct {
 	MainBucketPublicAccessBlock *s3.BucketPublicAccessBlock
 	MainBucketOwnershipControls *s3.BucketOwnershipControls
 	MainBucketPolicy            *s3.BucketPolicy
-	MainRecord                  sdk.AnyOutput
+	MainRecord                  *api.ResourceOutput
 	WwwBucket                   *s3.Bucket
-	WwwRecord                   sdk.AnyOutput
+	WwwRecord                   *api.ResourceOutput
 }
 
 func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
@@ -173,16 +173,17 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		})
 	}
 
-	mainRecord := mainBucket.WebsiteEndpoint.ApplyT(func(endpoint string) (*api.ResourceOutput, error) {
-		return input.Registrar.NewRecord(ctx, api.DnsRecord{
-			Name:    input.Domain,
-			Type:    "CNAME",
-			Value:   endpoint,
-			Proxied: true,
-		})
-	}).(sdk.AnyOutput)
+	mainRecord, err := input.Registrar.NewRecord(ctx, api.DnsRecord{
+		Name:     input.Domain,
+		Type:     "CNAME",
+		ValueOut: mainBucket.WebsiteEndpoint,
+		Proxied:  true,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision DNS record")
+	}
 
-	var wwwRecord sdk.AnyOutput
+	var wwwRecord *api.ResourceOutput
 	var wwwBucket *s3.Bucket
 	if input.ProvisionWwwDomain {
 		// Configure S3 bucket to redirect requests for www.mydomain.com to mydomain.com
@@ -197,14 +198,15 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision www bucket")
 		}
-		wwwRecord = wwwBucket.WebsiteEndpoint.ApplyT(func(endpoint string) (*api.ResourceOutput, error) {
-			return input.Registrar.NewRecord(ctx, api.DnsRecord{
-				Name:    wwwDomain,
-				Type:    "CNAME",
-				Value:   endpoint,
-				Proxied: true,
-			})
-		}).(sdk.AnyOutput)
+		wwwRecord, err = input.Registrar.NewRecord(ctx, api.DnsRecord{
+			Name:     wwwDomain,
+			Type:     "CNAME",
+			ValueOut: wwwBucket.WebsiteEndpoint,
+			Proxied:  true,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision CNAME DNS record for www bucket")
+		}
 	}
 
 	ctx.Export(fmt.Sprintf("%s-regionalDomainName", input.ServiceName), mainBucket.BucketRegionalDomainName)

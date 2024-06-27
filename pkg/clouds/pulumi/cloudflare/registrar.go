@@ -73,11 +73,17 @@ func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionPa
 			suffix = hex.EncodeToString(sum[:])
 		}
 		recordName := fmt.Sprintf("%s%s-record", record.Name, suffix)
+
+		var recordValue sdk.StringOutput
+		recordValue = record.ValueOut
+		if record.Value != "" {
+			recordValue = sdk.String(record.Value).ToStringOutput()
+		}
 		res, err := cfImpl.NewRecord(ctx, recordName, &cfImpl.RecordArgs{
 			ZoneId:  sdk.String(r.zone.ZoneId),
 			Name:    sdk.String(record.Name),
 			Type:    sdk.String(record.Type),
-			Value:   sdk.StringPtr(record.Value),
+			Value:   recordValue,
 			Proxied: sdk.Bool(record.Proxied),
 		}, sdk.Provider(r.provider))
 		if err != nil {
@@ -96,12 +102,16 @@ func (r *provisioner) MainDomain() string {
 
 func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error) {
 	r.log.Info(ctx.Context(), "configure DNS record %q with type %q and value %q", dnsRecord.Name, dnsRecord.Type, dnsRecord.Value)
-
+	var recordValue sdk.StringOutput
+	recordValue = dnsRecord.ValueOut
+	if dnsRecord.Value != "" {
+		recordValue = sdk.String(dnsRecord.Value).ToStringOutput()
+	}
 	ref, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", dnsRecord.Name), &cfImpl.RecordArgs{
 		ZoneId:  sdk.String(r.zone.ZoneId),
 		Name:    sdk.String(dnsRecord.Name),
 		Type:    sdk.String(dnsRecord.Type),
-		Value:   sdk.StringPtr(dnsRecord.Value),
+		Value:   recordValue,
 		Proxied: sdk.Bool(dnsRecord.Proxied),
 	}, sdk.Provider(r.provider))
 	if err != nil {
@@ -144,7 +154,7 @@ func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostN
 func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
 	ruleName := fmt.Sprintf("%s%s-host-override", stack.Name, rule.Name)
 	r.log.Info(ctx.Context(), "configure cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
-	scriptName := fmt.Sprintf("%s-scrpt", ruleName)
+	scriptName := fmt.Sprintf("%s-script", ruleName)
 
 	pagesCode := ""
 	if rule.PathPrefix != "" {
@@ -167,7 +177,7 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 `, rule.OverridePages.NotFoundPage)
 		}
 	}
-	workerScriptCode := fmt.Sprintf(`
+	workerScriptCode := `
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request));
 });
@@ -189,11 +199,11 @@ async function handleRequest(request) {
 	response.headers.append("www-authenticate", response.headers.get("x-amzn-remapped-www-authenticate"));
 	return response
 };
-`, rule.ToHost, pagesCode)
+`
 	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
 		Name:      sdk.String(scriptName),
 		AccountId: sdk.String(r.accountId),
-		Content:   sdk.String(workerScriptCode),
+		Content:   sdk.Sprintf(workerScriptCode, rule.ToHost, sdk.String(pagesCode)),
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		r.log.Error(ctx.Context(), "failed to create worker script: "+err.Error())

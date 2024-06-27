@@ -84,17 +84,17 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		sdk.All(repo.Project, repo.RepositoryId).ApplyT(func(outs []any) any {
 			project, repoId := outs[0].(string), outs[1].(string)
 			dnsRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
-				Name:    *arCfg.Domain,
-				Value:   targetDomain,
-				Type:    "CNAME",
-				Proxied: true,
+				Name:     *arCfg.Domain,
+				ValueOut: sdk.String(targetDomain).ToStringOutput(),
+				Type:     "CNAME",
+				Proxied:  true,
 			})
 			if err != nil {
 				return errors.Wrapf(err, "failed to create new DNS record for artifact registry")
 			}
 			_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
 				FromHost:   *arCfg.Domain,
-				ToHost:     targetDomain,
+				ToHost:     sdk.String(targetDomain),
 				PathPrefix: fmt.Sprintf("/%s/%s", project, repoId),
 			})
 			if err != nil {

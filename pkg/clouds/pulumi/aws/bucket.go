@@ -191,16 +191,16 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 			_, err = input.Registrar.NewOverrideHeaderRule(ctx, input.Stack, pApi.OverrideHeaderRule{
 				Name:     input.Name,
 				FromHost: staticSite.Domain,
-				ToHost:   endpoint,
+				ToHost:   bucket.BucketDomainName,
 			})
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", staticSite.Domain, endpoint)
 			}
 			return input.Registrar.NewRecord(ctx, api.DnsRecord{
-				Name:    staticSite.Domain,
-				Type:    "CNAME",
-				Value:   endpoint,
-				Proxied: true,
+				Name:     staticSite.Domain,
+				Type:     "CNAME",
+				ValueOut: bucket.BucketDomainName,
+				Proxied:  true,
 			})
 		}).(sdk.AnyOutput)
 	}

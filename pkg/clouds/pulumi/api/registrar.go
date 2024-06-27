@@ -17,7 +17,7 @@ type Registrar interface {
 type OverrideHeaderRule struct {
 	Name       string
 	FromHost   string
-	ToHost     string
+	ToHost     sdk.StringInput
 	PathPrefix string
 
 	OverridePages *OverridePagesRule

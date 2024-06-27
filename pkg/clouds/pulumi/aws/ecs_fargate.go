@@ -49,7 +49,7 @@ type EcsFargateOutput struct {
 	ExecPolicyAttachment *iam.RolePolicyAttachment
 	Service              *ecs.FargateService
 	LoadBalancer         *lb.ApplicationLoadBalancer
-	MainDnsRecord        sdk.AnyOutput
+	MainDnsRecord        *api.ResourceOutput
 	Cluster              *ecsV5.Cluster
 	Policy               *iam.Policy
 	Secrets              []*CreatedSecret
@@ -102,16 +102,16 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	}
 
 	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", crInput.Domain, stack.Name, deployParams.Environment)
-	mainRecord := ref.LoadBalancer.LoadBalancer.DnsName().ApplyT(func(endpoint string) (*api.ResourceOutput, error) {
-		return params.Registrar.NewRecord(ctx, api.DnsRecord{
-			Name:    crInput.Domain,
-			Type:    "CNAME",
-			Value:   endpoint,
-			Proxied: true,
-		})
-	}).(sdk.AnyOutput)
+	mainRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
+		Name:     crInput.Domain,
+		Type:     "CNAME",
+		ValueOut: ref.LoadBalancer.LoadBalancer.DnsName(),
+		Proxied:  true,
+	})
+	if err != nil {
+		return output, errors.Wrapf(err, "failed to provision main dns record")
+	}
 	ref.MainDnsRecord = mainRecord
-	ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), mainRecord)
 
 	return output, nil
 }

@@ -23,7 +23,7 @@ import (
 )
 
 type LambdaOutput struct {
-	MainDnsRecord sdk.AnyOutput
+	sdk.Output
 }
 
 func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -486,8 +486,10 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 		ctx.Export(fmt.Sprintf("%s-%s-function-url", stack.Name, deployParams.Environment), apiGw.ApiEndpoint)
 		if stackConfig.Domain != "" {
-			ref.MainDnsRecord = provisionDNSForLambda(ctx, stack, params, lambdaName, stackConfig.Domain, apiGw.ApiEndpoint)
-			ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), ref.MainDnsRecord)
+			_, err := provisionDNSForLambda(ctx, stack, params, lambdaName, stackConfig.Domain, apiGw.ApiEndpoint)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to provision DNS for lambda")
+			}
 		}
 	} else if lambdaRoutingType == aws.LambdaRoutingFunctionUrl {
 		functionUrlName := fmt.Sprintf("%s-url", lambdaName)
@@ -502,8 +504,10 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		}
 		ctx.Export(fmt.Sprintf("%s-%s-function-url", stack.Name, deployParams.Environment), functionUrl.FunctionUrl)
 		if stackConfig.Domain != "" {
-			ref.MainDnsRecord = provisionDNSForLambda(ctx, stack, params, lambdaName, stackConfig.Domain, functionUrl.FunctionUrl)
-			ctx.Export(fmt.Sprintf("%s-%s-dns-record", stack.Name, deployParams.Environment), ref.MainDnsRecord)
+			_, err := provisionDNSForLambda(ctx, stack, params, lambdaName, stackConfig.Domain, functionUrl.FunctionUrl)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to provision DNS for lambda")
+			}
 		}
 	}
 
@@ -554,32 +558,34 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	return output, nil
 }
 
-func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, lambdaName, domain string, endpointUrl sdk.StringOutput) sdk.AnyOutput {
+func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, lambdaName, domain string, endpointUrl sdk.StringOutput) (*api.ResourceOutput, error) {
 	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", domain, stack.Name)
-	return endpointUrl.ApplyT(func(val string) (*api.ResourceOutput, error) {
-		parsedEndpointUrl, err := url.Parse(val)
+
+	endpointHost := endpointUrl.ApplyT(func(epUrl string) (string, error) {
+		parsed, err := url.Parse(epUrl)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse URL %q", val)
+			return "", errors.Wrapf(err, "failed to parse URL %q", epUrl)
 		}
-		record, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
-			Name:    domain,
-			Type:    "CNAME",
-			Value:   parsedEndpointUrl.Host,
-			Proxied: true,
-		})
-		if err != nil {
-			params.Log.Error(ctx.Context(), "failed to create DNS record %q: %s", domain, err.Error())
-			return nil, errors.Wrapf(err, "failed to create DNS record %q", domain)
-		}
-		_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
-			Name:     lambdaName,
-			FromHost: domain,
-			ToHost:   parsedEndpointUrl.Host,
-		})
-		if err != nil {
-			params.Log.Error(ctx.Context(), "failed to create override header rule for %q", domain)
-			return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", domain, parsedEndpointUrl.Host)
-		}
-		return record, nil
-	}).(sdk.AnyOutput)
+		return parsed.Host, nil
+	}).(sdk.StringOutput)
+	record, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
+		Name:     domain,
+		Type:     "CNAME",
+		ValueOut: endpointHost,
+		Proxied:  true,
+	})
+	if err != nil {
+		params.Log.Error(ctx.Context(), "failed to create DNS record %q: %s", domain, err.Error())
+		return nil, errors.Wrapf(err, "failed to create DNS record %q", domain)
+	}
+	_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
+		Name:     lambdaName,
+		FromHost: domain,
+		ToHost:   endpointHost,
+	})
+	if err != nil {
+		params.Log.Error(ctx.Context(), "failed to create override header rule for %q", domain)
+		return nil, errors.Wrapf(err, "failed to create override host rule from %q", domain)
+	}
+	return record, nil
 }
