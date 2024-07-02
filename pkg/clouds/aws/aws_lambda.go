@@ -16,9 +16,9 @@ type LambdaInput struct {
 }
 
 type LambdaSchedule struct {
-	Name         string `json:"name,omitempty" yaml:"name,omitempty"`
-	Expression   string `json:"expression" yaml:"expression"`
-	ApiGWRequest string `json:"apiGWRequest" yaml:"apiGWRequest"`
+	Name       string `json:"name,omitempty" yaml:"name,omitempty"`
+	Expression string `json:"expression" yaml:"expression"`
+	Request    string `json:"request" yaml:"request"`
 }
 
 func (l *LambdaInput) Uses() []string {

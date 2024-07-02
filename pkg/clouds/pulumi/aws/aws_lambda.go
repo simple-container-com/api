@@ -572,7 +572,7 @@ func provisionScheduleForLambda(ctx *sdk.Context, stack api.Stack, params pApi.P
 	if schedule.Expression == "" {
 		return errors.Errorf("cron expression must be specified for schedule %q", schedule.Name)
 	}
-	if schedule.ApiGWRequest == "" {
+	if schedule.Request == "" {
 		return errors.Errorf("API Gateway request must be specified for schedule %q to work properly", schedule.Name)
 	}
 
@@ -591,7 +591,7 @@ func provisionScheduleForLambda(ctx *sdk.Context, stack api.Stack, params pApi.P
 	_, err = cloudwatch.NewEventTarget(ctx, scheduleTargetName, &cloudwatch.EventTargetArgs{
 		Rule:     scheduleRule.Name,
 		Arn:      lambdaFunc.Arn,
-		Input:    sdk.String(schedule.ApiGWRequest),
+		Input:    sdk.String(schedule.Request),
 		TargetId: sdk.String(scheduleTargetName),
 	}, opts...)
 	if err != nil {
