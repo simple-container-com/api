@@ -56,7 +56,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		}
 	}
 
-	lambdaRoutingType := lo.FromPtr(awsCloudExtras).LambdaRoutingType
+	cloudExtras := lo.FromPtr(awsCloudExtras)
+	lambdaRoutingType := cloudExtras.LambdaRoutingType
 	if lambdaRoutingType == "" {
 		lambdaRoutingType = aws.LambdaRoutingApiGw
 	}
@@ -511,47 +512,22 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		}
 	}
 
-	schedule := lo.FromPtr(awsCloudExtras).LambdaSchedule
-	if schedule != nil {
-		if schedule.Expression == "" {
-			return nil, errors.Errorf("cron expression must be specified for schedule")
-		}
-		if schedule.ApiGWRequest == "" {
-			return nil, errors.Errorf("API Gateway request must be specified for schedule to work properly")
-		}
-
-		expression := schedule.Expression
-		params.Log.Info(ctx.Context(), "configure cron schedule for lambda %s with expression %q...", lambdaName, expression)
-		scheduleName := fmt.Sprintf("%s-schedule", lambdaName)
-		scheduleRule, err := cloudwatch.NewEventRule(ctx, scheduleName, &cloudwatch.EventRuleArgs{
-			ScheduleExpression: sdk.String(expression),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create aws lambda schedule")
-		}
-
-		scheduleTargetName := fmt.Sprintf("%s-schedule-target-new", lambdaName)
-		params.Log.Info(ctx.Context(), "configure cloudwatch event target to trigger lambda %s on schedule: %q...", lambdaName, scheduleTargetName)
-		target, err := cloudwatch.NewEventTarget(ctx, scheduleTargetName, &cloudwatch.EventTargetArgs{
-			Rule:     scheduleRule.Name,
-			Arn:      lambdaFunc.Arn,
-			Input:    sdk.String(schedule.ApiGWRequest),
-			TargetId: sdk.String(scheduleTargetName),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create schedule target for lambda")
-		}
-		ctx.Export(fmt.Sprintf("%s-%s-schedule-target-id", stack.Name, deployParams.Environment), target.TargetId)
-
-		params.Log.Info(ctx.Context(), "configure permission for schedule to invoke lambda %s...", lambdaName)
-		_, err = lambda.NewPermission(ctx, fmt.Sprintf("%s-schedule-permission", stack.Name), &lambda.PermissionArgs{
-			Action:    sdk.String("lambda:InvokeFunction"),
-			Function:  lambdaFunc.Arn,
-			Principal: sdk.String("events.amazonaws.com"),
-			SourceArn: scheduleRule.Arn,
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create permission for schedule to invoke lambda")
+	schedules := make([]aws.LambdaSchedule, 0)
+	if cloudExtras.LambdaSchedule != nil {
+		schedules = append(schedules, *cloudExtras.LambdaSchedule)
+	}
+	schedules = append(schedules, cloudExtras.LambdaSchedules...)
+	schedulesByName := lo.GroupBy(schedules, func(s aws.LambdaSchedule) string {
+		return s.Name
+	})
+	if _, found := lo.Find(lo.Entries(schedulesByName), func(s lo.Entry[string, []aws.LambdaSchedule]) bool {
+		return len(s.Value) > 1
+	}); found {
+		return nil, errors.Errorf("schedules must have unique names")
+	}
+	for _, schedule := range schedules {
+		if err := provisionScheduleForLambda(ctx, stack, params, lambdaName, lambdaFunc, schedule, opts); err != nil {
+			return nil, errors.Wrapf(err, "failed to provision schedule %q for lambda", schedule.Name)
 		}
 	}
 
@@ -588,4 +564,50 @@ func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.Provis
 		return nil, errors.Wrapf(err, "failed to create override host rule from %q", domain)
 	}
 	return record, nil
+}
+
+func provisionScheduleForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams,
+	lambdaName string, lambdaFunc *lambda.Function, schedule aws.LambdaSchedule, opts []sdk.ResourceOption,
+) error {
+	if schedule.Expression == "" {
+		return errors.Errorf("cron expression must be specified for schedule %q", schedule.Name)
+	}
+	if schedule.ApiGWRequest == "" {
+		return errors.Errorf("API Gateway request must be specified for schedule %q to work properly", schedule.Name)
+	}
+
+	expression := schedule.Expression
+	params.Log.Info(ctx.Context(), "configure cron schedule for lambda %s with expression %q...", lambdaName, expression)
+	scheduleName := fmt.Sprintf("%s%s-schedule", lambdaName, lo.If(schedule.Name != "", fmt.Sprintf("-%s", schedule.Name)).Else(""))
+	scheduleRule, err := cloudwatch.NewEventRule(ctx, scheduleName, &cloudwatch.EventRuleArgs{
+		ScheduleExpression: sdk.String(expression),
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create aws lambda schedule")
+	}
+
+	scheduleTargetName := fmt.Sprintf("%s-target", scheduleName)
+	params.Log.Info(ctx.Context(), "configure cloudwatch event target to trigger lambda %s on schedule: %q...", lambdaName, scheduleTargetName)
+	_, err = cloudwatch.NewEventTarget(ctx, scheduleTargetName, &cloudwatch.EventTargetArgs{
+		Rule:     scheduleRule.Name,
+		Arn:      lambdaFunc.Arn,
+		Input:    sdk.String(schedule.ApiGWRequest),
+		TargetId: sdk.String(scheduleTargetName),
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create schedule target for lambda")
+	}
+
+	params.Log.Info(ctx.Context(), "configure permission for schedule to invoke lambda %s...", lambdaName)
+	permissionName := fmt.Sprintf("%s-permission", scheduleName)
+	_, err = lambda.NewPermission(ctx, permissionName, &lambda.PermissionArgs{
+		Action:    sdk.String("lambda:InvokeFunction"),
+		Function:  lambdaFunc.Arn,
+		Principal: sdk.String("events.amazonaws.com"),
+		SourceArn: scheduleRule.Arn,
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create permission for schedule to invoke lambda")
+	}
+	return nil
 }

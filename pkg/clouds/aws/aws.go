@@ -15,7 +15,8 @@ const (
 
 type CloudExtras struct {
 	AwsRoles          []string          `json:"awsRoles" yaml:"awsRoles"`
-	LambdaSchedule    *LambdaSchedule   `json:"lambdaSchedule" yaml:"lambdaSchedule"` // e.g. for lambda functions to be triggered on schedule
+	LambdaSchedule    *LambdaSchedule   `json:"lambdaSchedule,omitempty" yaml:"lambdaSchedule,omitempty"`   // e.g. for lambda functions to be triggered on schedule
+	LambdaSchedules   []LambdaSchedule  `json:"lambdaSchedules,omitempty" yaml:"lambdaSchedules,omitempty"` // e.g. for lambda functions to be triggered on schedule
 	LambdaRoutingType LambdaRoutingType `json:"lambdaRoutingType" yaml:"lambdaRoutingType"`
 }
 
