@@ -80,7 +80,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 	opts = append(opts, image.addOpts...)
 
-	contextEnvVariables := params.ComputeContext.SecretEnvVariables()
+	secretEnvVariables := params.ComputeContext.SecretEnvVariables()
+	contextEnvVariables := params.ComputeContext.EnvVariables()
 
 	// Create IAM Role for Lambda Function
 	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", stack.Name)
@@ -167,7 +168,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	// SECRETS
 	var secrets []*CreatedSecret
-	ctxSecrets, err := util.MapErr(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
+	ctxSecrets, err := util.MapErr(secretEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
 		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, stackConfig.Version), v.Name, v.Value, opts...)
 	})
 	if err != nil {
@@ -192,6 +193,9 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 	for envVar, envVal := range params.BaseEnvVariables {
 		envVariables[envVar] = sdk.String(envVal)
+	}
+	for _, envVar := range contextEnvVariables {
+		envVariables[envVar.Name] = sdk.String(envVar.Value)
 	}
 
 	for _, secret := range secrets {
