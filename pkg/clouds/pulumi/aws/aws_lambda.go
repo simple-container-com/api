@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -184,12 +185,15 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 	params.Log.Info(ctx.Context(), "configure secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
 
+	lambdaSizeMb := lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))
+
 	// ENV VARIABLES
 	envVariables := sdk.StringMap{
 		api.ComputeEnv.StackName:                   sdk.String(stack.Name),
 		api.ComputeEnv.StackEnv:                    sdk.String(deployParams.Environment),
 		api.ComputeEnv.StackVersion:                sdk.String(deployParams.Version),
 		"SIMPLE_CONTAINER_AWS_LAMBDA_ROUTING_TYPE": sdk.String(lambdaRoutingType),
+		"SIMPLE_CONTAINER_AWS_LAMBDA_SIZE_MB":      sdk.String(strconv.Itoa(lambdaSizeMb)),
 	}
 	for envVar, envVal := range params.BaseEnvVariables {
 		envVariables[envVar] = sdk.String(envVal)
@@ -229,7 +233,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    image.image.ImageName,
-		MemorySize:  sdk.IntPtr(lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))),
+		MemorySize:  sdk.IntPtr(lambdaSizeMb),
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
 		EphemeralStorage: lambda.FunctionEphemeralStorageArgs{
 			Size: sdk.IntPtr(lo.If(stackConfig.MaxEphemeralStorage != nil, lo.FromPtr(stackConfig.MaxEphemeralStorage)).Else(1024)),
