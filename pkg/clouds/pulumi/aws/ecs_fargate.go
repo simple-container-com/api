@@ -232,6 +232,16 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		if err != nil {
 			return errors.Wrapf(err, "failed to create file system for persistent volume %s of stack %s", v.Name, stack.Name)
 		}
+		_, err = efs.NewBackupPolicy(ctx, efsName, &efs.BackupPolicyArgs{
+			BackupPolicy: efs.BackupPolicyBackupPolicyArgs{
+				Status: sdk.String("ENABLED"),
+			},
+			FileSystemId: fs.ID(),
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to create EFS backup policy for volume %s of stack %s", v.Name, stack.Name)
+		}
+
 		_, err = util.MapErr(subnets, func(subnet defaultSubnet, i int) (*efs.MountTarget, error) {
 			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsSimpleClusterName, v.Name, i)
 			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)

@@ -4,6 +4,7 @@ import (
 	"strings"
 )
 
+// TODO: ignore key alias
 func TrimPubKey(pubKey string) string {
 	if parts := strings.Fields(pubKey); len(parts) > 3 || len(parts) < 2 {
 		return strings.TrimSpace(pubKey)
