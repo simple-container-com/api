@@ -237,7 +237,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				Status: sdk.String("ENABLED"),
 			},
 			FileSystemId: fs.ID(),
-		})
+		}, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create EFS backup policy for volume %s of stack %s", v.Name, stack.Name)
 		}
