@@ -55,9 +55,9 @@ jobs:
           cat << EOF > ./.sc/cfg.test.yaml
           ${{ secrets.SC_CONFIG }}
           EOF
-          ./sc secrets reveal
-          echo "cicd-bot-telegram-token=$(./sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
-          echo "cicd-bot-telegram-chat-id=$(./sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
+          ${{ github.workspace }}/bin/sc secrets reveal
+          echo "cicd-bot-telegram-token=$(${{ github.workspace }}/bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(${{ github.workspace }}/bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: build sc tool
         shell: bash
         env:
