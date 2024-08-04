@@ -13,7 +13,7 @@ require (
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/disgoorg/disgo v0.18.5
 	github.com/fatih/color v1.17.0
-	github.com/go-delve/delve v1.22.1
+	github.com/go-delve/delve v1.23.0
 	github.com/go-git/go-billy/v5 v5.5.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/golangci/golangci-lint v1.59.1
@@ -36,7 +36,7 @@ require (
 	github.com/spf13/afero v1.11.0
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0
-	github.com/vektra/mockery/v2 v2.43.2
+	github.com/vektra/mockery/v2 v2.44.1
 	go.uber.org/atomic v1.10.0
 	golang.org/x/crypto v0.24.0
 	google.golang.org/api v0.162.0
@@ -211,7 +211,7 @@ require (
 	github.com/golangci/unconvert v0.0.0-20240309020433-c5143eacb3ed // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/go-containerregistry v0.12.1 // indirect
-	github.com/google/go-dap v0.11.0 // indirect
+	github.com/google/go-dap v0.12.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
