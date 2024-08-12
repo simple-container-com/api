@@ -421,6 +421,11 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
 	opts = append(opts, sdk.DependsOn([]sdk.Resource{lambdaFunc}))
 
+	invokeMode := cloudExtras.LambdaInvokeMode
+	if invokeMode == "" {
+		invokeMode = aws.LambdaInvokeModeBuffered
+	}
+
 	if lambdaRoutingType == aws.LambdaRoutingApiGw {
 		// Create an HTTP API Gateway for the Lambda Function
 		params.Log.Info(ctx.Context(), "configure API gateway for %q in %q...", stack.Name, deployParams.Environment)
@@ -506,7 +511,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		functionUrl, err := lambda.NewFunctionUrl(ctx, functionUrlName, &lambda.FunctionUrlArgs{
 			AuthorizationType: sdk.String("NONE"),
 			FunctionName:      lambdaFunc.Name,
-			InvokeMode:        sdk.String("BUFFERED"),
+			InvokeMode:        sdk.String(invokeMode),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create lambda function url")

@@ -6,11 +6,16 @@ type TemplateConfig struct {
 	AccountConfig `json:",inline" yaml:",inline"`
 }
 
-type LambdaRoutingType string
+type (
+	LambdaRoutingType string
+	LambdaInvokeMode  string
+)
 
 const (
-	LambdaRoutingApiGw       = "api-gateway"
-	LambdaRoutingFunctionUrl = "function-url"
+	LambdaRoutingApiGw             = "api-gateway"
+	LambdaRoutingFunctionUrl       = "function-url"
+	LambdaInvokeModeBuffered       = "BUFFERED"
+	LambdaInvokeModeResponseStream = "RESPONSE_STREAM"
 )
 
 type CloudExtras struct {
@@ -18,6 +23,7 @@ type CloudExtras struct {
 	LambdaSchedule    *LambdaSchedule   `json:"lambdaSchedule,omitempty" yaml:"lambdaSchedule,omitempty"`   // e.g. for lambda functions to be triggered on schedule
 	LambdaSchedules   []LambdaSchedule  `json:"lambdaSchedules,omitempty" yaml:"lambdaSchedules,omitempty"` // e.g. for lambda functions to be triggered on schedule
 	LambdaRoutingType LambdaRoutingType `json:"lambdaRoutingType" yaml:"lambdaRoutingType"`
+	LambdaInvokeMode  LambdaInvokeMode  `json:"lambdaInvokeMode" yaml:"lambdaInvokeMode"` // invoke mode for lambda
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {
