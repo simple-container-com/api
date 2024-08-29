@@ -124,7 +124,7 @@ type StaticSiteConfig struct {
 
 type CorsConfig struct {
 	AllowedOrigins string   `json:"allowedOrigins" yaml:"allowedOrigins"`
-	AllowedMethods []string `json:"allowedMethods,omitempty" yaml:"allowedMetohods"`
+	AllowedMethods []string `json:"allowedMethods,omitempty" yaml:"allowedMethods"`
 }
 
 type StackConfigStatic struct {
