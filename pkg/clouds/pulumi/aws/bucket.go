@@ -92,6 +92,26 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	ctx.Export(toBucketNameExport(input.Name), bucket.Bucket)
 	ctx.Export(toBucketRegionExport(input.Name), bucket.Region)
 
+	corsConfig := lo.FromPtr(staticSite.CorsConfig)
+	if corsConfig.AllowedOrigins != "" {
+		// Set CORS configuration for the bucket
+		_, err = s3.NewBucketCorsConfigurationV2(ctx, fmt.Sprintf("%s-cors", input.Name), &s3.BucketCorsConfigurationV2Args{
+			Bucket: bucket.ID(),
+			CorsRules: s3.BucketCorsConfigurationV2CorsRuleArray{
+				s3.BucketCorsConfigurationV2CorsRuleArgs{
+					AllowedOrigins: sdk.StringArray{sdk.String(corsConfig.AllowedOrigins)},
+					AllowedMethods: sdk.StringArray{
+						sdk.String("GET"),
+					},
+					AllowedHeaders: sdk.StringArray{sdk.String("*")},
+				},
+			},
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision CORS config for bucket %q", input.Name)
+		}
+	}
+
 	// Apply the public access block configuration to the bucket
 	pabArgs := &s3.BucketPublicAccessBlockArgs{
 		Bucket:                bucket.ID(),    // References the created S3 bucket

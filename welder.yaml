@@ -62,16 +62,16 @@ tasks:
       - go mod download
       - go generate -tags tools
       - go mod tidy
-  linters:
-    runOn: host
-    script:
-      - ${project:root}/bin/golangci-lint run --fast --timeout 5m
   fmt:
     runOn: host
     script:
       - go mod tidy
-      - ${project:root}/bin/gofumpt -l -w ./
-      - ${project:root}/bin/golangci-lint run --fix
+      - go run mvdan.cc/gofumpt@v0.6.0 -l -w ./
+      - go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.60.3 run --fix --timeout 2m
+  linters:
+    runOn: host
+    script:
+      - go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.60.3 run --fast --timeout 5m
   build-all:
     runOn: host
     script:

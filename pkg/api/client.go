@@ -114,11 +114,16 @@ type StackConfigComposeScaleCpu struct {
 }
 
 type StaticSiteConfig struct {
-	Domain             string `json:"domain" yaml:"domain"`
-	BaseDnsZone        string `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
-	IndexDocument      string `json:"indexDocument" yaml:"indexDocument"`
-	ErrorDocument      string `json:"errorDocument" yaml:"errorDocument"`
-	ProvisionWwwDomain bool   `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
+	Domain             string      `json:"domain" yaml:"domain"`
+	BaseDnsZone        string      `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
+	IndexDocument      string      `json:"indexDocument" yaml:"indexDocument"`
+	ErrorDocument      string      `json:"errorDocument" yaml:"errorDocument"`
+	ProvisionWwwDomain bool        `json:"provisionWwwDomain" yaml:"provisionWwwDomain"`
+	CorsConfig         *CorsConfig `json:"corsConfig,omitempty" yaml:"corsConfig,omitempty"`
+}
+
+type CorsConfig struct {
+	AllowedOrigins string `json:"allowedOrigins" yaml:"allowedOrigins"`
 }
 
 type StackConfigStatic struct {
