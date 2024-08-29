@@ -101,7 +101,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 				s3.BucketCorsConfigurationV2CorsRuleArgs{
 					AllowedOrigins: sdk.StringArray{sdk.String(corsConfig.AllowedOrigins)},
 					AllowedMethods: sdk.StringArray{
-						sdk.String("GET"),
+						sdk.String("*"),
 					},
 					AllowedHeaders: sdk.StringArray{sdk.String("*")},
 				},
