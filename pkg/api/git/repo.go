@@ -211,7 +211,7 @@ func (r *repo) CopyFile(fromPath, toPath string) error {
 	if err != nil {
 		return errors.Wrapf(err, "failed to open file %q", toPath)
 	}
-	_, err = io.WriteString(toFile, string(currentContent))
+	_, err = io.WriteString(toFile, string(currentContent)) // nolint: staticcheck
 	if err != nil {
 		return errors.Wrapf(err, "failed to write file %q", toPath)
 	}

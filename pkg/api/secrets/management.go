@@ -348,7 +348,7 @@ func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath st
 		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
 	}
 	defer func() { _ = file.Close() }()
-	if _, err := io.WriteString(file, string(decrypted)); err != nil {
+	if _, err := io.WriteString(file, string(decrypted)); err != nil { // nolint: staticcheck
 		return nil, errors.Wrapf(err, "failed to write secret to file %q", relFilePath)
 	}
 
