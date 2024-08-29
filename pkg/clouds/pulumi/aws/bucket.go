@@ -94,6 +94,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 
 	corsConfig := lo.FromPtr(staticSite.CorsConfig)
 	if corsConfig.AllowedOrigins != "" {
+		input.Log.Info(ctx.Context(), "configure CORS policy with allowed origins %q for bucket %q", corsConfig.AllowedOrigins, input.Name)
 		// Set CORS configuration for the bucket
 		_, err = s3.NewBucketCorsConfigurationV2(ctx, fmt.Sprintf("%s-cors", input.Name), &s3.BucketCorsConfigurationV2Args{
 			Bucket: bucket.ID(),
