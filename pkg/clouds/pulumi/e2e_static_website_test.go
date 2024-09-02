@@ -63,7 +63,9 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 					ParentStack: parentStackName,
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							Domain:    fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("static-website")),
+							Site: api.StaticSiteConfig{
+								Domain: fmt.Sprintf("e2e--gcp--%s.simple-container.com", tmpResName("static-website")),
+							},
 							BundleDir: "testdata/static",
 						},
 					},
@@ -117,11 +119,13 @@ func Test_CreateStaticStackAWS(t *testing.T) {
 					ParentStack: parentStackName,
 					Config: api.Config{
 						Config: &api.StackConfigStatic{
-							BundleDir:          "static",
-							Domain:             fmt.Sprintf("e2e--aws--%s.simple-container.com", tmpResName("static-website")),
-							IndexDocument:      "index.html",
-							ErrorDocument:      "index.html",
-							ProvisionWwwDomain: false,
+							BundleDir: "static",
+							Site: api.StaticSiteConfig{
+								Domain:             fmt.Sprintf("e2e--aws--%s.simple-container.com", tmpResName("static-website")),
+								IndexDocument:      "index.html",
+								ErrorDocument:      "index.html",
+								ProvisionWwwDomain: false,
+							},
 						},
 					},
 				},
