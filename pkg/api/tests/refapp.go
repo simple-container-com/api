@@ -12,6 +12,15 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 )
 
+var CommonGcpCredentials = gcloud.Credentials{
+	Credentials: api.Credentials{
+		Credentials: "${auth:gcloud}",
+	},
+	ServiceAccountConfig: gcloud.ServiceAccountConfig{
+		ProjectId: "${auth:gcloud.projectId}",
+	},
+}
+
 var CommonServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
@@ -20,28 +29,14 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 			StateStorage: pulumi.StateStorageConfig{
 				Type: pulumi.StateStorageTypeGcpBucket,
 				Config: api.Config{Config: &gcloud.StateStorageConfig{
-					Credentials: gcloud.Credentials{
-						Credentials: api.Credentials{
-							Credentials: "${auth:gcloud}",
-						},
-						ServiceAccountConfig: gcloud.ServiceAccountConfig{
-							ProjectId: "${auth:gcloud.projectId}",
-						},
-					},
-					Provision: true,
+					Credentials: CommonGcpCredentials,
+					Provision:   true,
 				}},
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type: pulumi.SecretsProviderTypeGcpKms,
 				Config: api.Config{Config: &gcloud.SecretsProviderConfig{
-					Credentials: gcloud.Credentials{
-						Credentials: api.Credentials{
-							Credentials: "${auth:gcloud}",
-						},
-						ServiceAccountConfig: gcloud.ServiceAccountConfig{
-							ProjectId: "${auth:gcloud.projectId}",
-						},
-					},
+					Credentials: CommonGcpCredentials,
 					Provision:   true,
 					KeyName:     "mypulumi-base-kms-key",
 					KeyLocation: "global",
@@ -117,6 +112,15 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
+var ResolvedCommonGcpCredentials = gcloud.Credentials{
+	Credentials: api.Credentials{
+		Credentials: "<gcloud-service-account-email>",
+	},
+	ServiceAccountConfig: gcloud.ServiceAccountConfig{
+		ProjectId: "test-gcp-project",
+	},
+}
+
 var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
@@ -125,28 +129,14 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 			StateStorage: pulumi.StateStorageConfig{
 				Type: pulumi.StateStorageTypeGcpBucket,
 				Config: api.Config{Config: &gcloud.StateStorageConfig{
-					Credentials: gcloud.Credentials{
-						Credentials: api.Credentials{
-							Credentials: "<gcloud-service-account-email>",
-						},
-						ServiceAccountConfig: gcloud.ServiceAccountConfig{
-							ProjectId: "test-gcp-project",
-						},
-					},
-					Provision: true,
+					Credentials: ResolvedCommonGcpCredentials,
+					Provision:   true,
 				}},
 			},
 			SecretsProvider: pulumi.SecretsProviderConfig{
 				Type: pulumi.SecretsProviderTypeGcpKms,
 				Config: api.Config{Config: &gcloud.SecretsProviderConfig{
-					Credentials: gcloud.Credentials{
-						Credentials: api.Credentials{
-							Credentials: "<gcloud-service-account-email>",
-						},
-						ServiceAccountConfig: gcloud.ServiceAccountConfig{
-							ProjectId: "test-gcp-project",
-						},
-					},
+					Credentials: ResolvedCommonGcpCredentials,
 					KeyName:     "mypulumi-base-kms-key",
 					KeyLocation: "global",
 					Provision:   true,
@@ -163,14 +153,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	Secrets: api.SecretsConfigDescriptor{
 		Type: gcloud.SecretsTypeGCPSecretsManager,
 		Config: api.Config{Config: &gcloud.SecretsProviderConfig{
-			Credentials: gcloud.Credentials{
-				Credentials: api.Credentials{
-					Credentials: "<gcloud-service-account-email>",
-				},
-				ServiceAccountConfig: gcloud.ServiceAccountConfig{
-					ProjectId: "test-gcp-project",
-				},
-			},
+			Credentials: ResolvedCommonGcpCredentials,
 		}},
 	},
 	Templates: map[string]api.StackDescriptor{
@@ -188,14 +171,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
 			Config: api.Config{Config: &gcloud.TemplateConfig{
-				Credentials: gcloud.Credentials{
-					Credentials: api.Credentials{
-						Credentials: "<gcloud-service-account-email>",
-					},
-					ServiceAccountConfig: gcloud.ServiceAccountConfig{
-						ProjectId: "test-gcp-project",
-					},
-				},
+				Credentials: ResolvedCommonGcpCredentials,
 			}},
 		},
 	},
@@ -526,8 +502,38 @@ var RefappClientDescriptor = &api.ClientDescriptor{
 	},
 }
 
-func ResolvedRefappAwsClientDescriptor(gitRoot string) *api.ClientDescriptor {
-	res := RefappAwsClientDescriptor.Copy()
+var RefappClientComposeConfigStaging = &api.StackConfigCompose{
+	Domain:            "staging.sc-refapp.org",
+	DockerComposeFile: "${git:root}/docker-compose.yaml",
+	Uses: []string{
+		"mongodb",
+	},
+	Runs: []string{
+		"api",
+		"ui",
+	},
+	Env:          map[string]string{},
+	Secrets:      map[string]string{},
+	Dependencies: []api.StackConfigDependencyResource{},
+}
+
+var RefappClientComposeConfigProd = &api.StackConfigCompose{
+	Domain:            "prod.sc-refapp.org",
+	DockerComposeFile: "${git:root}/docker-compose.yaml",
+	Uses: []string{
+		"mongodb",
+	},
+	Runs: []string{
+		"api",
+		"ui",
+	},
+	Env:          map[string]string{},
+	Secrets:      map[string]string{},
+	Dependencies: []api.StackConfigDependencyResource{},
+}
+
+func ResolvedRefappCloudClientDescriptor(gitRoot string, desc *api.ClientDescriptor) *api.ClientDescriptor {
+	res := desc.Copy()
 	staging := res.Stacks["staging"]
 	stagingCompose := staging.Config.Config.(*api.StackConfigCompose)
 	stagingCompose.DockerComposeFile = fmt.Sprintf("%s/docker-compose.yaml", gitRoot)

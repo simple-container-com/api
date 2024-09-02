@@ -1,0 +1,36 @@
+schemaVersion: 1.0
+provisioner:
+  inherit: common
+secrets:
+  inherit: common
+cicd:
+  inherit: common
+templates:
+  stack-per-app-gke:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+      gkeClusterResource: gke-autopilot-res
+      artifactRegistryResource: artifact-registry-res
+resources:
+  registrar:
+    inherit: common
+  resources:
+    staging:
+      template: stack-per-app-gke
+      resources: &resources
+        gke-autopilot-res:
+          type: gcp-gke-autopilot-cluster
+          config:
+            gkeMinVersion: 1.26.5-gke.1200
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+        artifact-registry-res:
+          type: gcp-artifact-registry
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+    prod:
+      template: stack-per-app-gke
+      resources: *resources

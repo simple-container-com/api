@@ -13,6 +13,8 @@ func init() {
 		TemplateTypeGcpCloudrun:      ReadTemplateConfig,
 		TemplateTypeStaticWebsite:    ReadTemplateConfig,
 		AuthTypeGCPServiceAccount:    ReadAuthServiceAccountConfig,
+		TemplateTypeGkeAutopilot:     ReadGkeAutopilotTemplateConfig,
+		ResourceTypeGkeAutopilot:     ReadGkeAutopilotResourceConfig,
 
 		// postgres
 		ResourceTypePostgresGcpCloudsql: PostgresqlGcpCloudsqlReadConfig,
@@ -30,7 +32,8 @@ func init() {
 	})
 
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
-		TemplateTypeGcpCloudrun: ToCloudRunConfig,
+		TemplateTypeGcpCloudrun:  ToCloudRunConfig,
+		ResourceTypeGkeAutopilot: ToGkeAutopilotConfig,
 	})
 
 	api.RegisterCloudStaticSiteConverter(api.CloudStaticSiteConfigRegister{

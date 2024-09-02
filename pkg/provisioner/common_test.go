@@ -77,7 +77,7 @@ func Test_Provision(t *testing.T) {
 					Name:    "refapp-aws",
 					Secrets: *tests.CommonSecretsDescriptor,
 					Server:  *tests.ResolvedRefappAwsServerDescriptor,
-					Client:  *tests.ResolvedRefappAwsClientDescriptor("testdata"),
+					Client:  *tests.ResolvedRefappCloudClientDescriptor("testdata", tests.RefappAwsClientDescriptor),
 				},
 			},
 		},
@@ -102,6 +102,30 @@ func Test_Provision(t *testing.T) {
 					Secrets: *tests.CommonSecretsDescriptor,
 					Server:  *tests.ResolvedRefappStaticGCPServerDescriptor,
 					Client:  *tests.RefappStaticGCPClientDescriptor,
+				},
+			},
+		},
+		{
+			name: "happy path gcp gke-autopilot",
+			params: api.ProvisionParams{
+				StacksDir: "stacks",
+				Stacks: []string{
+					"common",
+					"refapp-gke-autopilot",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-gke-autopilot": {
+					Name:    "refapp-gke-autopilot",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappGkeAutopilotServerDescriptor,
+					Client:  *tests.ResolvedRefappCloudClientDescriptor("testdata", tests.RefappGkeAutopilotClientDescriptor),
 				},
 			},
 		},
