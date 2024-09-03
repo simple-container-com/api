@@ -12,7 +12,7 @@ import (
 
 func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != gcloud.ResourceTypeGkeAutopilot {
-		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
+		return nil, errors.Errorf("unsupported resource type %q", input.Descriptor.Type)
 	}
 
 	gkeAutopilotConfig, ok := input.Descriptor.Config.Config.(*gcloud.GkeAutopilotResource)

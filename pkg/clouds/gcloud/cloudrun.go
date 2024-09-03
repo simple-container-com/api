@@ -105,6 +105,16 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackCon
 		RefResourceNames: stackCfg.Uses,
 		BaseDnsZone:      stackCfg.BaseDnsZone,
 	}
+	containers, err := convertComposeToContainers(composeCfg, stackCfg)
+	if err != nil {
+		return nil, err
+	}
+	res.Containers = containers
+
+	return res, nil
+}
+
+func convertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackConfigCompose) ([]CloudRunContainer, error) {
 	if composeCfg.Project == nil {
 		return nil, errors.Errorf("compose config is nil")
 	}
@@ -113,14 +123,16 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackCon
 		return svc.Name, svc
 	})
 
+	var containers []CloudRunContainer
+
 	for _, svcName := range stackCfg.Runs {
 		svc := services[svcName]
 		port, err := toRunPort(svc.Ports)
 		if err != nil {
-			return nil, errors.Wrapf(err, "error converting service %s to cloudrun", svcName)
+			return nil, errors.Wrapf(err, "error converting service %s to cloud container", svcName)
 		}
 
-		res.Containers = append(res.Containers, CloudRunContainer{
+		containers = append(containers, CloudRunContainer{
 			Name: svcName,
 			Image: CloudRunImage{
 				Context:    svc.Build.Context,
@@ -135,8 +147,7 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackCon
 			Resources:     toResources(svc),
 		})
 	}
-
-	return res, nil
+	return containers, nil
 }
 
 func toRunPort(ports []types.ServicePortConfig) (int, error) {

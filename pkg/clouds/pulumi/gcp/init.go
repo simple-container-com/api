@@ -10,12 +10,15 @@ func init() {
 	api.RegisterProvider(gcloud.ProviderType, Provider)
 	api.RegisterResources(map[string]api.ProvisionFunc{
 		gcloud.ResourceTypeBucket:           PrivateBucket,
+		gcloud.ResourceTypeGkeAutopilot:     GkeAutopilot,
+		gcloud.ResourceTypeArtifactRegistry: ArtifactRegistry,
 		gcloud.SecretsProviderTypeGcpKms:    KmsKeySecretsProvider,
 		gcloud.TemplateTypeGcpCloudrun:      Cloudrun,
 		gcloud.TemplateTypeStaticWebsite:    StaticWebsite,
-		gcloud.ResourceTypeArtifactRegistry: ArtifactRegistry,
+		gcloud.TemplateTypeGkeAutopilot:     GkeAutopilotStack,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
-		gcloud.StateStorageTypeGcpBucket: BucketComputeProcessor,
+		gcloud.ResourceTypeBucket:       BucketComputeProcessor,
+		gcloud.ResourceTypeGkeAutopilot: GkeAutopilotComputeProcessor,
 	})
 }
