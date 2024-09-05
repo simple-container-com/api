@@ -14,13 +14,14 @@ type ProvisionParams struct {
 	Log            logger.Logger
 	ComputeContext ComputeContext
 	// optionally set on per-case basis
-	DnsPreference     *DnsPreference
-	ParentStack       *ParentInfo
-	StackDescriptor   *api.StackDescriptor
-	UseResources      map[string]bool
-	DependOnResources []api.StackConfigDependencyResource
-	BaseEnvVariables  map[string]string
-	HelpersImage      string
+	DependencyProviders map[string]sdk.ProviderResource
+	DnsPreference       *DnsPreference
+	ParentStack         *ParentInfo
+	StackDescriptor     *api.StackDescriptor
+	UseResources        map[string]bool
+	DependOnResources   []api.StackConfigDependencyResource
+	BaseEnvVariables    map[string]string
+	HelpersImage        string
 }
 
 type DnsPreference struct {

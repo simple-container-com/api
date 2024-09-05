@@ -19,9 +19,10 @@ import (
 )
 
 type ClusterOutput struct {
-	DbUsers sdk.Output
-	Cluster *mongodbatlas.Cluster
-	Project *mongodbatlas.Project
+	DbUsers             sdk.Output
+	Cluster             *mongodbatlas.Cluster
+	Project             *mongodbatlas.Project
+	PrivateLinkEndpoint *mongodbatlas.PrivateLinkEndpoint
 }
 
 func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -134,17 +135,36 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		}
 	}
 
-	params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for cluster %q in stack %q in %q",
-		clusterName, input.StackParams.StackName, input.StackParams.Environment)
-	ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
-		CidrBlock: sdk.StringPtr("0.0.0.0/0"),
-		Comment:   sdk.StringPtr("Allow all access to the cluster (TODO: restrict to our cluster only)"),
-		ProjectId: projectId,
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create mongodb ip access list for stack %q", stack.Name)
+	if atlasCfg.NetworkConfig != nil {
+		if atlasCfg.NetworkConfig.PrivateLinkEndpoint != nil {
+			privateLink := lo.FromPtr(atlasCfg.NetworkConfig.PrivateLinkEndpoint)
+			params.Log.Info(ctx.Context(), "configure MongoDB Atlas private link endpoint for cluster %q in stack %q in %q",
+				clusterName, input.StackParams.StackName, input.StackParams.Environment)
+			linkEndpoint, err := mongodbatlas.NewPrivateLinkEndpoint(ctx, fmt.Sprintf("%s-private-link-endpoint", clusterName), &mongodbatlas.PrivateLinkEndpointArgs{
+				Region:       sdk.String(privateLink.Region),
+				ProjectId:    sdk.String(atlasCfg.ProjectId),
+				ProviderName: sdk.String(privateLink.ProviderName),
+			}, opts...)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create private link endpoint for MongoDB Atlas cluster %q", clusterName)
+			}
+			out.PrivateLinkEndpoint = linkEndpoint
+		} else {
+			return nil, errors.Errorf("network configuration for MongoDB Atlas cluster %q is not provided or not supported", clusterName)
+		}
+	} else {
+		params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for cluster %q in stack %q in %q",
+			clusterName, input.StackParams.StackName, input.StackParams.Environment)
+		ipAccessList, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-ip-access-list", clusterName), &mongodbatlas.ProjectIpAccessListArgs{
+			CidrBlock: sdk.StringPtr("0.0.0.0/0"),
+			Comment:   sdk.StringPtr("Allow all access to the cluster (TODO: restrict to our cluster only)"),
+			ProjectId: projectId,
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create mongodb ip access list for stack %q", stack.Name)
+		}
+		ctx.Export(fmt.Sprintf("%s-ip-list-id", clusterName), ipAccessList.ID())
 	}
-	ctx.Export(fmt.Sprintf("%s-ip-list-id", clusterName), ipAccessList.ID())
 
 	usersOutput := sdk.All(projectId).ApplyT(func(args []any) any {
 		return createDatabaseUsers(ctx, cluster, atlasCfg, params)

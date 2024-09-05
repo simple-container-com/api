@@ -5,17 +5,28 @@ import "github.com/simple-container-com/api/pkg/api"
 const ResourceTypeMongodbAtlas = "mongodb-atlas"
 
 type AtlasConfig struct {
-	Admins        []string     `json:"admins" yaml:"admins"`
-	Developers    []string     `json:"developers" yaml:"developers"`
-	InstanceSize  string       `json:"instanceSize" yaml:"instanceSize"`
-	OrgId         string       `json:"orgId" yaml:"orgId"`
-	ProjectId     string       `json:"projectId" yaml:"projectId"`
-	ProjectName   string       `json:"projectName" yaml:"projectName"`
-	Region        string       `json:"region" yaml:"region"`
-	PrivateKey    string       `json:"privateKey" yaml:"privateKey"`
-	PublicKey     string       `json:"publicKey" yaml:"publicKey"`
-	CloudProvider string       `json:"cloudProvider" yaml:"cloudProvider"`
-	Backup        *AtlasBackup `json:"backup" yaml:"backup"`
+	Admins         []string                      `json:"admins" yaml:"admins"`
+	Developers     []string                      `json:"developers" yaml:"developers"`
+	InstanceSize   string                        `json:"instanceSize" yaml:"instanceSize"`
+	OrgId          string                        `json:"orgId" yaml:"orgId"`
+	ProjectId      string                        `json:"projectId" yaml:"projectId"`
+	ProjectName    string                        `json:"projectName" yaml:"projectName"`
+	Region         string                        `json:"region" yaml:"region"`
+	PrivateKey     string                        `json:"privateKey" yaml:"privateKey"`
+	PublicKey      string                        `json:"publicKey" yaml:"publicKey"`
+	CloudProvider  string                        `json:"cloudProvider" yaml:"cloudProvider"`
+	Backup         *AtlasBackup                  `json:"backup,omitempty" yaml:"backup,omitempty"`
+	NetworkConfig  *AtlasNetworkConfig           `json:"networkConfig,omitempty" yaml:"networkConfig,omitempty"`
+	ExtraProviders map[string]api.AuthDescriptor `json:"extraProviders,omitempty" yaml:"extraProviders,omitempty"`
+}
+
+type AtlasNetworkConfig struct {
+	PrivateLinkEndpoint *PrivateLinkEndpoint `json:"privateLinkEndpoint,omitempty" yaml:"privateLinkEndpoint,omitempty"`
+}
+
+type PrivateLinkEndpoint struct {
+	Region       string `json:"region" yaml:"region"`
+	ProviderName string `json:"providerName" yaml:"providerName"`
 }
 
 type AtlasBackup struct {
@@ -33,6 +44,10 @@ func (r *AtlasConfig) CredentialsValue() string {
 
 func (r *AtlasConfig) ProjectIdValue() string {
 	return r.ProjectId
+}
+
+func (r *AtlasConfig) DependencyProviders() map[string]api.AuthDescriptor {
+	return r.ExtraProviders
 }
 
 func (r *AtlasConfig) ProviderType() string {

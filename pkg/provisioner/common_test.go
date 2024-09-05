@@ -24,7 +24,7 @@ import (
 
 func Test_Provision(t *testing.T) {
 	RegisterTestingT(t)
-	format.MaxLength = 10000
+	format.MaxLength = 100000
 	testCases := []struct {
 		name         string
 		params       api.ProvisionParams
@@ -192,9 +192,22 @@ func Test_Provision(t *testing.T) {
 				Expect(err).To(BeNil())
 				if tt.expectStacks != nil {
 					for stackName := range tt.expectStacks {
-						actual := p.Stacks()[stackName]
-						expected := tt.expectStacks[stackName]
-						assert.EqualValuesf(t, expected, actual.ValuesOnly(), "%v/%v failed", tt.name, stackName)
+						actualRaw := p.Stacks()[stackName]
+						actual := actualRaw.ValuesOnly()
+						expectedRaw := tt.expectStacks[stackName]
+						expected := expectedRaw.ValuesOnly()
+
+						assert.EqualValuesf(t, expected.Secrets, actual.Secrets, "%v/%v secrets failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected.Server.CiCd, actual.Server.CiCd, "%v/%v cicd failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected.Server.Provisioner, actual.Server.Provisioner, "%v/%v provisioner failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected.Server.Secrets, actual.Server.Secrets, "%v/%v server secrets failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected.Server.Templates, actual.Server.Templates, "%v/%v server templates failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected.Server.Variables, actual.Server.Variables, "%v/%v server variables failed", tt.name, stackName)
+						assert.EqualValuesf(t, expected.Server.Resources.Registrar, actual.Server.Resources.Registrar, "%v/%v registrar failed", tt.name, stackName)
+						for env := range expected.Server.Resources.Resources {
+							assert.EqualValuesf(t, expected.Server.Resources.Resources[env], actual.Server.Resources.Resources[env], "%v/%v/%v env resources failed", tt.name, stackName, env)
+						}
+						assert.EqualValuesf(t, expected.Client, actual.Client, "%v/%v client failed", tt.name, stackName)
 					}
 				}
 			}

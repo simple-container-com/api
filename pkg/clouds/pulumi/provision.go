@@ -183,46 +183,71 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 }
 
 func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string) (pApi.ProvisionParams, error) {
-	var provider sdk.ProviderResource
-	providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, res.Type, res.Name, environment)
-
 	envVariables := map[string]string{
-		api.ComputeEnv.StackName: stack.Name,
-		api.ComputeEnv.StackEnv:  environment,
+		api.ComputeEnv.StackName:               stack.Name,
+		api.ComputeEnv.StackEnv:                environment,
+		api.ScContainerResourceTypeEnvVariable: res.Type,
 	}
-	var providerType string
-	if authCfg, ok := res.Config.Config.(api.AuthConfig); !ok {
-		return pApi.ProvisionParams{}, errors.Errorf("failed to cast config to api.AuthConfig for %q in stack %q", res.Type, stack.Name)
-	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
-		return pApi.ProvisionParams{}, errors.Errorf("unsupported provider type %q for resource type %q in stack %q", authCfg.ProviderType(), res.Type, stack.Name)
-	} else if out, err := providerFunc(ctx, stack, api.ResourceInput{
-		Descriptor: &api.ResourceDescriptor{
-			Type:   res.Type,
-			Name:   providerName,
-			Config: res.Config,
-		},
-		StackParams: &api.StackParams{
-			StackName:   stack.Name,
-			Environment: environment,
-		},
-	}, pApi.ProvisionParams{
-		Log:       p.logger,
-		Registrar: p.registrar,
-	}); err != nil {
-		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init provider for %q in stack %q", res.Type, stack.Name)
-	} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
-		return pApi.ProvisionParams{}, errors.Errorf("failed to cast ref to sdk.ProviderResource for %q in stack %q", res.Type, stack.Name)
-	} else {
-		envVariables[api.ScContainerResourceTypeEnvVariable] = res.Type
-		providerType = authCfg.ProviderType()
+
+	providerType, provider, err := p.initProvider(ctx, stack, res.Name, res.Type, res.Config, environment)
+	if err != nil {
+		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 	}
+
+	dependencyProviders := make(map[string]sdk.ProviderResource)
+
+	if depProviders, ok := res.Config.Config.(api.WithDependencyProviders); ok {
+		for name, pCfg := range depProviders.DependencyProviders() {
+			_, dProvider, err := p.initProvider(ctx, stack, res.Name, res.Type, pCfg.Config, environment)
+			if err != nil {
+				return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init dependency provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
+			}
+			dependencyProviders[name] = dProvider
+		}
+	}
+
 	return pApi.ProvisionParams{
-		Provider:         provider,
-		Registrar:        p.registrar,
-		Log:              p.logger,
-		BaseEnvVariables: envVariables,
-		HelpersImage:     p.cloudHelpersImage(providerType),
+		Provider:            provider,
+		Registrar:           p.registrar,
+		Log:                 p.logger,
+		BaseEnvVariables:    envVariables,
+		HelpersImage:        p.cloudHelpersImage(providerType),
+		DependencyProviders: dependencyProviders,
 	}, nil
+}
+
+func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string, resType string, pCfg api.Config, environment string) (string, sdk.ProviderResource, error) {
+	var provider sdk.ProviderResource
+	var providerType string
+	if authCfg, ok := pCfg.Config.(api.AuthConfig); !ok {
+		return "", nil, errors.Errorf("failed to cast config to api.AuthConfig for %q of type %q in stack %q", resName, resType, stack.Name)
+	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
+		return "", nil, errors.Errorf("unsupported provider type %q for resource %q of type %q in stack %q", authCfg.ProviderType(), resName, resType, stack.Name)
+	} else {
+		providerType = authCfg.ProviderType()
+		providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, providerType, resName, environment)
+		if out, err := providerFunc(ctx, stack, api.ResourceInput{
+			Descriptor: &api.ResourceDescriptor{
+				Type:   authCfg.ProviderType(),
+				Name:   providerName,
+				Config: pCfg,
+			},
+			StackParams: &api.StackParams{
+				StackName:   stack.Name,
+				Environment: environment,
+			},
+		}, pApi.ProvisionParams{
+			Log:       p.logger,
+			Registrar: p.registrar,
+		}); err != nil {
+			return "", nil, errors.Wrapf(err, "failed to init provider of type %q for resource %q of type %q in stack %q", providerType, resName, resType, stack.Name)
+		} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
+			return "", nil, errors.Errorf("failed to cast ref to sdk.ProviderResource for type %q of resource %q of type %q in stack %q", providerType, resName, resType, stack.Name)
+		} else {
+			providerType = authCfg.ProviderType()
+		}
+	}
+	return providerType, provider, nil
 }
 
 func (p *pulumi) cloudHelpersImage(providerType string) string {

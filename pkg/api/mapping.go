@@ -160,10 +160,21 @@ func WithFieldConfigReader(f ProvisionerFieldConfigReaderFunc) ProvisionerOption
 	}
 }
 
+// WithProviderType defines configuration with specific cloud provider type
+type WithProviderType interface {
+	ProviderType() string
+}
+
+// AuthConfig defines configuration for a single cloud provider
 type AuthConfig interface {
+	WithProviderType
 	CredentialsValue() string
 	ProjectIdValue() string
-	ProviderType() string
+}
+
+// WithDependencyProviders defines configurations where extra cloud providers are required
+type WithDependencyProviders interface {
+	DependencyProviders() map[string]AuthDescriptor
 }
 
 type StateStorageConfig interface {

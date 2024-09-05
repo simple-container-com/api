@@ -21,6 +21,20 @@ var CommonGcpCredentials = gcloud.Credentials{
 	},
 }
 
+var awsAccountConfig = aws.AccountConfig{
+	Account: "${auth:aws.projectId}",
+	Credentials: api.Credentials{
+		Credentials: "${auth:aws}",
+	},
+}
+
+var resolvedAwsAccountConfig = aws.AccountConfig{
+	Account: "000",
+	Credentials: api.Credentials{
+		Credentials: `{"account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e","region":"","credentials":""}`,
+	},
+}
+
 var CommonServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
@@ -67,12 +81,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-aws": {
 			Type: aws.TemplateTypeEcsFargate,
 			Config: api.Config{Config: &aws.TemplateConfig{
-				AccountConfig: aws.AccountConfig{
-					Account: "${auth:aws.projectId}",
-					Credentials: api.Credentials{
-						Credentials: "${auth:aws}",
-					},
-				},
+				AccountConfig: awsAccountConfig,
 			}},
 		},
 		"stack-per-app": {
@@ -160,12 +169,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-aws": {
 			Type: aws.TemplateTypeEcsFargate,
 			Config: api.Config{Config: &aws.TemplateConfig{
-				AccountConfig: aws.AccountConfig{
-					Account: "000",
-					Credentials: api.Credentials{
-						Credentials: `{"account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e","region":"","credentials":""}`,
-					},
-				},
+				AccountConfig: resolvedAwsAccountConfig,
 			}},
 		},
 		"stack-per-app": {
@@ -198,6 +202,36 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		Resources: map[string]api.PerEnvResourcesDescriptor{},
 	},
 	Variables: map[string]api.VariableDescriptor{},
+}
+
+var mongodbAtlasResourceConfig = api.ResourceDescriptor{
+	Type: mongodb.ResourceTypeMongodbAtlas,
+	Config: api.Config{Config: &mongodb.AtlasConfig{
+		Admins:       []string{"smecsia"},
+		Developers:   []string{},
+		InstanceSize: "${var:atlas-instance-size}",
+		OrgId:        "${var:atlas-org-id}",
+		ProjectId:    "${var:atlas-project-id}",
+		ProjectName:  "${stack:name}",
+		Region:       "${var:atlas-region}",
+		PrivateKey:   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
+		PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
+		NetworkConfig: &mongodb.AtlasNetworkConfig{
+			PrivateLinkEndpoint: &mongodb.PrivateLinkEndpoint{
+				Region:       "${var:atlas-region}",
+				ProviderName: "AWS",
+			},
+		},
+		ExtraProviders: map[string]api.AuthDescriptor{
+			"AWS": {
+				Type: "aws-token",
+				Config: api.Config{
+					Config: awsAccountConfig,
+				},
+				Inherit: api.Inherit{},
+			},
+		},
+	}},
 }
 
 var RefappServerDescriptor = &api.ServerDescriptor{
@@ -242,20 +276,7 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 			"staging": {
 				Template: "stack-per-app",
 				Resources: map[string]api.ResourceDescriptor{
-					"mongodb": {
-						Type: mongodb.ResourceTypeMongodbAtlas,
-						Config: api.Config{Config: &mongodb.AtlasConfig{
-							Admins:       []string{"smecsia"},
-							Developers:   []string{},
-							InstanceSize: "${var:atlas-instance-size}",
-							OrgId:        "${var:atlas-org-id}",
-							ProjectId:    "${var:atlas-project-id}",
-							ProjectName:  "${stack:name}",
-							Region:       "${var:atlas-region}",
-							PrivateKey:   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
-							PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
-						}},
-					},
+					"mongodb": mongodbAtlasResourceConfig,
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
@@ -276,20 +297,7 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 			"prod": {
 				Template: "stack-per-app",
 				Resources: map[string]api.ResourceDescriptor{
-					"mongodb": {
-						Type: "mongodb-atlas",
-						Config: api.Config{Config: &mongodb.AtlasConfig{
-							Admins:       []string{"smecsia"},
-							Developers:   []string{},
-							InstanceSize: "${var:atlas-instance-size}",
-							OrgId:        "${var:atlas-org-id}",
-							ProjectId:    "${var:atlas-project-id}",
-							ProjectName:  "${stack:name}",
-							Region:       "${var:atlas-region}",
-							PrivateKey:   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
-							PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
-						}},
-					},
+					"mongodb": mongodbAtlasResourceConfig,
 					"postgres": {
 						Type: "gcp-cloudsql-postgres",
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
@@ -309,6 +317,36 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 			},
 		},
 	},
+}
+
+var resolvedMongodbAtlasResource = api.ResourceDescriptor{
+	Type: mongodb.ResourceTypeMongodbAtlas,
+	Config: api.Config{Config: &mongodb.AtlasConfig{
+		Admins:       []string{"smecsia"},
+		Developers:   []string{},
+		InstanceSize: "M10",
+		OrgId:        "5b89110a4e6581562623c59c",
+		ProjectId:    "5b89110a4e6581562623c59c",
+		ProjectName:  "refapp",
+		Region:       "US_SOUTH_1",
+		PrivateKey:   "<encrypted-secret>",
+		PublicKey:    "<encrypted-secret>",
+		NetworkConfig: &mongodb.AtlasNetworkConfig{
+			PrivateLinkEndpoint: &mongodb.PrivateLinkEndpoint{
+				Region:       "US_SOUTH_1",
+				ProviderName: "AWS",
+			},
+		},
+		ExtraProviders: map[string]api.AuthDescriptor{
+			"AWS": {
+				Type: "aws-token",
+				Config: api.Config{
+					Config: &resolvedAwsAccountConfig,
+				},
+				Inherit: api.Inherit{},
+			},
+		},
+	}},
 }
 
 var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
@@ -343,20 +381,7 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 			"staging": {
 				Template: "stack-per-app",
 				Resources: map[string]api.ResourceDescriptor{
-					"mongodb": {
-						Type: mongodb.ResourceTypeMongodbAtlas,
-						Config: api.Config{Config: &mongodb.AtlasConfig{
-							Admins:       []string{"smecsia"},
-							Developers:   []string{},
-							InstanceSize: "M10",
-							OrgId:        "5b89110a4e6581562623c59c",
-							ProjectId:    "5b89110a4e6581562623c59c",
-							ProjectName:  "refapp",
-							Region:       "US_SOUTH_1",
-							PrivateKey:   "<encrypted-secret>",
-							PublicKey:    "<encrypted-secret>",
-						}},
-					},
+					"mongodb": resolvedMongodbAtlasResource,
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
@@ -377,20 +402,7 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 			"prod": {
 				Template: "stack-per-app",
 				Resources: map[string]api.ResourceDescriptor{
-					"mongodb": {
-						Type: mongodb.ResourceTypeMongodbAtlas,
-						Config: api.Config{Config: &mongodb.AtlasConfig{
-							Admins:       []string{"smecsia"},
-							Developers:   []string{},
-							InstanceSize: "M10",
-							OrgId:        "5b89110a4e6581562623c59c",
-							ProjectId:    "5b89110a4e6581562623c59c",
-							ProjectName:  "refapp",
-							Region:       "US_SOUTH_1",
-							PrivateKey:   "<encrypted-secret>",
-							PublicKey:    "<encrypted-secret>",
-						}},
-					},
+					"mongodb": resolvedMongodbAtlasResource,
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{

@@ -40,6 +40,16 @@ resources:
             region: "${var:atlas-region}"
             privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
             publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+            networkConfig:
+              privateLinkEndpoint:
+                region: "${var:atlas-region}"
+                providerName: AWS
+            extraProviders:
+              AWS:
+                type: aws-token
+                config:
+                  credentials: "${auth:aws}"
+                  account: "${auth:aws.projectId}"
         postgres:
           type: gcp-cloudsql-postgres
           config:

@@ -100,18 +100,26 @@ func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
 			}
 			continue
 		}
-		if fn, found := providerConfigMapping[auth.Type]; !found {
-			return nil, errors.Errorf("unknown auth type %q for auth %q", auth.Type, name)
-		} else {
-			var err error
-			auth.Config, err = fn(&auth.Config)
-			if err != nil {
-				return descriptor, err
-			}
-			descriptor.Auth[name] = auth
+		processedAuth, err := DetectAuthProvider(&auth)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to detect auth type for %q", name)
 		}
+		descriptor.Auth[name] = *processedAuth
 	}
 	return descriptor, nil
+}
+
+func DetectAuthProvider(auth *AuthDescriptor) (*AuthDescriptor, error) {
+	if fn, found := providerConfigMapping[auth.Type]; !found {
+		return nil, errors.Errorf("unknown auth type %q", auth.Type)
+	} else {
+		var err error
+		auth.Config, err = fn(&auth.Config)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return auth, nil
 }
 
 func ReadServerConfigs(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
@@ -211,6 +219,16 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 			resource.Config, err = fn(&resource.Config)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to read resource %q for stack %q", resourceName, stackName)
+			}
+			if withDepProviders, ok := (resource.Config.Config).(WithDependencyProviders); ok {
+				depProviders := withDepProviders.DependencyProviders()
+				for name, authCfg := range depProviders {
+					procAuthCfg, err := DetectAuthProvider(&authCfg)
+					if err != nil {
+						return nil, errors.Wrapf(err, "failed to detect auth type for dependency provider %q in resource %q for stack %q", name, resourceName, stackName)
+					}
+					depProviders[name] = *procAuthCfg
+				}
 			}
 			resources.Resources[resourceName] = resource
 		}
