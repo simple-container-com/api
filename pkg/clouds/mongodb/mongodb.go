@@ -27,6 +27,7 @@ type AtlasNetworkConfig struct {
 type PrivateLinkEndpoint struct {
 	Region       string `json:"region" yaml:"region"`
 	ProviderName string `json:"providerName" yaml:"providerName"`
+	VpcId        string `json:"vpcId" yaml:"vpcId"`
 }
 
 type AtlasBackup struct {

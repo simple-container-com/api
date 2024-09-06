@@ -13,6 +13,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
@@ -138,6 +139,12 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if atlasCfg.NetworkConfig != nil {
 		if atlasCfg.NetworkConfig.PrivateLinkEndpoint != nil {
 			privateLink := lo.FromPtr(atlasCfg.NetworkConfig.PrivateLinkEndpoint)
+
+			depProvider := params.DependencyProviders[privateLink.ProviderName]
+			if depProvider == nil {
+				return nil, errors.Errorf("%q provider is not configured in Atlas configuration's extraProviders", privateLink.ProviderName)
+			}
+
 			params.Log.Info(ctx.Context(), "configure MongoDB Atlas private link endpoint for cluster %q in stack %q in %q",
 				clusterName, input.StackParams.StackName, input.StackParams.Environment)
 			linkEndpoint, err := mongodbatlas.NewPrivateLinkEndpoint(ctx, fmt.Sprintf("%s-private-link-endpoint", clusterName), &mongodbatlas.PrivateLinkEndpointArgs{
@@ -149,8 +156,30 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 				return nil, errors.Wrapf(err, "failed to create private link endpoint for MongoDB Atlas cluster %q", clusterName)
 			}
 			out.PrivateLinkEndpoint = linkEndpoint
+
+			providerType := atlasCfg.ExtraProviders[privateLink.ProviderName].Type
+			if providerType != aws.ProviderType {
+				return nil, errors.Errorf("unsupported provider type %q for private vpc endpoint for cluster %q in stack %q in %q",
+					providerType, clusterName, input.StackParams.StackName, input.StackParams.Environment)
+			}
+
+			// Create an AWS VPC endpoint to connect to MongoDB Atlas
+			//privateLinkId := linkEndpoint.PrivateLinkId.ToStringOutput()
+			//vpcEndpointServiceName := privateLinkId.ApplyT(func(id string) string {
+			//	return "com.amazonaws.vpce.amazonaws.com/" + id
+			//}).(sdk.StringOutput)
+			//vpcEndpoint, err := ec2.NewVpcEndpoint(ctx, fmt.Sprintf("%s-vpc-endpoint", clusterName), &ec2.VpcEndpointArgs{
+			//	ServiceName:     vpcEndpointServiceName,
+			//	VpcId:           sdk.String(privateLink.VpcId),
+			//	VpcEndpointType: sdk.String("Interface"),
+			//})
+			//if err != nil {
+			//	return nil, errors.Wrapf(err, "failed to create vpc endpoint for mongodb cluster %q in stack %q in %q",
+			//		clusterName, input.StackParams.StackName, input.StackParams.Environment)
+			//}
+
 		} else {
-			return nil, errors.Errorf("network configuration for MongoDB Atlas cluster %q is not provided or not supported", clusterName)
+			return nil, errors.Errorf("network configuration for MongoDB Atlas cluster %q is provided but not supported", clusterName)
 		}
 	} else {
 		params.Log.Info(ctx.Context(), "configure MongoDB Atlas ip access list for cluster %q in stack %q in %q",

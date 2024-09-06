@@ -198,7 +198,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 
 	if depProviders, ok := res.Config.Config.(api.WithDependencyProviders); ok {
 		for name, pCfg := range depProviders.DependencyProviders() {
-			_, dProvider, err := p.initProvider(ctx, stack, res.Name, res.Type, pCfg.Config, environment)
+			_, dProvider, err := p.initProvider(ctx, stack, res.Name+"-dep-"+name, res.Type, pCfg.Config, environment)
 			if err != nil {
 				return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init dependency provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 			}
@@ -225,7 +225,7 @@ func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string,
 		return "", nil, errors.Errorf("unsupported provider type %q for resource %q of type %q in stack %q", authCfg.ProviderType(), resName, resType, stack.Name)
 	} else {
 		providerType = authCfg.ProviderType()
-		providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, providerType, resName, environment)
+		providerName := fmt.Sprintf("%s--%s--%s--%s--provider", stack.Name, resType, resName, environment)
 		if out, err := providerFunc(ctx, stack, api.ResourceInput{
 			Descriptor: &api.ResourceDescriptor{
 				Type:   authCfg.ProviderType(),
