@@ -226,7 +226,7 @@ var mongodbAtlasResourceConfig = api.ResourceDescriptor{
 			"AWS": {
 				Type: "aws-token",
 				Config: api.Config{
-					Config: awsAccountConfig,
+					Config: &awsAccountConfig,
 				},
 				Inherit: api.Inherit{},
 			},
