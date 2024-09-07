@@ -55,16 +55,18 @@ if [[ -f "$BINDIR/sc"  ]]; then
   CURRENT="$($BINDIR/sc --version)"
 fi
 
+FORCE_UPDATE="false"
 if [[ -z "${SIMPLE_CONTAINER_VERSION}" ]]; then
 URL="https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}.tar.gz"
 else
 URL="https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}-v${SIMPLE_CONTAINER_VERSION}.tar.gz"
 VERSION="${SIMPLE_CONTAINER_VERSION}"
+FORCE_UPDATE="true"
 fi
 
 VERSION_COMPARE="$(vercomp "$CURRENT" "$VERSION" || echo "2")"
 
-if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "2" ]]; then
+if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "2" || "${FORCE_UPDATE}" == "true" ]]; then
   (
     cd $BINDIR &&
     curl -s -fL "$URL" | tar -xzp sc  &&
