@@ -58,7 +58,7 @@ fi
 if [[ -z "${SIMPLE_CONTAINER_VERSION}" ]]; then
 URL="https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}.tar.gz"
 else
-URL="https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}-${SIMPLE_CONTAINER_VERSION}.tar.gz"
+URL="https://dist.simple-container.com/sc-${PLATFORM}-${ARCH}-v${SIMPLE_CONTAINER_VERSION}.tar.gz"
 VERSION="${SIMPLE_CONTAINER_VERSION}"
 fi
 
