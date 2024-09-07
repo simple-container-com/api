@@ -257,6 +257,9 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 					return lo.FromPtr(cs.PrivateEndpoints[0].SrvConnectionString), nil
 				}
 			}
+			if ctx.DryRun() {
+				return "", nil
+			}
 			return "", errors.Errorf("failed to detect private network connection string for MongoDB cluster %q", clusterName)
 		}))
 	} else {
