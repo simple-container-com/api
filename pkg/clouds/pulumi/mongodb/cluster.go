@@ -250,7 +250,8 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		params.Log.Info(ctx.Context(), "Looking up for private endpoint connection string for MongoDB cluster %q for stack %q in %q",
 			clusterName, input.StackParams.StackName, input.StackParams.Environment)
 
-		ctx.Export(toMongoUriWithOptionsExport(clusterName), cluster.ConnectionStrings.ApplyT(func(connStrings []mongodbatlas.ClusterConnectionString) (string, error) {
+		ctx.Export(toMongoUriWithOptionsExport(clusterName), sdk.All(cluster.ConnectionStrings, out.PrivateLinkEndpointService).ApplyT(func(args []any) (string, error) {
+			var connStrings = args[0].([]mongodbatlas.ClusterConnectionString)
 			for _, cs := range connStrings {
 				if len(cs.PrivateEndpoints) == 1 {
 					// TODO: support more private endpoints
