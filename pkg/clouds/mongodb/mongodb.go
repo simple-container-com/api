@@ -22,12 +22,12 @@ type AtlasConfig struct {
 
 type AtlasNetworkConfig struct {
 	PrivateLinkEndpoint *PrivateLinkEndpoint `json:"privateLinkEndpoint,omitempty" yaml:"privateLinkEndpoint,omitempty"`
+	AllowAllIps         *bool                `json:"allowAllIps,omitempty" yaml:"allowAllIps,omitempty"`
+	AllowCidrs          *[]string            `json:"allowCidrs,omitempty" yaml:"allowCidrs,omitempty"` // format "0.0.0.0/0"
 }
 
 type PrivateLinkEndpoint struct {
-	Region       string `json:"region" yaml:"region"`
 	ProviderName string `json:"providerName" yaml:"providerName"`
-	VpcId        string `json:"vpcId" yaml:"vpcId"`
 }
 
 type AtlasBackup struct {

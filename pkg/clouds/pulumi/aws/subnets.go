@@ -7,6 +7,7 @@ import (
 	"github.com/samber/lo"
 
 	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	ec2V5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -15,46 +16,46 @@ import (
 	"github.com/simple-container-com/api/pkg/util"
 )
 
-type lookedupSubnet struct {
+type LookedupSubnet struct {
 	id  sdk.IDOutput
 	arn sdk.StringOutput
 }
 
-type defaultSubnet struct {
-	lookedupSubnet
+type Subnet struct {
+	LookedupSubnet
 	resource sdk.Resource
 }
 
 type (
-	lookedupSubnets []lookedupSubnet
-	defaultSubnets  []defaultSubnet
+	LookedupSubnets []LookedupSubnet
+	defaultSubnets  []Subnet
 )
 
-func (s *lookedupSubnets) Arns() sdk.StringArrayInput {
-	return sdk.StringArray(lo.Map(*s, func(subnet lookedupSubnet, _ int) sdk.StringInput {
+func (s *LookedupSubnets) Arns() sdk.StringArrayInput {
+	return sdk.StringArray(lo.Map(*s, func(subnet LookedupSubnet, _ int) sdk.StringInput {
 		return subnet.arn
 	}))
 }
 
 func (s *defaultSubnets) Ids() sdk.StringArrayInput {
-	return sdk.StringArray(lo.Map(*s, func(subnet defaultSubnet, _ int) sdk.StringInput {
+	return sdk.StringArray(lo.Map(*s, func(subnet Subnet, _ int) sdk.StringInput {
 		return subnet.id
 	}))
 }
 
-func (s *lookedupSubnets) Ids() sdk.StringArrayInput {
-	return sdk.StringArray(lo.Map(*s, func(subnet lookedupSubnet, _ int) sdk.StringInput {
+func (s *LookedupSubnets) Ids() sdk.StringArrayInput {
+	return sdk.StringArray(lo.Map(*s, func(subnet LookedupSubnet, _ int) sdk.StringInput {
 		return subnet.id
 	}))
 }
 
 func (s *defaultSubnets) Resources() []sdk.Resource {
-	return lo.Map(*s, func(subnet defaultSubnet, _ int) sdk.Resource {
+	return lo.Map(*s, func(subnet Subnet, _ int) sdk.Resource {
 		return subnet.resource
 	})
 }
 
-func getAvailabilityZones(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) (*awsImpl.GetAvailabilityZonesResult, error) {
+func GetAvailabilityZones(ctx *sdk.Context, account aws.AccountConfig, provider sdk.ProviderResource) (*awsImpl.GetAvailabilityZonesResult, error) {
 	// Get all availability zones in provided region
 	availabilityZones, err := awsImpl.GetAvailabilityZones(ctx, &awsImpl.GetAvailabilityZonesArgs{
 		Filters: []awsImpl.GetAvailabilityZonesFilter{
@@ -63,22 +64,26 @@ func getAvailabilityZones(ctx *sdk.Context, account aws.AccountConfig, params pA
 				Values: []string{account.Region},
 			},
 		},
-	}, sdk.Provider(params.Provider))
+	}, sdk.Provider(provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
 	}
 	return availabilityZones, nil
 }
 
-func lookupDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig, params pApi.ProvisionParams) (lookedupSubnets, error) {
+func NewVpcInAccount(ctx *sdk.Context, vpcName string, opts ...sdk.ResourceOption) (*ec2.DefaultVpc, error) {
+	return ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
+}
+
+func LookupSubnetsInAccount(ctx *sdk.Context, account aws.AccountConfig, provider sdk.ProviderResource) (LookedupSubnets, error) {
 	// Get all availability zones in provided region
-	availabilityZones, err := getAvailabilityZones(ctx, account, params)
+	availabilityZones, err := GetAvailabilityZones(ctx, account, provider)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get availability zones in region %q", account.Region)
 	}
 
 	// Create default subnet in each availability zone
-	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (lookedupSubnet, error) {
+	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (LookedupSubnet, error) {
 		// Try to look up the default subnet in the specified availability zone
 		subnet, err := ec2V5.LookupSubnet(ctx, &ec2V5.LookupSubnetArgs{
 			Filters: []ec2V5.GetSubnetFilter{
@@ -91,11 +96,11 @@ func lookupDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 					Values: []string{"true"},
 				},
 			},
-		}, sdk.Provider(params.Provider))
+		}, sdk.Provider(provider))
 		if err != nil {
-			return lookedupSubnet{}, errors.Wrapf(err, "failed to lookup subnet in zone %q", zone)
+			return LookedupSubnet{}, errors.Wrapf(err, "failed to lookup subnet in zone %q", zone)
 		}
-		return lookedupSubnet{
+		return LookedupSubnet{
 			id:  sdk.ID(subnet.Id).ToIDOutput(),
 			arn: sdk.String(subnet.Arn).ToStringOutput(),
 		}, nil
@@ -118,16 +123,16 @@ func createDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 	}
 
 	// Create default subnet in each availability zone
-	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (defaultSubnet, error) {
+	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (Subnet, error) {
 		subnetName := fmt.Sprintf("default-subnet-%s-%s", env, zone)
 		subnet, err := ec2V5.NewDefaultSubnet(ctx, subnetName, &ec2V5.DefaultSubnetArgs{
 			AvailabilityZone: sdk.String(zone),
 		}, sdk.Provider(params.Provider))
 		if err != nil {
-			return defaultSubnet{}, errors.Wrapf(err, "failed to create default subnet %s in %q", subnetName, account.Region)
+			return Subnet{}, errors.Wrapf(err, "failed to create default subnet %s in %q", subnetName, account.Region)
 		}
-		return defaultSubnet{
-			lookedupSubnet: lookedupSubnet{
+		return Subnet{
+			LookedupSubnet: LookedupSubnet{
 				id:  subnet.ID(),
 				arn: subnet.Arn,
 			},

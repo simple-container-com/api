@@ -15,7 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) (*api.PreviewResult, error) {
+func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
 	s, err := p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return nil, err
@@ -25,12 +25,14 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
-	refreshResult, err := stackSource.Refresh(ctx)
-	if err != nil {
-		return nil, err
+	if !params.SkipRefresh {
+		p.logger.Info(ctx, color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
+		refreshResult, err := stackSource.Refresh(ctx)
+		if err != nil {
+			return nil, err
+		}
+		p.logger.Info(ctx, color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
 	}
-	p.logger.Info(ctx, color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
 
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
 	previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))))

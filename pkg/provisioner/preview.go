@@ -54,7 +54,7 @@ func (p *provisioner) PreviewProvision(ctx context.Context, params api.Provision
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get provisioner for stack %q", stack.Name)
 		}
-		if pres, err := pv.PreviewStack(ctx, cfg, stack); err != nil {
+		if pres, err := pv.PreviewStack(ctx, cfg, stack, params); err != nil {
 			return nil, errors.Wrapf(err, "failed to preview for stack %q", stack.Name)
 		} else {
 			res = append(res, pres)

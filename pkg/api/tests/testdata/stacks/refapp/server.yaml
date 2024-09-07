@@ -42,7 +42,6 @@ resources:
             publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
             networkConfig:
               privateLinkEndpoint:
-                region: "${var:atlas-region}"
                 providerName: AWS
             extraProviders:
               AWS:

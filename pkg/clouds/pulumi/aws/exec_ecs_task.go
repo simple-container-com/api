@@ -132,13 +132,13 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 
 	vpcName := fmt.Sprintf("%s-vpc", name)
 	params.Log.Info(ctx.Context(), "getting default VPC for %q", name)
-	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
+	vpc, err := NewVpcInAccount(ctx, vpcName, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsClusterName)
 	}
 
 	params.Log.Info(ctx.Context(), "getting default subnets for %q", name)
-	subnets, err := lookupDefaultSubnetsInRegionV5(ctx, accountConfig, params)
+	subnets, err := LookupSubnetsInAccount(ctx, accountConfig, params.Provider)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get or create default subnets in region")
 	}

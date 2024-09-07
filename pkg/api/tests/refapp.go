@@ -218,7 +218,6 @@ var mongodbAtlasResourceConfig = api.ResourceDescriptor{
 		PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
 		NetworkConfig: &mongodb.AtlasNetworkConfig{
 			PrivateLinkEndpoint: &mongodb.PrivateLinkEndpoint{
-				Region:       "${var:atlas-region}",
 				ProviderName: "AWS",
 			},
 		},
@@ -333,7 +332,6 @@ var resolvedMongodbAtlasResource = api.ResourceDescriptor{
 		PublicKey:    "<encrypted-secret>",
 		NetworkConfig: &mongodb.AtlasNetworkConfig{
 			PrivateLinkEndpoint: &mongodb.PrivateLinkEndpoint{
-				Region:       "US_SOUTH_1",
 				ProviderName: "AWS",
 			},
 		},

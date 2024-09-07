@@ -105,12 +105,12 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	return p.destroyStack(ctx, cfg, s, params.SkipRefresh)
 }
 
-func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) (*api.PreviewResult, error) {
+func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
 	err := p.createStackIfNotExists(ctx, cfg, parentStack)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	return p.previewStack(ctx, cfg, parentStack)
+	return p.previewStack(ctx, cfg, parentStack, params)
 }
 
 func (p *pulumi) PreviewChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {

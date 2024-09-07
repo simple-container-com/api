@@ -129,7 +129,7 @@ type Provisioner interface {
 
 	DestroyChildStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
 
-	PreviewStack(ctx context.Context, cfg *ConfigFile, parentStack Stack) (*PreviewResult, error)
+	PreviewStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params ProvisionParams) (*PreviewResult, error)
 
 	PreviewChildStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DeployParams) (*PreviewResult, error)
 

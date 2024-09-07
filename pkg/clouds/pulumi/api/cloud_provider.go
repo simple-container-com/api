@@ -14,7 +14,7 @@ type ProvisionParams struct {
 	Log            logger.Logger
 	ComputeContext ComputeContext
 	// optionally set on per-case basis
-	DependencyProviders map[string]sdk.ProviderResource
+	DependencyProviders map[string]DependencyProvider
 	DnsPreference       *DnsPreference
 	ParentStack         *ParentInfo
 	StackDescriptor     *api.StackDescriptor
@@ -22,6 +22,11 @@ type ProvisionParams struct {
 	DependOnResources   []api.StackConfigDependencyResource
 	BaseEnvVariables    map[string]string
 	HelpersImage        string
+}
+
+type DependencyProvider struct {
+	Provider sdk.ProviderResource
+	Config   api.Config
 }
 
 type DnsPreference struct {

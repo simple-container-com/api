@@ -249,7 +249,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	if lo.FromPtr(stackConfig.StaticEgressIP) {
-		zones, err := getAvailabilityZones(ctx, crInput.AccountConfig, params)
+		zones, err := GetAvailabilityZones(ctx, crInput.AccountConfig, params.Provider)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get AZs for lambda %q", lambdaName)
 		}

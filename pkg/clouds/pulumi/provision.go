@@ -194,7 +194,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 	}
 
-	dependencyProviders := make(map[string]sdk.ProviderResource)
+	dependencyProviders := make(map[string]pApi.DependencyProvider)
 
 	if depProviders, ok := res.Config.Config.(api.WithDependencyProviders); ok {
 		for name, pCfg := range depProviders.DependencyProviders() {
@@ -202,7 +202,10 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 			if err != nil {
 				return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init dependency provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 			}
-			dependencyProviders[name] = dProvider
+			dependencyProviders[name] = pApi.DependencyProvider{
+				Provider: dProvider,
+				Config:   pCfg.Config,
+			}
 		}
 	}
 

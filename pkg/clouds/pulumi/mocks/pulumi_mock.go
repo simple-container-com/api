@@ -148,7 +148,7 @@ func (_m *PulumiMock) PreviewChildStack(ctx context.Context, cfg *api.ConfigFile
 }
 
 // PreviewStack provides a mock function with given fields: ctx, cfg, parentStack
-func (_m *PulumiMock) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack) (*api.PreviewResult, error) {
+func (_m *PulumiMock) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
 	ret := _m.Called(ctx, cfg, parentStack)
 
 	if len(ret) == 0 {

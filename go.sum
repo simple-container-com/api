@@ -1341,8 +1341,8 @@ github.com/pulumi/pulumi-docker/sdk/v4 v4.5.4 h1:2SezQnzSFnnKz6lD0zAJ9qsjk7PV37+
 github.com/pulumi/pulumi-docker/sdk/v4 v4.5.4/go.mod h1:chteey764bsPyWClfptEQsrUMREdVU3TwIu46hJoMW4=
 github.com/pulumi/pulumi-gcp/sdk/v6 v6.67.1 h1:PUH/sUbJmBmHjNFNthJ/dW2+riFuJV0FhrGAwuUuRIg=
 github.com/pulumi/pulumi-gcp/sdk/v6 v6.67.1/go.mod h1:OmZeji3dNMwB1qldAlaQfcfJPc2BaZyweVGH7Ej4SJg=
-github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.14.3 h1:utmUczcqAIdYA+GVGdlG0rim64f9q6MUl74i0WfoKH8=
-github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.14.3/go.mod h1:G9D8Ep9uEzBn/yXfCVDt0FXHpebaHTrgtidyzDTf1/Y=
+github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.17.1 h1:CKmg41Ro3U4+ZE6/dPb/mvh8w8BoM4U0Qdjk9ZH+DSM=
+github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.17.1/go.mod h1:N7i//nAsVHOoFUJzCB9z/JUrYgz4X+H65faWrRJh0eQ=
 github.com/pulumi/pulumi-random/sdk/v4 v4.16.0 h1:H6gGA1hnprPB7SWC11giI93tVRxuSxeAteIuqtr6GHk=
 github.com/pulumi/pulumi-random/sdk/v4 v4.16.0/go.mod h1:poNUvMquwCDb7AqxqBBWcZEn6ADhoDPml2j43wZtzkU=
 github.com/pulumi/pulumi/pkg/v3 v3.131.0 h1:En0nFR9JQ26kxi71qbgATpsJ34leC0VgSFW1TwS4OjE=
