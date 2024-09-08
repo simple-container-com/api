@@ -48,11 +48,10 @@ func main() {
 	}()
 
 	rootCmd := &cobra.Command{
-		Use:          "sc",
-		Version:      build.Version,
-		Short:        "Simple Container is a handy tool for provisioning your cloud clusters",
-		Long:         "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://docs.simple-container.com",
-		SilenceUsage: true,
+		Use:     "sc",
+		Version: build.Version,
+		Short:   "Simple Container is a handy tool for provisioning your cloud clusters",
+		Long:    "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://docs.simple-container.com",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Name() != "init" {
 				if err := rootCmdInstance.Init(root_cmd.IgnoreAllErrors); err != nil {

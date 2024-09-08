@@ -15,8 +15,9 @@ func NewSecretsCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		Root: rootCmd,
 	}
 	cmd := &cobra.Command{
-		Use:   "secrets",
-		Short: "Control repository-stored secrets",
+		Use:          "secrets",
+		Short:        "Control repository-stored secrets",
+		SilenceUsage: true,
 	}
 
 	cmd.AddCommand(
