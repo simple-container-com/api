@@ -12,6 +12,7 @@ import (
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
@@ -47,10 +48,11 @@ func main() {
 	}()
 
 	rootCmd := &cobra.Command{
-		Use:     "sc",
-		Version: build.Version,
-		Short:   "Simple Container is a handy tool for provisioning your cloud clusters",
-		Long:    "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://docs.simple-container.com",
+		Use:          "sc",
+		Version:      build.Version,
+		Short:        "Simple Container is a handy tool for provisioning your cloud clusters",
+		Long:         "A fast and flexible way of deploying your whole infrastructure with the underlying use of Pulumi.\nComplete documentation is available at https://docs.simple-container.com",
+		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Name() != "init" {
 				if err := rootCmdInstance.Init(root_cmd.IgnoreAllErrors); err != nil {
@@ -85,6 +87,7 @@ func main() {
 
 	err := rootCmd.Execute()
 	if err != nil {
-		panic(err)
+		_, _ = os.Stderr.WriteString(color.RedFmt("Error executing command: %s\n", err.Error()))
+		os.Exit(1)
 	}
 }

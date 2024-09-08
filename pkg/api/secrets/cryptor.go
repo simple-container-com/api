@@ -16,8 +16,8 @@ type Cryptor interface {
 	ReadProfileConfig() error
 	AddFile(path string) error
 	RemoveFile(path string) error
-	DecryptAll() error
-	EncryptChanged(force bool) error
+	DecryptAll(forceChanged bool) error
+	EncryptChanged(force bool, forceChanged bool) error
 	ReadSecretFiles() error
 	MarshalSecretsFile() error
 	GetSecretFiles() EncryptedSecretFiles
@@ -52,6 +52,7 @@ type cryptor struct {
 	secrets              EncryptedSecretFiles
 	consoleWriter        util.ConsoleWriter
 	consoleReader        util.ConsoleReader
+	confirmationReader   util.ConsoleReader
 }
 
 func (c *cryptor) Workdir() string {

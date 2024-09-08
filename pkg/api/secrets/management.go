@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"github.com/simple-container-com/welder/pkg/util"
 )
@@ -63,7 +65,7 @@ func (c *cryptor) AddFile(filePath string) error {
 	if lo.IndexOf(c.secrets.Registry.Files, filePath) < 0 {
 		c.secrets.Registry.Files = append(c.secrets.Registry.Files, filePath)
 	}
-	if err := c.EncryptChanged(true); err != nil {
+	if err := c.EncryptChanged(true, false); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	if err := c.MarshalSecretsFile(); err != nil {
@@ -77,7 +79,7 @@ func (c *cryptor) AddFile(filePath string) error {
 
 func (c *cryptor) RemovePublicKey(pubKey string) error {
 	delete(c.secrets.Secrets, TrimPubKey(pubKey))
-	err := c.EncryptChanged(true)
+	err := c.EncryptChanged(true, false)
 	if err != nil {
 		return err
 	}
@@ -94,7 +96,7 @@ func (c *cryptor) AddPublicKey(pubKey string) error {
 		return err
 	}
 	c.secrets.Secrets[TrimPubKey(pubKey)] = EncryptedSecrets{}
-	err := c.EncryptChanged(true)
+	err := c.EncryptChanged(true, false)
 	if err != nil {
 		return err
 	}
@@ -109,7 +111,7 @@ func (c *cryptor) RemoveFile(filePath string) error {
 	c.secrets.Registry.Files = lo.Filter(c.secrets.Registry.Files, func(s string, _ int) bool {
 		return s != filePath
 	})
-	if err := c.EncryptChanged(true); err != nil {
+	if err := c.EncryptChanged(true, false); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	err := c.MarshalSecretsFile()
@@ -170,7 +172,7 @@ func (c *cryptor) MarshalSecretsFile() error {
 	return nil
 }
 
-func (c *cryptor) DecryptAll() error {
+func (c *cryptor) DecryptAll(forceChanged bool) error {
 	defer c.withReadLock()()
 
 	if c.currentPublicKey == "" {
@@ -182,7 +184,7 @@ func (c *cryptor) DecryptAll() error {
 	}
 
 	for _, sFile := range c.secrets.Secrets[c.currentPublicKey].Files {
-		if _, err := c.decryptSecretDataToFile(sFile.EncryptedData, sFile.Path); err != nil {
+		if _, err := c.decryptSecretDataToFile(sFile.EncryptedData, sFile.Path, forceChanged); err != nil {
 			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, c.currentPublicKey)
 		}
 	}
@@ -190,7 +192,7 @@ func (c *cryptor) DecryptAll() error {
 	return nil
 }
 
-func (c *cryptor) EncryptChanged(force bool) error {
+func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 	c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
 		return TrimPubKey(key)
 	})
@@ -201,6 +203,8 @@ func (c *cryptor) EncryptChanged(force bool) error {
 		})
 		c.secrets.Secrets[publicKey] = filteredSecrets
 	}
+
+	acceptedChanges := make(map[string]bool)
 	for _, relFilePath := range c.secrets.Registry.Files {
 		secretData, err := c.readSecretFile(relFilePath)
 		if err != nil {
@@ -222,9 +226,18 @@ func (c *cryptor) EncryptChanged(force bool) error {
 			if err != nil {
 				return err
 			}
+
+			if accepted := acceptedChanges[sFile.Path]; !accepted {
+				if err := c.ensureDiffAcceptable(sFile.Path, currentContent, secretData, forceChanged); err != nil {
+					return errors.Wrapf(err, "diff is not acceptable")
+				}
+				acceptedChanges[sFile.Path] = true
+			}
+
 			if string(secretData) != string(currentContent) {
 				pKeySecrets.RemoveFile(sFile)
 			}
+
 			pKeySecrets.AddFileIfNotExist(sFile)
 			c.secrets.Secrets[publicKey] = pKeySecrets
 		}
@@ -233,6 +246,12 @@ func (c *cryptor) EncryptChanged(force bool) error {
 		if err != nil {
 			return err
 		}
+		if accepted := acceptedChanges[sFile.Path]; !accepted {
+			if err := c.ensureDiffAcceptable(sFile.Path, currentContent, secretData, forceChanged); err != nil {
+				return errors.Wrapf(err, "diff is not acceptable")
+			}
+		}
+		acceptedChanges[sFile.Path] = true
 		if string(secretData) != string(currentContent) {
 			secrets.RemoveFile(sFile)
 		}
@@ -240,6 +259,56 @@ func (c *cryptor) EncryptChanged(force bool) error {
 		c.secrets.Secrets[c.currentPublicKey] = secrets
 	}
 	return nil
+}
+
+func (c *cryptor) ensureDiffAcceptable(fileName string, currentContent, newContent []byte, skipCheck bool) error {
+	if skipCheck {
+		return nil
+	}
+	currentString := string(currentContent)
+	newString := string(newContent)
+
+	oldStrings, newStrings := lo.Difference(strings.Split(currentString, "\n"), strings.Split(newString, "\n"))
+
+	oldStrings = lo.Filter(oldStrings, func(s string, _ int) bool {
+		return strings.TrimSpace(s) != ""
+	})
+	newStrings = lo.Filter(newStrings, func(s string, _ int) bool {
+		return strings.TrimSpace(s) != ""
+	})
+
+	if len(oldStrings) > 0 {
+		c.consoleWriter.Println("================================")
+		c.consoleWriter.Println(color.RedFmt("Strings removed from %q:", fileName))
+		for _, removedString := range oldStrings {
+			c.consoleWriter.Println(color.RedFmt("-- %s", removedString))
+		}
+	}
+	if len(newStrings) > 0 {
+		c.consoleWriter.Println("================================")
+		c.consoleWriter.Println(color.GreenFmt("Strings added to %q:", fileName))
+		for _, addedString := range newStrings {
+			c.consoleWriter.Println(color.GreenFmt("++ %s", addedString))
+		}
+	}
+	if len(oldStrings) == 0 && len(newStrings) == 0 {
+		return nil
+	}
+	c.consoleWriter.Println("================================")
+	var readString string
+	var attempts int
+	for strings.ToLower(readString) != "y" && strings.ToLower(readString) != "n" {
+		c.consoleWriter.Print("do you accept changes [Y/N]? >")
+		readString, _ = c.confirmationReader.ReadLine()
+		attempts++
+		if attempts > 3 {
+			return errors.Errorf("'Y' or 'N' expected, but got %q after 3 attempts", readString)
+		}
+	}
+	if strings.ToLower(readString) == "y" {
+		return nil
+	}
+	return errors.Errorf("Change is not accepted")
 }
 
 func (c *cryptor) encryptSecretsFileWith(publicKey string, relFilePath string) (EncryptedSecretFile, error) {
@@ -331,23 +400,36 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 	return decrypted, nil
 }
 
-func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath string) ([]byte, error) {
+func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath string, forceChanged bool) ([]byte, error) {
 	decrypted, err := c.decryptSecretData(encryptedData)
 	if err != nil {
 		return nil, err
 	}
 
-	var file billy.File
+	var file, existingFile billy.File
+	var currentContent []byte
 	if !c.gitRepo.Exists(relFilePath) {
 		file, err = c.gitRepo.CreateFile(relFilePath)
 	} else {
+		existingFile, err = c.gitRepo.OpenFile(relFilePath, os.O_RDONLY, fs.ModePerm)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to open existed secret file %q", relFilePath)
+		}
+		currentContent, err = io.ReadAll(existingFile)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to read existed secret file %q", relFilePath)
+		}
+		if err := c.ensureDiffAcceptable(relFilePath, currentContent, decrypted, forceChanged); err != nil {
+			return nil, errors.Wrapf(err, "changes are not accepted")
+		}
 		file, err = c.gitRepo.OpenFile(relFilePath, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, fs.ModePerm)
 	}
 
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open secret file: %q", relFilePath)
+		return nil, errors.Wrapf(err, "failed to open/create secret file: %q", relFilePath)
 	}
 	defer func() { _ = file.Close() }()
+
 	if _, err := io.WriteString(file, string(decrypted)); err != nil { // nolint: staticcheck
 		return nil, errors.Wrapf(err, "failed to write secret to file %q", relFilePath)
 	}
@@ -387,10 +469,11 @@ func (c *cryptor) withWriteLock() func() {
 
 func NewCryptor(workDir string, opts ...Option) (Cryptor, error) {
 	c := &cryptor{
-		workDir:       workDir,
-		options:       opts,
-		consoleReader: util.DefaultConsoleReader,
-		consoleWriter: util.DefaultConsoleWriter,
+		workDir:            workDir,
+		options:            opts,
+		consoleReader:      util.DefaultConsoleReader,
+		confirmationReader: util.DefaultConsoleReader,
+		consoleWriter:      util.DefaultConsoleWriter,
 	}
 
 	beforeInitOpts := lo.Filter(opts, func(item Option, index int) bool {

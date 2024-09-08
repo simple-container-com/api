@@ -30,7 +30,8 @@ func withGitDir(gitDir string) Option {
 }
 
 type mocks struct {
-	consoleReaderMock *test.ConsoleReaderMock
+	consoleReaderMock      *test.ConsoleReaderMock
+	confirmationReaderMock *test.ConsoleReaderMock
 }
 
 func TestNewCryptor(t *testing.T) {
@@ -40,6 +41,7 @@ func TestNewCryptor(t *testing.T) {
 		name           string
 		testExampleDir string
 		opts           []Option
+		prepareMocks   func(m *mocks)
 		actions        func(t *testing.T, c Cryptor, m *mocks, wd string)
 		wantErr        string
 	}{
@@ -50,7 +52,8 @@ func TestNewCryptor(t *testing.T) {
 				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files"),
 			},
-			actions: happyPathScenario,
+			prepareMocks: acceptAllChanges,
+			actions:      happyPathScenario,
 		},
 		{
 			name:           "happy path with inline keys",
@@ -59,7 +62,8 @@ func TestNewCryptor(t *testing.T) {
 				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-inline"),
 			},
-			actions: happyPathScenario,
+			prepareMocks: acceptAllChanges,
+			actions:      happyPathScenario,
 		},
 		{
 			name:           "happy path with passphrase",
@@ -68,7 +72,8 @@ func TestNewCryptor(t *testing.T) {
 				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files-passphrase"),
 			},
-			actions: happyPathScenario,
+			prepareMocks: acceptAllChanges,
+			actions:      happyPathScenario,
 		},
 		{
 			name:           "happy path with profile",
@@ -78,7 +83,8 @@ func TestNewCryptor(t *testing.T) {
 				WithProfile("local-key-files"),
 				WithKeysFromCurrentProfile(),
 			},
-			actions: happyPathScenario,
+			prepareMocks: acceptAllChanges,
+			actions:      happyPathScenario,
 		},
 		{
 			name:           "happy path with invalid passphrase from console",
@@ -87,11 +93,12 @@ func TestNewCryptor(t *testing.T) {
 				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files-no-passphrase"),
 			},
+			prepareMocks: acceptAllChanges,
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				m.consoleReaderMock.On("ReadLine").Return("invalid-passphrase", nil)
 				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
-				Expect(c.EncryptChanged(true)).To(BeNil())
-				err := c.DecryptAll()
+				Expect(c.EncryptChanged(true, false)).To(BeNil())
+				err := c.DecryptAll(false)
 				Expect(err).NotTo(BeNil())
 				Expect(err.Error()).To(MatchRegexp(".*failed to parse private key with passphrase.*"))
 			},
@@ -103,11 +110,12 @@ func TestNewCryptor(t *testing.T) {
 				withGitDir("gitdir"),
 				WithKeysFromScConfig("local-key-files-no-passphrase"),
 			},
+			prepareMocks: acceptAllChanges,
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				m.consoleReaderMock.On("ReadLine").Return("test", nil)
 				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
-				Expect(c.EncryptChanged(true)).To(BeNil())
-				err := c.DecryptAll()
+				Expect(c.EncryptChanged(true, false)).To(BeNil())
+				err := c.DecryptAll(false)
 				Expect(err).To(BeNil())
 			},
 		},
@@ -129,6 +137,7 @@ func TestNewCryptor(t *testing.T) {
 				WithProfile("test-profile"),
 				WithGeneratedKeys("test-project", "test-profile"),
 			},
+			prepareMocks: acceptAllChanges,
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				happyPathScenario(t, c, m, wd)
 				cfg, err := api.ReadConfigFile(wd, "test-profile")
@@ -169,7 +178,8 @@ func TestNewCryptor(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &mocks{
-				consoleReaderMock: &test.ConsoleReaderMock{},
+				consoleReaderMock:      &test.ConsoleReaderMock{},
+				confirmationReaderMock: &test.ConsoleReaderMock{},
 			}
 
 			workDir, cleanup, err := testutil.CopyTempProject(tt.testExampleDir)
@@ -180,7 +190,7 @@ func TestNewCryptor(t *testing.T) {
 				return
 			}
 
-			tt.opts = append(tt.opts, WithConsoleReader(m.consoleReaderMock))
+			tt.opts = append(tt.opts, WithConsoleReader(m.consoleReaderMock), WithConfirmationReader(m.confirmationReaderMock))
 
 			got, err := NewCryptor(workDir, tt.opts...)
 
@@ -191,11 +201,19 @@ func TestNewCryptor(t *testing.T) {
 				Expect(got).NotTo(BeNil())
 			}
 
+			if tt.prepareMocks != nil {
+				tt.prepareMocks(m)
+			}
+
 			if tt.actions != nil {
 				tt.actions(t, got, m, workDir)
 			}
 		})
 	}
+}
+
+func acceptAllChanges(m *mocks) {
+	m.confirmationReaderMock.On("ReadLine").Return("Y", nil)
 }
 
 func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
@@ -227,7 +245,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	})
 	t.Run("decrypt file", func(t *testing.T) {
 		Expect(os.RemoveAll(commonSecretsFilePath)).To(BeNil())
-		Expect(c.DecryptAll()).To(BeNil())
+		Expect(c.DecryptAll(false)).To(BeNil())
 		newSecretFileContent, err := os.ReadFile(commonSecretsFilePath)
 		Expect(err).To(BeNil())
 		Expect(newSecretFileContent).To(Equal(oldSecretFile1Content))
@@ -254,7 +272,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	})
 
 	// clone to another dir
-	anotherC, cleanup, err := cloneWorkdir(c, wd, anotherPubKeyString, anotherPrivKey)
+	anotherC, cleanup, err := cloneWorkdir(c, wd, anotherPubKeyString, anotherPrivKey, m)
 	Expect(err).To(BeNil())
 	defer cleanup()
 
@@ -264,7 +282,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 		knownKeys := anotherC.GetKnownPublicKeys()
 		Expect(knownKeys).To(ContainElement(c.PublicKey()))
 		Expect(knownKeys).To(ContainElement(anotherPubKeyString))
-		Expect(anotherC.DecryptAll()).To(BeNil())
+		Expect(anotherC.DecryptAll(false)).To(BeNil())
 
 		newSecretFileContent, err := os.ReadFile(path.Join(anotherC.Workdir(), "stacks/common/secrets.yaml"))
 		Expect(err).To(BeNil())
@@ -277,7 +295,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 
 	t.Run("do not re-encrypt if no changes", func(t *testing.T) {
 		prevEncrypted := c.GetSecretFiles().Secrets[c.PublicKey()].Files
-		Expect(c.EncryptChanged(false)).To(BeNil())
+		Expect(c.EncryptChanged(false, false)).To(BeNil())
 		newEncrypted := c.GetSecretFiles().Secrets[c.PublicKey()].Files
 		Expect(prevEncrypted).To(Equal(newEncrypted))
 	})
@@ -289,7 +307,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	})
 
 	// clone to another dir
-	anotherC, cleanup, err = cloneWorkdir(c, wd, anotherPubKeyString, anotherPrivKey)
+	anotherC, cleanup, err = cloneWorkdir(c, wd, anotherPubKeyString, anotherPrivKey, m)
 	Expect(err).To(BeNil())
 	defer cleanup()
 
@@ -299,7 +317,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 		knownKeys := anotherC.GetKnownPublicKeys()
 		Expect(knownKeys).To(ContainElement(c.PublicKey()))
 		Expect(knownKeys).NotTo(ContainElement(anotherPubKeyString))
-		decryptErr := anotherC.DecryptAll()
+		decryptErr := anotherC.DecryptAll(false)
 		Expect(decryptErr).NotTo(BeNil())
 		Expect(decryptErr.Error()).To(MatchRegexp("current public key .* is not found in secrets"))
 	})
@@ -327,7 +345,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	})
 }
 
-func cloneWorkdir(c Cryptor, wd, pubKey, privKey string) (Cryptor, func(), error) {
+func cloneWorkdir(c Cryptor, wd, pubKey, privKey string, m *mocks) (Cryptor, func(), error) {
 	anotherDir, cleanup, err := testutil.CopyTempProject(wd)
 	Expect(err).To(BeNil())
 	anotherGitRepo, err := git.New(git.WithRootDir(anotherDir))
@@ -337,6 +355,8 @@ func cloneWorkdir(c Cryptor, wd, pubKey, privKey string) (Cryptor, func(), error
 		WithPublicKey(pubKey),
 		WithPrivateKey(privKey),
 		WithGitRepo(anotherGitRepo),
+		WithConfirmationReader(m.confirmationReaderMock),
+		WithConsoleReader(m.consoleReaderMock),
 	)
 	return anotherC, cleanup, err
 }

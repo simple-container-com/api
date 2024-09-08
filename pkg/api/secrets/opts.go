@@ -28,6 +28,16 @@ func WithConsoleWriter(writer util.ConsoleWriter) Option {
 	}
 }
 
+func WithConfirmationReader(reader util.ConsoleReader) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			c.confirmationReader = reader
+			return nil
+		},
+	}
+}
+
 func WithConsoleReader(reader util.ConsoleReader) Option {
 	return Option{
 		beforeInit: true,
