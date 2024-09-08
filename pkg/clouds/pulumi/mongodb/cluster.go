@@ -177,7 +177,6 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create private link endpoint for MongoDB Atlas cluster %q", clusterName)
 			}
-			ctx.Export(linkEndpointName, linkEndpoint.PrivateEndpoints)
 			privateLinkId := linkEndpoint.PrivateLinkId
 
 			params.Log.Info(ctx.Context(), "configure aws private endpoint for MongoDB cluster %q in stack %q in %q",
@@ -195,7 +194,6 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create AWS VPC Endpoint for MongoDB cluster %q", clusterName)
 			}
-			ctx.Export(vpcEndpointName, vpcEndpoint.DnsEntries)
 
 			params.Log.Info(ctx.Context(), "configure MongoDB Atlas private link endpoint service for cluster %q in stack %q in %q",
 				clusterName, input.StackParams.StackName, input.StackParams.Environment)
@@ -209,7 +207,6 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 				return nil, errors.Wrapf(err, "failed to create private link endpoint service for MongoDB Atlas cluster %q", clusterName)
 			}
 			out.PrivateLinkEndpointService = linkEndpointService
-			ctx.Export(linkEndpointServiceName, linkEndpointService.ToPrivateLinkEndpointServiceOutput())
 
 		} else {
 			return nil, errors.Errorf("network configuration for MongoDB Atlas cluster %q is provided but not supported", clusterName)
@@ -250,7 +247,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		params.Log.Info(ctx.Context(), "Looking up for private endpoint connection string for MongoDB cluster %q for stack %q in %q",
 			clusterName, input.StackParams.StackName, input.StackParams.Environment)
 
-		ctx.Export(toMongoUriWithOptionsExport(clusterName), sdk.All(cluster.Name, projectId, out.PrivateLinkEndpointService).ApplyT(func(args []any) (string, error) {
+		ctx.Export(toMongoUriWithOptionsExport(clusterName), sdk.All(cluster.Name, projectId).ApplyT(func(args []any) (string, error) {
 			clusterInfo, err := mongodbatlas.LookupCluster(ctx, &mongodbatlas.LookupClusterArgs{
 				Name:      args[0].(string),
 				ProjectId: args[1].(string),
