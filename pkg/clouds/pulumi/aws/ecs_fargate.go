@@ -128,7 +128,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	iContainer := crInput.IngressContainer
 
-	contextSecretEnvVariables := params.ComputeContext.SecretEnvVariables()
+	contextSecretEnvVariables := lo.Filter(params.ComputeContext.SecretEnvVariables(), func(s pApi.ComputeEnvVariable, _ int) bool {
+		return crInput.Secrets[s.Name] == ""
+	})
 	contextEnvVariables := params.ComputeContext.EnvVariables()
 
 	var secrets []*CreatedSecret
@@ -281,6 +283,15 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					delete(image.Container.Env, k)
 				}
 			}
+			ctxEnvVariables := lo.Filter(contextEnvVariables, func(v pApi.ComputeEnvVariable, _ int) bool {
+				return image.Container.Env[v.Name] == ""
+			})
+			envVariables = append(envVariables, lo.Map(ctxEnvVariables, func(e pApi.ComputeEnvVariable, _ int) ecs.TaskDefinitionKeyValuePairInput {
+				return ecs.TaskDefinitionKeyValuePairArgs{
+					Name:  sdk.StringPtr(e.Name),
+					Value: sdk.StringPtr(e.Value),
+				}
+			})...)
 			envVariables = append(envVariables, lo.MapToSlice(image.Container.Env, func(key string, value string) ecs.TaskDefinitionKeyValuePairInput {
 				return ecs.TaskDefinitionKeyValuePairArgs{
 					Name:  sdk.StringPtr(key),
@@ -297,12 +308,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				Name:  sdk.StringPtr(api.ComputeEnv.StackVersion),
 				Value: sdk.StringPtr(deployParams.Version),
 			})
-			envVariables = append(envVariables, lo.Map(contextEnvVariables, func(e pApi.ComputeEnvVariable, _ int) ecs.TaskDefinitionKeyValuePairInput {
-				return ecs.TaskDefinitionKeyValuePairArgs{
-					Name:  sdk.StringPtr(e.Name),
-					Value: sdk.StringPtr(e.Value),
-				}
-			})...)
 			secretsVariables := ecs.TaskDefinitionSecretArray{}
 			secretsVariables = append(secretsVariables, lo.Map(secrets, func(item *CreatedSecret, _ int) ecs.TaskDefinitionSecretInput {
 				return ecs.TaskDefinitionSecretArgs{

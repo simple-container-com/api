@@ -81,8 +81,12 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 	opts = append(opts, image.addOpts...)
 
-	secretEnvVariables := params.ComputeContext.SecretEnvVariables()
-	contextEnvVariables := params.ComputeContext.EnvVariables()
+	secretEnvVariables := lo.Filter(params.ComputeContext.SecretEnvVariables(), func(s pApi.ComputeEnvVariable, _ int) bool {
+		return stackConfig.Secrets[s.Name] == ""
+	})
+	contextEnvVariables := lo.Filter(params.ComputeContext.EnvVariables(), func(v pApi.ComputeEnvVariable, _ int) bool {
+		return stackConfig.Env[v.Name] == ""
+	})
 
 	// Create IAM Role for Lambda Function
 	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", stack.Name)
