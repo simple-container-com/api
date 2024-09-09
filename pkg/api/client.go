@@ -195,7 +195,8 @@ type RefreshResult struct {
 }
 
 type DestroyParams struct {
-	StackParams `json:",inline" yaml:",inline"`
+	StackParams         `json:",inline" yaml:",inline"`
+	DestroySecretsStack bool `json:"destroySecretsStack" yaml:"destroySecretsStack"`
 }
 
 func (p *StackParams) ToProvisionParams() ProvisionParams {

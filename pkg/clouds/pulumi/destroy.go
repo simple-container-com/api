@@ -9,26 +9,27 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, skipRefresh bool) error {
-	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, nil)
+func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, params api.DestroyParams, program func(ctx *sdk.Context) error) error {
+	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, program)
 	if err != nil {
 		return err
 	}
 
-	if !skipRefresh {
-		p.logger.Info(ctx, color.YellowFmt("Refreshing stack %q...", stackSource.Name()))
+	if !params.SkipRefresh {
+		p.logger.Info(ctx, color.YellowFmt("Refreshing stack %q...", s.Ref().FullyQualifiedName()))
 		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
 			return err
 		}
 		p.logger.Info(ctx, color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
-	p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", stackSource.Name()))
+	p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", s.Ref().FullyQualifiedName()))
 	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 	if err != nil {
 		return err
@@ -46,7 +47,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 	p.logger.Info(ctx, color.RedFmt("Removed stack: %s",
 		lo.If(res, "WARN: some resources have remained!").Else("all resources have been destroyed")))
 
-	if p.secretsStackRef != nil {
+	if params.DestroySecretsStack && p.secretsStackRef != nil {
 		defer p.withPulumiPassphrase(ctx)()
 		sStack, err := p.backend.GetStack(ctx, p.secretsStackRef)
 		if err != nil {
