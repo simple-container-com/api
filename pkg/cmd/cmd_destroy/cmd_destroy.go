@@ -40,6 +40,9 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 					return errors.Errorf("'Y' or 'N' expected, but got %q after 3 attempts", readString)
 				}
 			}
+			if strings.ToLower(readString) != "y" {
+				return errors.Errorf("Destroying stack cancelled")
+			}
 
 			if pCmd.ParentStack {
 				err := pCmd.Root.Provisioner.DestroyParent(cmd.Context(), pCmd.Params)
@@ -62,6 +65,6 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 
 	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams, false)
 	cmd.Flags().BoolVar(&pCmd.ParentStack, "parent", pCmd.ParentStack, "Destroy parent stack")
-	cmd.Flags().BoolVar(&pCmd.Params.DestroySecretsStack, "with-secrets", pCmd.Params.DestroySecretsStack, "Destroy secrets stack as well")
+	cmd.Flags().BoolVar(&pCmd.Params.DestroySecretsStack, "with-secrets", pCmd.Params.DestroySecretsStack, "Destroy secrets stack as well (e.g. when no envs remained)")
 	return cmd
 }
