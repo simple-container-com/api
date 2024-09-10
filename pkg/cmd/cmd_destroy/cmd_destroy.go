@@ -33,7 +33,11 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 			var readString string
 			var attempts int
 			for strings.ToLower(readString) != "y" && strings.ToLower(readString) != "n" {
-				consoleWriter.Print(color.RedFmt("Are you sure want do destroy %q [Y/N]? >", pCmd.Params.StackName))
+				if pCmd.ParentStack {
+					consoleWriter.Print(color.RedFmt("Are you sure you want do destroy parent stack %q [Y/N]? >", pCmd.Params.StackName))
+				} else {
+					consoleWriter.Print(color.RedFmt("Are you sure you want do destroy %q in %q [Y/N]? >", pCmd.Params.StackName, pCmd.Params.Environment))
+				}
 				readString, _ = consoleReader.ReadLine()
 				attempts++
 				if attempts > 3 {
