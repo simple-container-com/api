@@ -42,7 +42,7 @@ func (p *provisioner) prepareForChildStack(ctx context.Context, params *api.Stac
 	return cfg, stack, pv, nil
 }
 
-func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
+func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
 	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
@@ -50,10 +50,6 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 
 	if params.StackName == "" {
 		return nil, nil, nil, errors.Errorf("stack must be specified")
-	}
-
-	if params.Environment == "" {
-		return nil, nil, nil, errors.Errorf("environment must be specified")
 	}
 
 	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
@@ -70,18 +66,30 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 	if err := p.resolvePlaceholders(); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
 	}
-
 	stack, ok := p.stacks[params.StackName]
 	if !ok {
 		return nil, nil, nil, errors.Errorf("stack %q is not configured", params.StackName)
 	}
 
-	_, ok = p.stacks[params.StackName].Client.Stacks[params.Environment]
+	pv, err := p.getProvisionerForStack(ctx, stack)
+	return cfg, &stack, pv, err
+}
+
+func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
+	if params.Environment == "" {
+		return nil, nil, nil, errors.Errorf("environment must be specified")
+	}
+
+	cfg, stack, pv, err := p.initProvisioner(ctx, params)
+	if err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to init provisioner for stack %q", stack.Name)
+	}
+
+	_, ok := p.stacks[params.StackName].Client.Stacks[params.Environment]
 	if !ok {
 		return nil, nil, nil, errors.Errorf("environment %q for stack %q is not configured", params.Environment, stack.Name)
 	}
-	pv, err := p.getProvisionerForStack(ctx, stack)
-	return cfg, &stack, pv, err
+	return cfg, stack, pv, err
 }
 
 func (p *provisioner) getStacksDir(cfg *api.ConfigFile, providedDir string) string {

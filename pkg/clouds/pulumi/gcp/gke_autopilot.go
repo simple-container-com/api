@@ -112,7 +112,7 @@ users:
 `
 
 		if err := placeholders.New().Apply(&kubeconfig, placeholders.WithData((placeholders.MapData{
-			"clusterCaCertificate": masterAuth.ClusterCaCertificate,
+			"clusterCaCertificate": lo.FromPtr(masterAuth.ClusterCaCertificate),
 			"endpoint":             endpoint,
 			"context":              context,
 		}))); err != nil {

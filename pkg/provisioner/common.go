@@ -31,6 +31,7 @@ type Provisioner interface {
 
 	Outputs(ctx context.Context, params api.StackParams) (*api.OutputsResult, error)
 	Cancel(ctx context.Context, params api.StackParams) error
+	CancelParent(ctx context.Context, params api.StackParams) error
 	Stacks() api.StacksMap
 
 	GetStack(ctx context.Context, params api.StackParams, opts api.ReadOpts) (*api.Stack, error)
