@@ -268,30 +268,51 @@ func (c *cryptor) ensureDiffAcceptable(fileName string, currentContent, newConte
 	currentString := string(currentContent)
 	newString := string(newContent)
 
-	oldStrings, newStrings := lo.Difference(strings.Split(currentString, "\n"), strings.Split(newString, "\n"))
+	type fileLine = lo.Tuple2[int, string]
 
-	oldStrings = lo.Filter(oldStrings, func(s string, _ int) bool {
-		return strings.TrimSpace(s) != ""
+	oldLines := lo.Map(strings.Split(currentString, "\n"), func(s string, i int) fileLine {
+		return fileLine{A: i, B: s}
 	})
-	newStrings = lo.Filter(newStrings, func(s string, _ int) bool {
-		return strings.TrimSpace(s) != ""
+	newLines := lo.Map(strings.Split(newString, "\n"), func(s string, i int) fileLine {
+		return fileLine{A: i, B: s}
 	})
 
-	if len(oldStrings) > 0 {
+	oldLines, newLines = lo.Difference(oldLines, newLines)
+
+	oldDiffLines := lo.Filter(oldLines, func(oldS fileLine, _ int) bool {
+		return !lo.ContainsBy(newLines, func(newS fileLine) bool {
+			return oldS.B == newS.B
+		})
+	})
+	newDiffLines := lo.Filter(newLines, func(newS fileLine, _ int) bool {
+		return !lo.ContainsBy(oldLines, func(oldS fileLine) bool {
+			return oldS.B == newS.B
+		})
+	})
+
+	if len(oldDiffLines) > 0 {
 		c.consoleWriter.Println("================================")
-		c.consoleWriter.Println(color.RedFmt("Strings removed from %q:", fileName))
-		for _, removedString := range oldStrings {
-			c.consoleWriter.Println(color.RedFmt("-- %s", removedString))
+		c.consoleWriter.Println(color.RedFmt("Lines removed from"), color.MagentaFmt("`%s`", fileName))
+		for _, removedString := range oldDiffLines {
+			c.consoleWriter.Println(
+				color.Red("--"),
+				color.BlueBgFmt("%d\t:", removedString.A),
+				color.RedFmt("%s", removedString.B),
+			)
 		}
 	}
-	if len(newStrings) > 0 {
+	if len(newDiffLines) > 0 {
 		c.consoleWriter.Println("================================")
-		c.consoleWriter.Println(color.GreenFmt("Strings added to %q:", fileName))
-		for _, addedString := range newStrings {
-			c.consoleWriter.Println(color.GreenFmt("++ %s", addedString))
+		c.consoleWriter.Println(color.GreenFmt("Lines added to"), color.MagentaFmt("`%s`", fileName))
+		for _, addedString := range newDiffLines {
+			c.consoleWriter.Println(
+				color.Green("++"),
+				color.BlueBgFmt("%d\t:", addedString.A),
+				color.GreenFmt("%s", addedString.B),
+			)
 		}
 	}
-	if len(oldStrings) == 0 && len(newStrings) == 0 {
+	if len(oldDiffLines) == 0 && len(newDiffLines) == 0 {
 		return nil
 	}
 	c.consoleWriter.Println("================================")

@@ -6,8 +6,16 @@ func GreenFmt(fmt string, args ...any) string {
 	return color.GreenString(fmt, args...)
 }
 
+func BlueBgFmt(str string, args ...any) string {
+	return color.New(color.BgBlue).Sprintf(str, args...)
+}
+
 func Green(str any) string {
 	return color.GreenString("%s", str)
+}
+
+func MagentaFmt(fmt string, args ...any) string {
+	return color.MagentaString(fmt, args...)
 }
 
 func YellowFmt(fmt string, args ...any) string {
