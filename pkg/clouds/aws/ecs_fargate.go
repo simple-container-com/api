@@ -222,9 +222,13 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		}
 		context := ""
 		dockerFile := ""
+		buildArgs := make(map[string]string)
 		if svc.Build != nil {
 			context = svc.Build.Context
 			dockerFile = svc.Build.Dockerfile
+			buildArgs = lo.MapValues(svc.Build.Args, func(value *string, _ string) string {
+				return lo.FromPtr(value)
+			})
 		}
 
 		if svc.Image == "" && context == "" && dockerFile == "" {
@@ -252,6 +256,9 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 				Context:    context,
 				Platform:   api.ImagePlatformLinuxAmd64,
 				Dockerfile: dockerFile,
+				Build: &api.ContainerImageBuild{
+					Args: buildArgs,
+				},
 			},
 			Env:           lo.Assign(toRunEnv(svc.Environment), stackCfg.Env),
 			Secrets:       secrets,

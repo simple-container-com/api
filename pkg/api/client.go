@@ -37,11 +37,12 @@ const (
 )
 
 type ContainerImage struct {
-	Name       string               `json:"name" yaml:"name"`
-	Dockerfile string               `json:"dockerfile" yaml:"dockerfile"`
-	Context    string               `json:"context" yaml:"context"`
-	Build      *ContainerImageBuild `json:"build" yaml:"build"`
-	Platform   ImagePlatform        `json:"platform" yaml:"platform"`
+	Name       string `json:"name" yaml:"name"`
+	Dockerfile string `json:"dockerfile" yaml:"dockerfile"`
+	Context    string `json:"context" yaml:"context"`
+
+	Build    *ContainerImageBuild `json:"build" yaml:"build"`
+	Platform ImagePlatform        `json:"platform" yaml:"platform"`
 }
 
 type Container struct {

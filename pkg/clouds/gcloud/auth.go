@@ -31,8 +31,9 @@ type CredentialsParsed struct {
 
 type StateStorageConfig struct {
 	Credentials `json:",inline" yaml:",inline"`
-	BucketName  string `json:"bucketName" yaml:"bucketName"`
-	Provision   bool   `json:"provision" yaml:"provision"`
+	BucketName  string  `json:"bucketName" yaml:"bucketName"`
+	Location    *string `json:"location" yaml:"location"`
+	Provision   bool    `json:"provision" yaml:"provision"`
 }
 
 type SecretsProviderConfig struct {

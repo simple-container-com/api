@@ -12,6 +12,7 @@ templates:
       projectId: "${auth:gcloud.projectId}"
       credentials: "${auth:gcloud}"
       gkeClusterResource: gke-autopilot-res
+      artifactRegistryResource: artifact-registry-res
 resources:
   registrar:
     inherit: common
@@ -25,11 +26,13 @@ resources:
             gkeMinVersion: 1.26.5-gke.1200
             projectId: "${auth:gcloud.projectId}"
             credentials: "${auth:gcloud}"
+            location: europe-west3
         artifact-registry-res:
           type: gcp-artifact-registry
           config:
             projectId: "${auth:gcloud.projectId}"
             credentials: "${auth:gcloud}"
+            location: europe-west3
     prod:
       template: stack-per-app-gke
       resources: *resources

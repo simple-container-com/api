@@ -12,6 +12,7 @@ var RefappGkeAutopilotServerResources = map[string]api.ResourceDescriptor{
 			Config: &gcloud.GkeAutopilotResource{
 				Credentials:   CommonGcpCredentials,
 				GkeMinVersion: "1.26.5-gke.1200",
+				Location:      "europe-west3",
 			},
 		},
 		Inherit: api.Inherit{},
@@ -21,6 +22,7 @@ var RefappGkeAutopilotServerResources = map[string]api.ResourceDescriptor{
 		Config: api.Config{
 			Config: &gcloud.ArtifactRegistryConfig{
 				Credentials: CommonGcpCredentials,
+				Location:    "europe-west3",
 			},
 		},
 		Inherit: api.Inherit{},
@@ -43,8 +45,9 @@ var RefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 			Type: "gcp-gke-autopilot",
 			Config: api.Config{
 				Config: &gcloud.GkeAutopilotTemplate{
-					Credentials:        CommonGcpCredentials,
-					GkeClusterResource: "gke-autopilot-res",
+					Credentials:              CommonGcpCredentials,
+					GkeClusterResource:       "gke-autopilot-res",
+					ArtifactRegistryResource: "artifact-registry-res",
 				},
 			},
 			Inherit: api.Inherit{},
@@ -74,6 +77,7 @@ var ResolvedRefappGkeAutopilotServerResources = map[string]api.ResourceDescripto
 			Config: &gcloud.GkeAutopilotResource{
 				Credentials:   ResolvedCommonGcpCredentials,
 				GkeMinVersion: "1.26.5-gke.1200",
+				Location:      "europe-west3",
 			},
 		},
 		Inherit: api.Inherit{},
@@ -83,6 +87,7 @@ var ResolvedRefappGkeAutopilotServerResources = map[string]api.ResourceDescripto
 		Config: api.Config{
 			Config: &gcloud.ArtifactRegistryConfig{
 				Credentials: ResolvedCommonGcpCredentials,
+				Location:    "europe-west3",
 			},
 		},
 		Inherit: api.Inherit{},
@@ -99,8 +104,9 @@ var ResolvedRefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 			Type: "gcp-gke-autopilot",
 			Config: api.Config{
 				Config: &gcloud.GkeAutopilotTemplate{
-					Credentials:        ResolvedCommonGcpCredentials,
-					GkeClusterResource: "gke-autopilot-res",
+					Credentials:              ResolvedCommonGcpCredentials,
+					ArtifactRegistryResource: "artifact-registry-res",
+					GkeClusterResource:       "gke-autopilot-res",
 				},
 			},
 			Inherit: api.Inherit{},

@@ -683,7 +683,7 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 		}
 
 		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
-		image, err := buildAndPushDockerImage(ctx, stack, params, deployParams, dockerImage{
+		image, err := buildAndPushDockerImageV2(ctx, stack, params, deployParams, dockerImage{
 			name:       imageName,
 			dockerfile: dockerfile,
 			context:    container.Image.Context,

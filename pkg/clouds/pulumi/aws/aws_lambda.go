@@ -69,7 +69,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
 	}
 
-	image, err := buildAndPushDockerImage(ctx, stack, params, deployParams, dockerImage{
+	image, err := buildAndPushDockerImageV2(ctx, stack, params, deployParams, dockerImage{
 		name:       stack.Name,
 		dockerfile: stackConfig.Image.Dockerfile,
 		context:    stackConfig.Image.Context,

@@ -9,6 +9,7 @@ import (
 	gcpOptions "google.golang.org/api/option"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -49,7 +50,9 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig) e
 	_, err = bucketRef.Attrs(ctx)
 	if err != nil {
 		// does not exist
-		return bucketRef.Create(ctx, gcpStateCfg.ProjectId, &gcpStorage.BucketAttrs{})
+		return bucketRef.Create(ctx, gcpStateCfg.ProjectId, &gcpStorage.BucketAttrs{
+			Location: lo.FromPtr(gcpStateCfg.Location),
+		})
 	}
 	return nil
 }

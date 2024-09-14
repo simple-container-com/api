@@ -15,7 +15,7 @@ const (
 type GkeAutopilotResource struct {
 	Credentials   `json:",inline" yaml:",inline"`
 	GkeMinVersion string    `json:"gkeMinVersion" yaml:"gkeMinVersion"`
-	Region        string    `json:"region" yaml:"region"`
+	Location      string    `json:"location" yaml:"location"`
 	Zone          string    `json:"zone" yaml:"zone"`
 	Timeouts      *Timeouts `json:"timeouts" yaml:"timeouts"`
 }
@@ -27,8 +27,9 @@ type Timeouts struct {
 }
 
 type GkeAutopilotTemplate struct {
-	Credentials        `json:",inline" yaml:",inline"`
-	GkeClusterResource string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
+	Credentials              `json:",inline" yaml:",inline"`
+	GkeClusterResource       string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
+	ArtifactRegistryResource string `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
 }
 
 type GkeAutopilotInput struct {

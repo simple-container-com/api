@@ -6,7 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/container"
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/container"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -25,7 +25,19 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		return nil, errors.Errorf("failed to convert gke autopilot config for %q", input.Descriptor.Type)
 	}
 
-	clusterName := toClusterName(input, input.StackParams.Environment)
+	containerServiceName := fmt.Sprintf("projects/%s/services/container.googleapis.com", gkeInput.ProjectId)
+	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, containerServiceName); err != nil {
+		return nil, errors.Wrapf(err, "failed to enable %s", containerServiceName)
+	}
+	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
+
+	location := gkeInput.Location
+
+	if location == "" {
+		return nil, errors.Errorf("`location` must be specified for GKE cluster %q in %q", input.Descriptor.Name, input.StackParams.Environment)
+	}
+
+	clusterName := toClusterName(input, input.Descriptor.Name)
 	params.Log.Info(ctx.Context(), "Configuring GKE Autopilot cluster %q in %q", clusterName, input.StackParams.Environment)
 	timeouts := sdk.CustomTimeouts{
 		Create: "10m",
@@ -39,14 +51,15 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	}
 	cluster, err := container.NewCluster(ctx, clusterName, &container.ClusterArgs{
 		EnableAutopilot:  sdk.Bool(true),
-		Location:         sdk.String(gkeInput.Region),
+		Location:         sdk.String(location),
 		Name:             sdk.String(clusterName),
 		MinMasterVersion: sdk.String(gkeInput.GkeMinVersion),
 		ReleaseChannel: &container.ClusterReleaseChannelArgs{
 			Channel: sdk.String("STABLE"),
 		},
 		IpAllocationPolicy: &container.ClusterIpAllocationPolicyArgs{},
-	}, sdk.IgnoreChanges([]string{"verticalPodAutoscaling"}), sdk.Timeouts(&timeouts))
+		// because we are using autopilot verticalPodAutoscaling is handled by the GCP
+	}, append(opts, sdk.IgnoreChanges([]string{"verticalPodAutoscaling"}), sdk.Timeouts(&timeouts))...)
 	if err != nil {
 		return nil, err
 	}

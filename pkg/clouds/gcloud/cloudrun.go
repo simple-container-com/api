@@ -13,18 +13,6 @@ const (
 	TemplateTypeGcpCloudrun = "cloudrun"
 )
 
-type ImagePlatform string
-
-const (
-	ImagePlatformLinuxAmd64 ImagePlatform = "linux/amd64"
-)
-
-type CloudRunImage struct {
-	Context    string
-	Dockerfile string
-	Platform   ImagePlatform
-}
-
 type CloudRunProbe struct {
 	HttpGet             ProbeHttpGet
 	InitialDelaySeconds int
@@ -42,12 +30,13 @@ type ProbeHttpGet struct {
 
 type CloudRunContainer struct {
 	Name          string
-	Image         CloudRunImage
+	Image         api.ContainerImage
 	Env           map[string]string
 	Secrets       map[string]string
 	Port          int
 	LivenessProbe CloudRunProbe
 	StartupProbe  CloudRunProbe
+	ComposeDir    string
 	Resources     CloudRunResources
 }
 
@@ -132,13 +121,28 @@ func convertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 			return nil, errors.Wrapf(err, "error converting service %s to cloud container", svcName)
 		}
 
+		context := ""
+		dockerFile := ""
+		buildArgs := make(map[string]string)
+		if svc.Build != nil {
+			context = svc.Build.Context
+			dockerFile = svc.Build.Dockerfile
+			buildArgs = lo.MapValues(svc.Build.Args, func(value *string, _ string) string {
+				return lo.FromPtr(value)
+			})
+		}
+
 		containers = append(containers, CloudRunContainer{
 			Name: svcName,
-			Image: CloudRunImage{
-				Context:    svc.Build.Context,
-				Platform:   ImagePlatformLinuxAmd64,
-				Dockerfile: svc.Build.Dockerfile,
+			Image: api.ContainerImage{
+				Context:    context,
+				Platform:   api.ImagePlatformLinuxAmd64,
+				Dockerfile: dockerFile,
+				Build: &api.ContainerImageBuild{
+					Args: buildArgs,
+				},
 			},
+			ComposeDir:    composeCfg.Project.WorkingDir,
 			Env:           toRunEnv(svc.Environment),
 			Secrets:       toRunSecrets(svc.Environment),
 			Port:          port,

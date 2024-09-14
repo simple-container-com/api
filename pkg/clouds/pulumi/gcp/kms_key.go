@@ -29,7 +29,8 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config,
 		fmt.Sprintf("projects/%s/services/serviceusage.googleapis.com", kmsInput.ProjectId)); err != nil {
-		_, _ = os.Stderr.WriteString(color.RedFmt("service usage API seems to be disabled on project %q, please enable it manually with command ", kmsInput.ProjectId))
+		_, _ = os.Stderr.WriteString(color.RedFmt("service usage API seems to be disabled on project %q, "+
+			"please enable it manually with command or in the GCP Console ", kmsInput.ProjectId))
 		_, _ = os.Stderr.WriteString(color.YellowFmt("`gcloud services enable serviceusage.googleapis.com --project %s`", kmsInput.ProjectId))
 		if err != nil {
 			return nil, errors.Wrapf(err, "serviceusage API is not enabled on project %q", kmsInput.ProjectId)
@@ -83,9 +84,11 @@ func enableServicesAPI(ctx context.Context, authConfig any, apiName string) erro
 		return errors.Wrapf(err, "failed to init services API client")
 	}
 
-	if _, err := svc.Services.Get(apiName).Do(); err == nil {
-		// already enabled
-		return nil
+	if info, err := svc.Services.Get(apiName).Do(); err == nil {
+		if info.State == "ENABLED" {
+			// already enabled
+			return nil
+		}
 	}
 	op, err := svc.Services.Enable(apiName, &serviceusage.EnableServiceRequest{}).Do()
 	if err != nil {
