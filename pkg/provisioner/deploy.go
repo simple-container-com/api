@@ -82,7 +82,7 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 
 	cfg, stack, pv, err := p.initProvisioner(ctx, params)
 	if err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to init provisioner for stack %q", stack.Name)
+		return nil, nil, nil, errors.Wrapf(err, "failed to init provisioner for stack %q", params.StackName)
 	}
 
 	_, ok := p.stacks[params.StackName].Client.Stacks[params.Environment]
