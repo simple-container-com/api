@@ -2,6 +2,7 @@ package pulumi
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -77,7 +78,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		// get template from parent
 		templateRef := stackDescriptorTemplateName(parentFullReference, templateName)
 		var stackDesc api.StackDescriptor
-		stackDescYaml, err := pApi.GetSecretStringValueFromStack(ctx, parentFullReference, templateRef)
+		stackDescYaml, err := pApi.GetStringValueFromStack(ctx, parentFullReference, templateRef, true)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
 		}
@@ -163,10 +164,11 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 		}
 
-		sdk.ToArrayOutput(collector.Outputs()).ApplyT(func(args []any) (any, error) {
+		deployResOut := sdk.ToArrayOutput(collector.Outputs()).ApplyTWithContext(ctx.Context(), func(args []any) (string, error) {
 			// resolve resource-dependent client placeholders that have remained after initial resolve of basic values
 			if err := collector.ResolvePlaceholders(&clientStackDesc.Config.Config); err != nil {
-				return nil, errors.Wrapf(err, "failed to resolve placeholders for secrets in stack %q in %q", stack.Name, params.Environment)
+				p.logger.Error(ctx.Context(), "failed to resolve placeholders for secrets in stack %q in %q: %v", stack.Name, params.Environment, err)
+				return "failure", errors.Wrapf(err, "failed to resolve placeholders for secrets in stack %q in %q", stack.Name, params.Environment)
 			}
 
 			resDesc := api.ResourceDescriptor{
@@ -177,20 +179,28 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 			provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment)
 			if err != nil {
-				return nil, errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
+				p.logger.Error(ctx.Context(), "failed to init provision params for %q: %v", resDesc.Type, err)
+				return "failure", errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
 			}
 			provisionParams.ComputeContext = collector
+			provisionParams.ParentStack = &pApi.ParentInfo{
+				StackName:     parentNameOnly,
+				FullReference: parentFullReference,
+			}
 
 			if fnc, ok := pApi.ProvisionFuncByType[resDesc.Type]; !ok {
-				return nil, errors.Errorf("unknown resource type %q", resDesc.Type)
+				p.logger.Error(ctx.Context(), "unknown resource type %q", resDesc.Type)
+				return "failure", errors.Errorf("unknown resource type %q", resDesc.Type)
 			} else if _, err := fnc(ctx, stack, api.ResourceInput{
 				Descriptor:  &resDesc,
 				StackParams: &params,
 			}, provisionParams); err != nil {
-				return nil, errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
+				p.logger.Error(ctx.Context(), "failed to provision stack %q in env %q: %v", fullStackName, params.Environment, err)
+				return "failure", errors.Wrapf(err, "failed to provision stack %q in env %q", fullStackName, params.Environment)
 			}
-			return nil, nil
+			return "success", nil
 		})
+		ctx.Export(fmt.Sprintf("%s-%s-outcome", params.StackName, params.Environment), deployResOut)
 		return nil
 	}
 }

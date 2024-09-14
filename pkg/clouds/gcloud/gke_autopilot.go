@@ -33,8 +33,21 @@ type GkeAutopilotTemplate struct {
 }
 
 type GkeAutopilotInput struct {
-	TemplateConfig GkeAutopilotTemplate `json:"templateConfig" yaml:"templateConfig"`
-	Containers     []CloudRunContainer  `json:"containers" yaml:"containers"`
+	GkeAutopilotTemplate `json:"templateConfig" yaml:"templateConfig"`
+	StackConfig          *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
+	Containers           []CloudRunContainer     `json:"containers" yaml:"containers"`
+}
+
+func (i *GkeAutopilotInput) Uses() []string {
+	return i.StackConfig.Uses
+}
+
+func (i *GkeAutopilotInput) OverriddenBaseZone() string {
+	return i.StackConfig.BaseDnsZone
+}
+
+func (i *GkeAutopilotInput) DependsOnResources() []api.StackConfigDependencyResource {
+	return i.StackConfig.Dependencies
 }
 
 func ReadGkeAutopilotTemplateConfig(config *api.Config) (api.Config, error) {
@@ -54,7 +67,8 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 		return nil, errors.Errorf("template config is nil")
 	}
 	res := &GkeAutopilotInput{
-		TemplateConfig: *templateCfg,
+		GkeAutopilotTemplate: *templateCfg,
+		StackConfig:          stackCfg,
 	}
 
 	containers, err := convertComposeToContainers(composeCfg, stackCfg)

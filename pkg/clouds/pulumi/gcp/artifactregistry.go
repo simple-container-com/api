@@ -37,7 +37,7 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 
 	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
 
-	artifactRegistryName := input.ToResName(lo.FromPtr(input.Descriptor).Name)
+	artifactRegistryName := toArtifactRegistryName(input, input.Descriptor.Name)
 	location := arCfg.Location
 
 	if location == "" {
@@ -93,7 +93,7 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		urlSuffix = "-docker"
 	}
 	targetDomain := fmt.Sprintf("%s%s.pkg.dev", urlPrefix, urlSuffix)
-	ctx.Export(toRegistryUrlExport(input, artifactRegistryName), sdk.Sprintf("%s/%s/%s", targetDomain, repo.Project, repo.RepositoryId))
+	ctx.Export(toRegistryUrlExport(artifactRegistryName), sdk.Sprintf("%s/%s/%s", targetDomain, repo.Project, repo.RepositoryId))
 
 	// Create a GCP service account
 	params.Log.Info(ctx.Context(), "configure service account for admin access to %q...", artifactRegistryName)
@@ -148,8 +148,12 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	return &api.ResourceOutput{Ref: repo}, nil
 }
 
-func toRegistryUrlExport(input api.ResourceInput, registryName string) string {
-	return input.ToResName(fmt.Sprintf("%s-url", registryName))
+func toArtifactRegistryName(input api.ResourceInput, name string) string {
+	return input.ToResName(name)
+}
+
+func toRegistryUrlExport(registryName string) string {
+	return fmt.Sprintf("%s-url", registryName)
 }
 
 func toRegistryServiceAccountEmailExport(input api.ResourceInput, registryName string) string {

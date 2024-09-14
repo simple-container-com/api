@@ -29,7 +29,7 @@ func StackNameInEnv(stackName string, environment string) string {
 	return fmt.Sprintf("%s--%s", stackName, environment)
 }
 
-func GetSecretStringValueFromStack(ctx *sdk.Context, refName, outName string) (string, error) {
+func GetStringValueFromStack(ctx *sdk.Context, refName, outName string, secret bool) (string, error) {
 	// Create a StackReference to the parent stack
 	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", outName), &sdk.StackReferenceArgs{
 		Name: sdk.String(refName).ToStringOutput(),
@@ -41,8 +41,13 @@ func GetSecretStringValueFromStack(ctx *sdk.Context, refName, outName string) (s
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
 	}
-	if parentOutput.SecretValue == nil {
+	if secret && parentOutput.SecretValue == nil {
 		return "", errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
+	} else if secret {
+		return parentOutput.SecretValue.(string), nil
 	}
-	return parentOutput.SecretValue.(string), nil
+	if !secret && parentOutput.Value == nil {
+		return "", errors.Wrapf(err, "no value for output %q from %q", outName, refName)
+	}
+	return parentOutput.Value.(string), nil
 }

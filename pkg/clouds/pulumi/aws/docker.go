@@ -32,12 +32,13 @@ func buildAndPushDockerImageV2(ctx *sdk.Context, stack api.Stack, params pApi.Pr
 		return nil, errors.Wrapf(err, "failed to create ecr repository")
 	}
 	out, err := pDocker.BuildAndPushImage(ctx, stack, params, deployParams, pDocker.Image{
-		Name:          image.name,
-		Dockerfile:    image.dockerfile,
-		Args:          image.args,
-		Context:       image.context,
-		Version:       image.version,
-		RepositoryUrl: repository.Repository.RepositoryUrl,
+		Name:                   image.name,
+		Dockerfile:             image.dockerfile,
+		Args:                   image.args,
+		Context:                image.context,
+		Version:                image.version,
+		RepositoryUrlWithImage: true, // since repository is individual for each image
+		RepositoryUrl:          repository.Repository.RepositoryUrl,
 		Registry: docker.RegistryArgs{
 			Server:   repository.Repository.RepositoryUrl,
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication

@@ -33,7 +33,7 @@ func init() {
 
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
 		TemplateTypeGcpCloudrun:  ToCloudRunConfig,
-		ResourceTypeGkeAutopilot: ToGkeAutopilotConfig,
+		TemplateTypeGkeAutopilot: ToGkeAutopilotConfig,
 	})
 
 	api.RegisterCloudStaticSiteConverter(api.CloudStaticSiteConfigRegister{

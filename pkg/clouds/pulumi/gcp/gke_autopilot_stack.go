@@ -2,12 +2,16 @@ package gcp
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	k8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -33,9 +37,10 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Errorf("failed to convert gke autopilot config for %q", input.Descriptor.Type)
 	}
 
-	clusterResource := gkeAutopilotInput.TemplateConfig.GkeClusterResource
-	registryResource := gkeAutopilotInput.TemplateConfig.ArtifactRegistryResource
+	clusterResource := gkeAutopilotInput.GkeAutopilotTemplate.GkeClusterResource
+	registryResource := gkeAutopilotInput.GkeAutopilotTemplate.ArtifactRegistryResource
 	clusterName := toClusterName(input, clusterResource)
+	registryName := toArtifactRegistryName(input, registryResource)
 	environment := input.StackParams.Environment
 	stackName := input.StackParams.StackName
 	fullParentReference := params.ParentStack.FullReference
@@ -49,7 +54,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName)
-	kubeConfig, err := pApi.GetSecretStringValueFromStack(ctx, fullParentReference, toKubeconfigExport(clusterName))
+	kubeConfig, err := pApi.GetStringValueFromStack(ctx, fullParentReference, toKubeconfigExport(clusterName), true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 	}
@@ -64,13 +69,16 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	out.Provider = kubeProvider
 
-	params.Log.Info(ctx.Context(), "Getting registry url for %q from parent stack %q", clusterName)
-	registryURL, err := pApi.GetSecretStringValueFromStack(ctx, fullParentReference, toRegistryUrlExport(input, registryResource))
+	params.Log.Info(ctx.Context(), "Getting registry url for %q from parent stack %q", registryResource, fullParentReference)
+	registryURL, err := pApi.GetStringValueFromStack(ctx, fullParentReference, toRegistryUrlExport(registryName), false)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources %q for stack %q", fullParentReference, registryResource)
+		return nil, errors.Wrapf(err, "failed to get registry url from parent stack's %q resources for resource %q", fullParentReference, registryResource)
+	}
+	if registryURL == "" {
+		return nil, errors.Errorf("parent stack's registry url is empty for stack %q", stackName)
 	}
 
-	_, err = buildAndPushImages(ctx, stack, input, params, gkeAutopilotInput, sdk.String(registryURL).ToStringOutput())
+	_, err = buildAndPushImages(ctx, stack, input, params, gkeAutopilotInput, registryURL)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push docker images for stack %q in %q", stackName, input.StackParams.Environment)
 	}
@@ -84,16 +92,38 @@ type GKEImage struct {
 	AddOpts   []sdk.ResourceOption
 }
 
-func buildAndPushImages(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams, stackInput *gcloud.GkeAutopilotInput, registryURL sdk.StringOutput) ([]*GKEImage, error) {
+func buildAndPushImages(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams, stackInput *gcloud.GkeAutopilotInput, registryURL string) ([]*GKEImage, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
 	}
-	// hackily set google creds env variable, so that docker can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
-	if err := os.Setenv("GOOGLE_CREDENTIALS", authConfig.CredentialsValue()); err != nil {
-		return nil, errors.Wrapf(err, "failed to set GOOGLE_CREDENTIALS variable")
+
+	var opts []sdk.ResourceOption
+
+	if _, err := exec.LookPath("gcloud"); err == nil {
+		env := lo.SliceToMap(os.Environ(), func(env string) (string, string) {
+			parts := strings.SplitN(env, "=", 2)
+			return parts[0], parts[1]
+		})
+		env["GOOGLE_CREDENTIALS"] = authConfig.CredentialsValue()
+		env["GOOGLE_APPLICATION_CREDENTIALS"] = authConfig.CredentialsValue()
+		parsedRegistryURL, err := url.Parse(fmt.Sprintf("https://%s", registryURL))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to parse registry url %q", registryURL)
+		}
+		configureDockerCmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-%s", stack.Name, input.StackParams.Environment), &local.CommandArgs{
+			Update:      sdk.String(fmt.Sprintf("gcloud auth configure-docker %s --quiet", parsedRegistryURL.Host)),
+			Create:      sdk.String(fmt.Sprintf("gcloud auth configure-docker %s --quiet", parsedRegistryURL.Host)),
+			Triggers:    sdk.ArrayInput(sdk.Array{sdk.String(lo.RandomString(5, lo.AllCharset))}),
+			Environment: sdk.ToStringMap(env),
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to authenticate against docker registry")
+		}
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{configureDockerCmd}))
+	} else {
+		return nil, errors.Errorf("command `gcloud` was not found, cannot authenticate against artifact registry %s", registryURL)
 	}
-	defer os.Unsetenv("GOOGLE_CREDENTIALS")
 
 	return util.MapErr(stackInput.Containers, func(container gcloud.CloudRunContainer, _ int) (*GKEImage, error) {
 		dockerfile := container.Image.Dockerfile
@@ -108,16 +138,17 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, input api.ResourceInp
 			dockerfile = filepath.Join(container.ComposeDir, dockerfile)
 		}
 
-		imageName := fmt.Sprintf("%s/%s", stack.Name, container.Name)
 		image, err := pDocker.BuildAndPushImage(ctx, stack, params, *input.StackParams, pDocker.Image{
-			Name:          imageName,
-			Dockerfile:    dockerfile,
-			Context:       container.Image.Context,
-			Args:          lo.FromPtr(container.Image.Build).Args,
-			Version:       lo.If(input.StackParams.Version != "", input.StackParams.Version).Else("latest"),
-			RepositoryUrl: registryURL,
+			Name:                   fmt.Sprintf("%s--%s", stack.Name, container.Name),
+			Dockerfile:             dockerfile,
+			Context:                container.Image.Context,
+			Args:                   lo.FromPtr(container.Image.Build).Args,
+			RepositoryUrlWithImage: false,
+			Version:                lo.If(input.StackParams.Version != "", input.StackParams.Version).Else("latest"),
+			RepositoryUrl:          sdk.String(registryURL).ToStringOutput(),
+			ProviderOptions:        opts,
 			Registry: docker.RegistryArgs{
-				Server: registryURL,
+				Server: sdk.String(registryURL),
 			},
 		})
 		if err != nil {

@@ -13,14 +13,15 @@ import (
 )
 
 type Image struct {
-	Name       string
-	Dockerfile string
-	Args       map[string]string
-	Context    string
-	Version    string
-
-	RepositoryUrl sdk.StringOutput
-	Registry      docker.RegistryArgs
+	Name                   string
+	Dockerfile             string
+	Args                   map[string]string
+	Context                string
+	Version                string
+	RepositoryUrlWithImage bool
+	ProviderOptions        []sdk.ResourceOption
+	RepositoryUrl          sdk.StringOutput
+	Registry               docker.RegistryArgs
 }
 
 type ImageOut struct {
@@ -30,7 +31,10 @@ type ImageOut struct {
 
 func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, image Image) (*ImageOut, error) {
 	imageFullUrl := image.RepositoryUrl.ApplyT(func(repoUri string) string {
-		return fmt.Sprintf("%s:%s", repoUri, image.Version)
+		if image.RepositoryUrlWithImage {
+			return fmt.Sprintf("%s:%s", repoUri, image.Version)
+		}
+		return fmt.Sprintf("%s/%s:%s", repoUri, image.Name, image.Version)
 	}).(sdk.StringOutput)
 	params.Log.Info(ctx.Context(), "building and pushing docker image %q (from %q) for stack %q env %q",
 		image.Name, image.Context, stack.Name, deployParams.Environment)
@@ -49,7 +53,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
 		Registry:  image.Registry,
-	}, sdk.DependsOn(params.ComputeContext.Dependencies()))
+	}, append(image.ProviderOptions, sdk.DependsOn(params.ComputeContext.Dependencies()))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push image %q for stack %q env %q", image.Name, stack.Name, deployParams.Environment)
 	}
