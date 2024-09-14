@@ -15,7 +15,7 @@ func (p *pulumi) createStackIfNotExists(ctx context.Context, cfg *api.ConfigFile
 	if s != nil {
 		p.logger.Debug(ctx, "found stack %q, not going to create", p.stackRef.FullyQualifiedName().String())
 		return nil
-	} else if p.stackRef != nil {
+	} else if p.stackRef != nil && p.backend != nil {
 		p.logger.Debug(ctx, "stack %q not found, creating...", p.stackRef.FullyQualifiedName().String())
 		s, err = p.backend.CreateStack(ctx, p.stackRef, "", nil)
 		if err != nil {

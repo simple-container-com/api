@@ -14,13 +14,21 @@ const (
 
 type GkeAutopilotResource struct {
 	Credentials   `json:",inline" yaml:",inline"`
-	GkeMinVersion string `json:"gkeMinVersion" yaml:"gkeMinVersion"`
+	GkeMinVersion string    `json:"gkeMinVersion" yaml:"gkeMinVersion"`
+	Region        string    `json:"region" yaml:"region"`
+	Zone          string    `json:"zone" yaml:"zone"`
+	Timeouts      *Timeouts `json:"timeouts" yaml:"timeouts"`
+}
+
+type Timeouts struct {
+	Create string `json:"create" yaml:"create"`
+	Update string `json:"update" yaml:"update"`
+	Delete string `json:"delete" yaml:"delete"`
 }
 
 type GkeAutopilotTemplate struct {
-	Credentials              `json:",inline" yaml:",inline"`
-	GkeClusterResource       string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
-	ArtifactRegistryResource string `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	Credentials        `json:",inline" yaml:",inline"`
+	GkeClusterResource string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
 }
 
 type GkeAutopilotInput struct {

@@ -8,6 +8,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/artifactregistry"
+	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/serviceaccount"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -51,7 +52,7 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 
 	if lo.FromPtr(arCfg.Public) {
-		params.Log.Info(ctx.Context(), "configure repository IAM policy for public access...")
+		params.Log.Info(ctx.Context(), "configure repository IAM policy for public access for %q...", artifactRegistryName)
 		_, err = artifactregistry.NewRepositoryIamPolicy(ctx, fmt.Sprintf("%s-iam", artifactRegistryName), &artifactregistry.RepositoryIamPolicyArgs{
 			Project:    sdk.String(arCfg.ProjectId),
 			Location:   sdk.String(arCfg.Location),
@@ -78,7 +79,30 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		urlSuffix = "-docker"
 	}
 	targetDomain := fmt.Sprintf("%s%s.pkg.dev", urlPrefix, urlSuffix)
-	ctx.Export(fmt.Sprintf("%s-url", artifactRegistryName), sdk.Sprintf("%s/%s/%s", targetDomain, repo.Project, repo.RepositoryId))
+	ctx.Export(toRegistryUrlExport(input, artifactRegistryName), sdk.Sprintf("%s/%s/%s", targetDomain, repo.Project, repo.RepositoryId))
+
+	// Create a GCP service account
+	params.Log.Info(ctx.Context(), "configure service account for read access for %q...", artifactRegistryName)
+	serviceAccountName := fmt.Sprintf("%s-sa", artifactRegistryName)
+	sa, err := serviceaccount.NewAccount(ctx, serviceAccountName, &serviceaccount.AccountArgs{
+		AccountId:   sdk.String(serviceAccountName),
+		DisplayName: sdk.String(fmt.Sprintf("%s-service-account", artifactRegistryName)),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision service account for artifact registry %q", artifactRegistryName)
+	}
+
+	// Grant the service account access to the repository
+	params.Log.Info(ctx.Context(), "grant service account read access to %q...", artifactRegistryName)
+	_, err = artifactregistry.NewRepositoryIamMember(ctx, fmt.Sprintf("%s-sa-iam-binding", artifactRegistryName), &artifactregistry.RepositoryIamMemberArgs{
+		Repository: repo.Name,
+		Role:       sdk.String("roles/artifactregistry.reader"), // Grant read access
+		Member:     sdk.Sprintf("serviceAccount:%s", sa.Email),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision Iam membership for service account for registry %q", artifactRegistryName)
+	}
+	ctx.Export(toRegistryServiceAccountEmailExport(input, artifactRegistryName), sa.Email)
 
 	if arCfg.Domain != nil {
 		sdk.All(repo.Project, repo.RepositoryId).ApplyT(func(outs []any) any {
@@ -105,4 +129,12 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	}
 
 	return &api.ResourceOutput{Ref: repo}, nil
+}
+
+func toRegistryUrlExport(input api.ResourceInput, registryName string) string {
+	return input.ToResName(fmt.Sprintf("%s-url", registryName))
+}
+
+func toRegistryServiceAccountEmailExport(input api.ResourceInput, registryName string) string {
+	return input.ToResName(fmt.Sprintf("%s-sa", registryName))
 }

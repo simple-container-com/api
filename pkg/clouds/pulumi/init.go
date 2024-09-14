@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 
+	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -30,7 +32,12 @@ func init() {
 	})
 
 	pApi.RegisterRegistrar("", NotConfiguredRegistrar)
-	setPulumiCloudAccessToken := func(ctx context.Context, authCfg api.AuthConfig) error {
+	setPulumiCloudAccessToken := func(ctx context.Context, stateStoreCfg api.StateStorageConfig) error {
+		authCfg, ok := stateStoreCfg.(api.AuthConfig)
+		if !ok {
+			return errors.Errorf("failed to convert pulumi state storage config to api.AuthConfig")
+		}
+
 		// hackily set access token env variable, so that lm can access it
 		if err := os.Setenv(httpstate.AccessTokenEnvVar, authCfg.CredentialsValue()); err != nil {
 			return err

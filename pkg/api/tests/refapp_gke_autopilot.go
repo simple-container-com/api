@@ -43,9 +43,8 @@ var RefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 			Type: "gcp-gke-autopilot",
 			Config: api.Config{
 				Config: &gcloud.GkeAutopilotTemplate{
-					Credentials:              CommonGcpCredentials,
-					GkeClusterResource:       "gke-autopilot-res",
-					ArtifactRegistryResource: "artifact-registry-res",
+					Credentials:        CommonGcpCredentials,
+					GkeClusterResource: "gke-autopilot-res",
 				},
 			},
 			Inherit: api.Inherit{},
@@ -100,9 +99,8 @@ var ResolvedRefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 			Type: "gcp-gke-autopilot",
 			Config: api.Config{
 				Config: &gcloud.GkeAutopilotTemplate{
-					Credentials:              ResolvedCommonGcpCredentials,
-					ArtifactRegistryResource: "artifact-registry-res",
-					GkeClusterResource:       "gke-autopilot-res",
+					Credentials:        ResolvedCommonGcpCredentials,
+					GkeClusterResource: "gke-autopilot-res",
 				},
 			},
 			Inherit: api.Inherit{},

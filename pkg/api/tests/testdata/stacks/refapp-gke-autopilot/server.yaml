@@ -12,7 +12,6 @@ templates:
       projectId: "${auth:gcloud.projectId}"
       credentials: "${auth:gcloud}"
       gkeClusterResource: gke-autopilot-res
-      artifactRegistryResource: artifact-registry-res
 resources:
   registrar:
     inherit: common

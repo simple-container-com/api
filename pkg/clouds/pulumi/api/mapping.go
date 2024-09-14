@@ -14,7 +14,7 @@ type (
 	ProvisionFunc        func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params ProvisionParams) (*api.ResourceOutput, error)
 	ComputeProcessorFunc func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector ComputeContextCollector, params ProvisionParams) (*api.ResourceOutput, error)
 	RegistrarFunc        func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params ProvisionParams) (Registrar, error)
-	InitStateStoreFunc   func(ctx context.Context, authCfg api.AuthConfig) error
+	InitStateStoreFunc   func(ctx context.Context, authCfg api.StateStorageConfig) error
 )
 
 var (

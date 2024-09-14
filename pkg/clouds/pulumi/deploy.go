@@ -2,7 +2,6 @@ package pulumi
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -78,18 +77,16 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		// get template from parent
 		templateRef := stackDescriptorTemplateName(parentFullReference, templateName)
 		var stackDesc api.StackDescriptor
-		err := getSecretValueFromStack(ctx, parentFullReference, templateRef, func(val string) error {
-			if val == "" {
-				return errors.Errorf("no template descriptor for stack %q in %q, consider re-provisioning of parent stack", parentStack, params.Environment)
-			}
-			err := yaml.Unmarshal([]byte(val), &stackDesc)
-			if err != nil {
-				return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
-			}
-			return nil
-		})
+		stackDescJson, err := pApi.GetSecretStringValueFromStack(ctx, parentFullReference, templateRef)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
+		}
+		if stackDescJson == "" {
+			return errors.Errorf("no template descriptor for stack %q in %q, consider re-provisioning of parent stack", parentStack, params.Environment)
+		}
+		err = yaml.Unmarshal([]byte(stackDescJson), &stackDesc)
+		if err != nil {
+			return errors.Wrapf(err, "failed to serialize template's %q descriptor", templateName)
 		}
 
 		stackDir := params.StackDir
@@ -196,25 +193,4 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		})
 		return nil
 	}
-}
-
-func getSecretValueFromStack(ctx *sdk.Context, refName, outName string, proc func(val string) error) error {
-	// Create a StackReference to the parent stack
-	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", outName), &sdk.StackReferenceArgs{
-		Name: sdk.String(refName).ToStringOutput(),
-	})
-	if err != nil {
-		return err
-	}
-	parentOutput, err := ref.GetOutputDetails(outName)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
-	}
-	if parentOutput.SecretValue == nil {
-		return errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
-	}
-	if proc != nil {
-		return proc(parentOutput.SecretValue.(string))
-	}
-	return nil
 }

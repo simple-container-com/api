@@ -15,9 +15,9 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func InitStateStore(ctx context.Context, authCfg api.AuthConfig) error {
+func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig) error {
 	var pcfg aws.AccountConfig
-	if err := api.ConvertAuth(authCfg, &pcfg); err != nil {
+	if err := api.ConvertAuth(stateStoreCfg, &pcfg); err != nil {
 		return errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
 

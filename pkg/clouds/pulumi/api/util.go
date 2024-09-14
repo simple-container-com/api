@@ -3,6 +3,10 @@ package api
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pkg/errors"
+
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 func ExpandStackReference(parentStack string, organization string, projectName string) string {
@@ -23,4 +27,22 @@ func CollapseStackReference(stackRef string) string {
 
 func StackNameInEnv(stackName string, environment string) string {
 	return fmt.Sprintf("%s--%s", stackName, environment)
+}
+
+func GetSecretStringValueFromStack(ctx *sdk.Context, refName, outName string) (string, error) {
+	// Create a StackReference to the parent stack
+	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", outName), &sdk.StackReferenceArgs{
+		Name: sdk.String(refName).ToStringOutput(),
+	})
+	if err != nil {
+		return "", err
+	}
+	parentOutput, err := ref.GetOutputDetails(outName)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
+	}
+	if parentOutput.SecretValue == nil {
+		return "", errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
+	}
+	return parentOutput.SecretValue.(string), nil
 }
