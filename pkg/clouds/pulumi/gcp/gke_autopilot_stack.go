@@ -78,7 +78,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q in %q", registryURL, stackName, environment)
-	authOpts, err := authAgainstRegistry(ctx, stack, input, registryURL)
+	authOpts, err := authAgainstRegistry(ctx, input, registryURL)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to authenticate against provisioned registry %q for stack %q in %q", registryURL, stackName, environment)
 	}
@@ -113,7 +113,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
-func authAgainstRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, registryURL string) ([]sdk.ResourceOption, error) {
+func authAgainstRegistry(ctx *sdk.Context, input api.ResourceInput, registryURL string) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
