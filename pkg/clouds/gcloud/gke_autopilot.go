@@ -2,9 +2,11 @@ package gcloud
 
 import (
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )
 
 const (
@@ -34,20 +36,19 @@ type GkeAutopilotTemplate struct {
 
 type GkeAutopilotInput struct {
 	GkeAutopilotTemplate `json:"templateConfig" yaml:"templateConfig"`
-	StackConfig          *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
-	Containers           []CloudRunContainer     `json:"containers" yaml:"containers"`
+	Deployment           k8s.DeploymentConfig `json:"deployment" yaml:"deployment"`
 }
 
 func (i *GkeAutopilotInput) Uses() []string {
-	return i.StackConfig.Uses
+	return i.Deployment.StackConfig.Uses
 }
 
 func (i *GkeAutopilotInput) OverriddenBaseZone() string {
-	return i.StackConfig.BaseDnsZone
+	return i.Deployment.StackConfig.BaseDnsZone
 }
 
 func (i *GkeAutopilotInput) DependsOnResources() []api.StackConfigDependencyResource {
-	return i.StackConfig.Dependencies
+	return i.Deployment.StackConfig.Dependencies
 }
 
 func ReadGkeAutopilotTemplateConfig(config *api.Config) (api.Config, error) {
@@ -68,14 +69,24 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	}
 	res := &GkeAutopilotInput{
 		GkeAutopilotTemplate: *templateCfg,
-		StackConfig:          stackCfg,
+		Deployment: k8s.DeploymentConfig{
+			StackConfig: stackCfg,
+		},
 	}
 
-	containers, err := convertComposeToContainers(composeCfg, stackCfg)
+	containers, err := k8s.ConvertComposeToContainers(composeCfg, stackCfg)
 	if err != nil {
 		return nil, err
 	}
-	res.Containers = containers
+	iContainer, err := findIngressContainer(composeCfg, containers)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to detect ingress container")
+	}
+	res.Deployment.Containers = containers
+	res.Deployment.IngressContainer = iContainer
+	res.Deployment.Headers = lo.ToPtr(k8s.ToHeaders(stackCfg.Headers))
+	res.Deployment.Scale = k8s.ToScale(stackCfg)
+	res.Deployment.TextVolumes = k8s.ToSimpleTextVolumes(stackCfg)
 
 	return res, nil
 }

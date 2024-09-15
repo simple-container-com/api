@@ -7,43 +7,12 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )
 
 const (
 	TemplateTypeGcpCloudrun = "cloudrun"
 )
-
-type CloudRunProbe struct {
-	HttpGet             ProbeHttpGet
-	InitialDelaySeconds int
-}
-
-type CloudRunResources struct {
-	Limits   map[string]string
-	Requests map[string]string
-}
-
-type ProbeHttpGet struct {
-	Path string
-	Port int
-}
-
-type CloudRunContainer struct {
-	Name          string
-	Image         api.ContainerImage
-	Env           map[string]string
-	Secrets       map[string]string
-	Port          int
-	LivenessProbe CloudRunProbe
-	StartupProbe  CloudRunProbe
-	ComposeDir    string
-	Resources     CloudRunResources
-}
-
-type CloudRunScale struct {
-	Min int
-	Max int
-}
 
 type AlertsConfig struct {
 	MaxErrors MaxErrorConfig
@@ -65,19 +34,16 @@ type MaxErrorConfig struct {
 }
 
 type CloudRunInput struct {
-	TemplateConfig   `json:"templateConfig" yaml:"templateConfig"`
-	Scale            CloudRunScale       `json:"scale" yaml:"scale"`
-	Containers       []CloudRunContainer `json:"containers" yaml:"containers"`
-	RefResourceNames []string            `json:"refResourceNames" yaml:"refResourceNames"`
-	BaseDnsZone      string              `json:"baseDnsZOne" yaml:"baseDnsZOne"`
+	TemplateConfig `json:"templateConfig" yaml:"templateConfig"`
+	Deployment     k8s.DeploymentConfig `json:"deployment" yaml:"deployment"`
 }
 
 func (i *CloudRunInput) Uses() []string {
-	return i.RefResourceNames
+	return i.Deployment.StackConfig.Uses
 }
 
 func (i *CloudRunInput) OverriddenBaseZone() string {
-	return i.BaseDnsZone
+	return i.Deployment.StackConfig.BaseDnsZone
 }
 
 func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
@@ -90,100 +56,43 @@ func ToCloudRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackCon
 	}
 
 	res := &CloudRunInput{
-		TemplateConfig:   *templateCfg,
-		RefResourceNames: stackCfg.Uses,
-		BaseDnsZone:      stackCfg.BaseDnsZone,
+		TemplateConfig: *templateCfg,
+		Deployment: k8s.DeploymentConfig{
+			StackConfig: stackCfg,
+		},
 	}
-	containers, err := convertComposeToContainers(composeCfg, stackCfg)
+	containers, err := k8s.ConvertComposeToContainers(composeCfg, stackCfg)
 	if err != nil {
 		return nil, err
 	}
-	res.Containers = containers
+	res.Deployment.Containers = containers
+
+	iContainer, err := findIngressContainer(composeCfg, containers)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to detect ingress container")
+	}
+	res.Deployment.IngressContainer = iContainer
 
 	return res, nil
 }
 
-func convertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackConfigCompose) ([]CloudRunContainer, error) {
-	if composeCfg.Project == nil {
-		return nil, errors.Errorf("compose config is nil")
-	}
-
-	services := lo.Associate(composeCfg.Project.Services, func(svc types.ServiceConfig) (string, types.ServiceConfig) {
-		return svc.Name, svc
+func findIngressContainer(composeCfg compose.Config, contaniers []k8s.CloudRunContainer) (*k8s.CloudRunContainer, error) {
+	iContainers := lo.Filter(composeCfg.Project.Services, func(s types.ServiceConfig, _ int) bool {
+		v, hasLabel := s.Labels[api.ComposeLabelIngressContainer]
+		return hasLabel && v == "true"
 	})
-
-	var containers []CloudRunContainer
-
-	for _, svcName := range stackCfg.Runs {
-		svc := services[svcName]
-		port, err := toRunPort(svc.Ports)
-		if err != nil {
-			return nil, errors.Wrapf(err, "error converting service %s to cloud container", svcName)
-		}
-
-		context := ""
-		dockerFile := ""
-		buildArgs := make(map[string]string)
-		if svc.Build != nil {
-			context = svc.Build.Context
-			dockerFile = svc.Build.Dockerfile
-			buildArgs = lo.MapValues(svc.Build.Args, func(value *string, _ string) string {
-				return lo.FromPtr(value)
-			})
-		}
-
-		containers = append(containers, CloudRunContainer{
-			Name: svcName,
-			Image: api.ContainerImage{
-				Context:    context,
-				Platform:   api.ImagePlatformLinuxAmd64,
-				Dockerfile: dockerFile,
-				Build: &api.ContainerImageBuild{
-					Args: buildArgs,
-				},
-			},
-			ComposeDir:    composeCfg.Project.WorkingDir,
-			Env:           toRunEnv(svc.Environment),
-			Secrets:       toRunSecrets(svc.Environment),
-			Port:          port,
-			LivenessProbe: toLivenessProbe(svc.HealthCheck),
-			StartupProbe:  toStartupProbe(svc.HealthCheck),
-			Resources:     toResources(svc),
-		})
+	if len(iContainers) > 1 {
+		return nil, errors.Errorf("must have exactly 1 ingress container, but found (%v) in compose files %q,"+
+			"did you forget to add label %q to the main container?",
+			lo.Map(iContainers, func(item types.ServiceConfig, _ int) string {
+				return item.Name
+			}), composeCfg.Project.ComposeFiles, api.ComposeLabelIngressContainer)
 	}
-	return containers, nil
-}
-
-func toRunPort(ports []types.ServicePortConfig) (int, error) {
-	if len(ports) == 1 {
-		return int(ports[0].Target), nil
+	iContainer, found := lo.Find(contaniers, func(item k8s.CloudRunContainer) bool {
+		return item.Name == iContainers[0].Name
+	})
+	if !found {
+		return nil, nil
 	}
-	return 0, errors.Errorf("exactly one port must be configured for service, but got: %d", len(ports))
-}
-
-func toResources(svc types.ServiceConfig) CloudRunResources {
-	return CloudRunResources{}
-}
-
-func toStartupProbe(check *types.HealthCheckConfig) CloudRunProbe {
-	return CloudRunProbe{}
-}
-
-func toLivenessProbe(check *types.HealthCheckConfig) CloudRunProbe {
-	return CloudRunProbe{}
-}
-
-func toRunSecrets(environment types.MappingWithEquals) map[string]string {
-	// TODO: implement secrets with ${secret:blah}
-	return map[string]string{}
-}
-
-func toRunEnv(environment types.MappingWithEquals) map[string]string {
-	res := make(map[string]string)
-	for env, envVal := range environment {
-		if envVal != nil {
-			res[env] = *envVal
-		}
-	}
-	return res
+	return &iContainer, nil
 }

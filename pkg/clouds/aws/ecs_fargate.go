@@ -16,12 +16,6 @@ const (
 	TemplateTypeEcsFargate = "ecs-fargate"
 )
 
-const (
-	ComposeLabelIngressContainer        = "simple-container.com/ingress"
-	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
-	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
-)
-
 type EcsFargateConfig struct {
 	api.Credentials `json:",inline" yaml:",inline"`
 	AccountConfig   `json:",inline" yaml:",inline"`
@@ -282,7 +276,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		})
 	})
 	iContainers := lo.Filter(composeCfg.Project.Services, func(s types.ServiceConfig, _ int) bool {
-		v, hasLabel := s.Labels[ComposeLabelIngressContainer]
+		v, hasLabel := s.Labels[api.ComposeLabelIngressContainer]
 		return hasLabel && v == "true"
 	})
 	if len(iContainers) > 1 || len(iContainers) == 0 {
@@ -290,7 +284,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			"did you forget to add label %q to the main container?",
 			lo.Map(iContainers, func(item types.ServiceConfig, _ int) string {
 				return item.Name
-			}), composeCfg.Project.ComposeFiles, ComposeLabelIngressContainer)
+			}), composeCfg.Project.ComposeFiles, api.ComposeLabelIngressContainer)
 	}
 	res.IngressContainer, _ = lo.Find(res.Containers, func(item EcsFargateContainer) bool {
 		return item.Name == iContainers[0].Name
@@ -409,10 +403,10 @@ func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
 				Port: port,
 			}
 		}
-		if sc, ok := svc.Labels[ComposeLabelHealthcheckSuccessCodes]; ok {
+		if sc, ok := svc.Labels[api.ComposeLabelHealthcheckSuccessCodes]; ok {
 			p.HttpGet.SuccessCodes = sc
 		}
-		if path, ok := svc.Labels[ComposeLabelHealthcheckPath]; ok {
+		if path, ok := svc.Labels[api.ComposeLabelHealthcheckPath]; ok {
 			p.HttpGet.Path = path
 		}
 

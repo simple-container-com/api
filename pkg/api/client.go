@@ -36,6 +36,12 @@ const (
 	ImagePlatformLinuxAmd64 ImagePlatform = "linux/amd64"
 )
 
+const (
+	ComposeLabelIngressContainer        = "simple-container.com/ingress"
+	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
+	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
+)
+
 type ContainerImage struct {
 	Name       string `json:"name" yaml:"name"`
 	Dockerfile string `json:"dockerfile" yaml:"dockerfile"`
@@ -72,6 +78,19 @@ type StackConfigSingleImage struct {
 	CloudExtras         *any              `json:"cloudExtras" yaml:"cloudExtras"`       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 }
 
+type TextVolume struct {
+	Content   string `json:"content" yaml:"content"`
+	Name      string `json:"name" yaml:"name"`
+	MountPath string `json:"mountPath" yaml:"mountPath"`
+}
+
+type Headers map[string]string
+
+type SimpleContainerLBConfig struct {
+	Https        bool     `json:"https" yaml:"https"`
+	ExtraHelpers []string `json:"extraHelpers" yaml:"extraHelpers"`
+}
+
 type StackConfigCompose struct {
 	DockerComposeFile string                          `json:"dockerComposeFile" yaml:"dockerComposeFile"`
 	Domain            string                          `json:"domain" yaml:"domain"`
@@ -85,6 +104,9 @@ type StackConfigCompose struct {
 	Scale             *StackConfigComposeScale        `json:"scale,omitempty" yaml:"scale,omitempty"`
 	Dependencies      []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
 	Alerts            *AlertsConfig                   `json:"alerts,omitempty" yaml:"alerts,omitempty"`
+	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"` // extra text volumes to mount to containers (e.g. for k8s deployments)
+	Headers           *Headers                        `json:"headers" yaml:"headers"`         // extra headers to add when serving requests
+	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`       // load balancer configuration (so far only applicable for k8s deployments)
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack

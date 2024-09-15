@@ -5,26 +5,25 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-command/sdk/go/command/local"
-	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
-	k8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
+	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	pDocker "github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
-	"github.com/simple-container-com/api/pkg/util"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 )
 
 type GkeAutopilotOutput struct {
-	Provider *k8s.Provider
+	Provider        *sdkK8s.Provider
+	Images          []*kubernetes.ContainerImage
+	SimpleContainer *kubernetes.SimpleContainer
 }
 
 func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -60,7 +59,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 	out := &GkeAutopilotOutput{}
 
-	kubeProvider, err := k8s.NewProvider(ctx, input.ToResName(stackName), &k8s.ProviderArgs{
+	kubeProvider, err := sdkK8s.NewProvider(ctx, input.ToResName(stackName), &sdkK8s.ProviderArgs{
 		Kubeconfig: sdk.String(kubeConfig),
 	})
 	if err != nil {
@@ -78,28 +77,48 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Errorf("parent stack's registry url is empty for stack %q", stackName)
 	}
 
-	_, err = buildAndPushImages(ctx, stack, input, params, gkeAutopilotInput, registryURL)
+	params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q in %q", registryURL, stackName, environment)
+	authOpts, err := authAgainstRegistry(ctx, stack, input, registryURL)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to authenticate against provisioned registry %q for stack %q in %q", registryURL, stackName, environment)
+	}
+
+	params.Log.Info(ctx.Context(), "Building and pushing images to registry %q for stack %q in %q", registryURL, stackName, environment)
+	images, err := kubernetes.BuildAndPushImages(ctx, kubernetes.BuildArgs{
+		RegistryURL: registryURL,
+		Stack:       stack,
+		Input:       input,
+		Params:      params,
+		Deployment:  gkeAutopilotInput.Deployment,
+		Opts:        authOpts,
+	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push docker images for stack %q in %q", stackName, input.StackParams.Environment)
 	}
+	out.Images = images
+
+	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
+	sc, err := kubernetes.DeploySimpleContainer(ctx, kubernetes.Args{
+		Input:        input,
+		Deployment:   gkeAutopilotInput.Deployment,
+		Images:       images,
+		Params:       params,
+		KubeProvider: kubeProvider,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, input.StackParams.Environment)
+	}
+	out.SimpleContainer = sc
 
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
-type GKEImage struct {
-	Container gcloud.CloudRunContainer
-	ImageName sdk.StringOutput
-	AddOpts   []sdk.ResourceOption
-}
-
-func buildAndPushImages(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams, stackInput *gcloud.GkeAutopilotInput, registryURL string) ([]*GKEImage, error) {
+func authAgainstRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, registryURL string) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
 	}
-
 	var opts []sdk.ResourceOption
-
 	if _, err := exec.LookPath("gcloud"); err == nil {
 		env := lo.SliceToMap(os.Environ(), func(env string) (string, string) {
 			parts := strings.SplitN(env, "=", 2)
@@ -111,7 +130,7 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, input api.ResourceInp
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to parse registry url %q", registryURL)
 		}
-		configureDockerCmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-%s", stack.Name, input.StackParams.Environment), &local.CommandArgs{
+		configureDockerCmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-%s", input.StackParams.StackName, input.StackParams.Environment), &local.CommandArgs{
 			Update:      sdk.String(fmt.Sprintf("gcloud auth configure-docker %s --quiet", parsedRegistryURL.Host)),
 			Create:      sdk.String(fmt.Sprintf("gcloud auth configure-docker %s --quiet", parsedRegistryURL.Host)),
 			Triggers:    sdk.ArrayInput(sdk.Array{sdk.String(lo.RandomString(5, lo.AllCharset))}),
@@ -124,40 +143,5 @@ func buildAndPushImages(ctx *sdk.Context, stack api.Stack, input api.ResourceInp
 	} else {
 		return nil, errors.Errorf("command `gcloud` was not found, cannot authenticate against artifact registry %s", registryURL)
 	}
-
-	return util.MapErr(stackInput.Containers, func(container gcloud.CloudRunContainer, _ int) (*GKEImage, error) {
-		dockerfile := container.Image.Dockerfile
-		if dockerfile == "" && container.Image.Context == "" && container.Name != "" {
-			// do not build and return right away
-			return &GKEImage{
-				Container: container,
-				ImageName: sdk.String(container.Name).ToStringOutput(),
-			}, nil
-		}
-		if !filepath.IsAbs(dockerfile) {
-			dockerfile = filepath.Join(container.ComposeDir, dockerfile)
-		}
-
-		image, err := pDocker.BuildAndPushImage(ctx, stack, params, *input.StackParams, pDocker.Image{
-			Name:                   fmt.Sprintf("%s--%s", stack.Name, container.Name),
-			Dockerfile:             dockerfile,
-			Context:                container.Image.Context,
-			Args:                   lo.FromPtr(container.Image.Build).Args,
-			RepositoryUrlWithImage: false,
-			Version:                lo.If(input.StackParams.Version != "", input.StackParams.Version).Else("latest"),
-			RepositoryUrl:          sdk.String(registryURL).ToStringOutput(),
-			ProviderOptions:        opts,
-			Registry: docker.RegistryArgs{
-				Server: sdk.String(registryURL),
-			},
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to build and push image for container %q in stack %q env %q", container.Name, stack.Name, input.StackParams.Environment)
-		}
-		return &GKEImage{
-			Container: container,
-			ImageName: image.Image.ImageName,
-			AddOpts:   image.AddOpts,
-		}, nil
-	})
+	return opts, nil
 }
