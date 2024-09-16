@@ -3,11 +3,15 @@ package gcp
 import (
 	"fmt"
 
+	"github.com/samber/lo"
+
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	batchv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/batch/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 const MaxInitSQLTimeSec = 30
@@ -29,35 +33,36 @@ type InitDbUserJobArgs struct {
 	RootPassword   string
 	DBInstance     PostgresDBInstanceArgs
 	CloudSQLProxy  *CloudSQLProxy
-	Provider       *sdkK8s.Provider
+	KubeProvider   *sdkK8s.Provider
 	DBInstanceType CloudsqlInstanceType
+	Namespace      string
+	Opts           []sdk.ResourceOption
 }
 
 type InitUserJob struct {
-	Name sdk.StringPtrOutput
+	Job sdk.Output
 }
 
 func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs) (*InitUserJob, error) {
-	jobName := fmt.Sprintf("%s-db-user-init", stackName)
-	jobCredsName := fmt.Sprintf("%s-creds", jobName)
+	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-db-user-init", stackName), 60, "-")
+	jobCredsName := util.TrimStringMiddle(fmt.Sprintf("%s-creds", jobName), 60, "-")
 
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(stackName),
+			Namespace: sdk.String(args.Namespace),
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
 			"PGPASSWORD": sdk.String(args.RootPassword),
 			"MYSQL_PWD":  sdk.String(args.RootPassword),
 		},
-	}, sdk.Provider(args.Provider))
+	}, sdk.Provider(args.KubeProvider))
 	if err != nil {
 		return nil, err
 	}
-
 	// Job Container creation
-	jobContainer := sdk.All(args.User.Database, args.User.Username).ApplyT(func(all []interface{}) (corev1.ContainerArgs, error) {
+	jobContainer := sdk.All(args.User.Database, args.User.Username).ApplyT(func(all []interface{}) corev1.ContainerArgs {
 		database := all[0].(string)
 		username := all[1].(string)
 
@@ -94,44 +99,58 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 			},
 			Image: sdk.String("alpine:latest"),
 			Name:  sdk.String("job"),
-		}, nil
-	}).(corev1.ContainerOutput)
+		}
+	})
+
+	cloudsqlProxy := args.CloudSQLProxy
+	kubeProvider := args.KubeProvider
+	namespace := args.Namespace
+	opts := args.Opts
+
+	jobOut := sdk.All(cloudsqlProxy.SqlProxySecret.Metadata.Name(), jobContainer, cloudsqlProxy.ProxyContainer).ApplyT(func(args []any) (*batchv1.Job, error) {
+		secretName := args[0].(*string)
+		jobContainerArgs := args[1].(corev1.ContainerArgs)
+		proxyContainerArgs := args[2].(corev1.ContainerArgs)
+
+		// Job creation
+		job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
+			Metadata: &v1.ObjectMetaArgs{
+				Name:      sdk.String(jobName),
+				Namespace: sdk.String(namespace),
+				Annotations: sdk.StringMap{
+					"pulumi.com/patchForce": sdk.String("true"),
+				},
+			},
+			Spec: &batchv1.JobSpecArgs{
+				BackoffLimit: sdk.Int(5),
+				Template: &corev1.PodTemplateSpecArgs{
+					Spec: &corev1.PodSpecArgs{
+						Containers:    corev1.ContainerArray{jobContainerArgs, proxyContainerArgs},
+						RestartPolicy: sdk.String("Never"),
+						Volumes: corev1.VolumeArray{
+							&corev1.VolumeArgs{
+								Name: sdk.String(lo.FromPtr(secretName)),
+								Secret: &corev1.SecretVolumeSourceArgs{
+									SecretName: sdk.StringPtrFromPtr(secretName),
+								},
+							},
+						},
+					},
+				},
+			},
+		}, append(opts, sdk.Provider(kubeProvider))...)
+		if err != nil {
+			return nil, err
+		}
+		return job, nil
+	})
 
 	if err != nil {
 		return nil, err
 	}
 
 	// Proxy Container creation
-	proxyContainer := cloudsqlProxyContainer(args.DBInstance, MaxInitSQLTimeSec)
-
-	// Job creation
-	job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
-		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(stackName),
-		},
-		Spec: &batchv1.JobSpecArgs{
-			BackoffLimit: sdk.Int(5),
-			Template: &corev1.PodTemplateSpecArgs{
-				Spec: &corev1.PodSpecArgs{
-					Containers:    corev1.ContainerArray{jobContainer, proxyContainer},
-					RestartPolicy: sdk.String("Never"),
-					Volumes: corev1.VolumeArray{
-						&corev1.VolumeArgs{
-							Name: sdk.String("cloudsql-secret"),
-							Secret: &corev1.SecretVolumeSourceArgs{
-								SecretName: args.CloudSQLProxy.SqlProxySecret.Metadata.Name(),
-							},
-						},
-					},
-				},
-			},
-		},
-	}, sdk.Provider(args.Provider))
-	if err != nil {
-		return nil, err
-	}
-
 	return &InitUserJob{
-		Name: job.Metadata.Name(),
+		Job: jobOut,
 	}, nil
 }

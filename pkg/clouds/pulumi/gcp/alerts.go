@@ -5,8 +5,8 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/monitoring"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp"
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/monitoring"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 

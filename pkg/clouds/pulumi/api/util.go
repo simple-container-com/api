@@ -29,10 +29,10 @@ func StackNameInEnv(stackName string, environment string) string {
 	return fmt.Sprintf("%s--%s", stackName, environment)
 }
 
-func GetStringValueFromStack(ctx *sdk.Context, refName, outName string, secret bool) (string, error) {
+func GetStringValueFromStack(ctx *sdk.Context, refName, stackName, outName string, secret bool) (string, error) {
 	// Create a StackReference to the parent stack
-	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", outName), &sdk.StackReferenceArgs{
-		Name: sdk.String(refName).ToStringOutput(),
+	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", refName), &sdk.StackReferenceArgs{
+		Name: sdk.String(stackName).ToStringOutput(),
 	})
 	if err != nil {
 		return "", err

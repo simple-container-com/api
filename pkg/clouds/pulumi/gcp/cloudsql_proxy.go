@@ -2,12 +2,19 @@ package gcp
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp"
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/projects"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/serviceaccount"
+	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
-	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type PostgresDBInstanceArgs struct {
@@ -19,36 +26,39 @@ type PostgresDBInstanceArgs struct {
 type CloudSQLAccount struct {
 	ServiceAccount     *serviceaccount.Account
 	ServiceAccountKey  *serviceaccount.Key
-	CredentialsSecrets pulumi.StringMap
+	CredentialsSecrets sdk.StringMap
 }
 
-func NewCloudSQLAccount(ctx *pulumi.Context, name string, dbInstance PostgresDBInstanceArgs, provider *gcp.Provider) (*CloudSQLAccount, error) {
-	accountName := name
+func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInstanceArgs, provider *gcp.Provider) (*CloudSQLAccount, error) {
+	accountName := strings.ReplaceAll(util.TrimStringMiddle(name, 28, "-"), "--", "-")
 
 	serviceAccount, err := serviceaccount.NewAccount(ctx, accountName, &serviceaccount.AccountArgs{
-		AccountId: pulumi.String(accountName),
-		Project:   pulumi.String(dbInstance.Project),
-	}, pulumi.Provider(provider))
+		AccountId:   sdk.String(accountName),
+		Project:     sdk.String(dbInstance.Project),
+		Description: sdk.String(fmt.Sprintf("Service account to access database %s", dbInstance.InstanceName)),
+		DisplayName: sdk.String(fmt.Sprintf("%s-service-account", dbInstance.InstanceName)),
+	}, sdk.Provider(provider))
 	if err != nil {
 		return nil, err
 	}
 
 	serviceAccountKey, err := serviceaccount.NewKey(ctx, fmt.Sprintf("%s-key", accountName), &serviceaccount.KeyArgs{
-		ServiceAccountId: serviceAccount.ID(),
-	}, pulumi.Parent(serviceAccount), pulumi.Provider(provider))
+		ServiceAccountId: serviceAccount.AccountId,
+	}, sdk.Parent(serviceAccount), sdk.Provider(provider))
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = serviceaccount.NewIAMMember(ctx, fmt.Sprintf("%s-iam", accountName), &serviceaccount.IAMMemberArgs{
-		Member: serviceAccount.Email.ApplyT(func(email string) string { return fmt.Sprintf("serviceAccount:%s", email) }).(pulumi.StringOutput),
-		Role:   pulumi.String("roles/cloudsql.client"),
-	}, pulumi.Parent(serviceAccount), pulumi.Provider(provider))
+	_, err = projects.NewIAMMember(ctx, fmt.Sprintf("%s-iam", accountName), &projects.IAMMemberArgs{
+		Project: sdk.String(dbInstance.Project),
+		Member:  serviceAccount.Member,
+		Role:    sdk.String("roles/cloudsql.client"),
+	}, sdk.Parent(serviceAccount), sdk.Provider(provider))
 	if err != nil {
 		return nil, err
 	}
 
-	credentialsSecrets := pulumi.StringMap{
+	credentialsSecrets := sdk.StringMap{
 		"credentials.json": serviceAccountKey.PrivateKey,
 	}
 
@@ -60,22 +70,23 @@ func NewCloudSQLAccount(ctx *pulumi.Context, name string, dbInstance PostgresDBI
 }
 
 type CloudSQLProxyArgs struct {
-	Name       string
-	DBInstance PostgresDBInstanceArgs
-	Provider   *gcp.Provider
-	Metadata   *metav1.ObjectMetaArgs
-	TimeoutSec int
+	Name         string
+	DBInstance   PostgresDBInstanceArgs
+	GcpProvider  *gcp.Provider
+	KubeProvider *sdkK8s.Provider
+	Metadata     *metav1.ObjectMetaArgs
+	TimeoutSec   int
 }
 
 type CloudSQLProxy struct {
-	ProxyContainer pulumi.Output
+	ProxyContainer sdk.Output
 	Account        *CloudSQLAccount
 	Name           string
 	SqlProxySecret *v1.Secret
 }
 
-func NewCloudsqlProxy(ctx *pulumi.Context, args CloudSQLProxyArgs) (*CloudSQLProxy, error) {
-	account, err := NewCloudSQLAccount(ctx, args.Name, args.DBInstance, args.Provider)
+func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs) (*CloudSQLProxy, error) {
+	account, err := NewCloudSQLAccount(ctx, args.Name, args.DBInstance, args.GcpProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -83,12 +94,12 @@ func NewCloudsqlProxy(ctx *pulumi.Context, args CloudSQLProxyArgs) (*CloudSQLPro
 	sqlProxySecret, err := v1.NewSecret(ctx, args.Name+"-creds", &v1.SecretArgs{
 		Metadata: args.Metadata,
 		Data:     account.CredentialsSecrets,
-	}, pulumi.Provider(args.Provider))
+	}, sdk.Provider(args.KubeProvider))
 	if err != nil {
 		return nil, err
 	}
 
-	proxyContainer := cloudsqlProxyContainer(args.DBInstance, args.TimeoutSec)
+	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.TimeoutSec)
 
 	return &CloudSQLProxy{
 		ProxyContainer: proxyContainer,
@@ -98,11 +109,12 @@ func NewCloudsqlProxy(ctx *pulumi.Context, args CloudSQLProxyArgs) (*CloudSQLPro
 	}, nil
 }
 
-func cloudsqlProxyContainer(dbInstance PostgresDBInstanceArgs, timeout int) v1.ContainerOutput {
-	return pulumi.All(dbInstance.Project, dbInstance.Region, dbInstance.InstanceName).ApplyT(func(all []interface{}) v1.ContainerArgs {
-		project := all[0].(string)
-		region := all[1].(string)
-		instanceName := all[2].(string)
+func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, timeout int) sdk.Output {
+	return sdk.All(credsSecret.Metadata.Name(), dbInstance.Project, dbInstance.Region, dbInstance.InstanceName).ApplyT(func(all []interface{}) v1.ContainerArgs {
+		secretName := all[0].(*string)
+		project := all[1].(string)
+		region := all[2].(string)
+		instanceName := all[3].(string)
 
 		command := "/cloud-sql-proxy"
 		args := []string{
@@ -114,7 +126,6 @@ func cloudsqlProxyContainer(dbInstance PostgresDBInstanceArgs, timeout int) v1.C
 		}
 
 		if timeout > 0 {
-			command = "sh"
 			args = []string{
 				"-c",
 				fmt.Sprintf(`
@@ -128,35 +139,36 @@ func cloudsqlProxyContainer(dbInstance PostgresDBInstanceArgs, timeout int) v1.C
                     echo "Killing proxy after %ds"
                     kill -9 $PROXY_PID;
                     exit 0;
-                `, timeout, command, args, timeout, timeout, timeout),
+                `, timeout, command, strings.Join(args, " "), timeout, timeout, timeout),
 			}
+			command = "sh"
 		}
 
 		return v1.ContainerArgs{
-			Name:  pulumi.String("cloudsql-proxy"),
-			Image: pulumi.String("gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.1-alpine"),
-			Command: pulumi.StringArray{
-				pulumi.String(command),
+			Name:  sdk.String("cloudsql-proxy"),
+			Image: sdk.String("gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.1-alpine"),
+			Command: sdk.StringArray{
+				sdk.String(command),
 			},
-			Args: pulumi.ToStringArray(args),
+			Args: sdk.ToStringArray(args),
 			SecurityContext: &v1.SecurityContextArgs{
-				RunAsNonRoot: pulumi.Bool(true),
+				RunAsNonRoot: sdk.Bool(true),
 			},
 			Resources: &v1.ResourceRequirementsArgs{
-				Limits: pulumi.StringMap{
-					"memory": pulumi.String("300Mi"),
-					"cpu":    pulumi.String("300m"),
+				Limits: sdk.StringMap{
+					"memory": sdk.String("300Mi"),
+					"cpu":    sdk.String("300m"),
 				},
-				Requests: pulumi.StringMap{
-					"memory": pulumi.String("200Mi"),
-					"cpu":    pulumi.String("50m"),
+				Requests: sdk.StringMap{
+					"memory": sdk.String("200Mi"),
+					"cpu":    sdk.String("50m"),
 				},
 			},
 			VolumeMounts: v1.VolumeMountArray{
 				&v1.VolumeMountArgs{
-					Name:      pulumi.String("cloudsql-creds"),
-					MountPath: pulumi.String("/var/run/secrets/cloudsql"),
-					ReadOnly:  pulumi.Bool(true),
+					Name:      sdk.String(lo.FromPtr(secretName)),
+					MountPath: sdk.String("/var/run/secrets/cloudsql"),
+					ReadOnly:  sdk.Bool(true),
 				},
 			},
 		}

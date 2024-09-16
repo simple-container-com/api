@@ -28,14 +28,21 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	postgresName := toPostgresName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
 	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
-	rootPassword, err := pApi.GetStringValueFromStack(ctx, fullParentReference, toPostgresRootPasswordExport(postgresName), true)
-	if err != nil {
+	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
+	rootPassword, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
+	if err != nil || rootPassword == "" {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
 	}
 
 	pgCfg, ok := input.Descriptor.Config.Config.(*gcloud.PostgresGcpCloudsqlConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
+	}
+
+	// TODO: move to provider init
+	cloudresourcemanagerServiceName := fmt.Sprintf("projects/%s/services/cloudresourcemanager.googleapis.com", pgCfg.ProjectId)
+	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, cloudresourcemanagerServiceName); err != nil {
+		return nil, errors.Wrapf(err, "failed to enable %s", cloudresourcemanagerServiceName)
 	}
 
 	if pgCfg.UsersProvisionRuntime == nil {
@@ -45,13 +52,13 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 
 	var kubeProvider *sdkK8s.Provider
 	if pgCfg.UsersProvisionRuntime.Type == "gke" {
-		clusterName := pgCfg.UsersProvisionRuntime.ResourceName
-		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName)
-		kubeConfig, err := pApi.GetStringValueFromStack(ctx, fullParentReference, toKubeconfigExport(clusterName), true)
-		if err != nil {
+		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
+		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
+		kubeConfig, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
+		if err != nil || kubeConfig == "" {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 		}
-		kubeProviderName := fmt.Sprintf("%s-kubeconfig", input.ToResName(input.StackParams.StackName))
+		kubeProviderName := fmt.Sprintf("%s-%s-computeproc-kubeconfig", input.ToResName(input.Descriptor.Name), clusterName)
 		kubeProvider, err = sdkK8s.NewProvider(ctx, kubeProviderName, &sdkK8s.ProviderArgs{
 			Kubeconfig: sdk.String(kubeConfig),
 		})
@@ -59,11 +66,14 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 			return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
 				input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
 		}
+	} else {
+		return nil, errors.Errorf("unsupported users provision runtime %q for %q/%q in %q",
+			pgCfg.UsersProvisionRuntime.Type, input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
 	}
 
 	gcpProvider, ok := params.Provider.(*gcp.Provider)
 	if !ok {
-		return nil, errors.Wrapf(err, "failed to convert provider to *gcp.Provider when processing compute context for %q", postgresName)
+		return nil, errors.Errorf("failed to convert provider to *gcp.Provider when processing compute context for %q", postgresName)
 	}
 	appendContextParams := appendParams{
 		config:          pgCfg,
@@ -115,9 +125,10 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 	userName := params.stack.Name
 
 	database, err := sql.NewDatabase(ctx, dbName, &sql.DatabaseArgs{
+		Project:  sdk.String(params.config.Project),
 		Instance: sdk.String(params.postgresName),
 		Name:     sdk.String(dbName),
-	}, sdk.Provider(params.provisionParams.Provider))
+	}, sdk.Provider(params.gcpProvider))
 	if err != nil {
 		return errors.Wrapf(err, "failed to create database %q for stack %q", dbName, params.stack.Name)
 	}
@@ -127,7 +138,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 		return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
 	}
 
-	params.collector.AddOutput(sdk.All(password.Result, job.Name, database.Name).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(sdk.All(password.Result, job, database.Name).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_PASSWORD"), userPassword,
@@ -205,18 +216,31 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 	}
 	ctx.Export(passwordName, password.Result)
 
+	_, err = sql.NewUser(ctx, fmt.Sprintf("%s-%s-user", userName, params.postgresName), &sql.UserArgs{
+		Password: password.Result,
+		Project:  sdk.String(params.config.Project),
+		Instance: sdk.String(params.postgresName),
+		Name:     sdk.String(userName),
+	}, sdk.Provider(params.gcpProvider))
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to create database user %q for database %q in stack %q", userName, dbName, params.stack.Name)
+	}
+
 	dbInstanceArgs := PostgresDBInstanceArgs{
 		Project:      params.config.ProjectId,
 		InstanceName: params.postgresName,
 		Region:       lo.FromPtr(params.config.Region),
 	}
 	cloudsqlProxyName := fmt.Sprintf("%s-%s-cloudsql", userName, params.postgresName)
+	namespace := params.input.StackParams.StackName
 	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
-		Name:       cloudsqlProxyName,
-		DBInstance: dbInstanceArgs,
-		Provider:   params.gcpProvider,
+		Name:         cloudsqlProxyName,
+		DBInstance:   dbInstanceArgs,
+		GcpProvider:  params.gcpProvider,
+		KubeProvider: params.kubeProvider,
+		TimeoutSec:   MaxInitSQLTimeSec,
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(params.stack.Name),
+			Namespace: sdk.String(namespace),
 			Name:      sdk.String(cloudsqlProxyName),
 			Labels: sdk.StringMap{
 				kubernetes.LabelAppType: sdk.String(kubernetes.AppTypeSimpleContainer),
@@ -230,6 +254,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 	}
 
 	job, err := NewInitDbUserJob(ctx, userName, InitDbUserJobArgs{
+		Namespace: namespace,
 		User: CloudsqlDbUser{
 			Database: dbName,
 			Username: userName,
@@ -237,8 +262,9 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 		RootPassword:   params.rootPassword,
 		DBInstance:     dbInstanceArgs,
 		CloudSQLProxy:  cloudsqlProxy,
-		Provider:       params.kubeProvider,
+		KubeProvider:   params.kubeProvider,
 		DBInstanceType: PostgreSQL,
+		Opts:           []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{cloudsqlProxy.SqlProxySecret})},
 	})
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)

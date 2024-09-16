@@ -3,7 +3,7 @@ package gcp
 import (
 	"github.com/pkg/errors"
 
-	"github.com/pulumi/pulumi-gcp/sdk/v6/go/gcp/storage"
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/storage"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"

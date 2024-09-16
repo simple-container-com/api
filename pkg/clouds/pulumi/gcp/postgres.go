@@ -31,7 +31,8 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}
 
 	postgresName := toPostgresName(input, input.Descriptor.Name)
-	rootPassword, err := random.NewRandomPassword(ctx, toPostgresRootPasswordExport(postgresName), &random.RandomPasswordArgs{
+	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
+	rootPassword, err := random.NewRandomPassword(ctx, rootPasswordExport, &random.RandomPasswordArgs{
 		Length:          sdk.Int(16),
 		OverrideSpecial: sdk.String("-_"),
 		Special:         sdk.Bool(true),
@@ -39,6 +40,7 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to generate root postgres password")
 	}
+	ctx.Export(rootPasswordExport, rootPassword.Result)
 
 	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray
 
@@ -50,6 +52,7 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}
 
 	pgInstance, err := sql.NewDatabaseInstance(ctx, postgresName, &sql.DatabaseInstanceArgs{
+		Name:            sdk.String(postgresName),
 		Region:          sdk.StringPtrFromPtr(lo.If(pgCfg.Region != nil, pgCfg.Region).Else(nil)),
 		DatabaseVersion: sdk.String(pgCfg.Version),
 		RootPassword:    rootPassword.Result,
