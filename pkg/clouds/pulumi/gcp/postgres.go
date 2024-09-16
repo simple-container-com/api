@@ -25,6 +25,11 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
 
+	containerServiceName := fmt.Sprintf("projects/%s/services/sqladmin.googleapis.com", pgCfg.ProjectId)
+	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, containerServiceName); err != nil {
+		return nil, errors.Wrapf(err, "failed to enable %s", containerServiceName)
+	}
+
 	postgresName := toPostgresName(input, input.Descriptor.Name)
 	rootPassword, err := random.NewRandomPassword(ctx, toPostgresRootPasswordExport(postgresName), &random.RandomPasswordArgs{
 		Length:          sdk.Int(16),
@@ -52,12 +57,16 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 			Tier:          sdk.String(lo.If(pgCfg.Tier != nil, lo.FromPtr(pgCfg.Tier)).Else("db-f1-micro")),
 			DatabaseFlags: databaseFlags,
 			InsightsConfig: &sql.DatabaseInstanceSettingsInsightsConfigArgs{
-				QueryInsightsEnabled: sdk.Bool(true),
-				QueryStringLength:    sdk.Int(2048),
+				QueryInsightsEnabled: sdk.Bool(
+					lo.If(pgCfg.QueryInsightsEnabled != nil, lo.FromPtr(pgCfg.QueryInsightsEnabled)).Else(true),
+				),
+				QueryStringLength: sdk.Int(
+					lo.If(pgCfg.QueryStringLength != nil, lo.FromPtr(pgCfg.QueryStringLength)).Else(2048),
+				),
 			},
 		},
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
-	})
+	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision postgres instance %q", postgresName)
 	}
@@ -65,16 +74,8 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	return &api.ResourceOutput{Ref: pgInstance}, nil
 }
 
-func toPostgresRootPasswordExport(name string) string {
-	return fmt.Sprintf("%s-root-password", name)
-}
-
-func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	params.Log.Error(ctx.Context(), "not implemented for gcp bucket")
-
-	return &api.ResourceOutput{
-		Ref: nil,
-	}, nil
+func toPostgresRootPasswordExport(resName string) string {
+	return fmt.Sprintf("%s-root-password", resName)
 }
 
 func toPostgresName(input api.ResourceInput, resName string) string {

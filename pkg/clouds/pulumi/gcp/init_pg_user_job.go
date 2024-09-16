@@ -24,7 +24,7 @@ type CloudsqlDbUser struct {
 	Username string
 }
 
-type InitUserJobArgs struct {
+type InitDbUserJobArgs struct {
 	User           CloudsqlDbUser
 	RootPassword   string
 	DBInstance     PostgresDBInstanceArgs
@@ -37,14 +37,14 @@ type InitUserJob struct {
 	Name sdk.StringPtrOutput
 }
 
-func NewInitUserJob(ctx *sdk.Context, serviceName string, args InitUserJobArgs) (*InitUserJob, error) {
-	jobName := fmt.Sprintf("%s-pg-user-init", serviceName)
+func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs) (*InitUserJob, error) {
+	jobName := fmt.Sprintf("%s-db-user-init", stackName)
 	jobCredsName := fmt.Sprintf("%s-creds", jobName)
 
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(serviceName),
+			Namespace: sdk.String(stackName),
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
@@ -107,7 +107,7 @@ func NewInitUserJob(ctx *sdk.Context, serviceName string, args InitUserJobArgs) 
 	// Job creation
 	job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(serviceName),
+			Namespace: sdk.String(stackName),
 		},
 		Spec: &batchv1.JobSpecArgs{
 			BackoffLimit: sdk.Int(5),

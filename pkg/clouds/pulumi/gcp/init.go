@@ -19,7 +19,8 @@ func init() {
 		gcloud.TemplateTypeGkeAutopilot:        GkeAutopilotStack,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
-		gcloud.ResourceTypeBucket:       BucketComputeProcessor,
-		gcloud.ResourceTypeGkeAutopilot: GkeAutopilotComputeProcessor,
+		gcloud.ResourceTypeBucket:              BucketComputeProcessor,
+		gcloud.ResourceTypeGkeAutopilot:        GkeAutopilotComputeProcessor,
+		gcloud.ResourceTypePostgresGcpCloudsql: PostgresComputeProcessor,
 	})
 }

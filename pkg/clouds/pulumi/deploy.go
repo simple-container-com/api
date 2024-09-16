@@ -183,6 +183,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				return "failure", errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
 			}
 			provisionParams.ComputeContext = collector
+			provisionParams.StackDescriptor = clientStackDesc
 			provisionParams.ParentStack = &pApi.ParentInfo{
 				StackName:     parentNameOnly,
 				FullReference: parentFullReference,
