@@ -58,10 +58,11 @@ type SimpleContainerArgs struct {
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
 
 	// ...
-	RollingUpdate   *v1.RollingUpdateDeploymentArgs
-	InitContainers  []corev1.ContainerArgs
-	Containers      []corev1.ContainerArgs
-	SecurityContext *corev1.PodSecurityContextArgs
+	RollingUpdate      *v1.RollingUpdateDeploymentArgs
+	InitContainers     []corev1.ContainerArgs
+	Containers         []corev1.ContainerArgs
+	SecurityContext    *corev1.PodSecurityContextArgs
+	ServiceAccountName *sdk.StringOutput
 }
 
 type SimpleContainer struct {
@@ -275,11 +276,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 					Annotations: sdk.ToStringMap(appAnnotations),
 				},
 				Spec: &corev1.PodSpecArgs{
-					NodeSelector:    sdk.ToStringMap(args.NodeSelector),
-					InitContainers:  initContainers,
-					Containers:      containers,
-					Volumes:         volumes,
-					SecurityContext: args.SecurityContext,
+					NodeSelector:       sdk.ToStringMap(args.NodeSelector),
+					InitContainers:     initContainers,
+					Containers:         containers,
+					Volumes:            volumes,
+					SecurityContext:    args.SecurityContext,
+					ServiceAccountName: args.ServiceAccountName,
 				},
 			},
 		},

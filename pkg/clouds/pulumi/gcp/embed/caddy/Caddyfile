@@ -1,0 +1,92 @@
+(gzip) {
+  encode gzip
+}
+
+(hsts) {
+  header {
+     Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+  }
+  @httpReq {
+    header X-Forwarded-Proto http
+  }
+  redir @httpReq https://{host}{uri} permanent
+}
+
+(handle_static) {
+  @cachedFiles {
+      path *.jpg *.jpeg *.png *.gif *.ico *.svg
+  }
+
+  @resFiles {
+      path *.js *.css
+  }
+  header @cachedFiles Cache-Control "public, max-age=604800, must-revalidate"
+  header @resFiles Cache-Control "public, max-age=86400, must-revalidate"
+}
+
+# handle 405, 500 & 502 for bucket proxy
+(handle_bucket_error) {
+  @error status 502 500 404
+  handle_response @error {
+    root    * /etc/caddy/
+    rewrite * /{rp.status_code}.html
+    file_server {
+        status {rp.status_code}
+    }
+  }
+}
+
+# only handle 502 for backend proxy (when backend is not available)
+(handle_server_error) {
+  @error status 502
+  handle_response @error {
+    root    * /etc/caddy/
+    rewrite * /{rp.status_code}.html
+    file_server {
+        status {rp.status_code}
+    }
+  }
+}
+
+(cors_origin) {
+    @cors_preflight{args.0} method OPTIONS
+    @cors{args.0} {
+        header Origin {args.0}
+    }
+
+    handle @cors_preflight{args.0} {
+        header {
+            Access-Control-Allow-Origin "{args.0}"
+            Access-Control-Allow-Methods "{args.1}"
+            Access-Control-Allow-Headers "{args.2}"
+            Vary Origin
+            Access-Control-Max-Age "{args.3}"
+            defer   #turn on defer on your header directive to make sure the new header values are set after proxying
+        }
+        respond "" 204
+    }
+
+    handle @cors{args.0} {
+        header {
+            Access-Control-Allow-Origin "{args.0}"
+            Access-Control-Expose-Headers *
+            defer
+        }
+    }
+}
+
+(remove_hsts_header) {
+  header_down -Strict-Transport-Security
+}
+
+(lb_retries_2) {
+  lb_retries 2
+}
+
+http:// {
+  import gzip
+  import handle_static
+  import hsts
+  root * /etc/caddy/
+  file_server
+}

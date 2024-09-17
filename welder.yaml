@@ -36,6 +36,11 @@ modules:
         - task: rebuild
         - task: deploy
     dockerImages:
+      - name: caddy
+        dockerFile: ${project:root}/caddy.Dockerfile
+        tags:
+          - simplecontainer/caddy:latest
+          - simplecontainer/caddy:${project:version}
       - name: cloud-helpers-aws
         dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:

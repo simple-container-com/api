@@ -17,11 +17,13 @@ import (
 )
 
 type Args struct {
-	Input        api.ResourceInput
-	Deployment   k8s.DeploymentConfig
-	Images       []*ContainerImage
-	Params       pApi.ProvisionParams
-	KubeProvider *sdkK8s.Provider
+	Input              api.ResourceInput
+	Deployment         k8s.DeploymentConfig
+	Images             []*ContainerImage
+	Params             pApi.ProvisionParams
+	ServiceAccountName *sdk.StringOutput
+	KubeProvider       *sdkK8s.Provider
+	InitContainers     []corev1.ContainerArgs
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error) {
@@ -129,23 +131,25 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
-		Namespace:         stackName,
-		Service:           stackName,
-		ScEnv:             stackEnv,
-		Port:              ingressPort,
-		Domain:            args.Deployment.StackConfig.Domain,
-		Deployment:        stackName,
-		ParentStack:       args.Params.ParentStack.FullReference,
-		Replicas:          replicas,
-		Headers:           args.Deployment.Headers,
-		SecretEnvs:        secretEnvs,
-		LbConfig:          args.Deployment.StackConfig.LBConfig,
-		Volumes:           args.Deployment.TextVolumes,
-		PersistentVolumes: pvs,
-		Containers:        containers,
-		PodDisruption:     nil, // TODO
-		RollingUpdate:     nil, // TODO
-		SecurityContext:   nil, // TODO
+		Namespace:          stackName,
+		Service:            stackName,
+		ScEnv:              stackEnv,
+		Port:               ingressPort,
+		Domain:             args.Deployment.StackConfig.Domain,
+		Deployment:         stackName,
+		ParentStack:        args.Params.ParentStack.FullReference,
+		Replicas:           replicas,
+		Headers:            args.Deployment.Headers,
+		SecretEnvs:         secretEnvs,
+		LbConfig:           args.Deployment.StackConfig.LBConfig,
+		Volumes:            args.Deployment.TextVolumes,
+		PersistentVolumes:  pvs,
+		Containers:         containers,
+		ServiceAccountName: args.ServiceAccountName,
+		InitContainers:     args.InitContainers,
+		PodDisruption:      nil, // TODO
+		RollingUpdate:      nil, // TODO
+		SecurityContext:    nil, // TODO
 	}, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
