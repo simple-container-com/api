@@ -25,7 +25,7 @@ type GkeAutopilotResource struct {
 
 type CaddyConfig struct {
 	Enable    *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
-	Caddyfile *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`
+	Caddyfile *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"` // TODO: support overwriting
 	Namespace *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Image     *string `json:"image,omitempty" yaml:"image,omitempty"`
 	Replicas  *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`

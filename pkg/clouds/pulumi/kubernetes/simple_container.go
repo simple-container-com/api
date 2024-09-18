@@ -36,13 +36,14 @@ const (
 
 type SimpleContainerArgs struct {
 	// required properties
-	Namespace   string `json:"namespace" yaml:"namespace"`
-	Service     string `json:"service" yaml:"service"`
-	ScEnv       string `json:"scEnv" yaml:"scEnv"`
-	Domain      string `json:"domain" yaml:"domain"`
-	Deployment  string `json:"deployment" yaml:"deployment"`
-	ParentStack string `json:"parentStack" yaml:"parentStack"`
-	Replicas    int    `json:"replicas" yaml:"replicas"`
+	Namespace              string  `json:"namespace" yaml:"namespace"`
+	Service                string  `json:"service" yaml:"service"`
+	ScEnv                  string  `json:"scEnv" yaml:"scEnv"`
+	Domain                 string  `json:"domain" yaml:"domain"`
+	Deployment             string  `json:"deployment" yaml:"deployment"`
+	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
+	Replicas               int     `json:"replicas" yaml:"replicas"`
+	GenerateCaddyfileEntry bool    `json:"generateCaddyfileEntry" yaml:"generateCaddyfileEntry"`
 
 	// optional properties
 	PodDisruption     *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
@@ -50,7 +51,7 @@ type SimpleContainerArgs struct {
 	SecretEnvs        map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
 	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
 	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
-	Port              *int                         `json:"port" yaml:"port"`
+	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
 	Headers           *k8s.Headers                 `json:"headers" yaml:"headers"`
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
@@ -91,10 +92,20 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	}
 
 	appAnnotations := map[string]string{
-		AnnotationPort:        fmt.Sprintf("%d", args.Port),
-		AnnotationDomain:      args.Domain,
-		AnnotationParentStack: args.ParentStack,
-		AnnotationEnv:         args.ScEnv,
+		AnnotationDomain: args.Domain,
+		AnnotationEnv:    args.ScEnv,
+	}
+	var mainPort *int
+	if args.IngressContainer != nil && args.IngressContainer.MainPort != nil {
+		mainPort = args.IngressContainer.MainPort
+		appAnnotations[AnnotationPort] = strconv.Itoa(*mainPort)
+	}
+	if args.ParentStack != nil {
+		appAnnotations[AnnotationParentStack] = lo.FromPtr(args.ParentStack)
+	}
+	// apply provided annotations
+	for k, v := range args.Annotations {
+		appAnnotations[k] = v
 	}
 
 	// Namespace
@@ -121,9 +132,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		secretVolumeToData[secretVolume.Name] = secretVolume.Content
 	}
 
-	volumesCfgName := fmt.Sprintf("%s-cfg-volumes", args.Deployment)
-	envSecretName := fmt.Sprintf("%s-env", args.Deployment)
-	volumesSecretName := fmt.Sprintf("%s-secret-volumes", args.Deployment)
+	volumesCfgName := ToConfigVolumesName(args.Deployment)
+	envSecretName := ToEnvConfigName(args.Deployment)
+	volumesSecretName := ToSecretVolumesName(args.Deployment)
 
 	// ConfigMap
 	volumesConfigMap, err := corev1.NewConfigMap(ctx, volumesCfgName, &corev1.ConfigMapArgs{
@@ -205,7 +216,15 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 				SecretName: volumesSecret.Metadata.Name(),
 			},
 		},
+		corev1.VolumeArgs{
+			Name:     sdk.String("tmp"),
+			EmptyDir: corev1.EmptyDirVolumeSourceArgs{},
+		},
 	}
+	volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
+		Name:      sdk.String("tmp"),
+		MountPath: sdk.String("/tmp"),
+	})
 
 	// Persistent volumes
 	for _, pv := range args.PersistentVolumes {
@@ -298,7 +317,8 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	serviceAnnotations := lo.Assign(appAnnotations)
 
-	caddyfileEntry := `
+	if args.GenerateCaddyfileEntry && args.IngressContainer != nil && mainPort != nil {
+		caddyfileEntry := `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
     header_down Server nginx ${addHeaders}
@@ -309,28 +329,32 @@ ${proto}://${domain} {
   import gzip
   import handle_static
   import cors
+}
 `
-	if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData((placeholders.MapData{
-		"proto":     lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
-		"domain":    args.Domain,
-		"service":   args.Service,
-		"namespace": args.Namespace,
-		"port":      strconv.Itoa(lo.FromPtr(args.Port)),
-		"addHeaders": strings.Join(lo.Map(lo.Entries(lo.FromPtr(args.Headers)), func(h lo.Entry[string, string], _ int) string {
-			return fmt.Sprintf("header_down %s %s", h.Key, h.Value)
-		}), "\n    "),
-		"extraHelpers": strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
-	}))); err != nil {
-		return nil, errors.Wrapf(err, "failed to apply placeholders on caddyfile entry template")
+		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData((placeholders.MapData{
+			"proto":     lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
+			"domain":    args.Domain,
+			"service":   args.Service,
+			"namespace": args.Namespace,
+			"port":      strconv.Itoa(lo.FromPtr(mainPort)),
+			"addHeaders": strings.Join(lo.Map(lo.Entries(lo.FromPtr(args.Headers)), func(h lo.Entry[string, string], _ int) string {
+				return fmt.Sprintf("header_down %s %s", h.Key, h.Value)
+			}), "\n    "),
+			"extraHelpers": strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
+		}))); err != nil {
+			return nil, errors.Wrapf(err, "failed to apply placeholders on caddyfile entry template")
+		}
+		serviceAnnotations[AnnotationCaddyfileEntry] = caddyfileEntry
 	}
-	serviceAnnotations[AnnotationCaddyfileEntry] = caddyfileEntry
 
 	servicePorts := corev1.ServicePortArray{}
-	if args.Port != nil {
-		servicePorts = append(servicePorts, corev1.ServicePortArgs{
-			Name: sdk.String("http"),
-			Port: sdk.Int(lo.FromPtr(args.Port)),
-		})
+	if args.IngressContainer != nil {
+		for _, p := range args.IngressContainer.Ports {
+			servicePorts = append(servicePorts, corev1.ServicePortArgs{
+				Name: sdk.String(toPortName(p)),
+				Port: sdk.Int(p),
+			})
+		}
 	}
 	service, err := corev1.NewService(ctx, args.Service, &corev1.ServiceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
@@ -380,7 +404,9 @@ ${proto}://${domain} {
 	sc.ServicePublicIP = servicePublicIP
 	sc.ServiceName = service.Metadata.Name().Elem()
 	sc.Namespace = namespace.Metadata.Name().Elem()
-	sc.Port = sdk.IntPtrFromPtr(args.Port).ToIntPtrOutput()
+	if mainPort != nil {
+		sc.Port = sdk.IntPtrFromPtr(mainPort).ToIntPtrOutput()
+	}
 	sc.Deployment = deployment
 	err = ctx.RegisterResourceOutputs(sc, sdk.Map{
 		"servicePublicIP":     sc.ServicePublicIP,
@@ -396,6 +422,18 @@ ${proto}://${domain} {
 	}
 
 	return sc, nil
+}
+
+func ToSecretVolumesName(deploymentName string) string {
+	return fmt.Sprintf("%s-secret-volumes", deploymentName)
+}
+
+func ToEnvConfigName(deploymentName string) string {
+	return fmt.Sprintf("%s-env", deploymentName)
+}
+
+func ToConfigVolumesName(deploymentName string) string {
+	return fmt.Sprintf("%s-cfg-volumes", deploymentName)
 }
 
 // Helper functions for volume mounts

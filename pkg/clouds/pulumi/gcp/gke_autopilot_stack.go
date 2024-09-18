@@ -1,6 +1,9 @@
 package gcp
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -98,17 +101,67 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out.Images = images
 
 	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
+	domain := gkeAutopilotInput.Deployment.StackConfig.Domain
 	sc, err := kubernetes.DeploySimpleContainer(ctx, kubernetes.Args{
-		Input:        input,
-		Deployment:   gkeAutopilotInput.Deployment,
-		Images:       images,
-		Params:       params,
-		KubeProvider: kubeProvider,
+		Input:                  input,
+		Deployment:             gkeAutopilotInput.Deployment,
+		Images:                 images,
+		Params:                 params,
+		KubeProvider:           kubeProvider,
+		GenerateCaddyfileEntry: domain != "",
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, input.StackParams.Environment)
 	}
 	out.SimpleContainer = sc
+
+	if domain != "" {
+		if params.Registrar == nil {
+			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
+		}
+		clusterIPAddress, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, toIngressIpExport(clusterName), false)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
+		}
+
+		_, err = params.Registrar.NewRecord(ctx, api.DnsRecord{
+			Name:    domain,
+			Type:    "A",
+			Value:   clusterIPAddress,
+			Proxied: true,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
+		}
+
+		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-caddy-cfg", stackName, input.StackParams.Environment), fullParentReference, toCaddyConfigExport(clusterName), false)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
+		}
+		var caddyCfg gcloud.CaddyConfig
+		err = json.Unmarshal([]byte(caddyConfigJson), &caddyCfg)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack")
+		}
+
+		_, err = kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
+			PatchName:   fmt.Sprintf("%s-%s", stackName, environment),
+			ServiceName: "caddy",
+			Namespace:   lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy"),
+			Annotations: map[string]sdk.StringOutput{
+				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
+				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
+				"simple-container.com/caddy-update-hash": sc.CaddyfileEntry.ApplyT(func(entry any) string {
+					sum := md5.Sum([]byte(entry.(string)))
+					return hex.EncodeToString(sum[:])
+				}).(sdk.StringOutput),
+			},
+			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider)},
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
+		}
+	}
 
 	return &api.ResourceOutput{Ref: out}, nil
 }

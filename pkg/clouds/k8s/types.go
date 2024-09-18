@@ -67,11 +67,14 @@ type CloudRunContainer struct {
 	Env            map[string]string  `json:"env" yaml:"env"`
 	Secrets        map[string]string  `json:"secrets" yaml:"secrets"`
 	Ports          []int              `json:"ports" yaml:"ports"`
+	MainPort       *int               `json:"mainPort" yaml:"mainPort"`
 	ReadinessProbe *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
 	StartupProbe   *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
 	ComposeDir     string             `json:"composeDir" yaml:"composeDir"`
 	Resources      *Resources         `json:"resources" yaml:"resources"`
 	Volumes        []PersistentVolume `json:"volumes" yaml:"volumes"`
+
+	Warnings []string `json:"warnings" yaml:"warnings"` // non-critical errors happened during conversion (should be reported later)
 }
 
 type CloudRunScale struct {
@@ -218,7 +221,7 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 			return nil, errors.Wrapf(err, "failed to convert stack compose resources for service %s", svcName)
 		}
 
-		containers = append(containers, CloudRunContainer{
+		container := CloudRunContainer{
 			Name:    svcName,
 			Command: svc.Entrypoint,
 			Args:    svc.Command,
@@ -238,7 +241,11 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 			StartupProbe:   toStartupProbe(svc.HealthCheck),
 			Resources:      resources,
 			Volumes:        ToPersistentVolumes(svc),
-		})
+		}
+		if container.MainPort == nil && len(container.Ports) > 1 {
+			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
+		}
+		containers = append(containers, container)
 	}
 	return containers, nil
 }

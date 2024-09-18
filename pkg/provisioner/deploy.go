@@ -58,10 +58,14 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 	}, api.ReadIgnoreNoAnyCfg); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
-	if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
-		return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
-	} else {
-		p.stacks = *stacks
+
+	// only reconcile if environment was specified
+	if params.Environment != "" {
+		if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
+			return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
+		} else {
+			p.stacks = *stacks
+		}
 	}
 	if err := p.resolvePlaceholders(); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)

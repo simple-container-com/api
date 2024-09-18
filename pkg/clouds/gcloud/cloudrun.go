@@ -1,6 +1,9 @@
 package gcloud
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -93,6 +96,13 @@ func findIngressContainer(composeCfg compose.Config, contaniers []k8s.CloudRunCo
 	})
 	if !found {
 		return nil, nil
+	}
+	if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
+		if mainPort, err := strconv.Atoi(portLabel); err != nil {
+			iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
+		} else {
+			iContainer.MainPort = lo.ToPtr(mainPort)
+		}
 	}
 	return &iContainer, nil
 }

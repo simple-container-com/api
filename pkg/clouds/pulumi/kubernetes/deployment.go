@@ -17,18 +17,25 @@ import (
 )
 
 type Args struct {
-	Input              api.ResourceInput
-	Deployment         k8s.DeploymentConfig
-	Images             []*ContainerImage
-	Params             pApi.ProvisionParams
-	ServiceAccountName *sdk.StringOutput
-	KubeProvider       *sdkK8s.Provider
-	InitContainers     []corev1.ContainerArgs
+	Namespace              string
+	DeploymentName         string
+	Annotations            map[string]string
+	Input                  api.ResourceInput
+	Deployment             k8s.DeploymentConfig
+	Images                 []*ContainerImage
+	Params                 pApi.ProvisionParams
+	ServiceAccountName     *sdk.StringOutput
+	KubeProvider           *sdkK8s.Provider
+	InitContainers         []corev1.ContainerArgs
+	GenerateCaddyfileEntry bool
+	ServiceType            *string
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error) {
 	stackName := args.Input.StackParams.StackName
 	stackEnv := args.Input.StackParams.Environment
+	namespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
+	deploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
 
 	replicas := 1
 	if args.Deployment.Scale != nil {
@@ -57,6 +64,9 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 	})
 
 	containers, err := util.MapErr(args.Images, func(c *ContainerImage, _ int) (corev1.ContainerArgs, error) {
+		for _, w := range c.Container.Warnings {
+			args.Params.Log.Warn(ctx.Context(), "container %q warning: %s", c.Container.Name, w)
+		}
 		var env corev1.EnvVarArray
 		for _, v := range contextEnvVars {
 			env = append(env, corev1.EnvVarArgs{
@@ -93,13 +103,23 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 				PeriodSeconds:       sdk.IntPtr(10),
 				InitialDelaySeconds: sdk.IntPtr(5),
 			}
-		} else {
+		} else if c.Container.ReadinessProbe == nil && c.Container.MainPort != nil {
+			readinessProbe = corev1.ProbeArgs{
+				TcpSocket: corev1.TCPSocketActionArgs{
+					Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
+				},
+				PeriodSeconds:       sdk.IntPtr(10),
+				InitialDelaySeconds: sdk.IntPtr(5),
+			}
+		} else if c.Container.ReadinessProbe != nil {
 			// TODO: support readiness probe
 			return corev1.ContainerArgs{}, errors.Errorf("readiness probe is not supported yet: TODO")
+		} else {
+			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
 		}
 
 		var startupProbe corev1.ProbeArgs
-		if c.Container.StartupProbe == nil && len(c.Container.Ports) == 1 {
+		if c.Container.StartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
 		}
 
@@ -122,34 +142,34 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert GKE containers to k8s containers")
 	}
-	var ingressPort *int
-	if args.Deployment.IngressContainer != nil && len(args.Deployment.IngressContainer.Ports) == 1 {
-		ingressPort = lo.ToPtr(args.Deployment.IngressContainer.Ports[0])
-	} else {
-		args.Params.Log.Warn(ctx.Context(), "failed to detect ingress container port for %q in %q, service won't be exposed", stackName, stackEnv)
+	if args.Deployment.IngressContainer == nil {
+		args.Params.Log.Warn(ctx.Context(), "failed to detect ingress container for %q in %q, service won't be exposed", stackName, stackEnv)
 	}
 
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
-		Namespace:          stackName,
-		Service:            stackName,
-		ScEnv:              stackEnv,
-		Port:               ingressPort,
-		Domain:             args.Deployment.StackConfig.Domain,
-		Deployment:         stackName,
-		ParentStack:        args.Params.ParentStack.FullReference,
-		Replicas:           replicas,
-		Headers:            args.Deployment.Headers,
-		SecretEnvs:         secretEnvs,
-		LbConfig:           args.Deployment.StackConfig.LBConfig,
-		Volumes:            args.Deployment.TextVolumes,
-		PersistentVolumes:  pvs,
-		Containers:         containers,
-		ServiceAccountName: args.ServiceAccountName,
-		InitContainers:     args.InitContainers,
-		PodDisruption:      nil, // TODO
-		RollingUpdate:      nil, // TODO
-		SecurityContext:    nil, // TODO
+		ServiceType:            args.ServiceType,
+		Namespace:              namespace,
+		Service:                deploymentName,
+		Deployment:             deploymentName,
+		ScEnv:                  stackEnv,
+		IngressContainer:       args.Deployment.IngressContainer,
+		Domain:                 args.Deployment.StackConfig.Domain,
+		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
+		Replicas:               replicas,
+		Headers:                args.Deployment.Headers,
+		SecretEnvs:             secretEnvs,
+		LbConfig:               args.Deployment.StackConfig.LBConfig,
+		Volumes:                args.Deployment.TextVolumes,
+		PersistentVolumes:      pvs,
+		Containers:             containers,
+		ServiceAccountName:     args.ServiceAccountName,
+		InitContainers:         args.InitContainers,
+		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
+		Annotations:            args.Annotations,
+		PodDisruption:          nil, // TODO
+		RollingUpdate:          nil, // TODO
+		SecurityContext:        nil, // TODO
 	}, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
