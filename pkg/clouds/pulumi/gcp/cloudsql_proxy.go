@@ -29,22 +29,24 @@ type CloudSQLAccount struct {
 	CredentialsSecrets sdk.StringMap
 }
 
-func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInstanceArgs, provider *gcp.Provider) (*CloudSQLAccount, error) {
+func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInstanceArgs, provider *gcp.Provider, opts ...sdk.ResourceOption) (*CloudSQLAccount, error) {
 	accountName := strings.ReplaceAll(util.TrimStringMiddle(name, 28, "-"), "--", "-")
 
+	opts = append(opts, sdk.Provider(provider))
 	serviceAccount, err := serviceaccount.NewAccount(ctx, accountName, &serviceaccount.AccountArgs{
 		AccountId:   sdk.String(accountName),
 		Project:     sdk.String(dbInstance.Project),
 		Description: sdk.String(fmt.Sprintf("Service account to access database %s", dbInstance.InstanceName)),
 		DisplayName: sdk.String(fmt.Sprintf("%s-service-account", name)),
-	}, sdk.Provider(provider))
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
 
+	opts = append(opts, sdk.Parent(serviceAccount))
 	serviceAccountKey, err := serviceaccount.NewKey(ctx, fmt.Sprintf("%s-key", accountName), &serviceaccount.KeyArgs{
 		ServiceAccountId: serviceAccount.AccountId,
-	}, sdk.Parent(serviceAccount), sdk.Provider(provider))
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +55,7 @@ func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInst
 		Project: sdk.String(dbInstance.Project),
 		Member:  serviceAccount.Member,
 		Role:    sdk.String("roles/cloudsql.client"),
-	}, sdk.Parent(serviceAccount), sdk.Provider(provider))
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,16 +87,17 @@ type CloudSQLProxy struct {
 	SqlProxySecret *v1.Secret
 }
 
-func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs) (*CloudSQLProxy, error) {
-	account, err := NewCloudSQLAccount(ctx, args.Name, args.DBInstance, args.GcpProvider)
+func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.ResourceOption) (*CloudSQLProxy, error) {
+	account, err := NewCloudSQLAccount(ctx, args.Name, args.DBInstance, args.GcpProvider, opts...)
 	if err != nil {
 		return nil, err
 	}
 
+	opts = append(opts, sdk.Provider(args.KubeProvider))
 	sqlProxySecret, err := v1.NewSecret(ctx, args.Name+"-creds", &v1.SecretArgs{
 		Metadata: args.Metadata,
 		Data:     account.CredentialsSecrets,
-	}, sdk.Provider(args.KubeProvider))
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}

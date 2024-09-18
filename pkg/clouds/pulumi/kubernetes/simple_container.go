@@ -17,6 +17,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
@@ -59,32 +60,31 @@ type SimpleContainerArgs struct {
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
 
 	// ...
-	RollingUpdate      *v1.RollingUpdateDeploymentArgs
-	InitContainers     []corev1.ContainerArgs
-	Containers         []corev1.ContainerArgs
-	SecurityContext    *corev1.PodSecurityContextArgs
-	ServiceAccountName *sdk.StringOutput
-	Sidecars           []corev1.ContainerArgs
+	RollingUpdate        *v1.RollingUpdateDeploymentArgs
+	InitContainers       []corev1.ContainerArgs
+	Containers           []corev1.ContainerArgs
+	SecurityContext      *corev1.PodSecurityContextArgs
+	ServiceAccountName   *sdk.StringOutput
+	Sidecars             []corev1.ContainerArgs
+	SidecarOutputs       []corev1.ContainerOutput
+	InitContainerOutputs []corev1.ContainerOutput
+	VolumeOutputs        []corev1.VolumeOutput
+	ComputeContext       pApi.ComputeContext
 }
 
 type SimpleContainer struct {
 	sdk.ResourceState
 
-	ServicePublicIP    sdk.StringPtrOutput `pulumi:"servicePublicIP"`
-	ServiceName        sdk.StringOutput    `pulumi:"serviceName"`
-	Namespace          sdk.StringOutput    `pulumi:"namespace"`
-	Port               sdk.IntPtrOutput    `pulumi:"port"`
-	CaddyfileEntry     sdk.StringOutput    `pulumi:"caddyfileEntry"`
-	RequestedResources sdk.Input           `pulumi:"registeredResources"`
-	Deployment         *v1.Deployment      `pulumi:"deployment"`
+	ServicePublicIP sdk.StringPtrOutput `pulumi:"servicePublicIP"`
+	ServiceName     sdk.StringOutput    `pulumi:"serviceName"`
+	Namespace       sdk.StringOutput    `pulumi:"namespace"`
+	Port            sdk.IntPtrOutput    `pulumi:"port"`
+	CaddyfileEntry  sdk.StringOutput    `pulumi:"caddyfileEntry"`
+	Deployment      *v1.Deployment      `pulumi:"deployment"`
 }
 
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	sc := &SimpleContainer{}
-	err := ctx.RegisterComponentResource("pkg:k8s/extensions:simpleContainer", args.Service, sc, opts...)
-	if err != nil {
-		return nil, err
-	}
 
 	appLabels := map[string]string{
 		LabelAppType: AppTypeSimpleContainer,
@@ -123,6 +123,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	}, opts...)
 	if err != nil {
 		return nil, err
+	}
+
+	// run pre-processors after namespace is created, but before deployment is created
+	if args.ComputeContext != nil {
+		if err := args.ComputeContext.RunPreProcessors(args, args); err != nil {
+			return nil, err
+		}
 	}
 
 	// Volumes and Secrets
@@ -283,6 +290,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		initContainers = append(initContainers, c)
 	}
 
+	sidecarOutputs := lo.Map(args.SidecarOutputs, func(o corev1.ContainerOutput, _ int) any { return o })
+	volumeOutputs := lo.Map(args.VolumeOutputs, func(o corev1.VolumeOutput, _ int) any { return o })
+	initContainerOutputs := lo.Map(args.InitContainerOutputs, func(o corev1.ContainerOutput, _ int) any { return o })
 	// Deployment
 	deployment, err := v1.NewDeployment(ctx, args.Deployment, &v1.DeploymentArgs{
 		Metadata: &metav1.ObjectMetaArgs{
@@ -303,10 +313,25 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 					Annotations: sdk.ToStringMap(appAnnotations),
 				},
 				Spec: &corev1.PodSpecArgs{
-					NodeSelector:       sdk.ToStringMap(args.NodeSelector),
-					InitContainers:     initContainers,
-					Containers:         containers,
-					Volumes:            volumes,
+					NodeSelector: sdk.ToStringMap(args.NodeSelector),
+					InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
+						for _, c := range scOuts {
+							initContainers = append(initContainers, c.(corev1.ContainerInput))
+						}
+						return initContainers, nil
+					}).(corev1.ContainerArrayOutput),
+					Containers: sdk.All(sidecarOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
+						for _, c := range scOuts {
+							containers = append(containers, c.(corev1.ContainerInput))
+						}
+						return containers, nil
+					}).(corev1.ContainerArrayOutput),
+					Volumes: sdk.All(volumeOutputs...).ApplyT(func(vOuts []any) (corev1.VolumeArray, error) {
+						for _, v := range vOuts {
+							volumes = append(volumes, v.(corev1.VolumeInput))
+						}
+						return volumes, nil
+					}).(corev1.VolumeArrayOutput),
 					SecurityContext:    args.SecurityContext,
 					ServiceAccountName: args.ServiceAccountName,
 				},
@@ -420,15 +445,27 @@ ${proto}://${domain} {
 	if mainPort != nil {
 		sc.Port = sdk.IntPtrFromPtr(mainPort).ToIntPtrOutput()
 	}
+
 	sc.Deployment = deployment
+	// run post-processors after sc is created
+	if args.ComputeContext != nil {
+		if err := args.ComputeContext.RunPostProcessors(sc, sc); err != nil {
+			return nil, err
+		}
+	}
+
+	err = ctx.RegisterComponentResource("pkg:k8s/extensions:simpleContainer", args.Service, sc, opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	err = ctx.RegisterResourceOutputs(sc, sdk.Map{
-		"servicePublicIP":     sc.ServicePublicIP,
-		"serviceName":         sc.ServiceName,
-		"namespace":           sc.Namespace,
-		"port":                sc.Port,
-		"caddyfileEntry":      sc.CaddyfileEntry,
-		"registeredResources": sc.RequestedResources,
-		"deploymentName":      sc.Deployment,
+		"servicePublicIP": sc.ServicePublicIP,
+		"serviceName":     sc.ServiceName,
+		"namespace":       sc.Namespace,
+		"port":            sc.Port,
+		"caddyfileEntry":  sc.CaddyfileEntry,
+		"deployment":      sc.Deployment,
 	})
 	if err != nil {
 		return nil, err

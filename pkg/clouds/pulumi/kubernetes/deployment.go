@@ -30,6 +30,7 @@ type Args struct {
 	GenerateCaddyfileEntry bool
 	ServiceType            *string
 	Sidecars               []corev1.ContainerArgs
+	ComputeContext         pApi.ComputeContext
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -151,6 +152,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
+		ComputeContext:         args.ComputeContext,
 		ServiceType:            args.ServiceType,
 		Namespace:              namespace,
 		Service:                deploymentName,

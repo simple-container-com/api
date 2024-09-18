@@ -30,7 +30,8 @@ type (
 		log                 logger.Logger
 		ctx                 context.Context
 
-		extraProcessors ExtraProcessors
+		preProcessors  PreProcessors
+		postProcessors PostProcessors
 	}
 )
 
@@ -122,26 +123,71 @@ func (c *Collector) AddDependency(res sdk.Resource) {
 }
 
 func (c *Collector) Dependencies() []sdk.Resource {
-	return c.dependencies
+	return lo.If(c.dependencies == nil, []sdk.Resource{}).Else(c.dependencies)
 }
 
-func (c *Collector) GetExtraProcessors(forType any) ([]ExtraProcessor, bool) {
+func (c *Collector) GetPostProcessors(forType any) ([]PostProcessor, bool) {
 	typeOf := reflect.TypeOf(forType)
-	if p, ok := c.extraProcessors[typeOf]; ok {
+	if p, ok := c.postProcessors[typeOf]; ok {
 		return p, true
 	}
 	return nil, false
 }
 
-func (c *Collector) AddExtraProcessor(forType any, processor ExtraProcessor) {
-	if c.extraProcessors == nil {
-		c.extraProcessors = make(ExtraProcessors)
+func (c *Collector) RunPreProcessors(forType any, onObject any) error {
+	// allow injecting sidecars if necessary
+	typeOf := reflect.TypeOf(forType)
+	if procs, ok := c.preProcessors[typeOf]; ok {
+		for _, p := range procs {
+			if err := p(onObject); err != nil {
+				return errors.Wrapf(err, "failed to apply pre processor on %v", onObject)
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Collector) RunPostProcessors(forType any, onObject any) error {
+	// allow injecting sidecars if necessary
+	typeOf := reflect.TypeOf(forType)
+	if procs, ok := c.postProcessors[typeOf]; ok {
+		for _, p := range procs {
+			if err := p(onObject); err != nil {
+				return errors.Wrapf(err, "failed to apply post processor on %v", onObject)
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Collector) AddPostProcessor(forType any, processor PostProcessor) {
+	if c.postProcessors == nil {
+		c.postProcessors = make(PostProcessors)
 	}
 	typeOf := reflect.TypeOf(forType)
-	if _, ok := c.extraProcessors[typeOf]; !ok {
-		c.extraProcessors[typeOf] = make([]ExtraProcessor, 0)
+	if _, ok := c.postProcessors[typeOf]; !ok {
+		c.postProcessors[typeOf] = make([]PostProcessor, 0)
 	}
-	c.extraProcessors[typeOf] = append(c.extraProcessors[typeOf], processor)
+	c.postProcessors[typeOf] = append(c.postProcessors[typeOf], processor)
+}
+
+func (c *Collector) GetPreProcessors(forType any) ([]PreProcessor, bool) {
+	typeOf := reflect.TypeOf(forType)
+	if p, ok := c.preProcessors[typeOf]; ok {
+		return p, true
+	}
+	return nil, false
+}
+
+func (c *Collector) AddPreProcessor(forType any, processor PreProcessor) {
+	if c.preProcessors == nil {
+		c.preProcessors = make(PreProcessors)
+	}
+	typeOf := reflect.TypeOf(forType)
+	if _, ok := c.preProcessors[typeOf]; !ok {
+		c.preProcessors[typeOf] = make([]PreProcessor, 0)
+	}
+	c.preProcessors[typeOf] = append(c.preProcessors[typeOf], processor)
 }
 
 func NewComputeContextCollector(ctx context.Context, log logger.Logger, stackName string, environment string) ComputeContextCollector {

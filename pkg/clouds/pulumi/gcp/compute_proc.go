@@ -46,9 +46,10 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.Wrapf(err, "failed to enable %s", cloudresourcemanagerServiceName)
 	}
 
+	stackName := input.StackParams.StackName
 	if pgCfg.UsersProvisionRuntime == nil {
 		return nil, errors.Errorf("`usersProvisionRuntime` is not configured for %q in %q, so %q cannot consume it",
-			input.Descriptor.Name, input.StackParams.Environment, input.StackParams.StackName)
+			input.Descriptor.Name, input.StackParams.Environment, stackName)
 	}
 
 	var kubeProvider *sdkK8s.Provider
@@ -65,11 +66,11 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
-				input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
+				stackName, input.Descriptor.Name, input.StackParams.Environment)
 		}
 	} else {
 		return nil, errors.Errorf("unsupported users provision runtime %q for %q/%q in %q",
-			pgCfg.UsersProvisionRuntime.Type, input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
+			pgCfg.UsersProvisionRuntime.Type, stackName, input.Descriptor.Name, input.StackParams.Environment)
 	}
 
 	gcpProvider, ok := params.Provider.(*gcp.Provider)
@@ -134,19 +135,14 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 		return errors.Wrapf(err, "failed to create database %q for stack %q", dbName, params.stack.Name)
 	}
 
-	password, job, err := createUserForDatabase(ctx, userName, dbName, params)
+	password, err := createUserForDatabase(ctx, userName, dbName, params)
 	if err != nil {
 		return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
 	}
 
-	cloudsqlProxy, err := createCloudsqlProxy(ctx, params)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
-	}
+	addCloudsqlProxySidecarPreProcessor(ctx, params)
 
-	addCloudsqlProxySidecarProcessor(cloudsqlProxy, params)
-
-	params.collector.AddOutput(sdk.All(password.Result, job, database.Name).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(sdk.All(password.Result, database.Name).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_PASSWORD"), userPassword,
@@ -174,16 +170,28 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 	return nil
 }
 
-func addCloudsqlProxySidecarProcessor(cloudsqlProxy *CloudSQLProxy, params appendParams) {
-	params.collector.AddExtraProcessor(kubernetes.Args{}, func(arg any) error {
-		kubeArgs, ok := arg.(*kubernetes.Args)
+func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) {
+	params.collector.AddPreProcessor(&kubernetes.SimpleContainerArgs{}, func(arg any) error {
+		cloudsqlProxy, err := createCloudsqlProxy(ctx, params)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
+		}
+
+		kubeArgs, ok := arg.(*kubernetes.SimpleContainerArgs)
 		if !ok {
 			return errors.Errorf("arg is not *kubernetes.Args")
 		}
-		params.collector.AddOutput(cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) error {
-			kubeArgs.Sidecars = append(kubeArgs.Sidecars, arg.(corev1.ContainerArgs))
-			return nil
-		}))
+		kubeArgs.SidecarOutputs = append(kubeArgs.SidecarOutputs, cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) corev1.ContainerArgs {
+			return arg.(corev1.ContainerArgs)
+		}).(corev1.ContainerOutput))
+		kubeArgs.VolumeOutputs = append(kubeArgs.VolumeOutputs, cloudsqlProxy.SqlProxySecret.Metadata.Name().ApplyT(func(arg any) corev1.VolumeArgs {
+			return corev1.VolumeArgs{
+				Name: sdk.String(lo.FromPtr(arg.(*string))),
+				Secret: &corev1.SecretVolumeSourceArgs{
+					SecretName: sdk.StringPtrFromPtr(arg.(*string)),
+				},
+			}
+		}).(corev1.VolumeOutput))
 		return nil
 	})
 }
@@ -216,19 +224,14 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
 	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
 
-	password, job, err := createUserForDatabase(ctx, userName, dbName, params)
+	password, err := createUserForDatabase(ctx, userName, dbName, params)
 	if err != nil {
 		return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
 	}
 
-	cloudsqlProxy, err := createCloudsqlProxy(ctx, params)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
-	}
+	addCloudsqlProxySidecarPreProcessor(ctx, params)
 
-	addCloudsqlProxySidecarProcessor(cloudsqlProxy, params)
-
-	params.collector.AddOutput(sdk.All(password.Result, job).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("POSTGRES_DEP_%s_PASSWORD", ownerStackName)), userPassword,
@@ -256,7 +259,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 	return nil
 }
 
-func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params appendParams) (*random.RandomPassword, *InitUserJob, error) {
+func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params appendParams) (*random.RandomPassword, error) {
 	ctx.Export(fmt.Sprintf("%s-%s-username", userName, params.postgresName), sdk.String(userName))
 	passwordName := fmt.Sprintf("%s-%s-password", userName, params.postgresName)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
@@ -264,7 +267,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 		Special: sdk.Bool(false),
 	})
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to generate random password for postgres for user %q", userName)
+		return nil, errors.Wrapf(err, "failed to generate random password for postgres for user %q", userName)
 	}
 	ctx.Export(passwordName, password.Result)
 
@@ -275,45 +278,50 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 		Name:     sdk.String(userName),
 	}, sdk.Provider(params.gcpProvider))
 	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to create database user %q for database %q in stack %q", userName, dbName, params.stack.Name)
+		return nil, errors.Wrapf(err, "failed to create database user %q for database %q in stack %q", userName, dbName, params.stack.Name)
 	}
 
-	dbInstanceArgs := PostgresDBInstanceArgs{
-		Project:      params.config.ProjectId,
-		InstanceName: params.postgresName,
-		Region:       lo.FromPtr(params.config.Region),
-	}
-	cloudsqlProxyName := fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName)
-	namespace := params.input.StackParams.StackName
-	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
-		Name:         cloudsqlProxyName,
-		DBInstance:   dbInstanceArgs,
-		GcpProvider:  params.gcpProvider,
-		KubeProvider: params.kubeProvider,
-		TimeoutSec:   MaxInitSQLTimeSec,
-		Metadata:     cloudsqlProxyMeta(namespace, cloudsqlProxyName, params),
-	})
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to init cloudsql proxy")
-	}
+	params.collector.AddPostProcessor(&kubernetes.SimpleContainer{}, func(c any) error {
+		sc := c.(*kubernetes.SimpleContainer)
+		dbInstanceArgs := PostgresDBInstanceArgs{
+			Project:      params.config.ProjectId,
+			InstanceName: params.postgresName,
+			Region:       lo.FromPtr(params.config.Region),
+		}
+		cloudsqlProxyName := fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName)
+		namespace := params.input.StackParams.StackName
+		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
+			Name:         cloudsqlProxyName,
+			DBInstance:   dbInstanceArgs,
+			GcpProvider:  params.gcpProvider,
+			KubeProvider: params.kubeProvider,
+			TimeoutSec:   MaxInitSQLTimeSec,
+			Metadata:     cloudsqlProxyMeta(namespace, cloudsqlProxyName, params),
+		}, sdk.DependsOn([]sdk.Resource{sc}))
+		if err != nil {
+			return errors.Wrapf(err, "failed to init cloudsql proxy")
+		}
 
-	job, err := NewInitDbUserJob(ctx, userName, InitDbUserJobArgs{
-		Namespace: namespace,
-		User: CloudsqlDbUser{
-			Database: dbName,
-			Username: userName,
-		},
-		RootPassword:   params.rootPassword,
-		DBInstance:     dbInstanceArgs,
-		CloudSQLProxy:  cloudsqlProxy,
-		KubeProvider:   params.kubeProvider,
-		DBInstanceType: PostgreSQL,
-		Opts:           []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{cloudsqlProxy.SqlProxySecret})},
+		_, err = NewInitDbUserJob(ctx, userName, InitDbUserJobArgs{
+			Namespace: namespace,
+			User: CloudsqlDbUser{
+				Database: dbName,
+				Username: userName,
+			},
+			RootPassword:   params.rootPassword,
+			DBInstance:     dbInstanceArgs,
+			CloudSQLProxy:  cloudsqlProxy,
+			KubeProvider:   params.kubeProvider,
+			DBInstanceType: PostgreSQL,
+			Opts:           []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{cloudsqlProxy.SqlProxySecret})},
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
+		}
+		return nil
 	})
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
-	}
-	return password, job, nil
+
+	return password, nil
 }
 
 func cloudsqlProxyMeta(namespace string, cloudsqlProxyName string, params appendParams) *v1.ObjectMetaArgs {

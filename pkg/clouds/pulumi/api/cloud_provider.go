@@ -49,8 +49,10 @@ type ComputeEnvVariable struct {
 }
 
 type (
-	ExtraProcessor  func(any) error
-	ExtraProcessors map[reflect.Type][]ExtraProcessor
+	PreProcessor   func(any) error
+	PreProcessors  map[reflect.Type][]PreProcessor
+	PostProcessor  func(any) error
+	PostProcessors map[reflect.Type][]PostProcessor
 )
 
 type ComputeContext interface {
@@ -59,7 +61,10 @@ type ComputeContext interface {
 	Dependencies() []sdk.Resource
 	Outputs() []sdk.Output
 	ResolvePlaceholders(obj any) error
-	GetExtraProcessors(forType any) ([]ExtraProcessor, bool)
+	GetPreProcessors(forType any) ([]PreProcessor, bool)
+	GetPostProcessors(forType any) ([]PostProcessor, bool)
+	RunPreProcessors(forType any, onObject any) error
+	RunPostProcessors(forType any, onObject any) error
 }
 
 type ComputeContextCollector interface {
@@ -74,6 +79,10 @@ type ComputeContextCollector interface {
 	ResolvePlaceholders(obj any) error
 	AddResourceTplExtension(resName string, value map[string]string)
 	AddDependencyTplExtension(depName string, resName string, values map[string]string)
-	GetExtraProcessors(forType any) ([]ExtraProcessor, bool)
-	AddExtraProcessor(forType any, processor ExtraProcessor)
+	GetPreProcessors(forType any) ([]PreProcessor, bool)
+	AddPreProcessor(forType any, processor PreProcessor)
+	GetPostProcessors(forType any) ([]PostProcessor, bool)
+	AddPostProcessor(forType any, processor PostProcessor)
+	RunPreProcessors(forType any, onObject any) error
+	RunPostProcessors(forType any, onObject any) error
 }

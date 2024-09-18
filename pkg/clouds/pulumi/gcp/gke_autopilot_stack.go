@@ -109,22 +109,14 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Images:                 images,
 		Params:                 params,
 		KubeProvider:           kubeProvider,
+		ComputeContext:         params.ComputeContext,
 		GenerateCaddyfileEntry: domain != "",
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
 	}
 
-	// allow injecting sidecars if necessary
-	if procs, ok := params.ComputeContext.GetExtraProcessors(kubeArgs); ok {
-		for _, p := range procs {
-			if err := p(&kubeArgs); err != nil {
-				return nil, errors.Wrapf(err, "failed to apply extra processor on kubernetes.Args")
-			}
-		}
-	}
-
-	sc, err := kubernetes.DeploySimpleContainer(ctx, kubeArgs, sdk.DependsOn(params.ComputeContext.Dependencies()))
+	sc, err := kubernetes.DeploySimpleContainer(ctx, kubeArgs)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, input.StackParams.Environment)
 	}
@@ -171,7 +163,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Deployment})},
+			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc})},
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
