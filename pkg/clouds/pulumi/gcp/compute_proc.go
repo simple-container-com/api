@@ -199,7 +199,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 		},
 		GcpProvider:  params.gcpProvider,
 		KubeProvider: params.kubeProvider,
-		Metadata:     cloudsqlProxyMeta(params.stack.Name, cloudsqlProxyName, params),
+		Metadata:     cloudsqlProxyMeta(params.input.StackParams.StackName, cloudsqlProxyName, params),
 	})
 	if err != nil {
 		return nil, err
@@ -319,6 +319,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 func cloudsqlProxyMeta(namespace string, cloudsqlProxyName string, params appendParams) *v1.ObjectMetaArgs {
 	return &v1.ObjectMetaArgs{
 		Namespace: sdk.String(namespace),
+		Name:      sdk.String(cloudsqlProxyName),
 		Labels: sdk.StringMap{
 			kubernetes.LabelAppType: sdk.String(kubernetes.AppTypeSimpleContainer),
 			kubernetes.LabelScEnv:   sdk.String(params.input.StackParams.Environment),
