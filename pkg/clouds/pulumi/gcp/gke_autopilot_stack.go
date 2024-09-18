@@ -102,7 +102,8 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
 	domain := gkeAutopilotInput.Deployment.StackConfig.Domain
-	sc, err := kubernetes.DeploySimpleContainer(ctx, kubernetes.Args{
+
+	kubeArgs := kubernetes.Args{
 		Input:                  input,
 		Deployment:             gkeAutopilotInput.Deployment,
 		Images:                 images,
@@ -112,7 +113,18 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
-	})
+	}
+
+	// allow injecting sidecars if necessary
+	if procs, ok := params.ComputeContext.GetExtraProcessors(kubeArgs); ok {
+		for _, p := range procs {
+			if err := p(&kubeArgs); err != nil {
+				return nil, errors.Wrapf(err, "failed to apply extra processor on kubernetes.Args")
+			}
+		}
+	}
+
+	sc, err := kubernetes.DeploySimpleContainer(ctx, kubeArgs, sdk.DependsOn(params.ComputeContext.Dependencies()))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, input.StackParams.Environment)
 	}

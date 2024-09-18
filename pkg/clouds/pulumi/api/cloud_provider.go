@@ -1,6 +1,8 @@
 package api
 
 import (
+	"reflect"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -46,12 +48,18 @@ type ComputeEnvVariable struct {
 	Secret       bool
 }
 
+type (
+	ExtraProcessor  func(any) error
+	ExtraProcessors map[reflect.Type][]ExtraProcessor
+)
+
 type ComputeContext interface {
 	SecretEnvVariables() []ComputeEnvVariable
 	EnvVariables() []ComputeEnvVariable
 	Dependencies() []sdk.Resource
 	Outputs() []sdk.Output
 	ResolvePlaceholders(obj any) error
+	GetExtraProcessors(forType any) ([]ExtraProcessor, bool)
 }
 
 type ComputeContextCollector interface {
@@ -66,4 +74,6 @@ type ComputeContextCollector interface {
 	ResolvePlaceholders(obj any) error
 	AddResourceTplExtension(resName string, value map[string]string)
 	AddDependencyTplExtension(depName string, resName string, values map[string]string)
+	GetExtraProcessors(forType any) ([]ExtraProcessor, bool)
+	AddExtraProcessor(forType any, processor ExtraProcessor)
 }

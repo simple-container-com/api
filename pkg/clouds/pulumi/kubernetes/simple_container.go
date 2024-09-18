@@ -64,6 +64,7 @@ type SimpleContainerArgs struct {
 	Containers         []corev1.ContainerArgs
 	SecurityContext    *corev1.PodSecurityContextArgs
 	ServiceAccountName *sdk.StringOutput
+	Sidecars           []corev1.ContainerArgs
 }
 
 type SimpleContainer struct {
@@ -273,6 +274,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	containers := corev1.ContainerArray{}
 	initContainers := corev1.ContainerArray{}
 	for _, c := range args.Containers {
+		containers = append(containers, c)
+	}
+	for _, c := range args.Sidecars {
 		containers = append(containers, c)
 	}
 	for _, c := range args.InitContainers {

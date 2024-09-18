@@ -36,7 +36,7 @@ func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInst
 		AccountId:   sdk.String(accountName),
 		Project:     sdk.String(dbInstance.Project),
 		Description: sdk.String(fmt.Sprintf("Service account to access database %s", dbInstance.InstanceName)),
-		DisplayName: sdk.String(fmt.Sprintf("%s-service-account", dbInstance.InstanceName)),
+		DisplayName: sdk.String(fmt.Sprintf("%s-service-account", name)),
 	}, sdk.Provider(provider))
 	if err != nil {
 		return nil, err

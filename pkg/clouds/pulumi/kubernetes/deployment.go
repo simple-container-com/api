@@ -29,13 +29,16 @@ type Args struct {
 	InitContainers         []corev1.ContainerArgs
 	GenerateCaddyfileEntry bool
 	ServiceType            *string
+	Sidecars               []corev1.ContainerArgs
 }
 
-func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error) {
+func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	stackName := args.Input.StackParams.StackName
 	stackEnv := args.Input.StackParams.Environment
 	namespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
 	deploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
+
+	opts = append(opts, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
 
 	replicas := 1
 	if args.Deployment.Scale != nil {
@@ -167,12 +170,13 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 		InitContainers:         args.InitContainers,
 		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
 		Annotations:            args.Annotations,
+		Sidecars:               args.Sidecars,
 		PodDisruption: &k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}, // TODO
 		RollingUpdate:   nil, // TODO
 		SecurityContext: nil, // TODO
-	}, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
 	}

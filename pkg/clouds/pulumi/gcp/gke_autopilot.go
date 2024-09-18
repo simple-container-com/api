@@ -84,7 +84,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	ctx.Export(toKubeconfigExport(clusterName), kubeconfig)
 
 	if gkeInput.Caddy != nil {
-		caddy, err := deployCaddyService(ctx, input, gkeInput, lo.FromPtr(gkeInput.Caddy), params, kubeconfig)
+		caddy, err := deployCaddyService(ctx, cluster, input, gkeInput, lo.FromPtr(gkeInput.Caddy), params, kubeconfig)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create caddy deployment for cluster %q in %q", clusterName, input.StackParams.Environment)
 		}
@@ -94,7 +94,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
-func deployCaddyService(ctx *sdk.Context, input api.ResourceInput, gkeInput *gcloud.GkeAutopilotResource, caddy gcloud.CaddyConfig, params pApi.ProvisionParams, kubeconfig sdk.StringOutput) (*kubernetes.SimpleContainer, error) {
+func deployCaddyService(ctx *sdk.Context, cluster *container.Cluster, input api.ResourceInput, gkeInput *gcloud.GkeAutopilotResource, caddy gcloud.CaddyConfig, params pApi.ProvisionParams, kubeconfig sdk.StringOutput) (*kubernetes.SimpleContainer, error) {
 	params.Log.Info(ctx.Context(), "Configure Caddy deployment for cluster %q in %q", input.Descriptor.Name, input.StackParams.Environment)
 	kubeProvider, err := sdkK8s.NewProvider(ctx, fmt.Sprintf("%s-caddy-kubeprovider", input.ToResName(input.Descriptor.Name)), &sdkK8s.ProviderArgs{
 		Kubeconfig: kubeconfig,
@@ -191,7 +191,7 @@ func deployCaddyService(ctx *sdk.Context, input api.ResourceInput, gkeInput *gcl
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
-	})
+	}, sdk.DependsOn([]sdk.Resource{cluster}))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for caddy in GKE cluster %q in %q",
 			input.Descriptor.Name, input.StackParams.Environment)

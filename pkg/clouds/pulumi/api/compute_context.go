@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -28,6 +29,8 @@ type (
 		dependTplExtensions perResTplValues
 		log                 logger.Logger
 		ctx                 context.Context
+
+		extraProcessors ExtraProcessors
 	}
 )
 
@@ -122,6 +125,25 @@ func (c *Collector) Dependencies() []sdk.Resource {
 	return c.dependencies
 }
 
+func (c *Collector) GetExtraProcessors(forType any) ([]ExtraProcessor, bool) {
+	typeOf := reflect.TypeOf(forType)
+	if p, ok := c.extraProcessors[typeOf]; ok {
+		return p, true
+	}
+	return nil, false
+}
+
+func (c *Collector) AddExtraProcessor(forType any, processor ExtraProcessor) {
+	if c.extraProcessors == nil {
+		c.extraProcessors = make(ExtraProcessors)
+	}
+	typeOf := reflect.TypeOf(forType)
+	if _, ok := c.extraProcessors[typeOf]; !ok {
+		c.extraProcessors[typeOf] = make([]ExtraProcessor, 0)
+	}
+	c.extraProcessors[typeOf] = append(c.extraProcessors[typeOf], processor)
+}
+
 func NewComputeContextCollector(ctx context.Context, log logger.Logger, stackName string, environment string) ComputeContextCollector {
 	return &Collector{
 		Stack:               stackName,
@@ -129,9 +151,8 @@ func NewComputeContextCollector(ctx context.Context, log logger.Logger, stackNam
 		EnvVars:             make([]ComputeEnvVariable, 0),
 		resTplExtensions:    make(perResTplValues),
 		dependTplExtensions: make(perResTplValues),
-
-		log: log,
-		ctx: ctx,
+		log:                 log,
+		ctx:                 ctx,
 	}
 }
 
