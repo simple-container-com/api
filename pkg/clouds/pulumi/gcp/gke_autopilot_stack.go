@@ -109,6 +109,9 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Params:                 params,
 		KubeProvider:           kubeProvider,
 		GenerateCaddyfileEntry: domain != "",
+		Annotations: map[string]string{
+			"pulumi.com/patchForce": "true",
+		},
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, input.StackParams.Environment)
@@ -156,7 +159,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider)},
+			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Deployment})},
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to patch caddy configuration")

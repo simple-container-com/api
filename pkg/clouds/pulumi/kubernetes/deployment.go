@@ -168,7 +168,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
 		Annotations:            args.Annotations,
 		PodDisruption: &k8s.DisruptionBudget{
-			MaxUnavailable: lo.ToPtr(1),
+			MinAvailable: lo.ToPtr(1),
 		}, // TODO
 		RollingUpdate:   nil, // TODO
 		SecurityContext: nil, // TODO

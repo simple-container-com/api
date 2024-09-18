@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -51,6 +52,12 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
 	p.logger.Info(ctx, color.GreenFmt("Updating stack %q...", stackSource.Name()))
+	if timeoutDuration, err := time.ParseDuration(params.Timeout); err == nil {
+		p.logger.Info(ctx, color.YellowFmt("Setting timeout on deployment %q...", timeoutDuration.String()))
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, timeoutDuration)
+		ctx = ctxWithTimeout
+		defer cancel()
+	}
 
 	upRes, err := stackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDeploy))))
 	if err != nil {

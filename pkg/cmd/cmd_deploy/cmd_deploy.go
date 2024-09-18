@@ -48,5 +48,6 @@ func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 
 	root_cmd.RegisterDeployFlags(cmd, &pCmd.Params)
 	cmd.Flags().BoolVarP(&pCmd.Preview, "preview", "P", pCmd.Preview, "Preview instead of provision (dry-run)")
+	cmd.Flags().StringVarP(&pCmd.Params.Timeout, "timeout", "T", pCmd.Params.Timeout, "Timeout for command execution (in Go's duration format, e.g. `20m`)")
 	return cmd
 }

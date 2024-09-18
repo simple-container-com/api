@@ -1,8 +1,12 @@
 package kubernetes
 
 import (
+	"embed"
 	"os"
+	"path"
 	"path/filepath"
+
+	"github.com/pkg/errors"
 
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -65,6 +69,34 @@ func addFilesFromDir(dirPath string, res *[]k8s.SimpleTextVolume, proc func(full
 		}
 	}
 	return nil
+}
+
+func EmbedFSToTextVolumes(volumes []k8s.SimpleTextVolume, fs embed.FS, dir string) ([]k8s.SimpleTextVolume, error) {
+	files, err := fs.ReadDir(dir)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read dir %q", dir)
+	}
+	for _, file := range files {
+		if file.IsDir() {
+			subdir := path.Join(dir, file.Name())
+			if volumes, err = EmbedFSToTextVolumes(volumes, fs, subdir); err != nil {
+				return nil, errors.Wrapf(err, "failed to read subdir %q", subdir)
+			}
+			continue
+		}
+		if content, err := fs.ReadFile(path.Join(dir, file.Name())); err != nil {
+			return nil, errors.Wrapf(err, "failed to read file %q", file.Name())
+		} else {
+			volumes = append(volumes, k8s.SimpleTextVolume{
+				TextVolume: api.TextVolume{
+					Content:   string(content),
+					Name:      file.Name(),
+					MountPath: filepath.Join(dir, file.Name()),
+				},
+			})
+		}
+	}
+	return volumes, nil
 }
 
 // Helper function to read the file contents as a string

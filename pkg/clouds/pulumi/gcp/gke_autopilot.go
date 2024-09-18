@@ -4,8 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"path"
-	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -111,25 +109,11 @@ func deployCaddyService(ctx *sdk.Context, input api.ResourceInput, gkeInput *gcl
 
 	// TODO: provision private bucket for certs storage
 	var caddyVolumes []k8s.SimpleTextVolume
-	caddyfiles, err := Caddyconfig.ReadDir("embed/caddy")
+	caddyVolumes, err = kubernetes.EmbedFSToTextVolumes(caddyVolumes, Caddyconfig, "embed/caddy")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read embedded caddy config files")
 	}
-	for _, caddyfile := range caddyfiles {
-		if content, err := Caddyconfig.ReadFile(path.Join("embed/caddy", caddyfile.Name())); err != nil {
-			return nil, errors.Wrapf(err, "failed to read caddy config file %q", caddyfile.Name())
-		} else {
-			caddyVolumes = append(caddyVolumes, k8s.SimpleTextVolume{
-				TextVolume: api.TextVolume{
-					Content:   string(content),
-					Name:      caddyfile.Name(),
-					MountPath: filepath.Join("/etc/caddy", caddyfile.Name()),
-				},
-			})
-		}
-	}
 
-	// TODO: add init container for reading clusters
 	serviceAccountName := input.ToResName(fmt.Sprintf("%s-caddy-sa", input.Descriptor.Name))
 	serviceAccount, err := kubernetes.NewSimpleServiceAccount(ctx, serviceAccountName, &kubernetes.SimpleServiceAccountArgs{
 		Name:      serviceAccountName,

@@ -172,6 +172,7 @@ type StackParams struct {
 type DeployParams struct {
 	StackParams `json:",inline" yaml:",inline"`
 	Vars        VariableValues `json:"vars" yaml:"vars"`
+	Timeout     string         `json:"timeout" yaml:"timeout"`
 }
 
 type UpdateResult struct {

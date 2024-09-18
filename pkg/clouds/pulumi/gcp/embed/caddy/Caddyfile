@@ -28,7 +28,7 @@
 (handle_bucket_error) {
   @error status 502 500 404
   handle_response @error {
-    root    * /etc/caddy/
+    root    * /etc/caddy/pages
     rewrite * /{rp.status_code}.html
     file_server {
         status {rp.status_code}
@@ -40,7 +40,7 @@
 (handle_server_error) {
   @error status 502
   handle_response @error {
-    root    * /etc/caddy/
+    root    * /etc/caddy/pages
     rewrite * /{rp.status_code}.html
     file_server {
         status {rp.status_code}
@@ -87,6 +87,6 @@ http:// {
   import gzip
   import handle_static
   import hsts
-  root * /etc/caddy/
+  root * /etc/caddy/pages
   file_server
 }

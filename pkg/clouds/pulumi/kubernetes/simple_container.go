@@ -98,6 +98,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	var mainPort *int
 	if args.IngressContainer != nil && args.IngressContainer.MainPort != nil {
 		mainPort = args.IngressContainer.MainPort
+	} else if len(args.IngressContainer.Ports) == 1 {
+		mainPort = lo.ToPtr(args.IngressContainer.Ports[0])
+	}
+	if mainPort != nil {
 		appAnnotations[AnnotationPort] = strconv.Itoa(*mainPort)
 	}
 	if args.ParentStack != nil {
@@ -317,8 +321,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	serviceAnnotations := lo.Assign(appAnnotations)
 
-	if args.GenerateCaddyfileEntry && args.IngressContainer != nil && mainPort != nil {
-		caddyfileEntry := `
+	var caddyfileEntry string
+	if args.GenerateCaddyfileEntry && mainPort != nil {
+		caddyfileEntry = `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
     header_down Server nginx ${addHeaders}
@@ -328,7 +333,6 @@ ${proto}://${domain} {
   import hsts
   import gzip
   import handle_static
-  import cors
 }
 `
 		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData((placeholders.MapData{
@@ -405,6 +409,7 @@ ${proto}://${domain} {
 		return status.LoadBalancer.Ingress[0].Ip
 	}).(sdk.StringPtrOutput)
 
+	sc.CaddyfileEntry = sdk.String(caddyfileEntry).ToStringOutput()
 	sc.ServicePublicIP = servicePublicIP
 	sc.ServiceName = service.Metadata.Name().Elem()
 	sc.Namespace = namespace.Metadata.Name().Elem()
