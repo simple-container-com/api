@@ -23,8 +23,8 @@ type DeploymentConfig struct {
 }
 
 type DisruptionBudget struct {
-	MaxUnavailable int `json:"maxUnavailable" yaml:"maxUnavailable"`
-	MinAvailable   int `json:"minAvailable" yaml:"minAvailable"`
+	MaxUnavailable *int `json:"maxUnavailable" yaml:"maxUnavailable"`
+	MinAvailable   *int `json:"minAvailable" yaml:"minAvailable"`
 }
 
 type Headers = map[string]string

@@ -182,26 +182,6 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	addVolumeMounts(volumesSecretName, args.SecretVolumes, &volumeMounts)
 	addVolumeMounts(volumesCfgName, args.Volumes, &volumeMounts)
 
-	for _, container := range args.Containers {
-		// Update container volume mounts and envFrom
-		container.VolumeMounts = volumeMounts
-		container.EnvFrom = corev1.EnvFromSourceArray{
-			corev1.EnvFromSourceArgs{
-				SecretRef: &corev1.SecretEnvSourceArgs{
-					Name: envSecret.Metadata.Name(),
-				},
-			},
-		}
-	}
-	containers := corev1.ContainerArray{}
-	initContainers := corev1.ContainerArray{}
-	for _, c := range args.Containers {
-		containers = append(containers, c)
-	}
-	for _, c := range args.InitContainers {
-		initContainers = append(initContainers, c)
-	}
-
 	// Volumes
 	volumes := corev1.VolumeArray{
 		corev1.VolumeArgs{
@@ -273,6 +253,26 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		strategy = v1.DeploymentStrategyArgs{
 			RollingUpdate: lo.FromPtr(args.RollingUpdate),
 		}
+	}
+
+	for i := range args.Containers {
+		// Update container volume mounts and envFrom
+		args.Containers[i].VolumeMounts = volumeMounts
+		args.Containers[i].EnvFrom = corev1.EnvFromSourceArray{
+			corev1.EnvFromSourceArgs{
+				SecretRef: &corev1.SecretEnvSourceArgs{
+					Name: envSecret.Metadata.Name(),
+				},
+			},
+		}
+	}
+	containers := corev1.ContainerArray{}
+	initContainers := corev1.ContainerArray{}
+	for _, c := range args.Containers {
+		containers = append(containers, c)
+	}
+	for _, c := range args.InitContainers {
+		initContainers = append(initContainers, c)
 	}
 
 	// Deployment
@@ -375,19 +375,23 @@ ${proto}://${domain} {
 
 	// Optional Pod Disruption Budget
 	if args.PodDisruption != nil {
+		pdbArgs := policyv1.PodDisruptionBudgetSpecArgs{
+			Selector: &metav1.LabelSelectorArgs{
+				MatchLabels: sdk.ToStringMap(appLabels),
+			},
+		}
+		if args.PodDisruption.MinAvailable != nil {
+			pdbArgs.MinAvailable = sdk.IntPtrFromPtr(args.PodDisruption.MinAvailable)
+		} else if args.PodDisruption.MaxUnavailable != nil {
+			pdbArgs.MaxUnavailable = sdk.IntPtrFromPtr(args.PodDisruption.MaxUnavailable)
+		}
 		_, err := policyv1.NewPodDisruptionBudget(ctx, fmt.Sprintf("%s-pdb", args.Deployment), &policyv1.PodDisruptionBudgetArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(appAnnotations),
 			},
-			Spec: &policyv1.PodDisruptionBudgetSpecArgs{
-				Selector: &metav1.LabelSelectorArgs{
-					MatchLabels: sdk.ToStringMap(appLabels),
-				},
-				MaxUnavailable: sdk.Int(args.PodDisruption.MaxUnavailable),
-				MinAvailable:   sdk.Int(args.PodDisruption.MinAvailable),
-			},
+			Spec: &pdbArgs,
 		}, opts...)
 		if err != nil {
 			return nil, err

@@ -167,9 +167,11 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args) (*SimpleContainer, error
 		InitContainers:         args.InitContainers,
 		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
 		Annotations:            args.Annotations,
-		PodDisruption:          nil, // TODO
-		RollingUpdate:          nil, // TODO
-		SecurityContext:        nil, // TODO
+		PodDisruption: &k8s.DisruptionBudget{
+			MaxUnavailable: lo.ToPtr(1),
+		}, // TODO
+		RollingUpdate:   nil, // TODO
+		SecurityContext: nil, // TODO
 	}, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
