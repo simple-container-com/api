@@ -24,6 +24,18 @@ type CloudExtras struct {
 	LambdaSchedules   []LambdaSchedule  `json:"lambdaSchedules,omitempty" yaml:"lambdaSchedules,omitempty"` // e.g. for lambda functions to be triggered on schedule
 	LambdaRoutingType LambdaRoutingType `json:"lambdaRoutingType" yaml:"lambdaRoutingType"`
 	LambdaInvokeMode  LambdaInvokeMode  `json:"lambdaInvokeMode" yaml:"lambdaInvokeMode"` // invoke mode for lambda
+
+	SecurityGroup *SecurityGroup `json:"securityGroup,omitempty" yaml:"securityGroup,omitempty"`
+}
+
+type SecurityGroup struct {
+	Ingress *SecurityGroupRule `json:"ingress,omitempty" yaml:"ingress,omitempty"`
+}
+
+type SecurityGroupRule struct {
+	AllowOnlyCloudflare *bool     `json:"allowOnlyCloudflare,omitempty" yaml:"allowOnlyCloudflare,omitempty"`
+	CidrBlocks          *[]string `json:"cidrBlocks,omitempty" yaml:"cidrBlocks,omitempty"`
+	Ipv6CidrBlocks      *[]string `json:"ipv6CidrBlocks,omitempty" yaml:"ipv6CidrBlocks,omitempty"`
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {

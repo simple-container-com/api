@@ -169,17 +169,24 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
 	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
+	ingressTCPSGArgs := ec2.SecurityGroupIngressArgs{
+		Description:    sdk.String("Allow ALL inbound traffic"),
+		Protocol:       sdk.String("tcp"),
+		FromPort:       sdk.Int(0),
+		ToPort:         sdk.Int(65535),
+		CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+		Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+	}
+	if crInput.CloudExtras != nil && crInput.CloudExtras.SecurityGroup != nil {
+		ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, subnets)
+		if err != nil {
+			return errors.Wrapf(err, "failed to apply security group configuration from cloud extras for ECS cluster %q", ecsSimpleClusterName)
+		}
+	}
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		VpcId: vpc.ID(),
 		Ingress: ec2.SecurityGroupIngressArray{
-			&ec2.SecurityGroupIngressArgs{
-				Description:    sdk.String("Allow ALL inbound traffic"),
-				Protocol:       sdk.String("tcp"),
-				FromPort:       sdk.Int(0),
-				ToPort:         sdk.Int(65535),
-				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-			},
+			&ingressTCPSGArgs,
 		},
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
@@ -413,6 +420,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Name:        sdk.String(targetGroupName),
 			HealthCheck: lbHC,
 		},
+		SecurityGroups: sdk.StringArray{securityGroup.ID()},
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)

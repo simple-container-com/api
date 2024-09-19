@@ -106,6 +106,7 @@ type EcsFargateInput struct {
 	Volumes          []EcsFargateVolume                  `json:"volumes" yaml:"volumes"`
 	Alerts           *api.AlertsConfig                   `json:"alerts" yaml:"alerts"`
 	ComposeDir       string                              `json:"composeDir" yaml:"composeDir"`
+	CloudExtras      *CloudExtras                        `json:"cloudExtras" yaml:"cloudExtras"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
@@ -181,6 +182,16 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Min: 1,
 			Max: 2,
 		}
+	}
+
+	if stackCfg.CloudExtras != nil {
+		awsCloudExtras := &CloudExtras{}
+		var err error
+		awsCloudExtras, err = api.ConvertDescriptor(stackCfg.CloudExtras, awsCloudExtras)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloudExtras field to AWS Cloud extras format")
+		}
+		res.CloudExtras = awsCloudExtras
 	}
 	res.Scale.Update = FargateRollingUpdate{
 		MinHealthyPercent: 100,

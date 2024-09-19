@@ -383,17 +383,25 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 		params.Log.Info(ctx.Context(), "configure security group for lambda %s...", lambdaName)
 		securityGroupName := fmt.Sprintf("%s-sg", lambdaName)
+		ingressRule := ec2.SecurityGroupIngressArgs{
+			Description:    sdk.String("Allow ALL inbound traffic"),
+			Protocol:       sdk.String("tcp"),
+			FromPort:       sdk.Int(0),
+			ToPort:         sdk.Int(65535),
+			CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+			Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+		}
+		if cloudExtras.SecurityGroup != nil {
+			ingressRule, err = processIngressSGArgs(&ingressRule, *cloudExtras.SecurityGroup, []Subnet{})
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to apply security group configuration from cloud extras for lambda %q", lambdaName)
+			}
+		}
+
 		securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 			VpcId: vpc.ID(),
 			Ingress: ec2.SecurityGroupIngressArray{
-				&ec2.SecurityGroupIngressArgs{
-					Description:    sdk.String("Allow ALL inbound traffic"),
-					Protocol:       sdk.String("tcp"),
-					FromPort:       sdk.Int(0),
-					ToPort:         sdk.Int(65535),
-					CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-					Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-				},
+				&ingressRule,
 			},
 			Egress: ec2.SecurityGroupEgressArray{
 				&ec2.SecurityGroupEgressArgs{

@@ -108,6 +108,7 @@ type StackConfigCompose struct {
 	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"` // extra text volumes to mount to containers (e.g. for k8s deployments)
 	Headers           *Headers                        `json:"headers" yaml:"headers"`         // extra headers to add when serving requests
 	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`       // load balancer configuration (so far only applicable for k8s deployments)
+	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"` // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack
