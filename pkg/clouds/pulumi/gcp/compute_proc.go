@@ -145,8 +145,6 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 	params.collector.AddOutput(sdk.All(password.Result, database.Name).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
-		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_PASSWORD"), userPassword,
-			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_USERNAME"), userName,
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_DATABASE"), dbName,
@@ -154,6 +152,19 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_HOST"), "localhost",
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_PORT"), "5432",
+			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_PASSWORD"), userPassword,
+			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+
+		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGHOST"), "localhost",
+			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGPORT"), "5432",
+			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGDATABASE"), dbName,
+			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGUSER"), userName,
+			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("PGPASSWORD"), userPassword,
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 		params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{
