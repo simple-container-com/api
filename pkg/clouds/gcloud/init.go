@@ -22,6 +22,9 @@ func init() {
 		// bucket
 		ResourceTypeBucket: GcpBucketReadConfig,
 
+		// pubsub
+		ResourceTypePubSub: GcpPubSubTopicsReadConfig,
+
 		// artifact-registry
 		ResourceTypeArtifactRegistry: ArtifactRegistryConfigReadConfig,
 	})

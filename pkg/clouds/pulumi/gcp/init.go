@@ -10,6 +10,7 @@ func init() {
 	api.RegisterProvider(gcloud.ProviderType, Provider)
 	api.RegisterResources(map[string]api.ProvisionFunc{
 		gcloud.ResourceTypeBucket:              PrivateBucket,
+		gcloud.ResourceTypePubSub:              PubSubTopics,
 		gcloud.ResourceTypePostgresGcpCloudsql: Postgres,
 		gcloud.ResourceTypeGkeAutopilot:        GkeAutopilot,
 		gcloud.ResourceTypeArtifactRegistry:    ArtifactRegistry,
