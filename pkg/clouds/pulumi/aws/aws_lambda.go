@@ -191,6 +191,11 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 	lambdaSizeMb := lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))
 
+	invokeMode := cloudExtras.LambdaInvokeMode
+	if invokeMode == "" {
+		invokeMode = aws.LambdaInvokeModeBuffered
+	}
+
 	// ENV VARIABLES
 	envVariables := sdk.StringMap{
 		api.ComputeEnv.StackName:                   sdk.String(stack.Name),
@@ -198,6 +203,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		api.ComputeEnv.StackVersion:                sdk.String(deployParams.Version),
 		"SIMPLE_CONTAINER_AWS_LAMBDA_ROUTING_TYPE": sdk.String(lambdaRoutingType),
 		"SIMPLE_CONTAINER_AWS_LAMBDA_SIZE_MB":      sdk.String(strconv.Itoa(lambdaSizeMb)),
+		"SIMPLE_CONTAINER_AWS_LAMBDA_INVOKE_MODE":  sdk.String(invokeMode),
 	}
 	for envVar, envVal := range params.BaseEnvVariables {
 		envVariables[envVar] = sdk.String(envVal)
@@ -432,11 +438,6 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 	ctx.Export(fmt.Sprintf("%s-%s-lambda-arn", stack.Name, deployParams.Environment), lambdaFunc.Arn)
 	opts = append(opts, sdk.DependsOn([]sdk.Resource{lambdaFunc}))
-
-	invokeMode := cloudExtras.LambdaInvokeMode
-	if invokeMode == "" {
-		invokeMode = aws.LambdaInvokeModeBuffered
-	}
 
 	if lambdaRoutingType == aws.LambdaRoutingApiGw {
 		// Create an HTTP API Gateway for the Lambda Function
