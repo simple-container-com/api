@@ -21,6 +21,7 @@ func init() {
 
 		// rds
 		ResourceTypeRdsPostgres: ReadRdsPostgresConfig,
+		ResourceTypeRdsMysql:    ReadRdsMysqlConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{

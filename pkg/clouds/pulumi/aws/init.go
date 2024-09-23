@@ -16,9 +16,11 @@ func init() {
 		aws.TemplateTypeAwsLambda:     Lambda,
 		aws.TemplateTypeStaticWebsite: StaticWebsite,
 		aws.ResourceTypeRdsPostgres:   RdsPostgres,
+		aws.ResourceTypeRdsMysql:      RdsMysql,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
 		aws.ResourceTypeS3Bucket:    S3BucketComputeProcessor,
 		aws.ResourceTypeRdsPostgres: RdsPostgresComputeProcessor,
+		aws.ResourceTypeRdsMysql:    RdsMysqlComputeProcessor,
 	})
 }

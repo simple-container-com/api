@@ -78,6 +78,12 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 	} else if rootPgPassword == "" {
 		return nil, errors.Errorf("postgres password is empty for %q (%q)", stack.Name, postgresName)
 	}
+
+	if !params.UseResources[input.Descriptor.Name] {
+		params.Log.Warn(ctx.Context(), "rds postgres %q only supports `uses`, but it wasn't explicitly declared as being used", postgresName)
+		return nil, nil
+	}
+
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
 		pgEpSplit := strings.SplitN(resPgEndpoint, ":", 2)
 		dbHost, dbPort := pgEpSplit[0], pgEpSplit[1]
@@ -168,6 +174,151 @@ END
 			}
 
 			ctx.Export(fmt.Sprintf("%s-%s", dbUsername, postgresResName), sdk.ToSecret(dbUserOutputJSON))
+			return dbUserOutputJSON, nil
+		})
+	}))
+
+	return &api.ResourceOutput{
+		Ref: parentStackName,
+	}, nil
+}
+
+func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	if params.ParentStack == nil {
+		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
+	}
+	parentStackName := params.ParentStack.StackName
+
+	mysqlCfg, ok := input.Descriptor.Config.Config.(*aws.MysqlConfig)
+	if !ok {
+		return nil, errors.Errorf("failed to convert mysql config for %q", input.Descriptor.Type)
+	}
+	accountConfig := &aws.AccountConfig{}
+	err := api.ConvertAuth(&mysqlCfg.AccountConfig, accountConfig)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert aws account config")
+	}
+
+	mysqlCfg.AccountConfig = *accountConfig
+	dbCfg := mysqlCfg
+	mysqlResName := lo.If(dbCfg.Name == "", input.Descriptor.Name).Else(dbCfg.Name)
+	mysqlName := toRdsMysqlName(mysqlResName, input.StackParams.Environment)
+
+	// Create a StackReference to the parent stack
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for rds mysql %q", params.ParentStack.FullReference, mysqlName)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--pg-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name), &sdk.StackReferenceArgs{
+		Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	mysqlEndpointExport := toMysqlInstanceEndpointExport(mysqlName)
+	resMysqlEndpoint, err := pApi.GetParentOutput(parentRef, mysqlEndpointExport, params.ParentStack.FullReference, false)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get mysql endpoint from parent stack for %q (%q)", stack.Name, mysqlEndpointExport)
+	} else if resMysqlEndpoint == "" {
+		return nil, errors.Errorf("mysql endpoint is empty for %q (%q)", stack.Name, mysqlName)
+	}
+	mysqlUsernameExport := toPostgresInstanceUsernameExport(mysqlName)
+	rootMysqlUsername, err := pApi.GetParentOutput(parentRef, mysqlUsernameExport, params.ParentStack.FullReference, false)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get mysql username from parent stack for %q (%q)", stack.Name, mysqlEndpointExport)
+	} else if rootMysqlUsername == "" {
+		return nil, errors.Errorf("mysql username is empty for %q (%q)", stack.Name, mysqlName)
+	}
+	mysqlPasswordExport := toMysqlInstancePasswordExport(mysqlName)
+	rootMysqlPassword, err := pApi.GetParentOutput(parentRef, mysqlPasswordExport, params.ParentStack.FullReference, true)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get mysql password from parent stack for %q (%q)", stack.Name, mysqlEndpointExport)
+	} else if rootMysqlPassword == "" {
+		return nil, errors.Errorf("mysql password is empty for %q (%q)", stack.Name, mysqlName)
+	}
+
+	if !params.UseResources[input.Descriptor.Name] {
+		params.Log.Warn(ctx.Context(), "rds mysql %q only supports `uses`, but it wasn't explicitly declared as being used", mysqlName)
+		return nil, nil
+	}
+
+	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
+		mysqlEpSplit := strings.SplitN(resMysqlEndpoint, ":", 2)
+		dbHost, dbPort := mysqlEpSplit[0], mysqlEpSplit[1]
+		dbUsername := stack.Name
+		dbName := stack.Name
+		password, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s-mysql-password", dbUsername), &random.RandomPasswordArgs{
+			Length:  sdk.Int(20),
+			Special: sdk.Bool(false),
+		})
+		if err != nil {
+			return errors.Wrapf(err, "failed to generate random password for mysql for stack %q", stack.Name)
+		}
+
+		return sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
+			dbPassword := args[0].(string)
+
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MYSQL_HOST_%s", mysqlResName)), dbHost,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MYSQL_USER_%s", mysqlResName)), dbUsername,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MYSQL_PORT_%s", mysqlResName)), dbPort,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MYSQL_DB_%s", mysqlResName)), dbName,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MYSQL_PASSWORD_%s", mysqlResName)), dbPassword,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MYSQL_USER"), dbUsername,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MYSQL_HOST"), dbHost,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MYSQL_PORT"), dbPort,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MYSQL_DB"), dbName,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MYSQL_PASSWORD"), dbPassword,
+				input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+			collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
+				"url":      resMysqlEndpoint,
+				"host":     dbHost,
+				"port":     dbPort,
+				"user":     dbUsername,
+				"database": dbName,
+				"password": dbPassword,
+			})
+
+			dbUserOutputJSON := DbUserOutput{
+				Username: dbUsername,
+				Database: dbName,
+				Password: dbPassword,
+				DbUri:    resMysqlEndpoint,
+			}.ToJson()
+
+			command := []string{
+				"sh", "-c", `apk add --update mysql-client && 
+mysql -u "${MYSQL_USER}" -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -p "${MYSQL_PASSWORD}" "
+	CREATE USER IF NOT EXISTS '${DB_USER}'@'*' IDENTIFIED BY '${DB_PASSWORD}';
+	GRANT ALL ON ${DB_NAME}.* TO '${DB_USER}'@'*' IDENTIFIED BY '${DB_PASSWORD}';
+"`,
+			}
+
+			if err := execEcsTask(ctx, ecsTaskConfig{
+				name:    fmt.Sprintf("%s-pg-init", stack.Name),
+				account: dbCfg.AccountConfig,
+				params:  params,
+				image:   "alpine:latest",
+				command: command,
+				env: map[string]string{
+					"DB_NAME":        dbName,
+					"DB_USER":        dbUsername,
+					"DB_PASSWORD":    dbPassword,
+					"MYSQL_HOST":     dbHost,
+					"MYSQL_PORT":     dbPort,
+					"MYSQL_USER":     rootMysqlUsername,
+					"MYSQL_PASSWORD": rootMysqlPassword,
+				},
+			}); err != nil {
+				return nil, errors.Wrapf(err, "failed to run init task for rds mysql")
+			}
+
+			ctx.Export(fmt.Sprintf("%s-%s", dbUsername, mysqlResName), sdk.ToSecret(dbUserOutputJSON))
 			return dbUserOutputJSON, nil
 		})
 	}))
