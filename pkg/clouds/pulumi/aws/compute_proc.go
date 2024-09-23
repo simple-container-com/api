@@ -292,15 +292,15 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 			}.ToJson()
 
 			command := []string{
-				"sh", "-c", `apk add --update mysql-client && 
-mysql -u "${MYSQL_USER}" -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -p "${MYSQL_PASSWORD}" "
-	CREATE USER IF NOT EXISTS '${DB_USER}'@'*' IDENTIFIED BY '${DB_PASSWORD}';
-	GRANT ALL ON ${DB_NAME}.* TO '${DB_USER}'@'*' IDENTIFIED BY '${DB_PASSWORD}';
-"`,
+				"sh", "-c", "apk add --update mysql-client ; " +
+					"echo \"CREATE DATABASE IF NOT EXISTS \\`${DB_NAME}\\`; \" > /tmp/init.sql ; " +
+					"echo \"CREATE USER IF NOT EXISTS \\`${DB_USER}\\`@'%' IDENTIFIED BY '${DB_PASSWORD}'; \" >> /tmp/init.sql ; " +
+					"echo \"GRANT ALL ON \\`${DB_NAME}\\`.* TO \\`${DB_USER}\\`@'%'; \" >> /tmp/init.sql ; " +
+					"mysql -u \"${MYSQL_USER}\" -h \"${MYSQL_HOST}\" -P \"${MYSQL_PORT}\" --password=\"${MYSQL_PASSWORD}\" < /tmp/init.sql",
 			}
 
 			if err := execEcsTask(ctx, ecsTaskConfig{
-				name:    fmt.Sprintf("%s-pg-init", stack.Name),
+				name:    fmt.Sprintf("%s-mysql-init", stack.Name),
 				account: dbCfg.AccountConfig,
 				params:  params,
 				image:   "alpine:latest",
@@ -308,11 +308,11 @@ mysql -u "${MYSQL_USER}" -h "${MYSQL_HOST}" -P "${MYSQL_PORT}" -p "${MYSQL_PASSW
 				env: map[string]string{
 					"DB_NAME":        dbName,
 					"DB_USER":        dbUsername,
-					"DB_PASSWORD":    dbPassword,
+					"DB_PASSWORD":    dbPassword, // TODO: to secrets
 					"MYSQL_HOST":     dbHost,
 					"MYSQL_PORT":     dbPort,
 					"MYSQL_USER":     rootMysqlUsername,
-					"MYSQL_PASSWORD": rootMysqlPassword,
+					"MYSQL_PASSWORD": rootMysqlPassword, // TODO: to secrets
 				},
 			}); err != nil {
 				return nil, errors.Wrapf(err, "failed to run init task for rds mysql")
