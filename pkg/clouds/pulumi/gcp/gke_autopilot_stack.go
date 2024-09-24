@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 
+	auth "golang.org/x/oauth2/google"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -80,20 +82,22 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Errorf("parent stack's registry url is empty for stack %q", stackName)
 	}
 
-	params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q in %q", registryURL, stackName, environment)
-	authOpts, err := authAgainstRegistry(ctx, registryURL, input, sdk.String(registryURL).ToStringOutput())
+	params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q", registryURL, stackName)
+	gcpCreds, err := getDockerCredentialsWithAuthToken(ctx, input)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to authenticate against provisioned registry %q for stack %q in %q", registryURL, stackName, environment)
+		return nil, errors.Wrapf(err, "failed to obtain access token for registry %q for stack %q", registryURL, stackName)
 	}
 
 	params.Log.Info(ctx.Context(), "Building and pushing images to registry %q for stack %q in %q", registryURL, stackName, environment)
 	images, err := kubernetes.BuildAndPushImages(ctx, kubernetes.BuildArgs{
-		RegistryURL: registryURL,
-		Stack:       stack,
-		Input:       input,
-		Params:      params,
-		Deployment:  gkeAutopilotInput.Deployment,
-		Opts:        authOpts,
+		RegistryURL:      registryURL,
+		RegistryUsername: lo.ToPtr(gcpCreds.Username),
+		RegistryPassword: lo.ToPtr(gcpCreds.Password),
+		Stack:            stack,
+		Input:            input,
+		Params:           params,
+		Deployment:       gkeAutopilotInput.Deployment,
+		Opts:             []sdk.ResourceOption{},
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push docker images for stack %q in %q", stackName, input.StackParams.Environment)
@@ -173,11 +177,14 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
+// authAgainstRegistry - run gcloud auth configure-docker to configure docker/config.json to access repo
+// nolint: unused
 func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
 	}
+
 	var opts []sdk.ResourceOption
 	if _, err := exec.LookPath("gcloud"); err == nil {
 		env := lo.SliceToMap(os.Environ(), func(env string) (string, string) {
@@ -208,4 +215,33 @@ func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceIn
 		return nil, errors.Errorf("command `gcloud` was not found, cannot authenticate against artifact registry")
 	}
 	return opts, nil
+}
+
+type AccessTokenCreds struct {
+	Username string
+	Password string
+}
+
+func getDockerCredentialsWithAuthToken(ctx *sdk.Context, input api.ResourceInput) (*AccessTokenCreds, error) {
+	authCfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
+	if !ok {
+		return nil, errors.Errorf("failed to cast resource descriptor to api.AuthConfig")
+	}
+	credentials, err := auth.CredentialsFromJSONWithParams(ctx.Context(), []byte(authCfg.CredentialsValue()), auth.CredentialsParams{
+		Scopes: []string{
+			"https://www.googleapis.com/auth/cloud-platform",
+		},
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to find default credentials for GCP")
+	}
+	token, err := credentials.TokenSource.Token()
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get GCP token from credentials")
+	}
+
+	return &AccessTokenCreds{
+		Username: "oauth2accesstoken",
+		Password: token.AccessToken,
+	}, nil
 }

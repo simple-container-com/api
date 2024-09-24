@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -50,19 +49,15 @@ func RemoteImagePush(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		return nil, errors.Errorf("resource output for %q could not be casted to *artifactregistry.Repository for %q in %q", registryResource, dockerImage.Name, environment)
 	}
 
-	params.Log.Info(ctx.Context(), "Authenticating against registry for image %q stack %q in %q", dockerImage.Name, stackName, environment)
-	authOpts, err := authAgainstRegistry(ctx, dockerImage.Name, input, registryOut.URL)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to authenticate against registry for %q in stack %q in %q", dockerImage.Name, stackName, environment)
-	}
-
 	image, err := PushRemoteImageToRegistry(ctx, RemoteImageArgs{
 		Image:       dockerImage,
 		RegistryURL: registryOut.URL,
 		Stack:       stack,
 		Input:       input,
-		Opts:        authOpts,
 		Params:      params,
+		Opts: []sdk.ResourceOption{
+			sdk.DependsOn([]sdk.Resource{registryOut.Repository}),
+		},
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push docker images for stack %q in %q", stackName, input.StackParams.Environment)
@@ -105,17 +100,28 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 
 	// TODO: we only support GCR images for now
 	remoteRegistryHost := remoteImageUrl.Host
-	if strings.HasSuffix(remoteRegistryHost, ".gcr.io") {
-		args.Params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q", remoteRegistryHost, stackName)
-		authOpts, err := authAgainstRegistry(ctx, remoteImageName, args.Input, sdk.String(remoteRegistryHost).ToStringOutput())
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to authenticate against registry %q for stack %q", remoteRegistryHost, stackName)
-		}
-		opts = append(opts, authOpts...)
+
+	var remoteBuildArgs *docker.RemoteImageBuildArgs
+	args.Params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q", remoteRegistryHost, stackName)
+	gcpCreds, err := getDockerCredentialsWithAuthToken(ctx, args.Input)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to obtain access token for registry %q for stack %q", remoteRegistryHost, stackName)
+	}
+	remoteBuildArgs = &docker.RemoteImageBuildArgs{
+		Context: sdk.String("."),
+		AuthConfigs: docker.RemoteImageBuildAuthConfigArray{
+			docker.RemoteImageBuildAuthConfigArgs{
+				HostName:      sdk.String(remoteRegistryHost),
+				ServerAddress: sdk.String(remoteRegistryHost),
+				UserName:      sdk.String(gcpCreds.Username),
+				Password:      sdk.String(gcpCreds.Password),
+			},
+		},
 	}
 
 	remoteImage, err := docker.NewRemoteImage(ctx, remoteImageName, &docker.RemoteImageArgs{
-		Name: sdk.String(args.Image.RemoteImage),
+		Name:  sdk.String(args.Image.RemoteImage),
+		Build: remoteBuildArgs,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to pull remote image %q", args.Image.Name)
@@ -145,9 +151,11 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: sdk.Sprintf("%s/%s:%s", pushRegistryURL, args.Image.Name, version),
 		Registry: docker.RegistryArgs{
-			Server: pushRegistryURL,
+			Server:   pushRegistryURL,
+			Password: sdk.String(gcpCreds.Password),
+			Username: sdk.String(gcpCreds.Username),
 		},
-	}, args.Opts...)
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to push image %q in stack %q env %q", args.Image.Name, args.Stack.Name, args.Input.StackParams.Environment)
 	}

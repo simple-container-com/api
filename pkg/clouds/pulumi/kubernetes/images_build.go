@@ -18,12 +18,14 @@ import (
 )
 
 type BuildArgs struct {
-	RegistryURL string
-	Stack       api.Stack
-	Input       api.ResourceInput
-	Params      pApi.ProvisionParams
-	Deployment  k8s.DeploymentConfig
-	Opts        []sdk.ResourceOption
+	RegistryURL      string
+	RegistryUsername *string
+	RegistryPassword *string
+	Stack            api.Stack
+	Input            api.ResourceInput
+	Params           pApi.ProvisionParams
+	Deployment       k8s.DeploymentConfig
+	Opts             []sdk.ResourceOption
 }
 
 func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, error) {
@@ -50,7 +52,9 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 			RepositoryUrl:          sdk.String(args.RegistryURL).ToStringOutput(),
 			ProviderOptions:        args.Opts,
 			Registry: docker.RegistryArgs{
-				Server: sdk.String(args.RegistryURL),
+				Password: lo.If(args.RegistryPassword != nil, sdk.StringPtr(lo.FromPtr(args.RegistryPassword))).Else(nil),
+				Server:   sdk.String(args.RegistryURL),
+				Username: lo.If(args.RegistryUsername != nil, sdk.StringPtr(lo.FromPtr(args.RegistryUsername))).Else(nil),
 			},
 		})
 		if err != nil {
