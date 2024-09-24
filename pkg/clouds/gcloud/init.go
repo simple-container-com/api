@@ -27,6 +27,9 @@ func init() {
 
 		// artifact-registry
 		ResourceTypeArtifactRegistry: ArtifactRegistryConfigReadConfig,
+
+		// docker images to re-push to artifact registry
+		ResourceTypeRemoteDockerImagePush: DockerRemoteImagePushReadConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{

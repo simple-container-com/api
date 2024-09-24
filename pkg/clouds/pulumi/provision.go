@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -104,26 +105,38 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 		for env, resources := range stack.Server.Resources.Resources {
 			p.logger.Info(ctx.Context(), "configure resources for stack %q in env %q...", stack.Name, env)
 			collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, env)
-			for resName, res := range resources.Resources {
-				p.logger.Info(ctx.Context(), "configure resource %q for stack %q in env %q", resName, stack.Name, env)
-				if res.Name == "" {
-					res.Name = resName
-				}
-				provisionParams, err := p.getProvisionParams(ctx, stack, res, env)
-				if err != nil {
-					return errors.Wrapf(err, "failed to init provision params for %q", res.Type)
-				}
-				provisionParams.ComputeContext = collector
 
-				if fnc, ok := pApi.ProvisionFuncByType[res.Type]; !ok {
-					return errors.Errorf("unknown resource type %q", res.Type)
-				} else if _, err := fnc(ctx, stack, api.ResourceInput{
-					Descriptor: &res,
-					StackParams: &api.StackParams{
-						StackName:   stack.Name,
-						Environment: env,
-					},
-				}, provisionParams); err != nil {
+			resourcesWithoutDeps := make(map[string]api.ResourceDescriptor)
+			resourcesWithDeps := make(map[string]api.ResourceDescriptor)
+
+			// figure out dependencies first
+			for resName, resource := range resources.Resources {
+				if withDeps, ok := resource.Config.Config.(api.WithParentDependencies); ok {
+					deps := lo.Map(withDeps.DependsOnResources(), func(d api.ParentResourceDependency, _ int) string {
+						return d.Name
+					})
+					p.logger.Info(ctx.Context(), "resource %q in stack %q in env %q has dependencies on %q", resName, stack.Name, env, deps)
+					resourcesWithDeps[resName] = resource
+				} else {
+					resourcesWithoutDeps[resName] = resource
+				}
+			}
+
+			// TODO: validate there are no cycles in dependencies
+
+			// provision resources without deps
+			outs := make(map[string]*api.ResourceOutput)
+			for resName, resource := range resourcesWithoutDeps {
+				if out, err := p.configureResource(ctx, stack, env, resName, resource, collector, outs); err != nil {
+					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
+				} else {
+					outs[resName] = out
+				}
+			}
+
+			// provision resources with deps
+			for resName, resource := range resourcesWithDeps {
+				if _, err := p.configureResource(ctx, stack, env, resName, resource, collector, outs); err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
 			}
@@ -144,6 +157,33 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 		return nil
 	}
 	return program
+}
+
+func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string, resName string, res api.ResourceDescriptor, collector pApi.ComputeContext, outs pApi.ResourcesOutputs) (*api.ResourceOutput, error) {
+	p.logger.Info(ctx.Context(), "configure resource %q for stack %q in env %q", resName, stack.Name, env)
+	if res.Name == "" {
+		res.Name = resName
+	}
+	provisionParams, err := p.getProvisionParams(ctx, stack, res, env)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to init provision params for %q", res.Type)
+	}
+	provisionParams.ComputeContext = collector
+	provisionParams.ResourceOutputs = outs
+
+	if fnc, ok := pApi.ProvisionFuncByType[res.Type]; !ok {
+		return nil, errors.Errorf("unknown resource type %q", res.Type)
+	} else if out, err := fnc(ctx, stack, api.ResourceInput{
+		Descriptor: &res,
+		StackParams: &api.StackParams{
+			StackName:   stack.Name,
+			Environment: env,
+		},
+	}, provisionParams); err != nil {
+		return nil, errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
+	} else {
+		return out, nil
+	}
 }
 
 func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, dnsPreference *pApi.DnsPreference) error {

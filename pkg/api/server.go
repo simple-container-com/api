@@ -106,6 +106,10 @@ type WithDependsOnResources interface {
 	DependsOnResources() []StackConfigDependencyResource
 }
 
+type WithParentDependencies interface {
+	DependsOnResources() []ParentResourceDependency
+}
+
 type ResourceAware interface {
 	Uses() []string
 }

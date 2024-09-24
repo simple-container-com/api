@@ -24,6 +24,7 @@ type ProvisionParams struct {
 	DependOnResources   []api.StackConfigDependencyResource
 	BaseEnvVariables    map[string]string
 	HelpersImage        string
+	ResourceOutputs     ResourcesOutputs // outputs from dependency resources
 }
 
 type DependencyProvider struct {
@@ -53,6 +54,10 @@ type (
 	PreProcessors  map[reflect.Type][]PreProcessor
 	PostProcessor  func(any) error
 	PostProcessors map[reflect.Type][]PostProcessor
+)
+
+type (
+	ResourcesOutputs map[string]*api.ResourceOutput
 )
 
 type ComputeContext interface {

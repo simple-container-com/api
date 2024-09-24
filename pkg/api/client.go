@@ -43,6 +43,11 @@ const (
 	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
 )
 
+type RemoteImage struct {
+	Name string `json:"name" yaml:"name"`
+	Tag  string `json:"tag" yaml:"tag"`
+}
+
 type ContainerImage struct {
 	Name       string `json:"name" yaml:"name"`
 	Dockerfile string `json:"dockerfile" yaml:"dockerfile"`
@@ -111,11 +116,16 @@ type StackConfigCompose struct {
 	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"` // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 }
 
-// StackConfigDependencyResource when stack depends on resource context of another stack
+// StackConfigDependencyResource when stack depends on resource context of another stack (client configuration)
 type StackConfigDependencyResource struct {
 	Name     string `json:"name" yaml:"name"`
 	Owner    string `json:"owner" yaml:"owner"`
 	Resource string `json:"resource" yaml:"resource"`
+}
+
+// ParentResourceDependency when a resource depends on resource within the same stack
+type ParentResourceDependency struct {
+	Name string `json:"name" yaml:"name"`
 }
 
 type StackConfigComposeSize struct {

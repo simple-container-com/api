@@ -16,6 +16,11 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
+type ArtifactRegistryOut struct {
+	Repository *artifactregistry.Repository
+	URL        sdk.StringOutput
+}
+
 func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != gcloud.ResourceTypeArtifactRegistry {
 		return nil, errors.Errorf("unsupported artifact-registry type %q", input.Descriptor.Type)
@@ -43,6 +48,8 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	if location == "" {
 		return nil, errors.Errorf("`location` must be specified for artifact registry %q in %q", artifactRegistryName, input.StackParams.Environment)
 	}
+
+	out := &ArtifactRegistryOut{}
 
 	// Create a new Artifact Registry repository for Docker images
 	repoArgs := artifactregistry.RepositoryArgs{
@@ -93,7 +100,10 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		urlSuffix = "-docker"
 	}
 	targetDomain := fmt.Sprintf("%s%s.pkg.dev", urlPrefix, urlSuffix)
-	ctx.Export(toRegistryUrlExport(artifactRegistryName), sdk.Sprintf("%s/%s/%s", targetDomain, repo.Project, repo.RepositoryId))
+	registryURL := sdk.Sprintf("%s/%s/%s", targetDomain, repo.Project, repo.RepositoryId)
+	ctx.Export(toRegistryUrlExport(artifactRegistryName), registryURL)
+	out.Repository = repo
+	out.URL = registryURL
 
 	// Create a GCP service account
 	params.Log.Info(ctx.Context(), "configure service account for admin access to %q...", artifactRegistryName)
@@ -145,7 +155,7 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		})
 	}
 
-	return &api.ResourceOutput{Ref: repo}, nil
+	return &api.ResourceOutput{Ref: out}, nil
 }
 
 func toArtifactRegistryName(input api.ResourceInput, name string) string {
