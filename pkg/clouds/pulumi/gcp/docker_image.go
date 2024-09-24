@@ -131,10 +131,12 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	}
 
 	version := lo.If(args.Image.Tag == "", "latest").Else(args.Image.Tag)
+	platform := lo.If(args.Image.Platform == "", api.ImagePlatformLinuxAmd64).Else(args.Image.Platform)
 	image, err := docker.NewImage(ctx, pushImageName, &docker.ImageArgs{
 		Build: &docker.DockerBuildArgs{
 			Context:    sdk.String("."),
 			Dockerfile: sdk.String(dockerFilePath),
+			Platform:   sdk.String(platform),
 			Args: sdk.StringMap{
 				"SOURCE_IMAGE": remoteImage.Name,
 				"VERSION":      sdk.String(version),

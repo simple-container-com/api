@@ -21,11 +21,12 @@ type DockerConfig struct {
 
 type RemoteImagePush struct {
 	Credentials              `json:",inline" yaml:",inline"`
-	RemoteImage              string  `json:"remoteImage" yaml:"remoteImage"`
-	Name                     string  `json:"name" yaml:"name"`
-	Tag                      string  `json:"tag" yaml:"tag"`
-	ArtifactRegistryResource string  `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
-	RegistryCredentials      *string `json:"registryCredentials" yaml:"registryCredentials"` // TODO: support other registries' creds
+	RemoteImage              string            `json:"remoteImage" yaml:"remoteImage"`
+	Name                     string            `json:"name" yaml:"name"`
+	Tag                      string            `json:"tag" yaml:"tag"`
+	ArtifactRegistryResource string            `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	RegistryCredentials      *string           `json:"registryCredentials" yaml:"registryCredentials"` // TODO: support other registries' creds
+	Platform                 api.ImagePlatform `json:"platform" yaml:"platform"`
 }
 
 func (i *RemoteImagePush) DependsOnResources() []api.ParentResourceDependency {
