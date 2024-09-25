@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -108,56 +109,48 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	stackName := args.Input.StackParams.StackName
 	pushRegistryURL := args.RegistryURL
 
-	// TODO: we only support GCR images for now
+	// TODO: we only support images in the same project or images that are accessible with the same service account
 	remoteRegistryHost := remoteImageUrl.Host
 
-	var remoteBuildArgs *docker.RemoteImageBuildArgs
 	args.Params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q", remoteRegistryHost, stackName)
 	gcpCreds, err := getDockerCredentialsWithAuthToken(ctx, args.Input)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to obtain access token for registry %q for stack %q", remoteRegistryHost, stackName)
 	}
-	remoteBuildArgs = &docker.RemoteImageBuildArgs{
-		Context: sdk.String("."),
-		AuthConfigs: docker.RemoteImageBuildAuthConfigArray{
-			docker.RemoteImageBuildAuthConfigArgs{
-				HostName:      sdk.String(remoteRegistryHost),
-				ServerAddress: sdk.String(remoteRegistryHost),
-				UserName:      sdk.String(gcpCreds.Username),
-				Password:      sdk.String(gcpCreds.Password),
-			},
-		},
-	}
-
-	remoteImage, err := docker.NewRemoteImage(ctx, remoteImageName, &docker.RemoteImageArgs{
-		Name:  sdk.String(args.Image.RemoteImage),
-		Build: remoteBuildArgs,
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to pull remote image %q", args.Image.Name)
-	}
-	// hack taken from here https://github.com/pulumi/pulumi-docker/issues/54#issuecomment-772250411
-	var dockerFilePath string
-	if depDir, err := os.MkdirTemp(os.TempDir(), args.Image.Name); err != nil {
-		return nil, errors.Wrapf(err, "failed to create tempDir")
-	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=${VERSION}"), os.ModePerm); err != nil {
-		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
-	} else {
-		dockerFilePath = filepath.Join(depDir, "Dockerfile")
-	}
 
 	version := lo.If(args.Image.Tag == "", "latest").Else(args.Image.Tag)
 	platform := lo.If(args.Image.Platform == "", api.ImagePlatformLinuxAmd64).Else(args.Image.Platform)
-	image, err := docker.NewImage(ctx, pushImageName, &docker.ImageArgs{
-		Build: &docker.DockerBuildArgs{
-			Context:    sdk.String("."),
-			Dockerfile: sdk.String(dockerFilePath),
-			Platform:   sdk.String(platform),
-			Args: sdk.StringMap{
-				"SOURCE_IMAGE": remoteImage.Name,
-				"VERSION":      sdk.String(version),
-			},
+
+	remoteImageBuildArgs, err := dockerImageWrapper(args.Image.RemoteImage, version, platform)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to prepare docker image wrapper with Dockerfile for remote image")
+	}
+
+	// hacky way of pulling image via docker build
+	remoteImage, err := docker.NewImage(ctx, remoteImageName, &docker.ImageArgs{
+		Build:     remoteImageBuildArgs,
+		SkipPush:  sdk.Bool(true),
+		ImageName: sdk.String(args.Image.RemoteImage),
+		Registry: docker.RegistryArgs{
+			Server:   sdk.String(remoteRegistryHost),
+			Password: sdk.String(gcpCreds.Password),
+			Username: sdk.String(gcpCreds.Username),
 		},
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to wrap remote image with a new build for %q in stack %q in %q",
+			args.Image.RemoteImage, args.Stack.Name, args.Input.StackParams.Environment)
+	}
+
+	buildArgs, err := dockerImageWrapper(args.Image.RemoteImage, version, platform)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to prepare docker image wrapper with Dockerfile")
+	}
+
+	opts = append(opts, sdk.DependsOn([]sdk.Resource{remoteImage}))
+
+	image, err := docker.NewImage(ctx, pushImageName, &docker.ImageArgs{
+		Build:     buildArgs,
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: sdk.Sprintf("%s/%s:%s", pushRegistryURL, args.Image.Name, version),
 		Registry: docker.RegistryArgs{
@@ -171,5 +164,27 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	}
 	return &RemoteImage{
 		Image: image,
+	}, nil
+}
+
+func dockerImageWrapper(imageName string, version string, platform api.ImagePlatform) (*docker.DockerBuildArgs, error) {
+	// hack taken from here https://github.com/pulumi/pulumi-docker/issues/54#issuecomment-772250411
+	var dockerFilePath string
+	if depDir, err := os.MkdirTemp(os.TempDir(), strings.ReplaceAll(imageName, string(filepath.Separator), "-")); err != nil {
+		return nil, errors.Wrapf(err, "failed to create tempDir")
+	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=${VERSION}"), os.ModePerm); err != nil {
+		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
+	} else {
+		dockerFilePath = filepath.Join(depDir, "Dockerfile")
+	}
+
+	return &docker.DockerBuildArgs{
+		Context:    sdk.String("."),
+		Dockerfile: sdk.String(dockerFilePath),
+		Platform:   sdk.String(platform),
+		Args: sdk.StringMap{
+			"SOURCE_IMAGE": sdk.String(imageName),
+			"VERSION":      sdk.String(version),
+		},
 	}, nil
 }
