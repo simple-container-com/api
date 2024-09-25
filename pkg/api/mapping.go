@@ -127,7 +127,7 @@ type Provisioner interface {
 
 	DeployStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DeployParams) error
 
-	DestroyChildStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams) error
+	DestroyChildStack(ctx context.Context, cfg *ConfigFile, stack Stack, params DestroyParams, preview bool) error
 
 	PreviewStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params ProvisionParams) (*PreviewResult, error)
 
@@ -137,7 +137,7 @@ type Provisioner interface {
 
 	CancelStack(ctx context.Context, cfg *ConfigFile, stack Stack, params StackParams) error
 
-	DestroyParentStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DestroyParams) error
+	DestroyParentStack(ctx context.Context, cfg *ConfigFile, parentStack Stack, params DestroyParams, preview bool) error
 
 	SetConfigReader(ProvisionerFieldConfigReaderFunc)
 }

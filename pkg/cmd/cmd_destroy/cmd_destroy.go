@@ -20,6 +20,7 @@ type destroyCmd struct {
 }
 
 func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
+	var preview bool
 	pCmd := destroyCmd{
 		Root: rootCmd,
 	}
@@ -32,7 +33,7 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 			consoleWriter.Println("================================")
 			var readString string
 			var attempts int
-			for strings.ToLower(readString) != "y" && strings.ToLower(readString) != "n" {
+			for !preview && strings.ToLower(readString) != "y" && strings.ToLower(readString) != "n" {
 				if pCmd.ParentStack {
 					consoleWriter.Print(color.RedFmt("Are you sure you want do destroy parent stack %q [Y/N]? >", pCmd.Params.StackName))
 				} else {
@@ -44,12 +45,12 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 					return errors.Errorf("'Y' or 'N' expected, but got %q after 3 attempts", readString)
 				}
 			}
-			if strings.ToLower(readString) != "y" {
+			if !preview && strings.ToLower(readString) != "y" {
 				return errors.Errorf("Destroying stack cancelled")
 			}
 
 			if pCmd.ParentStack {
-				err := pCmd.Root.Provisioner.DestroyParent(cmd.Context(), pCmd.Params)
+				err := pCmd.Root.Provisioner.DestroyParent(cmd.Context(), pCmd.Params, preview)
 				if err != nil && !rootCmd.IsCanceled.Load() {
 					return err
 				} else if rootCmd.IsCanceled.Load() {
@@ -57,7 +58,7 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 				}
 				return err
 			}
-			err := pCmd.Root.Provisioner.Destroy(cmd.Context(), pCmd.Params)
+			err := pCmd.Root.Provisioner.Destroy(cmd.Context(), pCmd.Params, preview)
 			if err != nil && !rootCmd.IsCanceled.Load() {
 				return err
 			} else if rootCmd.IsCanceled.Load() {
@@ -69,6 +70,7 @@ func NewDestroyCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 
 	root_cmd.RegisterStackFlags(cmd, &pCmd.Params.StackParams, false)
 	cmd.Flags().BoolVar(&pCmd.ParentStack, "parent", pCmd.ParentStack, "Destroy parent stack")
+	cmd.Flags().BoolVarP(&preview, "preview", "P", preview, "Preview destroy")
 	cmd.Flags().BoolVar(&pCmd.Params.DestroySecretsStack, "with-secrets", pCmd.Params.DestroySecretsStack, "Destroy secrets stack as well (e.g. when no envs remained)")
 	return cmd
 }

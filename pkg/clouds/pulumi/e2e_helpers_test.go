@@ -173,7 +173,7 @@ func runDestroyChildTest(stack api.Stack, cfg secretTestutil.E2ETestConfig, depl
 			StacksDir:   cfg.StacksDir,
 			Environment: "test",
 		},
-	})
+	}, false)
 	Expect(err).To(BeNil())
 }
 

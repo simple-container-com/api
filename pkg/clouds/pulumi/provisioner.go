@@ -84,15 +84,15 @@ func (p *pulumi) SetPublicKey(pubKey string) {
 	p.pubKey = pubKey
 }
 
-func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
+func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams, preview bool) error {
 	s, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	return p.destroyStack(ctx, cfg, s, params, p.provisionProgram(parentStack, cfg))
+	return p.destroyStack(ctx, cfg, s, params, p.provisionProgram(parentStack, cfg), preview)
 }
 
-func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams) error {
+func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams, preview bool) error {
 	_, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
@@ -102,7 +102,7 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	if err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
-	return p.destroyStack(ctx, cfg, s, params, p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String()))
+	return p.destroyStack(ctx, cfg, s, params, p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String()), preview)
 }
 
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {

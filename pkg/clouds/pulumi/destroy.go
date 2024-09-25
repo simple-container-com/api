@@ -15,7 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, params api.DestroyParams, program func(ctx *sdk.Context) error) error {
+func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, params api.DestroyParams, program func(ctx *sdk.Context) error, preview bool) error {
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, program)
 	if err != nil {
 		return err
@@ -28,6 +28,16 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 			return err
 		}
 		p.logger.Info(ctx, color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
+	}
+
+	if preview {
+		p.logger.Info(ctx, color.RedFmt("Previewing destroy stack %q...", s.Ref().FullyQualifiedName()))
+		previewResult, err := stackSource.PreviewDestroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
+		if err != nil {
+			return err
+		}
+		p.logger.Info(ctx, color.RedFmt("Preview destroy summary: \n%s", p.toPreviewResult(params.StackName, previewResult)))
+		return nil
 	}
 	p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", s.Ref().FullyQualifiedName()))
 	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
@@ -46,7 +56,6 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 	}
 	p.logger.Info(ctx, color.RedFmt("Removed stack: %s",
 		lo.If(res, "WARN: some resources have remained!").Else("all resources have been destroyed")))
-
 	if params.DestroySecretsStack && p.secretsStackRef != nil {
 		defer p.withPulumiPassphrase(ctx)()
 		sStack, err := p.backend.GetStack(ctx, p.secretsStackRef)
@@ -68,5 +77,6 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 			return err
 		}
 	}
+
 	return nil
 }
