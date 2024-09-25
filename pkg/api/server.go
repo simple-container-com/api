@@ -14,6 +14,7 @@ type ProvisionParams struct {
 	Stacks      []string `json:"stacks" yaml:"stacks"`
 	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
 	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
+	Timeouts    Timeouts `json:",inline" yaml:",inline"`
 }
 
 // ServerDescriptor describes the server schema

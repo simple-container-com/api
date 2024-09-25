@@ -3,6 +3,7 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -33,6 +34,13 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.provisionProgram(stack, cfg))
 	if err != nil {
 		return err
+	}
+
+	if timeoutDuration, err := time.ParseDuration(params.Timeouts.ExecutionTimeout); err == nil {
+		p.logger.Info(ctx, color.YellowFmt("Setting timeout on whole execution %q...", timeoutDuration.String()))
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, timeoutDuration)
+		ctx = ctxWithTimeout
+		defer cancel()
 	}
 
 	if !params.SkipRefresh {

@@ -170,20 +170,26 @@ type StackConfigStatic struct {
 }
 
 type StackParams struct {
-	StacksDir   string `json:"stacksDir" yaml:"stacksDir"`
-	StackDir    string `json:"stackDir" yaml:"stackDir"`
-	Profile     string `json:"profile" yaml:"profile"`
-	StackName   string `json:"stack" yaml:"stack"`
-	Environment string `json:"environment" yaml:"environment"`
-	SkipRefresh bool   `json:"skipRefresh" yaml:"skipRefresh"`
-	SkipPreview bool   `json:"skipPreview" yaml:"skipPreview"`
-	Version     string `json:"version" yaml:"version"`
+	StacksDir   string   `json:"stacksDir" yaml:"stacksDir"`
+	StackDir    string   `json:"stackDir" yaml:"stackDir"`
+	Profile     string   `json:"profile" yaml:"profile"`
+	StackName   string   `json:"stack" yaml:"stack"`
+	Environment string   `json:"environment" yaml:"environment"`
+	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
+	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
+	Version     string   `json:"version" yaml:"version"`
+	Timeouts    Timeouts `json:",inline" yaml:",inline"`
+}
+
+type Timeouts struct {
+	ExecutionTimeout string `json:"executionTimeout" yaml:"executionTimeout"`
+	PreviewTimeout   string `json:"previewTimeout" yaml:"previewTimeout"`
+	DeployTimeout    string `json:"deployTimeout" yaml:"deployTimeout"`
 }
 
 type DeployParams struct {
 	StackParams `json:",inline" yaml:",inline"`
 	Vars        VariableValues `json:"vars" yaml:"vars"`
-	Timeout     string         `json:"timeout" yaml:"timeout"`
 }
 
 type UpdateResult struct {
@@ -241,6 +247,7 @@ func (p *StackParams) ToProvisionParams() ProvisionParams {
 		Profile:     p.Profile,
 		Stacks:      []string{p.StackName},
 		SkipRefresh: p.SkipRefresh,
+		Timeouts:    p.Timeouts,
 	}
 }
 

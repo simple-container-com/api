@@ -49,15 +49,24 @@ func RemoteImagePush(ctx *sdk.Context, stack api.Stack, input api.ResourceInput,
 		return nil, errors.Errorf("resource output for %q could not be casted to *artifactregistry.Repository for %q in %q", registryResource, dockerImage.Name, environment)
 	}
 
+	opts := []sdk.ResourceOption{
+		sdk.DependsOn([]sdk.Resource{registryOut.Repository}),
+	}
+	if input.StackParams.Timeouts.DeployTimeout != "" {
+		opts = append(opts, sdk.Timeouts(&sdk.CustomTimeouts{
+			Create: input.StackParams.Timeouts.DeployTimeout,
+			Update: input.StackParams.Timeouts.DeployTimeout,
+			Delete: input.StackParams.Timeouts.DeployTimeout,
+		}))
+	}
+
 	image, err := PushRemoteImageToRegistry(ctx, RemoteImageArgs{
 		Image:       dockerImage,
 		RegistryURL: registryOut.URL,
 		Stack:       stack,
 		Input:       input,
 		Params:      params,
-		Opts: []sdk.ResourceOption{
-			sdk.DependsOn([]sdk.Resource{registryOut.Repository}),
-		},
+		Opts:        opts,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to build and push docker images for stack %q in %q", stackName, input.StackParams.Environment)
@@ -91,6 +100,7 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	}
 
 	opts := args.Opts
+
 	remoteImageUrl, err := url.Parse(fmt.Sprintf("https://%s", args.Image.RemoteImage))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse remote image url")
