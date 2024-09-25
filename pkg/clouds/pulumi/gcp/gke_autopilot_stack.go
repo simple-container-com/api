@@ -22,6 +22,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 )
 
@@ -218,8 +219,9 @@ func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceIn
 }
 
 type AccessTokenCreds struct {
-	Username string
-	Password string
+	Username   string
+	Password   string
+	AuthHeader string
 }
 
 func getDockerCredentialsWithAuthToken(ctx *sdk.Context, input api.ResourceInput) (*AccessTokenCreds, error) {
@@ -240,8 +242,16 @@ func getDockerCredentialsWithAuthToken(ctx *sdk.Context, input api.ResourceInput
 		return nil, errors.Wrapf(err, "failed to get GCP token from credentials")
 	}
 
+	username := "oauth2accesstoken"
+	password := token.AccessToken
+	authHeader, err := docker.EncodeDockerAuthHeader(username, password)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to generate docker auth header")
+	}
+
 	return &AccessTokenCreds{
-		Username: "oauth2accesstoken",
-		Password: token.AccessToken,
+		Username:   username,
+		Password:   password,
+		AuthHeader: authHeader,
 	}, nil
 }

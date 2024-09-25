@@ -454,7 +454,7 @@ ${proto}://${domain} {
 		}
 	}
 
-	err = ctx.RegisterComponentResource("pkg:k8s/extensions:simpleContainer", args.Service, sc, opts...)
+	err = ctx.RegisterComponentResource("simple-container.com:k8s:SimpleContainer", args.Service, sc, opts...)
 	if err != nil {
 		return nil, err
 	}

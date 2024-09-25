@@ -16,6 +16,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	pDocker "github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 )
 
 type DockerImageOutput struct {
@@ -121,25 +122,14 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	version := lo.If(args.Image.Tag == "", "latest").Else(args.Image.Tag)
 	platform := lo.If(args.Image.Platform == "", api.ImagePlatformLinuxAmd64).Else(args.Image.Platform)
 
-	remoteImageBuildArgs, err := dockerImageWrapper(args.Image.RemoteImage, version, platform)
+	remoteImage, err := pDocker.NewDockerPull(ctx, remoteImageName, &pDocker.PullArgs{
+		RemoteImage: sdk.String(args.Image.RemoteImage),
+		AuthHeader:  sdk.String(gcpCreds.AuthHeader),
+		Platform:    sdk.String(platform),
+		Log:         args.Params.Log,
+	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to prepare docker image wrapper with Dockerfile for remote image")
-	}
-
-	// hacky way of pulling image via docker build
-	remoteImage, err := docker.NewImage(ctx, remoteImageName, &docker.ImageArgs{
-		Build:     remoteImageBuildArgs,
-		SkipPush:  sdk.Bool(true),
-		ImageName: sdk.String(args.Image.RemoteImage),
-		Registry: docker.RegistryArgs{
-			Server:   sdk.String(remoteRegistryHost),
-			Password: sdk.String(gcpCreds.Password),
-			Username: sdk.String(gcpCreds.Username),
-		},
-	}, opts...)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to wrap remote image with a new build for %q in stack %q in %q",
-			args.Image.RemoteImage, args.Stack.Name, args.Input.StackParams.Environment)
+		return nil, errors.Wrapf(err, "failed to pull remote image %q", args.Image.Name)
 	}
 
 	buildArgs, err := dockerImageWrapper(args.Image.RemoteImage, version, platform)

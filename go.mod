@@ -11,6 +11,7 @@ require (
 	github.com/cloudflare/cloudflare-go v0.104.0
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/disgoorg/disgo v0.18.5
+	github.com/docker/docker v20.10.22+incompatible
 	github.com/fatih/color v1.17.0
 	github.com/go-delve/delve v1.23.0
 	github.com/go-git/go-billy/v5 v5.5.0
@@ -41,6 +42,7 @@ require (
 	go.uber.org/atomic v1.10.0
 	golang.org/x/crypto v0.27.0
 	golang.org/x/oauth2 v0.18.0
+	golang.org/x/sync v0.8.0
 	google.golang.org/api v0.169.0
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/gofumpt v0.6.0
@@ -158,7 +160,6 @@ require (
 	github.com/djherbis/times v1.5.0 // indirect
 	github.com/docker/cli v20.10.22+incompatible // indirect
 	github.com/docker/distribution v2.8.1+incompatible // indirect
-	github.com/docker/docker v20.10.22+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/docker/go v1.5.1-1.0.20160303222718-d30aec9fd63c // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
@@ -419,7 +420,6 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20240314144324-c7f7c6466f7f // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.24.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
