@@ -97,6 +97,10 @@ func RegisterDeployFlags(cmd *cobra.Command, p *api.DeployParams) {
 	RegisterStackFlags(cmd, &p.StackParams, false)
 	_ = cmd.MarkFlagRequired("env")
 	cmd.Flags().StringVarP(&p.Version, "deploy-version", "V", os.Getenv("VERSION"), "Deploy version (default: `latest`)")
+
+	cmd.Flags().StringVarP(&p.Timeouts.PreviewTimeout, "preview-timeout", "M", p.Timeouts.PreviewTimeout, "Timeout on preview operations (in Go's duration format, e.g. `20m`)")
+	cmd.Flags().StringVarP(&p.Timeouts.ExecutionTimeout, "execution-timeout", "O", p.Timeouts.ExecutionTimeout, "Timeout on whole command execution (in Go's duration format, e.g. `20m`)")
+	cmd.Flags().StringVarP(&p.Timeouts.DeployTimeout, "timeout", "T", p.Timeouts.DeployTimeout, "Timeout on deploy/provision operations (in Go's duration format, e.g. `20m`)")
 }
 
 func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool) {
@@ -111,8 +115,4 @@ func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool)
 	flags.StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before deploy")
 	cmd.Flags().BoolVarP(&p.SkipPreview, "skip-preview", "S", p.SkipPreview, "Skip preview before deploy")
-
-	cmd.Flags().StringVarP(&p.Timeouts.PreviewTimeout, "preview-timeout", "M", p.Timeouts.PreviewTimeout, "Timeout on preview operations (in Go's duration format, e.g. `20m`)")
-	cmd.Flags().StringVarP(&p.Timeouts.ExecutionTimeout, "execution-timeout", "O", p.Timeouts.ExecutionTimeout, "Timeout on whole command execution (in Go's duration format, e.g. `20m`)")
-	cmd.Flags().StringVarP(&p.Timeouts.DeployTimeout, "timeout", "T", p.Timeouts.DeployTimeout, "Timeout on deploy/provision operations (in Go's duration format, e.g. `20m`)")
 }
