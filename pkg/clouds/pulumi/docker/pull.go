@@ -76,6 +76,7 @@ func NewDockerPull(ctx *sdk.Context, name string, args *PullArgs, opts ...sdk.Re
 		err = errG.Wait()
 		return digest, err
 	})
+	pull.Digest = digest.(sdk.StringOutput)
 	err = ctx.RegisterResourceOutputs(pull, sdk.Map{
 		"digest": digest,
 	})
