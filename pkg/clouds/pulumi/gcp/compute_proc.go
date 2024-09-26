@@ -324,7 +324,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			CloudSQLProxy:  cloudsqlProxy,
 			KubeProvider:   params.kubeProvider,
 			DBInstanceType: PostgreSQL,
-			Opts:           []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{cloudsqlProxy.SqlProxySecret})},
+			Opts:           []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{cloudsqlProxy.SqlProxySecret, sc})},
 		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)

@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 
@@ -22,6 +23,7 @@ type Image struct {
 	ProviderOptions        []sdk.ResourceOption
 	RepositoryUrl          sdk.StringOutput
 	Registry               docker.RegistryArgs
+	Platform               *string
 }
 
 type ImageOut struct {
@@ -49,6 +51,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 			Context:    sdk.String(image.Context),
 			Dockerfile: sdk.String(image.Dockerfile),
 			Args:       args,
+			Platform:   sdk.String(lo.If(image.Platform != nil, lo.FromPtr(image.Platform)).Else(string(api.ImagePlatformLinuxAmd64))),
 		},
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,

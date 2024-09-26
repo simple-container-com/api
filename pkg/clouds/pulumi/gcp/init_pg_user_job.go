@@ -47,6 +47,9 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-db-user-init", stackName), 60, "-")
 	jobCredsName := util.TrimStringMiddle(fmt.Sprintf("%s-creds", jobName), 60, "-")
 
+	opts := args.Opts
+	opts = append(opts, sdk.Provider(args.KubeProvider))
+
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
@@ -57,7 +60,7 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 			"PGPASSWORD": sdk.String(args.RootPassword),
 			"MYSQL_PWD":  sdk.String(args.RootPassword),
 		},
-	}, sdk.Provider(args.KubeProvider))
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +108,6 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 	cloudsqlProxy := args.CloudSQLProxy
 	kubeProvider := args.KubeProvider
 	namespace := args.Namespace
-	opts := args.Opts
 
 	jobOut := sdk.All(cloudsqlProxy.SqlProxySecret.Metadata.Name(), jobContainer, cloudsqlProxy.ProxyContainer).ApplyT(func(args []any) (*batchv1.Job, error) {
 		secretName := args[0].(*string)
