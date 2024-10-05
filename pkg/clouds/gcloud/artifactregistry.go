@@ -9,10 +9,16 @@ const (
 
 type ArtifactRegistryConfig struct {
 	Credentials `json:",inline" yaml:",inline"`
-	Location    string        `json:"location" yaml:"location"`
-	Public      *bool         `json:"public,omitempty" yaml:"public,omitempty"`
-	Docker      *DockerConfig `json:"docker,omitempty" yaml:"docker,omitempty"`
-	Domain      *string       `json:"domain" yaml:"domain"`
+	Location    string             `json:"location" yaml:"location"`
+	Public      *bool              `json:"public,omitempty" yaml:"public,omitempty"`
+	Docker      *DockerConfig      `json:"docker,omitempty" yaml:"docker,omitempty"`
+	Domain      *string            `json:"domain" yaml:"domain"`
+	BasicAuth   *RegistryBasicAuth `json:"basicAuth,omitempty" yaml:"basicAuth,omitempty"`
+}
+
+type RegistryBasicAuth struct {
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password"`
 }
 
 type DockerConfig struct {

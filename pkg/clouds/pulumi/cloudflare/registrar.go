@@ -17,10 +17,6 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-type Provisioner interface {
-	NewWorkerScript(ctx *sdk.Context, workerName string, hostName string, script string) (*api.ResourceOutput, error)
-}
-
 type provisioner struct {
 	provider  *cfImpl.Provider
 	config    *cfApi.RegistrarConfig
@@ -156,6 +152,8 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 	r.log.Info(ctx.Context(), "configure cloudflare worker script overriding header from %q to %q...", rule.FromHost, rule.ToHost)
 	scriptName := fmt.Sprintf("%s-script", ruleName)
 
+	headerCode := ""
+	footerCode := ""
 	pagesCode := ""
 	if rule.PathPrefix != "" {
 		pagesCode += fmt.Sprintf(`url.pathname = '%s' + url.pathname;`, rule.PathPrefix)
@@ -177,7 +175,47 @@ func (r *provisioner) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, r
 `, rule.OverridePages.NotFoundPage)
 		}
 	}
+
+	if rule.BasicAuth != nil {
+		headerCode += fmt.Sprintf(`
+	const USERNAME = '%s'
+	const PASSWORD = '%s'
+	const REALM = '%s'
+`, rule.BasicAuth.Username, rule.BasicAuth.Password, rule.BasicAuth.Realm)
+		pagesCode = `
+	  const authorization = request.headers.get('authorization')
+	  if (!request.headers.has('authorization')) {
+		return getUnauthorizedResponse(
+		  'Provide User Name and Password to access this page.',
+		)
+	  }
+	  const credentials = parseCredentials(authorization)
+	  if (credentials[0] !== USERNAME || credentials[1] !== PASSWORD) {
+		return getUnauthorizedResponse(
+		  'The User Name and Password combination you have entered is invalid.',
+		)
+	  }
+` + pagesCode
+		footerCode += `
+	function parseCredentials(authorization) {
+	  const parts = authorization.split(' ')
+	  const plainAuth = atob(parts[1])
+	  const credentials = plainAuth.split(':')
+	  return credentials
+	}
+
+	function getUnauthorizedResponse(message) {
+	  let response = new Response(message, {
+		status: 401,
+	  })
+	  response.headers.set('WWW-Authenticate', 'Basic realm=' + REALM)
+	  return response
+	}
+`
+	}
 	workerScriptCode := `
+%s 
+
 addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request));
 });
@@ -199,11 +237,13 @@ async function handleRequest(request) {
 	response.headers.append("www-authenticate", response.headers.get("x-amzn-remapped-www-authenticate"));
 	return response
 };
+
+%s
 `
 	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
 		Name:      sdk.String(scriptName),
 		AccountId: sdk.String(r.accountId),
-		Content:   sdk.Sprintf(workerScriptCode, rule.ToHost, sdk.String(pagesCode)),
+		Content:   sdk.Sprintf(workerScriptCode, sdk.String(headerCode), rule.ToHost, sdk.String(pagesCode), sdk.String(footerCode)),
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		r.log.Error(ctx.Context(), "failed to create worker script: "+err.Error())

@@ -14,6 +14,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type ArtifactRegistryOut struct {
@@ -82,10 +83,8 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 				"bindings": [
 					{
 						"role": "roles/artifactregistry.reader",
-						"members": [
-							"allUsers"
-						]
-					}
+						"members": ["allUsers"]
+					} 
 				]
 			}`),
 		}, opts...)
@@ -107,29 +106,31 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 
 	// Create a GCP service account
 	params.Log.Info(ctx.Context(), "configure service account for admin access to %q...", artifactRegistryName)
-	serviceAccountName := fmt.Sprintf("%s-sa", strings.ReplaceAll(artifactRegistryName, "-", ""))
-	sa, err := serviceaccount.NewAccount(ctx, serviceAccountName, &serviceaccount.AccountArgs{
-		Description: sdk.String(fmt.Sprintf("Service account to manage images at in %s", artifactRegistryName)),
-		AccountId:   sdk.String(serviceAccountName),
-		DisplayName: sdk.String(fmt.Sprintf("%s-service-account", artifactRegistryName)),
-	}, opts...)
+	_, err = createArtifactRegistryServiceAccount(ctx, arServiceAccountArgs{
+		arCfg:        arCfg,
+		registryName: artifactRegistryName,
+		saType:       "admin",
+		saRole:       "roles/artifactregistry.repoAdmin",
+		input:        input,
+		params:       params,
+		opts:         opts,
+	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to provision service account for artifact registry %q", artifactRegistryName)
+		return nil, errors.Wrapf(err, "failed to provision admin service account for artifact registry %q", artifactRegistryName)
 	}
-
-	// Grant the service account access to the repository
-	params.Log.Info(ctx.Context(), "grant service account read access to %q...", artifactRegistryName)
-	_, err = artifactregistry.NewRepositoryIamMember(ctx, fmt.Sprintf("%s-sa-iam-binding", artifactRegistryName), &artifactregistry.RepositoryIamMemberArgs{
-		Repository: repo.Name,
-		Project:    sdk.String(arCfg.ProjectId),
-		Location:   sdk.String(location),
-		Role:       sdk.String("roles/artifactregistry.repoAdmin"), // Grant admin access
-		Member:     sdk.Sprintf("serviceAccount:%s", sa.Email),
-	}, opts...)
+	params.Log.Info(ctx.Context(), "configure service account for read access to %q...", artifactRegistryName)
+	_, err = createArtifactRegistryServiceAccount(ctx, arServiceAccountArgs{
+		arCfg:        arCfg,
+		registryName: artifactRegistryName,
+		saType:       "reader",
+		saRole:       "roles/artifactregistry.reader",
+		input:        input,
+		params:       params,
+		opts:         opts,
+	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to provision Iam membership for service account for registry %q", artifactRegistryName)
+		return nil, errors.Wrapf(err, "failed to provision reader service account for artifact registry %q", artifactRegistryName)
 	}
-	ctx.Export(toRegistryServiceAccountEmailExport(input, artifactRegistryName), sa.Email)
 
 	if arCfg.Domain != nil {
 		sdk.All(repo.Project, repo.RepositoryId).ApplyT(func(outs []any) any {
@@ -143,11 +144,20 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 			if err != nil {
 				return errors.Wrapf(err, "failed to create new DNS record for artifact registry")
 			}
-			_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
+			overrideHeaderRule := pApi.OverrideHeaderRule{
+				Name:       strings.ReplaceAll(*arCfg.Domain, ".", "-"),
 				FromHost:   *arCfg.Domain,
 				ToHost:     sdk.String(targetDomain),
 				PathPrefix: fmt.Sprintf("/%s/%s", project, repoId),
-			})
+			}
+			if arCfg.BasicAuth != nil { //
+				overrideHeaderRule.BasicAuth = &pApi.BasicAuth{
+					Username: arCfg.BasicAuth.Username,
+					Password: arCfg.BasicAuth.Password,
+					Realm:    fmt.Sprintf("%s / %s / %s", input.StackParams.StackName, input.StackParams.Environment, input.Descriptor.Name),
+				}
+			}
+			_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, overrideHeaderRule)
 			if err != nil {
 				return errors.Wrapf(err, "failed to create override host rule from %q to %q", *arCfg.Domain, targetDomain)
 			}
@@ -158,6 +168,60 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	return &api.ResourceOutput{Ref: out}, nil
 }
 
+type arServiceAccountArgs struct {
+	arCfg        *gcloud.ArtifactRegistryConfig
+	registryName string
+	saType       string
+	saRole       string
+	input        api.ResourceInput
+	params       pApi.ProvisionParams
+	opts         []sdk.ResourceOption
+}
+
+func createArtifactRegistryServiceAccount(ctx *sdk.Context, args arServiceAccountArgs) (*serviceaccount.Account, error) {
+	input, arCfg, params, registryName, opts := args.input, args.arCfg, args.params, args.registryName, args.opts
+	// Create a GCP service account
+	params.Log.Info(ctx.Context(), "configure service account for %s access to %q...", args.saType, registryName)
+
+	// need to generate SA name that matches GCP rules
+	saName := fmt.Sprintf("%s-%s-sa", args.saType, strings.ReplaceAll(registryName, "-", ""))
+	saName = strings.ReplaceAll(util.TrimStringMiddle(saName, 28, "-"), "--", "-")
+
+	sa, err := serviceaccount.NewAccount(ctx, saName, &serviceaccount.AccountArgs{
+		Description: sdk.String(fmt.Sprintf("Service account to %s images at in %s", args.saType, registryName)),
+		AccountId:   sdk.String(saName),
+		DisplayName: sdk.String(fmt.Sprintf("%s-%s-service-account", registryName, args.saType)),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision service account for artifact registry %q", registryName)
+	}
+
+	// Grant the service account access to the repository
+	params.Log.Info(ctx.Context(), "grant service account %s access to %q...", args.saRole, registryName)
+	_, err = artifactregistry.NewRepositoryIamMember(ctx, fmt.Sprintf("%s-%s-sa-iam-binding", registryName, args.saType), &artifactregistry.RepositoryIamMemberArgs{
+		Repository: sdk.String(registryName),
+		Project:    sdk.String(arCfg.ProjectId),
+		Location:   sdk.String(arCfg.Location),
+		Role:       sdk.String(args.saRole),
+		Member:     sdk.Sprintf("serviceAccount:%s", sa.Email),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision IAM membership for %s service account for registry %q", args.saType, registryName)
+	}
+	opts = append(opts, sdk.Parent(sa))
+	serviceAccountKey, err := serviceaccount.NewKey(ctx, fmt.Sprintf("%s-key", saName), &serviceaccount.KeyArgs{
+		ServiceAccountId: sa.AccountId,
+	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx.Export(toRegistryServiceAccountKeyExport(input, args.saType, registryName), serviceAccountKey.PrivateKey)
+	ctx.Export(toRegistryServiceAccountEmailExport(input, args.saType, registryName), sa.Email)
+
+	return sa, err
+}
+
 func toArtifactRegistryName(input api.ResourceInput, name string) string {
 	return input.ToResName(name)
 }
@@ -166,6 +230,10 @@ func toRegistryUrlExport(registryName string) string {
 	return fmt.Sprintf("%s-url", registryName)
 }
 
-func toRegistryServiceAccountEmailExport(input api.ResourceInput, registryName string) string {
-	return input.ToResName(fmt.Sprintf("%s-sa", registryName))
+func toRegistryServiceAccountKeyExport(input api.ResourceInput, saType string, registryName string) string {
+	return input.ToResName(fmt.Sprintf("%s-%s-sa-key", saType, registryName))
+}
+
+func toRegistryServiceAccountEmailExport(input api.ResourceInput, saType string, registryName string) string {
+	return input.ToResName(fmt.Sprintf("%s-%s-sa", saType, registryName))
 }

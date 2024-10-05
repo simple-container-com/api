@@ -14,13 +14,24 @@ type Registrar interface {
 	NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule OverrideHeaderRule) (*api.ResourceOutput, error)
 }
 
+type RegistrarWithWorkerScripts interface {
+	NewWorkerScript(ctx *sdk.Context, workerName string, hostName string, script string) (*api.ResourceOutput, error)
+}
+
 type OverrideHeaderRule struct {
 	Name       string
 	FromHost   string
 	ToHost     sdk.StringInput
 	PathPrefix string
 
+	BasicAuth     *BasicAuth
 	OverridePages *OverridePagesRule
+}
+
+type BasicAuth struct {
+	Username string
+	Password string
+	Realm    string
 }
 
 type OverridePagesRule struct {
