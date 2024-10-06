@@ -43,3 +43,39 @@ var RefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
 		},
 	},
 }
+
+var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
+	SchemaVersion: api.ClientSchemaVersion,
+	Stacks: map[string]api.StackClientDescriptor{
+		"staging": {
+			Type:        api.ClientTypeSingleImage,
+			ParentStack: "refapp-aws-lambda",
+			Config: api.Config{
+				Config: &api.StackConfigSingleImage{
+					Domain: "staging.sc-refapp.org",
+					Image: &api.ContainerImage{
+						Dockerfile: "Dockerfile",
+					},
+					Env: map[string]string{
+						"ENV": "staging",
+					},
+				},
+			},
+		},
+		"prod": {
+			Type:        api.ClientTypeSingleImage,
+			ParentStack: "refapp-aws-lambda",
+			Config: api.Config{
+				Config: &api.StackConfigSingleImage{
+					Domain: "prod.sc-refapp.org",
+					Image: &api.ContainerImage{
+						Dockerfile: "Dockerfile",
+					},
+					Env: map[string]string{
+						"ENV": "prod",
+					},
+				},
+			},
+		},
+	},
+}
