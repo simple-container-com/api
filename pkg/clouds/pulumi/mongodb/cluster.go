@@ -86,6 +86,7 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		ProjectId:                projectId,
 		BackingProviderName:      sdk.StringPtrFromPtr(lo.If(isSharedInstanceSize, &atlasCfg.CloudProvider).Else(nil)),
 		ProviderName:             sdk.String(lo.If(isSharedInstanceSize, "TENANT").Else(atlasCfg.CloudProvider)),
+		DiskSizeGb:               sdk.Float64PtrFromPtr(atlasCfg.DiskSizeGB),
 		CloudBackup:              sdk.BoolPtr(lo.If(atlasCfg.Backup != nil, true).Else(false)),
 	}, opts...)
 	if err != nil {
