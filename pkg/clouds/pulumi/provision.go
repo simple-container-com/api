@@ -3,6 +3,8 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -85,6 +87,16 @@ func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.Stac
 		stackSource, err = auto.SelectStackInlineSource(ctx, ref.FullyQualifiedName().String(), cfg.ProjectName, nil, p.wsOpts...)
 		if err != nil {
 			return stackSource, err
+		}
+	}
+	if stackSource.Workspace() != nil {
+		envVars := make(map[string]string)
+		for _, kv := range os.Environ() {
+			split := strings.SplitN(kv, "=", 2)
+			envVars[split[0]] = split[1]
+		}
+		if err := stackSource.Workspace().SetEnvVars(envVars); err != nil {
+			p.logger.Error(ctx, "failed to set environment variables for pulumi workspace: %v", err)
 		}
 	}
 	return stackSource, nil
