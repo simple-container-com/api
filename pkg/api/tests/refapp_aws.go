@@ -99,6 +99,35 @@ var ResolvedRefappAwsServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
+var ResolvedRefappAwsLambdaServerDescriptor = &api.ServerDescriptor{
+	SchemaVersion: api.ServerSchemaVersion,
+	Provisioner:   ResolvedCommonServerDescriptor.Provisioner,
+	Secrets:       ResolvedCommonServerDescriptor.Secrets,
+	CiCd:          ResolvedCommonServerDescriptor.CiCd,
+	Templates: map[string]api.StackDescriptor{
+		"lambda-per-app": {
+			Type: aws.TemplateTypeAwsLambda,
+			Config: api.Config{Config: &aws.TemplateConfig{
+				AccountConfig: resolvedAwsAccountConfig,
+			}},
+		},
+	},
+	Variables: map[string]api.VariableDescriptor{},
+	Resources: api.PerStackResourcesDescriptor{
+		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
+		Resources: map[string]api.PerEnvResourcesDescriptor{
+			"staging": {
+				Template:  "lambda-per-app",
+				Resources: map[string]api.ResourceDescriptor{},
+			},
+			"prod": {
+				Template:  "lambda-per-app",
+				Resources: map[string]api.ResourceDescriptor{},
+			},
+		},
+	},
+}
+
 var RefappAwsLambdaClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
 	Stacks: map[string]api.StackClientDescriptor{
@@ -153,4 +182,45 @@ var RefappAwsClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 	},
+}
+
+func ResolvedRefappAwsLambdaClientDescriptor() *api.ClientDescriptor {
+	res := RefappClientDescriptor.Copy()
+	res.Stacks["staging"] = api.StackClientDescriptor{
+		Type:        api.ClientTypeSingleImage,
+		ParentStack: "refapp-aws-lambda",
+		Config: api.Config{
+			Config: &api.StackConfigSingleImage{
+				Domain: "staging.sc-refapp.org",
+				Image: &api.ContainerImage{
+					Dockerfile: "Dockerfile",
+				},
+				Env: map[string]string{
+					"ENV": "staging",
+				},
+				Secrets: map[string]string{},
+				Uses:    []string{},
+			},
+		},
+	}
+	res.Stacks["prod"] = api.StackClientDescriptor{
+		Type:        api.ClientTypeSingleImage,
+		ParentStack: "refapp-aws-lambda",
+		Template:    "",
+		Config: api.Config{
+			Config: &api.StackConfigSingleImage{
+				Image: &api.ContainerImage{
+					Dockerfile: "Dockerfile",
+				},
+				Domain: "prod.sc-refapp.org",
+				Env: map[string]string{
+					"ENV": "prod",
+				},
+				Secrets: map[string]string{},
+				Uses:    []string{},
+			},
+		},
+	}
+
+	return &res
 }

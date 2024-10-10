@@ -82,6 +82,30 @@ func Test_Provision(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path aws lambda",
+			params: api.ProvisionParams{
+				StacksDir: "stacks",
+				Stacks: []string{
+					"common",
+					"refapp-aws-lambda",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-aws-lambda": {
+					Name:    "refapp-aws-lambda",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappAwsLambdaServerDescriptor,
+					Client:  *tests.ResolvedRefappAwsLambdaClientDescriptor(),
+				},
+			},
+		},
+		{
 			name: "happy path gcp static",
 			params: api.ProvisionParams{
 				StacksDir: "stacks",
