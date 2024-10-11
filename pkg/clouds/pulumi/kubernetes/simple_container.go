@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -46,6 +47,7 @@ type SimpleContainerArgs struct {
 	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
 	Replicas               int     `json:"replicas" yaml:"replicas"`
 	GenerateCaddyfileEntry bool    `json:"generateCaddyfileEntry" yaml:"generateCaddyfileEntry"`
+	KubeProvider           *sdkK8s.Provider
 
 	// optional properties
 	PodDisruption     *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
@@ -71,6 +73,7 @@ type SimpleContainerArgs struct {
 	SidecarOutputs       []corev1.ContainerOutput
 	InitContainerOutputs []corev1.ContainerOutput
 	VolumeOutputs        []corev1.VolumeOutput
+	SecretVolumeOutputs  []any
 	ComputeContext       pApi.ComputeContext
 }
 
@@ -186,7 +189,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
-		StringData: sdk.ToStringMap(secretVolumeToData),
+		StringData: sdk.All(args.SecretVolumeOutputs...).ApplyT(func(vols []any) map[string]string {
+			for _, va := range vols {
+				vol := va.(k8s.SimpleTextVolume)
+				secretVolumeToData[vol.Name] = vol.Content
+			}
+			return secretVolumeToData
+		}).(sdk.StringMapOutput),
 	}, opts...)
 	if err != nil {
 		return nil, err
@@ -196,6 +205,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	var volumeMounts corev1.VolumeMountArray
 	addVolumeMounts(volumesSecretName, args.SecretVolumes, &volumeMounts)
 	addVolumeMounts(volumesCfgName, args.Volumes, &volumeMounts)
+	addVolumeMountsFromOutputs(volumesSecretName, args.SecretVolumeOutputs, &volumeMounts)
 
 	// Volumes
 	volumes := corev1.VolumeArray{
@@ -499,5 +509,19 @@ func addVolumeMounts(volumeName string, volumes []k8s.SimpleTextVolume, volumeMo
 			MountPath: sdk.String(volume.MountPath),
 			SubPath:   sdk.String(volume.Name),
 		})
+	}
+}
+
+func addVolumeMountsFromOutputs(volumeName string, volumes []any, volumeMounts *corev1.VolumeMountArray) {
+	for _, vol := range volumes {
+		volOut := vol.(sdk.Output)
+		*volumeMounts = append(*volumeMounts, volOut.ApplyT(func(vol any) corev1.VolumeMount {
+			sv := vol.(k8s.SimpleTextVolume)
+			return corev1.VolumeMount{
+				Name:      volumeName,
+				MountPath: sv.MountPath,
+				SubPath:   lo.ToPtr(sv.Name),
+			}
+		}).(corev1.VolumeMountOutput))
 	}
 }

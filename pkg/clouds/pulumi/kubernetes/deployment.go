@@ -154,6 +154,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
+		KubeProvider:           args.KubeProvider,
 		ComputeContext:         args.ComputeContext,
 		ServiceType:            args.ServiceType,
 		Namespace:              namespace,
