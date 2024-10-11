@@ -16,6 +16,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -59,6 +60,7 @@ type SimpleContainerArgs struct {
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
 
+	Log logger.Logger
 	// ...
 	RollingUpdate        *v1.RollingUpdateDeploymentArgs
 	InitContainers       []corev1.ContainerArgs
@@ -75,12 +77,13 @@ type SimpleContainerArgs struct {
 type SimpleContainer struct {
 	sdk.ResourceState
 
-	ServicePublicIP sdk.StringPtrOutput `pulumi:"servicePublicIP"`
-	ServiceName     sdk.StringOutput    `pulumi:"serviceName"`
-	Namespace       sdk.StringOutput    `pulumi:"namespace"`
-	Port            sdk.IntPtrOutput    `pulumi:"port"`
-	CaddyfileEntry  sdk.StringOutput    `pulumi:"caddyfileEntry"`
-	Deployment      *v1.Deployment      `pulumi:"deployment"`
+	ServicePublicIP sdk.StringOutput `pulumi:"servicePublicIP"`
+	ServiceName     sdk.StringOutput `pulumi:"serviceName"`
+	Namespace       sdk.StringOutput `pulumi:"namespace"`
+	Port            sdk.IntPtrOutput `pulumi:"port"`
+	CaddyfileEntry  sdk.StringOutput `pulumi:"caddyfileEntry"`
+	Service         *corev1.Service  `pulumi:"service"`
+	Deployment      *v1.Deployment   `pulumi:"deployment"`
 }
 
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -431,15 +434,17 @@ ${proto}://${domain} {
 		}
 	}
 
-	servicePublicIP := service.Status.ApplyT(func(status *corev1.ServiceStatus) *string {
-		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
-			return nil
-		}
-		return status.LoadBalancer.Ingress[0].Ip
-	}).(sdk.StringPtrOutput)
-
+	sc.Service = service
 	sc.CaddyfileEntry = sdk.String(caddyfileEntry).ToStringOutput()
-	sc.ServicePublicIP = servicePublicIP
+	sc.ServicePublicIP = service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
+		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+			args.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
+			return ""
+		}
+		ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)
+		args.Log.Info(ctx.Context(), "load balancer ip is %v", ip)
+		return ip
+	}).(sdk.StringOutput)
 	sc.ServiceName = service.Metadata.Name().Elem()
 	sc.Namespace = namespace.Metadata.Name().Elem()
 	if mainPort != nil {

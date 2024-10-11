@@ -29,6 +29,7 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig) e
 	if err := os.Setenv("GOOGLE_CREDENTIALS", authCfg.CredentialsValue()); err != nil {
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
+
 	if !stateStoreCfg.IsProvisionEnabled() {
 		return nil
 	}

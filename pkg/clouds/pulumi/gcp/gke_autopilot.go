@@ -197,7 +197,15 @@ func deployCaddyService(ctx *sdk.Context, cluster *container.Cluster, input api.
 			input.Descriptor.Name, input.StackParams.Environment)
 	}
 	clusterName := toClusterName(input, input.Descriptor.Name)
-	ctx.Export(toIngressIpExport(clusterName), sc.ServicePublicIP)
+	ctx.Export(toIngressIpExport(clusterName), sc.Service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
+		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+			params.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
+			return ""
+		}
+		ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)
+		params.Log.Info(ctx.Context(), "load balancer ip is %v", ip)
+		return ip
+	}))
 	if caddyJson, err := json.Marshal(caddy); err != nil {
 		return nil, errors.Wrapf(err, "failed to marshal caddy config")
 	} else {
