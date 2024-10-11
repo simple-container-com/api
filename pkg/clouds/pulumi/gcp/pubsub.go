@@ -1,6 +1,9 @@
 package gcp
 
 import (
+	"encoding/base64"
+	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -9,7 +12,9 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 )
 
 func PubSubTopics(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -93,14 +98,65 @@ func createPubSubResources(ctx *sdk.Context, cfg *gcloud.PubSubConfig, input api
 		subscriptions[subscription.Name] = psSubscription
 	}
 
+	ctx.Export(toPubsubProjectIdExport(input), sdk.String(cfg.ProjectId))
+
 	return &PubSubResourcesOutput{
 		Topics:        topics,
 		Subscriptions: subscriptions,
 	}, nil
 }
 
+func toPubsubProjectIdExport(input api.ResourceInput) string {
+	return input.ToResName(input.Descriptor.Name)
+}
+
 func PubSubTopicsProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	params.Log.Error(ctx.Context(), "not implemented for gcp bucket")
+	fullParentReference := params.ParentStack.FullReference
+	projectId, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-pubsub-projectId", input.Descriptor.Type), fullParentReference, toPubsubProjectIdExport(input), false)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to retrieve pubsub projectId from parent stack")
+	}
+	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
+
+	collector.AddEnvVariableIfNotExist("PUBSUB_PROJECT_ID", projectId,
+		input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+	collector.AddEnvVariableIfNotExist("GOOGLE_CLOUD_PROJECT", projectId,
+		input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+	collector.AddEnvVariableIfNotExist("GOOGLE_APPLICATION_CREDENTIALS", "/gcp-credentials.json",
+		input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+
+	collector.AddPreProcessor(&kubernetes.SimpleContainerArgs{}, func(arg any) error {
+		// TODO: figure out how to support multiple roles and single service account
+		serviceAccount, err := NewServiceAccount(ctx, fmt.Sprintf("%s-%s-%s-sa", input.Descriptor.Name, input.StackParams.StackName, input.StackParams.Environment),
+			ServiceAccountArgs{
+				Project:     projectId,
+				Description: fmt.Sprintf("Service account for %s to access pub/sub in %s", input.StackParams.StackName, input.StackParams.Environment),
+				Roles:       []string{"roles/pubsub.editor"},
+			}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create service account to access pub/sub for %q in %q", input.StackParams.StackName, input.StackParams.Environment)
+		}
+		kubeArgs, ok := arg.(*kubernetes.SimpleContainerArgs)
+		if !ok {
+			return errors.Errorf("arg is not *kubernetes.Args")
+		}
+
+		kubeArgs.SecretVolumeOutputs = append(kubeArgs.SecretVolumeOutputs, serviceAccount.ServiceAccountKey.PrivateKey.ApplyT(func(pkArg any) (k8s.SimpleTextVolume, error) {
+			// need to decode private key
+			privateKeyDecoded, err := base64.StdEncoding.DecodeString(pkArg.(string))
+			if err != nil {
+				return k8s.SimpleTextVolume{}, err
+			}
+			return k8s.SimpleTextVolume{
+				TextVolume: api.TextVolume{
+					Content:   string(privateKeyDecoded),
+					Name:      "gcp-credentials",
+					MountPath: "/gcp-credentials.json",
+				},
+			}, nil
+		}))
+		return nil
+	})
 
 	return &api.ResourceOutput{
 		Ref: nil,

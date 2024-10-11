@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -16,6 +17,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -45,6 +47,7 @@ type SimpleContainerArgs struct {
 	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
 	Replicas               int     `json:"replicas" yaml:"replicas"`
 	GenerateCaddyfileEntry bool    `json:"generateCaddyfileEntry" yaml:"generateCaddyfileEntry"`
+	KubeProvider           *sdkK8s.Provider
 
 	// optional properties
 	PodDisruption     *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
@@ -59,6 +62,7 @@ type SimpleContainerArgs struct {
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
 
+	Log logger.Logger
 	// ...
 	RollingUpdate        *v1.RollingUpdateDeploymentArgs
 	InitContainers       []corev1.ContainerArgs
@@ -69,18 +73,20 @@ type SimpleContainerArgs struct {
 	SidecarOutputs       []corev1.ContainerOutput
 	InitContainerOutputs []corev1.ContainerOutput
 	VolumeOutputs        []corev1.VolumeOutput
+	SecretVolumeOutputs  []any
 	ComputeContext       pApi.ComputeContext
 }
 
 type SimpleContainer struct {
 	sdk.ResourceState
 
-	ServicePublicIP sdk.StringPtrOutput `pulumi:"servicePublicIP"`
-	ServiceName     sdk.StringOutput    `pulumi:"serviceName"`
-	Namespace       sdk.StringOutput    `pulumi:"namespace"`
-	Port            sdk.IntPtrOutput    `pulumi:"port"`
-	CaddyfileEntry  sdk.StringOutput    `pulumi:"caddyfileEntry"`
-	Deployment      *v1.Deployment      `pulumi:"deployment"`
+	ServicePublicIP sdk.StringOutput `pulumi:"servicePublicIP"`
+	ServiceName     sdk.StringOutput `pulumi:"serviceName"`
+	Namespace       sdk.StringOutput `pulumi:"namespace"`
+	Port            sdk.IntPtrOutput `pulumi:"port"`
+	CaddyfileEntry  sdk.StringOutput `pulumi:"caddyfileEntry"`
+	Service         *corev1.Service  `pulumi:"service"`
+	Deployment      *v1.Deployment   `pulumi:"deployment"`
 }
 
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -183,7 +189,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
-		StringData: sdk.ToStringMap(secretVolumeToData),
+		StringData: sdk.All(args.SecretVolumeOutputs...).ApplyT(func(vols []any) map[string]string {
+			for _, va := range vols {
+				vol := va.(k8s.SimpleTextVolume)
+				secretVolumeToData[vol.Name] = vol.Content
+			}
+			return secretVolumeToData
+		}).(sdk.StringMapOutput),
 	}, opts...)
 	if err != nil {
 		return nil, err
@@ -193,6 +205,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	var volumeMounts corev1.VolumeMountArray
 	addVolumeMounts(volumesSecretName, args.SecretVolumes, &volumeMounts)
 	addVolumeMounts(volumesCfgName, args.Volumes, &volumeMounts)
+	addVolumeMountsFromOutputs(volumesSecretName, args.SecretVolumeOutputs, &volumeMounts)
 
 	// Volumes
 	volumes := corev1.VolumeArray{
@@ -431,15 +444,17 @@ ${proto}://${domain} {
 		}
 	}
 
-	servicePublicIP := service.Status.ApplyT(func(status *corev1.ServiceStatus) *string {
-		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
-			return nil
-		}
-		return status.LoadBalancer.Ingress[0].Ip
-	}).(sdk.StringPtrOutput)
-
+	sc.Service = service
 	sc.CaddyfileEntry = sdk.String(caddyfileEntry).ToStringOutput()
-	sc.ServicePublicIP = servicePublicIP
+	sc.ServicePublicIP = service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
+		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+			args.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
+			return ""
+		}
+		ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)
+		args.Log.Info(ctx.Context(), "load balancer ip is %v", ip)
+		return ip
+	}).(sdk.StringOutput)
 	sc.ServiceName = service.Metadata.Name().Elem()
 	sc.Namespace = namespace.Metadata.Name().Elem()
 	if mainPort != nil {
@@ -494,5 +509,19 @@ func addVolumeMounts(volumeName string, volumes []k8s.SimpleTextVolume, volumeMo
 			MountPath: sdk.String(volume.MountPath),
 			SubPath:   sdk.String(volume.Name),
 		})
+	}
+}
+
+func addVolumeMountsFromOutputs(volumeName string, volumes []any, volumeMounts *corev1.VolumeMountArray) {
+	for _, vol := range volumes {
+		volOut := vol.(sdk.Output)
+		*volumeMounts = append(*volumeMounts, volOut.ApplyT(func(vol any) corev1.VolumeMount {
+			sv := vol.(k8s.SimpleTextVolume)
+			return corev1.VolumeMount{
+				Name:      volumeName,
+				MountPath: sv.MountPath,
+				SubPath:   lo.ToPtr(sv.Name),
+			}
+		}).(corev1.VolumeMountOutput))
 	}
 }

@@ -24,5 +24,6 @@ func init() {
 		gcloud.ResourceTypeBucket:              BucketComputeProcessor,
 		gcloud.ResourceTypeGkeAutopilot:        GkeAutopilotComputeProcessor,
 		gcloud.ResourceTypePostgresGcpCloudsql: PostgresComputeProcessor,
+		gcloud.ResourceTypePubSub:              PubSubTopicsProcessor,
 	})
 }
