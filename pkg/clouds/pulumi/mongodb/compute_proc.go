@@ -126,6 +126,9 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_USER"), userName,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
+			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_DATABASE"), dbName,
+				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
+
 			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_PASSWORD"), dbUser.Password,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
@@ -139,6 +142,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 
 			params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{
 				"uri":      mongoUri,
+				"dbName":   dbName,
 				"password": dbUser.Password,
 				"user":     userName,
 				"oplogUri": oplogMongoUri,
@@ -203,6 +207,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 
 			params.collector.AddDependencyTplExtension(params.dependency.Name, params.input.Descriptor.Name, map[string]string{
 				"uri":      mongoUri,
+				"dbName":   dbName,
 				"password": dbUser.Password,
 				"user":     userName,
 				"oplogUri": oplogMongoUri,

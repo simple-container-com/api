@@ -18,6 +18,8 @@ type AtlasConfig struct {
 	Backup         *AtlasBackup                  `json:"backup,omitempty" yaml:"backup,omitempty"`
 	NetworkConfig  *AtlasNetworkConfig           `json:"networkConfig,omitempty" yaml:"networkConfig,omitempty"`
 	ExtraProviders map[string]api.AuthDescriptor `json:"extraProviders,omitempty" yaml:"extraProviders,omitempty"`
+	DiskSizeGB     *float64                      `json:"diskSizeGB,omitempty" yaml:"diskSizeGB,omitempty"`
+	NumShards      *int                          `json:"numShards,omitempty" yaml:"numShards,omitempty"`
 }
 
 type AtlasNetworkConfig struct {

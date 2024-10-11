@@ -62,6 +62,11 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		return !exists
 	})
 
+	envVars := make(map[string]string)
+	for _, v := range contextEnvVars {
+		envVars[v.Name] = v.Value
+	}
+
 	// persistent volumes
 	pvs := lo.FlatMap(args.Images, func(c *ContainerImage, _ int) []k8s.PersistentVolume {
 		return c.Container.Volumes
@@ -71,20 +76,17 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		for _, w := range c.Container.Warnings {
 			args.Params.Log.Warn(ctx.Context(), "container %q warning: %s", c.Container.Name, w)
 		}
-		var env corev1.EnvVarArray
+		for k, v := range c.Container.Env {
+			envVars[k] = v
+		}
 		for _, v := range contextEnvVars {
-			env = append(env, corev1.EnvVarArgs{
-				Name:  sdk.String(v.Name),
-				Value: sdk.String(v.Value),
-			})
+			envVars[v.Name] = v.Value
 		}
 		for k, v := range args.Deployment.StackConfig.Env {
-			env = append(env, corev1.EnvVarArgs{
-				Name:  sdk.String(k),
-				Value: sdk.String(v),
-			})
+			envVars[k] = v
 		}
-		for k, v := range c.Container.Env {
+		var env corev1.EnvVarArray
+		for k, v := range envVars {
 			env = append(env, corev1.EnvVarArgs{
 				Name:  sdk.String(k),
 				Value: sdk.String(v),

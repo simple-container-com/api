@@ -86,7 +86,9 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		ProjectId:                projectId,
 		BackingProviderName:      sdk.StringPtrFromPtr(lo.If(isSharedInstanceSize, &atlasCfg.CloudProvider).Else(nil)),
 		ProviderName:             sdk.String(lo.If(isSharedInstanceSize, "TENANT").Else(atlasCfg.CloudProvider)),
+		DiskSizeGb:               sdk.Float64PtrFromPtr(atlasCfg.DiskSizeGB),
 		CloudBackup:              sdk.BoolPtr(lo.If(atlasCfg.Backup != nil, true).Else(false)),
+		NumShards:                sdk.IntPtrFromPtr(atlasCfg.NumShards),
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create mongodb cluster for stack %q", stack.Name)
