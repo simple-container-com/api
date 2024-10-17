@@ -299,7 +299,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			InstanceName: params.postgresName,
 			Region:       lo.FromPtr(params.config.Region),
 		}
-		cloudsqlProxyName := fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName)
+		cloudsqlProxyName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-")
 		namespace := params.input.StackParams.StackName
 		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 			Name:         cloudsqlProxyName,
