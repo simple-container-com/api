@@ -102,11 +102,11 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	return &Resources{
 		// TODO: separate limits from requests
 		Limits: map[string]string{
-			"memory": bytesSizeToHuman(memInt),
+			"memory": bytesSizeToHuman(memInt * 1024 * 1024), // must be in MB
 			"cpu":    fmt.Sprintf("%dm", cpuInt),
 		},
 		Requests: map[string]string{
-			"memory": bytesSizeToHuman(memInt),
+			"memory": bytesSizeToHuman(memInt * 1024 * 1024), // must be in MB
 			"cpu":    fmt.Sprintf("%dm", cpuInt),
 		},
 	}, nil
