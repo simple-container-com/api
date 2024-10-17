@@ -103,11 +103,11 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 		// TODO: separate limits from requests
 		Limits: map[string]string{
 			"memory": bytesSizeToHuman(memInt),
-			"cpu":    bytesSizeToHuman(cpuInt),
+			"cpu":    fmt.Sprintf("%dm", cpuInt),
 		},
 		Requests: map[string]string{
 			"memory": bytesSizeToHuman(memInt),
-			"cpu":    bytesSizeToHuman(cpuInt),
+			"cpu":    fmt.Sprintf("%dm", cpuInt),
 		},
 	}, nil
 }
@@ -188,7 +188,7 @@ func bytesSizeToHuman(size int64) string {
 	i := math.Floor(math.Log(float64(size)) / math.Log(1024))
 	humanSize := float64(size) / math.Pow(1024, i)
 
-	return fmt.Sprintf("%.2f%s", humanSize, units[int(i)])
+	return fmt.Sprintf("%d%s", int64(humanSize), units[int(i)])
 }
 
 func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackConfigCompose) ([]CloudRunContainer, error) {
