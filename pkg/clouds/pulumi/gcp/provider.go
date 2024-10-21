@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 
 	gcpStorage "cloud.google.com/go/storage"
 	gcpOptions "google.golang.org/api/option"
@@ -28,6 +29,16 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig) e
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
 	if err := os.Setenv("GOOGLE_CREDENTIALS", authCfg.CredentialsValue()); err != nil {
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
+	}
+
+	if gcloudPath, err := exec.LookPath("gcloud"); err != nil {
+		fmt.Println("WARN: Failed to find gcloud command")
+	} else if f, err := os.CreateTemp(os.TempDir(), "google-creds.json"); err != nil {
+		fmt.Println("WARN: failed to create temp file for google creds: ", err.Error())
+	} else if _, err := f.Write([]byte(authCfg.CredentialsValue())); err != nil {
+		fmt.Println("WARN: failed to write temp file for google creds: ", err.Error())
+	} else if err := exec.Command(gcloudPath, "auth", "activate-service-account", "--key-file", f.Name()).Run(); err != nil {
+		fmt.Println("WARN: failed to activate gcloud service account: ", err.Error())
 	}
 
 	if !stateStoreCfg.IsProvisionEnabled() {
