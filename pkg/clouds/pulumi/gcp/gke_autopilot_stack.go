@@ -179,6 +179,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 }
 
 // authAgainstRegistry - run gcloud auth configure-docker to configure docker/config.json to access repo
+// nolint: unused
 func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, params pApi.ProvisionParams, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
