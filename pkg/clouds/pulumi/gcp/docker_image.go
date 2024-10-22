@@ -113,6 +113,13 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	// TODO: we only support images in the same project or images that are accessible with the same service account
 	remoteRegistryHost := remoteImageUrl.Host
 
+	args.Params.Log.Info(ctx.Context(), "Authenticating against registry %s using gcloud for stack %q", remoteRegistryHost, stackName)
+	addOpts, err := authAgainstRegistry(ctx, args.Image.RemoteImage, args.Input, args.RegistryURL)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to auth against registry for image %q", args.Image.RemoteImage)
+	}
+	opts = append(opts, addOpts...)
+
 	args.Params.Log.Info(ctx.Context(), "Authenticating against registry %q for stack %q", remoteRegistryHost, stackName)
 	gcpCreds, err := getDockerCredentialsWithAuthToken(ctx, args.Input)
 	if err != nil {

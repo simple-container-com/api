@@ -179,7 +179,6 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 }
 
 // authAgainstRegistry - run gcloud auth configure-docker to configure docker/config.json to access repo
-// nolint: unused
 func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
@@ -196,8 +195,13 @@ func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceIn
 		env["GOOGLE_APPLICATION_CREDENTIALS"] = authConfig.CredentialsValue()
 		registryHost := registryURL.ApplyT(func(out any) (string, error) {
 			rUrl := out.(string)
-			parsedRegistryURL, err := url.Parse(fmt.Sprintf("https://%s", rUrl))
-			if err != nil {
+			var parsedRegistryURL *url.URL
+			if strings.HasPrefix(rUrl, "http") {
+				parsedRegistryURL, err = url.Parse(rUrl)
+				if err != nil {
+					return "", errors.Wrapf(err, "failed to parse registry url %q as is", rUrl)
+				}
+			} else if parsedRegistryURL, err = url.Parse(fmt.Sprintf("https://%s", rUrl)); err != nil {
 				return "", errors.Wrapf(err, "failed to parse registry url %q", rUrl)
 			}
 			return parsedRegistryURL.Host, nil
