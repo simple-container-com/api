@@ -179,7 +179,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 }
 
 // authAgainstRegistry - run gcloud auth configure-docker to configure docker/config.json to access repo
-func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
+func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, params pApi.ProvisionParams, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
@@ -204,8 +204,11 @@ func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceIn
 			} else if parsedRegistryURL, err = url.Parse(fmt.Sprintf("https://%s", rUrl)); err != nil {
 				return "", errors.Wrapf(err, "failed to parse registry url %q", rUrl)
 			}
+			params.Log.Info(ctx.Context(), "extracted registry host for gcloud auth configure-docker: %q", parsedRegistryURL.Host)
 			return parsedRegistryURL.Host, nil
 		})
+
+		params.Log.Info(ctx.Context(), "configure gcloud auth configure-docker against registry host...")
 		configureDockerCmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-%s-%s", input.StackParams.StackName, input.StackParams.Environment, authName), &local.CommandArgs{
 			Update:      sdk.Sprintf("gcloud auth configure-docker %s --quiet", registryHost),
 			Create:      sdk.Sprintf("gcloud auth configure-docker %s --quiet", registryHost),

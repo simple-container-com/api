@@ -114,7 +114,7 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 	remoteRegistryHost := remoteImageUrl.Host
 
 	args.Params.Log.Info(ctx.Context(), "Authenticating against registry %s using gcloud for stack %q", remoteRegistryHost, stackName)
-	addOpts, err := authAgainstRegistry(ctx, args.Image.RemoteImage, args.Input, args.RegistryURL)
+	addOpts, err := authAgainstRegistry(ctx, args.Image.RemoteImage, args.Input, args.Params, args.RegistryURL)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to auth against registry for image %q", args.Image.RemoteImage)
 	}
