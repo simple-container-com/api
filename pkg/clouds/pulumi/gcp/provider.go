@@ -16,15 +16,17 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig) error {
+func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, log logger.Logger) error {
 	authCfg, ok := stateStoreCfg.(api.AuthConfig)
 	if !ok {
 		return errors.Errorf("failed to convert gcloud state storage config to api.AuthConfig")
 	}
+	log.Info(ctx, "Initializing gcp statestore...")
 
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
 	if err := os.Setenv("GOOGLE_CREDENTIALS", authCfg.CredentialsValue()); err != nil {

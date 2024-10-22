@@ -86,7 +86,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		p.logger.Warn(ctx, "state storage config is not of type api.AuthConfig")
 	} else if fnc, ok := pApi.InitStateStoreFuncByType[authCfg.ProviderType()]; !ok {
 		p.logger.Warn(ctx, "could not find init state storage function for provider %q, skipping init", authCfg.ProviderType())
-	} else if err := fnc(ctx, stateStorageCfg); err != nil {
+	} else if err := fnc(ctx, stateStorageCfg, p.logger); err != nil {
 		return errors.Wrapf(err, "failed to init state storage for provider %q", authCfg.ProviderType())
 	}
 
