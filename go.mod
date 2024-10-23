@@ -38,7 +38,7 @@ require (
 	github.com/spf13/afero v1.11.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.9.0
-	github.com/vektra/mockery/v2 v2.46.2
+	github.com/vektra/mockery/v2 v2.46.3
 	go.uber.org/atomic v1.10.0
 	golang.org/x/crypto v0.27.0
 	golang.org/x/oauth2 v0.22.0
