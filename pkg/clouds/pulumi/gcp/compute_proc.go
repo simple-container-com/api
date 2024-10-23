@@ -89,7 +89,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		gcpProvider:     gcpProvider,
 	}
 	if params.UseResources[input.Descriptor.Name] {
-		if err := appendUsesResourceContext(ctx, appendContextParams); err != nil {
+		if err := appendUsesPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
 	}
@@ -98,7 +98,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return d.Resource == input.Descriptor.Name
 	}) {
 		appendContextParams.dependency = dep
-		if err := appendDependsOnResourceContext(ctx, appendContextParams); err != nil {
+		if err := appendDependsOnPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, err
 		}
 	}
@@ -121,7 +121,7 @@ type appendParams struct {
 	config          *gcloud.PostgresGcpCloudsqlConfig
 }
 
-func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
+func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
 	// set both dbname and username to stack name
 	dbName := params.stack.Name
 	userName := params.stack.Name
@@ -230,7 +230,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 	return cloudsqlProxy, nil
 }
 
-func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
+func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
 	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
 	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
 	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
