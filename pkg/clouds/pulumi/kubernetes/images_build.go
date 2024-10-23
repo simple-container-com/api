@@ -38,7 +38,7 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 				ImageName: sdk.String(container.Name).ToStringOutput(),
 			}, nil
 		}
-		if !filepath.IsAbs(dockerfile) && (container.Image.Context == "" || container.Image.Context == ".") {
+		if !filepath.IsAbs(dockerfile) {
 			dockerfile = filepath.Join(container.ComposeDir, dockerfile)
 		}
 
