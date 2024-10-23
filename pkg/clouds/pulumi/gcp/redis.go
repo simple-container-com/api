@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 
@@ -33,6 +34,7 @@ func Redis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pA
 	redisInstance, err := redis.NewInstance(ctx, redisName, &redis.InstanceArgs{
 		MemorySizeGb: sdk.Int(redisCfg.MemorySizeGb),
 		RedisConfigs: sdk.ToStringMap(redisCfg.RedisConfig),
+		Region:       sdk.StringPtrFromPtr(lo.If(redisCfg.Region != nil, redisCfg.Region).Else(nil)),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision redis instance %q", redisName)

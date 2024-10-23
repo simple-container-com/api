@@ -10,6 +10,7 @@ type RedisConfig struct {
 	Project      string            `json:"project" yaml:"project"`
 	MemorySizeGb int               `json:"memorySizeGb" yaml:"memorySizeGb"`
 	RedisConfig  map[string]string `json:"redisConfig" yaml:"redisConfig"`
+	Region       *string           `json:"region" yaml:"region"`
 }
 
 func RedisReadConfig(config *api.Config) (api.Config, error) {
