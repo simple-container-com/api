@@ -1,7 +1,5 @@
 package gcp
 
-import "C"
-
 import (
 	"fmt"
 
