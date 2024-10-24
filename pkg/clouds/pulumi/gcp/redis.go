@@ -66,6 +66,11 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 		return nil, errors.Wrapf(err, "failed to get redis port from parent stack for %q", redisName)
 	}
 
+	if !params.UseResources[input.Descriptor.Name] {
+		params.Log.Warn(ctx.Context(), "redis %q only supports `uses`, but it wasn't explicitly declared as being used", redisName)
+		return nil, nil
+	}
+
 	if params.UseResources[input.Descriptor.Name] {
 		params.Log.Info(ctx.Context(), "Adding REDIS_HOST env variable for stack %q from %q", stack.Name, fullParentReference)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_HOST"), redisHost,
