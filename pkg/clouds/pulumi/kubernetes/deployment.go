@@ -93,7 +93,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			})
 		}
 		var ports corev1.ContainerPortArray
-		var readinessProbe corev1.ProbeArgs
+		var readinessProbe *corev1.ProbeArgs
 		for _, p := range c.Container.Ports {
 			portName := toPortName(p) // TODO: support non-http ports
 			ports = append(ports, corev1.ContainerPortArgs{
@@ -102,7 +102,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			})
 		}
 		if c.Container.ReadinessProbe == nil && len(c.Container.Ports) == 1 {
-			readinessProbe = corev1.ProbeArgs{
+			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
 					Port: sdk.String(toPortName(c.Container.Ports[0])),
 				},
@@ -110,7 +110,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				InitialDelaySeconds: sdk.IntPtr(5),
 			}
 		} else if c.Container.ReadinessProbe == nil && c.Container.MainPort != nil {
-			readinessProbe = corev1.ProbeArgs{
+			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
 					Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
 				},
@@ -124,7 +124,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
 		}
 
-		var startupProbe corev1.ProbeArgs
+		var startupProbe *corev1.ProbeArgs
 		if c.Container.StartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
 		}
