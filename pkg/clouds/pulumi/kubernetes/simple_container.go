@@ -105,8 +105,8 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	var mainPort *int
 	if args.IngressContainer != nil && args.IngressContainer.MainPort != nil {
 		mainPort = args.IngressContainer.MainPort
-	} else if len(args.IngressContainer.Ports) == 1 {
-		mainPort = lo.ToPtr(args.IngressContainer.Ports[0])
+	} else if len(lo.FromPtr(args.IngressContainer).Ports) == 1 {
+		mainPort = lo.ToPtr(lo.FromPtr(args.IngressContainer).Ports[0])
 	}
 	if mainPort != nil {
 		appAnnotations[AnnotationPort] = strconv.Itoa(*mainPort)
