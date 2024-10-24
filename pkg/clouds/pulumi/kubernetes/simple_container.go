@@ -80,13 +80,13 @@ type SimpleContainerArgs struct {
 type SimpleContainer struct {
 	sdk.ResourceState
 
-	ServicePublicIP sdk.StringOutput `pulumi:"servicePublicIP"`
-	ServiceName     sdk.StringOutput `pulumi:"serviceName"`
-	Namespace       sdk.StringOutput `pulumi:"namespace"`
-	Port            sdk.IntPtrOutput `pulumi:"port"`
-	CaddyfileEntry  sdk.StringOutput `pulumi:"caddyfileEntry"`
-	Service         *corev1.Service  `pulumi:"service"`
-	Deployment      *v1.Deployment   `pulumi:"deployment"`
+	ServicePublicIP sdk.StringOutput    `pulumi:"servicePublicIP"`
+	ServiceName     sdk.StringPtrOutput `pulumi:"serviceName"`
+	Namespace       sdk.StringOutput    `pulumi:"namespace"`
+	Port            sdk.IntPtrOutput    `pulumi:"port"`
+	CaddyfileEntry  sdk.StringOutput    `pulumi:"caddyfileEntry"`
+	Service         *corev1.Service     `pulumi:"service"`
+	Deployment      *v1.Deployment      `pulumi:"deployment"`
 }
 
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -395,28 +395,31 @@ ${proto}://${domain} {
 
 	servicePorts := corev1.ServicePortArray{}
 	if args.IngressContainer != nil {
-		for _, p := range args.IngressContainer.Ports {
+		for _, p := range lo.FromPtr(args.IngressContainer).Ports {
 			servicePorts = append(servicePorts, corev1.ServicePortArgs{
 				Name: sdk.String(toPortName(p)),
 				Port: sdk.Int(p),
 			})
 		}
 	}
-	service, err := corev1.NewService(ctx, args.Service, &corev1.ServiceArgs{
-		Metadata: &metav1.ObjectMetaArgs{
-			Name:        sdk.String(args.Service),
-			Namespace:   namespace.Metadata.Name().Elem(),
-			Labels:      sdk.ToStringMap(appLabels),
-			Annotations: sdk.ToStringMap(serviceAnnotations),
-		},
-		Spec: &corev1.ServiceSpecArgs{
-			Selector: sdk.ToStringMap(appLabels),
-			Ports:    servicePorts,
-			Type:     serviceType,
-		},
-	}, opts...)
-	if err != nil {
-		return nil, err
+	var service *corev1.Service
+	if len(lo.FromPtr(args.IngressContainer).Ports) > 0 {
+		service, err = corev1.NewService(ctx, args.Service, &corev1.ServiceArgs{
+			Metadata: &metav1.ObjectMetaArgs{
+				Name:        sdk.String(args.Service),
+				Namespace:   namespace.Metadata.Name().Elem(),
+				Labels:      sdk.ToStringMap(appLabels),
+				Annotations: sdk.ToStringMap(serviceAnnotations),
+			},
+			Spec: &corev1.ServiceSpecArgs{
+				Selector: sdk.ToStringMap(appLabels),
+				Ports:    servicePorts,
+				Type:     serviceType,
+			},
+		}, opts...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Optional Pod Disruption Budget
@@ -446,16 +449,18 @@ ${proto}://${domain} {
 
 	sc.Service = service
 	sc.CaddyfileEntry = sdk.String(caddyfileEntry).ToStringOutput()
-	sc.ServicePublicIP = service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
-		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
-			args.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
-			return ""
-		}
-		ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)
-		args.Log.Info(ctx.Context(), "load balancer ip is %v", ip)
-		return ip
-	}).(sdk.StringOutput)
-	sc.ServiceName = service.Metadata.Name().Elem()
+	if service != nil {
+		sc.ServicePublicIP = service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
+			if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+				args.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
+				return ""
+			}
+			ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)
+			args.Log.Info(ctx.Context(), "load balancer ip is %v", ip)
+			return ip
+		}).(sdk.StringOutput)
+		sc.ServiceName = service.Metadata.Name().Elem().ToStringPtrOutput()
+	}
 	sc.Namespace = namespace.Metadata.Name().Elem()
 	if mainPort != nil {
 		sc.Port = sdk.IntPtrFromPtr(mainPort).ToIntPtrOutput()
