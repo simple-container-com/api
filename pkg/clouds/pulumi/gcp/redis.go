@@ -67,8 +67,10 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 
 	if params.UseResources[input.Descriptor.Name] {
+		params.Log.Info(ctx.Context(), "Adding REDIS_HOST env variable for stack %q from %q", stack.Name, fullParentReference)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_HOST"), redisHost,
 			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+		params.Log.Info(ctx.Context(), "Adding REDIS_PORT env variable for stack %q from %q", stack.Name, fullParentReference)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_PORT"), redisPort,
 			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
