@@ -92,7 +92,7 @@ func findIngressContainer(composeCfg compose.Config, contaniers []k8s.CloudRunCo
 			}), composeCfg.Project.ComposeFiles, api.ComposeLabelIngressContainer)
 	}
 	iContainer, found := lo.Find(contaniers, func(item k8s.CloudRunContainer) bool {
-		return item.Name == iContainers[0].Name
+		return len(iContainers) > 0 && item.Name == iContainers[0].Name
 	})
 	if !found {
 		return nil, nil
