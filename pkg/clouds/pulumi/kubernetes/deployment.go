@@ -120,7 +120,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		} else if c.Container.ReadinessProbe != nil {
 			// TODO: support readiness probe
 			return corev1.ContainerArgs{}, errors.Errorf("readiness probe is not supported yet: TODO")
-		} else {
+		} else if len(c.Container.Ports) > 1 {
 			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
 		}
 
