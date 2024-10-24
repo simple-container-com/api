@@ -57,8 +57,11 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
 		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
 		kubeConfig, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
-		if err != nil || kubeConfig == "" {
+		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
+		}
+		if kubeConfig == "" {
+			return nil, errors.Errorf("failed to get kubeconfig from parent stack's resources: empty")
 		}
 		kubeProviderName := fmt.Sprintf("%s-%s-computeproc-kubeconfig", input.ToResName(input.Descriptor.Name), clusterName)
 		kubeProvider, err = sdkK8s.NewProvider(ctx, kubeProviderName, &sdkK8s.ProviderArgs{

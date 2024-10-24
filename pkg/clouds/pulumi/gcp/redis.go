@@ -56,14 +56,21 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	params.Log.Info(ctx.Context(), "Getting redis host for %q from parent stack %q", stack.Name, fullParentReference)
 	redisHostExport := toRedisHostExport(redisName)
 	redisHost, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-host", redisName), fullParentReference, redisHostExport, true)
-	if err != nil || redisHost == "" {
+	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis host from parent stack for %q", redisName)
+	}
+	if redisHost == "" {
+		return nil, errors.Errorf("failed to get redis host from parent stack for %q: empty", redisName)
 	}
 	params.Log.Info(ctx.Context(), "Getting redis port for %q from parent stack %q", stack.Name, fullParentReference)
 	redisPortExport := toRedisPortExport(redisName)
 	redisPort, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-port", redisName), fullParentReference, redisPortExport, true)
-	if err != nil || redisPort == "" {
+	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis port from parent stack for %q", redisName)
+	}
+	if redisPort == "" {
+		redisPort = "6379"
+		params.Log.Warn(ctx.Context(), "redis's port %q wasn't found in the outputs, fallback to default port 6379", redisName)
 	}
 
 	if !params.UseResources[input.Descriptor.Name] {
