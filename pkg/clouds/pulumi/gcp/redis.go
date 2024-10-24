@@ -40,7 +40,7 @@ func Redis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pA
 		return nil, errors.Wrapf(err, "failed to provision redis instance %q", redisName)
 	}
 
-	ctx.Export(toRedisPortExport(redisName), redisInstance.Port)
+	ctx.Export(toRedisPortExport(redisName), sdk.Sprintf("%d", redisInstance.Port))
 	ctx.Export(toRedisHostExport(redisName), redisInstance.Host)
 
 	return &api.ResourceOutput{Ref: redisInstance}, nil
