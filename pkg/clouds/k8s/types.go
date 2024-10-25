@@ -164,7 +164,7 @@ func ToScale(stack *api.StackConfigCompose) *Scale {
 	return nil
 }
 
-func ToPersistentVolumes(svc types.ServiceConfig) []PersistentVolume {
+func ToPersistentVolumes(svc types.ServiceConfig, cfg compose.Config) []PersistentVolume {
 	var volumes []PersistentVolume
 	for _, v := range svc.Volumes {
 		pv := PersistentVolume{
@@ -173,6 +173,11 @@ func ToPersistentVolumes(svc types.ServiceConfig) []PersistentVolume {
 		}
 		if v.Tmpfs != nil {
 			pv.Storage = bytesSizeToHuman(int64(v.Tmpfs.Size))
+		}
+		if volCfg, ok := cfg.Project.Volumes[v.Source]; ok {
+			if size, ok := volCfg.Labels[api.ComposeLabelVolumeSize]; ok {
+				pv.Storage = size
+			}
 		}
 		volumes = append(volumes, pv)
 	}
@@ -240,7 +245,7 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 			ReadinessProbe: toLivenessProbe(svc.HealthCheck),
 			StartupProbe:   toStartupProbe(svc.HealthCheck),
 			Resources:      resources,
-			Volumes:        ToPersistentVolumes(svc),
+			Volumes:        ToPersistentVolumes(svc, composeCfg),
 		}
 		if container.MainPort == nil && len(container.Ports) > 1 {
 			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
