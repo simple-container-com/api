@@ -59,7 +59,12 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
 
-	// only reconcile if environment was specified
+	// first we resolve existing placeholders
+	if err := p.resolvePlaceholders(); err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
+	}
+
+	// now we reconcile with parent references, if environment was specified
 	if params.Environment != "" {
 		if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
@@ -67,6 +72,8 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 			p.stacks = *stacks
 		}
 	}
+
+	// now we resolve placeholders with reconciled parent
 	if err := p.resolvePlaceholders(); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
 	}
