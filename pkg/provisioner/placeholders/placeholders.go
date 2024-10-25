@@ -1,6 +1,7 @@
 package placeholders
 
 import (
+	os "os"
 	"reflect"
 	"strings"
 
@@ -61,6 +62,7 @@ func (p *placeholders) Resolve(stacks api.StacksMap) error {
 	for stackName, stack := range iterStacks {
 		opts := []Option{
 			WithExtensions(map[string]template.Extension{
+				"env":    p.extEnv,
 				"git":    p.tplGit(stackName),
 				"auth":   p.tplAuth(stackName, stack, stacks),
 				"secret": p.tplSecrets(stackName, stack, stacks),
@@ -116,6 +118,14 @@ func (p *placeholders) tplSecrets(stackName string, stack api.Stack, stacks api.
 			return sec, nil
 		}
 	}
+}
+
+func (p *placeholders) extEnv(noSubstitution, path string, defaultValue *string) (string, error) {
+	res := os.Getenv(path)
+	if res == "" && defaultValue != nil {
+		return *defaultValue, nil
+	}
+	return res, nil
 }
 
 func (p *placeholders) tplGit(stackName string) func(source string, path string, value *string) (string, error) {
