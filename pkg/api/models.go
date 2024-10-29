@@ -23,6 +23,9 @@ type ReadOpts struct {
 	IgnoreServerMissing  bool
 	IgnoreClientMissing  bool
 	IgnoreSecretsMissing bool
+	RequireClientConfigs []string
+	RequireServerConfigs []string
+	RequireSecretConfigs []string
 }
 
 var (

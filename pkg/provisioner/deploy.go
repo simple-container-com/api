@@ -55,7 +55,12 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
 		StacksDir: params.StacksDir,
 		Profile:   params.Profile,
-	}, api.ReadIgnoreNoAnyCfg); err != nil {
+	}, api.ReadOpts{
+		IgnoreServerMissing:  true,
+		IgnoreClientMissing:  true,
+		IgnoreSecretsMissing: true,
+		RequireClientConfigs: []string{params.StackName},
+	}); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
 
