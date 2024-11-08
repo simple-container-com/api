@@ -45,6 +45,10 @@ func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 			continue
 		}
 		clientDesc, ok := stack.Client.Stacks[params.Environment]
+		if !ok && stackName != params.StackName {
+			// skip non-target stacks if they are not configured for env
+			continue
+		}
 		if !ok {
 			return nil, errors.Errorf("client stack %q is not configured for %q", stackName, params.Environment)
 		}
