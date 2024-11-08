@@ -51,9 +51,10 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 	// Create a GCP storage bucket for the static website.
 	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
-		Name:         sdk.String(bucketName),
-		Location:     sdk.String(bucketLocation),
-		ForceDestroy: sdk.BoolPtr(true),
+		Name:                     sdk.String(bucketName),
+		Location:                 sdk.String(bucketLocation),
+		ForceDestroy:             sdk.BoolPtr(true),
+		UniformBucketLevelAccess: sdk.BoolPtr(true),
 		Website: &storage.BucketWebsiteArgs{
 			MainPageSuffix: sdk.String("index.html"),
 			NotFoundPage:   sdk.String("404.html"),
