@@ -158,7 +158,7 @@ func provisionStaticEgressIPFor(ctx *sdk.Context, resName string, input *StaticE
 	}
 
 	params.Log.Info(ctx.Context(), "configure security group for %s...", resName)
-	securityGroupName := fmt.Sprintf("%s-sg", resName)
+	securityGroupName := fmt.Sprintf("%s-ipgw-sg", resName)
 	ingressRule := ec2.SecurityGroupIngressArgs{
 		Description:    sdk.String("Allow ALL inbound traffic"),
 		Protocol:       sdk.String("tcp"),
