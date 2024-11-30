@@ -174,5 +174,6 @@ func (s *StackConfigCompose) Copy() any {
 		Headers:           s.Headers,
 		LBConfig:          s.LBConfig,
 		CloudExtras:       s.CloudExtras,
+		StaticEgressIP:    s.StaticEgressIP,
 	}
 }

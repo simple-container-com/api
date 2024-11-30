@@ -107,6 +107,7 @@ type EcsFargateInput struct {
 	Alerts           *api.AlertsConfig                   `json:"alerts" yaml:"alerts"`
 	ComposeDir       string                              `json:"composeDir" yaml:"composeDir"`
 	CloudExtras      *CloudExtras                        `json:"cloudExtras" yaml:"cloudExtras"`
+	StackConfig      *api.StackConfigCompose             `json:"stackConfig" yaml:"stackConfig"`
 }
 
 func (i *EcsFargateInput) Uses() []string {
@@ -183,6 +184,8 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Max: 2,
 		}
 	}
+
+	res.StackConfig = stackCfg
 
 	if stackCfg.CloudExtras != nil {
 		awsCloudExtras := &CloudExtras{}

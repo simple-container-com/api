@@ -12,7 +12,6 @@ import (
 
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/apigatewayv2"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -259,175 +258,20 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	if lo.FromPtr(stackConfig.StaticEgressIP) {
-		zones, err := GetAvailabilityZones(ctx, crInput.AccountConfig, params.Provider)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get AZs for lambda %q", lambdaName)
-		}
-		if len(zones.Names) == 0 {
-			return nil, errors.Errorf("AZs list is empty for lambda %q", lambdaName)
-		}
-
-		vpcName := fmt.Sprintf("%s-vpc", lambdaName)
-		zoneName := zones.Names[0]
-		vpcCidrBlock := "10.0.0.0/16"
-		publicSubnetCidrBlock := "10.0.1.0/24"
-		privateSubnetCidrBlock := "10.0.2.0/24"
-
-		// Create a VPC
-		params.Log.Info(ctx.Context(), "configure VPC for lambda %s...", lambdaName)
-		vpc, err := ec2.NewVpc(ctx, vpcName, &ec2.VpcArgs{
-			CidrBlock: sdk.String(vpcCidrBlock),
+		staticEgressOut, err := provisionStaticEgressIPFor(ctx, lambdaName, &StaticEgressIPIn{
+			Params:        params,
+			Provider:      params.Provider,
+			AccountConfig: crInput.AccountConfig,
+			SecurityGroup: cloudExtras.SecurityGroup,
 		}, opts...)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create vpc for lambda %q", lambdaName)
-		}
-
-		params.Log.Info(ctx.Context(), "configure public subnet for lambda %s...", lambdaName)
-		pubSubnetName := fmt.Sprintf("%s-public-subnet", lambdaName)
-
-		publicSubnet, err := ec2.NewSubnet(ctx, pubSubnetName, &ec2.SubnetArgs{
-			VpcId:            vpc.ID(),
-			CidrBlock:        sdk.String(publicSubnetCidrBlock),
-			AvailabilityZone: sdk.String(zoneName),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision public subnet for lambda %q", lambdaName)
-		}
-
-		params.Log.Info(ctx.Context(), "configure private subnet for lambda %s...", lambdaName)
-		privSubnetName := fmt.Sprintf("%s-private-subnet", lambdaName)
-		privateSubnet, err := ec2.NewSubnet(ctx, privSubnetName, &ec2.SubnetArgs{
-			VpcId:            vpc.ID(),
-			CidrBlock:        sdk.String(privateSubnetCidrBlock),
-			AvailabilityZone: sdk.String(zoneName),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision private subnet for lambda %q", lambdaName)
-		}
-
-		params.Log.Info(ctx.Context(), "configure internet gateway for lambda %s...", lambdaName)
-		igwName := fmt.Sprintf("%s-igw", lambdaName)
-		igw, err := ec2.NewInternetGateway(ctx, igwName, &ec2.InternetGatewayArgs{
-			VpcId: vpc.ID(),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision internet gateway for lambda %q", lambdaName)
-		}
-
-		// Create a route table for the public subnet
-		params.Log.Info(ctx.Context(), "configure public route table for lambda %s...", lambdaName)
-		routeTableName := fmt.Sprintf("%s-route-table", lambdaName)
-		routeTable, err := ec2.NewRouteTable(ctx, routeTableName, &ec2.RouteTableArgs{
-			VpcId: vpc.ID(),
-			Routes: ec2.RouteTableRouteArray{
-				&ec2.RouteTableRouteArgs{
-					CidrBlock: sdk.String("0.0.0.0/0"),
-					GatewayId: igw.ID(),
-				},
-			},
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision route table for lambda's %q vpc", lambdaName)
-		}
-
-		// Associate the public subnet with the route table
-		params.Log.Info(ctx.Context(), "configure public route table association for lambda %s...", lambdaName)
-		pubSubnetRouteAssocName := fmt.Sprintf("%s-pub-subnet-route-assoc", lambdaName)
-		_, err = ec2.NewRouteTableAssociation(ctx, pubSubnetRouteAssocName, &ec2.RouteTableAssociationArgs{
-			SubnetId:     publicSubnet.ID(),
-			RouteTableId: routeTable.ID(),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision route table association for lambda's %q public subnet %q", lambdaName, pubSubnetName)
-		}
-
-		// Create an Elastic IP for the NAT Gateway
-		params.Log.Info(ctx.Context(), "configure elastic IP address for lambda %s...", lambdaName)
-		eipName := fmt.Sprintf("%s-eip", lambdaName)
-		eip, err := ec2.NewEip(ctx, eipName, nil, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision elastic IP for lambda %q", lambdaName)
-		}
-
-		// Create a NAT Gateway in the public subnet
-		params.Log.Info(ctx.Context(), "configure NAT gateway for lambda %s...", lambdaName)
-		natGwName := fmt.Sprintf("%s-nat-gateway", lambdaName)
-		natGateway, err := ec2.NewNatGateway(ctx, natGwName, &ec2.NatGatewayArgs{
-			SubnetId:     publicSubnet.ID(),
-			AllocationId: eip.ID(),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision elastic IP for lambda %q", lambdaName)
-		}
-
-		// Create a route table for the private subnet and a default route through the NAT Gateway
-		params.Log.Info(ctx.Context(), "configure private route table for lambda %s...", lambdaName)
-		privateRouteTableName := fmt.Sprintf("%s-private-route-table", lambdaName)
-		privateRouteTable, err := ec2.NewRouteTable(ctx, privateRouteTableName, &ec2.RouteTableArgs{
-			VpcId: vpc.ID(),
-			Routes: ec2.RouteTableRouteArray{
-				&ec2.RouteTableRouteArgs{
-					CidrBlock:    sdk.String("0.0.0.0/0"),
-					NatGatewayId: natGateway.ID(),
-				},
-			},
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision private route table for lambda %q", lambdaName)
-		}
-
-		// Associate the private subnet with the route table
-		params.Log.Info(ctx.Context(), "configure private route table association for lambda %s...", lambdaName)
-		privateRTAssocName := fmt.Sprintf("%s-private-route-table-association", lambdaName)
-		_, err = ec2.NewRouteTableAssociation(ctx, privateRTAssocName, &ec2.RouteTableAssociationArgs{
-			SubnetId:     privateSubnet.ID(),
-			RouteTableId: privateRouteTable.ID(),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision private route table association for lambda %q", lambdaName)
-		}
-
-		params.Log.Info(ctx.Context(), "configure security group for lambda %s...", lambdaName)
-		securityGroupName := fmt.Sprintf("%s-sg", lambdaName)
-		ingressRule := ec2.SecurityGroupIngressArgs{
-			Description:    sdk.String("Allow ALL inbound traffic"),
-			Protocol:       sdk.String("tcp"),
-			FromPort:       sdk.Int(0),
-			ToPort:         sdk.Int(65535),
-			CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-			Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-		}
-		if cloudExtras.SecurityGroup != nil {
-			ingressRule, err = processIngressSGArgs(&ingressRule, *cloudExtras.SecurityGroup, []Subnet{})
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to apply security group configuration from cloud extras for lambda %q", lambdaName)
-			}
-		}
-
-		securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
-			VpcId: vpc.ID(),
-			Ingress: ec2.SecurityGroupIngressArray{
-				&ingressRule,
-			},
-			Egress: ec2.SecurityGroupEgressArray{
-				&ec2.SecurityGroupEgressArgs{
-					Description:    sdk.String("Allow ALL outbound traffic"),
-					Protocol:       sdk.String("tcp"),
-					FromPort:       sdk.Int(0),
-					ToPort:         sdk.Int(65535),
-					CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-					Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-				},
-			},
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to crate security group for lambda %q", lambdaName)
+			return nil, errors.Wrapf(err, "failed to provision static egress IP for lambda")
 		}
 
 		params.Log.Info(ctx.Context(), "configure private route table association for lambda %s...", lambdaName)
 		lambdaFuncArgs.VpcConfig = lambda.FunctionVpcConfigArgs{
-			SubnetIds:        sdk.StringArray{privateSubnet.ID()},
-			SecurityGroupIds: sdk.StringArray{securityGroup.ID()},
+			SubnetIds:        sdk.StringArray{staticEgressOut.SubnetID},
+			SecurityGroupIds: sdk.StringArray{staticEgressOut.SecurityGroupID},
 		}
 	}
 
