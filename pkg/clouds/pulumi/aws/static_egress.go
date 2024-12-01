@@ -168,7 +168,17 @@ func provisionStaticEgressIPFor(ctx *sdk.Context, resName string, input *StaticE
 		Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
 	}
 	if input.SecurityGroup != nil {
-		ingressRule, err = processIngressSGArgs(&ingressRule, *input.SecurityGroup, []Subnet{})
+		ingressRule, err = processIngressSGArgs(&ingressRule, *input.SecurityGroup, []Subnet{
+			{
+				LookedupSubnet: LookedupSubnet{
+					id:            privateSubnet.ID(),
+					arn:           privateSubnet.Arn,
+					cidrBlock:     fromStringPtrOutputToStringOutput(privateSubnet.CidrBlock),
+					ipv6CidrBlock: fromStringPtrOutputToStringOutput(privateSubnet.Ipv6CidrBlock),
+				},
+				resource: privateSubnet,
+			},
+		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to apply security group configuration from cloud extras for %q", resName)
 		}
@@ -200,4 +210,13 @@ func provisionStaticEgressIPFor(ctx *sdk.Context, resName string, input *StaticE
 		SubnetID:        privateSubnet.ID(),
 		SecurityGroupID: securityGroup.ID(),
 	}, nil
+}
+
+func fromStringPtrOutputToStringOutput(stringPtrOutput sdk.StringPtrOutput) sdk.StringOutput {
+	return stringPtrOutput.ApplyT(func(v *string) (string, error) {
+		if v == nil {
+			return "", nil // Handle the nil case if needed
+		}
+		return *v, nil
+	}).(sdk.StringOutput)
 }
