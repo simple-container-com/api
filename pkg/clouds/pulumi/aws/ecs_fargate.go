@@ -174,7 +174,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				},
 			},
 		}
-		// securityGroups = append(securityGroups, staticEgressOut.SecurityGroup.ID())
+		securityGroups = append(securityGroups, staticEgressOut.SecurityGroup.ID())
 	} else {
 		// Create a new VPC for our ECS tasks.
 		params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
