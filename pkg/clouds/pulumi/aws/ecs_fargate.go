@@ -153,87 +153,62 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
-	var subnets defaultSubnets
-	securityGroups := sdk.StringArray{}
+	subnets, err := createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get or create default subnets in region")
+	}
+	opts = append(opts, sdk.DependsOn(subnets.Resources()))
 
-	if lo.FromPtr(lo.FromPtr(crInput.StackConfig).StaticEgressIP) {
-		staticEgressOut, err := provisionStaticEgressIPFor(ctx, ecsSimpleClusterName, &StaticEgressIPIn{
-			Params:        params,
-			Provider:      params.Provider,
-			AccountConfig: crInput.AccountConfig,
-			SecurityGroup: lo.FromPtr(crInput.CloudExtras).SecurityGroup,
-		}, opts...)
-		if err != nil {
-			return errors.Wrapf(err, "failed to provision static egress IP for lambda")
-		}
-		subnets = []Subnet{
-			{
-				LookedupSubnet: LookedupSubnet{
-					id:  staticEgressOut.SubnetID,
-					arn: staticEgressOut.Subnet.Arn,
-				},
-			},
-		}
-		securityGroups = append(securityGroups, staticEgressOut.SecurityGroup.ID())
-	} else {
-		// Create a new VPC for our ECS tasks.
-		params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
-		vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
-		vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
-		if err != nil {
-			return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
-		}
+	// Create a new VPC for our ECS tasks.
+	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
+	vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
+	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
+	}
 
-		params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
-		securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
-		ingressTCPSGArgs := ec2.SecurityGroupIngressArgs{
-			Description:    sdk.String("Allow ALL inbound traffic"),
-			Protocol:       sdk.String("tcp"),
-			FromPort:       sdk.Int(0),
-			ToPort:         sdk.Int(65535),
-			CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-			Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-		}
-		if crInput.CloudExtras != nil && crInput.CloudExtras.SecurityGroup != nil {
-			ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, subnets)
-			if err != nil {
-				return errors.Wrapf(err, "failed to apply security group configuration from cloud extras for ECS cluster %q", ecsSimpleClusterName)
-			}
-		}
-		securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
-			VpcId: vpc.ID(),
-			Ingress: ec2.SecurityGroupIngressArray{
-				&ingressTCPSGArgs,
-			},
-			Egress: ec2.SecurityGroupEgressArray{
-				&ec2.SecurityGroupEgressArgs{
-					Description:    sdk.String("Allow ALL outbound traffic"),
-					Protocol:       sdk.String("tcp"),
-					FromPort:       sdk.Int(0),
-					ToPort:         sdk.Int(65535),
-					CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-					Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-				},
-				&ec2.SecurityGroupEgressArgs{
-					Description:    sdk.String("Allow NFS outbound traffic"),
-					Protocol:       sdk.String("tcp"),
-					FromPort:       sdk.Int(2049),
-					ToPort:         sdk.Int(2049),
-					CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-					Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-				},
-			},
-		}, opts...)
+	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
+	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
+	ingressTCPSGArgs := ec2.SecurityGroupIngressArgs{
+		Description:    sdk.String("Allow ALL inbound traffic"),
+		Protocol:       sdk.String("tcp"),
+		FromPort:       sdk.Int(0),
+		ToPort:         sdk.Int(65535),
+		CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+		Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+	}
+	if crInput.CloudExtras != nil && crInput.CloudExtras.SecurityGroup != nil {
+		ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, subnets)
 		if err != nil {
-			return errors.Wrapf(err, "failed to crate security group for ECS cluster %q", ecsSimpleClusterName)
+			return errors.Wrapf(err, "failed to apply security group configuration from cloud extras for ECS cluster %q", ecsSimpleClusterName)
 		}
-		securityGroups = append(securityGroups, securityGroup.ID())
-
-		subnets, err = createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get or create default subnets in region")
-		}
-		opts = append(opts, sdk.DependsOn(subnets.Resources()))
+	}
+	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
+		VpcId: vpc.ID(),
+		Ingress: ec2.SecurityGroupIngressArray{
+			&ingressTCPSGArgs,
+		},
+		Egress: ec2.SecurityGroupEgressArray{
+			&ec2.SecurityGroupEgressArgs{
+				Description:    sdk.String("Allow ALL outbound traffic"),
+				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(0),
+				ToPort:         sdk.Int(65535),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+			&ec2.SecurityGroupEgressArgs{
+				Description:    sdk.String("Allow NFS outbound traffic"),
+				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(2049),
+				ToPort:         sdk.Int(2049),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+		},
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to crate security group for ECS cluster %q", ecsSimpleClusterName)
 	}
 
 	// Create an ECS task execution IAM role
@@ -280,9 +255,11 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsSimpleClusterName, v.Name, i)
 			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)
 			return efs.NewMountTarget(ctx, mountTargetName, &efs.MountTargetArgs{
-				FileSystemId:   fs.ID(),
-				SubnetId:       subnet.id,
-				SecurityGroups: securityGroups,
+				FileSystemId: fs.ID(),
+				SubnetId:     subnet.id,
+				SecurityGroups: sdk.StringArray{
+					securityGroup.ID(),
+				},
 			}, opts...)
 		})
 		if err != nil {
@@ -443,7 +420,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Name:        sdk.String(targetGroupName),
 			HealthCheck: lbHC,
 		},
-		SecurityGroups: securityGroups,
+		SecurityGroups: sdk.StringArray{securityGroup.ID()},
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
@@ -549,8 +526,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		},
 		NetworkConfiguration: ecsV5.ServiceNetworkConfigurationArgs{
 			AssignPublicIp: sdk.BoolPtr(true),
-			SecurityGroups: securityGroups,
-			Subnets:        subnets.Ids(),
+			SecurityGroups: sdk.StringArray{
+				securityGroup.ID(),
+			},
+			Subnets: subnets.Ids(),
 		},
 		LoadBalancers: ecsV5.ServiceLoadBalancerArray{
 			ecsV5.ServiceLoadBalancerArgs{
