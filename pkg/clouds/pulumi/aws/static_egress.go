@@ -42,7 +42,7 @@ func provisionStaticEgressForDefaultVpc(ctx *sdk.Context, resName string, vpc *e
 	}
 
 	params.Log.Info(ctx.Context(), "configure internet gateway for %s (zone %s)...", resName)
-	igwName := fmt.Sprintf("%s-igw-%s", resName)
+	igwName := fmt.Sprintf("%s-igw", resName)
 	igw, err := ec2.NewInternetGateway(ctx, igwName, &ec2.InternetGatewayArgs{
 		VpcId: vpc.ID(),
 	}, opts...)
