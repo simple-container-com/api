@@ -21,6 +21,8 @@ type LookedupSubnet struct {
 	arn           sdk.StringOutput
 	cidrBlock     sdk.StringOutput
 	ipv6CidrBlock sdk.StringOutput
+	az            sdk.StringOutput
+	azName        string
 }
 
 type Subnet struct {
@@ -139,6 +141,8 @@ func createDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 				arn:           subnet.Arn,
 				cidrBlock:     subnet.CidrBlock,
 				ipv6CidrBlock: subnet.Ipv6CidrBlock,
+				az:            sdk.String(zone).ToStringOutput(),
+				azName:        zone,
 			},
 			resource: subnet,
 		}, nil

@@ -167,6 +167,21 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
 	}
 
+	if lo.FromPtr(lo.FromPtr(crInput.StackConfig).StaticEgressIP) {
+		params.Log.Info(ctx.Context(), "configure static egress IP for VPC of ECS cluster %s...", ecsSimpleClusterName)
+		egressOuts, err := provisionStaticEgressForDefaultVpc(ctx, ecsSimpleClusterName, vpc, subnets, &StaticEgressIPIn{
+			Params:        params,
+			Provider:      params.Provider,
+			AccountConfig: crInput.AccountConfig,
+		}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create static egress IP for ECS cluster %q", ecsSimpleClusterName)
+		}
+		for _, egressOut := range egressOuts {
+			opts = append(opts, sdk.DependsOn([]sdk.Resource{egressOut.SecurityGroup}))
+		}
+	}
+
 	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
 	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
 	ingressTCPSGArgs := ec2.SecurityGroupIngressArgs{

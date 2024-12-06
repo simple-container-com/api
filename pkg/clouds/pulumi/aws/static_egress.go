@@ -26,7 +26,140 @@ type StaticEgressIPIn struct {
 	SecurityGroup *aws.SecurityGroup
 }
 
-func provisionStaticEgressIPFor(ctx *sdk.Context, resName string, input *StaticEgressIPIn, opts ...sdk.ResourceOption) (*StaticEgressIPOut, error) {
+func provisionStaticEgressForDefaultVpc(ctx *sdk.Context, resName string, vpc *ec2.DefaultVpc, subnets []Subnet, input *StaticEgressIPIn, opts ...sdk.ResourceOption) ([]StaticEgressIPOut, error) {
+	params := input.Params
+
+	params.Log.Info(ctx.Context(), "configure public subnet for %s...", resName)
+
+	var res []StaticEgressIPOut
+
+	// Create an Elastic IP for the NAT Gateway
+	params.Log.Info(ctx.Context(), "configure elastic IP address for %s...", resName)
+	eipName := fmt.Sprintf("%s-eip", resName)
+	eip, err := ec2.NewEip(ctx, eipName, nil, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision elastic IP for %q", resName)
+	}
+
+	params.Log.Info(ctx.Context(), "configure internet gateway for %s (zone %s)...", resName)
+	igwName := fmt.Sprintf("%s-igw-%s", resName)
+	igw, err := ec2.NewInternetGateway(ctx, igwName, &ec2.InternetGatewayArgs{
+		VpcId: vpc.ID(),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision internet gateway for %q", resName)
+	}
+
+	// Create a route table for the public subnet
+	params.Log.Info(ctx.Context(), "configure public route table for %s...", resName)
+	routeTableName := fmt.Sprintf("%s-route-table", resName)
+	routeTable, err := ec2.NewRouteTable(ctx, routeTableName, &ec2.RouteTableArgs{
+		VpcId: vpc.ID(),
+		Routes: ec2.RouteTableRouteArray{
+			&ec2.RouteTableRouteArgs{
+				CidrBlock: sdk.String("0.0.0.0/0"),
+				GatewayId: igw.ID(),
+			},
+		},
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to provision route table for %q default vpc", resName)
+	}
+
+	for _, privateSubnet := range subnets {
+		publicSubnetCidrBlock := "10.0.1.0/24"
+
+		pubSubnetName := fmt.Sprintf("%s-public-subnet-%s", resName, privateSubnet.azName)
+		publicSubnet, err := ec2.NewSubnet(ctx, pubSubnetName, &ec2.SubnetArgs{
+			VpcId:            vpc.ID(),
+			CidrBlock:        sdk.String(publicSubnetCidrBlock),
+			AvailabilityZone: privateSubnet.az,
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision public subnet for %q (zone %s)", resName, privateSubnet.azName)
+		}
+
+		// Associate the public subnet with the route table
+		params.Log.Info(ctx.Context(), "configure public route table association for %s (zone %s)...", resName, privateSubnet.azName)
+		pubSubnetRouteAssocName := fmt.Sprintf("%s-route-assoc-%s", resName, privateSubnet.azName)
+		_, err = ec2.NewRouteTableAssociation(ctx, pubSubnetRouteAssocName, &ec2.RouteTableAssociationArgs{
+			SubnetId:     publicSubnet.ID(),
+			RouteTableId: routeTable.ID(),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision route table association for lambda's %q public subnet %q", resName, pubSubnetName)
+		}
+
+		// Create a NAT Gateway in the public subnet
+		params.Log.Info(ctx.Context(), "configure NAT gateway for %s (zone %s)...", resName, privateSubnet.azName)
+		natGwName := fmt.Sprintf("%s-nat-gateway-%s", resName, privateSubnet.azName)
+		natGateway, err := ec2.NewNatGateway(ctx, natGwName, &ec2.NatGatewayArgs{
+			SubnetId:     publicSubnet.ID(),
+			AllocationId: eip.ID(),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision elastic IP for %q", resName)
+		}
+
+		// Create a route table for the private subnet and a default route through the NAT Gateway
+		params.Log.Info(ctx.Context(), "configure private route table for %s (zone %s)...", resName, privateSubnet.azName)
+		privateRouteTableName := fmt.Sprintf("%s-route-table-%s", resName, privateSubnet.azName)
+		privateRouteTable, err := ec2.NewRouteTable(ctx, privateRouteTableName, &ec2.RouteTableArgs{
+			VpcId: vpc.ID(),
+			Routes: ec2.RouteTableRouteArray{
+				&ec2.RouteTableRouteArgs{
+					CidrBlock:    sdk.String("0.0.0.0/0"),
+					NatGatewayId: natGateway.ID(),
+				},
+			},
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision private route table for %q (zone %s)", resName, privateSubnet.azName)
+		}
+
+		// Associate the private subnet with the route table
+		params.Log.Info(ctx.Context(), "configure private route table association for %s (zone %s)...", resName, privateSubnet.azName)
+		privateRTAssocName := fmt.Sprintf("%s-route-table-association-%s", resName, privateSubnet.azName)
+		_, err = ec2.NewRouteTableAssociation(ctx, privateRTAssocName, &ec2.RouteTableAssociationArgs{
+			SubnetId:     privateSubnet.id,
+			RouteTableId: privateRouteTable.ID(),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision private route table association for %q (zone %s)", resName, privateSubnet.azName)
+		}
+
+		params.Log.Info(ctx.Context(), "configure security group for %s...", resName)
+		securityGroupName := fmt.Sprintf("%s-ipgw-sg-%s", resName, privateSubnet.azName)
+		securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
+			VpcId:   vpc.ID(),
+			Ingress: ec2.SecurityGroupIngressArray{},
+			Egress: ec2.SecurityGroupEgressArray{
+				&ec2.SecurityGroupEgressArgs{
+					Description:    sdk.String("Allow ALL outbound traffic"),
+					Protocol:       sdk.String("tcp"),
+					FromPort:       sdk.Int(0),
+					ToPort:         sdk.Int(65535),
+					CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+					Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+				},
+			},
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to crate security group for %q", resName)
+		}
+
+		res = append(res, StaticEgressIPOut{
+			SubnetID:        publicSubnet.ID(),
+			SecurityGroupID: securityGroup.ID(),
+			SecurityGroup:   securityGroup,
+			Subnet:          publicSubnet,
+		})
+	}
+
+	return res, nil
+}
+
+func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *StaticEgressIPIn, opts ...sdk.ResourceOption) (*StaticEgressIPOut, error) {
 	zones, err := GetAvailabilityZones(ctx, input.AccountConfig, input.Provider)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get AZs for %q", resName)

@@ -258,7 +258,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	}
 
 	if lo.FromPtr(stackConfig.StaticEgressIP) {
-		staticEgressOut, err := provisionStaticEgressIPFor(ctx, lambdaName, &StaticEgressIPIn{
+		staticEgressOut, err := provisionVpcWithStaticEgress(ctx, lambdaName, &StaticEgressIPIn{
 			Params:        params,
 			Provider:      params.Provider,
 			AccountConfig: crInput.AccountConfig,
