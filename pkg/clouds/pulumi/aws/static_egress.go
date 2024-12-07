@@ -161,11 +161,11 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		return natGw.zoneName, natGw
 	})
 
-	for _, zoneName := range zones.Names {
+	for subnetIdx, zoneName := range zones.Names {
 		privateSubnetName := fmt.Sprintf("%s-private-subnet-%s", resName, zoneName)
 		privateSubnet, err := ec2.NewSubnet(ctx, privateSubnetName, &ec2.SubnetArgs{
 			VpcId:            vpc.ID(),
-			CidrBlock:        sdk.String("172.31.16.0/20"),
+			CidrBlock:        sdk.String(fmt.Sprintf("172.31.%d.0/24", subnetIdx+len(zones.Names)-1)),
 			AvailabilityZone: sdk.StringPtr(zoneName),
 		}, opts...)
 		if err != nil {
