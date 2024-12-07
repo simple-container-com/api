@@ -153,23 +153,12 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
-	subnets, err := createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get or create default subnets in region")
-	}
-	opts = append(opts, sdk.DependsOn(subnets.Resources()))
-
-	// Create a new VPC for our ECS tasks.
-	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
-	vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
-	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
-	}
+	var vpcID sdk.IDOutput
+	var subnets defaultSubnets
 
 	if lo.FromPtr(lo.FromPtr(crInput.StackConfig).StaticEgressIP) {
 		params.Log.Info(ctx.Context(), "configure static egress IP for VPC of ECS cluster %s...", ecsSimpleClusterName)
-		egressOuts, err := provisionStaticEgressForDefaultVpc(ctx, ecsSimpleClusterName, vpc, subnets, &StaticEgressIPIn{
+		egressOut, err := provisionStaticEgressForMultiZoneVpc(ctx, ecsSimpleClusterName, &StaticEgressIPIn{
 			Params:        params,
 			Provider:      params.Provider,
 			AccountConfig: crInput.AccountConfig,
@@ -177,9 +166,23 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		if err != nil {
 			return errors.Wrapf(err, "failed to create static egress IP for ECS cluster %q", ecsSimpleClusterName)
 		}
-		for _, egressOut := range egressOuts {
-			opts = append(opts, sdk.DependsOn([]sdk.Resource{egressOut.SecurityGroup}))
+		vpcID = egressOut.VPC.ID()
+		subnets = egressOut.Subnets.ToSubnets()
+	} else {
+		subnets, err = createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get or create default subnets in region")
 		}
+		opts = append(opts, sdk.DependsOn(subnets.Resources()))
+
+		// Create a new VPC for our ECS tasks.
+		params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
+		vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
+		vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
+		}
+		vpcID = vpc.ID()
 	}
 
 	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
@@ -199,7 +202,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		}
 	}
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
-		VpcId: vpc.ID(),
+		VpcId: vpcID,
 		Ingress: ec2.SecurityGroupIngressArray{
 			&ingressTCPSGArgs,
 		},

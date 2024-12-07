@@ -21,6 +21,33 @@ type StaticEgressIPOut struct {
 	Subnet          *ec2.Subnet
 }
 
+type zonedSubnets map[string]*ec2.Subnet
+
+func (s *zonedSubnets) ToSubnets() defaultSubnets {
+	return lo.Map(lo.Entries(lo.FromPtr(s)), func(e lo.Entry[string, *ec2.Subnet], _ int) Subnet {
+		zoneName := e.Key
+		subnet := e.Value
+		return Subnet{
+			LookedupSubnet: LookedupSubnet{
+				id:            subnet.ID(),
+				arn:           subnet.Arn,
+				cidrBlock:     fromStringPtrOutputToStringOutput(subnet.CidrBlock),
+				ipv6CidrBlock: fromStringPtrOutputToStringOutput(subnet.Ipv6CidrBlock),
+				az:            sdk.String(zoneName).ToStringOutput(),
+				azName:        zoneName,
+			},
+			resource: subnet,
+		}
+	})
+}
+
+type MultiStaticEgressIPOut struct {
+	VPC              *ec2.Vpc
+	SecurityGroupIDs []sdk.IDOutput
+	SecurityGroups   []*ec2.SecurityGroup
+	Subnets          zonedSubnets
+}
+
 type StaticEgressIPIn struct {
 	Params        pApi.ProvisionParams
 	Provider      sdk.ProviderResource
@@ -28,12 +55,33 @@ type StaticEgressIPIn struct {
 	SecurityGroup *aws.SecurityGroup
 }
 
-func provisionStaticEgressForDefaultVpc(ctx *sdk.Context, resName string, vpc *ec2.DefaultVpc, subnets []Subnet, input *StaticEgressIPIn, opts ...sdk.ResourceOption) ([]StaticEgressIPOut, error) {
+func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, input *StaticEgressIPIn, opts ...sdk.ResourceOption) (*MultiStaticEgressIPOut, error) {
 	params := input.Params
 
 	params.Log.Info(ctx.Context(), "configure public subnet for %s...", resName)
 
-	var res []StaticEgressIPOut
+	zones, err := GetAvailabilityZones(ctx, input.AccountConfig, input.Provider)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get AZs for %q", resName)
+	}
+	if len(zones.Names) == 0 {
+		return nil, errors.Errorf("AZs list is empty for %q", resName)
+	}
+	vpcName := fmt.Sprintf("%s-vpc", resName)
+
+	// Create a VPC
+	params.Log.Info(ctx.Context(), "configure VPC for %s...", resName)
+	vpc, err := ec2.NewVpc(ctx, vpcName, &ec2.VpcArgs{
+		CidrBlock: sdk.String("172.31.0.0/16"),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create vpc for %q", resName)
+	}
+
+	res := MultiStaticEgressIPOut{
+		VPC:     vpc,
+		Subnets: make(map[string]*ec2.Subnet),
+	}
 
 	type publicGateway struct {
 		zoneName   string
@@ -42,14 +90,13 @@ func provisionStaticEgressForDefaultVpc(ctx *sdk.Context, resName string, vpc *e
 		routeTable *ec2.RouteTable
 	}
 
-	natGatewaysList, err := util.MapErr(subnets, func(subnet Subnet, index int) (*publicGateway, error) {
-		zoneName := subnet.azName
+	natGatewaysList, err := util.MapErr(zones.Names, func(zoneName string, index int) (*publicGateway, error) {
 		pubSubnetName := fmt.Sprintf("%s-public-subnet-%s", resName, zoneName)
 		cidrBlock := fmt.Sprintf("172.31.%d.0/24", index)
 		publicSubnet, err := ec2.NewSubnet(ctx, pubSubnetName, &ec2.SubnetArgs{
 			VpcId:            vpc.ID(),
 			CidrBlock:        sdk.String(cidrBlock),
-			AvailabilityZone: subnet.az,
+			AvailabilityZone: sdk.StringPtr(zoneName),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision public subnet for %q (zone %s)", resName, zoneName)
@@ -114,37 +161,46 @@ func provisionStaticEgressForDefaultVpc(ctx *sdk.Context, resName string, vpc *e
 		return natGw.zoneName, natGw
 	})
 
-	for _, privateSubnet := range subnets {
+	for _, zoneName := range zones.Names {
+		privateSubnetName := fmt.Sprintf("%s-private-subnet-%s", resName, zoneName)
+		privateSubnet, err := ec2.NewSubnet(ctx, privateSubnetName, &ec2.SubnetArgs{
+			VpcId:            vpc.ID(),
+			CidrBlock:        sdk.String("172.31.16.0/20"),
+			AvailabilityZone: sdk.StringPtr(zoneName),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision public subnet for %q (zone %s)", resName, zoneName)
+		}
 
 		// Create a route table for the private subnet and a default route through the NAT Gateway
-		params.Log.Info(ctx.Context(), "configure private route table for %s (zone %s)...", resName, privateSubnet.azName)
-		privateRouteTableName := fmt.Sprintf("%s-private-route-table-%s", resName, privateSubnet.azName)
+		params.Log.Info(ctx.Context(), "configure private route table for %s (zone %s)...", resName, zoneName)
+		privateRouteTableName := fmt.Sprintf("%s-private-route-table-%s", resName, zoneName)
 		privateRouteTable, err := ec2.NewRouteTable(ctx, privateRouteTableName, &ec2.RouteTableArgs{
 			VpcId: vpc.ID(),
 			Routes: ec2.RouteTableRouteArray{
 				&ec2.RouteTableRouteArgs{
 					CidrBlock:    sdk.String("0.0.0.0/0"),
-					NatGatewayId: natGateways[privateSubnet.azName].natGw.ID(),
+					NatGatewayId: natGateways[zoneName].natGw.ID(),
 				},
 			},
 		}, opts...)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision private route table for %q (zone %s)", resName, privateSubnet.azName)
+			return nil, errors.Wrapf(err, "failed to provision private route table for %q (zone %s)", resName, zoneName)
 		}
 
 		// Associate the private subnet with the route table
-		params.Log.Info(ctx.Context(), "configure private route table association for %s (zone %s)...", resName, privateSubnet.azName)
-		privateRTAssocName := fmt.Sprintf("%s-route-table-association-%s", resName, privateSubnet.azName)
+		params.Log.Info(ctx.Context(), "configure private route table association for %s (zone %s)...", resName, zoneName)
+		privateRTAssocName := fmt.Sprintf("%s-route-table-association-%s", resName, zoneName)
 		_, err = ec2.NewRouteTableAssociation(ctx, privateRTAssocName, &ec2.RouteTableAssociationArgs{
-			SubnetId:     privateSubnet.id,
+			SubnetId:     privateSubnet.ID(),
 			RouteTableId: privateRouteTable.ID(),
 		}, opts...)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision private route table association for %q (zone %s)", resName, privateSubnet.azName)
+			return nil, errors.Wrapf(err, "failed to provision private route table association for %q (zone %s)", resName, zoneName)
 		}
 
 		params.Log.Info(ctx.Context(), "configure security group for %s...", resName)
-		securityGroupName := fmt.Sprintf("%s-ipgw-sg-%s", resName, privateSubnet.azName)
+		securityGroupName := fmt.Sprintf("%s-ipgw-sg-%s", resName, zoneName)
 		securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 			VpcId:   vpc.ID(),
 			Ingress: ec2.SecurityGroupIngressArray{},
@@ -163,13 +219,12 @@ func provisionStaticEgressForDefaultVpc(ctx *sdk.Context, resName string, vpc *e
 			return nil, errors.Wrapf(err, "failed to crate security group for %q", resName)
 		}
 
-		res = append(res, StaticEgressIPOut{
-			SecurityGroupID: securityGroup.ID(),
-			SecurityGroup:   securityGroup,
-		})
+		res.SecurityGroupIDs = append(res.SecurityGroupIDs, securityGroup.ID())
+		res.SecurityGroups = append(res.SecurityGroups, securityGroup)
+		res.Subnets[zoneName] = privateSubnet
 	}
 
-	return res, nil
+	return &res, nil
 }
 
 func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *StaticEgressIPIn, opts ...sdk.ResourceOption) (*StaticEgressIPOut, error) {
