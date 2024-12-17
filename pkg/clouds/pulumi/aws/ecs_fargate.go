@@ -161,7 +161,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
 	var vpcID sdk.IDOutput
-	var subnets defaultSubnets
+	var publicSubnets defaultSubnets
+	var privateSubnets defaultSubnets
 
 	if lo.FromPtr(lo.FromPtr(crInput.StackConfig).StaticEgressIP) {
 		params.Log.Info(ctx.Context(), "configure static egress IP for VPC of ECS cluster %s...", ecsSimpleClusterName)
@@ -174,13 +175,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return errors.Wrapf(err, "failed to create static egress IP for ECS cluster %q", ecsSimpleClusterName)
 		}
 		vpcID = egressOut.VPC.ID()
-		subnets = ToSubnets(egressOut.Subnets.PrivateSubnets())
+		publicSubnets = ToSubnets(egressOut.Subnets.PublicSubnets())
+		privateSubnets = ToSubnets(egressOut.Subnets.PrivateSubnets())
 	} else {
-		subnets, err = createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
+		publicSubnets, err = createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get or create default subnets in region")
 		}
-		params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), crInput.AccountConfig.Region)
+		params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(publicSubnets), crInput.AccountConfig.Region)
 
 		// Create a new VPC for our ECS tasks.
 		params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
@@ -191,7 +193,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		}
 		vpcID = vpc.ID()
 	}
-	opts = append(opts, sdk.DependsOn(subnets.Resources()))
+	allSubnets := append(publicSubnets, privateSubnets...)
+	opts = append(opts, sdk.DependsOn(allSubnets.Resources()))
 
 	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
 	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
@@ -204,7 +207,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
 	}
 	if crInput.CloudExtras != nil && crInput.CloudExtras.SecurityGroup != nil {
-		ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, subnets)
+		ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, publicSubnets)
 		if err != nil {
 			return errors.Wrapf(err, "failed to apply security group configuration from cloud extras for ECS cluster %q", ecsSimpleClusterName)
 		}
@@ -280,7 +283,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return errors.Wrapf(err, "failed to create EFS backup policy for volume %s of stack %s", v.Name, stack.Name)
 		}
 
-		_, err = util.MapErr(subnets, func(subnet Subnet, i int) (*efs.MountTarget, error) {
+		_, err = util.MapErr(publicSubnets, func(subnet Subnet, i int) (*efs.MountTarget, error) {
 			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsSimpleClusterName, v.Name, i)
 			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)
 			return efs.NewMountTarget(ctx, mountTargetName, &efs.MountTargetArgs{
@@ -455,7 +458,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 			Name:      sdk.String(loadBalancerName),
 			Tags:      tags,
-			SubnetIds: subnets.Ids(),
+			SubnetIds: publicSubnets.Ids(),
 			DefaultTargetGroup: &lb.TargetGroupArgs{
 				Name:        sdk.String(targetGroupName),
 				HealthCheck: lbHC,
@@ -490,7 +493,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return errors.Wrapf(err, "failed to create target group for %q in %q", stack.Name, deployParams.Environment)
 		}
 		nlb, err := lb.NewNetworkLoadBalancer(ctx, loadBalancerName, &lb.NetworkLoadBalancerArgs{
-			SubnetIds: subnets.Ids(),
+			SubnetIds: publicSubnets.Ids(),
 			Tags:      tags,
 			Listener: &lb.ListenerArgs{
 				Port:     sdk.Int(80),
@@ -618,7 +621,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			SecurityGroups: sdk.StringArray{
 				securityGroup.ID(),
 			},
-			Subnets: subnets.Ids(),
+			Subnets: allSubnets.Ids(),
 		},
 		LoadBalancers: ecsLoadBalancers,
 	}, opts...)
