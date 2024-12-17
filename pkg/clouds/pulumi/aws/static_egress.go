@@ -21,25 +21,40 @@ type StaticEgressIPOut struct {
 	Subnet          *ec2.Subnet
 }
 
-type zonedSubnets map[string][]*ec2.Subnet
+type zonedSubnet struct {
+	publicSubnet  *ec2.Subnet
+	privateSubnet *ec2.Subnet
+}
 
-func (s *zonedSubnets) ToSubnets() defaultSubnets {
-	return lo.FlatMap(lo.Entries(lo.FromPtr(s)), func(e lo.Entry[string, []*ec2.Subnet], _ int) []Subnet {
+type zonedSubnets map[string]zonedSubnet
+
+func (s *zonedSubnets) PrivateSubnets() map[string]*ec2.Subnet {
+	return lo.SliceToMap(lo.Entries(lo.FromPtr(s)), func(e lo.Entry[string, zonedSubnet]) (string, *ec2.Subnet) {
+		return e.Key, e.Value.privateSubnet
+	})
+}
+
+func (s *zonedSubnets) PublicSubnets() map[string]*ec2.Subnet {
+	return lo.SliceToMap(lo.Entries(lo.FromPtr(s)), func(e lo.Entry[string, zonedSubnet]) (string, *ec2.Subnet) {
+		return e.Key, e.Value.publicSubnet
+	})
+}
+
+func ToSubnets(subnets map[string]*ec2.Subnet) []Subnet {
+	return lo.Map(lo.Entries(subnets), func(e lo.Entry[string, *ec2.Subnet], _ int) Subnet {
 		zoneName := e.Key
-		subnets := e.Value
-		return lo.Map(subnets, func(subnet *ec2.Subnet, _ int) Subnet {
-			return Subnet{
-				LookedupSubnet: LookedupSubnet{
-					id:            subnet.ID(),
-					arn:           subnet.Arn,
-					cidrBlock:     fromStringPtrOutputToStringOutput(subnet.CidrBlock),
-					ipv6CidrBlock: fromStringPtrOutputToStringOutput(subnet.Ipv6CidrBlock),
-					az:            sdk.String(zoneName).ToStringOutput(),
-					azName:        zoneName,
-				},
-				resource: subnet,
-			}
-		})
+		subnet := e.Value
+		return Subnet{
+			LookedupSubnet: LookedupSubnet{
+				id:            subnet.ID(),
+				arn:           subnet.Arn,
+				cidrBlock:     fromStringPtrOutputToStringOutput(subnet.CidrBlock),
+				ipv6CidrBlock: fromStringPtrOutputToStringOutput(subnet.Ipv6CidrBlock),
+				az:            sdk.String(zoneName).ToStringOutput(),
+				azName:        zoneName,
+			},
+			resource: subnet,
+		}
 	})
 }
 
@@ -111,7 +126,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 
 	res := MultiStaticEgressIPOut{
 		VPC:     vpc,
-		Subnets: make(map[string][]*ec2.Subnet),
+		Subnets: make(zonedSubnets),
 	}
 
 	type publicGateway struct {
@@ -228,8 +243,11 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		return nil, err
 	}
 
-	res.Subnets = lo.Associate(natGatewaysList, func(natGw *publicGateway) (string, []*ec2.Subnet) {
-		return natGw.zoneName, []*ec2.Subnet{natGw.privateSubnet}
+	res.Subnets = lo.Associate(natGatewaysList, func(natGw *publicGateway) (string, zonedSubnet) {
+		return natGw.zoneName, zonedSubnet{
+			publicSubnet:  natGw.publicSubnet,
+			privateSubnet: natGw.privateSubnet,
+		}
 	})
 
 	return &res, nil
