@@ -121,7 +121,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		sdk.Provider(params.Provider),
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
 	}
-
+	tags := sdk.StringMap{
+		"simple-container.com/stack": sdk.String(deployParams.StackName),
+		"simple-container.com/env":   sdk.String(deployParams.Environment),
+	}
 	for _, img := range ref.Images {
 		opts = append(opts, img.AddOpts...)
 	}
@@ -203,6 +206,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		VpcId: vpcID,
+		Tags:  tags,
 		Ingress: ec2.SecurityGroupIngressArray{
 			&ingressTCPSGArgs,
 		},
@@ -233,6 +237,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	roleName := fmt.Sprintf("%s-exec-role", ecsSimpleClusterName)
 	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
 		Name: sdk.String(ecsSimpleClusterName),
+		Tags: tags,
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -255,7 +260,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	for _, v := range crInput.Volumes {
 		efsName := fmt.Sprintf("%s-%s-fs", ecsSimpleClusterName, v.Name)
 		params.Log.Info(ctx.Context(), "configure efs file system %s for volume %s...", efsName, v.Name)
-		fs, err := efs.NewFileSystem(ctx, efsName, &efs.FileSystemArgs{}, opts...)
+		fs, err := efs.NewFileSystem(ctx, efsName, &efs.FileSystemArgs{
+			Tags: tags,
+		}, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create file system for persistent volume %s of stack %s", v.Name, stack.Name)
 		}
@@ -433,7 +440,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		}
 	}
 	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
-		Name: sdk.String(loadBalancerName),
+		Name:      sdk.String(loadBalancerName),
+		Tags:      tags,
+		SubnetIds: subnets.Ids(),
 		DefaultTargetGroup: &lb.TargetGroupArgs{
 			Name:        sdk.String(targetGroupName),
 			HealthCheck: lbHC,
@@ -452,6 +461,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ecsClusterName := awsResName(ecsSimpleClusterName, "cluster")
 	cluster, err := ecsV5.NewCluster(ctx, ecsSimpleClusterName, &ecsV5.ClusterArgs{
 		Name: sdk.String(ecsClusterName),
+		Tags: tags,
 		Configuration: ecsV5.ClusterConfigurationArgs{
 			ExecuteCommandConfiguration: ecsV5.ClusterConfigurationExecuteCommandConfigurationArgs{
 				Logging: sdk.String("DEFAULT"),
@@ -469,6 +479,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
 		Name:        sdk.String(ccPolicyName),
+		Tags:        tags,
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{
 				"Version": "2012-10-17",
