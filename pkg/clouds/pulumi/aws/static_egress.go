@@ -113,9 +113,9 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	}
 
 	type publicGateway struct {
-		zoneName string
-		natGw    *ec2.NatGateway
-		subnet   *ec2.Subnet
+		zoneName      string
+		natGw         *ec2.NatGateway
+		privateSubnet *ec2.Subnet
 	}
 
 	natGatewaysList, err := util.MapErr(zones.Names, func(zoneName string, index int) (*publicGateway, error) {
@@ -211,9 +211,9 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		}
 
 		return lo.ToPtr(publicGateway{
-			zoneName: zoneName,
-			natGw:    natGateway,
-			subnet:   publicSubnet,
+			zoneName:      zoneName,
+			natGw:         natGateway,
+			privateSubnet: privateSubnet,
 		}), nil
 	})
 	if err != nil {
@@ -221,7 +221,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	}
 
 	res.Subnets = lo.Associate(natGatewaysList, func(natGw *publicGateway) (string, *ec2.Subnet) {
-		return natGw.zoneName, natGw.subnet
+		return natGw.zoneName, natGw.privateSubnet
 	})
 
 	//params.Log.Info(ctx.Context(), "configure security group for %s...", resName)
