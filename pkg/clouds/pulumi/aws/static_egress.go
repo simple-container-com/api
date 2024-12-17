@@ -116,22 +116,25 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		zoneName      string
 		natGw         *ec2.NatGateway
 		privateSubnet *ec2.Subnet
+		publicSubnet  *ec2.Subnet
 	}
 
 	natGatewaysList, err := util.MapErr(zones.Names, func(zoneName string, index int) (*publicGateway, error) {
 		pubSubnetName := fmt.Sprintf("%s-public-subnet-%s", resName, zoneName)
 		publicCidrBlock := fmt.Sprintf("172.31.%d.0/24", index+1)
 		privateCidrBlock := fmt.Sprintf("172.31.%d.0/24", index+1+len(zones.Names))
-		zonedTags := sdk.StringMap{
-			"zone":     sdk.String(zoneName),
-			"resource": sdk.String(resName),
+		zonedTags := map[string]string{
+			"zone":     zoneName,
+			"resource": resName,
 		}
 		publicSubnet, err := ec2.NewSubnet(ctx, pubSubnetName, &ec2.SubnetArgs{
 			VpcId:               vpc.ID(),
 			CidrBlock:           sdk.String(publicCidrBlock),
 			AvailabilityZone:    sdk.StringPtr(zoneName),
 			MapPublicIpOnLaunch: sdk.BoolPtr(true),
-			Tags:                zonedTags,
+			Tags: sdk.ToStringMap(lo.Assign(zonedTags, map[string]string{
+				"subnetType": "public",
+			})),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision public subnet for %q (zone %s)", resName, zoneName)
@@ -152,7 +155,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		params.Log.Info(ctx.Context(), "configure elastic IP address for %s (zone %s)...", resName, zoneName)
 		eipName := fmt.Sprintf("%s-eip-%s", resName, zoneName)
 		eip, err := ec2.NewEip(ctx, eipName, &ec2.EipArgs{
-			Tags: zonedTags,
+			Tags: sdk.ToStringMap(zonedTags),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision elastic IP for %q (zone %s)", resName, zoneName)
@@ -164,7 +167,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		natGateway, err := ec2.NewNatGateway(ctx, natGwName, &ec2.NatGatewayArgs{
 			SubnetId:     publicSubnet.ID(),
 			AllocationId: eip.ID(),
-			Tags:         zonedTags,
+			Tags:         sdk.ToStringMap(zonedTags),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision elastic IP for %q (zone %s)", resName, zoneName)
@@ -176,7 +179,9 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 			VpcId:            vpc.ID(),
 			CidrBlock:        sdk.String(privateCidrBlock),
 			AvailabilityZone: sdk.String(zoneName),
-			Tags:             zonedTags,
+			Tags: sdk.ToStringMap(lo.Assign(zonedTags, map[string]string{
+				"subnetType": "private",
+			})),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision private subnet for %q (zone %s)", resName, zoneName)
@@ -187,7 +192,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		privateRouteTableName := fmt.Sprintf("%s-private-route-table-%s", resName, zoneName)
 		privateRouteTable, err := ec2.NewRouteTable(ctx, privateRouteTableName, &ec2.RouteTableArgs{
 			VpcId: vpc.ID(),
-			Tags:  zonedTags,
+			Tags:  sdk.ToStringMap(zonedTags),
 			Routes: ec2.RouteTableRouteArray{
 				&ec2.RouteTableRouteArgs{
 					CidrBlock:    sdk.String("0.0.0.0/0"),
@@ -214,6 +219,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 			zoneName:      zoneName,
 			natGw:         natGateway,
 			privateSubnet: privateSubnet,
+			publicSubnet:  publicSubnet,
 		}), nil
 	})
 	if err != nil {
@@ -223,36 +229,6 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	res.Subnets = lo.Associate(natGatewaysList, func(natGw *publicGateway) (string, *ec2.Subnet) {
 		return natGw.zoneName, natGw.privateSubnet
 	})
-
-	//params.Log.Info(ctx.Context(), "configure security group for %s...", resName)
-	//securityGroupName := fmt.Sprintf("%s-ipgw-sg", resName)
-	//securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
-	//	VpcId: vpc.ID(),
-	//	Ingress: ec2.SecurityGroupIngressArray{
-	//		&ec2.SecurityGroupIngressArgs{
-	//			Description:    sdk.String("Allow ALL inbound traffic"),
-	//			Protocol:       sdk.String("tcp"),
-	//			FromPort:       sdk.Int(0),
-	//			ToPort:         sdk.Int(65535),
-	//			CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-	//			Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-	//		},
-	//	},
-	//	Egress: ec2.SecurityGroupEgressArray{
-	//		&ec2.SecurityGroupEgressArgs{
-	//			Description:    sdk.String("Allow ALL outbound traffic"),
-	//			Protocol:       sdk.String("tcp"),
-	//			FromPort:       sdk.Int(0),
-	//			ToPort:         sdk.Int(65535),
-	//			CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
-	//			Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
-	//		},
-	//	},
-	//}, opts...)
-	//if err != nil {
-	//	return nil, errors.Wrapf(err, "failed to crate security group for %q", resName)
-	//}
-	//res.SecurityGroups = append(res.SecurityGroups, securityGroup)
 
 	return &res, nil
 }
@@ -296,8 +272,8 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 	}
 
 	params.Log.Info(ctx.Context(), "configure private subnet for %s...", resName)
-	privSubnetName := fmt.Sprintf("%s-private-subnet", resName)
-	privateSubnet, err := ec2.NewSubnet(ctx, privSubnetName, &ec2.SubnetArgs{
+	privateSubnetName := fmt.Sprintf("%s-private-subnet", resName)
+	privateSubnet, err := ec2.NewSubnet(ctx, privateSubnetName, &ec2.SubnetArgs{
 		VpcId:            vpc.ID(),
 		CidrBlock:        sdk.String(privateSubnetCidrBlock),
 		AvailabilityZone: sdk.String(zoneName),
