@@ -229,7 +229,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	}
 
 	res.Subnets = lo.Associate(natGatewaysList, func(natGw *publicGateway) (string, []*ec2.Subnet) {
-		return natGw.zoneName, []*ec2.Subnet{natGw.privateSubnet, natGw.publicSubnet}
+		return natGw.zoneName, []*ec2.Subnet{natGw.privateSubnet}
 	})
 
 	return &res, nil
