@@ -99,6 +99,7 @@ type EcsFargateInput struct {
 	IngressContainer EcsFargateContainer                 `json:"ingressContainer" yaml:"ingressContainer"`
 	Config           EcsFargateConfig                    `json:"config" yaml:"config"`
 	Domain           string                              `json:"domain" yaml:"domain"`
+	DomainProxied    *bool                               `json:"domainProxied" yaml:"domainProxied"`
 	RefResourceNames []string                            `json:"refResourceNames" yaml:"refResourceNames"`
 	Secrets          map[string]string                   `json:"secrets" yaml:"secrets"`
 	BaseDnsZone      string                              `json:"baseDnsZone" yaml:"baseDnsZone"`
@@ -304,6 +305,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		return item.Name == iContainers[0].Name
 	})
 	res.Domain = stackCfg.Domain
+	res.DomainProxied = stackCfg.DomainProxied
 
 	return res, nil
 }

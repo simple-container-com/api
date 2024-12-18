@@ -102,13 +102,17 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	}
 
 	if crInput.Domain != "" {
-		params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", crInput.Domain, stack.Name, deployParams.Environment)
+		proxied := true
+		if crInput.DomainProxied != nil {
+			proxied = *crInput.DomainProxied
+		}
+		params.Log.Info(ctx.Context(), "configure CNAME DNS record (proxied: %t) %q for %q in %q...", proxied, crInput.Domain, stack.Name, deployParams.Environment)
 		if ref.LoadBalancer != nil {
 			mainRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
 				Name:     crInput.Domain,
 				Type:     "CNAME",
 				ValueOut: ref.LoadBalancer.DnsName(),
-				Proxied:  true,
+				Proxied:  proxied,
 			})
 			if err != nil {
 				return output, errors.Wrapf(err, "failed to provision main dns record")
@@ -483,32 +487,47 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		// Create a Network Load Balancer
 		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-nlb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 23, "-")
 		targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 23, "-")
-		targetGroup, err := lbV6.NewTargetGroup(ctx, targetGroupName, &lbV6.TargetGroupArgs{
-			Port:       sdk.Int(80),
-			Protocol:   sdk.String("TCP"),
-			TargetType: sdk.String("ip"),
-			VpcId:      vpcID,
-		}, opts...)
-		if err != nil {
-			return errors.Wrapf(err, "failed to create target group for %q in %q", stack.Name, deployParams.Environment)
-		}
 		nlb, err := lb.NewNetworkLoadBalancer(ctx, loadBalancerName, &lb.NetworkLoadBalancerArgs{
 			SubnetIds: publicSubnets.Ids(),
 			Tags:      tags,
 			Listener: &lb.ListenerArgs{
-				Port:     sdk.Int(80),
+				Port:     sdk.Int(81),
 				Protocol: sdk.String("TCP"),
-				DefaultActions: lbV6.ListenerDefaultActionArray{
-					&lbV6.ListenerDefaultActionArgs{
-						Type:           sdk.String("forward"),
-						TargetGroupArn: targetGroup.Arn,
-					},
-				},
 			},
 		}, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create network loadbalancer for %q in %q", stack.Name, deployParams.Environment)
 		}
+
+		targetGroup, err := lbV6.NewTargetGroup(ctx, targetGroupName, &lbV6.TargetGroupArgs{
+			Name:       nlb.LoadBalancer.Name(),
+			Port:       sdk.Int(80),
+			Protocol:   sdk.String("TCP"),
+			TargetType: sdk.String("ip"),
+			VpcId:      vpcID,
+			Tags:       tags,
+		}, append(opts, sdk.DeleteBeforeReplace(true))...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create target group for %q in %q", stack.Name, deployParams.Environment)
+		}
+
+		// Create a NLB target group attachment to replace if the NLB changes
+		_, err = lbV6.NewListener(ctx, fmt.Sprintf("%s-attachment", targetGroupName), &lbV6.ListenerArgs{
+			LoadBalancerArn: nlb.LoadBalancer.Arn(),
+			Tags:            tags,
+			Port:            sdk.Int(80),
+			Protocol:        sdk.String("TCP"),
+			DefaultActions: lbV6.ListenerDefaultActionArray{
+				&lbV6.ListenerDefaultActionArgs{
+					Type:           sdk.String("forward"),
+					TargetGroupArn: targetGroup.Arn,
+				},
+			},
+		}, append(opts, sdk.DeleteBeforeReplace(true))...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create target group attachment for %q in %q", stack.Name, deployParams.Environment)
+		}
+
 		ecsLoadBalancers = ecsV6.ServiceLoadBalancerArray{
 			ecsV6.ServiceLoadBalancerArgs{
 				ContainerName:  sdk.String(iContainer.Name),

@@ -101,6 +101,7 @@ type SimpleContainerLBConfig struct {
 type StackConfigCompose struct {
 	DockerComposeFile string                          `json:"dockerComposeFile" yaml:"dockerComposeFile"`
 	Domain            string                          `json:"domain" yaml:"domain"`
+	DomainProxied     *bool                           `json:"domainProxied" yaml:"domainProxied"`
 	BaseDnsZone       string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	Uses              []string                        `json:"uses" yaml:"uses"`
 	Runs              []string                        `json:"runs" yaml:"runs"`
