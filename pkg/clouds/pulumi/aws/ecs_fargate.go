@@ -187,6 +187,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return errors.Wrapf(err, "failed to get or create default subnets in region")
 		}
 		params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(privateSubnets), crInput.AccountConfig.Region)
+		privateSubnets = publicSubnets
 
 		// Create a new VPC for our ECS tasks.
 		params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
@@ -197,8 +198,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		}
 		vpcID = vpc.ID()
 	}
-	allSubnets := append(publicSubnets, privateSubnets...)
-	opts = append(opts, sdk.DependsOn(allSubnets.Resources()))
+	opts = append(opts, sdk.DependsOn(privateSubnets.Resources()))
 
 	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
 	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
