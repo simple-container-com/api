@@ -98,6 +98,18 @@ func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.Stac
 		if err := stackSource.Workspace().SetEnvVars(envVars); err != nil {
 			p.logger.Error(ctx, "failed to set environment variables for pulumi workspace: %v", err)
 		}
+		if p.secretsProviderPassphrase != "" {
+			if err := os.Setenv(pApi.ConfigPassphraseEnvVar, p.secretsProviderPassphrase); err != nil {
+				p.logger.Warn(ctx, "failed to set %s var", pApi.ConfigPassphraseEnvVar)
+			}
+			err := stackSource.Workspace().ChangeStackSecretsProvider(ctx, ref.FullyQualifiedName().String(), "passphrase", &auto.ChangeSecretsProviderOptions{
+				NewPassphrase: lo.ToPtr(p.secretsProviderPassphrase),
+			})
+			if err != nil {
+				p.logger.Error(ctx, "failed to set passphrase secrets provider for stack: %v", err)
+				return stackSource, err
+			}
+		}
 	}
 	return stackSource, nil
 }

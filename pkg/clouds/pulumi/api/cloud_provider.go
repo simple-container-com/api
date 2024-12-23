@@ -9,6 +9,11 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
+const (
+	ConfigPassphraseEnvVar  = "PULUMI_CONFIG_PASSPHRASE"
+	DefaultPulumiPassphrase = "simple-container.com"
+)
+
 type ProvisionParams struct {
 	// normally required to be present
 	Provider       sdk.ProviderResource
