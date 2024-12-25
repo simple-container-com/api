@@ -155,6 +155,30 @@ func Test_Provision(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path kubernetes",
+			params: api.ProvisionParams{
+				StacksDir: "stacks",
+				Stacks: []string{
+					"common",
+					"refapp-kubernetes",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-kubernetes": {
+					Name:    "refapp-kubernetes",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappKubernetesServerDescriptor,
+					Client:  *tests.ResolvedRefappCloudClientDescriptor("testdata", tests.RefappKubernetesClientDescriptor),
+				},
+			},
+		},
+		{
 			name: "pulumi error",
 			params: api.ProvisionParams{
 				StacksDir: "stacks",

@@ -5,6 +5,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -37,6 +38,10 @@ func TestReadServerDescriptor(t *testing.T) {
 			path: "testdata/stacks/refapp-gke-autopilot/server.yaml",
 			want: RefappGkeAutopilotServerDescriptor,
 		},
+		{
+			path: "testdata/stacks/refapp-kubernetes/server.yaml",
+			want: RefappKubernetesServerDescriptor,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -44,14 +49,14 @@ func TestReadServerDescriptor(t *testing.T) {
 			Expect(err).To(BeNil())
 			actual := got.ValuesOnly()
 
-			assert.EqualValuesf(t, tt.want.CiCd, actual.CiCd, "%v cicd failed", tt.path)
-			assert.EqualValuesf(t, tt.want.Provisioner, actual.Provisioner, "%v provisioner failed", tt.path)
-			assert.EqualValuesf(t, tt.want.Secrets, actual.Secrets, "%v server secrets failed", tt.path)
-			assert.EqualValuesf(t, tt.want.Templates, actual.Templates, "%v server templates failed", tt.path)
-			assert.EqualValuesf(t, tt.want.Variables, actual.Variables, "%v server variables failed", tt.path)
-			assert.EqualValuesf(t, tt.want.Resources.Registrar, actual.Resources.Registrar, "%v registrar failed", tt.path)
+			require.EqualValuesf(t, tt.want.CiCd, actual.CiCd, "%v cicd failed", tt.path)
+			require.EqualValuesf(t, tt.want.Provisioner, actual.Provisioner, "%v provisioner failed", tt.path)
+			require.EqualValuesf(t, tt.want.Secrets, actual.Secrets, "%v server secrets failed", tt.path)
+			require.EqualValuesf(t, tt.want.Templates, actual.Templates, "%v server templates failed", tt.path)
+			require.EqualValuesf(t, tt.want.Variables, actual.Variables, "%v server variables failed", tt.path)
+			require.EqualValuesf(t, tt.want.Resources.Registrar, actual.Resources.Registrar, "%v registrar failed", tt.path)
 			for env := range tt.want.Resources.Resources {
-				assert.EqualValuesf(t, tt.want.Resources.Resources[env], actual.Resources.Resources[env], "%v/%v env resources failed", tt.path, env)
+				require.EqualValuesf(t, tt.want.Resources.Resources[env], actual.Resources.Resources[env], "%v/%v env resources failed", tt.path, env)
 			}
 		})
 	}

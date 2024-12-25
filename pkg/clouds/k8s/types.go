@@ -255,6 +255,34 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 	return containers, nil
 }
 
+func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContainer) (*CloudRunContainer, error) {
+	iContainers := lo.Filter(composeCfg.Project.Services, func(s types.ServiceConfig, _ int) bool {
+		v, hasLabel := s.Labels[api.ComposeLabelIngressContainer]
+		return hasLabel && v == "true"
+	})
+	if len(iContainers) > 1 {
+		return nil, errors.Errorf("must have exactly 1 ingress container, but found (%v) in compose files %q,"+
+			"did you forget to add label %q to the main container?",
+			lo.Map(iContainers, func(item types.ServiceConfig, _ int) string {
+				return item.Name
+			}), composeCfg.Project.ComposeFiles, api.ComposeLabelIngressContainer)
+	}
+	iContainer, found := lo.Find(contaniers, func(item CloudRunContainer) bool {
+		return len(iContainers) > 0 && item.Name == iContainers[0].Name
+	})
+	if !found {
+		return nil, nil
+	}
+	if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
+		if mainPort, err := strconv.Atoi(portLabel); err != nil {
+			iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
+		} else {
+			iContainer.MainPort = lo.ToPtr(mainPort)
+		}
+	}
+	return &iContainer, nil
+}
+
 func toRunPorts(ports []types.ServicePortConfig) []int {
 	return lo.Map(ports, func(p types.ServicePortConfig, _ int) int {
 		return int(p.Target)

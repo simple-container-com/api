@@ -87,7 +87,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	if err != nil {
 		return nil, err
 	}
-	iContainer, err := findIngressContainer(composeCfg, containers)
+	iContainer, err := k8s.FindIngressContainer(composeCfg, containers)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to detect ingress container")
 	}
