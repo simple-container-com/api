@@ -22,6 +22,14 @@ type DeploymentConfig struct {
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
 }
 
+type CaddyConfig struct {
+	Enable    *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
+	Caddyfile *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"` // TODO: support overwriting
+	Namespace *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Image     *string `json:"image,omitempty" yaml:"image,omitempty"`
+	Replicas  *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
+}
+
 type DisruptionBudget struct {
 	MaxUnavailable *int `json:"maxUnavailable" yaml:"maxUnavailable"`
 	MinAvailable   *int `json:"minAvailable" yaml:"minAvailable"`

@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"embed"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -22,6 +22,9 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
+
+//go:embed embed/caddy/*
+var Caddyconfig embed.FS
 
 const (
 	AppTypeSimpleContainer = "simple-container"
@@ -47,7 +50,7 @@ type SimpleContainerArgs struct {
 	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
 	Replicas               int     `json:"replicas" yaml:"replicas"`
 	GenerateCaddyfileEntry bool    `json:"generateCaddyfileEntry" yaml:"generateCaddyfileEntry"`
-	KubeProvider           *sdkK8s.Provider
+	KubeProvider           sdk.ProviderResource
 
 	// optional properties
 	PodDisruption     *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`

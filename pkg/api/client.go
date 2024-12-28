@@ -254,7 +254,7 @@ func (p *StackParams) ToProvisionParams() ProvisionParams {
 	}
 }
 
-func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigSingleImage) (*StackDescriptor, error) {
+func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigSingleImage, parentStack string) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -265,7 +265,8 @@ func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName s
 		return nil, errors.Wrapf(err, "failed to convert single image for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
-			Type: stackDesc.Type,
+			Type:        stackDesc.Type,
+			ParentStack: parentStack,
 			Config: Config{
 				Config: input,
 			},
@@ -273,7 +274,7 @@ func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName s
 	}
 }
 
-func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {
+func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose, parentStack string) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -290,7 +291,8 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 		return nil, errors.Wrapf(err, "failed to convert cloud compose for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
-			Type: stackDesc.Type,
+			Type:        stackDesc.Type,
+			ParentStack: parentStack,
 			Config: Config{
 				Config: input,
 			},
@@ -298,7 +300,7 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 	}
 }
 
-func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic) (*StackDescriptor, error) {
+func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic, parentStack string) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -310,7 +312,8 @@ func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl
 		return nil, errors.Wrapf(err, "failed to convert cloud static site for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
-			Type: stackDesc.Type,
+			Type:        stackDesc.Type,
+			ParentStack: parentStack,
 			Config: Config{
 				Config: input,
 			},

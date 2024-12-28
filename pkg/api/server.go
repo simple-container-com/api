@@ -98,9 +98,10 @@ type ResourceOutput struct {
 }
 
 type StackDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
+	Type        string `json:"type" yaml:"type"`
+	ParentStack string `json:"parentStack" yaml:"parentStack"`
+	Config      `json:",inline" yaml:",inline"`
+	Inherit     `json:",inline" yaml:",inline"`
 }
 
 type WithDependsOnResources interface {

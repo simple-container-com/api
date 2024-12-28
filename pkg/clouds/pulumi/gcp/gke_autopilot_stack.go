@@ -21,6 +21,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
@@ -44,7 +45,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	clusterResource := gkeAutopilotInput.GkeAutopilotTemplate.GkeClusterResource
 	registryResource := gkeAutopilotInput.GkeAutopilotTemplate.ArtifactRegistryResource
-	clusterName := toClusterName(input, clusterResource)
+	clusterName := kubernetes.ToClusterName(input, clusterResource)
 	registryName := toArtifactRegistryName(input, registryResource)
 	environment := input.StackParams.Environment
 	stackName := input.StackParams.StackName
@@ -131,7 +132,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		if params.Registrar == nil {
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
-		clusterIPAddress, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, toIngressIpExport(clusterName), false)
+		clusterIPAddress, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, kubernetes.ToIngressIpExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 		}
@@ -146,11 +147,11 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
 		}
 
-		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-caddy-cfg", stackName, input.StackParams.Environment), fullParentReference, toCaddyConfigExport(clusterName), false)
+		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-caddy-cfg", stackName, input.StackParams.Environment), fullParentReference, kubernetes.ToCaddyConfigExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
 		}
-		var caddyCfg gcloud.CaddyConfig
+		var caddyCfg k8s.CaddyConfig
 		err = json.Unmarshal([]byte(caddyConfigJson), &caddyCfg)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack")

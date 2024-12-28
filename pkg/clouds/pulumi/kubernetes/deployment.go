@@ -6,7 +6,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -25,7 +24,7 @@ type Args struct {
 	Images                 []*ContainerImage
 	Params                 pApi.ProvisionParams
 	ServiceAccountName     *sdk.StringOutput
-	KubeProvider           *sdkK8s.Provider
+	KubeProvider           sdk.ProviderResource
 	InitContainers         []corev1.ContainerArgs
 	GenerateCaddyfileEntry bool
 	ServiceType            *string

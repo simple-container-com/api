@@ -468,6 +468,8 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 		"MONGODB_ATLAS_PRIVATE_KEY": "<encrypted-secret>",
 		"MONGODB_ATLAS_PUBLIC_KEY":  "<encrypted-secret>",
 		"JWT_SECRET":                "<encrypted-secret>",
+		"docker-registry-password":  "test-pass",
+		"docker-registry-username":  "test-user",
 	},
 }
 

@@ -154,6 +154,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 	} else {
 		sum := md5.Sum([]byte(checksums))
 		checksum := hex.EncodeToString(sum[:])
+		// fixme: implement own s3 uploader
 		sdk.All(mainBucket.Bucket, mainBucketPolicy.ID()).ApplyT(func(a []interface{}) error {
 			bucketName := a[0].(string)
 			_, err = local.NewCommand(ctx, fmt.Sprintf("%s-sync", input.ServiceName), &local.CommandArgs{

@@ -11,6 +11,9 @@ func init() {
 		// kubernetes
 		TemplateTypeKubernetes: ReadTemplateConfig,
 		AuthTypeKubeconfig:     ReadKubernetesConfig,
+
+		// caddy
+		ResourceTypeCaddy: CaddyReadConfig,
 	})
 
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{

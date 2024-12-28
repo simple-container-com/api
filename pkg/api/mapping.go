@@ -209,21 +209,21 @@ var clientConfigsPrepareMap = map[string]clientConfigPrepareFunc{
 		if !ok {
 			return nil, errors.Errorf("client config is not of type *StackConfigCompose")
 		}
-		return PrepareCloudComposeForDeploy(ctx, stackDir, stackName, tpl, configCompose)
+		return PrepareCloudComposeForDeploy(ctx, stackDir, stackName, tpl, configCompose, clientDesc.ParentStack)
 	},
 	ClientTypeSingleImage: func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 		configSingleImage, ok := clientDesc.Config.Config.(*StackConfigSingleImage)
 		if !ok {
 			return nil, errors.Errorf("client config is not of type *StackConfigSingleImage")
 		}
-		return PrepareCloudSingleImageForDeploy(ctx, stackDir, stackName, tpl, configSingleImage)
+		return PrepareCloudSingleImageForDeploy(ctx, stackDir, stackName, tpl, configSingleImage, clientDesc.ParentStack)
 	},
 	ClientTypeStatic: func(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientDesc StackClientDescriptor) (*StackDescriptor, error) {
 		configStatic, ok := clientDesc.Config.Config.(*StackConfigStatic)
 		if !ok {
 			return nil, errors.Errorf("client config is not of type *StackConfigStatic")
 		}
-		return PrepareStaticForDeploy(ctx, stackDir, stackName, tpl, configStatic)
+		return PrepareStaticForDeploy(ctx, stackDir, stackName, tpl, configStatic, clientDesc.ParentStack)
 	},
 }
 

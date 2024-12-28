@@ -51,9 +51,10 @@ func (s *VariableDescriptor) Copy() VariableDescriptor {
 
 func (s *StackDescriptor) Copy() StackDescriptor {
 	return StackDescriptor{
-		Type:    s.Type,
-		Config:  s.Config.Copy(),
-		Inherit: s.Inherit,
+		Type:        s.Type,
+		Config:      s.Config.Copy(),
+		ParentStack: s.ParentStack,
+		Inherit:     s.Inherit,
 	}
 }
 

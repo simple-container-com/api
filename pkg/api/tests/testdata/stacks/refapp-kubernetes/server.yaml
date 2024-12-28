@@ -10,9 +10,21 @@ templates:
     type: kubernetes-cloudrun
     config:
       kubeconfig: "${auth:kubernetes}"
+      dockerRegistryURL: index.docker.io
+      dockerRegistryUsername: "${secret:docker-registry-username}"
+      dockerRegistryPassword: "${secret:docker-registry-password}"
+      caddyResource: caddy
 resources:
   registrar:
     inherit: common
   resources:
     staging:
       template: stack-per-app-k8s
+      resources:
+        caddy:
+          type: kubernetes-caddy
+          config:
+            kubeconfig: "${auth:kubernetes}"
+            enable: true
+            namespace: caddy
+            replicas: 2
