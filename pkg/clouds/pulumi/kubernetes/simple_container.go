@@ -491,7 +491,7 @@ ${proto}://${domain} {
 	if service != nil {
 		sc.ServicePublicIP = service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
 			if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
-				args.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
+				args.Log.Warn(ctx.Context(), "failed to read load balancer IP: there is no ingress IP found")
 				return ""
 			}
 			ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)

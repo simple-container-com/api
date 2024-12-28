@@ -156,7 +156,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	clusterName := ToClusterName(input, caddy.ClusterName)
 	ctx.Export(ToIngressIpExport(clusterName), sc.Service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
 		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
-			params.Log.Warn(ctx.Context(), "load balancer is nil and there is no ingress IP found")
+			params.Log.Warn(ctx.Context(), "failed to export ingress IP: load balancer is nil and there is no ingress IP found")
 			return ""
 		}
 		ip := lo.FromPtr(status.LoadBalancer.Ingress[0].Ip)
