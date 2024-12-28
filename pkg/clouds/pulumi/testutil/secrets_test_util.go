@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/simple-container-com/api/pkg/clouds/docker"
-
 	"gopkg.in/yaml.v3"
 
 	. "github.com/onsi/gomega"
@@ -14,6 +12,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
+	"github.com/simple-container-com/api/pkg/clouds/docker"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 )

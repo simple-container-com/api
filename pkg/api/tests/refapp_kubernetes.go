@@ -4,6 +4,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/docker"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )
 
@@ -11,10 +12,10 @@ var RefappKubernetesServerResources = map[string]api.ResourceDescriptor{
 	"caddy": {
 		Type: k8s.ResourceTypeCaddy,
 		Config: api.Config{Config: &k8s.CaddyResource{
-			KubernetesConfig: k8s.KubernetesConfig{
+			KubernetesConfig: &k8s.KubernetesConfig{
 				Kubeconfig: "${auth:kubernetes}",
 			},
-			CaddyConfig: k8s.CaddyConfig{
+			CaddyConfig: &k8s.CaddyConfig{
 				Enable:    lo.ToPtr(true),
 				Namespace: lo.ToPtr("caddy"),
 				Replicas:  lo.ToPtr(2),
@@ -42,10 +43,12 @@ var RefappKubernetesServerDescriptor = &api.ServerDescriptor{
 					KubernetesConfig: k8s.KubernetesConfig{
 						Kubeconfig: "${auth:kubernetes}",
 					},
-					DockerRegistryURL:      lo.ToPtr("index.docker.io"),
-					DockerRegistryUsername: lo.ToPtr("${secret:docker-registry-username}"),
-					DockerRegistryPassword: lo.ToPtr("${secret:docker-registry-password}"),
-					CaddyResource:          lo.ToPtr("caddy"),
+					RegistryCredentials: docker.RegistryCredentials{
+						DockerRegistryURL:      lo.ToPtr("index.docker.io"),
+						DockerRegistryUsername: lo.ToPtr("${secret:docker-registry-username}"),
+						DockerRegistryPassword: lo.ToPtr("${secret:docker-registry-password}"),
+					},
+					CaddyResource: lo.ToPtr("caddy"),
 				},
 			},
 			Inherit: api.Inherit{},
@@ -68,10 +71,10 @@ var ResolvedRefappKubernetesServerResources = map[string]api.ResourceDescriptor{
 	"caddy": {
 		Type: k8s.ResourceTypeCaddy,
 		Config: api.Config{Config: &k8s.CaddyResource{
-			KubernetesConfig: k8s.KubernetesConfig{
+			KubernetesConfig: &k8s.KubernetesConfig{
 				Kubeconfig: "<kube-config>",
 			},
-			CaddyConfig: k8s.CaddyConfig{
+			CaddyConfig: &k8s.CaddyConfig{
 				Enable:    lo.ToPtr(true),
 				Namespace: lo.ToPtr("caddy"),
 				Replicas:  lo.ToPtr(2),
@@ -93,10 +96,12 @@ var ResolvedRefappKubernetesServerDescriptor = &api.ServerDescriptor{
 					KubernetesConfig: k8s.KubernetesConfig{
 						Kubeconfig: "<kube-config>",
 					},
-					DockerRegistryURL:      lo.ToPtr("index.docker.io"),
-					DockerRegistryUsername: lo.ToPtr("test-user"),
-					DockerRegistryPassword: lo.ToPtr("test-pass"),
-					CaddyResource:          lo.ToPtr("caddy"),
+					RegistryCredentials: docker.RegistryCredentials{
+						DockerRegistryURL:      lo.ToPtr("index.docker.io"),
+						DockerRegistryUsername: lo.ToPtr("test-user"),
+						DockerRegistryPassword: lo.ToPtr("test-pass"),
+					},
+					CaddyResource: lo.ToPtr("caddy"),
 				},
 			},
 			Inherit: api.Inherit{},

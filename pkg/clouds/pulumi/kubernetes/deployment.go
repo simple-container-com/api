@@ -3,8 +3,6 @@ package kubernetes
 import (
 	"fmt"
 
-	"github.com/simple-container-com/api/pkg/clouds/docker"
-
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -12,6 +10,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/docker"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"

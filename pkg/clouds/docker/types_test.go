@@ -3,9 +3,8 @@ package docker
 import (
 	"testing"
 
-	"github.com/samber/lo"
-
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 )
 
 func Test_GenerateImagePullSecret(t *testing.T) {
