@@ -8,7 +8,7 @@ import (
 func init() {
 	api.RegisterProvider(k8s.ProviderType, Provider)
 	api.RegisterResources(map[string]api.ProvisionFunc{
-		k8s.TemplateTypeKubernetes: KubeRun,
+		k8s.TemplateTypeKubernetesCloudrun: KubeRun,
 	})
 	api.RegisterResources(map[string]api.ProvisionFunc{
 		k8s.ResourceTypeCaddy: CaddyResource,

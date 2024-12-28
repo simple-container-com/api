@@ -295,7 +295,7 @@ func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string,
 	var provider sdk.ProviderResource
 	var providerType string
 	if authCfg, ok := pCfg.Config.(api.AuthConfig); !ok {
-		return "", nil, errors.Errorf("failed to cast config to api.AuthConfig for %q of type %q in stack %q", resName, resType, stack.Name)
+		return "", nil, errors.Errorf("failed to cast config to api.AuthConfig for %q of type %q in stack %q (given %T)", resName, resType, stack.Name, pCfg)
 	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
 		return "", nil, errors.Errorf("unsupported provider type %q for resource %q of type %q in stack %q", authCfg.ProviderType(), resName, resType, stack.Name)
 	} else {

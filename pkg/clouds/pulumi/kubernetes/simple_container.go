@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/simple-container-com/api/pkg/clouds/docker"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -78,6 +80,7 @@ type SimpleContainerArgs struct {
 	VolumeOutputs        []corev1.VolumeOutput
 	SecretVolumeOutputs  []any
 	ComputeContext       pApi.ComputeContext
+	ImagePullSecret      *docker.RegistryCredentials
 }
 
 type SimpleContainer struct {
@@ -156,6 +159,32 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	volumesCfgName := ToConfigVolumesName(args.Deployment)
 	envSecretName := ToEnvConfigName(args.Deployment)
 	volumesSecretName := ToSecretVolumesName(args.Deployment)
+	imagePullSecretName := ToImagePullSecretName(args.Deployment)
+
+	var imagePullSecret *corev1.Secret
+	if args.ImagePullSecret != nil {
+		args.Log.Info(ctx.Context(), "Creating imagePullSecret for service %s", args.Service)
+
+		imagePullSecretString, err := args.ImagePullSecret.ToImagePullSecret()
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert pull secret to string")
+		}
+		imagePullSecret, err = corev1.NewSecret(ctx, imagePullSecretName, &corev1.SecretArgs{
+			Metadata: &metav1.ObjectMetaArgs{
+				Name:        sdk.String(imagePullSecretName),
+				Namespace:   namespace.Metadata.Name().Elem(),
+				Labels:      sdk.ToStringMap(appLabels),
+				Annotations: sdk.ToStringMap(appAnnotations),
+			},
+			Type: sdk.String("kubernetes.io/dockerconfigjson"),
+			Data: sdk.ToStringMap(map[string]string{
+				".dockerconfigjson": imagePullSecretString,
+			}),
+		}, opts...)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// ConfigMap
 	volumesConfigMap, err := corev1.NewConfigMap(ctx, volumesCfgName, &corev1.ConfigMapArgs{
@@ -310,6 +339,36 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	volumeOutputs := lo.Map(args.VolumeOutputs, func(o corev1.VolumeOutput, _ int) any { return o })
 	initContainerOutputs := lo.Map(args.InitContainerOutputs, func(o corev1.ContainerOutput, _ int) any { return o })
 	// Deployment
+	podSpecArgs := &corev1.PodSpecArgs{
+		NodeSelector: sdk.ToStringMap(args.NodeSelector),
+		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
+			for _, c := range scOuts {
+				initContainers = append(initContainers, c.(corev1.ContainerInput))
+			}
+			return initContainers, nil
+		}).(corev1.ContainerArrayOutput),
+		Containers: sdk.All(sidecarOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
+			for _, c := range scOuts {
+				containers = append(containers, c.(corev1.ContainerInput))
+			}
+			return containers, nil
+		}).(corev1.ContainerArrayOutput),
+		Volumes: sdk.All(volumeOutputs...).ApplyT(func(vOuts []any) (corev1.VolumeArray, error) {
+			for _, v := range vOuts {
+				volumes = append(volumes, v.(corev1.VolumeInput))
+			}
+			return volumes, nil
+		}).(corev1.VolumeArrayOutput),
+		SecurityContext:    args.SecurityContext,
+		ServiceAccountName: args.ServiceAccountName,
+	}
+	if imagePullSecret != nil {
+		podSpecArgs.ImagePullSecrets = corev1.LocalObjectReferenceArray{
+			corev1.LocalObjectReferenceArgs{
+				Name: imagePullSecret.Metadata.Name(),
+			},
+		}
+	}
 	deployment, err := v1.NewDeployment(ctx, args.Deployment, &v1.DeploymentArgs{
 		Metadata: &metav1.ObjectMetaArgs{
 			Name:        sdk.String(args.Deployment),
@@ -328,29 +387,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 					Labels:      sdk.ToStringMap(appLabels),
 					Annotations: sdk.ToStringMap(appAnnotations),
 				},
-				Spec: &corev1.PodSpecArgs{
-					NodeSelector: sdk.ToStringMap(args.NodeSelector),
-					InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
-						for _, c := range scOuts {
-							initContainers = append(initContainers, c.(corev1.ContainerInput))
-						}
-						return initContainers, nil
-					}).(corev1.ContainerArrayOutput),
-					Containers: sdk.All(sidecarOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
-						for _, c := range scOuts {
-							containers = append(containers, c.(corev1.ContainerInput))
-						}
-						return containers, nil
-					}).(corev1.ContainerArrayOutput),
-					Volumes: sdk.All(volumeOutputs...).ApplyT(func(vOuts []any) (corev1.VolumeArray, error) {
-						for _, v := range vOuts {
-							volumes = append(volumes, v.(corev1.VolumeInput))
-						}
-						return volumes, nil
-					}).(corev1.VolumeArrayOutput),
-					SecurityContext:    args.SecurityContext,
-					ServiceAccountName: args.ServiceAccountName,
-				},
+				Spec: podSpecArgs,
 			},
 		},
 	}, opts...)
@@ -495,6 +532,10 @@ ${proto}://${domain} {
 	}
 
 	return sc, nil
+}
+
+func ToImagePullSecretName(deploymentName string) string {
+	return fmt.Sprintf("%s-docker-config", deploymentName)
 }
 
 func ToSecretVolumesName(deploymentName string) string {

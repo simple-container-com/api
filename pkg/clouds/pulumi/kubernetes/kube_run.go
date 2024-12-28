@@ -22,7 +22,7 @@ type KubeRunOutput struct {
 }
 
 func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	if input.Descriptor.Type != k8s.TemplateTypeKubernetes {
+	if input.Descriptor.Type != k8s.TemplateTypeKubernetesCloudrun {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}
 
@@ -46,8 +46,9 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	var caddyConfig *k8s.CaddyConfig
 	if kubeRunInput.CaddyResource != nil {
 		caddyResource := lo.FromPtr(kubeRunInput.CaddyResource)
+		clusterName := ToClusterName(input, caddyResource)
 		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q", caddyResource, fullParentReference)
-		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-stack-caddy-cfg", parentStack), fullParentReference, ToCaddyConfigExport(caddyResource), false)
+		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-stack-caddy-cfg", parentStack), fullParentReference, ToCaddyConfigExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's %q resources for resource %q", fullParentReference, caddyResource)
 		}
@@ -90,6 +91,10 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
+	}
+
+	if kubeRunInput.RegistryRequiresAuth() {
+		kubeArgs.ImagePullSecret = lo.ToPtr(kubeRunInput.RegistryCredentials)
 	}
 
 	sc, err := DeploySimpleContainer(ctx, kubeArgs)

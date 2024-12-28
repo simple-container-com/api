@@ -35,7 +35,7 @@ func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 	params.Log.Info(ctx.Context(), "Deploying caddy service...")
 	caddyService, err := DeployCaddyService(ctx, CaddyDeployment{
-		CaddyConfig: lo.ToPtr(caddyCfg.CaddyConfig),
+		CaddyConfig: caddyCfg.CaddyConfig,
 		ClusterName: input.Descriptor.Name,
 	}, input, params, sdk.String(caddyCfg.Kubeconfig).ToStringOutput())
 	if err != nil {

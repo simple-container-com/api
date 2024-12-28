@@ -9,14 +9,14 @@ const ProviderType = "kubernetes"
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		// kubernetes
-		TemplateTypeKubernetes: ReadTemplateConfig,
-		AuthTypeKubeconfig:     ReadKubernetesConfig,
+		TemplateTypeKubernetesCloudrun: ReadTemplateConfig,
+		AuthTypeKubeconfig:             ReadKubernetesConfig,
 
 		// caddy
 		ResourceTypeCaddy: CaddyReadConfig,
 	})
 
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
-		TemplateTypeKubernetes: ToKubernetesRunConfig,
+		TemplateTypeKubernetesCloudrun: ToKubernetesRunConfig,
 	})
 }

@@ -36,9 +36,9 @@ var RefappKubernetesServerDescriptor = &api.ServerDescriptor{
 	},
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app-k8s": {
-			Type: k8s.TemplateTypeKubernetes,
+			Type: k8s.TemplateTypeKubernetesCloudrun,
 			Config: api.Config{
-				Config: &k8s.TemplateConfig{
+				Config: &k8s.CloudrunTemplate{
 					KubernetesConfig: k8s.KubernetesConfig{
 						Kubeconfig: "${auth:kubernetes}",
 					},
@@ -89,7 +89,7 @@ var ResolvedRefappKubernetesServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-k8s": {
 			Type: "kubernetes-cloudrun",
 			Config: api.Config{
-				Config: &k8s.TemplateConfig{
+				Config: &k8s.CloudrunTemplate{
 					KubernetesConfig: k8s.KubernetesConfig{
 						Kubeconfig: "<kube-config>",
 					},

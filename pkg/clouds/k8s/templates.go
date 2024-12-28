@@ -1,20 +1,20 @@
 package k8s
 
-import "github.com/simple-container-com/api/pkg/api"
-
-const (
-	TemplateTypeKubernetes = "kubernetes-cloudrun"
+import (
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/docker"
 )
 
-type TemplateConfig struct {
-	KubernetesConfig `json:",inline" yaml:",inline"`
+const (
+	TemplateTypeKubernetesCloudrun = "kubernetes-cloudrun"
+)
 
-	DockerRegistryURL      *string `json:"dockerRegistryURL,omitempty" yaml:"dockerRegistryURL,omitempty"`
-	DockerRegistryUsername *string `json:"dockerRegistryUsername,omitempty" yaml:"dockerRegistryUsername,omitempty"`
-	DockerRegistryPassword *string `json:"dockerRegistryPassword,omitempty" yaml:"dockerRegistryPassword,omitempty"`
-	CaddyResource          *string `json:"caddyResource,omitempty" yaml:"caddyResource,omitempty"`
+type CloudrunTemplate struct {
+	KubernetesConfig           `json:",inline" yaml:",inline"`
+	docker.RegistryCredentials `json:",inline" yaml:",inline"`
+	CaddyResource              *string `json:"caddyResource,omitempty" yaml:"caddyResource,omitempty"`
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &TemplateConfig{})
+	return api.ConvertConfig(config, &CloudrunTemplate{})
 }

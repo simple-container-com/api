@@ -3,6 +3,8 @@ package kubernetes
 import (
 	"fmt"
 
+	"github.com/simple-container-com/api/pkg/clouds/docker"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -30,6 +32,8 @@ type Args struct {
 	ServiceType            *string
 	Sidecars               []corev1.ContainerArgs
 	ComputeContext         pApi.ComputeContext
+	SecretVolumes          []k8s.SimpleTextVolume
+	ImagePullSecret        *docker.RegistryCredentials
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -188,6 +192,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		RollingUpdate:   nil, // TODO
 		SecurityContext: nil, // TODO
 		Log:             args.Params.Log,
+		SecretVolumes:   args.SecretVolumes,
+		ImagePullSecret: args.ImagePullSecret,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
