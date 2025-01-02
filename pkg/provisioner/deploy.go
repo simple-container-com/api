@@ -52,15 +52,18 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 		return nil, nil, nil, errors.Errorf("stack must be specified")
 	}
 
-	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
-		StacksDir: params.StacksDir,
-		Profile:   params.Profile,
-	}, api.ReadOpts{
+	readOpts := api.ReadOpts{
 		IgnoreServerMissing:  true,
 		IgnoreClientMissing:  true,
 		IgnoreSecretsMissing: true,
-		RequireClientConfigs: []string{params.StackName},
-	}); err != nil {
+	}
+	if !params.Parent {
+		readOpts.RequireClientConfigs = []string{params.StackName}
+	}
+	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
+		StacksDir: params.StacksDir,
+		Profile:   params.Profile,
+	}, readOpts); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
 
@@ -70,7 +73,7 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 	}
 
 	// now we reconcile with parent references, if environment was specified
-	if params.Environment != "" {
+	if params.Environment != "" && !params.Parent {
 		if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
 		} else {

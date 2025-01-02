@@ -101,6 +101,7 @@ type SimpleContainerLBConfig struct {
 type StackConfigCompose struct {
 	DockerComposeFile string                          `json:"dockerComposeFile" yaml:"dockerComposeFile"`
 	Domain            string                          `json:"domain" yaml:"domain"`
+	Prefix            string                          `json:"prefix" yaml:"prefix"` // prefix for service under LB (e.g. /<service>) default: empty
 	DomainProxied     *bool                           `json:"domainProxied" yaml:"domainProxied"`
 	BaseDnsZone       string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	Uses              []string                        `json:"uses" yaml:"uses"`
@@ -182,6 +183,7 @@ type StackParams struct {
 	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
 	Version     string   `json:"version" yaml:"version"`
 	Timeouts    Timeouts `json:",inline" yaml:",inline"`
+	Parent      bool     `json:"parent" yaml:"parent"`
 }
 
 type Timeouts struct {

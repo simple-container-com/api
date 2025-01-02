@@ -13,6 +13,7 @@ import (
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
+	networkv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/networking/v1"
 	policyv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/policy/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -33,6 +34,7 @@ const (
 	AnnotationCaddyfileEntry = "simple-container.com/caddyfile-entry"
 	AnnotationParentStack    = "simple-container.com/parent-stack"
 	AnnotationDomain         = "simple-container.com/domain"
+	AnnotationPrefix         = "simple-container.com/prefix"
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
 
@@ -47,6 +49,7 @@ type SimpleContainerArgs struct {
 	Service                string  `json:"service" yaml:"service"`
 	ScEnv                  string  `json:"scEnv" yaml:"scEnv"`
 	Domain                 string  `json:"domain" yaml:"domain"`
+	Prefix                 string  `json:"prefix" yaml:"prefix"`
 	Deployment             string  `json:"deployment" yaml:"deployment"`
 	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
 	Replicas               int     `json:"replicas" yaml:"replicas"`
@@ -61,6 +64,7 @@ type SimpleContainerArgs struct {
 	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
+	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
 	Headers           *k8s.Headers                 `json:"headers" yaml:"headers"`
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
@@ -80,6 +84,7 @@ type SimpleContainerArgs struct {
 	SecretVolumeOutputs  []any
 	ComputeContext       pApi.ComputeContext
 	ImagePullSecret      *docker.RegistryCredentials
+	UseSSL               bool
 }
 
 type SimpleContainer struct {
@@ -105,6 +110,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	appAnnotations := map[string]string{
 		AnnotationDomain: args.Domain,
+		AnnotationPrefix: args.Prefix,
 		AnnotationEnv:    args.ScEnv,
 	}
 	var mainPort *int
@@ -404,21 +410,38 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	var caddyfileEntry string
 	if args.GenerateCaddyfileEntry && mainPort != nil {
-		caddyfileEntry = `
+		if args.Domain != "" {
+			caddyfileEntry = `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
     header_down Server nginx ${addHeaders}
     import handle_server_error
     ${extraHelpers}
   }
-  import hsts
-  import gzip
-  import handle_static
+  ${imports} 
 }
 `
+		} else if args.Prefix != "" {
+			caddyfileEntry = `
+  handle_path /${prefix}* {
+    reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
+      header_down Server nginx ${addHeaders}
+      import handle_server_error
+      ${extraHelpers}
+    }
+  }
+`
+		}
+		imports := []string{
+			"import gzip", "import handle_static",
+		}
+		if args.UseSSL {
+			imports = append(imports, "import hsts")
+		}
 		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData((placeholders.MapData{
 			"proto":     lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
 			"domain":    args.Domain,
+			"prefix":    args.Prefix,
 			"service":   args.Service,
 			"namespace": args.Namespace,
 			"port":      strconv.Itoa(lo.FromPtr(mainPort)),
@@ -426,6 +449,7 @@ ${proto}://${domain} {
 				return fmt.Sprintf("header_down %s %s", h.Key, h.Value)
 			}), "\n    "),
 			"extraHelpers": strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
+			"imports":      strings.Join(imports, "\n    "),
 		}))); err != nil {
 			return nil, errors.Wrapf(err, "failed to apply placeholders on caddyfile entry template")
 		}
@@ -458,6 +482,50 @@ ${proto}://${domain} {
 		}, opts...)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	// Optional ingress for service
+	if args.ProvisionIngress {
+		if mainPort == nil {
+			return nil, errors.Errorf("cannot provision ingress when no main port is specified")
+		}
+		ingressAnnotations := lo.Assign(serviceAnnotations)
+		if args.UseSSL {
+			ingressAnnotations["ingress.kubernetes.io/ssl-redirect"] = "false" // do not need ssl redirect from kube
+		}
+		_, err = networkv1.NewIngress(ctx, args.Service, &networkv1.IngressArgs{
+			Metadata: &metav1.ObjectMetaArgs{
+				Name:        sdk.String(args.Service),
+				Namespace:   namespace.Metadata.Name().Elem(),
+				Labels:      sdk.ToStringMap(appLabels),
+				Annotations: sdk.ToStringMap(ingressAnnotations),
+			},
+			Spec: &networkv1.IngressSpecArgs{
+				Rules: networkv1.IngressRuleArray{
+					networkv1.IngressRuleArgs{
+						Http: networkv1.HTTPIngressRuleValueArgs{
+							Paths: networkv1.HTTPIngressPathArray{
+								networkv1.HTTPIngressPathArgs{
+									Backend: networkv1.IngressBackendArgs{
+										Service: networkv1.IngressServiceBackendArgs{
+											Name: sdk.String(args.Service),
+											Port: networkv1.ServiceBackendPortArgs{
+												Number: sdk.Int(*mainPort),
+											},
+										},
+									},
+									Path:     sdk.String("/"),
+									PathType: sdk.String("Prefix"),
+								},
+							},
+						},
+					},
+				},
+			},
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision ingress for service")
 		}
 	}
 

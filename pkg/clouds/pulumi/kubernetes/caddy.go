@@ -62,9 +62,22 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 	// TODO: provision private bucket for certs storage
 	var caddyVolumes []k8s.SimpleTextVolume
-	caddyVolumes, err = EmbedFSToTextVolumes(caddyVolumes, Caddyconfig, "embed/caddy")
+	caddyVolumes, err = EmbedFSToTextVolumes(caddyVolumes, Caddyconfig, "embed/caddy", "/etc/caddy")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read embedded caddy config files")
+	}
+
+	defaultCaddyFileEntryStart := `http:// {`
+	defaultCaddyFileEntry := `
+  import gzip
+  import handle_static
+  root * /etc/caddy/pages
+  file_server
+`
+	// if caddy must respect SSL connections only
+	useSSL := caddy.UseSSL == nil || *caddy.UseSSL
+	if useSSL {
+		defaultCaddyFileEntry += "\nimport hsts"
 	}
 
 	serviceAccountName := input.ToResName(fmt.Sprintf("%s-caddy-sa", input.Descriptor.Name))
@@ -103,15 +116,39 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 				SubPath:   sdk.String("Caddyfile"),
 			},
 		},
+		Env: corev1.EnvVarArray{
+			corev1.EnvVarArgs{
+				Name:  sdk.String("DEFAULT_ENTRY_START"),
+				Value: sdk.String(defaultCaddyFileEntryStart),
+			},
+			corev1.EnvVarArgs{
+				Name:  sdk.String("DEFAULT_ENTRY"),
+				Value: sdk.String(defaultCaddyFileEntry),
+			},
+			corev1.EnvVarArgs{
+				Name:  sdk.String("USE_PREFIXES"),
+				Value: sdk.String(fmt.Sprintf("%t", caddy.UsePrefixes)),
+			},
+		},
 		Command: sdk.ToStringArray([]string{"bash", "-c", `
 	      set -xe;
 	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
 	      namespaces=$(kubectl get services --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' | uniq)
+          echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
+          if [ "$USE_PREFIXES" == "false" ]; then
+            echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
+	        echo "}" >> /tmp/Caddyfile
+          fi
 	      for ns in $namespaces; do
 	          echo $ns
 	          kubectl get service -n $ns $ns -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> /tmp/Caddyfile || true;
 	          echo "" >> /tmp/Caddyfile
 	      done
+          if [ "$USE_PREFIXES" == "true" ]; then
+            echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
+	        echo "}" >> /tmp/Caddyfile
+          fi
+          echo "" >> /tmp/Caddyfile
 	      cat /tmp/Caddyfile
 		`}),
 	}
@@ -120,8 +157,14 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	if caddy.ClusterResource != nil {
 		addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{caddy.ClusterResource}))
 	}
+	serviceType := lo.ToPtr("LoadBalancer")
+	if lo.FromPtr(caddy.CaddyConfig).ServiceType != nil {
+		serviceType = lo.FromPtr(caddy.CaddyConfig).ServiceType
+	}
 	sc, err := DeploySimpleContainer(ctx, Args{
-		ServiceType:        lo.ToPtr("LoadBalancer"), // to provision external IP
+		ServiceType:        serviceType, // to provision external IP
+		ProvisionIngress:   caddy.ProvisionIngress,
+		UseSSL:             useSSL,
 		Namespace:          namespace,
 		DeploymentName:     deploymentName,
 		Input:              input,

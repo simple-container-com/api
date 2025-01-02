@@ -80,14 +80,21 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
 	domain := kubeRunInput.Deployment.StackConfig.Domain
 
+	if domain != "" && caddyConfig.UsePrefixes {
+		return nil, errors.Errorf("caddy is configured to use prefixes, but domain for service is specified")
+	}
+
+	useSSL := kubeRunInput.UseSSL == nil || *kubeRunInput.UseSSL
+
 	kubeArgs := Args{
 		Input:                  input,
 		Deployment:             kubeRunInput.Deployment,
+		UseSSL:                 useSSL,
 		Images:                 images,
 		Params:                 params,
 		KubeProvider:           params.Provider,
 		ComputeContext:         params.ComputeContext,
-		GenerateCaddyfileEntry: domain != "",
+		GenerateCaddyfileEntry: domain != "" || caddyConfig.UsePrefixes,
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},

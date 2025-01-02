@@ -33,6 +33,8 @@ type Args struct {
 	ComputeContext         pApi.ComputeContext
 	SecretVolumes          []k8s.SimpleTextVolume
 	ImagePullSecret        *docker.RegistryCredentials
+	ProvisionIngress       bool
+	UseSSL                 bool
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -155,7 +157,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		}, nil
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to convert GKE containers to k8s containers")
+		return nil, errors.Wrapf(err, "failed to convert containers to k8s containers")
 	}
 	if args.Deployment.IngressContainer == nil {
 		args.Params.Log.Warn(ctx.Context(), "failed to detect ingress container for %q in %q, service won't be exposed", stackName, stackEnv)
@@ -166,12 +168,15 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		KubeProvider:           args.KubeProvider,
 		ComputeContext:         args.ComputeContext,
 		ServiceType:            args.ServiceType,
+		UseSSL:                 args.UseSSL,
+		ProvisionIngress:       args.ProvisionIngress,
 		Namespace:              namespace,
 		Service:                deploymentName,
 		Deployment:             deploymentName,
 		ScEnv:                  stackEnv,
 		IngressContainer:       args.Deployment.IngressContainer,
-		Domain:                 args.Deployment.StackConfig.Domain,
+		Domain:                 lo.FromPtr(args.Deployment.StackConfig).Domain,
+		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
 		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
 		Replicas:               replicas,
 		Headers:                args.Deployment.Headers,

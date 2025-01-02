@@ -161,6 +161,7 @@ func (s *StackConfigCompose) Copy() any {
 	return &StackConfigCompose{
 		DockerComposeFile: s.DockerComposeFile,
 		Domain:            s.Domain,
+		Prefix:            s.Prefix,
 		DomainProxied:     s.DomainProxied,
 		BaseDnsZone:       s.BaseDnsZone,
 		Uses:              s.Uses,
