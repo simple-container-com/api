@@ -220,14 +220,20 @@ addEventListener('fetch', event => {
   event.respondWith(handleRequest(event.request));
 });
 
-async function handleRequest(request) {
+async function handleRequest(origRequest) {
 	const overrideHost = "%s";
-	const url = new URL(request.url);
+	const url = new URL(origRequest.url);
 	url.hostname = overrideHost;
+
+	const request = new Request(url, {
+		headers: origRequest.headers, 
+		method: origRequest.method, 
+		body: origRequest.body,
+	});
 
 	%s
 
-	let origResponse = await fetch(url.toString(), request);
+	let origResponse = await fetch(request, {});
 	let response = new Response(origResponse.body, {
 		status: origResponse.status,
 		statusText: origResponse.statusText,
