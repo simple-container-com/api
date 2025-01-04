@@ -11,6 +11,13 @@ func init() {
 		k8s.TemplateTypeKubernetesCloudrun: KubeRun,
 	})
 	api.RegisterResources(map[string]api.ProvisionFunc{
-		k8s.ResourceTypeCaddy: CaddyResource,
+		k8s.ResourceTypeCaddy:                CaddyResource,
+		k8s.ResourceTypeHelmPostgresOperator: HelmPostgresOperator,
+		k8s.ResourceTypeHelmMongodbOperator:  HelmMongodbOperator,
+		k8s.ResourceTypeHelmRabbitmqOperator: HelmRabbitmqOperator,
+		k8s.ResourceTypeHelmRedisOperator:    HelmRedisOperator,
+	})
+	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
+		k8s.ResourceTypeHelmPostgresOperator: HelmPostgresOperatorComputeProcessor,
 	})
 }

@@ -14,6 +14,12 @@ func init() {
 
 		// caddy
 		ResourceTypeCaddy: CaddyReadConfig,
+
+		// helm charts
+		ResourceTypeHelmPostgresOperator: ReadHelmPostgresOperatorConfig,
+		ResourceTypeHelmMongodbOperator:  ReadHelmMongodbOperatorConfig,
+		ResourceTypeHelmRabbitmqOperator: ReadHelmRabbitmqOperatorConfig,
+		ResourceTypeHelmRedisOperator:    ReadHelmRedisOperatorConfig,
 	})
 
 	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{

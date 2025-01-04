@@ -30,7 +30,7 @@ func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 	caddyCfg, ok := input.Descriptor.Config.Config.(*k8s.CaddyResource)
 	if !ok {
-		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
+		return nil, errors.Errorf("failed to convert caddy config for %q", input.Descriptor.Type)
 	}
 
 	params.Log.Info(ctx.Context(), "Deploying caddy service...")

@@ -12,6 +12,14 @@ type KubeRunInput struct {
 	Deployment       DeploymentConfig `json:"deployment" yaml:"deployment"`
 }
 
+func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {
+	return i.Deployment.StackConfig.Dependencies
+}
+
+func (i *KubeRunInput) Uses() []string {
+	return i.Deployment.StackConfig.Uses
+}
+
 func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackConfigCompose) (any, error) {
 	templateCfg, ok := tpl.(*CloudrunTemplate)
 	if !ok {

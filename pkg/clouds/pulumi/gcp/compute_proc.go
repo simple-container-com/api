@@ -31,8 +31,10 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
 	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
 	rootPassword, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
-	if err != nil || rootPassword == "" {
+	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
+	} else if rootPassword == "" {
+		return nil, errors.Errorf("failed to get root password (empty) from parent stack for %q", postgresName)
 	}
 
 	pgCfg, ok := input.Descriptor.Config.Config.(*gcloud.PostgresGcpCloudsqlConfig)

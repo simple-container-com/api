@@ -79,11 +79,11 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
             `
 		} else {
 			initScript = fmt.Sprintf(`
-                set -e;
-                apk add --no-cache postgresql-client; 
-                sleep 20;
-                psql -h localhost -U postgres -d %s -c 'GRANT pg_read_all_data TO "%s";';
-                psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
+set -e;
+apk add --no-cache postgresql-client; 
+sleep 20;
+psql -h localhost -U postgres -d %s -c 'GRANT pg_read_all_data TO "%s";';
+psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
             `, database, username, database, username)
 		}
 
