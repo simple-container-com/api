@@ -137,6 +137,21 @@ func mapToObject[T any](values map[string]any, object *T) (*T, error) {
 	return object, nil
 }
 
+func objectToStringMapOutput[T any](object *T) (sdk.StringMapOutput, error) {
+	mapOut := make(map[string]string)
+	marshalledBytes, err := json.Marshal(object)
+	if err != nil {
+		return sdk.ToStringMapOutput(nil), err
+	}
+	err = json.Unmarshal(marshalledBytes, &mapOut)
+	if err != nil {
+		return sdk.ToStringMapOutput(nil), err
+	}
+	return sdk.ToStringMapOutput(lo.MapValues(mapOut, func(value string, key string) sdk.StringOutput {
+		return sdk.String(value).ToStringOutput()
+	})), nil
+}
+
 func decodeBase64FieldsToMapOutput[T any](fields map[string]string, object *T) (sdk.MapOutput, error) {
 	mapOut := make(map[string]string)
 	res, err := decodeBase64FieldsToObject(fields, object)

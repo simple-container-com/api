@@ -95,6 +95,9 @@ func (p *pulumi) toOutputsResult(stackName string, result auto.OutputMap) *api.O
 			var res string
 			if s, ok := value.Value.(string); ok {
 				res = s
+			} else if m, ok := value.Value.(map[string]any); ok {
+				j, _ := json.Marshal(m)
+				res = string(j)
 			} else if value.Secret {
 				j, _ := json.Marshal(value)
 				res = string(j)
