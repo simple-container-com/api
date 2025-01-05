@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -29,25 +30,25 @@ func StackNameInEnv(stackName string, environment string) string {
 	return fmt.Sprintf("%s--%s", stackName, environment)
 }
 
-func GetStringValueFromStack(ctx *sdk.Context, refName, stackName, outName string, secret bool) (string, error) {
+func GetValueFromStack[T any](ctx *sdk.Context, refName, stackName, outName string, secret bool) (T, error) {
 	// Create a StackReference to the parent stack
 	ref, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s-ref", refName), &sdk.StackReferenceArgs{
 		Name: sdk.String(stackName).ToStringOutput(),
 	})
 	if err != nil {
-		return "", err
+		return lo.Empty[T](), err
 	}
 	parentOutput, err := ref.GetOutputDetails(outName)
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
+		return lo.Empty[T](), errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
 	}
 	if secret && parentOutput.SecretValue == nil {
-		return "", errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
+		return lo.Empty[T](), errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
 	} else if secret {
-		return parentOutput.SecretValue.(string), nil
+		return parentOutput.SecretValue.(T), nil
 	}
 	if !secret && parentOutput.Value == nil {
-		return "", errors.Wrapf(err, "no value for output %q from %q", outName, refName)
+		return lo.Empty[T](), errors.Wrapf(err, "no value for output %q from %q", outName, refName)
 	}
-	return parentOutput.Value.(string), nil
+	return parentOutput.Value.(T), nil
 }

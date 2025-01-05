@@ -24,28 +24,28 @@ func HelmPostgresOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 	fullParentReference := params.ParentStack.FullReference
 	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
 	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-	rootPassword, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
+	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
 	} else if rootPassword == "" {
 		return nil, errors.Errorf("failed to get root password (empty) from parent stack for %q", postgresName)
 	}
 	rootUserExport := toPostgresRootUsernameExport(postgresName)
-	rootUser, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-rootuser", postgresName), fullParentReference, rootUserExport, false)
+	rootUser, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootuser", postgresName), fullParentReference, rootUserExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root user from parent stack for %q", postgresName)
 	} else if rootUser == "" {
 		return nil, errors.Errorf("failed to get root user (empty) from parent stack for %q", postgresName)
 	}
 	pgURLExport := toPostgresRootURLExport(postgresName)
-	pgURL, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-pg-url", postgresName), fullParentReference, pgURLExport, true)
+	pgURL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-pg-url", postgresName), fullParentReference, pgURLExport, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get postgres URL from parent stack for %q", postgresName)
 	} else if pgURL == "" {
 		return nil, errors.Errorf("failed to get postgres URL (empty) from parent stack for %q", postgresName)
 	}
 
-	appendContextParams := appendParams{
+	appendContextParams := postgresAppendParams{
 		stack:           stack,
 		collector:       collector,
 		input:           input,
@@ -75,7 +75,7 @@ func HelmPostgresOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 	}, nil
 }
 
-type appendParams struct {
+type postgresAppendParams struct {
 	stack           api.Stack
 	collector       pApi.ComputeContextCollector
 	input           api.ResourceInput
@@ -87,7 +87,7 @@ type appendParams struct {
 	pgURL           string
 }
 
-func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
+func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendParams) error {
 	// set both dbname and username to stack name
 	dbName := params.stack.Name
 	userName := params.stack.Name
@@ -140,7 +140,7 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) er
 	return nil
 }
 
-func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
+func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params postgresAppendParams) error {
 	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
 	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
 	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
@@ -182,7 +182,7 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params appendParam
 	return nil
 }
 
-func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params appendParams) (*random.RandomPassword, error) {
+func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params postgresAppendParams) (*random.RandomPassword, error) {
 	ctx.Export(fmt.Sprintf("%s-%s-username", userName, params.postgresName), sdk.String(userName))
 	passwordName := fmt.Sprintf("%s-%s-password", userName, params.postgresName)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{

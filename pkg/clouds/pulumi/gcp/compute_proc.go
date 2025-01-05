@@ -30,7 +30,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	fullParentReference := params.ParentStack.FullReference
 	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
 	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-	rootPassword, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
+	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
 	} else if rootPassword == "" {
@@ -58,7 +58,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if pgCfg.UsersProvisionRuntime.Type == "gke" {
 		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
 		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
-		kubeConfig, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
+		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 		}

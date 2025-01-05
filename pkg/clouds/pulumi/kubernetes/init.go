@@ -19,5 +19,6 @@ func init() {
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
 		k8s.ResourceTypeHelmPostgresOperator: HelmPostgresOperatorComputeProcessor,
+		k8s.ResourceTypeHelmRabbitmqOperator: HelmRabbitmqOperatorComputeProcessor,
 	})
 }

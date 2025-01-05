@@ -55,7 +55,7 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	fullParentReference := params.ParentStack.FullReference
 	redisHostExport := toRedisHostExport(redisName)
 	params.Log.Info(ctx.Context(), "Getting redis host from %q for %q from parent stack %q", stack.Name, fullParentReference)
-	redisHost, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-host", redisName), fullParentReference, redisHostExport, false)
+	redisHost, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-host", redisName), fullParentReference, redisHostExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis host from parent stack for %q", redisName)
 	}
@@ -64,7 +64,7 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 	redisPortExport := toRedisPortExport(redisName)
 	params.Log.Info(ctx.Context(), "Getting redis port from %q for %q from parent stack %q", redisPortExport, stack.Name, fullParentReference)
-	redisPort, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-port", redisName), fullParentReference, redisPortExport, false)
+	redisPort, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-port", redisName), fullParentReference, redisPortExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis port from parent stack for %q", redisName)
 	}

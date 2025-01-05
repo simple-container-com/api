@@ -85,7 +85,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		// get template from parent
 		templateRef := stackDescriptorTemplateName(parentFullReference, templateName)
 		var stackDesc api.StackDescriptor
-		stackDescYaml, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-template", parentFullReference), parentFullReference, templateRef, true)
+		stackDescYaml, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-template", parentFullReference), parentFullReference, templateRef, true)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
 		}

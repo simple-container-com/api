@@ -48,7 +48,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		caddyResource := lo.FromPtr(kubeRunInput.CaddyResource)
 		clusterName := ToClusterName(input, caddyResource)
 		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q", caddyResource, fullParentReference)
-		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-stack-caddy-cfg", parentStack), fullParentReference, ToCaddyConfigExport(clusterName), false)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-stack-caddy-cfg", parentStack), fullParentReference, ToCaddyConfigExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's %q resources for resource %q", fullParentReference, caddyResource)
 		}
@@ -114,7 +114,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		if params.Registrar == nil {
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
-		clusterIPAddress, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, ToIngressIpExport(parentStack), false)
+		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, ToIngressIpExport(parentStack), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 		}

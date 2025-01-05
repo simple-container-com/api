@@ -52,6 +52,7 @@ type HelmPostgresOperator struct {
 type HelmRabbitmqOperator struct {
 	*KubernetesConfig `json:",inline" yaml:",inline"`
 	HelmChartConfig   `json:",inline" yaml:",inline"`
+	Replicas          *int `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 }
 
 type HelmMongodbOperator struct {
