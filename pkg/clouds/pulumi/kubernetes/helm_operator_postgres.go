@@ -87,13 +87,14 @@ func HelmPostgresOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 		rootPassExport := toPostgresRootPasswordExport(instanceName)
 		ctx.Export(toPostgresRootUsernameExport(instanceName), sdk.String(rootUser).ToStringOutput())
 		secretName := fmt.Sprintf("%s/%s.%s.credentials.postgresql.acid.zalan.do", namespace, rootUser, instanceName)
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{instance}))
 		rootPassOut, err := waitUntilSecretExists(ctx, params, secretName, func(secret *corev1.Secret) (sdk.Output, error) {
 			params.Log.Info(ctx.Context(), "Exporting postgres %q root user's (%q) password as %q...", instanceName, rootUser, rootPassExport)
 			return secret.Data.ApplyT(func(data map[string]string) (string, error) {
 				password, err := base64.StdEncoding.DecodeString(data["password"])
 				return string(password), err
 			}), nil
-		})
+		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to wait until secret exists")
 		}

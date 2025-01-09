@@ -72,7 +72,8 @@ func HelmRabbitmqOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 	if !ctx.DryRun() {
 		connectionExport := toRabbitmqConnectionParamsExport(instanceName)
 		secretName := fmt.Sprintf("%s/%s-default-user", namespace, instanceName)
-		if err := exportSecretValues(ctx, secretName, connectionExport, params, &RabbitmqConnectionParams{}); err != nil {
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{instance}))
+		if err := exportSecretValues(ctx, secretName, connectionExport, params, &RabbitmqConnectionParams{}, opts...); err != nil {
 			return nil, errors.Wrapf(err, "failed to export rabbitmq connection secret")
 		}
 	}

@@ -76,7 +76,7 @@ func deployOperatorChart[T k8s.HelmOperatorChart](ctx *sdk.Context, stack api.St
 	return chartCfg, chart, nil
 }
 
-func waitUntilSecretExists(ctx *sdk.Context, params pApi.ProvisionParams, secretName string, callback func(secret *corev1.Secret) (sdk.Output, error)) (sdk.Output, error) {
+func waitUntilSecretExists(ctx *sdk.Context, params pApi.ProvisionParams, secretName string, callback func(secret *corev1.Secret) (sdk.Output, error), opts ...sdk.ResourceOption) (sdk.Output, error) {
 	withTimeout, cancel := context.WithTimeout(ctx.Context(), 30*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
@@ -87,23 +87,24 @@ func waitUntilSecretExists(ctx *sdk.Context, params pApi.ProvisionParams, secret
 			params.Log.Error(ctx.Context(), "failed to wait until postgres instance secrets exist")
 			return nil, errors.Errorf("timeout while waiting until postgres instance secret %q exists", secretName)
 		case <-ticker.C:
-			secret, err := corev1.GetSecret(ctx, fmt.Sprintf("%s-get-%d", secretName, idx), sdk.ID(secretName), nil, sdk.Provider(params.Provider))
+			params.Log.Info(ctx.Context(), "waiting for secret %q to exist", secretName)
+			secret, err := corev1.GetSecret(ctx, fmt.Sprintf("%s-get-%d", secretName, idx), sdk.ID(secretName), nil, opts...)
 			idx++
 			if err != nil {
-				params.Log.Warn(ctx.Context(), "still waiting for secret %q to exist: %s", secretName, err.Error())
 				continue
 			}
+			time.Sleep(5 * time.Second) // wait until secret actually exists
 			return callback(secret)
 		}
 	}
 }
 
-func exportSecretValues[T any](ctx *sdk.Context, secretName, exportName string, params pApi.ProvisionParams, object *T) error {
+func exportSecretValues[T any](ctx *sdk.Context, secretName, exportName string, params pApi.ProvisionParams, object *T, opts ...sdk.ResourceOption) error {
 	connectionParamsOut, err := waitUntilSecretExists(ctx, params, secretName, func(secret *corev1.Secret) (sdk.Output, error) {
 		return secret.Data.ApplyT(func(data map[string]string) (any, error) {
 			return decodeBase64FieldsToMapOutput(data, object)
 		}), nil
-	})
+	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to wait until secret %q exist", secretName)
 	}
