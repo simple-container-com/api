@@ -58,6 +58,8 @@ type HelmRabbitmqOperator struct {
 type HelmMongodbOperator struct {
 	*KubernetesConfig `json:",inline" yaml:",inline"`
 	HelmChartConfig   `json:",inline" yaml:",inline"`
+	Version           *string `json:"version,omitempty" yaml:"version,omitempty"`
+	Replicas          *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 }
 
 func ReadHelmPostgresOperatorConfig(config *api.Config) (api.Config, error) {

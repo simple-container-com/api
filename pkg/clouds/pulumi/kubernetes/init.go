@@ -21,5 +21,6 @@ func init() {
 		k8s.ResourceTypeHelmPostgresOperator: HelmPostgresOperatorComputeProcessor,
 		k8s.ResourceTypeHelmRabbitmqOperator: HelmRabbitmqOperatorComputeProcessor,
 		k8s.ResourceTypeHelmRedisOperator:    HelmRedisOperatorComputeProcessor,
+		k8s.ResourceTypeHelmMongodbOperator:  HelmMongodbOperatorComputeProcessor,
 	})
 }

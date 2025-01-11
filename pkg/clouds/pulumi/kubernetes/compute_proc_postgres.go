@@ -92,7 +92,7 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendPa
 	dbName := params.stack.Name
 	userName := params.stack.Name
 
-	password, err := createUserForDatabase(ctx, userName, dbName, params)
+	password, err := createPostgresUserForDatabase(ctx, userName, dbName, params)
 	if err != nil {
 		return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
 	}
@@ -145,7 +145,7 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params postgresApp
 	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
 	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
 
-	password, err := createUserForDatabase(ctx, userName, dbName, params)
+	password, err := createPostgresUserForDatabase(ctx, userName, dbName, params)
 	if err != nil {
 		return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
 	}
@@ -182,7 +182,7 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params postgresApp
 	return nil
 }
 
-func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params postgresAppendParams) (*random.RandomPassword, error) {
+func createPostgresUserForDatabase(ctx *sdk.Context, userName, dbName string, params postgresAppendParams) (*random.RandomPassword, error) {
 	ctx.Export(fmt.Sprintf("%s-%s-username", userName, params.postgresName), sdk.String(userName))
 	passwordName := fmt.Sprintf("%s-%s-password", userName, params.postgresName)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
@@ -202,7 +202,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params pos
 	namespace := params.input.StackParams.StackName
 
 	params.collector.AddPreProcessor(&SimpleContainerArgs{}, func(c any) error {
-		_, err = NewInitDbUserJob(ctx, userName, InitDbUserJobArgs{
+		_, err = NewPostgresInitDbUserJob(ctx, userName, InitDbUserJobArgs{
 			Namespace: namespace,
 			User: DatabaseUser{
 				Database: dbName,
@@ -211,9 +211,10 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params pos
 			},
 			RootUser:     params.rootUser,
 			RootPassword: params.rootPassword,
-			PostgresHost: parsedPgURL.Hostname(),
-			PostgresPort: parsedPgURL.Port(),
+			Host:         parsedPgURL.Hostname(),
+			Port:         parsedPgURL.Port(),
 			KubeProvider: params.provisionParams.Provider,
+			InstanceName: params.postgresName,
 		})
 		if err != nil {
 			return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
