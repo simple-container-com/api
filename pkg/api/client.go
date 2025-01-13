@@ -26,6 +26,7 @@ type ClientDescriptor struct {
 type StackClientDescriptor struct {
 	Type        string `json:"type" yaml:"type"`
 	ParentStack string `json:"parent" yaml:"parent"`
+	ParentEnv   string `json:"parentEnv" yaml:"parentEnv"`
 	Template    string `json:"template" yaml:"template"`
 	Config      Config `json:",inline" yaml:",inline"`
 }
@@ -258,6 +259,21 @@ func (p *StackParams) ToProvisionParams() ProvisionParams {
 		Stacks:      []string{p.StackName},
 		SkipRefresh: p.SkipRefresh,
 		Timeouts:    p.Timeouts,
+	}
+}
+
+func (p *StackParams) CopyForEnv(env string) *StackParams {
+	return &StackParams{
+		StacksDir:   p.StackDir,
+		StackDir:    p.StackDir,
+		Profile:     p.Profile,
+		StackName:   p.StackName,
+		Environment: env,
+		SkipRefresh: p.SkipRefresh,
+		SkipPreview: p.SkipPreview,
+		Version:     p.Version,
+		Timeouts:    p.Timeouts,
+		Parent:      p.Parent,
 	}
 }
 

@@ -844,7 +844,8 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	for _, policy := range crInput.Scale.Policies {
 		if policy.Type == aws.ScaleCpu {
 			// Create an autoscaling policy for the target based on CPU utilization
-			scalePolicy, err := appautoscaling.NewPolicy(ctx, fmt.Sprintf("%s-cpu", scalePolicyName), &appautoscaling.PolicyArgs{
+			// TODO: rename scale policy to CPU
+			scalePolicy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
 				PolicyType:        sdk.String("TargetTrackingScaling"),
 				ResourceId:        scalableTarget.ResourceId,
 				ScalableDimension: scalableTarget.ScalableDimension,
@@ -863,7 +864,8 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			}
 			ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-cpu-arn", stack.Name), scalePolicy.Arn)
 		}
-		if policy.Type == aws.ScaleMemory {
+		// TODO: figure out how to add another policy (temporarily disabling it)
+		if policy.Type == aws.ScaleMemory && false {
 			// Create an autoscaling policy for the target based on Memory utilization
 			scalePolicy, err := appautoscaling.NewPolicy(ctx, fmt.Sprintf("%s-memory", scalePolicyName), &appautoscaling.PolicyArgs{
 				PolicyType:        sdk.String("TargetTrackingScaling"),
