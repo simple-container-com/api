@@ -72,8 +72,8 @@ type EcsFargateScale struct {
 	Min int `json:"min" yaml:"min"`
 	Max int `json:"max" yaml:"max"`
 
-	Policy *EcsFargateScalePolicy `json:"policy" yaml:"policy"`
-	Update FargateRollingUpdate   `json:"update" yaml:"update"`
+	Policies []EcsFargateScalePolicy `json:"policy" yaml:"policy"`
+	Update   FargateRollingUpdate    `json:"update" yaml:"update"`
 }
 
 type FargateRollingUpdate struct {
@@ -83,7 +83,10 @@ type FargateRollingUpdate struct {
 
 type EcsFargateScalePolicyType string
 
-var ScaleCpu EcsFargateScalePolicyType = "cpu"
+const (
+	ScaleCpu    EcsFargateScalePolicyType = "cpu"
+	ScaleMemory EcsFargateScalePolicyType = "memory"
+)
 
 type EcsFargateScalePolicy struct {
 	Type             EcsFargateScalePolicyType `json:"type" yaml:"type"`
@@ -171,12 +174,22 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			Min: lo.If(stackCfg.Scale.Min == 0, 1).Else(stackCfg.Scale.Min),
 			Max: lo.If(stackCfg.Scale.Max == 0, 1).Else(stackCfg.Scale.Max),
 		}
-		if stackCfg.Scale.Policy != nil && stackCfg.Scale.Policy.Cpu != nil {
-			res.Scale.Policy = &EcsFargateScalePolicy{
-				Type:             ScaleCpu,
-				TargetValue:      lo.If(stackCfg.Scale.Policy.Cpu.Max != 0, stackCfg.Scale.Policy.Cpu.Max).Else(70), // Target CPU utilization of 70%
-				ScaleInCooldown:  60,                                                                                // Wait 60s between scale-in activities
-				ScaleOutCooldown: 60,                                                                                // Wait 60s between scale-out activities
+		if stackCfg.Scale.Policy != nil {
+			if stackCfg.Scale.Policy.Cpu != nil {
+				res.Scale.Policies = append(res.Scale.Policies, EcsFargateScalePolicy{
+					Type:             ScaleCpu,
+					TargetValue:      lo.If(stackCfg.Scale.Policy.Cpu.Max != 0, stackCfg.Scale.Policy.Cpu.Max).Else(70), // Target CPU utilization of 70%
+					ScaleInCooldown:  60,                                                                                // Wait 60s between scale-in activities
+					ScaleOutCooldown: 60,                                                                                // Wait 60s between scale-out activities
+				})
+			}
+			if stackCfg.Scale.Policy.Memory != nil {
+				res.Scale.Policies = append(res.Scale.Policies, EcsFargateScalePolicy{
+					Type:             ScaleMemory,
+					TargetValue:      lo.If(stackCfg.Scale.Policy.Memory.Max != 0, stackCfg.Scale.Policy.Memory.Max).Else(70), // Target Memory utilization of 70%
+					ScaleInCooldown:  60,                                                                                      // Wait 60s between scale-in activities
+					ScaleOutCooldown: 60,                                                                                      // Wait 60s between scale-out activities
+				})
 			}
 		}
 	} else {

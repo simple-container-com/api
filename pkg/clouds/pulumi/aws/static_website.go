@@ -119,7 +119,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		return nil, errors.Wrapf(err, "failed to provision ownership controls")
 	}
 
-	// Define the S3 Bucket Policy.
+	// Define the S3 Bucket Policies.
 	mainBucketPolicy, err := s3.NewBucketPolicy(ctx, fmt.Sprintf("%s-policy", input.ServiceName), &s3.BucketPolicyArgs{
 		Bucket: mainBucket.ID(), // Reference to the bucket created above.
 		Policy: sdk.All(mainBucket.Arn, mainBucket.ID()).ApplyT(func(args []interface{}) (sdk.StringOutput, error) {

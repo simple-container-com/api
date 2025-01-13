@@ -145,7 +145,12 @@ type StackConfigComposeScale struct {
 }
 
 type StackConfigComposeScalePolicy struct {
-	Cpu *StackConfigComposeScaleCpu `yaml:"cpu" json:"cpu"`
+	Cpu    *StackConfigComposeScaleCpu    `yaml:"cpu" json:"cpu"`
+	Memory *StackConfigComposeScaleMemory `yaml:"memory" json:"memory"`
+}
+
+type StackConfigComposeScaleMemory struct {
+	Max int `yaml:"max" json:"max"`
 }
 
 type StackConfigComposeScaleCpu struct {

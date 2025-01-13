@@ -687,7 +687,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create ECS cw dashboard")
 	}
 
-	if crInput.Scale.Policy != nil {
+	if crInput.Scale.Policies != nil {
 		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
 		if err != nil {
 			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsSimpleClusterName, fmt.Sprintf("%s-service", ecsSimpleClusterName))
@@ -841,26 +841,49 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create autoscaling target for ecs service in %q", stack.Name)
 	}
 	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-target-id", stack.Name), scalableTarget.ID())
-	if crInput.Scale.Policy.Type == aws.ScaleCpu {
-		// Create an autoscaling policy for the target based on CPU utilization
-		policy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
-			PolicyType:        sdk.String("TargetTrackingScaling"),
-			ResourceId:        scalableTarget.ResourceId,
-			ScalableDimension: scalableTarget.ScalableDimension,
-			ServiceNamespace:  scalableTarget.ServiceNamespace,
-			TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
-				TargetValue:      sdk.Float64(lo.If(crInput.Scale.Policy.TargetValue != 0, float32(crInput.Scale.Policy.TargetValue)).Else(70.0)),
-				ScaleInCooldown:  sdk.Int(lo.If(crInput.Scale.Policy.ScaleInCooldown != 0, crInput.Scale.Policy.ScaleInCooldown).Else(30)),
-				ScaleOutCooldown: sdk.Int(lo.If(crInput.Scale.Policy.ScaleOutCooldown != 0, crInput.Scale.Policy.ScaleOutCooldown).Else(30)),
-				PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
-					PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+	for _, policy := range crInput.Scale.Policies {
+		if policy.Type == aws.ScaleCpu {
+			// Create an autoscaling policy for the target based on CPU utilization
+			scalePolicy, err := appautoscaling.NewPolicy(ctx, fmt.Sprintf("%s-cpu", scalePolicyName), &appautoscaling.PolicyArgs{
+				PolicyType:        sdk.String("TargetTrackingScaling"),
+				ResourceId:        scalableTarget.ResourceId,
+				ScalableDimension: scalableTarget.ScalableDimension,
+				ServiceNamespace:  scalableTarget.ServiceNamespace,
+				TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
+					TargetValue:      sdk.Float64(lo.If(policy.TargetValue != 0, float32(policy.TargetValue)).Else(70.0)),
+					ScaleInCooldown:  sdk.Int(lo.If(policy.ScaleInCooldown != 0, policy.ScaleInCooldown).Else(30)),
+					ScaleOutCooldown: sdk.Int(lo.If(policy.ScaleOutCooldown != 0, policy.ScaleOutCooldown).Else(30)),
+					PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
+						PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+					},
 				},
-			},
-		}, sdk.Provider(params.Provider))
-		if err != nil {
-			return errors.Wrapf(err, "failed to create autoscaling policy for ecs service in %q", stack.Name)
+			}, sdk.Provider(params.Provider))
+			if err != nil {
+				return errors.Wrapf(err, "failed to create autoscaling CPU policy for ecs service in %q", stack.Name)
+			}
+			ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-cpu-arn", stack.Name), scalePolicy.Arn)
 		}
-		ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-arn", stack.Name), policy.Arn)
+		if policy.Type == aws.ScaleMemory {
+			// Create an autoscaling policy for the target based on Memory utilization
+			scalePolicy, err := appautoscaling.NewPolicy(ctx, fmt.Sprintf("%s-memory", scalePolicyName), &appautoscaling.PolicyArgs{
+				PolicyType:        sdk.String("TargetTrackingScaling"),
+				ResourceId:        scalableTarget.ResourceId,
+				ScalableDimension: scalableTarget.ScalableDimension,
+				ServiceNamespace:  scalableTarget.ServiceNamespace,
+				TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
+					TargetValue:      sdk.Float64(lo.If(policy.TargetValue != 0, float32(policy.TargetValue)).Else(70.0)),
+					ScaleInCooldown:  sdk.Int(lo.If(policy.ScaleInCooldown != 0, policy.ScaleInCooldown).Else(30)),
+					ScaleOutCooldown: sdk.Int(lo.If(policy.ScaleOutCooldown != 0, policy.ScaleOutCooldown).Else(30)),
+					PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
+						PredefinedMetricType: sdk.String("ECSServiceAverageMemoryUtilization"),
+					},
+				},
+			}, sdk.Provider(params.Provider))
+			if err != nil {
+				return errors.Wrapf(err, "failed to create autoscaling Memory policy for ecs service in %q", stack.Name)
+			}
+			ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-memory-arn", stack.Name), scalePolicy.Arn)
+		}
 	}
 
 	return nil
