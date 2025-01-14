@@ -185,6 +185,7 @@ type StackParams struct {
 	Profile     string   `json:"profile" yaml:"profile"`
 	StackName   string   `json:"stack" yaml:"stack"`
 	Environment string   `json:"environment" yaml:"environment"`
+	ParentEnv   string   `json:"parentEnv" yaml:"parentEnv"`
 	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
 	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
 	Version     string   `json:"version" yaml:"version"`
@@ -262,18 +263,19 @@ func (p *StackParams) ToProvisionParams() ProvisionParams {
 	}
 }
 
-func (p *StackParams) CopyForEnv(env string) *StackParams {
+func (p *StackParams) CopyForParentEnv(env string) *StackParams {
 	return &StackParams{
 		StacksDir:   p.StackDir,
 		StackDir:    p.StackDir,
 		Profile:     p.Profile,
 		StackName:   p.StackName,
-		Environment: env,
+		Environment: p.Environment,
 		SkipRefresh: p.SkipRefresh,
 		SkipPreview: p.SkipPreview,
 		Version:     p.Version,
 		Timeouts:    p.Timeouts,
 		Parent:      p.Parent,
+		ParentEnv:   env,
 	}
 }
 

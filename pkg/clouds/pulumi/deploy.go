@@ -144,10 +144,11 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 		parentStackInfo := &pApi.ParentInfo{
 			StackName:     parentNameOnly,
-			Env:           parentEnv,
+			ParentEnv:     parentEnv,
+			StackEnv:      params.Environment,
 			FullReference: parentFullReference,
 		}
-		parentStackParams := params.CopyForEnv(parentEnv)
+		parentStackParams := params.CopyForParentEnv(parentEnv)
 
 		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, parentEnv)
 		for resName, res := range stack.Server.Resources.Resources[parentEnv].Resources {

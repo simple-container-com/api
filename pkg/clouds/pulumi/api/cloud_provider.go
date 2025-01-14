@@ -42,7 +42,8 @@ type DnsPreference struct {
 }
 type ParentInfo struct {
 	StackName     string
-	Env           string
+	ParentEnv     string
+	StackEnv      string
 	FullReference string
 }
 
