@@ -161,7 +161,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			if fnc, ok := pApi.ComputeProcessorFuncByType[res.Type]; !ok {
 				p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", resName, res.Type)
 				continue
-			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, params.Environment); err != nil {
+			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, parentEnv); err != nil {
 				p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", resName, res.Type, stack.Name, err.Error())
 				continue
 			} else {
