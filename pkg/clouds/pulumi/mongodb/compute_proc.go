@@ -132,10 +132,10 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_PASSWORD"), dbUser.Password,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
+			mongoUri := AppendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
 
 			// oplog uri is necessary for apps that would like to read mongo's oplog
-			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
+			oplogMongoUri := AppendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
 
 			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_URI"), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
@@ -197,10 +197,10 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_PASSWORD", ownerStackName)), dbUser.Password,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
-			mongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
+			mongoUri := AppendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, dbName)
 
 			// oplog uri is necessary for apps that would like to read mongo's oplog
-			oplogMongoUri := appendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
+			oplogMongoUri := AppendUserPasswordAndDBToMongoUri(params.mongoUri, userName, dbUser.Password, "local")
 
 			params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_URI", ownerStackName)), mongoUri,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)

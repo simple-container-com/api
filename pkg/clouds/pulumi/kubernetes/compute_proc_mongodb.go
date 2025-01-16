@@ -10,6 +10,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 	"github.com/simple-container-com/api/pkg/util"
 )
 
@@ -90,12 +91,17 @@ func appendUsesMongodbResourceContext(ctx *sdk.Context, params mongodbAppendPara
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_URI"), connection.ConnectionString(),
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
+		// oplog uri is necessary for apps that would like to read mongo's oplog
+		oplogMongoUri := mongodb.AppendUserPasswordAndDBToMongoUri(connection.ConnectionString(), connection.Username, connection.Password, "local")
+
 		params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{
 			"password": connection.Password,
 			"user":     connection.Username,
 			"host":     connection.Host,
 			"port":     connection.Port,
 			"uri":      connection.ConnectionString(),
+			"dbName":   dbName,
+			"oplogUri": oplogMongoUri,
 		})
 
 		return nil, nil
