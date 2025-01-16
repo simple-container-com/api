@@ -44,9 +44,10 @@ type HelmRedisOperator struct {
 type HelmPostgresOperator struct {
 	*KubernetesConfig `json:",inline" yaml:",inline"`
 	HelmChartConfig   `json:",inline" yaml:",inline"`
-	VolumeSize        *string `json:"volumeSize,omitempty" yaml:"volumeSize,omitempty"`
-	NumberOfInstances *int    `json:"numberOfInstances,omitempty" yaml:"numberOfInstances,omitempty"`
-	Version           *string `json:"version,omitempty" yaml:"version,omitempty"`
+	VolumeSize        *string  `json:"volumeSize,omitempty" yaml:"volumeSize,omitempty"`
+	NumberOfInstances *int     `json:"numberOfInstances,omitempty" yaml:"numberOfInstances,omitempty"`
+	Version           *string  `json:"version,omitempty" yaml:"version,omitempty"`
+	PgHbaEntries      []string `json:"pg_hba" yaml:"pg_hba"`
 }
 
 type HelmRabbitmqOperator struct {

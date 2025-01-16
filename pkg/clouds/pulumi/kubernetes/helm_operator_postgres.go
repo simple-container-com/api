@@ -50,6 +50,31 @@ func HelmPostgresOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 	rootUser := "root"
 	instanceName := toPostgresInstanceName(input, input.Descriptor.Name)
 	namespace := lo.If(cfg.Namespace() != nil, lo.FromPtr(cfg.Namespace())).Else("default")
+
+	instanceSpec := map[string]any{
+		"spec": fields{
+			"teamId": sdk.String(instanceName),
+			"volume": fields{
+				"size": sdk.String(lo.If(cfg.VolumeSize != nil, lo.FromPtr(cfg.VolumeSize)).Else("5Gi")),
+			},
+			"numberOfInstances": sdk.Int(lo.If(cfg.NumberOfInstances != nil, lo.FromPtr(cfg.NumberOfInstances)).Else(1)),
+			"users": fields{
+				// user: [<roles>,...]
+				rootUser: sdk.ToArray([]any{
+					"superuser",
+					"createdb",
+				}),
+			},
+			"postgresql": fields{
+				"version": sdk.String(lo.If(cfg.Version != nil, lo.FromPtr(cfg.Version)).Else("15")),
+			},
+		},
+	}
+	if len(cfg.PgHbaEntries) > 0 {
+		instanceSpec["patroni"] = fields{
+			"pg_hba": cfg.PgHbaEntries,
+		}
+	}
 	instance, err := apiextensions.NewCustomResource(ctx, instanceName, &apiextensions.CustomResourceArgs{
 		ApiVersion: sdk.String("acid.zalan.do/v1"),
 		Kind:       sdk.String("postgresql"),
@@ -59,25 +84,7 @@ func HelmPostgresOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 			Annotations: sdk.ToStringMap(annotations),
 			Labels:      sdk.ToStringMap(labels),
 		},
-		OtherFields: map[string]any{
-			"spec": fields{
-				"teamId": sdk.String(instanceName),
-				"volume": fields{
-					"size": sdk.String(lo.If(cfg.VolumeSize != nil, lo.FromPtr(cfg.VolumeSize)).Else("5Gi")),
-				},
-				"numberOfInstances": sdk.Int(lo.If(cfg.NumberOfInstances != nil, lo.FromPtr(cfg.NumberOfInstances)).Else(1)),
-				"users": fields{
-					// user: [<roles>,...]
-					rootUser: sdk.ToArray([]any{
-						"superuser",
-						"createdb",
-					}),
-				},
-				"postgresql": fields{
-					"version": sdk.String(lo.If(cfg.Version != nil, lo.FromPtr(cfg.Version)).Else("15")),
-				},
-			},
-		},
+		OtherFields: instanceSpec,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create postgres instance %q", instanceName)
