@@ -284,7 +284,6 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 						"storage": sdk.String(pv.Storage),
 					},
 				},
-				StorageClassName: sdk.String("standard"),
 			},
 		}, opts...)
 		if err != nil {
