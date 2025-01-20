@@ -222,6 +222,10 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 	for _, svcName := range stackCfg.Runs {
 		svc := services[svcName]
 
+		if svc.Name == "" {
+			return nil, errors.Errorf("service %s not found in docker-compose config", svcName)
+		}
+
 		context := ""
 		dockerFile := ""
 		buildArgs := make(map[string]string)
