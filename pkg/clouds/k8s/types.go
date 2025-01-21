@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
@@ -62,8 +63,13 @@ type Scale struct {
 }
 
 type CloudRunProbe struct {
-	HttpGet             ProbeHttpGet `json:"httpGet" yaml:"httpGet"`
-	InitialDelaySeconds int          `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
+	HttpGet             ProbeHttpGet   `json:"httpGet" yaml:"httpGet"`
+	Interval            *time.Duration `json:"interval" yaml:"interval"`
+	InitialDelaySeconds *int           `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
+	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"`
+	FailureThreshold    *int           `json:"failureThreshold" yaml:"failureThreshold"`
+	SuccessThreshold    *int           `json:"successThreshold" yaml:"successThreshold"`
+	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`
 }
 
 type ProbeHttpGet struct {
@@ -258,7 +264,7 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 			Env:            toRunEnv(svc.Environment),
 			Secrets:        toRunSecrets(svc.Environment),
 			Ports:          toRunPorts(svc.Ports),
-			ReadinessProbe: toLivenessProbe(svc.HealthCheck),
+			ReadinessProbe: toReadinessProbe(svc.HealthCheck),
 			StartupProbe:   toStartupProbe(svc.HealthCheck),
 			Resources:      resources,
 			Volumes:        ToPersistentVolumes(svc, composeCfg),
@@ -306,13 +312,27 @@ func toRunPorts(ports []types.ServicePortConfig) []int {
 }
 
 func toStartupProbe(check *types.HealthCheckConfig) *CloudRunProbe {
-	// TODO
-	return nil
+	if check == nil {
+		return nil
+	}
+	return &CloudRunProbe{
+		Interval:            lo.If(check.Interval != nil, lo.ToPtr(time.Duration(lo.FromPtr(check.Interval)))).Else(nil),
+		InitialDelaySeconds: lo.If(check.StartInterval != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds()))).Else(nil),
+		FailureThreshold:    lo.If(check.Retries != nil, lo.ToPtr(int(lo.FromPtr(check.Retries)))).Else(nil),
+		TimeoutSeconds:      lo.If(check.Timeout != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.Timeout)).Seconds()))).Else(nil),
+	}
 }
 
-func toLivenessProbe(check *types.HealthCheckConfig) *CloudRunProbe {
-	// TODO
-	return nil
+func toReadinessProbe(check *types.HealthCheckConfig) *CloudRunProbe {
+	if check == nil {
+		return nil
+	}
+	return &CloudRunProbe{
+		Interval:            lo.If(check.Interval != nil, lo.ToPtr(time.Duration(lo.FromPtr(check.Interval)))).Else(nil),
+		InitialDelaySeconds: lo.If(check.StartInterval != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds()))).Else(nil),
+		FailureThreshold:    lo.If(check.Retries != nil, lo.ToPtr(int(lo.FromPtr(check.Retries)))).Else(nil),
+		TimeoutSeconds:      lo.If(check.Timeout != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.Timeout)).Seconds()))).Else(nil),
+	}
 }
 
 func toRunSecrets(environment types.MappingWithEquals) map[string]string {

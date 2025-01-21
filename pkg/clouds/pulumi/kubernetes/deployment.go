@@ -105,7 +105,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				ContainerPort: sdk.Int(p),
 			})
 		}
-		if c.Container.ReadinessProbe == nil && len(c.Container.Ports) == 1 {
+		cReadyProbe := c.Container.ReadinessProbe
+		if cReadyProbe == nil && len(c.Container.Ports) == 1 {
 			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
 					Port: sdk.String(toPortName(c.Container.Ports[0])),
@@ -113,7 +114,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				PeriodSeconds:       sdk.IntPtr(10),
 				InitialDelaySeconds: sdk.IntPtr(5),
 			}
-		} else if c.Container.ReadinessProbe == nil && c.Container.MainPort != nil {
+		} else if cReadyProbe == nil && c.Container.MainPort != nil {
 			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
 					Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
@@ -121,9 +122,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				PeriodSeconds:       sdk.IntPtr(10),
 				InitialDelaySeconds: sdk.IntPtr(5),
 			}
-		} else if c.Container.ReadinessProbe != nil {
-			// TODO: support readiness probe
-			return corev1.ContainerArgs{}, errors.Errorf("readiness probe is not supported yet: TODO")
+		} else if cReadyProbe != nil {
+			readinessProbe = toProbeArgs(c, cReadyProbe)
 		} else if len(c.Container.Ports) > 1 {
 			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
 		}
@@ -131,6 +131,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		var startupProbe *corev1.ProbeArgs
 		if c.Container.StartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
+		} else if c.Container.StartupProbe != nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
+			startupProbe = toProbeArgs(c, c.Container.StartupProbe)
 		}
 
 		var resources corev1.ResourceRequirementsArgs
@@ -203,6 +205,19 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
 	}
 	return sc, nil
+}
+
+func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs {
+	return &corev1.ProbeArgs{
+		TcpSocket: corev1.TCPSocketActionArgs{
+			Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
+		},
+		PeriodSeconds:       sdk.IntPtrFromPtr(lo.If(probe.Interval != nil, lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))).Else(nil)),
+		InitialDelaySeconds: sdk.IntPtrFromPtr(probe.InitialDelaySeconds),
+		FailureThreshold:    sdk.IntPtrFromPtr(probe.FailureThreshold),
+		SuccessThreshold:    sdk.IntPtrFromPtr(probe.SuccessThreshold),
+		TimeoutSeconds:      sdk.IntPtrFromPtr(probe.TimeoutSeconds),
+	}
 }
 
 func toPortName(p int) string {
