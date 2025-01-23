@@ -271,6 +271,8 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 		}
 		if container.MainPort == nil && len(container.Ports) > 1 {
 			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
+		} else {
+			container.MainPort = lo.ToPtr(container.Ports[0])
 		}
 		containers = append(containers, container)
 	}
@@ -292,6 +294,11 @@ func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContai
 	iContainer, found := lo.Find(contaniers, func(item CloudRunContainer) bool {
 		return len(iContainers) > 0 && item.Name == iContainers[0].Name
 	})
+	if !found && len(contaniers) == 1 && len(contaniers[0].Ports) == 1 {
+		iContainer = contaniers[0]
+		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0])
+		found = true
+	}
 	if !found {
 		return nil, nil
 	}
@@ -301,6 +308,9 @@ func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContai
 		} else {
 			iContainer.MainPort = lo.ToPtr(mainPort)
 		}
+	}
+	if iContainer.MainPort == nil && len(iContainer.Ports) == 1 {
+		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0])
 	}
 	return &iContainer, nil
 }
