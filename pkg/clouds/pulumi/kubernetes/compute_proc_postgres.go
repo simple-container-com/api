@@ -114,7 +114,7 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendPa
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_PASSWORD"), userPassword,
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
-		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("PGSSLMODE"), "no-verify",
+		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName("PGSSLMODE"), "require",
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("PGHOST"), parsedPgURL.Hostname(),
