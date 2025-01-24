@@ -138,8 +138,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
 				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
-				"simple-container.com/caddy-update-hash": sc.CaddyfileEntry.ApplyT(func(entry any) string {
-					sum := md5.Sum([]byte(entry.(string)))
+				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},

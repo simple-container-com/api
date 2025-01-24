@@ -163,6 +163,7 @@ func (s *StackConfigCompose) Copy() any {
 		DockerComposeFile: s.DockerComposeFile,
 		Domain:            s.Domain,
 		Prefix:            s.Prefix,
+		ProxyKeepPrefix:   s.ProxyKeepPrefix,
 		DomainProxied:     s.DomainProxied,
 		BaseDnsZone:       s.BaseDnsZone,
 		Uses:              s.Uses,

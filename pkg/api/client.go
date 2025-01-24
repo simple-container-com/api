@@ -102,7 +102,8 @@ type SimpleContainerLBConfig struct {
 type StackConfigCompose struct {
 	DockerComposeFile string                          `json:"dockerComposeFile" yaml:"dockerComposeFile"`
 	Domain            string                          `json:"domain" yaml:"domain"`
-	Prefix            string                          `json:"prefix" yaml:"prefix"` // prefix for service under LB (e.g. /<service>) default: empty
+	Prefix            string                          `json:"prefix" yaml:"prefix"`                   // prefix for service under LB (e.g. /<service>) default: empty
+	ProxyKeepPrefix   bool                            `json:"proxyKeepPrefix" yaml:"proxyKeepPrefix"` // if prefix is specified, whether we need to keep it when proxying to service
 	DomainProxied     *bool                           `json:"domainProxied" yaml:"domainProxied"`
 	BaseDnsZone       string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	Uses              []string                        `json:"uses" yaml:"uses"`

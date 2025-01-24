@@ -179,6 +179,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		IngressContainer:       args.Deployment.IngressContainer,
 		Domain:                 lo.FromPtr(args.Deployment.StackConfig).Domain,
 		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
+		ProxyKeepPrefix:        lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
 		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
 		Replicas:               replicas,
 		Headers:                args.Deployment.Headers,

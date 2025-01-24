@@ -50,6 +50,7 @@ type SimpleContainerArgs struct {
 	ScEnv                  string  `json:"scEnv" yaml:"scEnv"`
 	Domain                 string  `json:"domain" yaml:"domain"`
 	Prefix                 string  `json:"prefix" yaml:"prefix"`
+	ProxyKeepPrefix        bool    `json:"proxyKeepPrefix" yaml:"proxyKeepPrefix"`
 	Deployment             string  `json:"deployment" yaml:"deployment"`
 	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
 	Replicas               int     `json:"replicas" yaml:"replicas"`
@@ -94,7 +95,7 @@ type SimpleContainer struct {
 	ServiceName     sdk.StringPtrOutput `pulumi:"serviceName"`
 	Namespace       sdk.StringOutput    `pulumi:"namespace"`
 	Port            sdk.IntPtrOutput    `pulumi:"port"`
-	CaddyfileEntry  sdk.StringOutput    `pulumi:"caddyfileEntry"`
+	CaddyfileEntry  sdk.String          `pulumi:"caddyfileEntry"`
 	Service         *corev1.Service     `pulumi:"service"`
 	Deployment      *v1.Deployment      `pulumi:"deployment"`
 }
@@ -422,7 +423,7 @@ ${proto}://${domain} {
 `
 		} else if args.Prefix != "" {
 			caddyfileEntry = `
-  handle_path /${prefix}* {
+  handle_path /${prefix}* {${additionalProxyConfig}
     reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
       header_down Server nginx ${addHeaders}
       import handle_server_error
@@ -437,7 +438,7 @@ ${proto}://${domain} {
 		if args.UseSSL {
 			imports = append(imports, "import hsts")
 		}
-		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData((placeholders.MapData{
+		placeholdersMap := placeholders.MapData{
 			"proto":     lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
 			"domain":    args.Domain,
 			"prefix":    args.Prefix,
@@ -449,7 +450,13 @@ ${proto}://${domain} {
 			}), "\n    "),
 			"extraHelpers": strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
 			"imports":      strings.Join(imports, "\n    "),
-		}))); err != nil {
+		}
+		if args.ProxyKeepPrefix {
+			placeholdersMap["additionalProxyConfig"] = fmt.Sprintf("\n    rewrite * /%s{uri}", args.Prefix)
+		} else {
+			placeholdersMap["additionalProxyConfig"] = ""
+		}
+		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData(placeholdersMap)); err != nil {
 			return nil, errors.Wrapf(err, "failed to apply placeholders on caddyfile entry template")
 		}
 		serviceAnnotations[AnnotationCaddyfileEntry] = caddyfileEntry
@@ -554,7 +561,7 @@ ${proto}://${domain} {
 	}
 
 	sc.Service = service
-	sc.CaddyfileEntry = sdk.String(caddyfileEntry).ToStringOutput()
+	sc.CaddyfileEntry = sdk.String(caddyfileEntry)
 	if service != nil {
 		sc.ServicePublicIP = service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
 			if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
