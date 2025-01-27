@@ -169,7 +169,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc})},
+			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to patch caddy configuration")

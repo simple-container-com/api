@@ -143,7 +143,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(params.Provider), sdk.DependsOn([]sdk.Resource{sc})},
+			Opts: []sdk.ResourceOption{sdk.Provider(params.Provider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
