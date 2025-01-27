@@ -148,7 +148,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			Command:         sdk.ToStringArray(c.Container.Command),
 			Env:             env,
 			Image:           c.ImageName,
-			ImagePullPolicy: sdk.String("IfNotPresent"),
+			ImagePullPolicy: sdk.String(lo.If(c.Container.ImagePullPolicy != nil, lo.FromPtr(c.Container.ImagePullPolicy)).Else("IfNotPresent")),
 			Lifecycle:       nil, // TODO
 			LivenessProbe:   nil, // TODO
 			Name:            sdk.String(c.Container.Name),

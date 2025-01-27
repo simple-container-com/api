@@ -78,19 +78,20 @@ type ProbeHttpGet struct {
 }
 
 type CloudRunContainer struct {
-	Name           string             `json:"name" yaml:"name"`
-	Command        []string           `json:"command" yaml:"command"`
-	Args           []string           `json:"args" yaml:"args"`
-	Image          api.ContainerImage `json:"image" yaml:"image"`
-	Env            map[string]string  `json:"env" yaml:"env"`
-	Secrets        map[string]string  `json:"secrets" yaml:"secrets"`
-	Ports          []int              `json:"ports" yaml:"ports"`
-	MainPort       *int               `json:"mainPort" yaml:"mainPort"`
-	ReadinessProbe *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
-	StartupProbe   *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
-	ComposeDir     string             `json:"composeDir" yaml:"composeDir"`
-	Resources      *Resources         `json:"resources" yaml:"resources"`
-	Volumes        []PersistentVolume `json:"volumes" yaml:"volumes"`
+	Name            string             `json:"name" yaml:"name"`
+	Command         []string           `json:"command" yaml:"command"`
+	Args            []string           `json:"args" yaml:"args"`
+	Image           api.ContainerImage `json:"image" yaml:"image"`
+	Env             map[string]string  `json:"env" yaml:"env"`
+	Secrets         map[string]string  `json:"secrets" yaml:"secrets"`
+	Ports           []int              `json:"ports" yaml:"ports"`
+	MainPort        *int               `json:"mainPort" yaml:"mainPort"`
+	ReadinessProbe  *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
+	StartupProbe    *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
+	ComposeDir      string             `json:"composeDir" yaml:"composeDir"`
+	Resources       *Resources         `json:"resources" yaml:"resources"`
+	Volumes         []PersistentVolume `json:"volumes" yaml:"volumes"`
+	ImagePullPolicy *string            `json:"imagePullPolicy" yaml:"imagePullPolicy"`
 
 	Warnings []string `json:"warnings" yaml:"warnings"` // non-critical errors happened during conversion (should be reported later)
 }
@@ -260,14 +261,15 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 					Args: buildArgs,
 				},
 			},
-			ComposeDir:     composeCfg.Project.WorkingDir,
-			Env:            toRunEnv(svc.Environment),
-			Secrets:        toRunSecrets(svc.Environment),
-			Ports:          toRunPorts(svc.Ports),
-			ReadinessProbe: toReadinessProbe(svc.HealthCheck),
-			StartupProbe:   toStartupProbe(svc.HealthCheck),
-			Resources:      resources,
-			Volumes:        ToPersistentVolumes(svc, composeCfg),
+			ComposeDir:      composeCfg.Project.WorkingDir,
+			Env:             toRunEnv(svc.Environment),
+			Secrets:         toRunSecrets(svc.Environment),
+			Ports:           toRunPorts(svc.Ports),
+			ReadinessProbe:  toReadinessProbe(svc.HealthCheck),
+			StartupProbe:    toStartupProbe(svc.HealthCheck),
+			Resources:       resources,
+			Volumes:         ToPersistentVolumes(svc, composeCfg),
+			ImagePullPolicy: stackCfg.ImagePullPolicy,
 		}
 		if container.MainPort == nil && len(container.Ports) > 1 {
 			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
