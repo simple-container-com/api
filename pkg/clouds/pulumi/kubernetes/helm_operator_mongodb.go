@@ -177,6 +177,10 @@ func HelmMongodbOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 					},
 					"roles": []fields{
 						{
+							"name": sdk.String("readWriteAnyDatabase"),
+							"db":   sdk.String(rootDatabase),
+						},
+						{
 							"name": sdk.String("clusterAdmin"),
 							"db":   sdk.String(rootDatabase),
 						},
