@@ -4,6 +4,7 @@ import (
 	"context"
 	"path"
 	"path/filepath"
+	"syscall"
 
 	"github.com/compose-spec/compose-go/loader"
 	"github.com/compose-spec/compose-go/types"
@@ -31,7 +32,7 @@ func ReadDockerCompose(ctx context.Context, workingDir, composeFilePath string) 
 		options.SkipConsistencyCheck = true
 		options.SkipResolveEnvironment = true
 		options.Interpolate.LookupValue = func(key string) (string, bool) {
-			return "", false
+			return syscall.Getenv(key)
 		}
 	}, loader.WithDiscardEnvFiles)
 	if err != nil {
