@@ -20,7 +20,8 @@ func toSecretName(params api.StackParams, resType, resName, varName, suffix stri
 
 func createSecret(ctx *sdk.Context, secretName, envVar, value string, opts ...sdk.ResourceOption) (*CreatedSecret, error) {
 	secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
-		Name: sdk.String(secretName),
+		Name:                 sdk.String(secretName),
+		RecoveryWindowInDays: sdk.IntPtr(0),
 	}, opts...)
 	if err != nil {
 		return nil, err
