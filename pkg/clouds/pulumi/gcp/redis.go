@@ -54,8 +54,9 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	redisName := toRedisName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
 	redisHostExport := toRedisHostExport(redisName)
-	params.Log.Info(ctx.Context(), "Getting redis host from %q for %q from parent stack %q", stack.Name, fullParentReference)
-	redisHost, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-host", redisName), fullParentReference, redisHostExport, false)
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting redis host from %q for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
+	redisHost, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-host", redisName, suffix), fullParentReference, redisHostExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis host from parent stack for %q", redisName)
 	}
@@ -64,7 +65,7 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 	redisPortExport := toRedisPortExport(redisName)
 	params.Log.Info(ctx.Context(), "Getting redis port from %q for %q from parent stack %q", redisPortExport, stack.Name, fullParentReference)
-	redisPort, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-port", redisName), fullParentReference, redisPortExport, false)
+	redisPort, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-port", redisName, suffix), fullParentReference, redisPortExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis port from parent stack for %q", redisName)
 	}
@@ -73,24 +74,22 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 		params.Log.Warn(ctx.Context(), "redis's port %q wasn't found in the outputs, fallback to default port 6379", redisName)
 	}
 
-	if !params.UseResources[input.Descriptor.Name] {
+	if !params.ParentStack.UsesResource {
 		params.Log.Warn(ctx.Context(), "redis %q only supports `uses`, but it wasn't explicitly declared as being used", redisName)
-		return nil, nil
+		return nil, errors.Errorf("redis %q only supports `uses`, but it wasn't explicitly declared as being used", redisName)
 	}
 
-	if params.UseResources[input.Descriptor.Name] {
-		params.Log.Info(ctx.Context(), "Adding REDIS_HOST env variable for stack %q from %q", stack.Name, fullParentReference)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_HOST"), redisHost,
-			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
-		params.Log.Info(ctx.Context(), "Adding REDIS_PORT env variable for stack %q from %q", stack.Name, fullParentReference)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_PORT"), redisPort,
-			input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+	params.Log.Info(ctx.Context(), "Adding REDIS_HOST env variable for stack %q from %q", stack.Name, fullParentReference)
+	collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_HOST"), redisHost,
+		input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
+	params.Log.Info(ctx.Context(), "Adding REDIS_PORT env variable for stack %q from %q", stack.Name, fullParentReference)
+	collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_PORT"), redisPort,
+		input.Descriptor.Type, input.Descriptor.Name, params.ParentStack.StackName)
 
-		collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
-			"host": redisHost,
-			"port": redisPort,
-		})
-	}
+	collector.AddResourceTplExtension(input.Descriptor.Name, map[string]string{
+		"host": redisHost,
+		"port": redisPort,
+	})
 
 	return &api.ResourceOutput{
 		Ref: nil,

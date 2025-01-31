@@ -28,9 +28,10 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 
 	postgresName := toPostgresName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
-	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
 	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
+	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootpass", postgresName, suffix), fullParentReference, rootPasswordExport, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
 	} else if rootPassword == "" {
@@ -57,8 +58,8 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	var kubeProvider *sdkK8s.Provider
 	if pgCfg.UsersProvisionRuntime.Type == "gke" {
 		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
-		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
-		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
+		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q (%s)", clusterName, fullParentReference, suffix)
+		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-kubeconfig", postgresName, suffix), fullParentReference, toKubeconfigExport(clusterName), true)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 		}
@@ -92,20 +93,19 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		provisionParams: params,
 		kubeProvider:    kubeProvider,
 		gcpProvider:     gcpProvider,
+		suffix:          suffix,
 	}
-	if params.UseResources[input.Descriptor.Name] {
+	if params.ParentStack.UsesResource {
 		if err := appendUsesPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
-	}
-
-	for _, dep := range lo.Filter(params.DependOnResources, func(d api.StackConfigDependencyResource, _ int) bool {
-		return d.Resource == input.Descriptor.Name
-	}) {
-		appendContextParams.dependency = dep
+	} else if params.ParentStack.DependsOnResource != nil {
+		appendContextParams.dependency = *params.ParentStack.DependsOnResource
 		if err := appendDependsOnPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, err
 		}
+	} else {
+		return nil, errors.Errorf("postgres %q only supports `uses` or `dependency`, but it wasn't explicitly declared as being used", postgresName)
 	}
 
 	return &api.ResourceOutput{
@@ -124,6 +124,7 @@ type appendParams struct {
 	gcpProvider     *gcp.Provider
 	kubeProvider    *sdkK8s.Provider
 	config          *gcloud.PostgresGcpCloudsqlConfig
+	suffix          any
 }
 
 func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
@@ -276,8 +277,8 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params appendParam
 }
 
 func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params appendParams) (*random.RandomPassword, error) {
-	ctx.Export(fmt.Sprintf("%s-%s-username", userName, params.postgresName), sdk.String(userName))
-	passwordName := fmt.Sprintf("%s-%s-password", userName, params.postgresName)
+	ctx.Export(fmt.Sprintf("%s-%s%s-username", userName, params.postgresName, params.suffix), sdk.String(userName))
+	passwordName := fmt.Sprintf("%s-%s%s-password", userName, params.postgresName, params.suffix)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
 		Length:  sdk.Int(20),
 		Special: sdk.Bool(false),

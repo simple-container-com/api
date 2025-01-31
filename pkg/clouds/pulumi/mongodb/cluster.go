@@ -330,6 +330,7 @@ type dbUserInput struct {
 	userName    string
 	roles       []dbRole
 	dependency  sdk.Resource
+	suffix      string
 }
 
 type DbUserOutput struct {
@@ -416,7 +417,7 @@ func createAwsVpcEndpoint(ctx *sdk.Context, opts vpcEndpointInput) (*ec2.VpcEndp
 
 func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (any, error) {
 	// Generate a random password for the MongoDB Atlas database user.
-	passwordName := fmt.Sprintf("%s-%s-password", user.projectId, user.userName)
+	passwordName := fmt.Sprintf("%s-%s%s-password", user.projectId, user.userName, user.suffix)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
 		Length:  sdk.Int(20),
 		Special: sdk.Bool(false),

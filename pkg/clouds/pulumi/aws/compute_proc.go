@@ -50,10 +50,12 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 	postgresName := toRdsPostgresName(postgresResName, input.StackParams.Environment)
 
 	// Create a StackReference to the parent stack
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for rds postgres %q", params.ParentStack.FullReference, postgresName)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--pg-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name), &sdk.StackReferenceArgs{
-		Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
-	})
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for rds postgres %q (%q)", params.ParentStack.FullReference, postgresName, suffix)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s%s--pg-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name, suffix),
+		&sdk.StackReferenceArgs{
+			Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -79,9 +81,9 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 		return nil, errors.Errorf("postgres password is empty for %q (%q)", stack.Name, postgresName)
 	}
 
-	if !params.UseResources[input.Descriptor.Name] {
+	if !params.ParentStack.UsesResource {
 		params.Log.Warn(ctx.Context(), "rds postgres %q only supports `uses`, but it wasn't explicitly declared as being used", postgresName)
-		return nil, nil
+		return nil, errors.Errorf("rds postgres %q only supports `uses`, but it wasn't explicitly declared as being used", postgresName)
 	}
 
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
@@ -89,7 +91,7 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 		dbHost, dbPort := pgEpSplit[0], pgEpSplit[1]
 		dbUsername := stack.Name
 		dbName := stack.Name
-		password, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s-pg-password", dbUsername), &random.RandomPasswordArgs{
+		password, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s%s-pg-password", dbUsername, suffix), &random.RandomPasswordArgs{
 			Length:  sdk.Int(20),
 			Special: sdk.Bool(false),
 		})
@@ -174,7 +176,7 @@ END
 				return nil, errors.Wrapf(err, "failed to run init task for rds postgres")
 			}
 
-			ctx.Export(fmt.Sprintf("%s-%s", dbUsername, postgresResName), sdk.ToSecret(dbUserOutputJSON))
+			ctx.Export(fmt.Sprintf("%s-%s%s", dbUsername, postgresResName, suffix), sdk.ToSecret(dbUserOutputJSON))
 			return dbUserOutputJSON, nil
 		})
 	}))
@@ -206,10 +208,12 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	mysqlName := toRdsMysqlName(mysqlResName, input.StackParams.Environment)
 
 	// Create a StackReference to the parent stack
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for rds mysql %q", params.ParentStack.FullReference, mysqlName)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--pg-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name), &sdk.StackReferenceArgs{
-		Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
-	})
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for rds mysql %q (%q)", params.ParentStack.FullReference, mysqlName, suffix)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s%s--pg-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name, suffix),
+		&sdk.StackReferenceArgs{
+			Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -235,9 +239,9 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.Errorf("mysql password is empty for %q (%q)", stack.Name, mysqlName)
 	}
 
-	if !params.UseResources[input.Descriptor.Name] {
+	if !params.ParentStack.UsesResource {
 		params.Log.Warn(ctx.Context(), "rds mysql %q only supports `uses`, but it wasn't explicitly declared as being used", mysqlName)
-		return nil, nil
+		return nil, errors.Errorf("rds mysql %q only supports `uses`, but it wasn't explicitly declared as being used", mysqlName)
 	}
 
 	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
@@ -245,7 +249,7 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		dbHost, dbPort := mysqlEpSplit[0], mysqlEpSplit[1]
 		dbUsername := stack.Name
 		dbName := stack.Name
-		password, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s-mysql-password", dbUsername), &random.RandomPasswordArgs{
+		password, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s%s-mysql-password", dbUsername, suffix), &random.RandomPasswordArgs{
 			Length:  sdk.Int(20),
 			Special: sdk.Bool(false),
 		})
@@ -319,7 +323,7 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 				return nil, errors.Wrapf(err, "failed to run init task for rds mysql")
 			}
 
-			ctx.Export(fmt.Sprintf("%s-%s", dbUsername, mysqlResName), sdk.ToSecret(dbUserOutputJSON))
+			ctx.Export(fmt.Sprintf("%s-%s%s", dbUsername, mysqlResName, suffix), sdk.ToSecret(dbUserOutputJSON))
 			return dbUserOutputJSON, nil
 		})
 	}))
@@ -343,8 +347,9 @@ func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	bucketName := input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name))
 
 	// Create a StackReference to the parent stack
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for s3 bucket %q", params.ParentStack.FullReference, bucketName)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--s3-bucket-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name), &sdk.StackReferenceArgs{
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for s3 bucket %q (%q)", params.ParentStack.FullReference, bucketName, suffix)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s%s--s3-bucket-ref", stack.Name, params.ParentStack.StackName, input.Descriptor.Name, suffix), &sdk.StackReferenceArgs{
 		Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
 	})
 	if err != nil {

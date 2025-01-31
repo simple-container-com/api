@@ -25,8 +25,6 @@ type ProvisionParams struct {
 	DnsPreference       *DnsPreference
 	ParentStack         *ParentInfo
 	StackDescriptor     *api.StackDescriptor
-	UseResources        map[string]bool
-	DependOnResources   []api.StackConfigDependencyResource
 	BaseEnvVariables    map[string]string
 	HelpersImage        string
 	ResourceOutputs     ResourcesOutputs // outputs from dependency resources
@@ -41,10 +39,12 @@ type DnsPreference struct {
 	BaseZone string
 }
 type ParentInfo struct {
-	StackName     string
-	ParentEnv     string
-	StackEnv      string
-	FullReference string
+	StackName         string
+	ParentEnv         string
+	StackEnv          string
+	FullReference     string
+	DependsOnResource *api.StackConfigDependencyResource
+	UsesResource      bool
 }
 
 type ComputeEnvVariable struct {

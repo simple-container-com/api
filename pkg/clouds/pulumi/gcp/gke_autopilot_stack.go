@@ -59,8 +59,9 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		return nil, errors.Errorf("`artifactRegistryResource` must be specified for gke autopilot config for %q/%q in %q", stackName, input.Descriptor.Name, environment)
 	}
 
-	params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
-	kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-stack-kubeconfig", clusterName), fullParentReference, toKubeconfigExport(clusterName), true)
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q (%q)", clusterName, fullParentReference, suffix)
+	kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-stack-kubeconfig", clusterName, suffix), fullParentReference, toKubeconfigExport(clusterName), true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 	}
@@ -75,8 +76,8 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	out.Provider = kubeProvider
 
-	params.Log.Info(ctx.Context(), "Getting registry url for %q from parent stack %q", registryResource, fullParentReference)
-	registryURL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-stack-registryurl", clusterName), fullParentReference, toRegistryUrlExport(registryName), false)
+	params.Log.Info(ctx.Context(), "Getting registry url for %q from parent stack %q (%q)", registryResource, fullParentReference, suffix)
+	registryURL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-stack-registryurl", clusterName, suffix), fullParentReference, toRegistryUrlExport(registryName), false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get registry url from parent stack's %q resources for resource %q", fullParentReference, registryResource)
 	}
@@ -132,7 +133,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		if params.Registrar == nil {
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
-		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, kubernetes.ToIngressIpExport(clusterName), false)
+		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, kubernetes.ToIngressIpExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 		}
@@ -147,7 +148,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
 		}
 
-		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s-caddy-cfg", stackName, input.StackParams.Environment), fullParentReference, kubernetes.ToCaddyConfigExport(clusterName), false)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-caddy-cfg", stackName, input.StackParams.Environment, suffix), fullParentReference, kubernetes.ToCaddyConfigExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
 		}

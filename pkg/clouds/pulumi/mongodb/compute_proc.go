@@ -21,8 +21,9 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 	projectName := toProjectName(params.ParentStack.StackName, input)
 	clusterName := toClusterName(params.ParentStack.StackName, input)
 
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q", params.ParentStack.FullReference, input.Descriptor.Name)
-	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s--mongodb-atlas-ref", stack.Name, input.Descriptor.Name, params.ParentStack.StackName),
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q (%q)", params.ParentStack.FullReference, input.Descriptor.Name, suffix)
+	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s%s--mongodb-atlas-ref", stack.Name, input.Descriptor.Name, params.ParentStack.FullReference, suffix),
 		&sdk.StackReferenceArgs{
 			Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
 		})
@@ -54,20 +55,20 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		projectId:       projectId,
 		mongoUri:        mongoUri,
 		provisionParams: params,
+		suffix:          suffix,
 	}
-	if params.UseResources[input.Descriptor.Name] {
+	if params.ParentStack.UsesResource {
 		if err := appendUsesResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
-	}
-
-	for _, dep := range lo.Filter(params.DependOnResources, func(d api.StackConfigDependencyResource, _ int) bool {
-		return d.Resource == input.Descriptor.Name
-	}) {
-		appendContextParams.dependency = dep
+	} else if params.ParentStack.DependsOnResource != nil {
+		appendContextParams.dependency = *params.ParentStack.DependsOnResource
 		if err := appendDependsOnResourceContext(ctx, appendContextParams); err != nil {
 			return nil, err
 		}
+	} else {
+		params.Log.Warn(ctx.Context(), "mongodb %q only supports `uses` or `dependency`, but neither was explicitly declared as being used", clusterName)
+		return nil, errors.Errorf("mongodb %q only supports `uses` or `dependency`, but it wasn't explicitly declared as being used", clusterName)
 	}
 
 	return &api.ResourceOutput{
@@ -85,6 +86,7 @@ type appendParams struct {
 	mongoUri        string
 	provisionParams pApi.ProvisionParams
 	dependency      api.StackConfigDependencyResource
+	suffix          string
 }
 
 func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
@@ -111,12 +113,13 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 				role:   "read",
 			},
 		},
+		suffix: params.suffix,
 	}, params.provisionParams)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
 	}
 	if dbUser != nil {
-		ctx.Export(fmt.Sprintf("%s-service-user", params.clusterName), dbUser.(sdk.Output))
+		ctx.Export(fmt.Sprintf("%s%s-service-user", params.clusterName, params.suffix), dbUser.(sdk.Output))
 
 		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
 			dbUserOutJson := dbUserOut.(string)
@@ -179,12 +182,13 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 				role:   "read",
 			},
 		},
+		suffix: params.suffix,
 	}, params.provisionParams)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
 	}
 	if dbUser != nil {
-		ctx.Export(fmt.Sprintf("%s--to--%s--%s", params.clusterName, ownerStackName, params.dependency.Resource), dbUser.(sdk.Output))
+		ctx.Export(fmt.Sprintf("%s--to--%s--%s%s", params.clusterName, ownerStackName, params.dependency.Resource, params.suffix), dbUser.(sdk.Output))
 
 		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
 			dbUserOutJson := dbUserOut.(string)

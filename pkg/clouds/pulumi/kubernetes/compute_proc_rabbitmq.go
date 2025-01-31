@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 
@@ -19,10 +20,12 @@ func HelmRabbitmqOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 
 	rabbitmqInstance := toRabbitmqInstanceName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
-	params.Log.Info(ctx.Context(), "Getting rabbitmq connection %q from parent stack %q", stack.Name, fullParentReference)
+
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting rabbitmq connection %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
 	connectionExport := toRabbitmqConnectionParamsExport(rabbitmqInstance)
 
-	connection, err := readObjectFromStack(ctx, fmt.Sprintf("%s-cproc-connection", rabbitmqInstance), fullParentReference, connectionExport, &RabbitmqConnectionParams{}, true)
+	connection, err := readObjectFromStack(ctx, fmt.Sprintf("%s%s-cproc-connection", rabbitmqInstance, suffix), fullParentReference, connectionExport, &RabbitmqConnectionParams{}, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal connection config from parent stack")
 	}
@@ -34,10 +37,13 @@ func HelmRabbitmqOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 		provisionParams: params,
 		connection:      connection,
 	}
-	if params.UseResources[input.Descriptor.Name] {
+	if params.ParentStack.UsesResource {
 		if err := appendUsesRabbitmqResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
+	} else {
+		params.Log.Warn(ctx.Context(), "rabbitmq %q only supports `uses`, but it wasn't explicitly declared as being used", rabbitmqInstance)
+		return nil, errors.Errorf("rabbitmq %q only supports `uses`, but it wasn't explicitly declared as being used", rabbitmqInstance)
 	}
 
 	return &api.ResourceOutput{

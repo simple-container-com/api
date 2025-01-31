@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 
@@ -18,10 +19,12 @@ func HelmRedisOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, input 
 	}
 	redisInstance := toRedisInstanceName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
-	params.Log.Info(ctx.Context(), "Getting redis connection %q from parent stack %q", stack.Name, fullParentReference)
+
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting redis connection %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
 	connectionExport := toRedisConnectionParamsExport(redisInstance)
 
-	connection, err := readObjectFromStack(ctx, fmt.Sprintf("%s-cproc-connection", redisInstance), fullParentReference, connectionExport, &RedisConnectionParams{}, false)
+	connection, err := readObjectFromStack(ctx, fmt.Sprintf("%s%s-cproc-connection", redisInstance, suffix), fullParentReference, connectionExport, &RedisConnectionParams{}, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal connection config from parent stack")
 	}
@@ -33,10 +36,13 @@ func HelmRedisOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, input 
 		provisionParams: params,
 		connection:      connection,
 	}
-	if params.UseResources[input.Descriptor.Name] {
+	if params.ParentStack.UsesResource {
 		if err := appendUsesRedisResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
+	} else {
+		params.Log.Warn(ctx.Context(), "redis %q only supports `uses`, but it wasn't explicitly declared as being used", redisInstance)
+		return nil, errors.Errorf("redis %q only supports `uses`, but it wasn't explicitly declared as being used", redisInstance)
 	}
 
 	return &api.ResourceOutput{

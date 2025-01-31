@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"github.com/samber/lo"
 
 	"github.com/pkg/errors"
 
@@ -21,10 +22,11 @@ func HelmMongodbOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inpu
 
 	mongoInstance := toMongodbInstanceName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
-	params.Log.Info(ctx.Context(), "Getting mongodb connection %q from parent stack %q", stack.Name, fullParentReference)
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting mongodb connection %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
 	connectionExport := toMongodbConnectionParamsExport(mongoInstance)
 
-	connection, err := readObjectFromStack(ctx, fmt.Sprintf("%s-cproc-connection", mongoInstance), fullParentReference, connectionExport, &MongodbConnectionParams{}, true)
+	connection, err := readObjectFromStack(ctx, fmt.Sprintf("%s%s-cproc-connection", mongoInstance, suffix), fullParentReference, connectionExport, &MongodbConnectionParams{}, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal connection config from parent stack")
 	}
@@ -36,11 +38,15 @@ func HelmMongodbOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inpu
 		input:           input,
 		provisionParams: params,
 		connection:      connection,
+		suffix:          suffix,
 	}
-	if params.UseResources[input.Descriptor.Name] {
+	if params.ParentStack.UsesResource {
 		if err := appendUsesMongodbResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
+	} else {
+		params.Log.Warn(ctx.Context(), "mongodb %q only supports `uses`, but it wasn't explicitly declared as being used", mongoInstance)
+		return nil, errors.Errorf("mongodb %q only supports `uses`, but it wasn't explicitly declared as being used", mongoInstance)
 	}
 
 	return &api.ResourceOutput{
@@ -55,6 +61,7 @@ type mongodbAppendParams struct {
 	input           api.ResourceInput
 	provisionParams pApi.ProvisionParams
 	connection      *MongodbConnectionParams
+	suffix          string
 }
 
 func appendUsesMongodbResourceContext(ctx *sdk.Context, params mongodbAppendParams) error {
@@ -111,8 +118,8 @@ func appendUsesMongodbResourceContext(ctx *sdk.Context, params mongodbAppendPara
 }
 
 func createMongodbUserForDatabase(ctx *sdk.Context, userName, dbName string, params mongodbAppendParams) (*random.RandomPassword, error) {
-	ctx.Export(fmt.Sprintf("%s-%s-username", userName, params.instanceName), sdk.String(userName))
-	passwordName := fmt.Sprintf("%s-%s-password", userName, params.instanceName)
+	ctx.Export(fmt.Sprintf("%s-%s%s-username", userName, params.instanceName, params.suffix), sdk.String(userName))
+	passwordName := fmt.Sprintf("%s-%s%s-password", userName, params.instanceName, params.suffix)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
 		Length:  sdk.Int(20),
 		Special: sdk.Bool(false),
