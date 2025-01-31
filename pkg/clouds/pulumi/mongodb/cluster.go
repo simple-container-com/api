@@ -340,7 +340,10 @@ type DbUserOutput struct {
 }
 
 func (o DbUserOutput) ToJson() string {
-	res, _ := json.Marshal(o)
+	res, err := json.Marshal(o)
+	if err != nil {
+		panic(err)
+	}
 	return string(res)
 }
 
@@ -415,7 +418,7 @@ func createAwsVpcEndpoint(ctx *sdk.Context, opts vpcEndpointInput) (*ec2.VpcEndp
 	return vpcEndpoint, nil
 }
 
-func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (any, error) {
+func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (sdk.Output, error) {
 	// Generate a random password for the MongoDB Atlas database user.
 	passwordName := fmt.Sprintf("%s-%s%s-password", user.projectId, user.userName, user.suffix)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
@@ -423,11 +426,12 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 		Special: sdk.Bool(false),
 	})
 	if err != nil {
+		params.Log.Error(ctx.Context(), "failed to generate random password for user %q", user.userName)
 		return nil, errors.Wrapf(err, "failed to generate random password for mongodb for user %q", user.userName)
 	}
 	ctx.Export(passwordName, password.Result)
 
-	userObjectName := fmt.Sprintf("%s-%s-user", user.clusterName, user.userName)
+	userObjectName := fmt.Sprintf("%s-%s%s-user", user.clusterName, user.userName, user.suffix)
 	roles := mongodbatlas.DatabaseUserRoleArray{}
 
 	for _, role := range user.roles {
@@ -450,6 +454,7 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 		Username:         sdk.String(user.userName),
 	}, opts...)
 	if err != nil {
+		params.Log.Error(ctx.Context(), "failed to create database user %q", user.userName)
 		return nil, errors.Wrapf(err, "failed to create database user %q", user.userName)
 	}
 	return sdk.All(dbUser.Username, dbUser.Password).ApplyT(func(args []any) (any, error) {

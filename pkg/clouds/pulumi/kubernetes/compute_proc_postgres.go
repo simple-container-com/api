@@ -103,7 +103,7 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendPa
 		return errors.Wrapf(err, "failed to parse postgres url for database %q", dbName)
 	}
 
-	params.collector.AddOutput(sdk.All(password.Result, dbName).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(password.Result, dbName).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_USERNAME"), userName,
@@ -158,7 +158,7 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params postgresApp
 		return errors.Wrapf(err, "failed to parse postgres url for database %q", dbName)
 	}
 
-	params.collector.AddOutput(sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("POSTGRES_DEP_%s_PASSWORD", ownerStackName)), userPassword,

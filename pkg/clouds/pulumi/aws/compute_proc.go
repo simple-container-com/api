@@ -86,7 +86,7 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 		return nil, errors.Errorf("rds postgres %q only supports `uses`, but it wasn't explicitly declared as being used", postgresName)
 	}
 
-	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
+	collector.AddOutput(ctx, parentRef.Name.ApplyT(func(refName any) any {
 		pgEpSplit := strings.SplitN(resPgEndpoint, ":", 2)
 		dbHost, dbPort := pgEpSplit[0], pgEpSplit[1]
 		dbUsername := stack.Name
@@ -244,7 +244,7 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.Errorf("rds mysql %q only supports `uses`, but it wasn't explicitly declared as being used", mysqlName)
 	}
 
-	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
+	collector.AddOutput(ctx, parentRef.Name.ApplyT(func(refName any) any {
 		mysqlEpSplit := strings.SplitN(resMysqlEndpoint, ":", 2)
 		dbHost, dbPort := mysqlEpSplit[0], mysqlEpSplit[1]
 		dbUsername := stack.Name
@@ -385,7 +385,7 @@ func S3BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.Errorf("bucket region is empty for %q (%q)", stack.Name, regionExport)
 	}
 
-	collector.AddOutput(parentRef.Name.ApplyT(func(refName any) any {
+	collector.AddOutput(ctx, parentRef.Name.ApplyT(func(refName any) any {
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_REGION", bucketName)), resBucketRegion,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("S3_%s_BUCKET", bucketName)), resBucketName,

@@ -74,7 +74,7 @@ func appendUsesMongodbResourceContext(ctx *sdk.Context, params mongodbAppendPara
 		return errors.Wrapf(err, "failed to init user %q for database %q", userName, dbName)
 	}
 
-	params.collector.AddOutput(sdk.All(params.connection, password.Result).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(params.connection, password.Result).ApplyT(func(args []any) (any, error) {
 		rootConnection := args[0].(*MongodbConnectionParams)
 		servicePassword := args[1].(string)
 		connection := &MongodbConnectionParams{

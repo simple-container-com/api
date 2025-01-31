@@ -178,12 +178,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 		}
 
-		var resolveEverything []any
-		resolveEverything = append(resolveEverything, lo.Map(collector.Outputs(), func(o sdk.Output, _ int) any {
-			return o
-		})...)
-
-		deployResOut := sdk.AllWithContext(ctx.Context(), resolveEverything...).ApplyT(func(args []any) (any, error) {
+		deployOut := sdk.ToArrayOutput(collector.Outputs()).ApplyTWithContext(ctx.Context(), func(args []any) (string, error) {
 			// resolve resource-dependent client placeholders that have remained after initial resolve of basic values
 			if err := collector.ResolvePlaceholders(&clientStackDesc.Config.Config); err != nil {
 				p.logger.Error(ctx.Context(), "failed to resolve placeholders for secrets in stack %q in %q: %v", stack.Name, params.Environment, err)
@@ -222,8 +217,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 			return "success", nil
 		})
-
-		ctx.Export(fmt.Sprintf("%s-%s-outcome", params.StackName, params.Environment), deployResOut)
+		ctx.Export(fmt.Sprintf("%s-%s-deploy-outcome", params.StackName, params.Environment), deployOut)
 		return nil
 	}
 }

@@ -121,10 +121,16 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 	if dbUser != nil {
 		ctx.Export(fmt.Sprintf("%s%s-service-user", params.clusterName, params.suffix), dbUser.(sdk.Output))
 
-		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
-			dbUserOutJson := dbUserOut.(string)
+		params.collector.AddOutput(ctx, dbUser.ApplyT(func(dbUserOut any) (string, error) {
+			dbUserOutJson, ok := dbUserOut.(string)
+			if !ok {
+				return "error", errors.Errorf("db user is not a string for mongodb user %q", userName)
+			}
 			dbUser := DbUserOutput{}
-			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
+			err = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
+			if err != nil {
+				return "error", errors.Wrapf(err, "failed to unmarshal db user for mongodb user %q", userName)
+			}
 
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("MONGO_USER"), userName,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
@@ -151,7 +157,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 				"oplogUri": oplogMongoUri,
 			})
 
-			return nil, nil
+			return "ok", nil
 		}))
 	}
 
@@ -190,10 +196,17 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 	if dbUser != nil {
 		ctx.Export(fmt.Sprintf("%s--to--%s--%s%s", params.clusterName, ownerStackName, params.dependency.Resource, params.suffix), dbUser.(sdk.Output))
 
-		params.collector.AddOutput(dbUser.(sdk.Output).ApplyT(func(dbUserOut any) (any, error) {
-			dbUserOutJson := dbUserOut.(string)
+		params.collector.AddOutput(ctx, dbUser.ApplyT(func(dbUserOut any) (string, error) {
+			params.provisionParams.Log.Info(ctx.Context(), "Creating mongo user %q", userName)
+			dbUserOutJson, ok := dbUserOut.(string)
+			if !ok {
+				return "error", errors.Errorf("db user is not a string")
+			}
 			dbUser := DbUserOutput{}
-			_ = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
+			err = json.Unmarshal([]byte(dbUserOutJson), &dbUser)
+			if err != nil {
+				return "error", errors.Wrapf(err, "failed to unmarshal db user for mongo %q", userName)
+			}
 
 			params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("MONGO_DEP_%s_USER", ownerStackName)), userName,
 				params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
@@ -217,7 +230,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 				"oplogUri": oplogMongoUri,
 			})
 
-			return nil, nil
+			return "ok", nil
 		}))
 	}
 

@@ -60,7 +60,7 @@ type rabbitmqAppendParams struct {
 }
 
 func appendUsesRabbitmqResourceContext(ctx *sdk.Context, params rabbitmqAppendParams) error {
-	params.collector.AddOutput(sdk.All(params.connection).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(params.connection).ApplyT(func(args []any) (any, error) {
 		connection := args[0].(*RabbitmqConnectionParams)
 
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("RABBITMQ_USERNAME"), connection.Username,

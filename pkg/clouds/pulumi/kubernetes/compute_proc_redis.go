@@ -59,7 +59,7 @@ type redisAppendParams struct {
 }
 
 func appendUsesRedisResourceContext(ctx *sdk.Context, params redisAppendParams) error {
-	params.collector.AddOutput(sdk.All(params.connection).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(params.connection).ApplyT(func(args []any) (any, error) {
 		connection := args[0].(*RedisConnectionParams)
 
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("REDIS_HOST"), connection.Host,

@@ -86,7 +86,7 @@ type ComputeContextCollector interface {
 	AddSecretEnvVariableIfNotExist(name, value, resType, resName, stackName string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
-	AddOutput(o sdk.Output)
+	AddOutput(ctx *sdk.Context, o sdk.Output)
 	Outputs() []sdk.Output
 	ResolvePlaceholders(obj any) error
 	AddResourceTplExtension(resName string, value map[string]string)

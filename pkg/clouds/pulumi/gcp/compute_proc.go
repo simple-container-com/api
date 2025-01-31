@@ -148,7 +148,7 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) er
 
 	addCloudsqlProxySidecarPreProcessor(ctx, params)
 
-	params.collector.AddOutput(sdk.All(password.Result, database.Name).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(password.Result, database.Name).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_USERNAME"), userName,
@@ -232,7 +232,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 	params.collector.AddDependency(cloudsqlProxy.Account.ServiceAccount)
 	params.collector.AddDependency(cloudsqlProxy.Account.ServiceAccountKey)
 	params.collector.AddDependency(cloudsqlProxy.SqlProxySecret)
-	params.collector.AddOutput(cloudsqlProxy.ProxyContainer)
+	params.collector.AddOutput(ctx, cloudsqlProxy.ProxyContainer)
 	return cloudsqlProxy, nil
 }
 
@@ -248,7 +248,7 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params appendParam
 
 	addCloudsqlProxySidecarPreProcessor(ctx, params)
 
-	params.collector.AddOutput(sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("POSTGRES_DEP_%s_PASSWORD", ownerStackName)), userPassword,
