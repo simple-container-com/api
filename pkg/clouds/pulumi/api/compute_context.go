@@ -82,7 +82,9 @@ func (c *Collector) AddResourceTplExtension(resName string, values map[string]st
 func (c *Collector) AddOutput(ctx *sdk.Context, o sdk.Output) {
 	c.modifyMu.Lock()
 	defer c.modifyMu.Unlock()
-	c.outputs = append(c.outputs, o)
+	c.outputs = append(c.outputs, o.ApplyTWithContext(ctx.Context(), func(res any) any {
+		return "RESOLVED"
+	}))
 }
 
 func (c *Collector) Outputs() []sdk.Output {
