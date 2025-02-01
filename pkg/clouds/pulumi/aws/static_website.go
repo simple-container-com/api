@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"time"
 
 	"github.com/MShekow/directory-checksum/directory_checksum"
 	"github.com/pkg/errors"
@@ -16,6 +17,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
@@ -45,6 +47,7 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		Domain:             cfg.Site.Domain,
 		ProvisionWwwDomain: cfg.Site.ProvisionWwwDomain,
 		Account:            cfg.AccountConfig,
+		Log:                params.Log,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision static website for stack %q", stack.Name)
@@ -64,6 +67,7 @@ type StaticSiteInput struct {
 	Domain             string
 	ProvisionWwwDomain bool
 	Account            aws.AccountConfig
+	Log                logger.Logger
 }
 
 type StaticSiteOutput struct {
@@ -119,7 +123,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		return nil, errors.Wrapf(err, "failed to provision ownership controls")
 	}
 
-	// Define the S3 Bucket Policy.
+	// Define the S3 Bucket Policies.
 	mainBucketPolicy, err := s3.NewBucketPolicy(ctx, fmt.Sprintf("%s-policy", input.ServiceName), &s3.BucketPolicyArgs{
 		Bucket: mainBucket.ID(), // Reference to the bucket created above.
 		Policy: sdk.All(mainBucket.Arn, mainBucket.ID()).ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
@@ -154,23 +158,25 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 	} else {
 		sum := md5.Sum([]byte(checksums))
 		checksum := hex.EncodeToString(sum[:])
-		sdk.All(mainBucket.Bucket, mainBucketPolicy.ID()).ApplyT(func(a []interface{}) error {
-			bucketName := a[0].(string)
-			_, err = local.NewCommand(ctx, fmt.Sprintf("%s-sync", input.ServiceName), &local.CommandArgs{
-				Create:   sdk.String(fmt.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, bucketName)),
-				Update:   sdk.String(fmt.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, bucketName)),
-				Triggers: sdk.ArrayInput(sdk.Array{sdk.String(checksum)}),
-				Environment: sdk.ToStringMap(map[string]string{
-					"AWS_ACCESS_KEY_ID":     input.Account.AccessKey,
-					"AWS_SECRET_ACCESS_KEY": input.Account.SecretAccessKey,
-					"AWS_DEFAULT_REGION":    input.Account.Region,
-				}),
-			}, sdk.DependsOn([]sdk.Resource{mainBucket, publicAccessBlock, ownershipControls, mainBucketPolicy}))
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+		input.Log.Info(ctx.Context(), "Checksum of the uploading bundle %s is %s", input.BundleDir, checksum)
+
+		// hack: temporarily ignoring checksum and replacing with timestamp
+		checksum = time.Now().String()
+
+		// fixme: implement own s3 uploader instead of aws s3 sync
+		_, err = local.NewCommand(ctx, fmt.Sprintf("%s-sync", input.ServiceName), &local.CommandArgs{
+			Create:   sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
+			Update:   sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
+			Triggers: sdk.ArrayInput(sdk.Array{sdk.String(checksum)}),
+			Environment: sdk.ToStringMap(map[string]string{
+				"AWS_ACCESS_KEY_ID":     input.Account.AccessKey,
+				"AWS_SECRET_ACCESS_KEY": input.Account.SecretAccessKey,
+				"AWS_DEFAULT_REGION":    input.Account.Region,
+			}),
+		}, sdk.DependsOn([]sdk.Resource{mainBucket, publicAccessBlock, ownershipControls, mainBucketPolicy}))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to invoke aws s3 sync")
+		}
 	}
 
 	mainRecord, err := input.Registrar.NewRecord(ctx, api.DnsRecord{

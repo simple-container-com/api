@@ -12,6 +12,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
@@ -154,6 +155,30 @@ func Test_Provision(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path kubernetes",
+			params: api.ProvisionParams{
+				StacksDir: "stacks",
+				Stacks: []string{
+					"common",
+					"refapp-kubernetes",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-kubernetes": {
+					Name:    "refapp-kubernetes",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappKubernetesServerDescriptor,
+					Client:  *tests.ResolvedRefappCloudClientDescriptor("testdata", tests.RefappKubernetesClientDescriptor),
+				},
+			},
+		},
+		{
 			name: "pulumi error",
 			params: api.ProvisionParams{
 				StacksDir: "stacks",
@@ -174,6 +199,30 @@ func Test_Provision(t *testing.T) {
 				)
 			},
 			wantErr: "failed to create stacks",
+		},
+		{
+			name: "happy path fs file storage",
+			params: api.ProvisionParams{
+				StacksDir: "stacks",
+				Stacks: []string{
+					"common",
+					"refapp-fs",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-fs": {
+					Name:    "refapp-fs",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  tests.ResolvedFsStateStorageServerDescriptor(),
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+			},
 		},
 	}
 	for _, tt := range testCases {
@@ -221,17 +270,17 @@ func Test_Provision(t *testing.T) {
 						expectedRaw := tt.expectStacks[stackName]
 						expected := expectedRaw.ValuesOnly()
 
-						assert.EqualValuesf(t, expected.Secrets, actual.Secrets, "%v/%v secrets failed", tt.name, stackName)
-						assert.EqualValuesf(t, expected.Server.CiCd, actual.Server.CiCd, "%v/%v cicd failed", tt.name, stackName)
-						assert.EqualValuesf(t, expected.Server.Provisioner, actual.Server.Provisioner, "%v/%v provisioner failed", tt.name, stackName)
-						assert.EqualValuesf(t, expected.Server.Secrets, actual.Server.Secrets, "%v/%v server secrets failed", tt.name, stackName)
-						assert.EqualValuesf(t, expected.Server.Templates, actual.Server.Templates, "%v/%v server templates failed", tt.name, stackName)
-						assert.EqualValuesf(t, expected.Server.Variables, actual.Server.Variables, "%v/%v server variables failed", tt.name, stackName)
-						assert.EqualValuesf(t, expected.Server.Resources.Registrar, actual.Server.Resources.Registrar, "%v/%v registrar failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Secrets, actual.Secrets, "%v/%v secrets failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Server.CiCd, actual.Server.CiCd, "%v/%v cicd failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Server.Provisioner, actual.Server.Provisioner, "%v/%v provisioner failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Server.Secrets, actual.Server.Secrets, "%v/%v server secrets failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Server.Templates, actual.Server.Templates, "%v/%v server templates failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Server.Variables, actual.Server.Variables, "%v/%v server variables failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Server.Resources.Registrar, actual.Server.Resources.Registrar, "%v/%v registrar failed", tt.name, stackName)
 						for env := range expected.Server.Resources.Resources {
-							assert.EqualValuesf(t, expected.Server.Resources.Resources[env], actual.Server.Resources.Resources[env], "%v/%v/%v env resources failed", tt.name, stackName, env)
+							require.EqualValuesf(t, expected.Server.Resources.Resources[env], actual.Server.Resources.Resources[env], "%v/%v/%v env resources failed", tt.name, stackName, env)
 						}
-						assert.EqualValuesf(t, expected.Client, actual.Client, "%v/%v client failed", tt.name, stackName)
+						require.EqualValuesf(t, expected.Client, actual.Client, "%v/%v client failed", tt.name, stackName)
 					}
 				}
 			}

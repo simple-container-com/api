@@ -1,0 +1,25 @@
+schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: fs
+      config:
+        path: file:///${user:homeDir}/.sc/pulumi/state
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: pass-phrase
+secrets:
+  inherit: common
+cicd:
+  inherit: common
+templates:
+  stack-per-app:
+    inherit: common
+  stack-per-app-aws:
+    inherit: common
+resources:
+  registrar:
+    inherit: common
+  resources: {}

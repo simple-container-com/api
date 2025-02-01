@@ -137,6 +137,7 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 			}.ToJson()
 
 			command := []string{
+				// TODO: replace with db.PSQL_DB_INIT_SH
 				"sh", "-c", `apk add --update postgresql && 
 psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || psql -U postgres -c "CREATE DATABASE \"$DB_NAME\"" &&
 psql -c "DO

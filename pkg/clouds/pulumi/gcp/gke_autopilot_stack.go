@@ -21,6 +21,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
@@ -44,7 +45,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	clusterResource := gkeAutopilotInput.GkeAutopilotTemplate.GkeClusterResource
 	registryResource := gkeAutopilotInput.GkeAutopilotTemplate.ArtifactRegistryResource
-	clusterName := toClusterName(input, clusterResource)
+	clusterName := kubernetes.ToClusterName(input, clusterResource)
 	registryName := toArtifactRegistryName(input, registryResource)
 	environment := input.StackParams.Environment
 	stackName := input.StackParams.StackName
@@ -59,7 +60,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
-	kubeConfig, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-stack-kubeconfig", clusterName), fullParentReference, toKubeconfigExport(clusterName), true)
+	kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-stack-kubeconfig", clusterName), fullParentReference, toKubeconfigExport(clusterName), true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 	}
@@ -75,7 +76,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out.Provider = kubeProvider
 
 	params.Log.Info(ctx.Context(), "Getting registry url for %q from parent stack %q", registryResource, fullParentReference)
-	registryURL, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-stack-registryurl", clusterName), fullParentReference, toRegistryUrlExport(registryName), false)
+	registryURL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-stack-registryurl", clusterName), fullParentReference, toRegistryUrlExport(registryName), false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get registry url from parent stack's %q resources for resource %q", fullParentReference, registryResource)
 	}
@@ -131,7 +132,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		if params.Registrar == nil {
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
-		clusterIPAddress, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, toIngressIpExport(clusterName), false)
+		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, kubernetes.ToIngressIpExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 		}
@@ -146,11 +147,11 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
 		}
 
-		caddyConfigJson, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-%s-caddy-cfg", stackName, input.StackParams.Environment), fullParentReference, toCaddyConfigExport(clusterName), false)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s-caddy-cfg", stackName, input.StackParams.Environment), fullParentReference, kubernetes.ToCaddyConfigExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
 		}
-		var caddyCfg gcloud.CaddyConfig
+		var caddyCfg k8s.CaddyConfig
 		err = json.Unmarshal([]byte(caddyConfigJson), &caddyCfg)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack")
@@ -163,12 +164,12 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
 				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
-				"simple-container.com/caddy-update-hash": sc.CaddyfileEntry.ApplyT(func(entry any) string {
-					sum := md5.Sum([]byte(entry.(string)))
+				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc})},
+			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
@@ -180,7 +181,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 // authAgainstRegistry - run gcloud auth configure-docker to configure docker/config.json to access repo
 // nolint: unused
-func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
+func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, params pApi.ProvisionParams, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
 	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
@@ -196,12 +197,20 @@ func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceIn
 		env["GOOGLE_APPLICATION_CREDENTIALS"] = authConfig.CredentialsValue()
 		registryHost := registryURL.ApplyT(func(out any) (string, error) {
 			rUrl := out.(string)
-			parsedRegistryURL, err := url.Parse(fmt.Sprintf("https://%s", rUrl))
-			if err != nil {
+			var parsedRegistryURL *url.URL
+			if strings.HasPrefix(rUrl, "http") {
+				parsedRegistryURL, err = url.Parse(rUrl)
+				if err != nil {
+					return "", errors.Wrapf(err, "failed to parse registry url %q as is", rUrl)
+				}
+			} else if parsedRegistryURL, err = url.Parse(fmt.Sprintf("https://%s", rUrl)); err != nil {
 				return "", errors.Wrapf(err, "failed to parse registry url %q", rUrl)
 			}
+			params.Log.Info(ctx.Context(), "extracted registry host for gcloud auth configure-docker: %q", parsedRegistryURL.Host)
 			return parsedRegistryURL.Host, nil
 		})
+
+		params.Log.Info(ctx.Context(), "configure gcloud auth configure-docker against registry host...")
 		configureDockerCmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-%s-%s", input.StackParams.StackName, input.StackParams.Environment, authName), &local.CommandArgs{
 			Update:      sdk.Sprintf("gcloud auth configure-docker %s --quiet", registryHost),
 			Create:      sdk.Sprintf("gcloud auth configure-docker %s --quiet", registryHost),

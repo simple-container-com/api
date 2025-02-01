@@ -16,19 +16,11 @@ const (
 
 type GkeAutopilotResource struct {
 	Credentials   `json:",inline" yaml:",inline"`
-	GkeMinVersion string       `json:"gkeMinVersion" yaml:"gkeMinVersion"`
-	Location      string       `json:"location" yaml:"location"`
-	Zone          string       `json:"zone" yaml:"zone"`
-	Timeouts      *Timeouts    `json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
-	Caddy         *CaddyConfig `json:"caddy,omitempty" yaml:"caddy,omitempty"`
-}
-
-type CaddyConfig struct {
-	Enable    *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
-	Caddyfile *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"` // TODO: support overwriting
-	Namespace *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
-	Image     *string `json:"image,omitempty" yaml:"image,omitempty"`
-	Replicas  *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
+	GkeMinVersion string           `json:"gkeMinVersion" yaml:"gkeMinVersion"`
+	Location      string           `json:"location" yaml:"location"`
+	Zone          string           `json:"zone" yaml:"zone"`
+	Timeouts      *Timeouts        `json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
+	Caddy         *k8s.CaddyConfig `json:"caddy,omitempty" yaml:"caddy,omitempty"`
 }
 
 type Timeouts struct {
@@ -87,7 +79,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	if err != nil {
 		return nil, err
 	}
-	iContainer, err := findIngressContainer(composeCfg, containers)
+	iContainer, err := k8s.FindIngressContainer(composeCfg, containers)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to detect ingress container")
 	}

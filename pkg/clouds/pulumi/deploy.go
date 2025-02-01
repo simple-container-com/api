@@ -70,8 +70,13 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, parentStack string, fullStackName string) func(ctx *sdk.Context) error {
 	return func(ctx *sdk.Context) error {
 		stackClientDesc := stack.Client.Stacks[params.Environment]
+		parentEnv := params.Environment
+		// if parentEnv is specified, use it instead of stack's environment
+		if stackClientDesc.ParentEnv != "" {
+			parentEnv = stackClientDesc.ParentEnv
+		}
 
-		templateName := stack.Server.Resources.Resources[params.Environment].Template
+		templateName := stack.Server.Resources.Resources[parentEnv].Template
 		if stackClientDesc.Template != "" {
 			templateName = stackClientDesc.Template
 		}
@@ -85,7 +90,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		// get template from parent
 		templateRef := stackDescriptorTemplateName(parentFullReference, templateName)
 		var stackDesc api.StackDescriptor
-		stackDescYaml, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-template", parentFullReference), parentFullReference, templateRef, true)
+		stackDescYaml, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-template", parentFullReference), parentFullReference, templateRef, true)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get template descriptpor for stack %q in %q", parentStack, params.Environment)
 		}
@@ -137,8 +142,16 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
 
-		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, params.Environment)
-		for resName, res := range stack.Server.Resources.Resources[params.Environment].Resources {
+		parentStackInfo := &pApi.ParentInfo{
+			StackName:     parentNameOnly,
+			ParentEnv:     parentEnv,
+			StackEnv:      params.Environment,
+			FullReference: parentFullReference,
+		}
+		parentStackParams := params.CopyForParentEnv(parentEnv)
+
+		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, parentEnv)
+		for resName, res := range stack.Server.Resources.Resources[parentEnv].Resources {
 			if res.Name == "" {
 				res.Name = resName
 			}
@@ -149,24 +162,21 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			if fnc, ok := pApi.ComputeProcessorFuncByType[res.Type]; !ok {
 				p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", resName, res.Type)
 				continue
-			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, params.Environment); err != nil {
+			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, parentEnv); err != nil {
 				p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", resName, res.Type, stack.Name, err.Error())
 				continue
 			} else {
-				provisionParams.ParentStack = &pApi.ParentInfo{
-					StackName:     parentNameOnly,
-					FullReference: parentFullReference,
-				}
+				provisionParams.ParentStack = parentStackInfo
 				provisionParams.UseResources = uses
 				provisionParams.DependOnResources = dependsOnResourcesList
 				provisionParams.StackDescriptor = clientStackDesc
 				provisionParams.ComputeContext = collector
 				_, err = fnc(ctx, stack, api.ResourceInput{
 					Descriptor:  &res,
-					StackParams: &params,
+					StackParams: parentStackParams,
 				}, collector, provisionParams)
 				if err != nil {
-					return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, params.Environment)
+					return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, parentEnv)
 				}
 			}
 		}
@@ -191,10 +201,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 			provisionParams.ComputeContext = collector
 			provisionParams.StackDescriptor = clientStackDesc
-			provisionParams.ParentStack = &pApi.ParentInfo{
-				StackName:     parentNameOnly,
-				FullReference: parentFullReference,
-			}
+			provisionParams.ParentStack = parentStackInfo
 
 			if fnc, ok := pApi.ProvisionFuncByType[resDesc.Type]; !ok {
 				p.logger.Error(ctx.Context(), "unknown resource type %q", resDesc.Type)

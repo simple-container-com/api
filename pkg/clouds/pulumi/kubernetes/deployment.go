@@ -6,11 +6,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/docker"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
@@ -25,12 +25,16 @@ type Args struct {
 	Images                 []*ContainerImage
 	Params                 pApi.ProvisionParams
 	ServiceAccountName     *sdk.StringOutput
-	KubeProvider           *sdkK8s.Provider
+	KubeProvider           sdk.ProviderResource
 	InitContainers         []corev1.ContainerArgs
 	GenerateCaddyfileEntry bool
 	ServiceType            *string
 	Sidecars               []corev1.ContainerArgs
 	ComputeContext         pApi.ComputeContext
+	SecretVolumes          []k8s.SimpleTextVolume
+	ImagePullSecret        *docker.RegistryCredentials
+	ProvisionIngress       bool
+	UseSSL                 bool
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -93,7 +97,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			})
 		}
 		var ports corev1.ContainerPortArray
-		var readinessProbe corev1.ProbeArgs
+		var readinessProbe *corev1.ProbeArgs
 		for _, p := range c.Container.Ports {
 			portName := toPortName(p) // TODO: support non-http ports
 			ports = append(ports, corev1.ContainerPortArgs{
@@ -101,41 +105,50 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				ContainerPort: sdk.Int(p),
 			})
 		}
-		if c.Container.ReadinessProbe == nil && len(c.Container.Ports) == 1 {
-			readinessProbe = corev1.ProbeArgs{
+		cReadyProbe := c.Container.ReadinessProbe
+		if cReadyProbe == nil && len(c.Container.Ports) == 1 {
+			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
 					Port: sdk.String(toPortName(c.Container.Ports[0])),
 				},
 				PeriodSeconds:       sdk.IntPtr(10),
 				InitialDelaySeconds: sdk.IntPtr(5),
 			}
-		} else if c.Container.ReadinessProbe == nil && c.Container.MainPort != nil {
-			readinessProbe = corev1.ProbeArgs{
+		} else if cReadyProbe == nil && c.Container.MainPort != nil {
+			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
 					Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
 				},
 				PeriodSeconds:       sdk.IntPtr(10),
 				InitialDelaySeconds: sdk.IntPtr(5),
 			}
-		} else if c.Container.ReadinessProbe != nil {
-			// TODO: support readiness probe
-			return corev1.ContainerArgs{}, errors.Errorf("readiness probe is not supported yet: TODO")
-		} else {
+		} else if cReadyProbe != nil {
+			readinessProbe = toProbeArgs(c, cReadyProbe)
+		} else if len(c.Container.Ports) > 1 {
 			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
 		}
 
-		var startupProbe corev1.ProbeArgs
+		var startupProbe *corev1.ProbeArgs
 		if c.Container.StartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
+		} else if c.Container.StartupProbe != nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
+			startupProbe = toProbeArgs(c, c.Container.StartupProbe)
 		}
 
 		var resources corev1.ResourceRequirementsArgs
+		if c.Container.Resources != nil {
+			args.Params.Log.Info(ctx.Context(), "container %q configure resources: %s", c.Container.Name, c.Container.Resources)
+
+			resources.Limits = sdk.ToStringMap(c.Container.Resources.Limits)
+			resources.Requests = sdk.ToStringMap(c.Container.Resources.Requests)
+		}
+
 		return corev1.ContainerArgs{
 			Args:            sdk.ToStringArray(c.Container.Args),
 			Command:         sdk.ToStringArray(c.Container.Command),
 			Env:             env,
 			Image:           c.ImageName,
-			ImagePullPolicy: sdk.String("IfNotPresent"),
+			ImagePullPolicy: sdk.String(lo.If(c.Container.ImagePullPolicy != nil, lo.FromPtr(c.Container.ImagePullPolicy)).Else("IfNotPresent")),
 			Lifecycle:       nil, // TODO
 			LivenessProbe:   nil, // TODO
 			Name:            sdk.String(c.Container.Name),
@@ -146,7 +159,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		}, nil
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to convert GKE containers to k8s containers")
+		return nil, errors.Wrapf(err, "failed to convert containers to k8s containers")
 	}
 	if args.Deployment.IngressContainer == nil {
 		args.Params.Log.Warn(ctx.Context(), "failed to detect ingress container for %q in %q, service won't be exposed", stackName, stackEnv)
@@ -157,12 +170,16 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		KubeProvider:           args.KubeProvider,
 		ComputeContext:         args.ComputeContext,
 		ServiceType:            args.ServiceType,
+		UseSSL:                 args.UseSSL,
+		ProvisionIngress:       args.ProvisionIngress,
 		Namespace:              namespace,
 		Service:                deploymentName,
 		Deployment:             deploymentName,
 		ScEnv:                  stackEnv,
 		IngressContainer:       args.Deployment.IngressContainer,
-		Domain:                 args.Deployment.StackConfig.Domain,
+		Domain:                 lo.FromPtr(args.Deployment.StackConfig).Domain,
+		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
+		ProxyKeepPrefix:        lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
 		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
 		Replicas:               replicas,
 		Headers:                args.Deployment.Headers,
@@ -182,11 +199,26 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		RollingUpdate:   nil, // TODO
 		SecurityContext: nil, // TODO
 		Log:             args.Params.Log,
+		SecretVolumes:   args.SecretVolumes,
+		ImagePullSecret: args.ImagePullSecret,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
 	}
 	return sc, nil
+}
+
+func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs {
+	return &corev1.ProbeArgs{
+		TcpSocket: corev1.TCPSocketActionArgs{
+			Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
+		},
+		PeriodSeconds:       sdk.IntPtrFromPtr(lo.If(probe.Interval != nil, lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))).Else(nil)),
+		InitialDelaySeconds: sdk.IntPtrFromPtr(probe.InitialDelaySeconds),
+		FailureThreshold:    sdk.IntPtrFromPtr(probe.FailureThreshold),
+		SuccessThreshold:    sdk.IntPtrFromPtr(probe.SuccessThreshold),
+		TimeoutSeconds:      sdk.IntPtrFromPtr(probe.TimeoutSeconds),
+	}
 }
 
 func toPortName(p int) string {

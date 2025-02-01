@@ -19,6 +19,9 @@ func init() {
 		// postgres
 		ResourceTypePostgresGcpCloudsql: PostgresqlGcpCloudsqlReadConfig,
 
+		// redis
+		ResourceTypeRedis: RedisReadConfig,
+
 		// bucket
 		ResourceTypeBucket: GcpBucketReadConfig,
 

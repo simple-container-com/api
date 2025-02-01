@@ -30,9 +30,11 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	fullParentReference := params.ParentStack.FullReference
 	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
 	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-	rootPassword, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
-	if err != nil || rootPassword == "" {
+	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
+	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
+	} else if rootPassword == "" {
+		return nil, errors.Errorf("failed to get root password (empty) from parent stack for %q", postgresName)
 	}
 
 	pgCfg, ok := input.Descriptor.Config.Config.(*gcloud.PostgresGcpCloudsqlConfig)
@@ -56,9 +58,12 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if pgCfg.UsersProvisionRuntime.Type == "gke" {
 		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
 		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q", clusterName, fullParentReference)
-		kubeConfig, err := pApi.GetStringValueFromStack(ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
-		if err != nil || kubeConfig == "" {
+		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-kubeconfig", postgresName), fullParentReference, toKubeconfigExport(clusterName), true)
+		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
+		}
+		if kubeConfig == "" {
+			return nil, errors.Errorf("failed to get kubeconfig from parent stack's resources: empty")
 		}
 		kubeProviderName := fmt.Sprintf("%s-%s-computeproc-kubeconfig", input.ToResName(input.Descriptor.Name), clusterName)
 		kubeProvider, err = sdkK8s.NewProvider(ctx, kubeProviderName, &sdkK8s.ProviderArgs{
@@ -89,7 +94,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		gcpProvider:     gcpProvider,
 	}
 	if params.UseResources[input.Descriptor.Name] {
-		if err := appendUsesResourceContext(ctx, appendContextParams); err != nil {
+		if err := appendUsesPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
 	}
@@ -98,7 +103,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return d.Resource == input.Descriptor.Name
 	}) {
 		appendContextParams.dependency = dep
-		if err := appendDependsOnResourceContext(ctx, appendContextParams); err != nil {
+		if err := appendDependsOnPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, err
 		}
 	}
@@ -121,7 +126,7 @@ type appendParams struct {
 	config          *gcloud.PostgresGcpCloudsqlConfig
 }
 
-func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
+func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
 	// set both dbname and username to stack name
 	dbName := params.stack.Name
 	userName := params.stack.Name
@@ -230,7 +235,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 	return cloudsqlProxy, nil
 }
 
-func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
+func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params appendParams) error {
 	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
 	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
 	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
@@ -299,7 +304,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			InstanceName: params.postgresName,
 			Region:       lo.FromPtr(params.config.Region),
 		}
-		cloudsqlProxyName := fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName)
+		cloudsqlProxyName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-")
 		namespace := params.input.StackParams.StackName
 		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 			Name:         cloudsqlProxyName,

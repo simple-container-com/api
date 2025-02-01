@@ -17,13 +17,13 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecr"
-	ecsV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/efs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
-	lbV5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
-	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/awsx"
-	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
-	"github.com/pulumi/pulumi-awsx/sdk/go/awsx/lb"
+	ecsV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecs"
+	lbV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lb"
+	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/awsx"
+	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/ecs"
+	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/lb"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -48,9 +48,9 @@ type EcsFargateOutput struct {
 	ExecRole             *iam.Role
 	ExecPolicyAttachment *iam.RolePolicyAttachment
 	Service              *ecs.FargateService
-	LoadBalancer         *lb.ApplicationLoadBalancer
+	LoadBalancerDNSHost  *sdk.StringOutput
 	MainDnsRecord        *api.ResourceOutput
-	Cluster              *ecsV5.Cluster
+	Cluster              *ecsV6.Cluster
 	Policy               *iam.Policy
 	Secrets              []*CreatedSecret
 }
@@ -101,17 +101,25 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 		return output, errors.Wrapf(err, "failed to create ECS Fargate cluster for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 
-	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", crInput.Domain, stack.Name, deployParams.Environment)
-	mainRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
-		Name:     crInput.Domain,
-		Type:     "CNAME",
-		ValueOut: ref.LoadBalancer.LoadBalancer.DnsName(),
-		Proxied:  true,
-	})
-	if err != nil {
-		return output, errors.Wrapf(err, "failed to provision main dns record")
+	if crInput.Domain != "" {
+		proxied := true
+		if crInput.DomainProxied != nil {
+			proxied = *crInput.DomainProxied
+		}
+		params.Log.Info(ctx.Context(), "configure CNAME DNS record (proxied: %t) %q for %q in %q...", proxied, crInput.Domain, stack.Name, deployParams.Environment)
+		if ref.LoadBalancerDNSHost != nil {
+			mainRecord, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
+				Name:     crInput.Domain,
+				Type:     "CNAME",
+				ValueOut: *ref.LoadBalancerDNSHost,
+				Proxied:  proxied,
+			})
+			if err != nil {
+				return output, errors.Wrapf(err, "failed to provision main dns record")
+			}
+			ref.MainDnsRecord = mainRecord
+		}
 	}
-	ref.MainDnsRecord = mainRecord
 
 	return output, nil
 }
@@ -121,7 +129,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		sdk.Provider(params.Provider),
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
 	}
-
+	tags := sdk.StringMap{
+		"simple-container.com/stack": sdk.String(deployParams.StackName),
+		"simple-container.com/env":   sdk.String(deployParams.Environment),
+	}
 	for _, img := range ref.Images {
 		opts = append(opts, img.AddOpts...)
 	}
@@ -153,19 +164,41 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	ecsSimpleClusterName := fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)
 
-	subnets, err := createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
-	if err != nil {
-		return errors.Wrapf(err, "failed to get or create default subnets in region")
-	}
-	opts = append(opts, sdk.DependsOn(subnets.Resources()))
+	var vpcID sdk.IDOutput
+	var publicSubnets defaultSubnets
+	var privateSubnets defaultSubnets
 
-	// Create a new VPC for our ECS tasks.
-	params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
-	vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
-	vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
+	if lo.FromPtr(lo.FromPtr(crInput.StackConfig).StaticEgressIP) {
+		params.Log.Info(ctx.Context(), "configure static egress IP for VPC of ECS cluster %s...", ecsSimpleClusterName)
+		egressOut, err := provisionStaticEgressForMultiZoneVpc(ctx, ecsSimpleClusterName, &StaticEgressIPIn{
+			Params:        params,
+			Provider:      params.Provider,
+			AccountConfig: crInput.AccountConfig,
+		}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create static egress IP for ECS cluster %q", ecsSimpleClusterName)
+		}
+		vpcID = egressOut.VPC.ID()
+		publicSubnets = ToSubnets(egressOut.Subnets.PublicSubnets())
+		privateSubnets = ToSubnets(egressOut.Subnets.PrivateSubnets())
+	} else {
+		publicSubnets, err = createDefaultSubnetsInRegionV5(ctx, crInput.AccountConfig, deployParams.Environment, params)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get or create default subnets in region")
+		}
+		params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(privateSubnets), crInput.AccountConfig.Region)
+		privateSubnets = publicSubnets
+
+		// Create a new VPC for our ECS tasks.
+		params.Log.Info(ctx.Context(), "configure VPC for ECS cluster %s...", ecsSimpleClusterName)
+		vpcName := fmt.Sprintf("%s-vpc", ecsSimpleClusterName)
+		vpc, err := ec2.NewDefaultVpc(ctx, vpcName, nil, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create default vpc for ECS cluster %q", ecsSimpleClusterName)
+		}
+		vpcID = vpc.ID()
 	}
+	opts = append(opts, sdk.DependsOn(privateSubnets.Resources()))
 
 	params.Log.Info(ctx.Context(), "configure security group for ECS cluster %s...", ecsSimpleClusterName)
 	securityGroupName := fmt.Sprintf("%s-sg", ecsSimpleClusterName)
@@ -178,13 +211,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
 	}
 	if crInput.CloudExtras != nil && crInput.CloudExtras.SecurityGroup != nil {
-		ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, subnets)
+		ingressTCPSGArgs, err = processIngressSGArgs(&ingressTCPSGArgs, *crInput.CloudExtras.SecurityGroup, publicSubnets)
 		if err != nil {
 			return errors.Wrapf(err, "failed to apply security group configuration from cloud extras for ECS cluster %q", ecsSimpleClusterName)
 		}
 	}
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
-		VpcId: vpc.ID(),
+		VpcId: vpcID,
+		Tags:  tags,
 		Ingress: ec2.SecurityGroupIngressArray{
 			&ingressTCPSGArgs,
 		},
@@ -215,6 +249,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	roleName := fmt.Sprintf("%s-exec-role", ecsSimpleClusterName)
 	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
 		Name: sdk.String(ecsSimpleClusterName),
+		Tags: tags,
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -232,12 +267,13 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.ExecRole = taskExecRole
 	ctx.Export(fmt.Sprintf("%s-exec-role-arn", ecsSimpleClusterName), taskExecRole.Arn)
 
-	params.Log.Info(ctx.Context(), "found %d default subnets in region %s", len(subnets), crInput.AccountConfig.Region)
-	var volumes ecsV5.TaskDefinitionVolumeArray
+	var volumes ecsV6.TaskDefinitionVolumeArray
 	for _, v := range crInput.Volumes {
 		efsName := fmt.Sprintf("%s-%s-fs", ecsSimpleClusterName, v.Name)
 		params.Log.Info(ctx.Context(), "configure efs file system %s for volume %s...", efsName, v.Name)
-		fs, err := efs.NewFileSystem(ctx, efsName, &efs.FileSystemArgs{}, opts...)
+		fs, err := efs.NewFileSystem(ctx, efsName, &efs.FileSystemArgs{
+			Tags: tags,
+		}, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create file system for persistent volume %s of stack %s", v.Name, stack.Name)
 		}
@@ -251,7 +287,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return errors.Wrapf(err, "failed to create EFS backup policy for volume %s of stack %s", v.Name, stack.Name)
 		}
 
-		_, err = util.MapErr(subnets, func(subnet Subnet, i int) (*efs.MountTarget, error) {
+		_, err = util.MapErr(privateSubnets, func(subnet Subnet, i int) (*efs.MountTarget, error) {
 			mountTargetName := fmt.Sprintf("%s-%s-mt-%d", ecsSimpleClusterName, v.Name, i)
 			params.Log.Info(ctx.Context(), "configure mount target %s for volume %s for efs...", mountTargetName, v.Name)
 			return efs.NewMountTarget(ctx, mountTargetName, &efs.MountTargetArgs{
@@ -265,13 +301,13 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		if err != nil {
 			return errors.Wrapf(err, "failed to create mount targets for efs %s for volume %s of stack %s", efsName, v.Name, stack.Name)
 		}
-		volumes = append(volumes, ecsV5.TaskDefinitionVolumeArgs{
+		volumes = append(volumes, ecsV6.TaskDefinitionVolumeArgs{
 			Name: sdk.String(v.Name),
-			EfsVolumeConfiguration: ecsV5.TaskDefinitionVolumeEfsVolumeConfigurationArgs{
+			EfsVolumeConfiguration: ecsV6.TaskDefinitionVolumeEfsVolumeConfigurationArgs{
 				FileSystemId:      fs.ID(),
 				RootDirectory:     sdk.String("/"),
 				TransitEncryption: sdk.String("ENABLED"),
-				AuthorizationConfig: ecsV5.TaskDefinitionVolumeEfsVolumeConfigurationAuthorizationConfigArgs{
+				AuthorizationConfig: ecsV6.TaskDefinitionVolumeEfsVolumeConfigurationAuthorizationConfigArgs{
 					Iam: sdk.String("ENABLED"),
 				},
 			},
@@ -399,43 +435,115 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			return value[0].TaskDefinitionContainerDefinitionArgs
 		})
 
-	params.Log.Info(ctx.Context(), "configure application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
-	loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
-	targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+	lbType := aws.LoadBalancerTypeAlb
 
-	var lbHC *lbV5.TargetGroupHealthCheckArgs
-	liveProbe := iContainer.LivenessProbe
-	if liveProbe.HttpGet.Path != "" || liveProbe.HttpGet.SuccessCodes != "" {
-		lbHC = &lbV5.TargetGroupHealthCheckArgs{
-			Port:     sdk.StringPtr(strconv.Itoa(iContainer.Port)),
-			Path:     sdk.StringPtr(liveProbe.HttpGet.Path),
-			Matcher:  sdk.StringPtr(liveProbe.HttpGet.SuccessCodes),
-			Timeout:  sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(30)),
-			Interval: sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
+	if lo.FromPtr(crInput.CloudExtras).LoadBalancerType != "" {
+		lbType = lo.FromPtr(crInput.CloudExtras).LoadBalancerType
+	}
+
+	var ecsLoadBalancers ecsV6.ServiceLoadBalancerArrayInput
+
+	if lbType == aws.LoadBalancerTypeAlb {
+		params.Log.Info(ctx.Context(), "configure application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
+		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+		targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+
+		var lbHC *lbV6.TargetGroupHealthCheckArgs
+		liveProbe := iContainer.LivenessProbe
+		if liveProbe.HttpGet.Path != "" || liveProbe.HttpGet.SuccessCodes != "" {
+			lbHC = &lbV6.TargetGroupHealthCheckArgs{
+				Port:     sdk.StringPtr(strconv.Itoa(iContainer.Port)),
+				Path:     sdk.StringPtr(liveProbe.HttpGet.Path),
+				Matcher:  sdk.StringPtr(liveProbe.HttpGet.SuccessCodes),
+				Timeout:  sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(30)),
+				Interval: sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
+			}
 		}
+		loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
+			Name:      sdk.String(loadBalancerName),
+			Tags:      tags,
+			SubnetIds: publicSubnets.Ids(),
+			DefaultTargetGroup: &lb.TargetGroupArgs{
+				Name:        sdk.String(targetGroupName),
+				HealthCheck: lbHC,
+			},
+			SecurityGroups: sdk.StringArray{securityGroup.ID()},
+		}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
+		}
+		ref.LoadBalancerDNSHost = lo.ToPtr(loadBalancer.LoadBalancer.DnsName())
+		ctx.Export(fmt.Sprintf("%s-alb-arn", ecsSimpleClusterName), loadBalancer.LoadBalancer.Arn())
+		ctx.Export(fmt.Sprintf("%s-alb-name", ecsSimpleClusterName), loadBalancer.LoadBalancer.Name())
+
+		ecsLoadBalancers = ecsV6.ServiceLoadBalancerArray{
+			ecsV6.ServiceLoadBalancerArgs{
+				ContainerName:  sdk.String(iContainer.Name),
+				ContainerPort:  sdk.Int(iContainer.Port),
+				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
+			},
+		}
+	} else if lbType == aws.LoadBalancerTypeNlb {
+		// Create a Network Load Balancer
+		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-nlb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 23, "-")
+		targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 23, "-")
+
+		nlb, err := lbV6.NewLoadBalancer(ctx, loadBalancerName, &lbV6.LoadBalancerArgs{
+			Subnets:          publicSubnets.Ids(),
+			Tags:             tags,
+			LoadBalancerType: sdk.String("network"),
+		}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create network loadbalancer for %q in %q", stack.Name, deployParams.Environment)
+		}
+
+		targetGroup, err := lbV6.NewTargetGroup(ctx, targetGroupName, &lbV6.TargetGroupArgs{
+			Name:       nlb.Name,
+			Port:       sdk.Int(80),
+			Protocol:   sdk.String("TCP"),
+			TargetType: sdk.String("ip"),
+			VpcId:      vpcID,
+			Tags:       tags,
+		}, append(opts, sdk.DeleteBeforeReplace(true))...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create target group for %q in %q", stack.Name, deployParams.Environment)
+		}
+
+		// Create a NLB target group attachment to replace if the NLB changes
+		_, err = lbV6.NewListener(ctx, fmt.Sprintf("%s-attachment", targetGroupName), &lbV6.ListenerArgs{
+			LoadBalancerArn: nlb.Arn,
+			Tags:            tags,
+			Port:            sdk.Int(80),
+			Protocol:        sdk.String("TCP"),
+			DefaultActions: lbV6.ListenerDefaultActionArray{
+				&lbV6.ListenerDefaultActionArgs{
+					Type:           sdk.String("forward"),
+					TargetGroupArn: targetGroup.Arn,
+				},
+			},
+		}, append(opts, sdk.DeleteBeforeReplace(true))...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create target group attachment for %q in %q", stack.Name, deployParams.Environment)
+		}
+
+		ecsLoadBalancers = ecsV6.ServiceLoadBalancerArray{
+			ecsV6.ServiceLoadBalancerArgs{
+				ContainerName:  sdk.String(iContainer.Name),
+				ContainerPort:  sdk.Int(iContainer.Port),
+				TargetGroupArn: targetGroup.Arn,
+			},
+		}
+		ref.LoadBalancerDNSHost = lo.ToPtr(nlb.DnsName)
 	}
-	loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
-		Name: sdk.String(loadBalancerName),
-		DefaultTargetGroup: &lb.TargetGroupArgs{
-			Name:        sdk.String(targetGroupName),
-			HealthCheck: lbHC,
-		},
-		SecurityGroups: sdk.StringArray{securityGroup.ID()},
-	}, opts...)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
-	}
-	ref.LoadBalancer = loadBalancer
-	ctx.Export(fmt.Sprintf("%s-alb-arn", ecsSimpleClusterName), loadBalancer.LoadBalancer.Arn())
-	ctx.Export(fmt.Sprintf("%s-alb-name", ecsSimpleClusterName), loadBalancer.LoadBalancer.Name())
 
 	params.Log.Info(ctx.Context(), "configure ECS Fargate cluster for %q in %q with ingress container %q...",
 		stack.Name, deployParams.Environment, iContainer.Name)
 	ecsClusterName := awsResName(ecsSimpleClusterName, "cluster")
-	cluster, err := ecsV5.NewCluster(ctx, ecsSimpleClusterName, &ecsV5.ClusterArgs{
+	cluster, err := ecsV6.NewCluster(ctx, ecsSimpleClusterName, &ecsV6.ClusterArgs{
 		Name: sdk.String(ecsClusterName),
-		Configuration: ecsV5.ClusterConfigurationArgs{
-			ExecuteCommandConfiguration: ecsV5.ClusterConfigurationExecuteCommandConfigurationArgs{
+		Tags: tags,
+		Configuration: ecsV6.ClusterConfigurationArgs{
+			ExecuteCommandConfiguration: ecsV6.ClusterConfigurationExecuteCommandConfigurationArgs{
 				Logging: sdk.String("DEFAULT"),
 			},
 		},
@@ -451,6 +559,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
 		Name:        sdk.String(ccPolicyName),
+		Tags:        tags,
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{
 				"Version": "2012-10-17",
@@ -524,20 +633,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		Tags: sdk.StringMap{
 			"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
 		},
-		NetworkConfiguration: ecsV5.ServiceNetworkConfigurationArgs{
+		NetworkConfiguration: ecsV6.ServiceNetworkConfigurationArgs{
 			AssignPublicIp: sdk.BoolPtr(true),
 			SecurityGroups: sdk.StringArray{
 				securityGroup.ID(),
 			},
-			Subnets: subnets.Ids(),
+			Subnets: privateSubnets.Ids(),
 		},
-		LoadBalancers: ecsV5.ServiceLoadBalancerArray{
-			ecsV5.ServiceLoadBalancerArgs{
-				ContainerName:  sdk.String(iContainer.Name),
-				ContainerPort:  sdk.Int(iContainer.Port),
-				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
-			},
-		},
+		LoadBalancers: ecsLoadBalancers,
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create ecs service for stack %q in %q", stack.Name, deployParams.Environment)
@@ -556,7 +659,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.ExecPolicyAttachment = execPolicyAttachment
 	ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsSimpleClusterName), execPolicyAttachment.PolicyArn)
 
-	service.TaskDefinition.ApplyT(func(td *ecsV5.TaskDefinition) any {
+	service.TaskDefinition.ApplyT(func(td *ecsV6.TaskDefinition) any {
 		return td.TaskRoleArn.ApplyT(func(taskRoleArn *string) (*iam.RolePolicyAttachment, error) {
 			role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
 				Arn: sdk.String(lo.FromPtr(taskRoleArn)),
@@ -584,7 +687,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create ECS cw dashboard")
 	}
 
-	if crInput.Scale.Policy != nil {
+	if crInput.Scale.Policies != nil {
 		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
 		if err != nil {
 			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsSimpleClusterName, fmt.Sprintf("%s-service", ecsSimpleClusterName))
@@ -719,7 +822,7 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 	return nil
 }
 
-func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *ecsV5.Cluster, service *ecs.FargateService) error {
+func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *ecsV6.Cluster, service *ecs.FargateService) error {
 	scalePolicyName := fmt.Sprintf("%s-ecs-scale", stack.Name)
 
 	// Register the ECS service as a scalable target
@@ -738,26 +841,51 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		return errors.Wrapf(err, "failed to create autoscaling target for ecs service in %q", stack.Name)
 	}
 	ctx.Export(fmt.Sprintf("%s-ecs-autoscale-target-id", stack.Name), scalableTarget.ID())
-	if crInput.Scale.Policy.Type == aws.ScaleCpu {
-		// Create an autoscaling policy for the target based on CPU utilization
-		policy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
-			PolicyType:        sdk.String("TargetTrackingScaling"),
-			ResourceId:        scalableTarget.ResourceId,
-			ScalableDimension: scalableTarget.ScalableDimension,
-			ServiceNamespace:  scalableTarget.ServiceNamespace,
-			TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
-				TargetValue:      sdk.Float64(lo.If(crInput.Scale.Policy.TargetValue != 0, float32(crInput.Scale.Policy.TargetValue)).Else(70.0)),
-				ScaleInCooldown:  sdk.Int(lo.If(crInput.Scale.Policy.ScaleInCooldown != 0, crInput.Scale.Policy.ScaleInCooldown).Else(30)),
-				ScaleOutCooldown: sdk.Int(lo.If(crInput.Scale.Policy.ScaleOutCooldown != 0, crInput.Scale.Policy.ScaleOutCooldown).Else(30)),
-				PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
-					PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+	for _, policy := range crInput.Scale.Policies {
+		if policy.Type == aws.ScaleCpu {
+			// Create an autoscaling policy for the target based on CPU utilization
+			// TODO: rename scale policy to CPU
+			scalePolicy, err := appautoscaling.NewPolicy(ctx, scalePolicyName, &appautoscaling.PolicyArgs{
+				PolicyType:        sdk.String("TargetTrackingScaling"),
+				ResourceId:        scalableTarget.ResourceId,
+				ScalableDimension: scalableTarget.ScalableDimension,
+				ServiceNamespace:  scalableTarget.ServiceNamespace,
+				TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
+					TargetValue:      sdk.Float64(lo.If(policy.TargetValue != 0, float32(policy.TargetValue)).Else(70.0)),
+					ScaleInCooldown:  sdk.Int(lo.If(policy.ScaleInCooldown != 0, policy.ScaleInCooldown).Else(30)),
+					ScaleOutCooldown: sdk.Int(lo.If(policy.ScaleOutCooldown != 0, policy.ScaleOutCooldown).Else(30)),
+					PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
+						PredefinedMetricType: sdk.String("ECSServiceAverageCPUUtilization"),
+					},
 				},
-			},
-		}, sdk.Provider(params.Provider))
-		if err != nil {
-			return errors.Wrapf(err, "failed to create autoscaling policy for ecs service in %q", stack.Name)
+			}, sdk.Provider(params.Provider))
+			if err != nil {
+				return errors.Wrapf(err, "failed to create autoscaling CPU policy for ecs service in %q", stack.Name)
+			}
+			ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-cpu-arn", stack.Name), scalePolicy.Arn)
 		}
-		ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-arn", stack.Name), policy.Arn)
+		// TODO: figure out how to add another policy (temporarily disabling it)
+		if policy.Type == aws.ScaleMemory && false {
+			// Create an autoscaling policy for the target based on Memory utilization
+			scalePolicy, err := appautoscaling.NewPolicy(ctx, fmt.Sprintf("%s-memory", scalePolicyName), &appautoscaling.PolicyArgs{
+				PolicyType:        sdk.String("TargetTrackingScaling"),
+				ResourceId:        scalableTarget.ResourceId,
+				ScalableDimension: scalableTarget.ScalableDimension,
+				ServiceNamespace:  scalableTarget.ServiceNamespace,
+				TargetTrackingScalingPolicyConfiguration: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationArgs{
+					TargetValue:      sdk.Float64(lo.If(policy.TargetValue != 0, float32(policy.TargetValue)).Else(70.0)),
+					ScaleInCooldown:  sdk.Int(lo.If(policy.ScaleInCooldown != 0, policy.ScaleInCooldown).Else(30)),
+					ScaleOutCooldown: sdk.Int(lo.If(policy.ScaleOutCooldown != 0, policy.ScaleOutCooldown).Else(30)),
+					PredefinedMetricSpecification: appautoscaling.PolicyTargetTrackingScalingPolicyConfigurationPredefinedMetricSpecificationArgs{
+						PredefinedMetricType: sdk.String("ECSServiceAverageMemoryUtilization"),
+					},
+				},
+			}, sdk.Provider(params.Provider))
+			if err != nil {
+				return errors.Wrapf(err, "failed to create autoscaling Memory policy for ecs service in %q", stack.Name)
+			}
+			ctx.Export(fmt.Sprintf("%s-ecs-autoscale-policy-memory-arn", stack.Name), scalePolicy.Arn)
+		}
 	}
 
 	return nil

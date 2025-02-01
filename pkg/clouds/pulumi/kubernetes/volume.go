@@ -71,7 +71,7 @@ func addFilesFromDir(dirPath string, res *[]k8s.SimpleTextVolume, proc func(full
 	return nil
 }
 
-func EmbedFSToTextVolumes(volumes []k8s.SimpleTextVolume, fs embed.FS, dir string) ([]k8s.SimpleTextVolume, error) {
+func EmbedFSToTextVolumes(volumes []k8s.SimpleTextVolume, fs embed.FS, dir string, baseDir string) ([]k8s.SimpleTextVolume, error) {
 	files, err := fs.ReadDir(dir)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read dir %q", dir)
@@ -79,7 +79,7 @@ func EmbedFSToTextVolumes(volumes []k8s.SimpleTextVolume, fs embed.FS, dir strin
 	for _, file := range files {
 		if file.IsDir() {
 			subdir := path.Join(dir, file.Name())
-			if volumes, err = EmbedFSToTextVolumes(volumes, fs, subdir); err != nil {
+			if volumes, err = EmbedFSToTextVolumes(volumes, fs, subdir, filepath.Join(baseDir, file.Name())); err != nil {
 				return nil, errors.Wrapf(err, "failed to read subdir %q", subdir)
 			}
 			continue
@@ -91,7 +91,7 @@ func EmbedFSToTextVolumes(volumes []k8s.SimpleTextVolume, fs embed.FS, dir strin
 				TextVolume: api.TextVolume{
 					Content:   string(content),
 					Name:      file.Name(),
-					MountPath: filepath.Join(dir, file.Name()),
+					MountPath: filepath.Join(baseDir, file.Name()),
 				},
 			})
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 )
@@ -19,6 +20,10 @@ var CommonGcpCredentials = gcloud.Credentials{
 	ServiceAccountConfig: gcloud.ServiceAccountConfig{
 		ProjectId: "${auth:gcloud.projectId}",
 	},
+}
+
+var CommonKubernetesCredentials = k8s.KubernetesConfig{
+	Kubeconfig: "${auth:kubernetes}",
 }
 
 var awsAccountConfig = aws.AccountConfig{
@@ -450,6 +455,12 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 				Credentials: "<pulumi-token>",
 			}},
 		},
+		"kubernetes": {
+			Type: k8s.AuthTypeKubeconfig,
+			Config: api.Config{Config: &k8s.KubernetesConfig{
+				Kubeconfig: "<kube-config>",
+			}},
+		},
 	},
 	Values: map[string]string{
 		"CLOUDFLARE_API_TOKEN":      "<encrypted-secret>",
@@ -457,6 +468,8 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 		"MONGODB_ATLAS_PRIVATE_KEY": "<encrypted-secret>",
 		"MONGODB_ATLAS_PUBLIC_KEY":  "<encrypted-secret>",
 		"JWT_SECRET":                "<encrypted-secret>",
+		"docker-registry-password":  "test-pass",
+		"docker-registry-username":  "test-user",
 	},
 }
 

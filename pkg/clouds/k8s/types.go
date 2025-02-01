@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
@@ -20,6 +21,18 @@ type DeploymentConfig struct {
 	Scale            *Scale                  `json:"replicas" yaml:"replicas"`
 	Headers          *Headers                `json:"headers" yaml:"headers"`
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
+}
+
+type CaddyConfig struct {
+	Enable           *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
+	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"` // TODO: support overwriting
+	Namespace        *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Image            *string `json:"image,omitempty" yaml:"image,omitempty"`
+	Replicas         *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
+	UsePrefixes      bool    `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
+	ServiceType      *string `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
+	ProvisionIngress bool    `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
+	UseSSL           *bool   `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 }
 
 type DisruptionBudget struct {
@@ -50,8 +63,13 @@ type Scale struct {
 }
 
 type CloudRunProbe struct {
-	HttpGet             ProbeHttpGet `json:"httpGet" yaml:"httpGet"`
-	InitialDelaySeconds int          `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
+	HttpGet             ProbeHttpGet   `json:"httpGet" yaml:"httpGet"`
+	Interval            *time.Duration `json:"interval" yaml:"interval"`
+	InitialDelaySeconds *int           `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
+	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"`
+	FailureThreshold    *int           `json:"failureThreshold" yaml:"failureThreshold"`
+	SuccessThreshold    *int           `json:"successThreshold" yaml:"successThreshold"`
+	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`
 }
 
 type ProbeHttpGet struct {
@@ -60,19 +78,20 @@ type ProbeHttpGet struct {
 }
 
 type CloudRunContainer struct {
-	Name           string             `json:"name" yaml:"name"`
-	Command        []string           `json:"command" yaml:"command"`
-	Args           []string           `json:"args" yaml:"args"`
-	Image          api.ContainerImage `json:"image" yaml:"image"`
-	Env            map[string]string  `json:"env" yaml:"env"`
-	Secrets        map[string]string  `json:"secrets" yaml:"secrets"`
-	Ports          []int              `json:"ports" yaml:"ports"`
-	MainPort       *int               `json:"mainPort" yaml:"mainPort"`
-	ReadinessProbe *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
-	StartupProbe   *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
-	ComposeDir     string             `json:"composeDir" yaml:"composeDir"`
-	Resources      *Resources         `json:"resources" yaml:"resources"`
-	Volumes        []PersistentVolume `json:"volumes" yaml:"volumes"`
+	Name            string             `json:"name" yaml:"name"`
+	Command         []string           `json:"command" yaml:"command"`
+	Args            []string           `json:"args" yaml:"args"`
+	Image           api.ContainerImage `json:"image" yaml:"image"`
+	Env             map[string]string  `json:"env" yaml:"env"`
+	Secrets         map[string]string  `json:"secrets" yaml:"secrets"`
+	Ports           []int              `json:"ports" yaml:"ports"`
+	MainPort        *int               `json:"mainPort" yaml:"mainPort"`
+	ReadinessProbe  *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
+	StartupProbe    *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
+	ComposeDir      string             `json:"composeDir" yaml:"composeDir"`
+	Resources       *Resources         `json:"resources" yaml:"resources"`
+	Volumes         []PersistentVolume `json:"volumes" yaml:"volumes"`
+	ImagePullPolicy *string            `json:"imagePullPolicy" yaml:"imagePullPolicy"`
 
 	Warnings []string `json:"warnings" yaml:"warnings"` // non-critical errors happened during conversion (should be reported later)
 }
@@ -102,12 +121,12 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	return &Resources{
 		// TODO: separate limits from requests
 		Limits: map[string]string{
-			"memory": bytesSizeToHuman(memInt),
-			"cpu":    bytesSizeToHuman(cpuInt),
+			"memory": bytesSizeToHuman(memInt * 1024 * 1024), // must be in MB
+			"cpu":    fmt.Sprintf("%dm", cpuInt),
 		},
 		Requests: map[string]string{
-			"memory": bytesSizeToHuman(memInt),
-			"cpu":    bytesSizeToHuman(cpuInt),
+			"memory": bytesSizeToHuman(memInt * 1024 * 1024), // must be in MB
+			"cpu":    fmt.Sprintf("%dm", cpuInt),
 		},
 	}, nil
 }
@@ -164,7 +183,7 @@ func ToScale(stack *api.StackConfigCompose) *Scale {
 	return nil
 }
 
-func ToPersistentVolumes(svc types.ServiceConfig) []PersistentVolume {
+func ToPersistentVolumes(svc types.ServiceConfig, cfg compose.Config) []PersistentVolume {
 	var volumes []PersistentVolume
 	for _, v := range svc.Volumes {
 		pv := PersistentVolume{
@@ -173,6 +192,11 @@ func ToPersistentVolumes(svc types.ServiceConfig) []PersistentVolume {
 		}
 		if v.Tmpfs != nil {
 			pv.Storage = bytesSizeToHuman(int64(v.Tmpfs.Size))
+		}
+		if volCfg, ok := cfg.Project.Volumes[v.Source]; ok {
+			if size, ok := volCfg.Labels[api.ComposeLabelVolumeSize]; ok {
+				pv.Storage = size
+			}
 		}
 		volumes = append(volumes, pv)
 	}
@@ -188,7 +212,7 @@ func bytesSizeToHuman(size int64) string {
 	i := math.Floor(math.Log(float64(size)) / math.Log(1024))
 	humanSize := float64(size) / math.Pow(1024, i)
 
-	return fmt.Sprintf("%.2f%s", humanSize, units[int(i)])
+	return fmt.Sprintf("%d%s", int64(humanSize), units[int(i)])
 }
 
 func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackConfigCompose) ([]CloudRunContainer, error) {
@@ -204,6 +228,10 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 
 	for _, svcName := range stackCfg.Runs {
 		svc := services[svcName]
+
+		if svc.Name == "" {
+			return nil, errors.Errorf("service %s not found in docker-compose config", svcName)
+		}
 
 		context := ""
 		dockerFile := ""
@@ -233,21 +261,60 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 					Args: buildArgs,
 				},
 			},
-			ComposeDir:     composeCfg.Project.WorkingDir,
-			Env:            toRunEnv(svc.Environment),
-			Secrets:        toRunSecrets(svc.Environment),
-			Ports:          toRunPorts(svc.Ports),
-			ReadinessProbe: toLivenessProbe(svc.HealthCheck),
-			StartupProbe:   toStartupProbe(svc.HealthCheck),
-			Resources:      resources,
-			Volumes:        ToPersistentVolumes(svc),
+			ComposeDir:      composeCfg.Project.WorkingDir,
+			Env:             toRunEnv(svc.Environment),
+			Secrets:         toRunSecrets(svc.Environment),
+			Ports:           toRunPorts(svc.Ports),
+			ReadinessProbe:  toReadinessProbe(svc.HealthCheck),
+			StartupProbe:    toStartupProbe(svc.HealthCheck),
+			Resources:       resources,
+			Volumes:         ToPersistentVolumes(svc, composeCfg),
+			ImagePullPolicy: stackCfg.ImagePullPolicy,
 		}
 		if container.MainPort == nil && len(container.Ports) > 1 {
 			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
+		} else if len(container.Ports) > 0 {
+			container.MainPort = lo.ToPtr(container.Ports[0])
 		}
 		containers = append(containers, container)
 	}
 	return containers, nil
+}
+
+func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContainer) (*CloudRunContainer, error) {
+	iContainers := lo.Filter(composeCfg.Project.Services, func(s types.ServiceConfig, _ int) bool {
+		v, hasLabel := s.Labels[api.ComposeLabelIngressContainer]
+		return hasLabel && v == "true"
+	})
+	if len(iContainers) > 1 {
+		return nil, errors.Errorf("must have exactly 1 ingress container, but found (%v) in compose files %q,"+
+			"did you forget to add label %q to the main container?",
+			lo.Map(iContainers, func(item types.ServiceConfig, _ int) string {
+				return item.Name
+			}), composeCfg.Project.ComposeFiles, api.ComposeLabelIngressContainer)
+	}
+	iContainer, found := lo.Find(contaniers, func(item CloudRunContainer) bool {
+		return len(iContainers) > 0 && item.Name == iContainers[0].Name
+	})
+	if !found && len(contaniers) == 1 && len(contaniers[0].Ports) == 1 {
+		iContainer = contaniers[0]
+		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0])
+		found = true
+	}
+	if !found {
+		return nil, nil
+	}
+	if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
+		if mainPort, err := strconv.Atoi(portLabel); err != nil {
+			iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
+		} else {
+			iContainer.MainPort = lo.ToPtr(mainPort)
+		}
+	}
+	if iContainer.MainPort == nil && len(iContainer.Ports) == 1 {
+		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0])
+	}
+	return &iContainer, nil
 }
 
 func toRunPorts(ports []types.ServicePortConfig) []int {
@@ -257,13 +324,27 @@ func toRunPorts(ports []types.ServicePortConfig) []int {
 }
 
 func toStartupProbe(check *types.HealthCheckConfig) *CloudRunProbe {
-	// TODO
-	return nil
+	if check == nil {
+		return nil
+	}
+	return &CloudRunProbe{
+		Interval:            lo.If(check.Interval != nil, lo.ToPtr(time.Duration(lo.FromPtr(check.Interval)))).Else(nil),
+		InitialDelaySeconds: lo.If(check.StartInterval != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds()))).Else(nil),
+		FailureThreshold:    lo.If(check.Retries != nil, lo.ToPtr(int(lo.FromPtr(check.Retries)))).Else(nil),
+		TimeoutSeconds:      lo.If(check.Timeout != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.Timeout)).Seconds()))).Else(nil),
+	}
 }
 
-func toLivenessProbe(check *types.HealthCheckConfig) *CloudRunProbe {
-	// TODO
-	return nil
+func toReadinessProbe(check *types.HealthCheckConfig) *CloudRunProbe {
+	if check == nil {
+		return nil
+	}
+	return &CloudRunProbe{
+		Interval:            lo.If(check.Interval != nil, lo.ToPtr(time.Duration(lo.FromPtr(check.Interval)))).Else(nil),
+		InitialDelaySeconds: lo.If(check.StartInterval != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.StartPeriod)).Seconds()))).Else(nil),
+		FailureThreshold:    lo.If(check.Retries != nil, lo.ToPtr(int(lo.FromPtr(check.Retries)))).Else(nil),
+		TimeoutSeconds:      lo.If(check.Timeout != nil, lo.ToPtr(int(time.Duration(lo.FromPtr(check.Timeout)).Seconds()))).Else(nil),
+	}
 }
 
 func toRunSecrets(environment types.MappingWithEquals) map[string]string {

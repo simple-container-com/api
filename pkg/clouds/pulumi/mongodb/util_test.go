@@ -37,8 +37,8 @@ func Test_appendUserPasswordToMongoUri(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := appendUserPasswordAndDBToMongoUri(tt.args.mongoUri, tt.args.user, tt.args.password, tt.args.dbName); got != tt.want {
-				t.Errorf("appendUserPasswordAndDBToMongoUri() = %v, want %v", got, tt.want)
+			if got := AppendUserPasswordAndDBToMongoUri(tt.args.mongoUri, tt.args.user, tt.args.password, tt.args.dbName); got != tt.want {
+				t.Errorf("AppendUserPasswordAndDBToMongoUri() = %v, want %v", got, tt.want)
 			}
 		})
 	}

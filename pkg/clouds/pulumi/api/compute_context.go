@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -29,6 +30,7 @@ type (
 		dependTplExtensions perResTplValues
 		log                 logger.Logger
 		ctx                 context.Context
+		envVarsMu           sync.Mutex
 
 		preProcessors  PreProcessors
 		postProcessors PostProcessors
@@ -100,6 +102,8 @@ func (c *Collector) addEnvVarIfNotExist(name, value, resType, resName, stackName
 		c.log.Info(c.ctx, "env variable %q already exists, skipping", name)
 		return
 	}
+	c.envVarsMu.Lock()
+	defer c.envVarsMu.Unlock()
 	c.EnvVars = append(c.EnvVars, ComputeEnvVariable{
 		Name:         name,
 		Value:        value,

@@ -11,12 +11,16 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig) error {
+func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, log logger.Logger) error {
 	var pcfg aws.AccountConfig
+
+	log.Info(ctx, "Initializing aws statestore...")
+
 	if err := api.ConvertAuth(stateStoreCfg, &pcfg); err != nil {
 		return errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}

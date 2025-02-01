@@ -38,8 +38,10 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 				ImageName: sdk.String(container.Name).ToStringOutput(),
 			}, nil
 		}
-		if !filepath.IsAbs(dockerfile) {
+		if !filepath.IsAbs(dockerfile) && (container.Image.Context == "" || container.Image.Context == ".") {
 			dockerfile = filepath.Join(container.ComposeDir, dockerfile)
+		} else if !filepath.IsAbs(dockerfile) && container.Image.Context != "" && container.Image.Context != "." {
+			dockerfile = filepath.Join(container.Image.Context, dockerfile)
 		}
 
 		image, err := pDocker.BuildAndPushImage(ctx, args.Stack, args.Params, *args.Input.StackParams, pDocker.Image{

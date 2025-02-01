@@ -26,6 +26,7 @@ type ClientDescriptor struct {
 type StackClientDescriptor struct {
 	Type        string `json:"type" yaml:"type"`
 	ParentStack string `json:"parent" yaml:"parent"`
+	ParentEnv   string `json:"parentEnv" yaml:"parentEnv"`
 	Template    string `json:"template" yaml:"template"`
 	Config      Config `json:",inline" yaml:",inline"`
 }
@@ -38,6 +39,7 @@ const (
 
 const (
 	ComposeLabelIngressContainer        = "simple-container.com/ingress"
+	ComposeLabelVolumeSize              = "simple-container.com/volume-size"
 	ComposeLabelIngressPort             = "simple-container.com/ingress/port"
 	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
 	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
@@ -100,6 +102,9 @@ type SimpleContainerLBConfig struct {
 type StackConfigCompose struct {
 	DockerComposeFile string                          `json:"dockerComposeFile" yaml:"dockerComposeFile"`
 	Domain            string                          `json:"domain" yaml:"domain"`
+	Prefix            string                          `json:"prefix" yaml:"prefix"`                   // prefix for service under LB (e.g. /<service>) default: empty
+	ProxyKeepPrefix   bool                            `json:"proxyKeepPrefix" yaml:"proxyKeepPrefix"` // if prefix is specified, whether we need to keep it when proxying to service
+	DomainProxied     *bool                           `json:"domainProxied" yaml:"domainProxied"`
 	BaseDnsZone       string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	Uses              []string                        `json:"uses" yaml:"uses"`
 	Runs              []string                        `json:"runs" yaml:"runs"`
@@ -110,10 +115,12 @@ type StackConfigCompose struct {
 	Scale             *StackConfigComposeScale        `json:"scale,omitempty" yaml:"scale,omitempty"`
 	Dependencies      []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
 	Alerts            *AlertsConfig                   `json:"alerts,omitempty" yaml:"alerts,omitempty"`
-	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"` // extra text volumes to mount to containers (e.g. for k8s deployments)
-	Headers           *Headers                        `json:"headers" yaml:"headers"`         // extra headers to add when serving requests
-	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`       // load balancer configuration (so far only applicable for k8s deployments)
-	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"` // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
+	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"`         // extra text volumes to mount to containers (e.g. for k8s deployments)
+	Headers           *Headers                        `json:"headers" yaml:"headers"`                 // extra headers to add when serving requests
+	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`               // load balancer configuration (so far only applicable for k8s deployments)
+	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"`         // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
+	StaticEgressIP    *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`   // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
+	ImagePullPolicy   *string                         `json:"imagePullPolicy" yaml:"imagePullPolicy"` // applicable only for certain compute types, e.g. Kubernetes
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack (client configuration)
@@ -141,7 +148,12 @@ type StackConfigComposeScale struct {
 }
 
 type StackConfigComposeScalePolicy struct {
-	Cpu *StackConfigComposeScaleCpu `yaml:"cpu" json:"cpu"`
+	Cpu    *StackConfigComposeScaleCpu    `yaml:"cpu" json:"cpu"`
+	Memory *StackConfigComposeScaleMemory `yaml:"memory" json:"memory"`
+}
+
+type StackConfigComposeScaleMemory struct {
+	Max int `yaml:"max" json:"max"`
 }
 
 type StackConfigComposeScaleCpu struct {
@@ -175,10 +187,12 @@ type StackParams struct {
 	Profile     string   `json:"profile" yaml:"profile"`
 	StackName   string   `json:"stack" yaml:"stack"`
 	Environment string   `json:"environment" yaml:"environment"`
+	ParentEnv   string   `json:"parentEnv" yaml:"parentEnv"`
 	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
 	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
 	Version     string   `json:"version" yaml:"version"`
 	Timeouts    Timeouts `json:",inline" yaml:",inline"`
+	Parent      bool     `json:"parent" yaml:"parent"`
 }
 
 type Timeouts struct {
@@ -251,7 +265,23 @@ func (p *StackParams) ToProvisionParams() ProvisionParams {
 	}
 }
 
-func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigSingleImage) (*StackDescriptor, error) {
+func (p *StackParams) CopyForParentEnv(env string) *StackParams {
+	return &StackParams{
+		StacksDir:   p.StackDir,
+		StackDir:    p.StackDir,
+		Profile:     p.Profile,
+		StackName:   p.StackName,
+		Environment: p.Environment,
+		SkipRefresh: p.SkipRefresh,
+		SkipPreview: p.SkipPreview,
+		Version:     p.Version,
+		Timeouts:    p.Timeouts,
+		Parent:      p.Parent,
+		ParentEnv:   env,
+	}
+}
+
+func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigSingleImage, parentStack string) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -262,7 +292,8 @@ func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName s
 		return nil, errors.Wrapf(err, "failed to convert single image for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
-			Type: stackDesc.Type,
+			Type:        stackDesc.Type,
+			ParentStack: parentStack,
 			Config: Config{
 				Config: input,
 			},
@@ -270,7 +301,7 @@ func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName s
 	}
 }
 
-func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose) (*StackDescriptor, error) {
+func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigCompose, parentStack string) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -287,7 +318,8 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 		return nil, errors.Wrapf(err, "failed to convert cloud compose for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
-			Type: stackDesc.Type,
+			Type:        stackDesc.Type,
+			ParentStack: parentStack,
 			Config: Config{
 				Config: input,
 			},
@@ -295,7 +327,7 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 	}
 }
 
-func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic) (*StackDescriptor, error) {
+func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl StackDescriptor, clientConfig *StackConfigStatic, parentStack string) (*StackDescriptor, error) {
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
@@ -307,7 +339,8 @@ func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl
 		return nil, errors.Wrapf(err, "failed to convert cloud static site for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
 		return &StackDescriptor{
-			Type: stackDesc.Type,
+			Type:        stackDesc.Type,
+			ParentStack: parentStack,
 			Config: Config{
 				Config: input,
 			},

@@ -24,13 +24,14 @@ type pulumi struct {
 	logger logger.Logger
 	pubKey string
 
-	preProvisionProgram func(ctx *sdk.Context) error
-	backend             backend.Backend
-	stackRef            backend.StackReference
-	secretsStackRef     backend.StackReference
-	secretsProviderUrl  string
-	registrar           pApi.Registrar
-	wsOpts              []auto.LocalWorkspaceOption
+	preProvisionProgram       func(ctx *sdk.Context) error
+	backend                   backend.Backend
+	stackRef                  backend.StackReference
+	secretsStackRef           backend.StackReference
+	secretsProviderUrl        string
+	secretsProviderPassphrase string
+	registrar                 pApi.Registrar
+	wsOpts                    []auto.LocalWorkspaceOption
 
 	fieldConfigReader api.ProvisionerFieldConfigReaderFunc
 	provisionerCfg    *ProvisionerConfig

@@ -9,6 +9,7 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	// Register all the providers
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
@@ -32,7 +33,9 @@ func init() {
 	})
 
 	pApi.RegisterRegistrar("", NotConfiguredRegistrar)
-	setPulumiCloudAccessToken := func(ctx context.Context, stateStoreCfg api.StateStorageConfig) error {
+	setPulumiCloudAccessToken := func(ctx context.Context, stateStoreCfg api.StateStorageConfig, log logger.Logger) error {
+		log.Info(ctx, "Initializing pulumi statestore...")
+
 		authCfg, ok := stateStoreCfg.(api.AuthConfig)
 		if !ok {
 			return errors.Errorf("failed to convert pulumi state storage config to api.AuthConfig")

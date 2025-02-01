@@ -89,8 +89,12 @@ type ResourceInput struct {
 
 // ToResName adds environment suffix if environment is specified in the resource input
 func (r *ResourceInput) ToResName(resName string) string {
+	env := r.StackParams.Environment
+	if r.StackParams.ParentEnv != "" { // if parentEnv is specified, we use it instead of stack's env
+		env = r.StackParams.ParentEnv
+	}
 	return fmt.Sprintf("%s%s", resName,
-		lo.If(r.StackParams.Environment != "", "--"+r.StackParams.Environment).Else(""))
+		lo.If(env != "", "--"+env).Else(""))
 }
 
 type ResourceOutput struct {
@@ -98,9 +102,10 @@ type ResourceOutput struct {
 }
 
 type StackDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
+	Type        string `json:"type" yaml:"type"`
+	ParentStack string `json:"parentStack" yaml:"parentStack"`
+	Config      `json:",inline" yaml:",inline"`
+	Inherit     `json:",inline" yaml:",inline"`
 }
 
 type WithDependsOnResources interface {

@@ -98,6 +98,18 @@ func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.Stac
 		if err := stackSource.Workspace().SetEnvVars(envVars); err != nil {
 			p.logger.Error(ctx, "failed to set environment variables for pulumi workspace: %v", err)
 		}
+		if p.secretsProviderPassphrase != "" {
+			if err := os.Setenv(pApi.ConfigPassphraseEnvVar, p.secretsProviderPassphrase); err != nil {
+				p.logger.Warn(ctx, "failed to set %s var", pApi.ConfigPassphraseEnvVar)
+			}
+			err := stackSource.Workspace().ChangeStackSecretsProvider(ctx, ref.FullyQualifiedName().String(), "passphrase", &auto.ChangeSecretsProviderOptions{
+				NewPassphrase: lo.ToPtr(p.secretsProviderPassphrase),
+			})
+			if err != nil {
+				p.logger.Error(ctx, "failed to set passphrase secrets provider for stack: %v", err)
+				return stackSource, err
+			}
+		}
 	}
 	return stackSource, nil
 }
@@ -283,7 +295,7 @@ func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string,
 	var provider sdk.ProviderResource
 	var providerType string
 	if authCfg, ok := pCfg.Config.(api.AuthConfig); !ok {
-		return "", nil, errors.Errorf("failed to cast config to api.AuthConfig for %q of type %q in stack %q", resName, resType, stack.Name)
+		return "", nil, errors.Errorf("failed to cast config to api.AuthConfig for %q of type %q in stack %q (given %T)", resName, resType, stack.Name, pCfg)
 	} else if providerFunc, ok := pApi.ProviderFuncByType[authCfg.ProviderType()]; !ok {
 		return "", nil, errors.Errorf("unsupported provider type %q for resource %q of type %q in stack %q", authCfg.ProviderType(), resName, resType, stack.Name)
 	} else {

@@ -13,6 +13,7 @@ func init() {
 		gcloud.ResourceTypeRemoteDockerImagePush: RemoteImagePush,
 		gcloud.ResourceTypePubSub:                PubSubTopics,
 		gcloud.ResourceTypePostgresGcpCloudsql:   Postgres,
+		gcloud.ResourceTypeRedis:                 Redis,
 		gcloud.ResourceTypeGkeAutopilot:          GkeAutopilot,
 		gcloud.ResourceTypeArtifactRegistry:      ArtifactRegistry,
 		gcloud.SecretsProviderTypeGcpKms:         KmsKeySecretsProvider,
@@ -24,6 +25,7 @@ func init() {
 		gcloud.ResourceTypeBucket:              BucketComputeProcessor,
 		gcloud.ResourceTypeGkeAutopilot:        GkeAutopilotComputeProcessor,
 		gcloud.ResourceTypePostgresGcpCloudsql: PostgresComputeProcessor,
+		gcloud.ResourceTypeRedis:               RedisComputeProcessor,
 		gcloud.ResourceTypePubSub:              PubSubTopicsProcessor,
 	})
 }

@@ -24,12 +24,8 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git/path_util"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
+	"github.com/simple-container-com/api/pkg/clouds/fs"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-)
-
-const (
-	ConfigPassphraseEnvVar  = "PULUMI_CONFIG_PASSPHRASE"
-	DefaultPulumiPassphrase = "simple-container.com"
 )
 
 func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
@@ -86,7 +82,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		p.logger.Warn(ctx, "state storage config is not of type api.AuthConfig")
 	} else if fnc, ok := pApi.InitStateStoreFuncByType[authCfg.ProviderType()]; !ok {
 		p.logger.Warn(ctx, "could not find init state storage function for provider %q, skipping init", authCfg.ProviderType())
-	} else if err := fnc(ctx, stateStorageCfg); err != nil {
+	} else if err := fnc(ctx, stateStorageCfg, p.logger); err != nil {
 		return errors.Wrapf(err, "failed to init state storage for provider %q", authCfg.ProviderType())
 	}
 
@@ -138,9 +134,6 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			return errors.Wrapf(err, "failed to get outputs for stack %q before update", stackRefString)
 		} else if e, ok := out[secretsProviderUrlExportName]; !ok || e.Value == nil {
 			p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
-			if err != nil {
-				return errors.Wrapf(err, "failed to init secrets provider stack %q", secretsProviderStackSource.Name())
-			}
 			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextInit))))
 			if err != nil {
 				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
@@ -169,10 +162,14 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		if secretsProviderCfg.KeyUrl() == "" {
 			return errors.Errorf("secrets provider key url is empty for %q in stack %q", secretsProviderCfg.ProviderType(), stack.Name)
 		}
-		p.wsOpts = append(p.wsOpts, auto.SecretsProvider(secretsProviderCfg.KeyUrl()))
-		p.secretsProviderUrl = secretsProviderCfg.KeyUrl()
+		if pf, ok := secretsProviderCfg.(*fs.PassphraseSecretsProvider); ok {
+			p.logger.Info(ctx, "Using passphrase secrets provider")
+			p.secretsProviderPassphrase = pf.PassPhrase
+		} else {
+			p.secretsProviderUrl = secretsProviderCfg.KeyUrl()
+			p.wsOpts = append(p.wsOpts, auto.SecretsProvider(secretsProviderCfg.KeyUrl()))
+		}
 	}
-
 	name, apiOrgs, tokenInfo, err := be.CurrentUser()
 	if err != nil {
 		return err
@@ -187,13 +184,13 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 }
 
 func (p *pulumi) withPulumiPassphrase(ctx context.Context) func() {
-	if os.Getenv(ConfigPassphraseEnvVar) == "" {
-		if err := os.Setenv(ConfigPassphraseEnvVar, DefaultPulumiPassphrase); err != nil {
-			p.logger.Warn(ctx, "failed to set %s var", ConfigPassphraseEnvVar)
+	if os.Getenv(pApi.ConfigPassphraseEnvVar) == "" {
+		if err := os.Setenv(pApi.ConfigPassphraseEnvVar, pApi.DefaultPulumiPassphrase); err != nil {
+			p.logger.Warn(ctx, "failed to set %s var", pApi.ConfigPassphraseEnvVar)
 		}
 	}
 	return func() {
-		_ = os.Unsetenv(ConfigPassphraseEnvVar)
+		_ = os.Unsetenv(pApi.ConfigPassphraseEnvVar)
 	}
 }
 

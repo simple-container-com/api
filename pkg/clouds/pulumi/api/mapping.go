@@ -8,13 +8,14 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
 type (
 	ProvisionFunc        func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params ProvisionParams) (*api.ResourceOutput, error)
 	ComputeProcessorFunc func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector ComputeContextCollector, params ProvisionParams) (*api.ResourceOutput, error)
 	RegistrarFunc        func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params ProvisionParams) (Registrar, error)
-	InitStateStoreFunc   func(ctx context.Context, authCfg api.StateStorageConfig) error
+	InitStateStoreFunc   func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error
 )
 
 var (

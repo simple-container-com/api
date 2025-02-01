@@ -35,6 +35,8 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	params.Log.Error(ctx.Context(), "not implemented for gcp bucket")
 
+	// aiwayz private TODO
+
 	return &api.ResourceOutput{
 		Ref: nil,
 	}, nil

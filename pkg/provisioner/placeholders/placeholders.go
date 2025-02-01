@@ -1,6 +1,8 @@
 package placeholders
 
 import (
+	os "os"
+	"os/user"
 	"reflect"
 	"strings"
 
@@ -61,11 +63,13 @@ func (p *placeholders) Resolve(stacks api.StacksMap) error {
 	for stackName, stack := range iterStacks {
 		opts := []Option{
 			WithExtensions(map[string]template.Extension{
+				"env":    p.extEnv,
 				"git":    p.tplGit(stackName),
 				"auth":   p.tplAuth(stackName, stack, stacks),
 				"secret": p.tplSecrets(stackName, stack, stacks),
 				"var":    p.tplVars(stackName, stack, stacks),
 				"stack":  p.tplStack(stackName, stack, stacks),
+				"user":   p.tplUser,
 			}),
 		}
 		if err := p.Apply(&stack, opts...); err != nil {
@@ -74,6 +78,24 @@ func (p *placeholders) Resolve(stacks api.StacksMap) error {
 		stacks[stackName] = stack
 	}
 	return nil
+}
+
+func (p *placeholders) tplUser(noSubs, path string, value *string) (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return noSubs, errors.Wrapf(err, "failed to detect current user")
+	}
+	res, err := util.GetValue(path, map[string]interface{}{
+		"home":     usr.HomeDir,
+		"homeDir":  usr.HomeDir,
+		"username": usr.Username,
+		"id":       usr.Uid,
+		"name":     usr.Name,
+	})
+	if err != nil {
+		return noSubs, err
+	}
+	return res.(string), nil
 }
 
 func (p *placeholders) tplStack(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
@@ -116,6 +138,14 @@ func (p *placeholders) tplSecrets(stackName string, stack api.Stack, stacks api.
 			return sec, nil
 		}
 	}
+}
+
+func (p *placeholders) extEnv(noSubstitution, path string, defaultValue *string) (string, error) {
+	res := os.Getenv(path)
+	if res == "" && defaultValue != nil {
+		return *defaultValue, nil
+	}
+	return res, nil
 }
 
 func (p *placeholders) tplGit(stackName string) func(source string, path string, value *string) (string, error) {

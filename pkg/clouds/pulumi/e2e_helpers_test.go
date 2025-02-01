@@ -5,6 +5,10 @@ package pulumi
 import (
 	"context"
 	"fmt"
+	"os/user"
+	"path/filepath"
+
+	"github.com/simple-container-com/api/pkg/clouds/fs"
 
 	. "github.com/onsi/gomega"
 	"github.com/simple-container-com/api/pkg/api"
@@ -25,6 +29,39 @@ type e2eConfig struct {
 	gcpCreds    gcloud.Credentials
 	awsCreds    aws.AccountConfig
 	pulumiCreds TokenAuthDescriptor
+}
+
+func e2eServerDescriptorForFileSystem(config e2eConfig) api.ServerDescriptor {
+	var usr *user.User
+	usr, _ = user.Current()
+
+	return api.ServerDescriptor{
+		Provisioner: api.ProvisionerDescriptor{
+			Type: ProvisionerTypePulumi,
+			Config: api.Config{
+				Config: &ProvisionerConfig{
+					Organization: "organization",
+					StateStorage: StateStorageConfig{
+						Type: StateStorageTypeFileSystem,
+						Config: api.Config{Config: &fs.FileSystemStateStorage{
+							Path: "file://" + filepath.Join(usr.HomeDir, ".sc/pulumi/state"),
+						}},
+					},
+					SecretsProvider: SecretsProviderConfig{
+						Type: SecretsProviderTypePassPhrase,
+						Config: api.Config{Config: &fs.PassphraseSecretsProvider{
+							PassPhrase: "test-pass-phrase",
+						}},
+					},
+				},
+			},
+		},
+		Templates: config.templates,
+		Resources: api.PerStackResourcesDescriptor{
+			Resources: config.resources,
+			Registrar: config.registrar,
+		},
+	}
 }
 
 func e2eServerDescriptorForPulumi(config e2eConfig) api.ServerDescriptor {
@@ -185,7 +222,7 @@ func runDestroyParentTest(stack api.Stack, cfg secretTestutil.E2ETestConfig) {
 
 	destroyProv.SetPublicKey(cfg.Cryptor.PublicKey())
 
-	err = destroyProv.DestroyParentStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{})
+	err = destroyProv.DestroyParentStack(ctx, cfg.ConfigFile, stack, api.DestroyParams{}, false)
 	Expect(err).To(BeNil())
 }
 

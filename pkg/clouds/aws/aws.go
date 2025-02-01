@@ -9,6 +9,7 @@ type TemplateConfig struct {
 type (
 	LambdaRoutingType string
 	LambdaInvokeMode  string
+	LoadBalancerType  string
 )
 
 const (
@@ -16,6 +17,9 @@ const (
 	LambdaRoutingFunctionUrl       = "function-url"
 	LambdaInvokeModeBuffered       = "BUFFERED"
 	LambdaInvokeModeResponseStream = "RESPONSE_STREAM"
+
+	LoadBalancerTypeAlb LoadBalancerType = "alb"
+	LoadBalancerTypeNlb LoadBalancerType = "nlb"
 )
 
 type CloudExtras struct {
@@ -25,7 +29,8 @@ type CloudExtras struct {
 	LambdaRoutingType LambdaRoutingType `json:"lambdaRoutingType" yaml:"lambdaRoutingType"`
 	LambdaInvokeMode  LambdaInvokeMode  `json:"lambdaInvokeMode" yaml:"lambdaInvokeMode"` // invoke mode for lambda
 
-	SecurityGroup *SecurityGroup `json:"securityGroup,omitempty" yaml:"securityGroup,omitempty"`
+	SecurityGroup    *SecurityGroup   `json:"securityGroup,omitempty" yaml:"securityGroup,omitempty"`
+	LoadBalancerType LoadBalancerType `json:"loadBalancerType,omitempty" yaml:"loadBalancerType,omitempty"` // default: alb
 }
 
 type SecurityGroup struct {

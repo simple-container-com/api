@@ -52,21 +52,36 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 		return nil, nil, nil, errors.Errorf("stack must be specified")
 	}
 
+	readOpts := api.ReadOpts{
+		IgnoreServerMissing:  true,
+		IgnoreClientMissing:  true,
+		IgnoreSecretsMissing: true,
+	}
+	if !params.Parent {
+		readOpts.RequireClientConfigs = []string{params.StackName}
+	}
 	if err := p.ReadStacks(ctx, cfg, api.ProvisionParams{
 		StacksDir: params.StacksDir,
 		Profile:   params.Profile,
-	}, api.ReadIgnoreNoAnyCfg); err != nil {
+	}, readOpts); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read stacks")
 	}
 
-	// only reconcile if environment was specified
-	if params.Environment != "" {
+	// first we resolve existing placeholders
+	if err := p.resolvePlaceholders(); err != nil {
+		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
+	}
+
+	// now we reconcile with parent references, if environment was specified
+	if params.Environment != "" && !params.Parent {
 		if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
 		} else {
 			p.stacks = *stacks
 		}
 	}
+
+	// now we resolve placeholders with reconciled parent
 	if err := p.resolvePlaceholders(); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
 	}

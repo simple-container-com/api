@@ -77,16 +77,9 @@
 
 (remove_hsts_header) {
   header_down -Strict-Transport-Security
+  header_down -Content-Security-Policy
 }
 
 (lb_retries_2) {
   lb_retries 2
-}
-
-http:// {
-  import gzip
-  import handle_static
-  import hsts
-  root * /etc/caddy/pages
-  file_server
 }

@@ -51,9 +51,10 @@ func (s *VariableDescriptor) Copy() VariableDescriptor {
 
 func (s *StackDescriptor) Copy() StackDescriptor {
 	return StackDescriptor{
-		Type:    s.Type,
-		Config:  s.Config.Copy(),
-		Inherit: s.Inherit,
+		Type:        s.Type,
+		Config:      s.Config.Copy(),
+		ParentStack: s.ParentStack,
+		Inherit:     s.Inherit,
 	}
 }
 
@@ -151,6 +152,7 @@ func (s *StackClientDescriptor) Copy() StackClientDescriptor {
 	return StackClientDescriptor{
 		Type:        s.Type,
 		ParentStack: s.ParentStack,
+		ParentEnv:   s.ParentEnv,
 		Template:    s.Template,
 		Config:      s.Config.Copy(),
 	}
@@ -160,6 +162,9 @@ func (s *StackConfigCompose) Copy() any {
 	return &StackConfigCompose{
 		DockerComposeFile: s.DockerComposeFile,
 		Domain:            s.Domain,
+		Prefix:            s.Prefix,
+		ProxyKeepPrefix:   s.ProxyKeepPrefix,
+		DomainProxied:     s.DomainProxied,
 		BaseDnsZone:       s.BaseDnsZone,
 		Uses:              s.Uses,
 		Runs:              s.Runs,
@@ -174,5 +179,7 @@ func (s *StackConfigCompose) Copy() any {
 		Headers:           s.Headers,
 		LBConfig:          s.LBConfig,
 		CloudExtras:       s.CloudExtras,
+		StaticEgressIP:    s.StaticEgressIP,
+		ImagePullPolicy:   s.ImagePullPolicy,
 	}
 }

@@ -97,7 +97,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && !readOpts.IgnoreServerMissing {
+		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
 			return err
 		} else if serverDesc != nil {
 			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
@@ -106,7 +106,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			p.log.Debug(ctx, "Server descriptor not found for %s", stackName)
 		}
 
-		if clientDesc, err := p.readClientDescriptor(stacksDir, stackName); err != nil && !readOpts.IgnoreClientMissing {
+		if clientDesc, err := p.readClientDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreClientMissing || lo.Contains(readOpts.RequireClientConfigs, stackName)) {
 			return err
 		} else if clientDesc != nil {
 			p.log.Debug(ctx, "Successfully read client descriptor: %q", clientDesc)
@@ -115,7 +115,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
-		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && !readOpts.IgnoreSecretsMissing {
+		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
 			return err
 		} else if secretsDesc != nil {
 			p.log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
