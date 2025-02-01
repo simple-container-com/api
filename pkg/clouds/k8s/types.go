@@ -273,7 +273,7 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 		}
 		if container.MainPort == nil && len(container.Ports) > 1 {
 			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
-		} else {
+		} else if len(container.Ports) > 0 {
 			container.MainPort = lo.ToPtr(container.Ports[0])
 		}
 		containers = append(containers, container)
