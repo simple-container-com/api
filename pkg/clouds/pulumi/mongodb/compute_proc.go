@@ -119,7 +119,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
 	}
 	if dbUser != nil {
-		ctx.Export(fmt.Sprintf("%s%s-service-user", params.clusterName, params.suffix), dbUser.(sdk.Output))
+		ctx.Export(fmt.Sprintf("%s%s-service-user", params.clusterName, params.suffix), dbUser)
 
 		params.collector.AddOutput(ctx, dbUser.ApplyT(func(dbUserOut any) (any, error) {
 			dbUserOutJson, ok := dbUserOut.(string)

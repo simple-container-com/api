@@ -1,8 +1,9 @@
 package scrandom
 
 import (
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
+
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 type String struct {

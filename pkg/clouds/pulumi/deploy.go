@@ -225,7 +225,6 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 type dependencyResourceParams struct {
 	resName           string
 	resEnv            string
-	stack             api.Stack
 	collector         pApi.ComputeContextCollector
 	stackDescriptor   *api.StackDescriptor
 	parentStackName   string

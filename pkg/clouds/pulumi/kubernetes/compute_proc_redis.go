@@ -3,9 +3,8 @@ package kubernetes
 import (
 	"fmt"
 
-	"github.com/samber/lo"
-
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
