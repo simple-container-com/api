@@ -40,8 +40,9 @@ type DnsPreference struct {
 }
 type ParentInfo struct {
 	StackName         string
-	ParentEnv         string
-	StackEnv          string
+	ParentEnv         string // parent stack env
+	StackEnv          string // current stack env
+	ResourceEnv       string // environment where resource should be consumed
 	FullReference     string
 	DependsOnResource *api.StackConfigDependencyResource
 	UsesResource      bool

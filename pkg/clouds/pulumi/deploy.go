@@ -159,12 +159,13 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		}
 		// for resources that are listed in "dependencies" for stack
 		for _, dependency := range dependsOnResourcesList {
-			// in case we need to consume resource from a specific environment
-			dependencyEnv := lo.If(dependency.Env != nil, lo.FromPtr(dependency.Env)).Else(parentEnv)
+			// in case we need to depend on resource from a stack within the specific environment
+			dependencyEnv := lo.If(dependency.Env != nil, lo.FromPtr(dependency.Env)).Else(params.Environment)
 			p.logger.Info(ctx.Context(), "stack depends on resource %q of stack %q from env %q", dependency.Resource, dependency.Owner, dependencyEnv)
 			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
-				resName: dependency.Resource,
-				resEnv:  dependencyEnv,
+				resName:       dependency.Resource, // name of the base resource
+				resEnv:        parentEnv,           // environment where base resource is declared (in server.yaml)
+				dependencyEnv: dependencyEnv,       // environment for which the resource is consumed (if differs from stack's env)
 
 				stackDescriptor:   clientStackDesc,
 				collector:         collector,
@@ -222,8 +223,9 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 }
 
 type dependencyResourceParams struct {
-	resName           string
-	resEnv            string
+	resName           string // name of the resource in parent stack
+	resEnv            string // this is where the resource should be declared in parent stack
+	dependencyEnv     string // dependency resource should be taken from this env (usually same as resEnv)
 	collector         pApi.ComputeContextCollector
 	stackDescriptor   *api.StackDescriptor
 	parentStackName   string
@@ -237,6 +239,7 @@ func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, pa
 	resParentStackInfo := &pApi.ParentInfo{
 		StackName:         dep.parentStackName,
 		ParentEnv:         dep.resEnv,
+		ResourceEnv:       dep.dependencyEnv,
 		FullReference:     dep.parentStackRef,
 		StackEnv:          dep.stackEnv,
 		DependsOnResource: dep.dependsOnResource,
