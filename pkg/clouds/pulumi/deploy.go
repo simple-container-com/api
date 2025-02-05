@@ -136,16 +136,13 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if info, withDependsOnResources := clientStackDesc.Config.Config.(api.WithDependsOnResources); withDependsOnResources {
 			dependsOnResourcesList = append(dependsOnResourcesList, info.DependsOnResources()...)
 		}
-		dependsOn := lo.Associate(dependsOnResourcesList, func(dep api.StackConfigDependencyResource) (string, api.StackConfigDependencyResource) {
-			return dep.Resource, dep
-		})
-
 		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
 
 		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, parentEnv)
 
 		// for resources that are listed in "uses" for stack
 		for resName := range uses {
+			p.logger.Info(ctx.Context(), "stack uses resource %q from env %q", resName, parentEnv)
 			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
 				resName: resName,
 				resEnv:  parentEnv,
@@ -161,11 +158,13 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 		}
 		// for resources that are listed in "dependencies" for stack
-		for _, dependency := range dependsOn {
+		for _, dependency := range dependsOnResourcesList {
 			// in case we need to consume resource from a specific environment
+			dependencyEnv := lo.If(dependency.Env != nil, lo.FromPtr(dependency.Env)).Else(parentEnv)
+			p.logger.Info(ctx.Context(), "stack depends on resource %q of stack %q from env %q", dependency.Resource, dependency.Owner, dependencyEnv)
 			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
 				resName: dependency.Resource,
-				resEnv:  lo.If(dependency.Env != nil, lo.FromPtr(dependency.Env)).Else(parentEnv),
+				resEnv:  dependencyEnv,
 
 				stackDescriptor:   clientStackDesc,
 				collector:         collector,
