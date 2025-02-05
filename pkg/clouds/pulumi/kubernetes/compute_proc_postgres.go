@@ -22,23 +22,24 @@ func HelmPostgresOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 
 	postgresName := toPostgresInstanceName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
-	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q", stack.Name, fullParentReference)
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
 	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootpass", postgresName), fullParentReference, rootPasswordExport, true)
+	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootpass", postgresName, suffix), fullParentReference, rootPasswordExport, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
 	} else if rootPassword == "" {
 		return nil, errors.Errorf("failed to get root password (empty) from parent stack for %q", postgresName)
 	}
 	rootUserExport := toPostgresRootUsernameExport(postgresName)
-	rootUser, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-rootuser", postgresName), fullParentReference, rootUserExport, false)
+	rootUser, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootuser", postgresName, suffix), fullParentReference, rootUserExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get root user from parent stack for %q", postgresName)
 	} else if rootUser == "" {
 		return nil, errors.Errorf("failed to get root user (empty) from parent stack for %q", postgresName)
 	}
 	pgURLExport := toPostgresRootURLExport(postgresName)
-	pgURL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-cproc-pg-url", postgresName), fullParentReference, pgURLExport, true)
+	pgURL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-pg-url", postgresName, suffix), fullParentReference, pgURLExport, true)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get postgres URL from parent stack for %q", postgresName)
 	} else if pgURL == "" {
@@ -54,20 +55,20 @@ func HelmPostgresOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 		postgresName:    postgresName,
 		pgURL:           pgURL,
 		provisionParams: params,
+		suffix:          suffix,
 	}
-	if params.UseResources[input.Descriptor.Name] {
+	if params.ParentStack.UsesResource {
 		if err := appendUsesPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, errors.Wrapf(err, "failed to append consumes resource context")
 		}
-	}
-
-	for _, dep := range lo.Filter(params.DependOnResources, func(d api.StackConfigDependencyResource, _ int) bool {
-		return d.Resource == input.Descriptor.Name
-	}) {
-		appendContextParams.dependency = dep
+	} else if params.ParentStack.DependsOnResource != nil {
+		appendContextParams.dependency = *params.ParentStack.DependsOnResource
 		if err := appendDependsOnPostgresResourceContext(ctx, appendContextParams); err != nil {
 			return nil, err
 		}
+	} else {
+		params.Log.Warn(ctx.Context(), "postgres %q only supports `uses` or `dependency`, but neither was explicitly declared as being used", postgresName)
+		return nil, errors.Errorf("postgres %q only supports `uses`, but it wasn't explicitly declared as being used", postgresName)
 	}
 
 	return &api.ResourceOutput{
@@ -85,6 +86,7 @@ type postgresAppendParams struct {
 	rootPassword    string
 	postgresName    string
 	pgURL           string
+	suffix          string
 }
 
 func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendParams) error {
@@ -101,7 +103,7 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendPa
 		return errors.Wrapf(err, "failed to parse postgres url for database %q", dbName)
 	}
 
-	params.collector.AddOutput(sdk.All(password.Result, dbName).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(password.Result, dbName).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("POSTGRES_USERNAME"), userName,
@@ -156,7 +158,7 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params postgresApp
 		return errors.Wrapf(err, "failed to parse postgres url for database %q", dbName)
 	}
 
-	params.collector.AddOutput(sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
+	params.collector.AddOutput(ctx, sdk.All(password.Result).ApplyT(func(args []any) (any, error) {
 		userPassword := args[0].(string)
 
 		params.collector.AddSecretEnvVariableIfNotExist(util.ToEnvVariableName(fmt.Sprintf("POSTGRES_DEP_%s_PASSWORD", ownerStackName)), userPassword,
@@ -185,8 +187,8 @@ func appendDependsOnPostgresResourceContext(ctx *sdk.Context, params postgresApp
 }
 
 func createPostgresUserForDatabase(ctx *sdk.Context, userName, dbName string, params postgresAppendParams) (*random.RandomPassword, error) {
-	ctx.Export(fmt.Sprintf("%s-%s-username", userName, params.postgresName), sdk.String(userName))
-	passwordName := fmt.Sprintf("%s-%s-password", userName, params.postgresName)
+	ctx.Export(fmt.Sprintf("%s-%s%s-username", userName, params.postgresName, params.suffix), sdk.String(userName))
+	passwordName := fmt.Sprintf("%s-%s%s-password", userName, params.postgresName, params.suffix)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
 		Length:  sdk.Int(20),
 		Special: sdk.Bool(false),

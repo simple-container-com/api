@@ -196,7 +196,7 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 	if res.Name == "" {
 		res.Name = resName
 	}
-	provisionParams, err := p.getProvisionParams(ctx, stack, res, env)
+	provisionParams, err := p.getProvisionParams(ctx, stack, res, env, "")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to init provision params for %q", res.Type)
 	}
@@ -254,14 +254,14 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	}
 }
 
-func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string) (pApi.ProvisionParams, error) {
+func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string, suffix string) (pApi.ProvisionParams, error) {
 	envVariables := map[string]string{
 		api.ComputeEnv.StackName:               stack.Name,
 		api.ComputeEnv.StackEnv:                environment,
 		api.ScContainerResourceTypeEnvVariable: res.Type,
 	}
 
-	providerType, provider, err := p.initProvider(ctx, stack, res.Name, res.Type, res.Config, environment)
+	providerType, provider, err := p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment)
 	if err != nil {
 		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 	}
@@ -350,7 +350,7 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		Name:   exportName,
 		Config: provisionerCfg.SecretsProvider.Config,
 	}
-	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "")
+	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "", "")
 	if err != nil {
 		return errors.Wrapf(err, "failed to init provision params for %q in stack %q", provisionerCfg.SecretsProvider.Type, stack.Name)
 	}

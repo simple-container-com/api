@@ -125,9 +125,10 @@ type StackConfigCompose struct {
 
 // StackConfigDependencyResource when stack depends on resource context of another stack (client configuration)
 type StackConfigDependencyResource struct {
-	Name     string `json:"name" yaml:"name"`
-	Owner    string `json:"owner" yaml:"owner"`
-	Resource string `json:"resource" yaml:"resource"`
+	Name     string  `json:"name" yaml:"name"`
+	Owner    string  `json:"owner" yaml:"owner"`
+	Resource string  `json:"resource" yaml:"resource"`
+	Env      *string `json:"env" yaml:"env"`
 }
 
 // ParentResourceDependency when a resource depends on resource within the same stack

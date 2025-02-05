@@ -47,8 +47,9 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if kubeRunInput.CaddyResource != nil {
 		caddyResource := lo.FromPtr(kubeRunInput.CaddyResource)
 		clusterName := ToClusterName(input, caddyResource)
-		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q", caddyResource, fullParentReference)
-		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-stack-caddy-cfg", parentStack), fullParentReference, ToCaddyConfigExport(clusterName), false)
+		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q (%s)", caddyResource, fullParentReference, suffix)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-stack-caddy-cfg", parentStack, suffix), fullParentReference, ToCaddyConfigExport(clusterName), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's %q resources for resource %q", fullParentReference, caddyResource)
 		}
@@ -114,7 +115,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		if params.Registrar == nil {
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
-		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s-ip", stackName, input.StackParams.Environment), fullParentReference, ToIngressIpExport(parentStack), false)
+		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, ToIngressIpExport(parentStack), false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 		}

@@ -30,7 +30,7 @@ type (
 		dependTplExtensions perResTplValues
 		log                 logger.Logger
 		ctx                 context.Context
-		envVarsMu           sync.Mutex
+		modifyMu            sync.Mutex
 
 		preProcessors  PreProcessors
 		postProcessors PostProcessors
@@ -68,14 +68,20 @@ func (c *Collector) ResolvePlaceholders(obj any) error {
 }
 
 func (c *Collector) AddDependencyTplExtension(depName string, resName string, values map[string]string) {
+	c.modifyMu.Lock()
+	defer c.modifyMu.Unlock()
 	c.dependTplExtensions[fmt.Sprintf("%s.%s", depName, resName)] = values
 }
 
 func (c *Collector) AddResourceTplExtension(resName string, values map[string]string) {
+	c.modifyMu.Lock()
+	defer c.modifyMu.Unlock()
 	c.resTplExtensions[resName] = values
 }
 
-func (c *Collector) AddOutput(o sdk.Output) {
+func (c *Collector) AddOutput(ctx *sdk.Context, o sdk.Output) {
+	c.modifyMu.Lock()
+	defer c.modifyMu.Unlock()
 	c.outputs = append(c.outputs, o)
 }
 
@@ -96,14 +102,14 @@ func (c *Collector) SecretEnvVariables() []ComputeEnvVariable {
 }
 
 func (c *Collector) addEnvVarIfNotExist(name, value, resType, resName, stackName string, secret bool) {
+	c.modifyMu.Lock()
+	defer c.modifyMu.Unlock()
 	if _, found := lo.Find(c.EnvVars, func(v ComputeEnvVariable) bool {
 		return v.Name == name
 	}); found {
 		c.log.Info(c.ctx, "env variable %q already exists, skipping", name)
 		return
 	}
-	c.envVarsMu.Lock()
-	defer c.envVarsMu.Unlock()
 	c.EnvVars = append(c.EnvVars, ComputeEnvVariable{
 		Name:         name,
 		Value:        value,
