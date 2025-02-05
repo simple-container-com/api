@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
-	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -327,7 +328,7 @@ type dbUserInput struct {
 	projectId   string
 	clusterName string
 	dbUri       string
-	userName    string
+	username    string
 	roles       []dbRole
 	dependency  sdk.Resource
 	suffix      string
@@ -420,18 +421,17 @@ func createAwsVpcEndpoint(ctx *sdk.Context, opts vpcEndpointInput) (*ec2.VpcEndp
 
 func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.ProvisionParams) (sdk.Output, error) {
 	// Generate a random password for the MongoDB Atlas database user.
-	passwordName := fmt.Sprintf("%s-%s%s-password", user.projectId, user.userName, user.suffix)
+	passwordName := fmt.Sprintf("%s-%s-password", user.projectId, user.username)
 	password, err := random.NewRandomPassword(ctx, passwordName, &random.RandomPasswordArgs{
 		Length:  sdk.Int(20),
 		Special: sdk.Bool(false),
 	})
 	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to generate random password for user %q", user.userName)
-		return nil, errors.Wrapf(err, "failed to generate random password for mongodb for user %q", user.userName)
+		params.Log.Error(ctx.Context(), "failed to generate random password for user %q: %q", user.username, password)
+		return nil, errors.Wrapf(err, "failed to generate random password for mongodb for user %q", user.username)
 	}
-	ctx.Export(passwordName, password.Result)
 
-	userObjectName := fmt.Sprintf("%s-%s%s-user", user.clusterName, user.userName, user.suffix)
+	userObjectName := fmt.Sprintf("%s-%s%s-user", user.clusterName, user.username, user.suffix)
 	roles := mongodbatlas.DatabaseUserRoleArray{}
 
 	for _, role := range user.roles {
@@ -442,6 +442,7 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 	}
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
+		sdk.DependsOn([]sdk.Resource{password}),
 	}
 	if user.dependency != nil {
 		opts = append(opts, sdk.DependsOn([]sdk.Resource{user.dependency}))
@@ -451,11 +452,11 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 		Password:         password.Result,
 		ProjectId:        sdk.String(user.projectId),
 		Roles:            roles,
-		Username:         sdk.String(user.userName),
+		Username:         sdk.String(user.username),
 	}, opts...)
 	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to create database user %q", user.userName)
-		return nil, errors.Wrapf(err, "failed to create database user %q", user.userName)
+		params.Log.Error(ctx.Context(), "failed to create database user %q", user.username)
+		return nil, errors.Wrapf(err, "failed to create database user %q", user.username)
 	}
 	return sdk.All(dbUser.Username, dbUser.Password).ApplyT(func(args []any) (any, error) {
 		username := args[0].(string)
@@ -481,7 +482,7 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 				clusterName: clusterName,
 				projectId:   projectId,
 				dbUri:       mongoUri,
-				userName:    usr,
+				username:    usr,
 				roles: []dbRole{
 					{dbName: "admin", role: "readWriteAnyDatabase"},
 					{dbName: "local", role: "read"},
@@ -498,7 +499,7 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 				clusterName: clusterName,
 				projectId:   projectId,
 				dbUri:       mongoUri,
-				userName:    usr,
+				username:    usr,
 				roles: []dbRole{
 					{dbName: "admin", role: "readAnyDatabase"},
 					{dbName: "local", role: "read"},

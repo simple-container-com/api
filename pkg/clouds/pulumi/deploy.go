@@ -121,8 +121,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if a, dnsAware := clientStackDesc.Config.Config.(api.DnsConfigAware); dnsAware {
 			dnsPreference.BaseZone = a.OverriddenBaseZone()
 		}
-		if err := p.initRegistrar(ctx, stack, dnsPreference); err != nil {
-			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
+		if err = p.initRegistrar(ctx, stack, dnsPreference); err != nil {
+			return errors.Wrapf(err, "failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
 		uses := make(map[string]bool)
@@ -144,6 +144,22 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 
 		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, parentEnv)
 
+		// for resources that are listed in "uses" for stack
+		for resName := range uses {
+			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
+				resName: resName,
+				resEnv:  parentEnv,
+
+				stackDescriptor: clientStackDesc,
+				collector:       collector,
+				parentStackName: parentNameOnly,
+				stackEnv:        params.Environment,
+				parentStackRef:  parentFullReference,
+				usesResource:    true,
+			}); err != nil {
+				return errors.Wrapf(err, "failed to process used resource %q for stack %q", resName, stack.Name)
+			}
+		}
 		// for resources that are listed in "dependencies" for stack
 		for _, dependency := range dependsOn {
 			// in case we need to consume resource from a specific environment
@@ -159,22 +175,6 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				dependsOnResource: &dependency,
 			}); err != nil {
 				return errors.Wrapf(err, "failed to process dependency resource %q for stack %q", dependency.Resource, stack.Name)
-			}
-		}
-		// for resources that are listed in "uses" for stack
-		for resName := range uses {
-			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
-				resName: resName,
-				resEnv:  parentEnv,
-
-				stackDescriptor: clientStackDesc,
-				collector:       collector,
-				parentStackName: parentNameOnly,
-				stackEnv:        params.Environment,
-				parentStackRef:  parentFullReference,
-				usesResource:    true,
-			}); err != nil {
-				return errors.Wrapf(err, "failed to process used resource %q for stack %q", resName, stack.Name)
 			}
 		}
 
@@ -217,7 +217,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 			return "success", nil
 		})
-		ctx.Export(fmt.Sprintf("%s-%s-deploy-outcome", params.StackName, params.Environment), deployOut)
+		ctx.Export(fmt.Sprintf("%s-%s-outcome", params.StackName, params.Environment), deployOut)
 		return nil
 	}
 }

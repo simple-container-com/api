@@ -22,6 +22,9 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		PublicKey:  sdk.StringPtr(authCfg.PublicKey),
 		Region:     sdk.StringPtr(authCfg.Region),
 	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to init mongodb atlas provider for stack %q", stack.Name)
+	}
 	return &api.ResourceOutput{
 		Ref: provider,
 	}, err

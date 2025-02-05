@@ -22,7 +22,7 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 	clusterName := toClusterName(params.ParentStack.StackName, input)
 
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas DB %q (%q)", params.ParentStack.FullReference, input.Descriptor.Name, suffix)
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas cluster %q (%q)", params.ParentStack.FullReference, clusterName, suffix)
 	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s%s--mongodb-atlas-ref", stack.Name, input.Descriptor.Name, params.ParentStack.FullReference, suffix),
 		&sdk.StackReferenceArgs{
 			Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
@@ -98,7 +98,7 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 		clusterName: params.clusterName,
 		projectId:   params.projectId,
 		dbUri:       params.mongoUri,
-		userName:    params.stack.Name,
+		username:    params.stack.Name,
 		roles: []dbRole{
 			{
 				dbName: dbName,
@@ -167,13 +167,14 @@ func appendUsesResourceContext(ctx *sdk.Context, params appendParams) error {
 func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error {
 	ownerStackName := pApi.CollapseStackReference(params.dependency.Owner)
 	userName := fmt.Sprintf("%s--%s", params.stack.Name, params.dependency.Name)
-	dbName := pApi.StackNameInEnv(ownerStackName, params.input.StackParams.Environment)
+	dbEnv := lo.If(params.input.StackParams.ParentEnv != "", params.input.StackParams.ParentEnv).Else(params.input.StackParams.Environment)
+	dbName := pApi.StackNameInEnv(ownerStackName, dbEnv)
 
 	dbUser, err := createDatabaseUser(ctx, dbUserInput{
 		clusterName: params.clusterName,
 		projectId:   params.projectId,
 		dbUri:       params.mongoUri,
-		userName:    userName,
+		username:    userName,
 		roles: []dbRole{
 			{
 				dbName: dbName,
@@ -194,7 +195,7 @@ func appendDependsOnResourceContext(ctx *sdk.Context, params appendParams) error
 		return errors.Wrapf(err, "failed to create service user for database %q", dbName)
 	}
 	if dbUser != nil {
-		ctx.Export(fmt.Sprintf("%s--to--%s--%s%s", params.clusterName, ownerStackName, params.dependency.Resource, params.suffix), dbUser.(sdk.Output))
+		ctx.Export(fmt.Sprintf("%s--to--%s--%s%s", params.clusterName, ownerStackName, params.dependency.Resource, params.suffix), dbUser)
 
 		params.collector.AddOutput(ctx, dbUser.ApplyT(func(dbUserOut any) (any, error) {
 			params.provisionParams.Log.Info(ctx.Context(), "Creating mongo user %q", userName)

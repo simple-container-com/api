@@ -31,10 +31,10 @@ require (
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.5.4
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.0.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.18.1
-	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.17.1
-	github.com/pulumi/pulumi-random/sdk/v4 v4.16.0
+	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.26.0
+	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
 	github.com/pulumi/pulumi/pkg/v3 v3.143.0
-	github.com/pulumi/pulumi/sdk/v3 v3.143.0
+	github.com/pulumi/pulumi/sdk/v3 v3.145.0
 	github.com/samber/lo v1.38.1
 	github.com/simple-container-com/welder v0.0.0-20231210065542-fb1b24bf9b46
 	github.com/spf13/afero v1.11.0
@@ -250,6 +250,7 @@ require (
 	github.com/ijc/Gotty v0.0.0-20170406111628-a8b993ba6abd // indirect
 	github.com/imdario/mergo v0.3.16 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/iwdgo/sigintwindows v0.2.2 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jgautheron/goconst v1.7.1 // indirect
 	github.com/jingyugao/rowserrcheck v1.1.1 // indirect
@@ -422,7 +423,7 @@ require (
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e // indirect
 	golang.org/x/exp/typeparams v0.0.0-20240314144324-c7f7c6466f7f // indirect
 	golang.org/x/mod v0.21.0 // indirect
-	golang.org/x/net v0.30.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
