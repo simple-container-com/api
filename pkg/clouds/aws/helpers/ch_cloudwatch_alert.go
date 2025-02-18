@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/simple-container-com/api/pkg/clouds/slack"
-
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -16,6 +14,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
+	"github.com/simple-container-com/api/pkg/clouds/slack"
 	"github.com/simple-container-com/api/pkg/clouds/telegram"
 	"github.com/simple-container-com/api/pkg/util"
 )
@@ -100,7 +99,7 @@ func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 
 	// send slack notifications is configured
 	if slackWebhookSecret := os.Getenv(api.ComputeEnv.SlackWebhookUrl); slackWebhookSecret == "" {
-		l.log.Info(ctx, "slcak notification isn't configured")
+		l.log.Info(ctx, "slack notification isn't configured")
 	} else if slackWebhook, err := secretCache.GetSecretString(slackWebhookSecret); err != nil {
 		l.log.Error(ctx, "failed to get slack webhook secret value: %v", err)
 	} else if d, err := slack.New(slackWebhook); err != nil {
