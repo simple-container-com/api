@@ -7,6 +7,7 @@ toolchain go1.23.4
 require (
 	cloud.google.com/go/storage v1.43.0
 	github.com/MShekow/directory-checksum v1.4.2
+	github.com/anthonycorbacho/slack-webhook v1.0.1
 	github.com/atombender/go-jsonschema v0.16.0
 	github.com/aws/aws-lambda-go v1.47.0
 	github.com/aws/aws-secretsmanager-caching-go v1.1.3

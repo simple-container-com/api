@@ -26,6 +26,7 @@ type alertCfg struct {
 	description     string
 	deployParams    api.StackParams
 	discordConfig   *api.DiscordCfg
+	slackConfig     *api.SlackCfg
 	telegramConfig  *api.TelegramCfg
 	secretSuffix    string
 	opts            []sdk.ResourceOption
@@ -189,10 +190,21 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		}
 	}
 
+	if cfg.slackConfig != nil {
+		if s, err := createSecret(ctx,
+			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.SlackWebhookUrl, cfg.secretSuffix),
+			api.ComputeEnv.SlackWebhookUrl, cfg.slackConfig.WebhookUrl, cfg.opts...,
+		); err != nil {
+			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.SlackWebhookUrl)
+		} else {
+			envVariables[api.ComputeEnv.SlackWebhookUrl] = s.Secret.Arn
+		}
+	}
+
 	if cfg.telegramConfig != nil {
 		if s, err := createSecret(ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.TelegramToken, cfg.secretSuffix),
-			api.ComputeEnv.TelegramToken, cfg.discordConfig.WebhookUrl, cfg.opts...,
+			api.ComputeEnv.TelegramToken, cfg.telegramConfig.Token, cfg.opts...,
 		); err != nil {
 			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.TelegramToken)
 		} else {

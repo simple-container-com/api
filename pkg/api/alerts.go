@@ -4,6 +4,7 @@ type (
 	CloudHelperType     string
 	ComputeEnvVariables struct {
 		DiscordWebhookUrl string
+		SlackWebhookUrl   string
 		TelegramChatID    string
 		TelegramToken     string
 		AlertName         string
@@ -18,6 +19,7 @@ type (
 var ComputeEnv = ComputeEnvVariables{
 	CloudHelperType:   "SIMPLE_CONTAINER_CLOUD_HELPER_TYPE",
 	DiscordWebhookUrl: "SIMPLE_CONTAINER_DISCORD_WEBHOOK_URL",
+	SlackWebhookUrl:   "SIMPLE_CONTAINER_SLACK_WEBHOOK_URL",
 	TelegramChatID:    "SIMPLE_CONTAINER_TELEGRAM_CHAT_ID",
 	TelegramToken:     "SIMPLE_CONTAINER_TELEGRAM_TOKEN",
 	AlertName:         "SIMPLE_CONTAINER_ALERT_NAME",
@@ -32,6 +34,7 @@ type AlertsConfig struct {
 	MaxMemory *MaxMemoryConfig `json:"maxMemory,omitempty" yaml:"maxMemory,omitempty"`
 	MaxErrors *MaxErrorConfig  `json:"maxErrors,omitempty" yaml:"maxErrors,omitempty"`
 	Discord   *DiscordCfg      `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack     *SlackCfg        `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Telegram  *TelegramCfg     `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 }
 
@@ -56,6 +59,10 @@ type TelegramCfg struct {
 }
 
 type DiscordCfg struct {
+	WebhookUrl string `json:"webhookUrl" yaml:"webhookUrl"`
+}
+
+type SlackCfg struct {
 	WebhookUrl string `json:"webhookUrl" yaml:"webhookUrl"`
 }
 
