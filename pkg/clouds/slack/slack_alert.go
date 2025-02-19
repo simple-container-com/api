@@ -16,8 +16,8 @@ type alertSender struct {
 func (a *alertSender) Send(alert api.Alert) error {
 	icon := lo.If(alert.AlertType == api.AlertResolved, "✅").Else("⚠️")
 	err := slack.Send(a.webhookUrl, slack.Message{
-		Text: icon + fmt.Sprintf(" **%s** <%s|%s> for *%s* in *%s* \n %s",
-			alert.AlertType, alert.Title, alert.StackName, alert.DetailsUrl, alert.StackEnv, alert.Description),
+		Text: icon + fmt.Sprintf(" *%s* <%s|%s> for *%s* in *%s* \n %s",
+			alert.AlertType, alert.DetailsUrl, alert.Title, alert.StackName, alert.StackEnv, alert.Description),
 		Markdown: true,
 	})
 	return err
