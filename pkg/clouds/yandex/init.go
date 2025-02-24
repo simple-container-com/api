@@ -9,10 +9,10 @@ const ProviderType = "yandex-cloud"
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
 		TemplateTypeYandexCloudFunction: ReadTemplateConfig,
+		AuthTypeYandex:                  ReadYandexAuthConfig,
 	})
 
 	api.RegisterCloudSingleImageConverter(api.CloudSingleImageConfigRegister{
 		TemplateTypeYandexCloudFunction: ToCloudFunctionConfig,
 	})
-
 }

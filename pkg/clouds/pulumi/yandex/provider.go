@@ -2,9 +2,12 @@ package yandex
 
 import (
 	"context"
+
 	"github.com/pkg/errors"
+
 	pYandex "github.com/pulumi/pulumi-yandex/sdk/go/yandex"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
@@ -38,5 +41,4 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	return &api.ResourceOutput{
 		Ref: provider,
 	}, err
-
 }

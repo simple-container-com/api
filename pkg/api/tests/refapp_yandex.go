@@ -83,7 +83,7 @@ var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
 var resolvedYandexAccountConfig = yandex.AccountConfig{
 	CloudId: "000",
 	Credentials: api.Credentials{
-		Credentials: `{"account":"123","accessKey":"\u003cyandex-access-key\u003e","secretAccessKey":"\u003cyandex-secret-key\u003e","credentials":""}`,
+		Credentials: `<yandex-creds>`,
 	},
 }
 
@@ -117,7 +117,14 @@ var ResolvedRefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
 }
 
 func ResolvedRefappYandexCloudFunctionClientDescriptor() *api.ClientDescriptor {
-	res := RefappClientDescriptor.Copy()
+	res := RefappYandexCloudFunctionClientDescriptor.Copy()
+	for name := range res.Stacks {
+		stackCfg := res.Stacks[name]
+		singleImage := stackCfg.Config.Config.(*api.StackConfigSingleImage)
+		singleImage.Uses = []string{}
+		singleImage.Secrets = map[string]string{}
+		res.Stacks[name] = stackCfg
+	}
 
 	return &res
 }

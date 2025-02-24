@@ -34,6 +34,7 @@ require (
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.18.1
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.26.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
+	github.com/pulumi/pulumi-yandex/sdk v0.13.0
 	github.com/pulumi/pulumi/pkg/v3 v3.143.0
 	github.com/pulumi/pulumi/sdk/v3 v3.145.0
 	github.com/samber/lo v1.38.1
@@ -353,7 +354,6 @@ require (
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
 	github.com/pulumi/esc v0.10.0 // indirect
-	github.com/pulumi/pulumi-yandex/sdk v0.13.0 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.3-0.20240823090925-0fe6f58b47b1 // indirect
 	github.com/quasilyte/go-ruleguard/dsl v0.3.22 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect

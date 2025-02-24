@@ -2,16 +2,19 @@ package yandex
 
 import (
 	"fmt"
+	"path/filepath"
+
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
+
 	pDocker "github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	pYandex "github.com/pulumi/pulumi-yandex/sdk/go/yandex"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
-	"path/filepath"
 )
 
 type CloudFunctionOutput struct {
@@ -57,7 +60,7 @@ func CloudFunction(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 	authorizedKey, err := FromString(crInput.CredentialsValue())
 	if err != nil {
-		return nil, errors.Wrapf(err, "invalid credentials value %q", crInput.CredentialsValue()) //TODO: secret logging should be removed
+		return nil, errors.Wrapf(err, "invalid credentials value %q", crInput.CredentialsValue()) // TODO: secret logging should be removed
 	}
 
 	serviceAccountId := sdk.String(authorizedKey.ServiceAccountId)
@@ -88,7 +91,7 @@ func CloudFunction(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		Registry: pDocker.RegistryArgs{
 			Server:   repoUrlOutput,
 			Username: sdk.String("iam"),
-			Password: sdk.String("<TODO get from NewIamServiceAccountKey call>"), //TODO: get IAM token
+			Password: sdk.String("<TODO get from NewIamServiceAccountKey call>"), // TODO: get IAM token
 		},
 		Platform: nil, // sdk.String(lo.If(params.Platform != nil, lo.FromPtr(image.Platform)).Else(string(api.ImagePlatformLinuxAmd64))),
 	}
@@ -115,7 +118,6 @@ func CloudFunction(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		Name:             sdk.String("serverless-container"),
 		ServiceAccountId: serviceAccountId,
 	}, sdk.Provider(params.Provider))
-
 	if err != nil {
 		return nil, errors.Errorf("unable to create serverless container: %v", err)
 	}

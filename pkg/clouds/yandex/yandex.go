@@ -2,7 +2,12 @@ package yandex
 
 import (
 	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
+)
+
+const (
+	AuthTypeYandex = "yandex"
 )
 
 type TemplateConfig struct {
@@ -28,4 +33,8 @@ func (r *AccountConfig) ProjectIdValue() string {
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {
 	return api.ConvertConfig(config, &TemplateConfig{})
+}
+
+func ReadYandexAuthConfig(config *api.Config) (api.Config, error) {
+	return api.ConvertConfig(config, &AccountConfig{})
 }
