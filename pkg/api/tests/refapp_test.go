@@ -43,7 +43,7 @@ func TestReadServerDescriptor(t *testing.T) {
 			want: RefappKubernetesServerDescriptor,
 		},
 		{
-			path: "testdata/stacks/refapp-yc-cloud-function/server.yaml",
+			path: "testdata/stacks/refapp-yandex-cloud-function/server.yaml",
 			want: RefappYandexCloudFunctionServerDescriptor,
 		},
 	}
@@ -111,7 +111,7 @@ func TestReadClientDescriptor(t *testing.T) {
 			want: RefappGkeAutopilotClientDescriptor,
 		},
 		{
-			path: "testdata/stacks/refapp-yc-cloud-function/client.yaml",
+			path: "testdata/stacks/refapp-yandex-cloud-function/client.yaml",
 			want: RefappYandexCloudFunctionClientDescriptor,
 		},
 	}

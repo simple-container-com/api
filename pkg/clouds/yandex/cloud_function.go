@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	TemplateTypeYandexCloudFunction = "yc-cloud-function"
+	TemplateTypeYandexCloudFunction = "yandex-cloud-function"
 )
 
 type CloudFunctionInput struct {
@@ -17,20 +17,16 @@ type CloudFunctionInput struct {
 func ToCloudFunctionConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
-		return nil, errors.Errorf("template config is not of type yc.TemplateConfig")
+		return nil, errors.Errorf("template config is not of type yandex.TemplateConfig")
 	}
 
 	if templateCfg == nil {
 		return nil, errors.Errorf("template config is nil")
 	}
 
-	accountConfig := &AccountConfig{}
-	err := api.ConvertAuth(&templateCfg.AccountConfig, accountConfig)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to convert yc account config")
-	}
-	if stackCfg == nil {
-		return nil, errors.Errorf("stack config cannot be nil")
+	accountConfig := &AccountConfig{
+		CloudId:     templateCfg.AccountConfig.CloudId,
+		Credentials: templateCfg.AccountConfig.Credentials,
 	}
 
 	res := &CloudFunctionInput{

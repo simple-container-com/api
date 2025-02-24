@@ -10,7 +10,7 @@ type TemplateConfig struct {
 }
 
 type AccountConfig struct {
-	Account         string `json:"account" yaml:"account"`
+	CloudId         string `json:"cloudId" yaml:"cloudId"`
 	api.Credentials `json:",inline" yaml:",inline"`
 }
 
@@ -23,7 +23,7 @@ func (r *AccountConfig) CredentialsValue() string {
 }
 
 func (r *AccountConfig) ProjectIdValue() string {
-	return r.Account
+	return r.CloudId
 }
 
 func ReadTemplateConfig(config *api.Config) (api.Config, error) {

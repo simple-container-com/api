@@ -179,6 +179,30 @@ func Test_Provision(t *testing.T) {
 			},
 		},
 		{
+			name: "happy path yandex cloud function",
+			params: api.ProvisionParams{
+				StacksDir: "stacks",
+				Stacks: []string{
+					"common",
+					"refapp-yandex-cloud-function",
+				},
+			},
+			expectStacks: map[string]api.Stack{
+				"common": {
+					Name:    "common",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedCommonServerDescriptor,
+					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
+				},
+				"refapp-yandex-cloud-function": {
+					Name:    "func-per-app",
+					Secrets: *tests.CommonSecretsDescriptor,
+					Server:  *tests.ResolvedRefappYandexCloudFunctionServerDescriptor,
+					Client:  *tests.ResolvedRefappYandexCloudFunctionClientDescriptor(),
+				},
+			},
+		},
+		{
 			name: "pulumi error",
 			params: api.ProvisionParams{
 				StacksDir: "stacks",

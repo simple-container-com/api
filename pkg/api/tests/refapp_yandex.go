@@ -21,7 +21,7 @@ var RefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
 			Type: yandex.TemplateTypeYandexCloudFunction,
 			Config: api.Config{Config: &yandex.TemplateConfig{
 				AccountConfig: yandex.AccountConfig{
-					Account: "${auth:yandex.projectId}",
+					CloudId: "${auth:yandex.projectId}",
 					Credentials: api.Credentials{
 						Credentials: "${auth:yandex}",
 					},
@@ -49,7 +49,7 @@ var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
 			Type:        api.ClientTypeSingleImage,
-			ParentStack: "refapp-aws-lambda",
+			ParentStack: "refapp-yandex-cloud-function",
 			Config: api.Config{
 				Config: &api.StackConfigSingleImage{
 					Domain: "staging.sc-refapp.org",
@@ -64,7 +64,7 @@ var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
 		},
 		"prod": {
 			Type:        api.ClientTypeSingleImage,
-			ParentStack: "refapp-aws-lambda",
+			ParentStack: "refapp-yandex-cloud-function",
 			Config: api.Config{
 				Config: &api.StackConfigSingleImage{
 					Domain: "prod.sc-refapp.org",
@@ -78,4 +78,46 @@ var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
 			},
 		},
 	},
+}
+
+var resolvedYandexAccountConfig = yandex.AccountConfig{
+	CloudId: "000",
+	Credentials: api.Credentials{
+		Credentials: `{"account":"123","accessKey":"\u003cyandex-access-key\u003e","secretAccessKey":"\u003cyandex-secret-key\u003e","credentials":""}`,
+	},
+}
+
+var ResolvedRefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
+	SchemaVersion: api.ServerSchemaVersion,
+	Provisioner:   ResolvedCommonServerDescriptor.Provisioner,
+	Secrets:       ResolvedCommonServerDescriptor.Secrets,
+	CiCd:          ResolvedCommonServerDescriptor.CiCd,
+	Templates: map[string]api.StackDescriptor{
+		"func-per-app": {
+			Type: yandex.TemplateTypeYandexCloudFunction,
+			Config: api.Config{Config: &yandex.TemplateConfig{
+				AccountConfig: resolvedYandexAccountConfig,
+			}},
+		},
+	},
+	Variables: map[string]api.VariableDescriptor{},
+	Resources: api.PerStackResourcesDescriptor{
+		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
+		Resources: map[string]api.PerEnvResourcesDescriptor{
+			"staging": {
+				Template:  "func-per-app",
+				Resources: map[string]api.ResourceDescriptor{},
+			},
+			"prod": {
+				Template:  "func-per-app",
+				Resources: map[string]api.ResourceDescriptor{},
+			},
+		},
+	},
+}
+
+func ResolvedRefappYandexCloudFunctionClientDescriptor() *api.ClientDescriptor {
+	res := RefappClientDescriptor.Copy()
+
+	return &res
 }
