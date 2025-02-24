@@ -39,7 +39,7 @@ func New() Logger {
 
 func (l *logger) Error(ctx context.Context, format string, a ...any) {
 	if getLogLevel(ctx) <= LogLevelError {
-		l.println(ctx, "ERROR", color.RedString(format, a...)) // nolint: govet
+		l.println(ctx, "ERROR", "%s", color.RedString(format, a...)) // nolint: govet
 	}
 }
 

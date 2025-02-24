@@ -112,7 +112,8 @@ func toPubsubProjectIdExport(input api.ResourceInput) string {
 
 func PubSubTopicsProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	fullParentReference := params.ParentStack.FullReference
-	projectId, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-pubsub-projectId", input.Descriptor.Type), fullParentReference, toPubsubProjectIdExport(input), false)
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+	projectId, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-pubsub-projectId", input.Descriptor.Type, suffix), fullParentReference, toPubsubProjectIdExport(input), false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to retrieve pubsub projectId from parent stack")
 	}

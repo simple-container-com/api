@@ -72,7 +72,7 @@ tasks:
     script:
       - go mod tidy
       - ${project:root}/bin/gofumpt -l -w ./
-      - ${project:root}/bin/golangci-lint run --fix --timeout 2m
+      - ${project:root}/bin/golangci-lint run --fix --timeout 3m
   linters:
     runOn: host
     script:

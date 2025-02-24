@@ -14,6 +14,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
+	"github.com/simple-container-com/api/pkg/clouds/slack"
 	"github.com/simple-container-com/api/pkg/clouds/telegram"
 	"github.com/simple-container-com/api/pkg/util"
 )
@@ -96,12 +97,23 @@ func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 		l.log.Error(ctx, "failed to send alert to discord: %v", err)
 	}
 
+	// send slack notifications is configured
+	if slackWebhookSecret := os.Getenv(api.ComputeEnv.SlackWebhookUrl); slackWebhookSecret == "" {
+		l.log.Info(ctx, "slack notification isn't configured")
+	} else if slackWebhook, err := secretCache.GetSecretString(slackWebhookSecret); err != nil {
+		l.log.Error(ctx, "failed to get slack webhook secret value: %v", err)
+	} else if d, err := slack.New(slackWebhook); err != nil {
+		l.log.Error(ctx, "failed to create slack webhook client: %v", err)
+	} else if err := d.Send(nfAlert); err != nil {
+		l.log.Error(ctx, "failed to send alert to slack: %v", err)
+	}
+
 	// send telegram notification if configured
 	telegramChatId := os.Getenv(api.ComputeEnv.TelegramChatID)
 	if telegramTokenSecret := os.Getenv(api.ComputeEnv.TelegramToken); telegramTokenSecret == "" {
 		l.log.Info(ctx, "telegram notification isn't configured")
 	} else if telegramToken, err := secretCache.GetSecretString(telegramTokenSecret); err != nil {
-		l.log.Error(ctx, "failed to get discord webhook secret value: %v", err)
+		l.log.Error(ctx, "failed to get telegram webhook secret value: %v", err)
 	} else {
 		if err := telegram.New(telegramChatId, telegramToken).Send(nfAlert); err != nil {
 			l.log.Error(ctx, "failed to send alert to telegram: %v", err)

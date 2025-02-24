@@ -121,8 +121,8 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if a, dnsAware := clientStackDesc.Config.Config.(api.DnsConfigAware); dnsAware {
 			dnsPreference.BaseZone = a.OverriddenBaseZone()
 		}
-		if err := p.initRegistrar(ctx, stack, dnsPreference); err != nil {
-			return errors.Errorf("failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
+		if err = p.initRegistrar(ctx, stack, dnsPreference); err != nil {
+			return errors.Wrapf(err, "failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
 
 		uses := make(map[string]bool)
@@ -136,52 +136,49 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if info, withDependsOnResources := clientStackDesc.Config.Config.(api.WithDependsOnResources); withDependsOnResources {
 			dependsOnResourcesList = append(dependsOnResourcesList, info.DependsOnResources()...)
 		}
-		dependsOn := lo.Associate(dependsOnResourcesList, func(dep api.StackConfigDependencyResource) (string, bool) {
-			return dep.Resource, true
-		})
-
 		p.logger.Debug(ctx.Context(), "converted compose to cloud compose input: %q", clientStackDesc)
 
-		parentStackInfo := &pApi.ParentInfo{
-			StackName:     parentNameOnly,
-			ParentEnv:     parentEnv,
-			StackEnv:      params.Environment,
-			FullReference: parentFullReference,
-		}
-		parentStackParams := params.CopyForParentEnv(parentEnv)
-
 		collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, parentEnv)
-		for resName, res := range stack.Server.Resources.Resources[parentEnv].Resources {
-			if res.Name == "" {
-				res.Name = resName
+
+		// for resources that are listed in "uses" for stack
+		for resName := range uses {
+			p.logger.Info(ctx.Context(), "stack uses resource %q from env %q", resName, parentEnv)
+			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
+				resName: resName,
+				resEnv:  parentEnv,
+
+				stackDescriptor: clientStackDesc,
+				collector:       collector,
+				parentStackName: parentNameOnly,
+				stackEnv:        params.Environment,
+				parentStackRef:  parentFullReference,
+				usesResource:    true,
+			}); err != nil {
+				return errors.Wrapf(err, "failed to process used resource %q for stack %q", resName, stack.Name)
 			}
-			if !uses[resName] && !dependsOn[resName] {
-				p.logger.Info(ctx.Context(), "stack %q does not use or depend on resource %q, skipping...", stack.Name, resName)
-				continue
-			}
-			if fnc, ok := pApi.ComputeProcessorFuncByType[res.Type]; !ok {
-				p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", resName, res.Type)
-				continue
-			} else if provisionParams, err := p.getProvisionParams(ctx, stack, res, parentEnv); err != nil {
-				p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", resName, res.Type, stack.Name, err.Error())
-				continue
-			} else {
-				provisionParams.ParentStack = parentStackInfo
-				provisionParams.UseResources = uses
-				provisionParams.DependOnResources = dependsOnResourcesList
-				provisionParams.StackDescriptor = clientStackDesc
-				provisionParams.ComputeContext = collector
-				_, err = fnc(ctx, stack, api.ResourceInput{
-					Descriptor:  &res,
-					StackParams: parentStackParams,
-				}, collector, provisionParams)
-				if err != nil {
-					return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", resName, parentEnv)
-				}
+		}
+		// for resources that are listed in "dependencies" for stack
+		for _, dependency := range dependsOnResourcesList {
+			// in case we need to depend on resource from a stack within the specific environment
+			dependencyEnv := lo.If(dependency.Env != nil, lo.FromPtr(dependency.Env)).Else(params.Environment)
+			p.logger.Info(ctx.Context(), "stack depends on resource %q of stack %q from env %q", dependency.Resource, dependency.Owner, dependencyEnv)
+			if err := p.processResourceDependency(ctx, stack, params, dependencyResourceParams{
+				resName:       dependency.Resource, // name of the base resource
+				resEnv:        parentEnv,           // environment where base resource is declared (in server.yaml)
+				dependencyEnv: dependencyEnv,       // environment for which the resource is consumed (if differs from stack's env)
+
+				stackDescriptor:   clientStackDesc,
+				collector:         collector,
+				parentStackName:   parentNameOnly,
+				stackEnv:          params.Environment,
+				parentStackRef:    parentFullReference,
+				dependsOnResource: &dependency,
+			}); err != nil {
+				return errors.Wrapf(err, "failed to process dependency resource %q for stack %q", dependency.Resource, stack.Name)
 			}
 		}
 
-		deployResOut := sdk.ToArrayOutput(collector.Outputs()).ApplyTWithContext(ctx.Context(), func(args []any) (string, error) {
+		deployOut := sdk.ToArrayOutput(collector.Outputs()).ApplyTWithContext(ctx.Context(), func(args []any) (string, error) {
 			// resolve resource-dependent client placeholders that have remained after initial resolve of basic values
 			if err := collector.ResolvePlaceholders(&clientStackDesc.Config.Config); err != nil {
 				p.logger.Error(ctx.Context(), "failed to resolve placeholders for secrets in stack %q in %q: %v", stack.Name, params.Environment, err)
@@ -194,14 +191,19 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				Config: clientStackDesc.Config,
 			}
 
-			provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment)
+			provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment, "")
 			if err != nil {
 				p.logger.Error(ctx.Context(), "failed to init provision params for %q: %v", resDesc.Type, err)
 				return "failure", errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
 			}
 			provisionParams.ComputeContext = collector
 			provisionParams.StackDescriptor = clientStackDesc
-			provisionParams.ParentStack = parentStackInfo
+			provisionParams.ParentStack = &pApi.ParentInfo{
+				StackName:     parentNameOnly,
+				ParentEnv:     parentEnv,
+				StackEnv:      params.Environment,
+				FullReference: parentFullReference,
+			}
 
 			if fnc, ok := pApi.ProvisionFuncByType[resDesc.Type]; !ok {
 				p.logger.Error(ctx.Context(), "unknown resource type %q", resDesc.Type)
@@ -215,7 +217,62 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 			}
 			return "success", nil
 		})
-		ctx.Export(fmt.Sprintf("%s-%s-outcome", params.StackName, params.Environment), deployResOut)
+		ctx.Export(fmt.Sprintf("%s-%s-outcome", params.StackName, params.Environment), deployOut)
 		return nil
 	}
+}
+
+type dependencyResourceParams struct {
+	resName           string // name of the resource in parent stack
+	resEnv            string // this is where the resource should be declared in parent stack
+	dependencyEnv     string // dependency resource should be taken from this env (usually same as resEnv)
+	collector         pApi.ComputeContextCollector
+	stackDescriptor   *api.StackDescriptor
+	parentStackName   string
+	stackEnv          string
+	parentStackRef    string
+	dependsOnResource *api.StackConfigDependencyResource
+	usesResource      bool
+}
+
+func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, params api.StackParams, dep dependencyResourceParams) error {
+	resParentStackInfo := &pApi.ParentInfo{
+		StackName:         dep.parentStackName,
+		ParentEnv:         dep.resEnv,
+		ResourceEnv:       dep.dependencyEnv,
+		FullReference:     dep.parentStackRef,
+		StackEnv:          dep.stackEnv,
+		DependsOnResource: dep.dependsOnResource,
+		UsesResource:      dep.usesResource,
+	}
+	parentStackParams := params.CopyForParentEnv(dep.resEnv)
+
+	depResource := stack.Server.Resources.Resources[dep.resEnv].Resources[dep.resName]
+	if depResource.Name == "" {
+		depResource.Name = dep.resName
+	}
+	suffix := lo.If(dep.dependsOnResource != nil, lo.FromPtr(dep.dependsOnResource).Name).Else("")
+	if fnc, ok := pApi.ComputeProcessorFuncByType[depResource.Type]; !ok {
+		p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", dep.resName, depResource.Type)
+		return nil
+	} else if provisionParams, err := p.getProvisionParams(ctx, stack, depResource, dep.resEnv, suffix); err != nil {
+		p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", dep.resName, depResource.Type, stack.Name, err.Error())
+		return nil
+	} else {
+		provisionParams.ParentStack = resParentStackInfo
+		provisionParams.StackDescriptor = dep.stackDescriptor
+		dep.collector.AddDependency(provisionParams.Provider)
+		provisionParams.ComputeContext = dep.collector
+		res, err := fnc(ctx, stack, api.ResourceInput{
+			Descriptor:  &depResource,
+			StackParams: parentStackParams,
+		}, dep.collector, provisionParams)
+		if err != nil {
+			return errors.Wrapf(err, "failed to process compute context for resource %q of env %q", dep.resName, dep.resEnv)
+		}
+		if res == nil {
+			return errors.Errorf("failed to process compute context for resource %q of env %q: result is empty", dep.resName, dep.resEnv)
+		}
+	}
+	return nil
 }

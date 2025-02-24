@@ -25,8 +25,6 @@ type ProvisionParams struct {
 	DnsPreference       *DnsPreference
 	ParentStack         *ParentInfo
 	StackDescriptor     *api.StackDescriptor
-	UseResources        map[string]bool
-	DependOnResources   []api.StackConfigDependencyResource
 	BaseEnvVariables    map[string]string
 	HelpersImage        string
 	ResourceOutputs     ResourcesOutputs // outputs from dependency resources
@@ -41,10 +39,13 @@ type DnsPreference struct {
 	BaseZone string
 }
 type ParentInfo struct {
-	StackName     string
-	ParentEnv     string
-	StackEnv      string
-	FullReference string
+	StackName         string
+	ParentEnv         string // parent stack env
+	StackEnv          string // current stack env
+	ResourceEnv       string // environment where resource should be consumed
+	FullReference     string
+	DependsOnResource *api.StackConfigDependencyResource
+	UsesResource      bool
 }
 
 type ComputeEnvVariable struct {
@@ -86,7 +87,7 @@ type ComputeContextCollector interface {
 	AddSecretEnvVariableIfNotExist(name, value, resType, resName, stackName string)
 	AddDependency(resource sdk.Resource)
 	Dependencies() []sdk.Resource
-	AddOutput(o sdk.Output)
+	AddOutput(ctx *sdk.Context, o sdk.Output)
 	Outputs() []sdk.Output
 	ResolvePlaceholders(obj any) error
 	AddResourceTplExtension(resName string, value map[string]string)
