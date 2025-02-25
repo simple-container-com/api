@@ -7,7 +7,7 @@ import (
 
 func init() {
 	api.RegisterResources(map[string]api.ProvisionFunc{
-		yandex.TemplateTypeYandexCloudFunction: CloudFunction,
+		yandex.TemplateTypeYandexServerlessContainer: ServerlessContainer,
 	})
 	api.RegisterProvider(yandex.ProviderType, Provider)
 }

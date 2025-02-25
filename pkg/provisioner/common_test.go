@@ -184,7 +184,7 @@ func Test_Provision(t *testing.T) {
 				StacksDir: "stacks",
 				Stacks: []string{
 					"common",
-					"refapp-yandex-cloud-function",
+					"refapp-yandex-serverless-container",
 				},
 			},
 			expectStacks: map[string]api.Stack{
@@ -194,11 +194,11 @@ func Test_Provision(t *testing.T) {
 					Server:  *tests.ResolvedCommonServerDescriptor,
 					Client:  api.ClientDescriptor{Stacks: map[string]api.StackClientDescriptor{}},
 				},
-				"refapp-yandex-cloud-function": {
+				"refapp-yandex-serverless-container": {
 					Name:    "func-per-app",
 					Secrets: *tests.CommonSecretsDescriptor,
-					Server:  *tests.ResolvedRefappYandexCloudFunctionServerDescriptor,
-					Client:  *tests.ResolvedRefappYandexCloudFunctionClientDescriptor(),
+					Server:  *tests.ResolvedRefappYandexServerlessContainerServerDescriptor,
+					Client:  *tests.ResolvedRefappYandexServerlessContainerClientDescriptor(),
 				},
 			},
 		},

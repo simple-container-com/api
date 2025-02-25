@@ -7,15 +7,15 @@ import (
 )
 
 const (
-	TemplateTypeYandexCloudFunction = "yandex-cloud-function"
+	TemplateTypeYandexServerlessContainer = "yandex-serverless-container"
 )
 
-type CloudFunctionInput struct {
+type ServerlessContainerInput struct {
 	AccountConfig `json:",inline" yaml:",inline"`
 	StackConfig   api.StackConfigSingleImage `json:"stackConfig" yaml:"stackConfig"`
 }
 
-func ToCloudFunctionConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, error) {
+func ToServerlessContainerConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
 		return nil, errors.Errorf("template config is not of type yandex.TemplateConfig")
@@ -30,7 +30,7 @@ func ToCloudFunctionConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, 
 		Credentials: templateCfg.AccountConfig.Credentials,
 	}
 
-	res := &CloudFunctionInput{
+	res := &ServerlessContainerInput{
 		AccountConfig: *accountConfig,
 		StackConfig:   *stackCfg,
 	}

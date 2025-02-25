@@ -7,7 +7,7 @@ cicd:
   inherit: common
 templates:
   func-per-app:
-    type: yandex-cloud-function
+    type: yandex-serverless-container
     config:
       credentials: "${auth:yandex}"
       cloudId: "${auth:yandex.projectId}"

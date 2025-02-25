@@ -5,7 +5,7 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
-var RefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
+var RefappYandexServerlessContainerServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner: api.ProvisionerDescriptor{
 		Inherit: api.Inherit{Inherit: "common"},
@@ -18,7 +18,7 @@ var RefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
 	},
 	Templates: map[string]api.StackDescriptor{
 		"func-per-app": {
-			Type: yandex.TemplateTypeYandexCloudFunction,
+			Type: yandex.TemplateTypeYandexServerlessContainer,
 			Config: api.Config{Config: &yandex.TemplateConfig{
 				AccountConfig: yandex.AccountConfig{
 					CloudId: "${auth:yandex.projectId}",
@@ -44,12 +44,12 @@ var RefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
-var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
+var RefappYandexServerlessContainerClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
 			Type:        api.ClientTypeSingleImage,
-			ParentStack: "refapp-yandex-cloud-function",
+			ParentStack: "refapp-yandex-serverless-container",
 			Config: api.Config{
 				Config: &api.StackConfigSingleImage{
 					Domain: "staging.sc-refapp.org",
@@ -64,7 +64,7 @@ var RefappYandexCloudFunctionClientDescriptor = &api.ClientDescriptor{
 		},
 		"prod": {
 			Type:        api.ClientTypeSingleImage,
-			ParentStack: "refapp-yandex-cloud-function",
+			ParentStack: "refapp-yandex-serverless-container",
 			Config: api.Config{
 				Config: &api.StackConfigSingleImage{
 					Domain: "prod.sc-refapp.org",
@@ -87,14 +87,14 @@ var resolvedYandexAccountConfig = yandex.AccountConfig{
 	},
 }
 
-var ResolvedRefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
+var ResolvedRefappYandexServerlessContainerServerDescriptor = &api.ServerDescriptor{
 	SchemaVersion: api.ServerSchemaVersion,
 	Provisioner:   ResolvedCommonServerDescriptor.Provisioner,
 	Secrets:       ResolvedCommonServerDescriptor.Secrets,
 	CiCd:          ResolvedCommonServerDescriptor.CiCd,
 	Templates: map[string]api.StackDescriptor{
 		"func-per-app": {
-			Type: yandex.TemplateTypeYandexCloudFunction,
+			Type: yandex.TemplateTypeYandexServerlessContainer,
 			Config: api.Config{Config: &yandex.TemplateConfig{
 				AccountConfig: resolvedYandexAccountConfig,
 			}},
@@ -116,8 +116,8 @@ var ResolvedRefappYandexCloudFunctionServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
-func ResolvedRefappYandexCloudFunctionClientDescriptor() *api.ClientDescriptor {
-	res := RefappYandexCloudFunctionClientDescriptor.Copy()
+func ResolvedRefappYandexServerlessContainerClientDescriptor() *api.ClientDescriptor {
+	res := RefappYandexServerlessContainerClientDescriptor.Copy()
 	for name := range res.Stacks {
 		stackCfg := res.Stacks[name]
 		singleImage := stackCfg.Config.Config.(*api.StackConfigSingleImage)

@@ -3,7 +3,7 @@ schemaVersion: 1.0
 stacks:
   staging: &staging
     type: single-image
-    parent: refapp-yandex-cloud-function
+    parent: refapp-yandex-serverless-container
     config: &config
       domain: staging.sc-refapp.org
       image:

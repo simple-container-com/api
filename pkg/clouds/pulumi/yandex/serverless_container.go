@@ -17,12 +17,12 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
-type CloudFunctionOutput struct {
+type ServerlessContainerOutput struct {
 	sdk.Output
 }
 
-func CloudFunction(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	if input.Descriptor.Type != yandex.TemplateTypeYandexCloudFunction {
+func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	if input.Descriptor.Type != yandex.TemplateTypeYandexServerlessContainer {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
 	}
 	if input.StackParams == nil {
@@ -31,16 +31,16 @@ func CloudFunction(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 	deployParams := *input.StackParams
 
-	folderName := fmt.Sprintf("%s-%s2", input.StackParams.StackName, input.StackParams.Environment)
+	folderName := fmt.Sprintf("%s-%s", input.StackParams.StackName, input.StackParams.Environment)
 	folder, err := pYandex.NewResourcemanagerFolder(ctx, folderName, &pYandex.ResourcemanagerFolderArgs{Name: sdk.String(folderName)}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Errorf("unable to create folder: %v", err)
 	}
 
-	ref := &CloudFunctionOutput{}
+	ref := &ServerlessContainerOutput{}
 	output := &api.ResourceOutput{Ref: ref}
 
-	crInput, ok := input.Descriptor.Config.Config.(*yandex.CloudFunctionInput)
+	crInput, ok := input.Descriptor.Config.Config.(*yandex.ServerlessContainerInput)
 	if !ok {
 		return output, errors.Errorf("failed to convert yandex-cloud config for %q in stack %q in %q", input.Descriptor.Type, stack.Name, deployParams.Environment)
 	}
