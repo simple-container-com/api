@@ -9,11 +9,23 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"github.com/simple-container-com/api/pkg/api/tests/testutil"
 	"github.com/simple-container-com/welder/pkg/util/test"
 )
+
+func withInlineConfigReader(reader *config.InlineConfigReader) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			reader.WorkDir = c.workDir
+			opt := WithConfigReader(reader)
+			return opt.f(c)
+		},
+	}
+}
 
 func withGitDir(gitDir string) Option {
 	return Option{
@@ -36,6 +48,9 @@ type mocks struct {
 
 func TestNewCryptor(t *testing.T) {
 	RegisterTestingT(t)
+
+	cfgKeyInline, err := os.ReadFile("testdata/repo/.sc/cfg.local-key-inline.yaml")
+	Expect(err).To(BeNil())
 
 	cases := []struct {
 		name           string
@@ -85,6 +100,28 @@ func TestNewCryptor(t *testing.T) {
 			},
 			prepareMocks: acceptAllChanges,
 			actions:      happyPathScenario,
+		},
+		{
+			name:           "happy path with custom config reader",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				withGitDir("gitdir"),
+				withInlineConfigReader(&config.InlineConfigReader{
+					Configs: map[string]string{
+						"stacks/common/secrets.yaml": "blabla",
+						".sc/cfg.default.yaml":       string(cfgKeyInline),
+					},
+				}),
+				WithProfile("default"),
+				WithKeysFromCurrentProfile(),
+			},
+			prepareMocks: acceptAllChanges,
+			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
+				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.EncryptChanged(true, false)).To(BeNil())
+				err := c.DecryptAll(false)
+				Expect(err).To(BeNil())
+			},
 		},
 		{
 			name:           "happy path with invalid passphrase from console",
@@ -140,7 +177,7 @@ func TestNewCryptor(t *testing.T) {
 			prepareMocks: acceptAllChanges,
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				happyPathScenario(t, c, m, wd)
-				cfg, err := api.ReadConfigFile(wd, "test-profile")
+				cfg, err := api.ReadConfigFile(config.FSReader, wd, "test-profile")
 				Expect(err).To(BeNil())
 				Expect(cfg.PrivateKey).To(ContainSubstring(c.PrivateKey()))
 				Expect(cfg.PublicKey).To(ContainSubstring(c.PublicKey()))

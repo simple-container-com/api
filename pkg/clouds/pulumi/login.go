@@ -44,10 +44,6 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		organization = provisionerCfg.Organization
 	}
 
-	if err != nil {
-		return errors.Wrapf(err, "failed to init pulumi provisioner context")
-	}
-
 	var pulumiHome string
 	if os.Getenv(workspace.PulumiHomeEnvVar) == "" {
 		if pulumiHome, err = path_util.ReplaceTildeWithHome("~/.pulumi"); err != nil {

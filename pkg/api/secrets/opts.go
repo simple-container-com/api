@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/welder/pkg/util"
 )
@@ -111,6 +112,16 @@ func WithGeneratedKeys(projectName, profile string) Option {
 	}
 }
 
+func WithConfigReader(reader config.Reader) Option {
+	return Option{
+		beforeInit: true,
+		f: func(c *cryptor) error {
+			c.configReader = reader
+			return nil
+		},
+	}
+}
+
 func WithKeysFromScConfig(profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {
@@ -121,7 +132,11 @@ func WithKeysFromScConfig(profile string) Option {
 				return errors.Errorf("profile is not configured")
 			}
 			c.profile = profile
-			cfg, err := api.ReadConfigFile(c.workDir, c.profile)
+			cfgReader := c.configReader
+			if c.configReader == nil {
+				cfgReader = config.FSReader
+			}
+			cfg, err := api.ReadConfigFile(cfgReader, c.workDir, c.profile)
 			if err != nil {
 				return err
 			}

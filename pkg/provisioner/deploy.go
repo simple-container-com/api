@@ -43,7 +43,7 @@ func (p *provisioner) prepareForChildStack(ctx context.Context, params *api.Stac
 }
 
 func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParams) (*api.ConfigFile, *api.Stack, api.Provisioner, error) {
-	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	cfg, err := api.ReadConfigFile(p.configReader, p.rootDir, p.profile)
 	if err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
 	}

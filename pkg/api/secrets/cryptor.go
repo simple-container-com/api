@@ -5,6 +5,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/welder/pkg/util"
 )
@@ -37,9 +38,10 @@ type Cryptor interface {
 }
 
 type cryptor struct {
-	workDir     string
-	projectName string
-	profile     string
+	configReader config.Reader
+	workDir      string
+	projectName  string
+	profile      string
 
 	options []Option
 
