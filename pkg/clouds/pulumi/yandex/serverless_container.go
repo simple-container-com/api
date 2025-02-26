@@ -64,11 +64,11 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	}
 
 	serviceAccountId := sdk.String(authorizedKey.ServiceAccountId)
-	_, err = pYandex.NewIamServiceAccountKey(ctx, "iam-key", &pYandex.IamServiceAccountKeyArgs{ServiceAccountId: serviceAccountId, Description: sdk.String("pulumi created IAM")}, sdk.Provider(params.Provider))
+	serviceAccountKeyName := fmt.Sprintf("%s-iam-key", repoName)
+	saKey, err := pYandex.NewIamServiceAccountKey(ctx, serviceAccountKeyName, &pYandex.IamServiceAccountKeyArgs{ServiceAccountId: serviceAccountId, Description: sdk.String("pulumi created IAM")}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Errorf("unable to create IAM service account key: %v", err)
 	}
-
 	dockerfile := stackConfig.Image.Dockerfile
 	if !filepath.IsAbs(dockerfile) {
 		dockerfile = filepath.Join(input.StackParams.StacksDir, input.StackParams.StackName, stackConfig.Image.Dockerfile)
@@ -91,9 +91,8 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 		Registry: pDocker.RegistryArgs{
 			Server:   repoUrlOutput,
 			Username: sdk.String("iam"),
-			Password: sdk.String("<TODO get from NewIamServiceAccountKey call>"), // TODO: get IAM token
+			Password: saKey.PrivateKey, // TODO: get IAM token https://yandex.cloud/en/docs/iam/operations/iam-token/create-for-sa#go_1
 		},
-		Platform: nil, // sdk.String(lo.If(params.Platform != nil, lo.FromPtr(image.Platform)).Else(string(api.ImagePlatformLinuxAmd64))),
 	}
 	// Build a Docker image
 	_, err = docker.BuildAndPushImage(ctx, stack, params, deployParams, dockerImage)
@@ -108,14 +107,15 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 
 	timeout := lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)
 	strTimeout := fmt.Sprintf("%ds", timeout)
-	_, err = pYandex.NewServerlessContainer(ctx, "serverless-container", &pYandex.ServerlessContainerArgs{
+	serverlessContainerName := fmt.Sprintf("%s-serverless-container", folderName)
+	_, err = pYandex.NewServerlessContainer(ctx, serverlessContainerName, &pYandex.ServerlessContainerArgs{
 		ExecutionTimeout: sdk.StringPtrFromPtr(&strTimeout),
 		FolderId:         folder.ID(),
 		Image: &pYandex.ServerlessContainerImageArgs{
 			Url: imageNameOutput,
 		},
 		Memory:           sdk.Int(lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))),
-		Name:             sdk.String("serverless-container"),
+		Name:             sdk.String(serverlessContainerName),
 		ServiceAccountId: serviceAccountId,
 	}, sdk.Provider(params.Provider))
 	if err != nil {
