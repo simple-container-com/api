@@ -16,6 +16,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"github.com/simple-container-com/welder/pkg/util"
@@ -459,6 +460,9 @@ func (c *cryptor) decryptSecretDataToFile(encryptedData []string, relFilePath st
 }
 
 func (c *cryptor) initData() error {
+	if c.configReader == nil {
+		c.configReader = config.FSReader
+	}
 	if c.secrets.Secrets == nil {
 		c.secrets.Secrets = make(map[string]EncryptedSecrets, 0)
 	}

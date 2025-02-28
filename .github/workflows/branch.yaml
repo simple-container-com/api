@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     name: Build simple-container in branch
-    runs-on: self-hosted
+    runs-on: blacksmith-8vcpu-ubuntu-2204
     outputs:
       cicd-bot-telegram-token: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-chat-id }}
@@ -42,7 +42,7 @@ jobs:
 
   finalize:
     name: Finalize build in branch
-    runs-on: self-hosted
+    runs-on: blacksmith-2vcpu-ubuntu-2204
     if: ${{ always() }}
     permissions:
       contents: write
