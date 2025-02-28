@@ -41,8 +41,11 @@ As organizations scale, these challenges become **major bottlenecks**, slowing d
 Simple Container is a **cloud-agnostic deployment tool** designed specifically for **microservices**. It provides:
 
 ✅ **A unified way to deploy services without DevOps intervention.**
+
 ✅ **A declarative configuration approach using simple YAML files.**
+
 ✅ **Built-in secrets management and cloud resource integration.**
+
 ✅ **Seamless support for Kubernetes, AWS ECS Fargate, and Google Cloud Run.**
 
 At its core, `sc` allows **developers to focus on coding**, while **DevOps teams manage infrastructure separately**. This **clear separation of concerns** eliminates the need for developers to understand cloud provisioning and allows **DevOps to standardize infrastructure across all services**.
@@ -153,8 +156,11 @@ For any organization scaling microservices, `sc` presents a **compelling alterna
 One of the biggest challenges in a **microservices architecture** is ensuring that **developers can deploy new services independently** without requiring constant DevOps involvement.
 
 ### **How `sc` Helps**
+
 ✅ **Developers only need a `client.yaml` configuration** to deploy a new service.
+
 ✅ **Familiar tooling** like **Dockerfile** and **docker-compose** keeps onboarding simple.
+
 ✅ **No need for Terraform/Pulumi modifications**—DevOps manages infrastructure separately.
 
 ### **Example: Adding a New Microservice**
@@ -217,6 +223,7 @@ resources:
 ```
 
 ✅ **Once defined, this setup supports all microservices without modifications.**
+
 ✅ **Developers are isolated from infrastructure complexity.**
 
 ---
@@ -226,7 +233,9 @@ resources:
 Most CI/CD tools **require custom scripts** for building, pushing, and deploying services. With `sc`:
 
 ✅ **CI/CD is built-in**—no need for **Jenkins, GitHub Actions, or manual Helm deployments**.
+
 ✅ **Deploy with a single command**:
+
 ```sh
 sc deploy -s myservice -e staging
 ```
@@ -248,6 +257,7 @@ Organizations **often need to migrate workloads** between **AWS, GCP, and Kubern
 With `sc`, migrations **only require modifying `server.yaml`**, while `client.yaml` remains **unchanged**.
 
 ✅ **Move workloads from AWS to GCP without changing service configurations.**
+
 ✅ **Supports AWS ECS, Kubernetes, and Google Cloud Run natively.**
 
 🔹 **Example: Migrating from AWS to GCP**
@@ -285,7 +295,9 @@ resources:
 Managing secrets securely is **a major challenge in CI/CD**. Most organizations rely on **Vault, AWS Secrets Manager, or Kubernetes Secrets**, requiring **manual configuration**.
 
 ### **How `sc` Handles Secrets Automatically**
+
 ✅ **Secrets are securely stored in the cloud provider's native secret manager**.
+
 ✅ **No need for manual secret injection—SC provisions and injects secrets automatically.**
 
 | Cloud Provider | Secrets Storage       |
@@ -308,7 +320,9 @@ secrets:
 By adopting `sc`, organizations gain:
 
 ✅ **Faster onboarding**—developers deploy services with a simple YAML config.
+
 ✅ **Less DevOps overhead**—DevOps teams focus on core infrastructure, not microservices.
+
 ✅ **Reduced CI/CD complexity**—built-in deployment automation eliminates external tooling.
 
 ### **Comparison: Developer Workflow**
@@ -326,8 +340,11 @@ By adopting `sc`, organizations gain:
 Organizations adopting **Simple Container (`sc`)** for their **CI/CD pipelines** gain:
 
 ✅ **Faster deployments** with minimal configuration.
+
 ✅ **Cloud-agnostic flexibility** without rewriting infrastructure.
+
 ✅ **Reduced DevOps effort**—developers manage deployments independently.
+
 ✅ **Built-in security and secrets management** without external tools.
 
 By **simplifying microservice deployment**, **reducing overhead**, and **automating infrastructure management**, `sc` **transforms CI/CD pipelines into a developer-friendly, efficient workflow**.
