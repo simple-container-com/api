@@ -25,8 +25,11 @@ This guide explains how to configure each deployment type using **`client.yaml`*
 ---
 
 # **1️⃣ `cloud-compose`: Multi-Container Microservices**
+
 ✅ Use **`cloud-compose`** for **microservices that require multiple containers, databases, message queues, or networking**.
+
 ✅ Requires a **Dockerfile** and a **`docker-compose.yaml`** file.
+
 ✅ Works with **Kubernetes, ECS Fargate, Cloud Run, etc.**
 
 ## **Example `client.yaml` for `cloud-compose`**
@@ -91,8 +94,11 @@ sc deploy -s myservice -e staging
 ---
 
 # **2️⃣ `single-image`: Single-Container Applications**
+
 ✅ Use **`single-image`** for **single-container services like AWS Lambda or Cloud Run**.
+
 ✅ Only requires a **Dockerfile** (no `docker-compose.yaml` needed).
+
 ✅ Supports **cloud-specific configurations** like AWS Lambda settings.
 
 ## **Example `client.yaml` for `single-image`**
@@ -145,8 +151,11 @@ sc deploy -s myservice -e staging
 ---
 
 # **3️⃣ `static`: Deploying Static Websites**
+
 ✅ Use **`static`** for **deploying static websites** (e.g., React, Vue, Angular).
+
 ✅ Requires a **pre-built directory with static files**.
+
 ✅ Supports **public cloud storage, CDN caching, and custom domains**.
 
 ## **Example `client.yaml` for `static` Deployment**

@@ -14,7 +14,9 @@ date: '2024-06-12'
 As a **developer at Organization**, you can **deploy a new service (`billing`)** with **Simple Container** **without requiring DevOps involvement**.
 
 ✅ **MongoDB and PostgreSQL are already available** in the organization's infrastructure.
+
 ✅ **You only need to define `client.yaml`** and use familiar tools like **Dockerfile & docker-compose**.
+
 ✅ **Deployment is automated** using `sc deploy`.
 
 ---
@@ -59,6 +61,7 @@ stacks:
 ```
 
 ✅ **This defines how `billing` connects to existing infrastructure**.
+
 ✅ **No changes required from DevOps** since resources (`mongodb`, `postgres`) are already available.
 
 ---
@@ -101,6 +104,7 @@ sc deploy -s billing -e production
 ```
 
 ✅ **SC automatically builds, pushes, and deploys the service to Organization's cloud infrastructure**.
+
 ✅ **Secrets (e.g., `POSTGRES_PASSWORD`) are securely injected**.
 
 ---

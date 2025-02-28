@@ -21,8 +21,11 @@ With this setup, developers can **deploy microservices to ECS Fargate** while us
 Before configuring the parent stack, ensure that:
 
 ✅ You have an **AWS account** & IAM credentials with permissions to create ECS Fargate clusters.
+
 ✅ You have a **MongoDB Atlas account** with a valid API key.
+
 ✅ **Simple Container is installed**:
+
    ```sh
    curl -s "https://dist.simple-container.com/sc.sh" | bash
    ```
@@ -56,7 +59,9 @@ values:
 ```
 
 ### **🔹 What This Does**
+
 ✅ Stores **AWS credentials** for programmatic access.
+
 ✅ Saves **MongoDB Atlas API keys** for provisioning databases.
 
 ---
@@ -124,9 +129,13 @@ resources:
 ```
 
 ### **🔹 What This Does**
+
 ✅ **Configures Pulumi** for managing **state in an S3 bucket**.
+
 ✅ **Uses AWS KMS to encrypt secrets**.
+
 ✅ **Defines an ECS Fargate template (`stack-per-app`)** for developers to deploy microservices.
+
 ✅ **Provisions MongoDB Atlas**, making it available for microservices.
 
 ---
@@ -139,9 +148,13 @@ sc provision -s devops
 ```
 
 ### **What This Does**
+
 ✅ Creates an **S3 bucket** for state storage.
+
 ✅ Deploys **MongoDB Atlas** with provisioned users.
+
 ✅ Configures **Cloudflare DNS (optional)**.
+
 ✅ Prepares **ECS Fargate infrastructure for microservices**.
 
 ---

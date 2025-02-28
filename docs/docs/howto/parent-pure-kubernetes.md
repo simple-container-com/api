@@ -23,7 +23,9 @@ With this setup, developers can deploy microservices without needing to manage t
 Before configuring the parent stack, ensure that:
 
 ✅ A **Kubernetes cluster** is running and accessible.
+
 ✅ You have a **`kubeconfig` file** for authentication.
+
 ✅ Simple Container is installed:
 
    ```sh
@@ -80,6 +82,7 @@ values:
 ### **🔹 What This Does**
 
 ✅ Stores **Kubernetes authentication (`kubeconfig`)**.
+
 ✅ Saves **Docker registry credentials** for pulling images.
 
 ---
@@ -162,7 +165,9 @@ resources:
 ### **🔹 What This Does**
 
 ✅ **Configures Pulumi for state management** (`fs` for local storage).
+
 ✅ **Defines deployment templates** (`kubernetes-cloudrun`).
+
 ✅ **Provisions Kubernetes resources**:
 
 - **Caddy** → Handles ingress and routing.
@@ -181,7 +186,9 @@ sc provision -s devops
 ### **What This Does**
 
 ✅ Connects to **Kubernetes using `kubeconfig`**.
+
 ✅ Deploys **Caddy, PostgreSQL, RabbitMQ, Redis, MongoDB** inside Kubernetes.
+
 ✅ Configures **persistent storage and networking**.
 
 ---

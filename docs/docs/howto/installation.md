@@ -19,35 +19,28 @@ This guide is for **both DevOps teams and developers** who want to install and s
 Simple Container is a **cloud-agnostic CI/CD tool** that simplifies the deployment of **microservices and static websites** across platforms like **Kubernetes, AWS ECS, and Google Cloud**.
 
 ✅ **Supports multiple cloud providers** (AWS, GCP, Kubernetes).
+
 ✅ **Easy configuration using `client.yaml` and `server.yaml`**.
+
 ✅ **Secure secrets management** with SSH-based encryption.
+
 ✅ **Automated infrastructure provisioning and deployments**.
 
 ---
 
 # **2️⃣ Installing `sc`**
-## **🔹 Step 1: Install `sc` on Linux/macOS**
+## **🔹 Install `sc` on Linux/macOS**
 To install `sc`, run:
 ```sh
 curl -s "https://dist.simple-container.com/sc.sh" | bash
 ```
+
 ✅ This automatically downloads and installs `sc` in `/usr/local/bin`.
 
 **Verify the installation:**
 ```sh
 sc --version
 ```
-
----
-
-## **🔹 Step 2: Install `sc` on Windows**
-For Windows users:
-1. Download the latest release from [Simple Container Downloads](https://dist.simple-container.com/).
-2. Extract and add the binary to the system `PATH`.
-3. Verify installation:
-   ```sh
-   sc --version
-   ```
 
 ---
 

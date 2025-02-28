@@ -1,5 +1,5 @@
 ---
-title: Simple Container vs Pulumi vs Terraform
+title: Comparision to other tools
 description: This document provides a detailed comparison between **Simple Container**, **Pulumi**, and **Terraform** to help DevOps teams and developers choose the best tool for managing cloud infrastructure and microservice deployments.
 platform: platform
 product: simple-container

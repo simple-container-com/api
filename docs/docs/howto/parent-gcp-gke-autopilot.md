@@ -21,8 +21,11 @@ With this setup, developers can **deploy microservices to GKE Autopilot** while 
 Before configuring the parent stack, ensure that:
 
 ✅ You have a **GCP account** and a **GCP project**.
+
 ✅ You have a **GCP service account with proper IAM permissions** to create GKE clusters and other resources.
+
 ✅ **Simple Container** is installed:
+
    ```sh
    curl -s "https://dist.simple-container.com/sc.sh" | bash
    ```
@@ -64,7 +67,9 @@ values:
 ```
 
 ### **🔹 What This Does**
+
 ✅ **Stores GCP service account credentials** (`gcloud`).
+
 ✅ **Saves API tokens for DNS management**.
 
 ---
@@ -163,9 +168,13 @@ resources:
 ```
 
 ### **🔹 What This Does**
+
 ✅ **Configures Pulumi** for managing **state in a Google Cloud Storage bucket**.
+
 ✅ **Uses GCP KMS to encrypt secrets**.
+
 ✅ **Defines a GKE Autopilot template** (`stack-per-app-gke`) for deploying workloads.
+
 ✅ **Provisions MongoDB Atlas, Redis, Pub/Sub, and Artifact Registry** to support microservices.
 
 ---
@@ -178,8 +187,11 @@ sc provision -s devops
 ```
 
 ### **What This Does**
+
 ✅ Creates a **Google Cloud Storage bucket** for state storage.
+
 ✅ Deploys **MongoDB Atlas, Redis, and Pub/Sub** in GCP.
+
 ✅ Configures **GKE Autopilot for running microservices**.
 
 ---

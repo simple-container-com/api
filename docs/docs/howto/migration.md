@@ -14,6 +14,7 @@ date: '2024-06-12'
 This tutorial guides **DevOps teams and developers** on how to migrate from **Terraform or Pulumi** to **Simple Container** for microservice deployment and infrastructure management.
 
 ✅ **Why Migrate to `sc`?**
+
 - **Simplifies microservice deployment** (CI/CD, scaling, rollbacks, and secrets included).
 - **Reduces complexity** (high-level YAML configuration instead of Terraform HCL or Pulumi code).
 - **Cloud-agnostic** (migrate across AWS, GCP, and Kubernetes **without modifying service configurations**).
