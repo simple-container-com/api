@@ -17,8 +17,11 @@ One of the key principles of **Simple Container** is the **separation of concern
 This is achieved by **separating the "parent stack" (managed by DevOps) from the "service stack" (managed by developers)**.
 
 This guide explains:
+
 ✅ **What the parent stack is and how it works**
+
 ✅ **What the service stack is and how it works**
+
 ✅ **How this separation benefits both DevOps and developers**
 
 ---
@@ -28,8 +31,11 @@ This guide explains:
 The **parent stack** is the **core infrastructure** required for microservices to run. It is **managed by DevOps** and provides:
 
 ✅ **Cloud infrastructure** (Kubernetes clusters, AWS ECS clusters, databases, storage, networking).
+
 ✅ **Secrets management** (via Kubernetes Secrets, AWS Secrets Manager, or Google Secret Manager).
+
 ✅ **Centralized state management** (so infrastructure is consistent across environments).
+
 ✅ **Provisioning of shared resources** (databases, message queues, API gateways).
 
 ### **Who Manages the Parent Stack?**
@@ -45,7 +51,9 @@ The **parent stack** is the **core infrastructure** required for microservices t
 The **service stack** represents an **individual microservice** that a **developer wants to deploy**. It consumes infrastructure from the **parent stack** but does not modify it.
 
 ✅ **Developers only configure their microservice's deployment settings.**
+
 ✅ **Microservices automatically connect to infrastructure provisioned by the parent stack.**
+
 ✅ **No need to request DevOps intervention for every new service.**
 
 ### **Who Manages the Service Stack?**
@@ -71,8 +79,11 @@ The **service stack** represents an **individual microservice** that a **develop
 # **4️⃣ Why This Separation Matters**
 
 ✅ **Developers focus on coding, not cloud infrastructure.**
+
 ✅ **DevOps standardizes infrastructure without worrying about microservices.**
+
 ✅ **Adding a new microservice is self-service—no need for DevOps approval.**
+
 ✅ **Security is maintained by isolating infrastructure from microservices.**
 
 This separation **scales well** as organizations grow, preventing bottlenecks where **DevOps must manually configure every microservice**.
@@ -82,8 +93,11 @@ This separation **scales well** as organizations grow, preventing bottlenecks wh
 # **Conclusion**
 
 The **separation of parent stack and service stack** in `sc` ensures:
+
 ✅ **Faster microservice deployment without DevOps bottlenecks**
+
 ✅ **A single source of truth for infrastructure managed by DevOps**
+
 ✅ **A simple onboarding process for developers, reducing complexity**
 
 By adopting this separation, organizations can **scale their microservices architecture efficiently and securely**.
