@@ -1,6 +1,7 @@
 site_name: Simple Container
 theme:
   name: material
+  logo: images/sc-logo.png
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
