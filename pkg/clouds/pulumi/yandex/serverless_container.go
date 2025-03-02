@@ -2,10 +2,9 @@ package yandex
 
 import (
 	"fmt"
-	"path/filepath"
-
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"path/filepath"
 
 	pDocker "github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	pYandex "github.com/pulumi/pulumi-yandex/sdk/go/yandex"
@@ -58,20 +57,21 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 
 	stackConfig := crInput.StackConfig
 
-	authorizedKey, err := FromString(crInput.CredentialsValue())
+	authorizedKey, err := NewAuthorizedKey(crInput.CredentialsValue())
 	if err != nil {
 		return nil, errors.Wrapf(err, "invalid credentials value %q", crInput.CredentialsValue()) // TODO: secret logging should be removed
 	}
 
 	serviceAccountId := sdk.String(authorizedKey.ServiceAccountId)
-	serviceAccountKeyName := fmt.Sprintf("%s-iam-key", repoName)
-	saKey, err := pYandex.NewIamServiceAccountKey(ctx, serviceAccountKeyName, &pYandex.IamServiceAccountKeyArgs{ServiceAccountId: serviceAccountId, Description: sdk.String("pulumi created IAM")}, sdk.Provider(params.Provider))
-	if err != nil {
-		return nil, errors.Errorf("unable to create IAM service account key: %v", err)
-	}
+
 	dockerfile := stackConfig.Image.Dockerfile
 	if !filepath.IsAbs(dockerfile) {
 		dockerfile = filepath.Join(input.StackParams.StacksDir, input.StackParams.StackName, stackConfig.Image.Dockerfile)
+	}
+
+	iamToken, err := authorizedKey.GetIAMToken()
+	if err != nil {
+		return nil, errors.Errorf("unable to get IAM token: %v", err)
 	}
 
 	repoUrlOutput := registry.ID().ApplyT(func(id string) string {
@@ -91,7 +91,7 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 		Registry: pDocker.RegistryArgs{
 			Server:   repoUrlOutput,
 			Username: sdk.String("iam"),
-			Password: saKey.PrivateKey, // TODO: get IAM token https://yandex.cloud/en/docs/iam/operations/iam-token/create-for-sa#go_1
+			Password: sdk.String(iamToken),
 		},
 	}
 	// Build a Docker image
