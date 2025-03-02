@@ -4,12 +4,13 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/pkg/errors"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/pkg/errors"
 )
 
 type AuthorizedKey struct {

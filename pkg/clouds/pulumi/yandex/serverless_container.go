@@ -2,9 +2,10 @@ package yandex
 
 import (
 	"fmt"
+	"path/filepath"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"path/filepath"
 
 	pDocker "github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	pYandex "github.com/pulumi/pulumi-yandex/sdk/go/yandex"
