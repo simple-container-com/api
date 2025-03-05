@@ -96,15 +96,10 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 		},
 	}
 	// Build a Docker image
-	_, err = docker.BuildAndPushImage(ctx, stack, params, deployParams, dockerImage)
+	imageOut, err := docker.BuildAndPushImage(ctx, stack, params, deployParams, dockerImage)
 	if err != nil {
 		return nil, errors.Errorf("unable to build and push image: %v", err)
 	}
-
-	imageNameOutput := registry.ID().ApplyT(func(id string) string {
-		repoUrl := fmt.Sprintf("cr.yandex/%s:%s", id, dockerImage.Version)
-		return repoUrl
-	}).(sdk.StringOutput)
 
 	timeout := lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)
 	strTimeout := fmt.Sprintf("%ds", timeout)
@@ -113,7 +108,7 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 		ExecutionTimeout: sdk.StringPtrFromPtr(&strTimeout),
 		FolderId:         folder.ID(),
 		Image: &pYandex.ServerlessContainerImageArgs{
-			Url: imageNameOutput,
+			Url: imageOut.Image.ImageName,
 		},
 		Memory:           sdk.Int(lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))),
 		Name:             sdk.String(serverlessContainerName),
