@@ -11,6 +11,7 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
+	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
 var CommonGcpCredentials = gcloud.Credentials{
@@ -459,6 +460,15 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 			Type: k8s.AuthTypeKubeconfig,
 			Config: api.Config{Config: &k8s.KubernetesConfig{
 				Kubeconfig: "<kube-config>",
+			}},
+		},
+		"yandex": {
+			Type: yandex.AuthTypeYandex,
+			Config: api.Config{Config: &yandex.AccountConfig{
+				CloudId: "000",
+				Credentials: api.Credentials{
+					Credentials: "<yandex-creds>",
+				},
 			}},
 		},
 	},

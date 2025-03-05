@@ -19,6 +19,7 @@ require (
 	github.com/go-delve/delve v1.24.0
 	github.com/go-git/go-billy/v5 v5.5.0
 	github.com/go-git/go-git/v5 v5.12.0
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/golangci/golangci-lint v1.64.5
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/onsi/gomega v1.36.2
@@ -34,6 +35,7 @@ require (
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.18.1
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.26.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
+	github.com/pulumi/pulumi-yandex/sdk v0.13.0
 	github.com/pulumi/pulumi/pkg/v3 v3.143.0
 	github.com/pulumi/pulumi/sdk/v3 v3.145.0
 	github.com/samber/lo v1.38.1
@@ -41,7 +43,7 @@ require (
 	github.com/spf13/afero v1.12.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.10.0
-	github.com/vektra/mockery/v2 v2.52.2
+	github.com/vektra/mockery/v2 v2.52.4
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.33.0
 	golang.org/x/oauth2 v0.25.0
@@ -214,7 +216,6 @@ require (
 	github.com/gofrs/flock v0.12.1 // indirect
 	github.com/gofrs/uuid v4.2.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/golang/glog v1.2.3 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect

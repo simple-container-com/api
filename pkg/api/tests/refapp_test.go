@@ -42,6 +42,10 @@ func TestReadServerDescriptor(t *testing.T) {
 			path: "testdata/stacks/refapp-kubernetes/server.yaml",
 			want: RefappKubernetesServerDescriptor,
 		},
+		{
+			path: "testdata/stacks/refapp-yandex-serverless-container/server.yaml",
+			want: RefappYandexServerlessContainerServerDescriptor,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -105,6 +109,10 @@ func TestReadClientDescriptor(t *testing.T) {
 		{
 			path: "testdata/stacks/refapp-gke-autopilot/client.yaml",
 			want: RefappGkeAutopilotClientDescriptor,
+		},
+		{
+			path: "testdata/stacks/refapp-yandex-serverless-container/client.yaml",
+			want: RefappYandexServerlessContainerClientDescriptor,
 		},
 	}
 	for _, tt := range tests {
