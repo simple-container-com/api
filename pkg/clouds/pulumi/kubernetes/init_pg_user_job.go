@@ -27,6 +27,7 @@ type InitDbUserJobArgs struct {
 	Namespace    string
 	Host         string
 	Port         string
+	InitSQL      string
 	Opts         []sdk.ResourceOption
 }
 
@@ -56,6 +57,7 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 			"PGPORT":      sdk.String(args.Port),
 			"PGUSER":      sdk.String(args.RootUser),
 			"PGDATABASE":  sdk.String("postgres"),
+			"INIT_SQL":    sdk.String(args.InitSQL),
 		},
 	}, opts...)
 	if err != nil {

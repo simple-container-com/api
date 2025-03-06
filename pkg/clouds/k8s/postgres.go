@@ -48,6 +48,7 @@ type HelmPostgresOperator struct {
 	NumberOfInstances *int     `json:"numberOfInstances,omitempty" yaml:"numberOfInstances,omitempty"`
 	Version           *string  `json:"version,omitempty" yaml:"version,omitempty"`
 	PgHbaEntries      []string `json:"pg_hba" yaml:"pg_hba"`
+	InitSQL           *string  `json:"initSQL,omitempty" yaml:"initSQL,omitempty"`
 }
 
 type HelmRabbitmqOperator struct {

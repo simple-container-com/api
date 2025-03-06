@@ -111,6 +111,7 @@ func HelmPostgresOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 			params.Log.Info(ctx.Context(), "Exporting postgres %q root url...", instanceName)
 			return rootURL
 		}))
+		ctx.Export(toPostgresInitSQLExport(instanceName), sdk.ToSecret(sdk.String(lo.FromPtr(cfg.InitSQL))))
 	}
 
 	return &api.ResourceOutput{
@@ -132,4 +133,8 @@ func toPostgresRootPasswordExport(resName string) string {
 
 func toPostgresRootURLExport(resName string) string {
 	return fmt.Sprintf("%s-pg-root-url", resName)
+}
+
+func toPostgresInitSQLExport(resName string) string {
+	return fmt.Sprintf("%s-pg-init-sql", resName)
 }
