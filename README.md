@@ -71,7 +71,7 @@ Simple Container is open-source and licensed under the [MIT License](LICENSE).
 
 ## **Community & Support**
 
-1. **Feature Requests & Issues** – [GitHub Issues](https://github.com/simple-container/api/issues)
+1. **Feature Requests & Issues** – [GitHub Issues](https://github.com/simple-container-com/api/issues)
 2. **Discussions & Updates** – [Join our Discord](https://discord.gg/simple-container)
 3. **Enterprise Support** – Contact us at **support@simple-container.com**
 
