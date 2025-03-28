@@ -16,8 +16,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare build
-#    runs-on: ubuntu-latest
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -75,8 +74,7 @@ jobs:
 
   finalize:
     name: Finalize build and deploy for ${{ needs.prepare.outputs.stack-name }}
-#    runs-on: ubuntu-latest
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     if: ${{ always() }}
     permissions:
       contents: write
