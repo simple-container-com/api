@@ -240,7 +240,14 @@ async function handleRequest(origRequest) {
 		headers: origResponse.headers
 	});
 
-	response.headers.append("www-authenticate", response.headers.get("x-amzn-remapped-www-authenticate"));
+	// to pass original content-length if x-content-length is specified
+	if (response.headers.get("content-length") == "0" && response.headers.get("x-content-length") != '') {
+		response.headers.set("content-length", response.headers.get("x-content-length"))
+	}
+	// to pass original www-authenticate remapped by AWS
+	if (response.headers.get("x-amzn-remapped-www-authenticate") != '') {
+		response.headers.append("www-authenticate", response.headers.get("x-amzn-remapped-www-authenticate"));
+	}	
 	return response
 };
 
