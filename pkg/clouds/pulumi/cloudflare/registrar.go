@@ -79,7 +79,7 @@ func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionPa
 			ZoneId:  sdk.String(r.zone.ZoneId),
 			Name:    sdk.String(record.Name),
 			Type:    sdk.String(record.Type),
-			Value:   recordValue,
+			Content: recordValue,
 			Proxied: sdk.Bool(record.Proxied),
 		}, sdk.Provider(r.provider))
 		if err != nil {
@@ -107,7 +107,7 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 		ZoneId:  sdk.String(r.zone.ZoneId),
 		Name:    sdk.String(dnsRecord.Name),
 		Type:    sdk.String(dnsRecord.Type),
-		Value:   recordValue,
+		Content: recordValue,
 		Proxied: sdk.Bool(dnsRecord.Proxied),
 	}, sdk.Provider(r.provider))
 	if err != nil {
