@@ -171,7 +171,6 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	ctx.Export(toBucketAccessKeyIdExport(input.Name), accessKey.ID())
 
 	input.Log.Info(ctx.Context(), "configure s3 bucket policy...")
-	input.Log.Info(ctx.Context(), "configure s3 bucket policy...")
 	bucketPolicy, err := s3.NewBucketPolicy(ctx, fmt.Sprintf("%s-policy", input.Name), &s3.BucketPolicyArgs{
 		Bucket: bucket.ID(), // Reference to the bucket created above.
 		Policy: sdk.All(user.Arn, bucket.Arn, bucket.ID()).ApplyT(func(args []interface{}) (sdk.StringOutput, error) {

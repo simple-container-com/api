@@ -95,7 +95,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		if err != nil {
 			return err
 		}
-		be, err = httpstate.New(cmdutil.Diag(), cloudUrl, project, false)
+		be, err = httpstate.New(ctx, cmdutil.Diag(), cloudUrl, project, false)
 	default:
 		be, err = diy.Login(ctx, cmdutil.Diag(), stateStorageCfg.StorageUrl(), project)
 	}
