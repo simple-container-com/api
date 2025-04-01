@@ -18,12 +18,13 @@ import (
 )
 
 type S3BucketInput struct {
-	Name       string
-	Log        logger.Logger
-	Provider   sdk.ProviderResource
-	Registrar  pApi.Registrar
-	StaticSite *api.StaticSiteConfig
-	Stack      api.Stack
+	Name           string
+	Log            logger.Logger
+	Provider       sdk.ProviderResource
+	Registrar      pApi.Registrar
+	StaticSite     *api.StaticSiteConfig
+	Stack          api.Stack
+	AllowOnlyHttps bool
 }
 
 type PrivateBucketOutput struct {
@@ -51,12 +52,13 @@ func S3Bucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		bucketName, input.StackParams.StackName, input.StackParams.Environment)
 
 	res, err := createS3Bucket(ctx, S3BucketInput{
-		Name:       bucketName,
-		Provider:   params.Provider,
-		Registrar:  params.Registrar,
-		Stack:      stack,
-		Log:        params.Log,
-		StaticSite: bucketCfg.StaticSiteConfig,
+		Name:           bucketName,
+		Provider:       params.Provider,
+		Registrar:      params.Registrar,
+		Stack:          stack,
+		Log:            params.Log,
+		StaticSite:     bucketCfg.StaticSiteConfig,
+		AllowOnlyHttps: bucketCfg.AllowOnlyHttps,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision private bucket")
@@ -169,6 +171,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	ctx.Export(toBucketAccessKeyIdExport(input.Name), accessKey.ID())
 
 	input.Log.Info(ctx.Context(), "configure s3 bucket policy...")
+	input.Log.Info(ctx.Context(), "configure s3 bucket policy...")
 	bucketPolicy, err := s3.NewBucketPolicy(ctx, fmt.Sprintf("%s-policy", input.Name), &s3.BucketPolicyArgs{
 		Bucket: bucket.ID(), // Reference to the bucket created above.
 		Policy: sdk.All(user.Arn, bucket.Arn, bucket.ID()).ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
@@ -193,6 +196,21 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 					"Principal": "*",
 					"Action":    []string{"s3:GetObject"},
 					"Resource":  []string{bucketArn + "/*"},
+				})
+			}
+			// Add the HTTPS-only policy if AllowOnlyHttps is true
+			if input.AllowOnlyHttps {
+				statement = append(statement, map[string]any{
+					"Sid":       "DenyNonSecureTransport",
+					"Effect":    "Deny",
+					"Principal": "*",
+					"Action":    "s3:*",
+					"Resource":  []string{bucketArn + "/*"},
+					"Condition": map[string]any{
+						"Bool": map[string]any{
+							"aws:SecureTransport": "false",
+						},
+					},
 				})
 			}
 			policy := map[string]interface{}{
