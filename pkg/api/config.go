@@ -8,6 +8,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
+
+	"github.com/simple-container-com/api/pkg/api/config"
 )
 
 const (
@@ -38,7 +40,7 @@ type InitParams struct {
 	GenerateKeyPair     bool   `json:"generateKeyPair" yaml:"generateKeyPair"`
 }
 
-func ReadConfigFile(workDir, profile string) (*ConfigFile, error) {
+func ReadConfigFile(reader config.Reader, workDir, profile string) (*ConfigFile, error) {
 	configFromEnv := os.Getenv(ScConfigEnvVariable)
 	if configFromEnv != "" {
 		if res, err := UnmarshalDescriptor[ConfigFile]([]byte(configFromEnv)); err != nil {
@@ -47,7 +49,7 @@ func ReadConfigFile(workDir, profile string) (*ConfigFile, error) {
 			return res, nil
 		}
 	}
-	res, err := ReadDescriptor(ConfigFilePath(workDir, profile), &ConfigFile{})
+	res, err := ReadDescriptor(reader, ConfigFilePath(workDir, profile), &ConfigFile{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "profile does not exist: %q", profile)
 	}

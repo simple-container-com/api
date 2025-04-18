@@ -11,6 +11,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/secrets"
@@ -62,6 +63,7 @@ type provisioner struct {
 	phResolver          placeholders.Placeholders
 	log                 logger.Logger
 	overrideProvisioner api.Provisioner
+	configReader        config.Reader
 }
 
 func New(opts ...Option) (Provisioner, error) {
@@ -94,6 +96,9 @@ func New(opts ...Option) (Provisioner, error) {
 			res.rootDir = path.Base(wd)
 		}
 	}
+	if res.configReader == nil {
+		res.configReader = config.FSReader
+	}
 	return res, nil
 }
 
@@ -102,7 +107,7 @@ func (p *provisioner) Stacks() api.StacksMap {
 }
 
 func (p *provisioner) GetStack(ctx context.Context, params api.StackParams, opts api.ReadOpts) (*api.Stack, error) {
-	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	cfg, err := api.ReadConfigFile(p.configReader, p.rootDir, p.profile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 )
 
 func TestReadServerDescriptor(t *testing.T) {
@@ -45,7 +46,7 @@ func TestReadServerDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got, err := api.ReadServerDescriptor(tt.path)
+			got, err := api.ReadServerDescriptor(config.FSReader, tt.path)
 			Expect(err).To(BeNil())
 			actual := got.ValuesOnly()
 
@@ -77,7 +78,7 @@ func TestReadSecretsDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got, err := api.ReadSecretsDescriptor(tt.path)
+			got, err := api.ReadSecretsDescriptor(config.FSReader, tt.path)
 			Expect(err).To(BeNil())
 
 			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
@@ -109,7 +110,7 @@ func TestReadClientDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got, err := api.ReadClientDescriptor(tt.path)
+			got, err := api.ReadClientDescriptor(config.FSReader, tt.path)
 			Expect(err).To(BeNil())
 
 			assert.EqualValuesf(t, tt.want.Copy(), got.Copy(), "%v failed", tt.path)
