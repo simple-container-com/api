@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	cfImpl "github.com/pulumi/pulumi-cloudflare/sdk/v5/go/cloudflare"
+	cfImpl "github.com/pulumi/pulumi-cloudflare/sdk/v6/go/cloudflare"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -44,7 +44,10 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 	}
 
 	cfZone, err := cfImpl.LookupZone(ctx, &cfImpl.LookupZoneArgs{
-		Name: &baseZoneName,
+		Filter: &cfImpl.GetZoneFilter{
+			Name:  lo.ToPtr(baseZoneName),
+			Match: "any",
+		},
 	}, sdk.Provider(provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "error retrieving zone ID for domain %q", baseZoneName)
@@ -76,11 +79,12 @@ func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionPa
 			recordValue = sdk.String(record.Value).ToStringOutput()
 		}
 		res, err := cfImpl.NewRecord(ctx, recordName, &cfImpl.RecordArgs{
-			ZoneId:  sdk.String(r.zone.ZoneId),
+			ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
 			Name:    sdk.String(record.Name),
 			Type:    sdk.String(record.Type),
 			Content: recordValue,
 			Proxied: sdk.Bool(record.Proxied),
+			Ttl:     sdk.Float64(1),
 		}, sdk.Provider(r.provider))
 		if err != nil {
 			params.Log.Error(ctx.Context(), "failed to create record %q: %v", record.Name, err)
@@ -104,11 +108,12 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 		recordValue = sdk.String(dnsRecord.Value).ToStringOutput()
 	}
 	ref, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", dnsRecord.Name), &cfImpl.RecordArgs{
-		ZoneId:  sdk.String(r.zone.ZoneId),
+		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
 		Name:    sdk.String(dnsRecord.Name),
 		Type:    sdk.String(dnsRecord.Type),
 		Content: recordValue,
 		Proxied: sdk.Bool(dnsRecord.Proxied),
+		Ttl:     sdk.Float64(1),
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create record %q", dnsRecord.Name)
@@ -123,23 +128,23 @@ func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostN
 	ruleName := fmt.Sprintf("%s-worker-script", workerName)
 	r.log.Info(ctx.Context(), "configure cloudflare worker script %q...", workerName)
 	workerScript, err := cfImpl.NewWorkerScript(ctx, fmt.Sprintf("%s-worker-script", workerName), &cfImpl.WorkerScriptArgs{
-		Name:      sdk.String(workerName),
-		AccountId: sdk.String(r.accountId),
-		Content:   sdk.String(script),
+		ScriptName: sdk.String(workerName),
+		AccountId:  sdk.String(r.accountId),
+		Content:    sdk.String(script),
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		return nil, err
 	}
 	routeName := fmt.Sprintf("%s-route", ruleName)
-	workerRoute, err := cfImpl.NewWorkerRoute(ctx, routeName, &cfImpl.WorkerRouteArgs{
-		ZoneId:     sdk.String(r.zone.ZoneId),
-		Pattern:    sdk.String(fmt.Sprintf("%s/*", hostName)),
-		ScriptName: workerScript.Name,
+	workerRoute, err := cfImpl.NewWorkersRoute(ctx, routeName, &cfImpl.WorkersRouteArgs{
+		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
+		Pattern: sdk.String(fmt.Sprintf("%s/*", hostName)),
+		Script:  workerScript.ScriptName,
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		return nil, err
 	}
-	ctx.Export(fmt.Sprintf("%s-route", ruleName), workerRoute.ToWorkerRouteOutput())
+	ctx.Export(fmt.Sprintf("%s-route", ruleName), workerRoute.ToWorkersRouteOutput())
 
 	ctx.Export(fmt.Sprintf("%s-script", ruleName), workerScript.ToWorkerScriptOutput())
 	return &api.ResourceOutput{
@@ -254,9 +259,9 @@ async function handleRequest(origRequest) {
 %s
 `
 	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
-		Name:      sdk.String(scriptName),
-		AccountId: sdk.String(r.accountId),
-		Content:   sdk.Sprintf(workerScriptCode, sdk.String(headerCode), rule.ToHost, sdk.String(pagesCode), sdk.String(footerCode)),
+		ScriptName: sdk.String(scriptName),
+		AccountId:  sdk.String(r.accountId),
+		Content:    sdk.Sprintf(workerScriptCode, sdk.String(headerCode), rule.ToHost, sdk.String(pagesCode), sdk.String(footerCode)),
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		r.log.Error(ctx.Context(), "failed to create worker script: "+err.Error())
@@ -265,15 +270,15 @@ async function handleRequest(origRequest) {
 	ctx.Export(fmt.Sprintf("%s-script", ruleName), workerScript.ToWorkerScriptOutput())
 
 	routeName := fmt.Sprintf("%s-route", ruleName)
-	workerRoute, err := cfImpl.NewWorkerRoute(ctx, routeName, &cfImpl.WorkerRouteArgs{
-		ZoneId:     sdk.String(r.zone.ZoneId),
-		Pattern:    sdk.String(fmt.Sprintf("%s/*", rule.FromHost)),
-		ScriptName: workerScript.Name,
+	workerRoute, err := cfImpl.NewWorkersRoute(ctx, routeName, &cfImpl.WorkersRouteArgs{
+		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
+		Pattern: sdk.String(fmt.Sprintf("%s/*", rule.FromHost)),
+		Script:  workerScript.ScriptName,
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		return nil, err
 	}
-	ctx.Export(fmt.Sprintf("%s-route", ruleName), workerRoute.ToWorkerRouteOutput())
+	ctx.Export(fmt.Sprintf("%s-route", ruleName), workerRoute.ToWorkersRouteOutput())
 
 	return &api.ResourceOutput{
 		Ref: workerRoute.ID(),

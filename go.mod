@@ -27,7 +27,7 @@ require (
 	github.com/pulumi/pulumi-aws/sdk/v5 v5.35.0
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.59.1
 	github.com/pulumi/pulumi-awsx/sdk/v2 v2.19.0
-	github.com/pulumi/pulumi-cloudflare/sdk/v5 v5.49.1
+	github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.0.1
 	github.com/pulumi/pulumi-command/sdk v0.9.2
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.5.4
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.0.0
@@ -35,7 +35,7 @@ require (
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.30.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
 	github.com/pulumi/pulumi/pkg/v3 v3.159.0
-	github.com/pulumi/pulumi/sdk/v3 v3.159.0
+	github.com/pulumi/pulumi/sdk/v3 v3.160.0
 	github.com/samber/lo v1.38.1
 	github.com/simple-container-com/welder v0.0.0-20231210065542-fb1b24bf9b46
 	github.com/spf13/afero v1.12.0
