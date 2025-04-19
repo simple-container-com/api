@@ -141,7 +141,7 @@ func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostN
 		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
 		Pattern: sdk.String(fmt.Sprintf("%s/*", hostName)),
 		Script:  workerScript.ScriptName,
-	}, sdk.Provider(r.provider))
+	}, sdk.Provider(r.provider), sdk.RetainOnDelete(true))
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ async function handleRequest(origRequest) {
 		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
 		Pattern: sdk.String(fmt.Sprintf("%s/*", rule.FromHost)),
 		Script:  workerScript.ScriptName,
-	}, sdk.Provider(r.provider))
+	}, sdk.Provider(r.provider), sdk.RetainOnDelete(true))
 	if err != nil {
 		return nil, err
 	}
