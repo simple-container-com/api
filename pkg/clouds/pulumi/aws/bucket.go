@@ -163,7 +163,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	input.Log.Info(ctx.Context(), "configure access key for user having access to s3 bucket...")
 	accessKey, err := iam.NewAccessKey(ctx, fmt.Sprintf("%s-access-key", input.Name), &iam.AccessKeyArgs{
 		User: user.ID(),
-	}, append(opts)...) // TODO: figure out how to handle access key rotation
+	}, opts...) // TODO: figure out how to handle access key rotation
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision access key for bucket %q", input.Name)
 	}
