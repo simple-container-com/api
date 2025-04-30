@@ -210,6 +210,19 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			}
 			out.PrivateLinkEndpointService = linkEndpointService
 
+		} else if networkConfig.AllowCidrs != nil {
+			for _, cidrBlock := range lo.FromPtr(networkConfig.AllowCidrs) {
+				params.Log.Info(ctx.Context(), "configure MongoDB Atlas to allow cidr block %q for cluster %q in stack %q in %q",
+					cidrBlock, clusterName, input.StackParams.StackName, input.StackParams.Environment)
+				_, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-cidr-block-%s", clusterName, cidrBlock), &mongodbatlas.ProjectIpAccessListArgs{
+					CidrBlock: sdk.StringPtr(cidrBlock),
+					Comment:   sdk.Sprintf("Allow cidr %s explicitly", cidrBlock),
+					ProjectId: projectId,
+				}, opts...)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to create mongodb cidr block %q stack %q", cidrBlock, stack.Name)
+				}
+			}
 		} else {
 			return nil, errors.Errorf("network configuration for MongoDB Atlas cluster %q is provided but not supported", clusterName)
 		}

@@ -121,8 +121,8 @@ tasks:
     runOn: host
     script:
       - ${project:root}/bin/sc secrets reveal
-      - ${project:root}/bin/sc deploy -s dist -e prod
-      - ${project:root}/bin/sc deploy -s docs -e prod
+      - ${project:root}/bin/sc deploy -s dist -e prod --skip-refresh
+      - ${project:root}/bin/sc deploy -s docs -e prod --skip-refresh
   tag-release:
     runOn: host
     script:

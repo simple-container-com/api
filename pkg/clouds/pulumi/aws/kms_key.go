@@ -29,6 +29,7 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 		Tags: sdk.StringMap{
 			"stack": sdk.String(stack.Name),
 		},
+		EnableKeyRotation: sdk.Bool(true),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to provision KMS key")
