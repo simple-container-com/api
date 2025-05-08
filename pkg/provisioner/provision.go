@@ -33,7 +33,7 @@ func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams)
 }
 
 func (p *provisioner) prepareForParentStack(ctx context.Context, params api.ProvisionParams) (*api.ConfigFile, error) {
-	cfg, err := api.ReadConfigFile(p.rootDir, p.profile)
+	cfg, err := api.ReadConfigFile(p.configReader, p.rootDir, p.profile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read config file for profile %q", p.profile)
 	}
@@ -155,7 +155,7 @@ func (p *provisioner) resolvePlaceholders() error {
 
 func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*api.ServerDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.ServerDescriptorFileName)
-	if desc, err := api.ReadServerDescriptor(descFilePath); err != nil {
+	if desc, err := api.ReadServerDescriptor(p.configReader, descFilePath); err != nil {
 		return nil, errors.Wrapf(err, "failed to read server descriptor from %q", descFilePath)
 	} else {
 		return desc, nil
@@ -171,7 +171,7 @@ func (p *provisioner) readSecretsDescriptor(rootDir string, stackName string) (*
 }
 
 func (p *provisioner) readSecretsDescriptorFromFile(descFilePath string) (*api.SecretsDescriptor, error) {
-	if desc, err := api.ReadSecretsDescriptor(descFilePath); err != nil {
+	if desc, err := api.ReadSecretsDescriptor(p.configReader, descFilePath); err != nil {
 		return nil, errors.Wrapf(err, "failed to read secrets descriptor from %q", descFilePath)
 	} else {
 		return desc, nil
@@ -187,7 +187,7 @@ func (p *provisioner) readClientDescriptor(rootDir string, stackName string) (*a
 }
 
 func (p *provisioner) readClientDescriptorFromFile(path string) (*api.ClientDescriptor, error) {
-	if desc, err := api.ReadClientDescriptor(path); err != nil {
+	if desc, err := api.ReadClientDescriptor(p.configReader, path); err != nil {
 		return nil, errors.Wrapf(err, "failed to read client descriptor from %q", path)
 	} else {
 		return desc, nil

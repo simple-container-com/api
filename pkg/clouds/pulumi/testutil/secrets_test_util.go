@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -43,7 +44,7 @@ func ReadIntegrationTestConfig() (*api.ConfigFile, secrets.Cryptor) {
 
 	Expect(c.ReadSecretFiles()).To(BeNil())
 
-	cfg, err := api.ReadConfigFile(c.Workdir(), "test")
+	cfg, err := api.ReadConfigFile(config.FSReader, c.Workdir(), "test")
 	Expect(err).To(BeNil())
 
 	return cfg, c

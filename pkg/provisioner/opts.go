@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/config"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/secrets"
@@ -15,6 +16,13 @@ type Option func(p *provisioner) error
 func WithProfile(profile string) Option {
 	return func(p *provisioner) error {
 		p.profile = profile
+		return nil
+	}
+}
+
+func WithConfigReader(reader config.Reader) Option {
+	return func(p *provisioner) error {
+		p.configReader = reader
 		return nil
 	}
 }

@@ -1,11 +1,11 @@
 package api
 
 import (
-	"os"
-
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
+
+	"github.com/simple-container-com/api/pkg/api/config"
 )
 
 const (
@@ -14,8 +14,8 @@ const (
 	ClientDescriptorFileName  = "client.yaml"
 )
 
-func ReadDescriptor[T any](filePath string, descriptor *T) (*T, error) {
-	fileBytes, err := os.ReadFile(filePath)
+func ReadDescriptor[T any](reader config.Reader, filePath string, descriptor *T) (*T, error) {
+	fileBytes, err := reader.ReadFile(filePath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read %s", filePath)
 	}
@@ -40,8 +40,8 @@ func UnmarshalDescriptor[T any](bytes []byte) (*T, error) {
 	return &descriptor, nil
 }
 
-func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
-	descriptor, err := ReadDescriptor(path, &ServerDescriptor{})
+func ReadServerDescriptor(reader config.Reader, path string) (*ServerDescriptor, error) {
+	descriptor, err := ReadDescriptor(reader, path, &ServerDescriptor{})
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read server descriptor from %q", path)
 	}
@@ -53,8 +53,8 @@ func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	return res, nil
 }
 
-func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
-	descriptor, err := ReadDescriptor(path, &SecretsDescriptor{})
+func ReadSecretsDescriptor(reader config.Reader, path string) (*SecretsDescriptor, error) {
+	descriptor, err := ReadDescriptor(reader, path, &SecretsDescriptor{})
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +66,8 @@ func ReadSecretsDescriptor(path string) (*SecretsDescriptor, error) {
 	return res, nil
 }
 
-func ReadClientDescriptor(path string) (*ClientDescriptor, error) {
-	descriptor, err := ReadDescriptor(path, &ClientDescriptor{})
+func ReadClientDescriptor(reader config.Reader, path string) (*ClientDescriptor, error) {
+	descriptor, err := ReadDescriptor(reader, path, &ClientDescriptor{})
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to unmarshal %s", path)
 	}
