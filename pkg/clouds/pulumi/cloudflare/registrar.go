@@ -137,7 +137,6 @@ func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostN
 	}
 	routeName := fmt.Sprintf("%s-route", ruleName)
 	workerRoute, err := cfImpl.NewWorkersRoute(ctx, routeName, &cfImpl.WorkersRouteArgs{
-		RouteId: sdk.String(routeName),
 		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
 		Pattern: sdk.String(fmt.Sprintf("%s/*", hostName)),
 		Script:  workerScript.ScriptName,
@@ -272,7 +271,6 @@ async function handleRequest(origRequest) {
 
 	routeName := fmt.Sprintf("%s-route", ruleName)
 	workerRoute, err := cfImpl.NewWorkersRoute(ctx, routeName, &cfImpl.WorkersRouteArgs{
-		RouteId: sdk.String(ruleName),
 		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
 		Pattern: sdk.String(fmt.Sprintf("%s/*", rule.FromHost)),
 		Script:  workerScript.ScriptName,

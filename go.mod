@@ -27,15 +27,15 @@ require (
 	github.com/pulumi/pulumi-aws/sdk/v5 v5.35.0
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.59.1
 	github.com/pulumi/pulumi-awsx/sdk/v2 v2.19.0
-	github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.0.1
+	github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.2.0
 	github.com/pulumi/pulumi-command/sdk v0.9.2
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.5.4
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.0.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.18.1
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.30.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
-	github.com/pulumi/pulumi/pkg/v3 v3.159.0
-	github.com/pulumi/pulumi/sdk/v3 v3.160.0
+	github.com/pulumi/pulumi/pkg/v3 v3.166.0
+	github.com/pulumi/pulumi/sdk/v3 v3.166.0
 	github.com/samber/lo v1.38.1
 	github.com/simple-container-com/welder v0.0.0-20231210065542-fb1b24bf9b46
 	github.com/spf13/afero v1.12.0
@@ -214,7 +214,7 @@ require (
 	github.com/gofrs/flock v0.12.1 // indirect
 	github.com/gofrs/uuid v4.2.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/glog v1.2.4 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -352,7 +352,7 @@ require (
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
-	github.com/pulumi/esc v0.10.0 // indirect
+	github.com/pulumi/esc v0.13.0 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.3-0.20240823090925-0fe6f58b47b1 // indirect
 	github.com/quasilyte/go-ruleguard/dsl v0.3.22 // indirect
 	github.com/quasilyte/gogrep v0.5.0 // indirect
