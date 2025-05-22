@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -437,6 +438,13 @@ func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
 		}
 		if path, ok := svc.Labels[api.ComposeLabelHealthcheckPath]; ok {
 			p.HttpGet.Path = path
+		}
+		if hcPortString, ok := svc.Labels[api.ComposeLabelHealthcheckPort]; ok {
+			if hcPort, err := strconv.Atoi(hcPortString); err != nil {
+				fmt.Printf("Healthcheck port from label: %d\n", hcPort)
+			} else {
+				p.HttpGet.Port = hcPort
+			}
 		}
 
 	}

@@ -43,6 +43,7 @@ const (
 	ComposeLabelIngressPort             = "simple-container.com/ingress/port"
 	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
 	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
+	ComposeLabelHealthcheckPort         = "simple-container.com/healthcheck/port"
 )
 
 type RemoteImage struct {
