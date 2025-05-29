@@ -171,7 +171,7 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 			return nil, errors.Wrapf(err, "failed to convert memory size %q to ECS fargate memory size: must be a number (e.g. 512)", stackCfg.Size.Memory)
 		}
 		if stackCfg.Size.Ephemeral != "" {
-			if ephemeral, err := strconv.Atoi(stackCfg.Size.Ephemeral); err == nil {
+			if ephemeral, err := strconv.Atoi(stackCfg.Size.Ephemeral); err != nil {
 				return nil, errors.Wrapf(err, "failed to convert ephemeral storage size %q to ECS fargate ephemeral size: must be a number (e.g. 22548578304 (min 21GB))", stackCfg.Size.Ephemeral)
 			} else if bytesInGB := bytesToGB(ephemeral); bytesInGB < 21 {
 				return nil, errors.Wrapf(err, "ephemeral storage size %q in ECS fargate : must be above 21GB", stackCfg.Size.Ephemeral)
