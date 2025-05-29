@@ -18,7 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
-	"github.com/simple-container-com/welder/pkg/util"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 func (c *cryptor) ReadProfileConfig() error {

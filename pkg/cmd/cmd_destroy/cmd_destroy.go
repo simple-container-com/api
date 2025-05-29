@@ -10,7 +10,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
-	"github.com/simple-container-com/welder/pkg/util"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type destroyCmd struct {

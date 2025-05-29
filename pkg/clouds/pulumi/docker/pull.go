@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/pkg/errors"
 
@@ -45,7 +45,7 @@ func NewDockerPull(ctx *sdk.Context, name string, args *PullArgs, opts ...sdk.Re
 	digest := sdk.All(args.RemoteImage, args.AuthHeader, args.Platform).ApplyT(func(all []any) (string, error) {
 		remoteImage, authHeader, platform := all[0].(string), all[1].(string), all[2].(string)
 
-		reader, err := dockerAPI.ImagePull(ctx.Context(), remoteImage, types.ImagePullOptions{
+		reader, err := dockerAPI.ImagePull(ctx.Context(), remoteImage, image.PullOptions{
 			RegistryAuth: authHeader,
 			Platform:     platform,
 		})

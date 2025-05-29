@@ -11,9 +11,12 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
-	"github.com/simple-container-com/welder/pkg/template"
-	"github.com/simple-container-com/welder/pkg/util"
-	"github.com/simple-container-com/welder/pkg/welder/types"
+	"github.com/simple-container-com/api/pkg/template"
+	"github.com/simple-container-com/api/pkg/util"
+)
+
+type (
+	StringValue string
 )
 
 type Placeholders interface {
@@ -303,8 +306,8 @@ func (p *placeholders) applyTemplatesRecursive(copy, original reflect.Value, opt
 		originalVal := original.Interface()
 		if _, ok := originalVal.(string); ok {
 			processed = p.applyTemplateOnString(originalVal.(string), opts)
-		} else if _, ok := originalVal.(types.StringValue); ok {
-			processed = p.applyTemplateOnString(string(originalVal.(types.StringValue)), opts)
+		} else if _, ok := originalVal.(StringValue); ok {
+			processed = p.applyTemplateOnString(string(originalVal.(StringValue)), opts)
 		} else {
 			processed = p.applyTemplateOnString(reflect.ValueOf(originalVal).String(), opts)
 		}

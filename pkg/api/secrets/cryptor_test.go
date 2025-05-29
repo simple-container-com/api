@@ -12,7 +12,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"github.com/simple-container-com/api/pkg/api/tests/testutil"
-	"github.com/simple-container-com/welder/pkg/util/test"
+	"github.com/simple-container-com/api/pkg/util/test"
 )
 
 func withGitDir(gitDir string) Option {

@@ -14,7 +14,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
-	"github.com/simple-container-com/welder/pkg/template"
+	"github.com/simple-container-com/api/pkg/template"
 )
 
 type (
