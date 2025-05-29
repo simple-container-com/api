@@ -138,9 +138,10 @@ type ParentResourceDependency struct {
 }
 
 type StackConfigComposeSize struct {
-	Name   string `yaml:"name" json:"name"`
-	Cpu    string `yaml:"cpu" json:"cpu"`
-	Memory string `yaml:"memory" json:"memory"`
+	Name      string `yaml:"name" json:"name"`
+	Cpu       string `yaml:"cpu" json:"cpu"`
+	Memory    string `yaml:"memory" json:"memory"`
+	Ephemeral string `yaml:"ephemeral" json:"ephemeral"`
 }
 type StackConfigComposeScale struct {
 	Min int `yaml:"min" json:"min"`

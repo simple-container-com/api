@@ -18,11 +18,12 @@ const (
 )
 
 type EcsFargateConfig struct {
-	api.Credentials `json:",inline" yaml:",inline"`
-	AccountConfig   `json:",inline" yaml:",inline"`
-	Cpu             int    `json:"cpu" yaml:"cpu"`
-	Memory          int    `json:"memory" yaml:"memory"`
-	Version         string `json:"version" yaml:"version"`
+	api.Credentials    `json:",inline" yaml:",inline"`
+	AccountConfig      `json:",inline" yaml:",inline"`
+	Cpu                int    `json:"cpu" yaml:"cpu"`
+	Memory             int    `json:"memory" yaml:"memory"`
+	EphemeralStorageGB int    `json:"ephemeralStorageGB" yaml:"ephemeralStorageGB"`
+	Version            string `json:"version" yaml:"version"`
 }
 
 type EcsFargateProbe struct {
@@ -168,6 +169,13 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		}
 		if res.Config.Memory, err = strconv.Atoi(stackCfg.Size.Memory); err != nil {
 			return nil, errors.Wrapf(err, "failed to convert memory size %q to ECS fargate memory size: must be a number (e.g. 512)", stackCfg.Size.Memory)
+		}
+		if ephemeral, err := strconv.Atoi(stackCfg.Size.Ephemeral); err == nil {
+			return nil, errors.Wrapf(err, "failed to convert ephemeral storage size %q to ECS fargate ephemeral size: must be a number (e.g. 22548578304 (min 21GB))", stackCfg.Size.Ephemeral)
+		} else if bytesInGB := bytesToGB(ephemeral); bytesInGB < 21 {
+			return nil, errors.Wrapf(err, "ephemeral storage size %q in ECS fargate : must be above 21GB", stackCfg.Size.Ephemeral)
+		} else {
+			res.Config.EphemeralStorageGB = bytesInGB
 		}
 	}
 	if stackCfg.Scale != nil {
@@ -337,6 +345,10 @@ func toDependsOn(on types.DependsOnConfig) []EcsFargateDependsOn {
 				lo.If(value.Condition == "service_started", "START").Else("HEALTHY")),
 		}
 	})
+}
+
+func bytesToGB(size int) int {
+	return size / 1024 / 1024 / 1024
 }
 
 func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int, error) {
