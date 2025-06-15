@@ -81,13 +81,19 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			args.Params.Log.Warn(ctx.Context(), "container %q warning: %s", c.Container.Name, w)
 		}
 		for k, v := range c.Container.Env {
-			envVars[k] = v
+			if _, exists := secretEnvs[k]; !exists {
+				envVars[k] = v
+			}
 		}
 		for _, v := range contextEnvVars {
-			envVars[v.Name] = v.Value
+			if _, exists := secretEnvs[v.Name]; !exists {
+				envVars[v.Name] = v.Value
+			}
 		}
 		for k, v := range args.Deployment.StackConfig.Env {
-			envVars[k] = v
+			if _, exists := secretEnvs[k]; !exists {
+				envVars[k] = v
+			}
 		}
 		var env corev1.EnvVarArray
 		for k, v := range envVars {
