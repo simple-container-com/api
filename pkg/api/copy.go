@@ -181,5 +181,6 @@ func (s *StackConfigCompose) Copy() any {
 		CloudExtras:       s.CloudExtras,
 		StaticEgressIP:    s.StaticEgressIP,
 		ImagePullPolicy:   s.ImagePullPolicy,
+		ClusterIPAddress:  s.ClusterIPAddress,
 	}
 }

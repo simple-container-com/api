@@ -115,12 +115,19 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		if params.Registrar == nil {
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
-		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-		clusterIPAddress, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, ToIngressIpExport(parentStack), false)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
-		}
+		var clusterIPAddress string
 
+		if lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress) != "" {
+			params.Log.Info(ctx.Context(), "Using specified cluster IP address for domain %q (%q)", domain, kubeRunInput.Deployment.StackConfig.ClusterIPAddress)
+			clusterIPAddress = lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress)
+		} else {
+			params.Log.Info(ctx.Context(), "Using provisioned cluster IP address for domain %q", domain)
+			suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
+			clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, ToIngressIpExport(parentStack), false)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
+			}
+		}
 		_, err = params.Registrar.NewRecord(ctx, api.DnsRecord{
 			Name:    domain,
 			Type:    "A",
