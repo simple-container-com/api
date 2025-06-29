@@ -271,6 +271,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	// Persistent volumes
 	for _, pv := range args.PersistentVolumes {
+		accessModes := []sdk.StringInput{sdk.String("ReadWriteOnce")}
+		if len(pv.AccessModes) > 0 {
+			accessModes = lo.Map(pv.AccessModes, func(am string, _ int) sdk.StringInput {
+				return sdk.String(am)
+			})
+		}
 		_, err := corev1.NewPersistentVolumeClaim(ctx, pv.Name, &corev1.PersistentVolumeClaimArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Name:        sdk.String(pv.Name),
@@ -279,7 +285,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 				Annotations: sdk.ToStringMap(appAnnotations),
 			},
 			Spec: &corev1.PersistentVolumeClaimSpecArgs{
-				AccessModes: sdk.StringArray([]sdk.StringInput{sdk.String("ReadWriteOnce")}),
+				AccessModes: sdk.StringArray(accessModes),
 				Resources: &corev1.VolumeResourceRequirementsArgs{
 					Requests: sdk.StringMap{
 						"storage": sdk.String(pv.Storage),

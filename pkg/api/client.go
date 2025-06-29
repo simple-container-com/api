@@ -40,6 +40,7 @@ const (
 const (
 	ComposeLabelIngressContainer        = "simple-container.com/ingress"
 	ComposeLabelVolumeSize              = "simple-container.com/volume-size"
+	ComposeLabelVolumeAccessModes       = "simple-container.com/volume-access-modes"
 	ComposeLabelIngressPort             = "simple-container.com/ingress/port"
 	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
 	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
