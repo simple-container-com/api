@@ -53,10 +53,11 @@ type SimpleTextVolume struct {
 }
 
 type PersistentVolume struct {
-	Name        string   `json:"name" yaml:"name"`
-	MountPath   string   `json:"mountPath" yaml:"mountPath"`
-	Storage     string   `json:"storage" yaml:"storage"`
-	AccessModes []string `json:"accessModes" yaml:"accessModes"`
+	Name             string   `json:"name" yaml:"name"`
+	MountPath        string   `json:"mountPath" yaml:"mountPath"`
+	Storage          string   `json:"storage" yaml:"storage"`
+	AccessModes      []string `json:"accessModes" yaml:"accessModes"`
+	StorageClassName *string  `json:"storageClassName" yaml:"storageClassName"`
 }
 
 type Scale struct {
@@ -201,6 +202,9 @@ func ToPersistentVolumes(svc types.ServiceConfig, cfg compose.Config) []Persiste
 			}
 			if accessModes, ok := volCfg.Labels[api.ComposeLabelVolumeAccessModes]; ok {
 				pv.AccessModes = strings.Split(accessModes, ",")
+			}
+			if storageClass, ok := volCfg.Labels[api.ComposeLabelVolumeStorageClass]; ok {
+				pv.StorageClassName = lo.ToPtr(storageClass)
 			}
 		}
 		volumes = append(volumes, pv)

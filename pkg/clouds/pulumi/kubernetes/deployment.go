@@ -20,6 +20,7 @@ type Args struct {
 	Namespace              string
 	DeploymentName         string
 	Annotations            map[string]string
+	NodeSelector           map[string]string
 	Input                  api.ResourceInput
 	Deployment             k8s.DeploymentConfig
 	Images                 []*ContainerImage
@@ -198,6 +199,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		InitContainers:         args.InitContainers,
 		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
 		Annotations:            args.Annotations,
+		NodeSelector:           args.NodeSelector,
 		Sidecars:               args.Sidecars,
 		PodDisruption: &k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),

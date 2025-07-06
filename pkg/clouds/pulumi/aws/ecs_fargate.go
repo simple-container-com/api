@@ -555,6 +555,40 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ctx.Export(fmt.Sprintf("%s-arn", ecsSimpleClusterName), cluster.Arn)
 	ctx.Export(fmt.Sprintf("%s-name", ecsSimpleClusterName), cluster.Name)
 
+	awsCloudExtras := &aws.CloudExtras{}
+	if crInput.CloudExtras != nil {
+		var err error
+		awsCloudExtras, err = api.ConvertDescriptor(crInput.CloudExtras, awsCloudExtras)
+		if err != nil {
+			return errors.Wrapf(err, "failed to convert cloudExtras field to AWS Cloud extras format")
+		}
+	}
+	policyActions := []string{
+		"ssm:StartSession",
+		"ssmmessages:CreateControlChannel",
+		"ssmmessages:CreateDataChannel",
+		"ssmmessages:OpenControlChannel",
+		"ssmmessages:OpenDataChannel",
+		"secretsmanager:GetSecretValue",
+		"ecr:GetAuthorizationToken",
+		"ecr:DescribeImages",
+		"ecr:DescribeRepositories",
+		"ecr:BatchGetImage",
+		"ecr:BatchCheckLayerAvailability",
+		"ecr:GetDownloadUrlForLayer",
+		"logs:CreateLogStream",
+		"logs:CreateLogGroup",
+		"logs:DescribeLogStreams",
+		"logs:PutLogEvents",
+		"elasticfilesystem:ClientMount",
+		"elasticfilesystem:ClientWrite",
+		"elasticfilesystem:DescribeMountTargets",
+		"elasticfilesystem:DescribeFileSystems",
+	}
+
+	params.Log.Info(ctx.Context(), "adding extra roles %q for lambda %q...", strings.Join(awsCloudExtras.AwsRoles, ","), stack.Name)
+	policyActions = append(policyActions, awsCloudExtras.AwsRoles...)
+
 	ccPolicyName := fmt.Sprintf("%s-policy", ecsSimpleClusterName)
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
@@ -567,28 +601,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					{
 						"Effect":   "Allow",
 						"Resource": "*",
-						"Action": []string{
-							"ssm:StartSession",
-							"ssmmessages:CreateControlChannel",
-							"ssmmessages:CreateDataChannel",
-							"ssmmessages:OpenControlChannel",
-							"ssmmessages:OpenDataChannel",
-							"secretsmanager:GetSecretValue",
-							"ecr:GetAuthorizationToken",
-							"ecr:DescribeImages",
-							"ecr:DescribeRepositories",
-							"ecr:BatchGetImage",
-							"ecr:BatchCheckLayerAvailability",
-							"ecr:GetDownloadUrlForLayer",
-							"logs:CreateLogStream",
-							"logs:CreateLogGroup",
-							"logs:DescribeLogStreams",
-							"logs:PutLogEvents",
-							"elasticfilesystem:ClientMount",
-							"elasticfilesystem:ClientWrite",
-							"elasticfilesystem:DescribeMountTargets",
-							"elasticfilesystem:DescribeFileSystems",
-						},
+						"Action":   policyActions,
 					},
 				},
 			}

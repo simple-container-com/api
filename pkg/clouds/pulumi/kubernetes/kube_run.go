@@ -87,6 +87,17 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 
 	useSSL := kubeRunInput.UseSSL == nil || *kubeRunInput.UseSSL
 
+	var nodeSelector map[string]string
+	if kubeRunInput.Deployment.StackConfig.CloudExtras != nil {
+		var cExtras *k8s.CloudExtras
+		if cExtras, err = api.ConvertDescriptor(kubeRunInput.Deployment.StackConfig.CloudExtras, cExtras); err != nil {
+			params.Log.Error(ctx.Context(), "failed to convert cloud extras to k8s.CloudExtras: %v", err)
+		} else {
+			params.Log.Info(ctx.Context(), "using node selector from cloudExtras: %v", cExtras.NodeSelector)
+			nodeSelector = cExtras.NodeSelector
+		}
+	}
+
 	kubeArgs := Args{
 		Input:                  input,
 		Deployment:             kubeRunInput.Deployment,
@@ -99,6 +110,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
+		NodeSelector: nodeSelector,
 	}
 
 	if kubeRunInput.RegistryRequiresAuth() {

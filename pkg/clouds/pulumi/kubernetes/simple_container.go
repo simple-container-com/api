@@ -285,7 +285,8 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 				Annotations: sdk.ToStringMap(appAnnotations),
 			},
 			Spec: &corev1.PersistentVolumeClaimSpecArgs{
-				AccessModes: sdk.StringArray(accessModes),
+				AccessModes:      sdk.StringArray(accessModes),
+				StorageClassName: sdk.StringPtrFromPtr(pv.StorageClassName),
 				Resources: &corev1.VolumeResourceRequirementsArgs{
 					Requests: sdk.StringMap{
 						"storage": sdk.String(pv.Storage),

@@ -12,6 +12,10 @@ type KubeRunInput struct {
 	Deployment       DeploymentConfig `json:"deployment" yaml:"deployment"`
 }
 
+type CloudExtras struct {
+	NodeSelector map[string]string `json:"nodeSelector" yaml:"nodeSelector"`
+}
+
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {
 	return i.Deployment.StackConfig.Dependencies
 }
