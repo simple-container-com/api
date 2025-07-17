@@ -89,8 +89,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 
 	var nodeSelector map[string]string
 	if kubeRunInput.Deployment.StackConfig.CloudExtras != nil {
-		var cExtras *k8s.CloudExtras
-		if cExtras, err = api.ConvertDescriptor(kubeRunInput.Deployment.StackConfig.CloudExtras, cExtras); err != nil {
+		if cExtras, err := api.ConvertDescriptor(kubeRunInput.Deployment.StackConfig.CloudExtras, &k8s.CloudExtras{}); err != nil {
 			params.Log.Error(ctx.Context(), "failed to convert cloud extras to k8s.CloudExtras: %v", err)
 		} else {
 			params.Log.Info(ctx.Context(), "using node selector from cloudExtras: %v", cExtras.NodeSelector)
