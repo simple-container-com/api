@@ -13,7 +13,9 @@ type KubeRunInput struct {
 }
 
 type CloudExtras struct {
-	NodeSelector map[string]string `json:"nodeSelector" yaml:"nodeSelector"`
+	NodeSelector     map[string]string `json:"nodeSelector" yaml:"nodeSelector"`
+	DisruptionBudget *DisruptionBudget `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
 }
 
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {
@@ -33,11 +35,25 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		return nil, errors.Errorf("template config is nil")
 	}
 
+	deployCfg := DeploymentConfig{
+		StackConfig: stackCfg,
+		Scale:       ToScale(stackCfg),
+	}
+
+	if stackCfg.CloudExtras != nil {
+		k8sCloudExtras := &CloudExtras{}
+		var err error
+		k8sCloudExtras, err = api.ConvertDescriptor(stackCfg.CloudExtras, k8sCloudExtras)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloudExtras field to Kubernetes Cloud extras format")
+		}
+		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
+		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
+		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
+	}
 	res := &KubeRunInput{
 		CloudrunTemplate: *templateCfg,
-		Deployment: DeploymentConfig{
-			StackConfig: stackCfg,
-		},
+		Deployment:       deployCfg,
 	}
 	containers, err := ConvertComposeToContainers(composeCfg, stackCfg)
 	if err != nil {

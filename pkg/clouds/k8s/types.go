@@ -22,6 +22,9 @@ type DeploymentConfig struct {
 	Scale            *Scale                  `json:"replicas" yaml:"replicas"`
 	Headers          *Headers                `json:"headers" yaml:"headers"`
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
+	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate    *RollingUpdate          `json:"rollingUpdate" yaml:"rollingUpdate"`
+	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
 }
 
 type CaddyConfig struct {
@@ -39,6 +42,11 @@ type CaddyConfig struct {
 type DisruptionBudget struct {
 	MaxUnavailable *int `json:"maxUnavailable" yaml:"maxUnavailable"`
 	MinAvailable   *int `json:"minAvailable" yaml:"minAvailable"`
+}
+
+type RollingUpdate struct {
+	MaxSurge       *int `json:"maxSurge" yaml:"maxSurge"`
+	MaxUnavailable *int `json:"maxUnavailable" yaml:"maxUnavailable"`
 }
 
 type Headers = map[string]string

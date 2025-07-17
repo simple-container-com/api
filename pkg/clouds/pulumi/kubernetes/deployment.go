@@ -6,6 +6,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -201,10 +202,10 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Annotations:            args.Annotations,
 		NodeSelector:           args.NodeSelector,
 		Sidecars:               args.Sidecars,
-		PodDisruption: &k8s.DisruptionBudget{
+		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
-		}, // TODO
-		RollingUpdate:   nil, // TODO
+		}),
+		RollingUpdate:   lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
 		SecurityContext: nil, // TODO
 		Log:             args.Params.Log,
 		SecretVolumes:   args.SecretVolumes,
@@ -214,6 +215,13 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
 	}
 	return sc, nil
+}
+
+func toRollingUpdateArgs(update *k8s.RollingUpdate) *v1.RollingUpdateDeploymentArgs {
+	return &v1.RollingUpdateDeploymentArgs{
+		MaxUnavailable: lo.If(update.MaxUnavailable != nil, sdk.IntPtrFromPtr(update.MaxUnavailable)).Else(nil),
+		MaxSurge:       lo.If(update.MaxSurge != nil, sdk.IntPtrFromPtr(update.MaxSurge)).Else(nil),
+	}
 }
 
 func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs {
