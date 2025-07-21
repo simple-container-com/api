@@ -12,14 +12,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/appautoscaling"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecr"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/efs"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	ecsV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecs"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/efs"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	lbV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lb"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/ecs"
@@ -956,8 +956,8 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 	registryPassword := ecrRepo.RegistryId.ApplyT(func(registryId string) (string, error) {
 		// Fetch the auth token for the registry
-		creds, err := ecr.GetCredentials(ctx, &ecr.GetCredentialsArgs{
-			RegistryId: registryId,
+		creds, err := ecr.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenArgs{
+			RegistryId: lo.ToPtr(registryId),
 		}, sdk.Provider(params.Provider))
 		if err != nil {
 			return "", err

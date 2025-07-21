@@ -8,10 +8,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecs"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
