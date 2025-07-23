@@ -43,7 +43,7 @@ type helperCfg struct {
 }
 
 func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, error) {
-	ecrRepo, err := createEcrRegistry(ctx, cfg.stack, cfg.provisionParams, cfg.deployParams, "cloud-helpers")
+	ecrRepo, err := createEcrRegistry(ctx, cfg.stack, cfg.provisionParams, cfg.deployParams, "cloud-helpers", nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision ECR repository for cloud-helpers")
 	}
