@@ -28,7 +28,7 @@ func EcrRepository(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	}
 
 	ecrRepoName := ecrCfg.Name
-	repo, err := createEcrRegistry(ctx, stack, params, *input.StackParams, ecrRepoName, nil)
+	repo, err := createEcrRegistry(ctx, stack, params, *input.StackParams, ecrRepoName, ecrCfg)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create ECR repository %q for %q in %q", ecrRepoName, input.StackParams.StackName, input.StackParams.Environment)
 	}
