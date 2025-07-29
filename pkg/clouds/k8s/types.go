@@ -321,11 +321,13 @@ func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContai
 	if !found {
 		return nil, nil
 	}
-	if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
-		if mainPort, err := strconv.Atoi(portLabel); err != nil {
-			iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
-		} else {
-			iContainer.MainPort = lo.ToPtr(mainPort)
+	if len(iContainers) == 1 {
+		if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
+			if mainPort, err := strconv.Atoi(portLabel); err != nil {
+				iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
+			} else {
+				iContainer.MainPort = lo.ToPtr(mainPort)
+			}
 		}
 	}
 	if iContainer.MainPort == nil && len(iContainer.Ports) == 1 {

@@ -219,8 +219,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 func toRollingUpdateArgs(update *k8s.RollingUpdate) *v1.RollingUpdateDeploymentArgs {
 	return &v1.RollingUpdateDeploymentArgs{
-		MaxUnavailable: lo.If(update.MaxUnavailable != nil, sdk.IntPtrFromPtr(update.MaxUnavailable)).Else(nil),
-		MaxSurge:       lo.If(update.MaxSurge != nil, sdk.IntPtrFromPtr(update.MaxSurge)).Else(nil),
+		MaxUnavailable: lo.If(lo.FromPtr(update).MaxUnavailable != nil, sdk.IntPtrFromPtr(lo.FromPtr(update).MaxUnavailable)).Else(nil),
+		MaxSurge:       lo.If(lo.FromPtr(update).MaxSurge != nil, sdk.IntPtrFromPtr(lo.FromPtr(update).MaxSurge)).Else(nil),
 	}
 }
 
