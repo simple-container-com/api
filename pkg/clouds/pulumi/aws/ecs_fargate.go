@@ -449,14 +449,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 		var lbHC *lbV6.TargetGroupHealthCheckArgs
 		liveProbe := iContainer.LivenessProbe
-		if liveProbe.HttpGet.Path != "" || liveProbe.HttpGet.SuccessCodes != "" {
-			lbHC = &lbV6.TargetGroupHealthCheckArgs{
-				Port:     sdk.StringPtr(strconv.Itoa(iContainer.Port)),
-				Path:     sdk.StringPtr(liveProbe.HttpGet.Path),
-				Matcher:  sdk.StringPtr(liveProbe.HttpGet.SuccessCodes),
-				Timeout:  sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(30)),
-				Interval: sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
-			}
+		lbHC = &lbV6.TargetGroupHealthCheckArgs{
+			Port:               sdk.StringPtr(lo.If(liveProbe.HttpGet.Port > 0, strconv.Itoa(liveProbe.HttpGet.Port)).Else(strconv.Itoa(iContainer.Port))),
+			Path:               sdk.StringPtr(lo.If(liveProbe.HttpGet.Path != "", liveProbe.HttpGet.Path).Else("/")),
+			Matcher:            sdk.StringPtr(lo.If(liveProbe.HttpGet.SuccessCodes != "", liveProbe.HttpGet.SuccessCodes).Else("200")),
+			Timeout:            sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(6)),
+			Interval:           sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(30)),
+			HealthyThreshold:   sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(3)),
+			UnhealthyThreshold: sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(3)),
 		}
 		loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 			Name:      sdk.String(loadBalancerName),
