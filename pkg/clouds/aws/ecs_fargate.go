@@ -41,9 +41,10 @@ type EcsFargateResources struct {
 }
 
 type ProbeHttpGet struct {
-	Path         string `json:"path" yaml:"path"`
-	Port         int    `json:"port" yaml:"port"`
-	SuccessCodes string `json:"successCodes" yaml:"successCodes"`
+	Path             string `json:"path" yaml:"path"`
+	Port             int    `json:"port" yaml:"port"`
+	SuccessCodes     string `json:"successCodes" yaml:"successCodes"`
+	HealthyThreshold int    `json:"healthyThreshold" yaml:"healthyThreshold"`
 }
 
 type EcsFargateContainer struct {
@@ -447,6 +448,13 @@ func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
 				Port: port,
 			}
 		}
+		if ht, ok := svc.Labels[api.ComposeLabelHealthcheckHealthyThreshold]; ok {
+			if htInt, err := strconv.Atoi(ht); err != nil {
+				fmt.Printf("Healthcheck healthy threshold label error: %d: %v\n", htInt, err)
+			} else {
+				p.HttpGet.HealthyThreshold = htInt
+			}
+		}
 		if sc, ok := svc.Labels[api.ComposeLabelHealthcheckSuccessCodes]; ok {
 			p.HttpGet.SuccessCodes = sc
 		}
@@ -455,7 +463,7 @@ func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
 		}
 		if hcPortString, ok := svc.Labels[api.ComposeLabelHealthcheckPort]; ok {
 			if hcPort, err := strconv.Atoi(hcPortString); err != nil {
-				fmt.Printf("Healthcheck port from label: %d\n", hcPort)
+				fmt.Printf("Healthcheck port from label error: %d: %v\n", hcPort, err)
 			} else {
 				p.HttpGet.Port = hcPort
 			}

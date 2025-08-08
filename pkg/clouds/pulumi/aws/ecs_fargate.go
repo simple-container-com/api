@@ -455,7 +455,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Matcher:            sdk.StringPtr(lo.If(liveProbe.HttpGet.SuccessCodes != "", liveProbe.HttpGet.SuccessCodes).Else("200")),
 			Timeout:            sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(6)),
 			Interval:           sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(30)),
-			HealthyThreshold:   sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(3)),
+			HealthyThreshold:   sdk.IntPtr(lo.If(liveProbe.HttpGet.HealthyThreshold > 0, liveProbe.HttpGet.HealthyThreshold).Else(3)),
 			UnhealthyThreshold: sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(3)),
 		}
 		loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
