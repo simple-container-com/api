@@ -91,7 +91,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 	caddyContainer := k8s.CloudRunContainer{
 		Name:    deploymentName,
-		Command: []string{deploymentName, "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile"},
+		Command: []string{"caddy", "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile"},
 		Image: api.ContainerImage{
 			Name:     caddyImage,
 			Platform: api.ImagePlatformLinuxAmd64,
