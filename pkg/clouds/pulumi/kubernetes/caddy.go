@@ -56,7 +56,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
 			input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
 	}
-	deploymentName := "caddy"
+	deploymentName := input.ToResName("caddy")
 	namespace := lo.If(caddy.Namespace != nil, lo.FromPtr(caddy.Namespace)).Else(deploymentName)
 	caddyImage := lo.If(caddy.Image != nil, lo.FromPtr(caddy.Image)).Else(fmt.Sprintf("simplecontainer/caddy:%s", build.Version))
 
