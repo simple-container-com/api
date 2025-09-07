@@ -30,13 +30,10 @@ This guide explains:
 
 The **parent stack** is the **core infrastructure** required for microservices to run. It is **managed by DevOps** and provides:
 
-✅ **Cloud infrastructure** (Kubernetes clusters, AWS ECS clusters, databases, storage, networking).
-
-✅ **Secrets management** (via Kubernetes Secrets, AWS Secrets Manager, or Google Secret Manager).
-
-✅ **Centralized state management** (so infrastructure is consistent across environments).
-
-✅ **Provisioning of shared resources** (databases, message queues, API gateways).
+- **Cloud infrastructure** (Kubernetes clusters, AWS ECS clusters, databases, storage, networking)
+- **Secrets management** (via Kubernetes Secrets, AWS Secrets Manager, or Google Secret Manager)
+- **Centralized state management** (so infrastructure is consistent across environments)
+- **Provisioning of shared resources** (databases, message queues, API gateways)
 
 ### **Who Manages the Parent Stack?**
 ➡️ **DevOps teams** define and maintain the parent stack.
@@ -50,11 +47,9 @@ The **parent stack** is the **core infrastructure** required for microservices t
 
 The **service stack** represents an **individual microservice** that a **developer wants to deploy**. It consumes infrastructure from the **parent stack** but does not modify it.
 
-✅ **Developers only configure their microservice's deployment settings.**
-
-✅ **Microservices automatically connect to infrastructure provisioned by the parent stack.**
-
-✅ **No need to request DevOps intervention for every new service.**
+- **Developers only configure their microservice's deployment settings**
+- **Microservices automatically connect to infrastructure provisioned by the parent stack**
+- **No need to request DevOps intervention for every new service**
 
 ### **Who Manages the Service Stack?**
 ➡️ **Developers** define and maintain their own service configurations.
@@ -126,19 +121,13 @@ stacks:
 
 ## **Core Scaling Benefits:**
 
-✅ **Developers focus on coding, not cloud infrastructure** - **15 minutes** to first deployment vs **2-3 days**
-
-✅ **DevOps standardizes infrastructure without worrying about microservices** - **Template updates apply to all customers**
-
-✅ **Adding a new microservice is self-service** - **5 minutes** vs **1-2 days** DevOps bottleneck
-
-✅ **Security is maintained by isolating infrastructure from microservices** - **Automatic namespace isolation**
-
-✅ **Resource Pool Management** - Define resources once, allocate flexibly
-
-✅ **Cost Optimization** - Share resources among compatible customers
-
-✅ **Easy Migration** - Move customers between resource pools by changing `uses` directive
+- **Developers focus on coding, not cloud infrastructure** - **15 minutes** to first deployment vs **2-3 days**
+- **DevOps standardizes infrastructure without worrying about microservices** - **Template updates apply to all customers**
+- **Adding a new microservice is self-service** - **5 minutes** vs **1-2 days** DevOps bottleneck
+- **Security is maintained by isolating infrastructure from microservices** - **Automatic namespace isolation**
+- **Resource Pool Management** - Define resources once, allocate flexibly
+- **Cost Optimization** - Share resources among compatible customers
+- **Easy Migration** - Move customers between resource pools by changing `uses` directive
 
 This separation **scales exceptionally well** as organizations grow, preventing bottlenecks where **DevOps must manually configure every microservice**.
 
@@ -158,11 +147,13 @@ This separation **scales exceptionally well** as organizations grow, preventing 
 ## **Development Velocity Impact**
 
 **Traditional Approach:**
+
 - **Time to First Deployment**: 2-3 days (infrastructure setup)
 - **Developer Onboarding**: 2-4 weeks (Kubernetes/AWS training)
 - **Feature Development**: Blocked by infrastructure changes
 
 **Simple Container:**
+
 - **Time to First Deployment**: 15 minutes (configuration only)
 - **Developer Onboarding**: 1-2 hours (simple YAML configuration)
 - **Feature Development**: Independent of infrastructure
@@ -170,6 +161,7 @@ This separation **scales exceptionally well** as organizations grow, preventing 
 ## **Cost Optimization Results**
 
 **Simple Container achieves:**
+
 - **70% cost reduction** through intelligent resource sharing
 - **80% staff reduction** in operational overhead
 - **1 DevOps engineer per 100+ customers** vs 1 per 10-20 traditional
@@ -211,6 +203,7 @@ customer-001:
 ## **Scenario 2: Performance Tier Migration**
 
 **Traditional Approach:**
+
 - Manual infrastructure rebuild
 - Data migration downtime
 - Complex rollback procedures
@@ -235,16 +228,11 @@ customer-enterprise:
 
 The **separation of parent stack and service stack** in Simple Container ensures:
 
-✅ **500x faster customer onboarding** (5 minutes vs 2-3 days)
-
-✅ **90% reduction in configuration complexity** (500 vs 5000+ lines)
-
-✅ **5x operational efficiency** (1 DevOps per 100+ vs 10-20 customers)
-
-✅ **70% cost reduction** through intelligent resource sharing
-
-✅ **Zero downtime migrations** with one-line configuration changes
-
-✅ **Developer self-service** without infrastructure expertise requirements
+- **500x faster customer onboarding** (5 minutes vs 2-3 days)
+- **90% reduction in configuration complexity** (500 vs 5000+ lines)
+- **5x operational efficiency** (1 DevOps per 100+ vs 10-20 customers)
+- **70% cost reduction** through intelligent resource sharing
+- **Zero downtime migrations** with one-line configuration changes
+- **Developer self-service** without infrastructure expertise requirements
 
 By adopting this separation, organizations can **scale from startup to enterprise without operational complexity growth**, transforming container orchestration from a complex infrastructure challenge into a simple configuration management task.
