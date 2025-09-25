@@ -1,0 +1,74 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    type: single-image
+    template: lambda-eu
+    parent: mycompany/mycompany
+    config:
+      domain: costs.example.com
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      timeout: 600 # 10 minutes max
+      maxMemory: 1024
+      uses:
+        - mongodb
+      cloudExtras:
+        lambdaInvokeMode: RESPONSE_STREAM
+        awsRoles:
+          - ce:GetPreferences
+          - ce:DescribeReport
+          - ce:DescribeNotificationSubscription
+          - ce:ListCostCategoryDefinitions
+          - ce:ListTagsForResource
+          - ce:GetAnomalyMonitors
+          - ce:GetAnomalySubscriptions
+          - ce:GetAnomalies
+          - ce:GetCostAndUsage
+          - budgets:ViewBudget
+          - aws-portal:ViewAccount
+          - cloudwatch:GetMetricData
+          - cloudwatch:ListMetrics
+          - logs:DescribeExportTasks
+          - logs:DescribeLogGroups
+          - logs:DescribeLogStreams
+          - logs:DescribeMetricFilters
+          - logs:DescribeQueryDefinitions
+          - logs:DescribeQueries
+          - logs:DescribeSubscriptionFilters
+          - logs:FilterLogEvents
+          - logs:GetLogEvents
+          - logs:GetLogGroupFields
+          - logs:GetLogRecord
+          - logs:GetQueryResults
+          - logs:StartQuery
+          - logs:StopQuery
+        lambdaRoutingType: function-url
+        lambdaSchedules:
+          - name: crm-sync
+            expression: "cron(0 0 * * ? *)" # every day at 00:00 UTC (01:00 CET)
+            request: |-
+              {
+                  "requestId": "crm-sync",
+                  "requestTime": "23/Jun/2024:15:48:12 +0000",
+                  "httpMethod": "POST",
+                  "path": "/api/sync-crm",
+                  "requestContext": {
+                    "http": {
+                      "path": "/api/sync-crm",
+                      "method": "POST",
+                      "protocol": "HTTP/1.1"
+                    }
+                  },
+                  "body": "{\"syncType\":\"daily\"}",
+                  "headers": {
+                    "Authorization": "Bearer ${secret:staging-cost-analytics-api-key}"
+                  }
+              }
+      env:
+        ENV: staging
+        HOME: /tmp
+        HOST: costs.example.com
+        REQUEST_DEBUG: "true"
+      secrets:
+        API_KEY: ${secret:staging-cost-analytics-api-key}
+        CRM_API_KEY: ${secret:staging-crm-api-key}

@@ -372,7 +372,7 @@ stacks:
 # Example CI/CD integration (future development needed):
 # aws secretsmanager get-secret-value --secret-id "myapp/customer-a/settings"
 # export CUSTOMER_A_SETTINGS="$(aws secretsmanager get-secret-value ...)"
-# sc deploy customer-a
+# sc deploy -s customer-a -e production
 ```
 
 **Current SC Scaling Benefits:**

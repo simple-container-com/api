@@ -1,0 +1,26 @@
+services:
+  blockchain-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    labels:
+      "simple-container.com/ingress": true
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - COMMON_BNB_JSON_RPC_ENDPOINT=https://rpc.sepolia.linea.build
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - blockchain_data:/app/data
+
+volumes:
+  blockchain_data:
+    labels:
+      "simple-container.com/volume-size": "20Gi"

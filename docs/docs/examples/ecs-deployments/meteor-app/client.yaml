@@ -1,0 +1,41 @@
+schemaVersion: 1.0
+stacks:
+  staging: &stack
+    type: cloud-compose
+    parent: devops/mycompany
+    config: &cfg
+      version: "1"
+      domain: staging.example.com
+      dockerComposeFile: ${git:root}/docker-compose.yaml
+      size:
+        cpu: 1024  # 1 CPU
+        memory: 2048 # 2 GB RAM
+      uses:
+        - mongodb
+        - media-storage
+      runs:
+        - meteor-app
+      env: &env
+        ROOT_URL: https://staging.example.com
+        PORT: 3000
+        NODE_ENV: production
+      secrets: &secrets
+        MONGO_URL: ${resource:mongodb.uri}
+        METEOR_SETTINGS: ${secret:staging-meteor-settings}
+        MAIL_URL: ${secret:staging-meteor-mail-url}
+      cloudExtras:
+        securityGroup:
+          ingress:
+            allowOnlyCloudflare: true
+  prod:
+    <<: *stack
+    config:
+      <<: *cfg
+      domain: example.com
+      env:
+        <<: *env
+        ROOT_URL: https://example.com
+      secrets:
+        <<: *secrets
+        MAIL_URL: ${secret:prod-meteor-mail-url}
+        METEOR_SETTINGS: ${secret:prod-meteor-settings}

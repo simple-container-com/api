@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  caddy:
+    build:
+      context: .
+      dockerfile: caddy.Dockerfile
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - blog
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  blog:
+    image: ghost:5-alpine
+    ports:
+      - "2368:2368"
+    environment:
+      - NODE_ENV=production
+      - url=https://blog.example.com/
+      - database__client=mysql
+      - database__connection__host=mysql-host
+      - database__connection__user=blog_user
+      - database__connection__password=blog_password
+      - database__connection__database=blog_db
+      - database__connection__port=3306
+      - mail__transport=SMTP
+      - mail__from='Example Blog' <no-reply@example.com>
+      - mail__options__service=Gmail
+      - mail__options__host=smtp.gmail.com
+      - mail__options__port=465
+      - mail__options__secure=true
+      - mail__options__auth__user=example.com
+    volumes:
+      - blog_content:/var/lib/ghost/content
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2368/ghost/api/v4/admin/site/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 768M
+
+volumes:
+  caddy_data:
+  caddy_config:
+  blog_content:

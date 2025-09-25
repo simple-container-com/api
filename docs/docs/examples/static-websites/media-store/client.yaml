@@ -1,0 +1,11 @@
+schemaVersion: 1.0
+stacks:
+  prod:
+    type: static
+    parent: mycompany/mycompany
+    template: static-site
+    config:
+      bundleDir: ${git:root}/bundle
+      domain: media.example.com
+      indexDocument: index.html
+      errorDocument: error.html

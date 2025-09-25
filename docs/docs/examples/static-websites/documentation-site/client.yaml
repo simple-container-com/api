@@ -1,0 +1,11 @@
+schemaVersion: 1.0
+stacks:
+  prod:
+    type: static
+    parent: dist
+    config:
+      bundleDir: ${git:root}/docs/site
+      domain: docs.example.com
+      indexDocument: index.html
+      errorDocument: 404.html
+      location: EUROPE-CENTRAL2

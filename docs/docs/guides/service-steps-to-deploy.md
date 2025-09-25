@@ -110,16 +110,14 @@ sc deploy -s billing -e production
 ---
 
 ### **🔹 Step 5: Verify Deployment**
-Check the status of the service:
-```sh
-sc status -s billing -e staging
-```
-View logs:
-```sh
-sc logs -s billing -e staging
-```
+Verify your service deployment:
 
-✅ **You can now monitor and debug your service using `sc` commands**.
+- **Check your cloud provider console** (AWS ECS, GKE, etc.) to confirm the service is running
+- **Visit your service URL** to test functionality
+- **Check cloud provider logs** (CloudWatch for AWS, Cloud Logging for GCP) for any issues
+- **Monitor resource usage** through your cloud provider's monitoring tools
+
+✅ **You can now monitor and debug your service using your cloud provider's native tools**.
 
 ---
 
@@ -131,5 +129,5 @@ sc logs -s billing -e staging
 | **Define `docker-compose.yaml`** | Edit `docker-compose.yaml`            | Ensures local and cloud consistency |
 | **Deploy to Staging**            | `sc deploy -s billing -e staging`     | Deploys the new service             |
 | **Deploy to Production**         | `sc deploy -s billing -e production`  | Deploys to production               |
-| **Check Service Status**         | `sc status -s billing -e staging`     | Monitors service health             |
-| **View Logs**                    | `sc logs -s billing -e staging`       | Debugs issues                       |
+| **Verify Deployment**            | Check cloud provider console          | Monitors service health             |
+| **View Logs**                    | Use cloud provider logging tools      | Debugs issues                       |

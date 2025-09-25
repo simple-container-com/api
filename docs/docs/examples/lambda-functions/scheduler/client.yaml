@@ -1,0 +1,44 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    type: single-image
+    template: lambda-eu
+    parent: mycompany/mycompany
+    config:
+      domain: scheduler.example.com
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      timeout: 300
+      maxMemory: 512
+      uses:
+        - mongodb
+      cloudExtras:
+        lambdaRoutingType: function-url
+        lambdaSchedules:
+          - name: every-minute
+            expression: "cron(* * * * ? *)"
+            request: |-
+              {
+                  "requestId": "every-minute",
+                  "requestTime": "23/Jun/2024:15:48:12 +0000",
+                  "httpMethod": "POST",
+                  "path": "/api/execute",
+                  "requestContext": {
+                    "http": {
+                      "path": "/api/execute",
+                      "method": "POST",
+                      "protocol": "HTTP/1.1"
+                    }
+                  },
+                  "body": "{\"report\":true}",
+                  "headers": {
+                    "Authorization": "Bearer ${secret:staging-scheduler-api-key}"
+                  }
+              }
+      env:
+        ENV: staging
+        HOME: /tmp
+        HOST: scheduler.example.com
+        REQUEST_DEBUG: "true"
+      secrets:
+        API_KEY: ${secret:staging-scheduler-api-key}

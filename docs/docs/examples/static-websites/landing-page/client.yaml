@@ -1,0 +1,11 @@
+schemaVersion: 1.0
+stacks:
+  prod:
+    type: static
+    parent: mycompany
+    config:
+      bundleDir: ${git:root}/public
+      domain: example.com
+      indexDocument: index.html
+      errorDocument: index.html
+      location: EUROPE-CENTRAL2

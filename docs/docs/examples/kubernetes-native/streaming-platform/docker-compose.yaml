@@ -1,0 +1,33 @@
+services:
+  streams:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    labels:
+      "simple-container.com/ingress": true
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_USER=streams
+      - DB_POSTGRESDB_DATABASE=streams
+      - DB_POSTGRESDB_HOST=10.120.0.3
+      - AUTH_URL=https://auth.example.com
+      - AUTH_API_URL=https://auth-api.example.com
+      - N8N_DISABLED_MODULES=insights,external-secrets
+      - ANALYTICS_SERVICE_HOST=https://analytics.example.com
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - streams_data:/app/data
+
+volumes:
+  streams_data:
+    labels:
+      "simple-container.com/volume-size": "10Gi"

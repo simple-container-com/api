@@ -1,0 +1,46 @@
+schemaVersion: 1.0
+stacks:
+  staging: &staging
+    type: cloud-compose
+    parent: mycompany/mycompany
+    config: &staging-cfg
+      version: "10"
+      domain: staging-blockchain.example.com
+      size:
+        cpu: 1024
+        memory: 2048
+      dockerComposeFile: ${git:root}/docker-compose.yaml
+      uses:
+        - mongodb
+      runs:
+        - blockchain-service
+      dependencies:
+        - name: backend-service
+          owner: backend-service/backend-service
+          resource: mongodb
+      env: &staging-env
+        BASE_URI: https://staging-blockchain.example.com
+        NODE_ENV: staging
+        ENVIRONMENT: staging
+        COMMON_BNB_JSON_RPC_ENDPOINT: "https://rpc.sepolia.linea.build"
+      secrets: &staging-secrets
+        MONGO_URL: ${dependency:backend-service.mongodb.uri}
+        PRIVATE_FOR_METATX: ${secret:staging-blockchain-private-meta-tx}
+        BREVO_API_KEY: ${secret:staging-blockchain-brevo-api-key}
+        BREVO_SUB_LIST_ID: ${secret:staging-blockchain-brevo-sub-list-id}
+        CLAIMR_API_KEY: ${secret:staging-blockchain-claimr-api-key}
+        NFT_CONTRACT_ADDRESS: ${secret:staging-blockchain-nft-contract-address}
+        TOKEN_CONTRACT_ADDRESS: ${secret:staging-blockchain-token-contract-address}
+        STAKING_CONTRACT_ADDRESS: ${secret:staging-blockchain-staking-contract-address}
+        TELEGRAM_BOT_TOKEN: ${secret:staging-blockchain-tg-bot-token}
+        COMMON_BNB_STAKING: ${secret:staging-blockchain-common-bnb-staking}
+  prod:
+    <<: *staging
+    config:
+      <<: *staging-cfg
+      domain: blockchain.example.com
+      env:
+        <<: *staging-env
+        BASE_URI: https://blockchain.example.com
+        NODE_ENV: production
+        ENVIRONMENT: production

@@ -560,7 +560,7 @@ git push
     sc secrets reveal
     
     # Deploy with secrets available
-    sc deploy
+    sc deploy -s myservice -e staging
 ```
 
 **Setup Instructions:**
@@ -607,7 +607,7 @@ git push
 - name: Deploy with secrets
   run: |
     # Now secrets are available for deployment
-    sc deploy --profile github
+    sc deploy -s myservice -e staging --profile github
 ```
 
 **For deployment configuration, secrets can be injected via environment variables:**
