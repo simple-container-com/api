@@ -53,7 +53,7 @@ password: "${env:DB_PASSWORD}"
 
 **In server.yaml (Parent Stack):**
 ```yaml
-# From TalkToMe Tech production example
+# Production example example
 provisioner:
   config:
     secrets-provider:
@@ -155,7 +155,7 @@ credentials: "${auth:gcloud}"
 
 **In server.yaml (Parent Stack):**
 ```yaml
-# From aiwayz-sc-config production example
+# Production example
 templates:
   stack-per-app-gke:
     type: gcp-gke-autopilot
@@ -208,7 +208,7 @@ apiKey: "${secret:OPENAI_API_KEY}"
 
 **Real-World Usage:**
 ```yaml
-# From MyBridge production example
+# Production example
 resources:
   registrar:
     type: cloudflare
@@ -373,9 +373,15 @@ apiKey: "${secret:${env:ENVIRONMENT:staging}-api-key}"
 ### **Cross-Stack References**
 
 ```yaml
-# Reference configurations from other stacks
-parentStack: "${env:PARENT_STACK:default-infrastructure}"
-inheritFrom: "${var:parent_stack_name}"
+# Reference parent stack and its resources
+parent: myorg/infrastructure
+parentEnv: production
+config:
+  uses: [postgres-db, s3-storage]
+  runs: [web-app]
+  env:
+    DATABASE_URL: "${resource:postgres-db.connectionString}"
+    S3_BUCKET: "${resource:s3-storage.name}"
 ```
 
 ## **Template Resolution Order**
@@ -458,7 +464,7 @@ When a template placeholder cannot be resolved, Simple Container will:
 
 ### **Multi-Cloud Parent Stack**
 ```yaml
-# From aiwayz-sc-config production
+# Production example
 provisioner:
   config:
     state-storage:
@@ -466,7 +472,7 @@ provisioner:
       config:
         credentials: "${auth:gcloud}"
         projectId: "${auth:gcloud.projectId}"
-        bucketName: aiwayz-sc-state
+        bucketName: mycompany-sc-state
         location: europe-west3
 
 templates:
@@ -481,7 +487,7 @@ templates:
 
 ### **AWS Multi-Region Setup**
 ```yaml
-# From MyBridge production
+# Production example
 templates:
   stack-per-app-eu:
     type: ecs-fargate
@@ -498,7 +504,7 @@ templates:
 
 ### **Environment-Specific MongoDB Configuration**
 ```yaml
-# From TalkToMe Tech production
+# Production example
 resources:
   staging:
     resources:

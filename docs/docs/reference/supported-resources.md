@@ -1039,7 +1039,7 @@ Creates and manages MongoDB Atlas database clusters.
 **Golang Struct Reference:** `pkg/clouds/mongodb/mongodb.go:AtlasConfig`
 
 ```yaml
-# server.yaml - Parent Stack (based on TalkToMe Tech production example)
+# server.yaml - Parent Stack (production example)
 resources:
   resources:
     staging:
@@ -1104,7 +1104,7 @@ Manages domain registration and DNS through Cloudflare. **Special resource type*
 **Golang Struct Reference:** `pkg/clouds/cloudflare/cloudflare.go:RegistrarConfig`
 
 ```yaml
-# server.yaml - Parent Stack (based on MyBridge production example)
+# server.yaml - Parent Stack (production example)
 resources:
   registrar:
     type: cloudflare
@@ -1205,12 +1205,12 @@ resources:
     config:
       credentials: "${secret:CLOUDFLARE_API_TOKEN}"
       accountId: 87152c65fca76d443751a37a91a77c17
-      zoneName: aiwayz.com
+      zoneName: mycompany.com
   resources:
     prod:
       template: stack-per-app-gke
       resources: &resources
-        aiwayz-registry: &registry
+        company-registry: &registry
           type: gcp-artifact-registry
           config: &registry-cfg
             projectId: "${auth:gcloud.projectId}"      # GCP project ID

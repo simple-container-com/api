@@ -7,7 +7,6 @@ Welcome to Simple Container! This section will help you get up and running quick
 Before you begin, make sure you have:
 
 - **Docker** installed and running on your machine
-- **Node.js** (version 14 or higher) for the CLI
 - **Cloud account** (AWS, GCP, or Azure) with appropriate permissions
 - **Basic familiarity** with docker-compose for local development
 

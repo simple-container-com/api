@@ -11,6 +11,52 @@ date: '2024-06-12'
 
 # **Separation of Parent Stack and Service Stack in Simple Container**
 
+## **Architecture Overview**
+
+```mermaid
+graph TB
+    subgraph PS ["🏗️ PARENT STACK (DevOps Owned)"]
+        SY["📄 server.yaml<br/>resources:<br/>  production:<br/>    postgres-db: ...<br/>    redis-cache: ...<br/>    s3-storage: ...<br/>provisioner: ...<br/>templates: ..."]
+        IR["Infrastructure Resources<br/>• Databases (RDS, MongoDB)<br/>• Storage (S3, GCS)<br/>• Clusters (EKS, GKE)<br/>• Networking, Security"]
+        PSN["👥 Managed by: DevOps Team<br/>🔄 Updated: Infrastructure changes"]
+    end
+    
+    subgraph SS ["🚀 SERVICE STACK (Developer Owned)"]
+        CY["📄 client.yaml<br/>parent: org/infrastructure<br/>config:<br/>  uses: [postgres-db, redis]<br/>  runs: [web-app]<br/>  env:<br/>    DB_URL: \${resource:...}"]
+        DC["📄 docker-compose.yaml<br/>services:<br/>  web-app: ...<br/>  worker: ..."]
+        AS["Application Services<br/>• Microservices<br/>• Web Applications<br/>• Background Jobs<br/>• APIs & Services"]
+        SSN["👩‍💻 Managed by: Developers<br/>🔄 Updated: New services/features"]
+    end
+    
+    subgraph DF ["📋 DEPLOYMENT FLOW"]
+        S1["1️⃣ DevOps defines<br/>infrastructure<br/>(server.yaml)"]
+        S2["2️⃣ Developers define<br/>services<br/>(client.yaml)"]
+        S3["3️⃣ Simple Container<br/>orchestrates<br/>deployment"]
+        
+        S1 --> S2
+        S2 --> S3
+    end
+    
+    PS --> SS
+    SS -.-> PS
+    
+    classDef parentStack fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef serviceStack fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef deployFlow fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    
+    class PS,SY,IR,PSN parentStack
+    class SS,CY,DC,AS,SSN serviceStack
+    class DF,S1,S2,S3 deployFlow
+```
+
+**📈 SCALING BENEFITS:**
+
+- 🚀 **500x faster** customer onboarding (5 min vs 2-3 days)
+- 📊 **90% configuration reduction** (500 vs 5000+ lines)
+- 👥 **5x operational efficiency** (1 DevOps per 100+ customers)
+- 💰 **70% cost reduction** through resource sharing
+- ⚡ **Zero-downtime** service deployments
+
 ## **Introduction**
 
 One of the key principles of **Simple Container** is the **separation of concerns** between **infrastructure management** and **microservice deployment**.

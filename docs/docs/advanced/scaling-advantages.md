@@ -212,7 +212,7 @@ templates:
     type: kubernetes-cloudrun
     config:
       kubeconfig: "${auth:kubernetes}"
-      dockerRegistryURL: docker.aiwayz.com
+      dockerRegistryURL: docker.mycompany.com
       dockerRegistryUsername: "${secret:docker-registry-username}"
       dockerRegistryPassword: "${secret:docker-registry-password}"
       caddyResource: caddy
@@ -343,7 +343,7 @@ templates:
     type: kubernetes-cloudrun
     config:
       kubeconfig: "${auth:kubernetes}"
-      dockerRegistryURL: docker.aiwayz.com
+      dockerRegistryURL: docker.mycompany.com
       dockerRegistryUsername: "${secret:docker-registry-username}"
       dockerRegistryPassword: "${secret:docker-registry-password}"
       caddyResource: caddy
@@ -535,7 +535,7 @@ templates:
     type: kubernetes-cloudrun
     config:
       kubeconfig: "${auth:kubernetes}"
-      dockerRegistryURL: docker.aiwayz.com
+      dockerRegistryURL: docker.mycompany.com
       dockerRegistryUsername: "${secret:docker-registry-username}"
       dockerRegistryPassword: "${secret:docker-registry-password}"
       caddyResource: caddy
