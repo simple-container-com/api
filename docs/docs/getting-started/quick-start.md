@@ -29,6 +29,21 @@ Create the parent stack configuration file `.sc/stacks/infrastructure/server.yam
 ```yaml
 # .sc/stacks/infrastructure/server.yaml
 schemaVersion: 1.0
+
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      config:
+        credentials: "${auth:aws}"
+        bucketName: my-first-app-sc-state
+    secrets-provider:
+      type: aws-kms
+      config:
+        credentials: "${auth:aws}"
+        keyName: my-first-app-sc-kms-key
+
 templates:
   static-site:
     type: aws-static-website
@@ -68,35 +83,40 @@ stacks:
 
 ## Step 3: Set Up Secrets
 
-Create and configure your secrets.yaml file with exact values:
+Create the secrets configuration file in the same directory as your server.yaml:
 
 ```bash
-# Create the secrets file
-mkdir -p .sc/stacks/prod
+# Create the secrets file (same directory as server.yaml)
+mkdir -p .sc/stacks/infrastructure
 ```
 
-Create `.sc/stacks/prod/secrets.yaml` with your actual credentials:
+Create `.sc/stacks/infrastructure/secrets.yaml` with your actual AWS credentials:
 
 ```yaml
-# .sc/stacks/prod/secrets.yaml
+# .sc/stacks/infrastructure/secrets.yaml
 schemaVersion: 1.0
+
+# AWS authentication (used by provisioner for state storage and KMS)
 auth:
   aws:
     type: aws-token
     config:
-      account: "123456789012"
-      accessKey: "AKIAIOSFODNN7EXAMPLE"
-      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-      region: us-east-1
+      account: "123456789012"                          # Your AWS Account ID
+      accessKey: "AKIAIOSFODNN7EXAMPLE"               # Your AWS Access Key
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # Your AWS Secret Key
+      region: us-east-1                                # AWS region for resources
 
+# Secret values (used in templates via ${secret:NAME} placeholders)
 values:
-  DOMAIN_NAME: "myapp.example.com"
+  DOMAIN_NAME: "myapp.example.com"                     # Your actual domain name
 ```
+
+**Important:** Replace the example values above with your actual AWS credentials and domain name.
 
 Add the secrets file to Simple Container's managed secrets:
 
 ```bash
-sc secrets add .sc/stacks/prod/secrets.yaml
+sc secrets add .sc/stacks/infrastructure/secrets.yaml
 ```
 
 ## Step 4: Deploy
