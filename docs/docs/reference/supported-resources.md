@@ -160,12 +160,12 @@ resources:
 
 **See Also:**
 
-- [Lambda Functions Examples](examples/lambda-functions/) - Complete Lambda configurations with Dockerfile and advanced patterns
-- [AI Gateway Example](examples/lambda-functions/ai-gateway/) - AWS Bedrock integration with specific IAM roles
-- [Storage Service Example](examples/lambda-functions/storage-service/) - Scheduled cleanup with cron expressions
-- [Scheduler Example](examples/lambda-functions/scheduler/) - High-frequency scheduling (every minute)
-- [Cost Analytics Example](examples/lambda-functions/cost-analytics/) - AWS cost analysis with comprehensive IAM permissions
-- [Billing System Example](examples/lambda-functions/billing-system/) - Multi-environment with YAML anchors
+- [Lambda Functions Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/lambda-functions/) - Complete Lambda configurations with Dockerfile and advanced patterns
+- [AI Gateway Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/lambda-functions/ai-gateway/) - AWS Bedrock integration with specific IAM roles
+- [Storage Service Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/lambda-functions/storage-service/) - Scheduled cleanup with cron expressions
+- [Scheduler Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/lambda-functions/scheduler/) - High-frequency scheduling (every minute)
+- [Cost Analytics Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/lambda-functions/cost-analytics/) - AWS cost analysis with comprehensive IAM permissions
+- [Billing System Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/lambda-functions/billing-system/) - Multi-environment with YAML anchors
 
 #### **Static Website** (`aws-static-website`)
 
@@ -198,12 +198,12 @@ resources:
 
 **See Also:**
 
-- [Static Websites Examples](examples/static-websites/) - Complete static website configurations
-- [Documentation Site Example](examples/static-websites/documentation-site/) - MkDocs documentation deployment
-- [Landing Page Example](examples/static-websites/landing-page/) - Main website with SPA configuration
-- [Admin Dashboard Example](examples/static-websites/admin-dashboard/) - Admin UI with multi-environment setup
-- [Customer Portal Example](examples/static-websites/customer-portal/) - Customer-facing UI deployment
-- [Media Store Example](examples/static-websites/media-store/) - Media-specific static hosting
+- [Static Websites Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/static-websites/) - Complete static website configurations
+- [Documentation Site Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/static-websites/documentation-site/) - MkDocs documentation deployment
+- [Landing Page Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/static-websites/landing-page/) - Main website with SPA configuration
+- [Admin Dashboard Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/static-websites/admin-dashboard/) - Admin UI with multi-environment setup
+- [Customer Portal Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/static-websites/customer-portal/) - Customer-facing UI deployment
+- [Media Store Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/static-websites/media-store/) - Media-specific static hosting
 
 ### **Resources** (`ResourceType` → `resources` section in `server.yaml`)
 
@@ -213,7 +213,7 @@ Creates and manages AWS S3 buckets.
 
 **Golang Struct Reference:** `pkg/clouds/aws/bucket.go:S3Bucket`
 
-**JSON Schema:** [S3Bucket Schema](../schemas/aws/s3bucket.json)
+**JSON Schema:** [S3Bucket Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/aws/s3bucket.json)
 
 ```yaml
 # server.yaml - Parent Stack
@@ -239,7 +239,7 @@ Creates and manages AWS Elastic Container Registry repositories.
 
 **Golang Struct Reference:** `pkg/clouds/aws/ecr_repository.go:EcrRepository`
 
-**JSON Schema:** [EcrRepository Schema](../schemas/aws/ecrrepository.json)
+**JSON Schema:** [EcrRepository Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/aws/ecrrepository.json)
 
 ```yaml
 # server.yaml - Parent Stack
@@ -426,7 +426,7 @@ Deploys containerized applications on Google Cloud Run.
 
 **Golang Struct Reference:** `pkg/clouds/gcloud/cloudrun.go:CloudRunInput`
 
-**JSON Schema:** [CloudRunInput Schema](../schemas/gcp/cloudruninput.json)
+**JSON Schema:** [CloudRunInput Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/cloudruninput.json)
 
 ```yaml
 # server.yaml - Parent Stack (DevOps managed)
@@ -459,9 +459,9 @@ stacks:
 
 **See Also:**
 
-- [ECS Deployments Examples](examples/ecs-deployments/) - Complete ECS deployment configurations with docker-compose.yaml and Dockerfile
-- [Backend Service Example](examples/ecs-deployments/backend-service/) - Node.js backend with MongoDB integration
-- [Blockchain Service Example](examples/ecs-deployments/blockchain-service/) - Blockchain integration with cross-service dependencies
+- [ECS Deployments Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/ecs-deployments/) - Complete ECS deployment configurations with docker-compose.yaml and Dockerfile
+- [Backend Service Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/ecs-deployments/backend-service/) - Node.js backend with MongoDB integration
+- [Blockchain Service Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/ecs-deployments/blockchain-service/) - Blockchain integration with cross-service dependencies
 
 #### **GKE Autopilot** (`gcp-gke-autopilot`)
 
@@ -508,8 +508,8 @@ resources:
 
 **See Also:**
 
-- [GKE Autopilot Comprehensive Setup](examples/gke-autopilot/comprehensive-setup/) - Complete GCP setup with GKE, Artifact Registry, Pub/Sub, Redis, MongoDB Atlas
-- [Parent Stacks Examples](examples/parent-stacks/) - Multi-region and hybrid cloud parent stack configurations
+- [GKE Autopilot Comprehensive Setup](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/gke-autopilot/comprehensive-setup/) - Complete GCP setup with GKE, Artifact Registry, Pub/Sub, Redis, MongoDB Atlas
+- [Parent Stacks Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/parent-stacks/) - Multi-region and hybrid cloud parent stack configurations
 
 #### **Static Website** (`gcp-static-website`)
 
@@ -537,7 +537,7 @@ Creates and manages Google Kubernetes Engine Autopilot clusters as a resource.
 
 **Golang Struct Reference:** `pkg/clouds/gcloud/gke_autopilot.go:GkeAutopilotResource`
 
-**JSON Schema:** [GkeAutopilotResource Schema](../schemas/gcp/gkeautopilotresource.json)
+**JSON Schema:** [GkeAutopilotResource Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/gkeautopilotresource.json)
 
 ```yaml
 # server.yaml - Resource Definition
@@ -856,8 +856,8 @@ templates:
 
 **See Also:**
 
-- [Kubernetes Native Examples](examples/kubernetes-native/streaming-platform/) - Streaming platform with hardcoded IPs, N8N integration, zero-downtime configs
-- [Advanced Configs Examples](examples/advanced-configs/high-resource/) - High-resource AI development environment with Kubernetes integration
+- [Kubernetes Native Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/kubernetes-native/streaming-platform/) - Streaming platform with hardcoded IPs, N8N integration, zero-downtime configs
+- [Advanced Configs Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/advanced-configs/high-resource/) - High-resource AI development environment with Kubernetes integration
 
 ### **Infrastructure Resources**
 
@@ -1042,7 +1042,7 @@ Creates and manages MongoDB Atlas database clusters.
 
 **Golang Struct Reference:** `pkg/clouds/mongodb/mongodb.go:AtlasConfig`
 
-**JSON Schema:** [AtlasConfig Schema](../schemas/mongodb/atlasconfig.json)
+**JSON Schema:** [AtlasConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/mongodb/atlasconfig.json)
 
 ```yaml
 # server.yaml - Parent Stack (production example)
@@ -1096,10 +1096,10 @@ resources:
 
 **See Also:**
 
-- [ECS Deployments Examples](examples/ecs-deployments/) - Services using MongoDB Atlas resources
-- [Backend Service Example](examples/ecs-deployments/backend-service/) - Node.js backend with MongoDB integration
-- [Meteor App Example](examples/ecs-deployments/meteor-app/) - Meteor.js application with MongoDB
-- [Parent Stacks Examples](examples/parent-stacks/aws-multi-region/) - Multi-region setup with MongoDB Atlas
+- [ECS Deployments Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/ecs-deployments/) - Services using MongoDB Atlas resources
+- [Backend Service Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/ecs-deployments/backend-service/) - Node.js backend with MongoDB integration
+- [Meteor App Example](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/ecs-deployments/meteor-app/) - Meteor.js application with MongoDB
+- [Parent Stacks Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/parent-stacks/aws-multi-region/) - Multi-region setup with MongoDB Atlas
 
 ---
 
@@ -1138,8 +1138,8 @@ resources:
 
 **See Also:**
 
-- [Parent Stacks Examples](examples/parent-stacks/aws-multi-region/) - Complete parent stack with Cloudflare DNS configuration
-- [GKE Autopilot Setup](examples/gke-autopilot/comprehensive-setup/) - GCP setup with Cloudflare domain management
+- [Parent Stacks Examples](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/parent-stacks/aws-multi-region/) - Complete parent stack with Cloudflare DNS configuration
+- [GKE Autopilot Setup](https://github.com/simple-container-com/api/tree/main/docs/docs/examples/gke-autopilot/comprehensive-setup/) - GCP setup with Cloudflare domain management
 
 ---
 
