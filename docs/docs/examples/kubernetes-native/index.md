@@ -57,6 +57,7 @@ volumes:
 
 
 **Features:**
+
 - Hardcoded IP addresses for consistent access
 - N8N workflow automation integration
 - Zero-downtime deployment strategy
@@ -120,6 +121,7 @@ volumes:
 
 
 **Features:**
+
 - High CPU and memory allocation (32GB/16CPU)
 - GPU support for AI/ML workloads
 - NFS storage for large model files
@@ -157,12 +159,12 @@ spec:
 
 ## Deployment Commands
 
-Deploy to staging:
+**Deploy to staging:**
 ```bash
 sc deploy -s myapp -e staging
 ```
 
-Deploy to production:
+**Deploy to production:**
 ```bash
 sc deploy -s myapp -e production
 ```

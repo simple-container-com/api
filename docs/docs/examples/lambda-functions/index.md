@@ -38,6 +38,7 @@ CMD ["lambda_function.lambda_handler"]
 ```
 
 **Features:**
+
 - AWS Bedrock integration
 - Specific IAM roles for AI services
 - Custom model configuration
@@ -89,6 +90,7 @@ stacks:
 ```
 
 **Features:**
+
 - Scheduled execution with cron expressions
 - S3 bucket cleanup automation
 - Configurable retention policies
@@ -140,6 +142,7 @@ stacks:
 ```
 
 **Features:**
+
 - High-frequency execution (every minute)
 - Real-time monitoring capabilities
 - Webhook integration for alerts
@@ -213,6 +216,7 @@ stacks:
 ```
 
 **Features:**
+
 - AWS Cost Explorer integration
 - Comprehensive IAM permissions
 - Automated cost reporting
@@ -235,7 +239,7 @@ x-billing-config: &billing-config
     dockerfile: ${git:root}/Dockerfile
   timeout: 300
   env:
-    DATABASE_URL: "${resource:postgres-db.connectionString}"
+    DATABASE_URL: "${resource:postgres-db.url}"
     STRIPE_WEBHOOK_SECRET: "${secret:STRIPE_WEBHOOK_SECRET}"
 
 stacks:
@@ -265,6 +269,7 @@ stacks:
 ```
 
 **Features:**
+
 - Multi-environment deployment
 - YAML anchors for configuration reuse
 - Stripe payment integration
@@ -275,12 +280,12 @@ stacks:
 
 ## Deployment Commands
 
-Deploy to staging:
+**Deploy to staging:**
 ```bash
 sc deploy -s mylambda -e staging
 ```
 
-Deploy to production:
+**Deploy to production:**
 ```bash
 sc deploy -s mylambda -e production
 ```

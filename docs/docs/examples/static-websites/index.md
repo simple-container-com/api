@@ -25,6 +25,7 @@ stacks:
 ```
 
 **Features:**
+
 - Automated MkDocs build and deployment
 - CloudFront CDN distribution
 - Custom domain with SSL/TLS
@@ -51,6 +52,7 @@ stacks:
 ```
 
 **Features:**
+
 - SPA (Single Page Application) routing
 - Custom domain with SSL/TLS
 - Global CDN distribution
@@ -85,6 +87,7 @@ stacks:
 ```
 
 **Features:**
+
 - Multi-environment deployment (staging/production)
 - Basic authentication for security
 - Internal tool deployment
@@ -111,6 +114,7 @@ stacks:
 ```
 
 **Features:**
+
 - Customer-facing interface
 - Security headers configuration
 - SPA routing support
@@ -149,12 +153,12 @@ services:
 
 ## Deployment Commands
 
-Deploy to staging:
+**Deploy to staging:**
 ```bash
 sc deploy -s mysite -e staging
 ```
 
-Deploy to production:
+**Deploy to production:**
 ```bash
 sc deploy -s mysite -e production
 ```

@@ -121,6 +121,7 @@ services:
 ```
 
 **Features:**
+
 - Complete GCP setup with all major services
 - GKE Autopilot for managed Kubernetes
 - Artifact Registry for container images
@@ -155,6 +156,7 @@ stacks:
 ```
 
 **Features:**
+
 - Multi-region deployment
 - Regional resource isolation
 - Global load balancing
@@ -196,12 +198,12 @@ services:
 
 ## Deployment Commands
 
-Deploy to staging:
+**Deploy to staging:**
 ```bash
 sc deploy -s myapp -e staging
 ```
 
-Deploy to production:
+**Deploy to production:**
 ```bash
 sc deploy -s myapp -e production
 ```

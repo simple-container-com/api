@@ -409,12 +409,12 @@ resources:
 
 ## Deployment Commands
 
-Provision parent stack:
+**Provision parent stack:**
 ```bash
 sc provision -s devops
 ```
 
-Update parent stack:
+**Update parent stack:**
 ```bash
 sc provision -s devops --update
 ```

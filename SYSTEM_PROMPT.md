@@ -135,6 +135,24 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
 - Updated supported-resources.md with real-world configuration patterns
 - Corrected resource type from `gke-autopilot` to `gcp-gke-autopilot-cluster`
 - Added complete template usage examples based on production configurations
+- **COMPLETED: Fixed MkDocs list formatting issues in examples documentation**
+  - Fixed deployment command formatting in 7 example index.md files
+  - Changed plain text commands to bold format (e.g., "Deploy to staging:" → "**Deploy to staging:**")
+  - Ensured proper MkDocs rendering for all deployment command sections
+  - Verified individual README.md files are properly formatted
+  - **EXTENDED: Fixed all **Features:** list formatting issues across examples documentation**
+    - Fixed 20+ **Features:** sections missing blank lines before bullet points
+    - Applied fixes to lambda-functions, gke-autopilot, kubernetes-native, ecs-deployments, advanced-configs, static-websites
+    - Ensured all lists render properly in MkDocs instead of appearing as plain text
+    - Verified **IAM Permissions Required:** and other sections are properly formatted
+  - All examples documentation now follows complete MkDocs formatting standards
+- **COMPLETED: Validated and eliminated fictional 'connectionString' property**
+  - Discovered fictional `connectionString` property used in 4 documentation files
+  - Validated against actual JSON schemas - property does not exist in any resource schemas
+  - Fixed ecs-deployments/index.md, lambda-functions/index.md, advanced-configs/index.md, concepts/template-placeholders.md
+  - Replaced fictional template placeholders with correct Simple Container pattern (auto-injection)
+  - Verified MongoDB Atlas and Redis resources rely on compute processor auto-injection of environment variables
+  - Final verification confirmed zero remaining instances of fictional `connectionString` property
 
 ## Key Learnings
 - Always verify actual struct definitions before documenting resource properties

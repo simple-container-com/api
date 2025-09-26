@@ -26,8 +26,9 @@ stacks:
       uses: [mongodb-shared, redis-cache]
       runs: [backend-service]
       env:
-        MONGODB_URL: "${resource:mongodb-shared.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"
+        MONGODB_URL: "${resource:mongodb-shared.uri}"
+        REDIS_HOST: "${resource:redis-cache.host}"
+        REDIS_PORT: "${resource:redis-cache.port}"
         NODE_ENV: production
       alerts:
         slack:
@@ -58,6 +59,7 @@ services:
 ```
 
 **Features:**
+
 - MongoDB Atlas integration
 - Redis caching layer
 - Auto-scaling configuration
@@ -99,6 +101,7 @@ stacks:
 ```
 
 **Features:**
+
 - Network Load Balancer for high performance
 - Auto-scaling based on CPU utilization
 - Persistent vector storage
@@ -133,6 +136,7 @@ stacks:
 ```
 
 **Features:**
+
 - Ethereum node integration
 - Cross-service dependencies
 - PostgreSQL for transaction storage
@@ -184,6 +188,7 @@ services:
 ```
 
 **Features:**
+
 - Multi-service deployment
 - Reverse proxy configuration
 - Media storage with S3
@@ -214,6 +219,7 @@ stacks:
 ```
 
 **Features:**
+
 - MongoDB integration
 - Real-time data synchronization
 - WebSocket support
@@ -253,12 +259,12 @@ services:
 
 ## Deployment Commands
 
-Deploy to staging:
+**Deploy to staging:**
 ```bash
 sc deploy -s myservice -e staging
 ```
 
-Deploy to production:
+**Deploy to production:**
 ```bash
 sc deploy -s myservice -e production
 ```

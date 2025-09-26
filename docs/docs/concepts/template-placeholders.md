@@ -355,19 +355,20 @@ domain: "${stack:name}-${env:COMPANY_DOMAIN:example.com}"
 # User and git-based paths
 buildPath: "${user:home}/builds/${git:root}"
 
-# Environment-specific authentication
-credentials: "${auth:${env:CLOUD_PROVIDER}-${stack:name}}"
+# Combine git information with stack metadata
+imageName: "${git:branch.clean}-${stack:name}:${git:commit.short}"
 ```
 
-### **Conditional Configuration with Environment Variables**
+### **Environment-Specific Configuration**
 
 ```yaml
 # Different configurations based on environment
 instanceSize: "${env:INSTANCE_SIZE:M10}"
 region: "${env:AWS_REGION:us-east-1}"
 
-# Environment-specific secrets
-apiKey: "${secret:${env:ENVIRONMENT:staging}-api-key}"
+# Environment-specific secrets (use simple references)
+apiKey: "${secret:api-key}"
+dbPassword: "${secret:db-password}"
 ```
 
 ### **Cross-Stack References**
@@ -380,7 +381,7 @@ config:
   uses: [postgres-db, s3-storage]
   runs: [web-app]
   env:
-    DATABASE_URL: "${resource:postgres-db.connectionString}"
+    DATABASE_URL: "${resource:postgres-db.url}"
     S3_BUCKET: "${resource:s3-storage.name}"
 ```
 

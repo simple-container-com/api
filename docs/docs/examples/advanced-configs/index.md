@@ -81,6 +81,7 @@ volumes:
 
 
 **Features:**
+
 - 32GB RAM and 16 CPU cores allocation
 - GPU support for AI/ML workloads
 - Jupyter Lab for interactive development
@@ -105,8 +106,9 @@ x-common-config: &common-config
   parent: myorg/infrastructure
 
 x-app-env: &app-env
-  REDIS_URL: "${resource:redis-cache.connectionString}"
-  DATABASE_URL: "${resource:postgres-db.connectionString}"
+  REDIS_HOST: "${resource:redis-cache.host}"
+  REDIS_PORT: "${resource:redis-cache.port}"
+  DATABASE_URL: "${resource:postgres-db.url}"
   LOG_LEVEL: info
 
 stacks:
@@ -172,6 +174,7 @@ stacks:
 ```
 
 **Features:**
+
 - Multi-environment deployment (dev/staging/prod)
 - YAML anchors for configuration reuse
 - Environment-specific scaling policies
@@ -224,17 +227,17 @@ stacks:
 
 ## Deployment Commands
 
-Deploy development environment:
+**Deploy development environment:**
 ```bash
 sc deploy -s myapp -e development
 ```
 
-Deploy staging environment:
+**Deploy staging environment:**
 ```bash
 sc deploy -s myapp -e staging
 ```
 
-Deploy production environment:
+**Deploy production environment:**
 ```bash
 sc deploy -s myapp -e production
 ```
