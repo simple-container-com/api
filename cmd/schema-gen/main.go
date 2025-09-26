@@ -8,9 +8,11 @@ import (
 	"reflect"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	// Core API package for registration maps and configuration structs
 	"github.com/simple-container-com/api/pkg/api"
-
 	// Import all cloud provider packages to trigger init() functions
 	_ "github.com/simple-container-com/api/pkg/clouds/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -477,7 +479,7 @@ func (sg *SchemaGenerator) generateIndexFiles(resources []ResourceDefinition) er
 	for provider, providerResources := range byProvider {
 		index := map[string]interface{}{
 			"provider":    provider,
-			"description": fmt.Sprintf("JSON Schema definitions for %s resources and templates", strings.Title(provider)),
+			"description": fmt.Sprintf("JSON Schema definitions for %s resources and templates", cases.Title(language.English).String(provider)),
 			"resources":   providerResources,
 		}
 
@@ -505,7 +507,7 @@ func (sg *SchemaGenerator) generateIndexFiles(resources []ResourceDefinition) er
 		if provider == "core" {
 			description = "Simple Container configuration file schemas (client.yaml, server.yaml, etc.)"
 		} else {
-			description = fmt.Sprintf("%s cloud provider resources and templates", strings.Title(provider))
+			description = fmt.Sprintf("%s cloud provider resources and templates", cases.Title(language.English).String(provider))
 		}
 
 		providers[provider] = map[string]interface{}{
