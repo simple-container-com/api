@@ -213,6 +213,8 @@ Creates and manages AWS S3 buckets.
 
 **Golang Struct Reference:** `pkg/clouds/aws/bucket.go:S3Bucket`
 
+**JSON Schema:** [S3Bucket Schema](../schemas/aws/s3bucket.json)
+
 ```yaml
 # server.yaml - Parent Stack
 resources:
@@ -236,6 +238,8 @@ resources:
 Creates and manages AWS Elastic Container Registry repositories.
 
 **Golang Struct Reference:** `pkg/clouds/aws/ecr_repository.go:EcrRepository`
+
+**JSON Schema:** [EcrRepository Schema](../schemas/aws/ecrrepository.json)
 
 ```yaml
 # server.yaml - Parent Stack
@@ -391,9 +395,7 @@ stacks:
         config:
           region: us-east-1
           accountId: "123456789012"
-          bucketName: "myapp-terraform-state"
-          keyPrefix: "terraform/"
-          encrypt: true
+          name: "myapp-terraform-state"
 ```
 
 #### **AWS KMS Secrets Provider** (`aws-kms`)
@@ -423,6 +425,8 @@ stacks:
 Deploys containerized applications on Google Cloud Run.
 
 **Golang Struct Reference:** `pkg/clouds/gcloud/cloudrun.go:CloudRunInput`
+
+**JSON Schema:** [CloudRunInput Schema](../schemas/gcp/cloudruninput.json)
 
 ```yaml
 # server.yaml - Parent Stack (DevOps managed)
@@ -522,10 +526,7 @@ stacks:
         type: gcp-static-website
         config:
           projectId: "my-gcp-project"
-          bucketName: "my-static-website"
-          domainName: "example.com"
-          indexPage: "index.html"
-          errorPage: "404.html"
+          name: "my-static-website"
 ```
 
 ### **Resources** (`ResourceType` → `resources` section in `server.yaml`)
@@ -535,6 +536,8 @@ stacks:
 Creates and manages Google Kubernetes Engine Autopilot clusters as a resource.
 
 **Golang Struct Reference:** `pkg/clouds/gcloud/gke_autopilot.go:GkeAutopilotResource`
+
+**JSON Schema:** [GkeAutopilotResource Schema](../schemas/gcp/gkeautopilotresource.json)
 
 ```yaml
 # server.yaml - Resource Definition
@@ -548,6 +551,7 @@ resources:
             projectId: "${auth:gcloud.projectId}"
             credentials: "${auth:gcloud}"
             location: "europe-west3"
+            zone: "europe-west3-a"                       # GKE zone (required)
             gkeMinVersion: "1.27.16-gke.1296000"
             caddy:
               enable: true
@@ -602,7 +606,7 @@ provisioner:
         credentials: "${auth:gcloud}"
         projectId: "${auth:gcloud.projectId}"
         provision: true
-        bucketName: my-app-state
+        name: my-app-state
         location: europe-west3
 
 templates:
@@ -1038,6 +1042,8 @@ Creates and manages MongoDB Atlas database clusters.
 
 **Golang Struct Reference:** `pkg/clouds/mongodb/mongodb.go:AtlasConfig`
 
+**JSON Schema:** [AtlasConfig Schema](../schemas/mongodb/atlasconfig.json)
+
 ```yaml
 # server.yaml - Parent Stack (production example)
 resources:
@@ -1053,6 +1059,8 @@ resources:
             
             # Organization and cluster configuration
             orgId: 67bc72f86e5ef36f7584d7d0              # Atlas organization ID
+            projectId: "67bc72f86e5ef36f7584d7d1"          # Atlas project ID (required)
+            projectName: "my-staging-project"             # Atlas project name (required)
             instanceSize: "M10"                           # Instance size
             region: "EU_CENTRAL_1"                        # Atlas region
             cloudProvider: AWS                            # Cloud provider
@@ -1074,6 +1082,8 @@ resources:
             publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
             privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
             orgId: 67bc72f86e5ef36f7584d7d0
+            projectId: "67bc72f86e5ef36f7584d7d1"          # Atlas project ID (required)
+            projectName: "my-production-project"          # Atlas project name (required)
             instanceSize: "M30"                           # Larger instance for production
             region: "EU_CENTRAL_1"
             cloudProvider: AWS
@@ -1181,7 +1191,7 @@ provisioner:
         credentials: "${auth:gcloud}"
         projectId: "${auth:gcloud.projectId}"
         provision: false
-        bucketName: bewize-sc-state
+        name: bewize-sc-state
         location: europe-west3
     secrets-provider:
       type: passphrase
@@ -1284,7 +1294,7 @@ provisioner:
       config:
         credentials: "${auth:aws-main}"
         account: "${auth:aws-main.projectId}"
-        bucketName: "myapp-terraform-state"
+        name: "myapp-terraform-state"
         provision: false
     
     secrets-provider:

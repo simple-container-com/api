@@ -4,7 +4,6 @@ stacks:
     type: cloud-compose
     parent: devops/mycompany
     config: &cfg
-      version: "1"
       domain: staging.example.com
       dockerComposeFile: ${git:root}/docker-compose.yaml
       size:

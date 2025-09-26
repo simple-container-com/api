@@ -1,0 +1,38 @@
+{
+  "description": "JSON Schema definitions for all Simple Container resources and templates",
+  "providers": {
+    "aws": {
+      "count": 12,
+      "description": "Aws cloud provider resources and templates"
+    },
+    "cloudflare": {
+      "count": 1,
+      "description": "Cloudflare cloud provider resources and templates"
+    },
+    "core": {
+      "count": 6,
+      "description": "Simple Container configuration file schemas (client.yaml, server.yaml, etc.)"
+    },
+    "fs": {
+      "count": 2,
+      "description": "Fs cloud provider resources and templates"
+    },
+    "gcp": {
+      "count": 14,
+      "description": "Gcp cloud provider resources and templates"
+    },
+    "github": {
+      "count": 1,
+      "description": "Github cloud provider resources and templates"
+    },
+    "kubernetes": {
+      "count": 6,
+      "description": "Kubernetes cloud provider resources and templates"
+    },
+    "mongodb": {
+      "count": 1,
+      "description": "Mongodb cloud provider resources and templates"
+    }
+  },
+  "title": "Simple Container Resource Schemas"
+}

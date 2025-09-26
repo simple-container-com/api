@@ -198,9 +198,9 @@ provisioner:
   type: pulumi
   config:
     state-storage:
-      type: s3
+      type: s3-bucket
       config:
-        bucket: myapp-pulumi-state
+        bucketName: myapp-pulumi-state
         region: us-east-1
     secrets-provider:
       type: aws-kms
@@ -296,7 +296,7 @@ stacks:
       <<: *config
       domain: enterprise.myapp.com
       uses: [mongodb-enterprise]  # Dedicated cluster
-      scaling:
+      scale:
         min: 5
         max: 20
       secrets:
@@ -441,7 +441,6 @@ resources:
         config:
           clusterName: enterprise-1
           instanceSize: M80
-          dedicatedTenant: true
 
 # client.yaml - Customers choose resources flexibly
 stacks:

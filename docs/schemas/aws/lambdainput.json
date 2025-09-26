@@ -1,0 +1,177 @@
+{
+  "name": "LambdaInput",
+  "type": "template",
+  "provider": "aws",
+  "description": "AWS Lambda deployment template",
+  "goPackage": "pkg/clouds/aws/aws_lambda.go",
+  "goStruct": "LambdaInput",
+  "templateType": "aws-lambda",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accessKey": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "accessKey",
+          "secretAccessKey",
+          "region",
+          ""
+        ],
+        "type": "object"
+      },
+      "stackConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "baseDnsZone": {
+            "type": "string"
+          },
+          "basePath": {
+            "type": "string"
+          },
+          "cloudExtras": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "object",
+              "array",
+              "null"
+            ]
+          },
+          "domain": {
+            "type": "string"
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "image": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "build": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "args": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "args"
+                ],
+                "type": "object"
+              },
+              "context": {
+                "type": "string"
+              },
+              "dockerfile": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "dockerfile",
+              "context",
+              "build",
+              "platform"
+            ],
+            "type": "object"
+          },
+          "max": {
+            "type": "integer"
+          },
+          "maxEphemeralStorage": {
+            "type": "integer"
+          },
+          "maxMemory": {
+            "type": "integer"
+          },
+          "min": {
+            "type": "integer"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "staticEgressIP": {
+            "type": "boolean"
+          },
+          "timeout": {
+            "type": "integer"
+          },
+          "uses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image",
+          "domain",
+          "baseDnsZone",
+          "env",
+          "secrets",
+          "min",
+          "max",
+          "version",
+          "timeout",
+          "basePath",
+          "maxMemory",
+          "maxEphemeralStorage",
+          "uses",
+          "staticEgressIP",
+          "cloudExtras"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "",
+      "stackConfig"
+    ],
+    "type": "object"
+  }
+}

@@ -154,7 +154,6 @@ resources:
         config:
           clusterName: enterprise-1
           instanceSize: M80
-          dedicatedTenant: true
 
 # client.yaml - Customers choose resources flexibly
 stacks:

@@ -4,7 +4,6 @@ stacks:
     type: cloud-compose
     parent: mycompany/mycompany
     config: &staging-cfg
-      version: "10"
       domain: staging-blockchain.example.com
       size:
         cpu: 1024

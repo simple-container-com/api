@@ -1,0 +1,255 @@
+{
+  "name": "ServerDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Simple Container server.yaml configuration file schema",
+  "goPackage": "pkg/api/server.go",
+  "goStruct": "ServerDescriptor",
+  "resourceType": "server-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "cicd": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "inherit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "inherit"
+            ],
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "provisioner": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "inherit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "inherit"
+            ],
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "resources": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "registrar": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "inherit": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "inherit"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "",
+              ""
+            ],
+            "type": "object"
+          },
+          "resources": {
+            "additionalProperties": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "inherit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "inherit"
+                  ],
+                  "type": "object"
+                },
+                "resources": {
+                  "additionalProperties": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "inherit": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "inherit"
+                        ],
+                        "type": "object"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "name",
+                      "",
+                      ""
+                    ],
+                    "type": "object"
+                  },
+                  "type": "object"
+                },
+                "template": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "template",
+                "resources",
+                ""
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "registrar",
+          "resources"
+        ],
+        "type": "object"
+      },
+      "schemaVersion": {
+        "type": "string"
+      },
+      "secrets": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "inherit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "inherit"
+            ],
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "templates": {
+        "additionalProperties": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "inherit": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "inherit"
+              ],
+              "type": "object"
+            },
+            "parentStack": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "parentStack",
+            "",
+            ""
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "variables": {
+        "additionalProperties": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "provisioner",
+      "secrets",
+      "cicd",
+      "templates",
+      "resources",
+      "variables"
+    ],
+    "type": "object"
+  }
+}

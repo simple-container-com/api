@@ -1,0 +1,64 @@
+{
+  "name": "RemoteImagePush",
+  "type": "resource",
+  "provider": "gcp",
+  "description": "Google Cloud Platform remoteimagepush configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "RemoteImagePush",
+  "resourceType": "gcp-docker-image-push",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "artifactRegistryResource": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "platform": {
+        "type": "string"
+      },
+      "registryCredentials": {
+        "type": "string"
+      },
+      "remoteImage": {
+        "type": "string"
+      },
+      "tag": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "remoteImage",
+      "name",
+      "tag",
+      "artifactRegistryResource",
+      "registryCredentials",
+      "platform"
+    ],
+    "type": "object"
+  }
+}

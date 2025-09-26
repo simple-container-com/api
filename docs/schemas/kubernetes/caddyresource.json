@@ -1,0 +1,53 @@
+{
+  "name": "CaddyResource",
+  "type": "resource",
+  "provider": "kubernetes",
+  "description": "Kubernetes caddyresource configuration",
+  "goPackage": "pkg/clouds/kubernetes/",
+  "goStruct": "CaddyResource",
+  "resourceType": "kubernetes-caddy",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "caddyfile": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "image": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "provisionIngress": {
+            "type": "boolean"
+          },
+          "replicas": {
+            "type": "integer"
+          },
+          "serviceType": {
+            "type": "string"
+          },
+          "usePrefixes": {
+            "type": "boolean"
+          },
+          "useSSL": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    "required": [
+      "",
+      ""
+    ],
+    "type": "object"
+  }
+}

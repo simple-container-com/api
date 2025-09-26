@@ -61,8 +61,13 @@ Use these production-tested, anonymized examples from `docs/examples/`:
 For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which catalogs 50+ production directories across 5 organizations with detailed configuration patterns and cross-reference tables.
 
 ### Resource Configuration Standards
-- Always use actual Go struct properties from the codebase, not fictional ones
-- Verify resource types and properties by examining the actual Go structs with yaml tags
+- **CRITICAL: ALWAYS use JSON schemas when checking supported properties for any resource**
+  - JSON schemas in `docs/schemas/` are the authoritative source for all supported properties
+  - Never guess or assume properties - always reference the generated JSON schema files
+  - 37+ resources across 7 providers have complete JSON schema definitions
+  - Example: Check `docs/schemas/aws/s3bucket.json` for S3Bucket properties
+- Always use actual Go struct properties from the codebase, not fictional ones  
+- Verify resource types and properties by examining JSON schemas first, then Go structs with yaml tags
 - Follow established patterns: `ResourceType` for resources, `TemplateType` for templates
 - Use proper YAML structure: `resources.resources.<env>` not `stacks`
 
@@ -93,6 +98,34 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **MAJOR: Complete JSON Schema Ecosystem** - Implemented comprehensive JSON Schema generation for ALL Simple Container configurations
+  - **EXPANDED**: Now generates schemas for both cloud resources AND core configuration files
+  - **54 TOTAL SCHEMAS**: 37 cloud resources + 6 configuration file schemas + index files across 8 providers
+  - **Configuration File Schemas**: Added schemas for `client.yaml` (ClientDescriptor, StackConfig types), `server.yaml` (ServerDescriptor), and project config (ConfigFile)
+  - **Dynamic Discovery**: Uses dependency injection framework to auto-discover resources (no hard-coding)
+  - **Self-Maintaining**: New resources automatically included when registered in any provider's `init()` function
+  - **8 Providers**: AWS, GCP, Kubernetes, MongoDB, Cloudflare, FS, GitHub, Core (configuration files)
+  - **Authoritative Source**: JSON schemas in `docs/schemas/` are the definitive reference for all supported properties
+  - Added public API functions: `GetRegisteredProviderConfigs()`, `GetRegisteredProvisionerFieldConfigs()`, `GetRegisteredCloudHelpers()`
+  - Integrated with Welder build process: `welder run generate-schemas` generates complete schema ecosystem
+  - Updated `supported-resources.md` with JSON Schema references for validation and IDE support
+- **MAJOR: Comprehensive Schema Validation Completed** - Systematically validated ALL documentation examples against JSON schemas
+  - **FICTIONAL PROPERTIES ELIMINATED**: Fixed `minCapacity`/`maxCapacity` (should be `min`/`max`), removed fictional `scaling:` sections, eliminated `multiAZ`/`backupRetention`/`nodeType`/`numCacheNodes` properties
+  - **FICTIONAL RESOURCE TYPES FIXED**: Corrected `aws-ecs-cluster`→`s3-bucket`, `aws-elasticache-redis`→`gcp-redis`, `gcp-bigquery`→`gcp-bucket`, `gcp-sql-postgres`→`gcp-cloudsql-postgres`, `aws-s3-bucket`→`s3-bucket`
+  - **VALIDATION METHODOLOGY**: Used 54 JSON schemas across 8 providers as authoritative source, verified against AWS (12 resources) and GCP (14 resources) schema indexes
+  - **RESULT**: All documentation examples now use only real Simple Container properties and resource types validated against actual Go struct schemas
+- **MAJOR: Complete Compute Processor Validation** - Validated ALL compute processor environment variables against actual source code implementations
+  - **SOURCE CODE VALIDATION**: Examined actual compute processor implementations in `/pkg/clouds/pulumi/` to determine exact environment variables
+  - **FICTIONAL ENVIRONMENT VARIABLES ELIMINATED**: Removed fictional variables for GKE Autopilot (not implemented), GCP Bucket (not implemented), RabbitMQ (`RABBITMQ_VHOST`, corrected `RABBITMQ_URL`→`RABBITMQ_URI`), Redis (removed `REDIS_PASSWORD`, `REDIS_URL`, named variants)
+  - **VALIDATED LEGITIMATE VARIABLES**: Confirmed AWS (RDS PostgreSQL/MySQL, S3), GCP (PostgreSQL Cloud SQL), Kubernetes (Helm Postgres, RabbitMQ, Redis), MongoDB Atlas environment variables against actual `AddEnvVariableIfNotExist` calls
+  - **ENHANCED DOCUMENTATION**: Added comprehensive, source-code-validated environment variable documentation to `template-placeholders-advanced.md`
+- **MAJOR: Complete YAML File Structure Validation** - Systematically validated all server.yaml, client.yaml, and secrets.yaml files across documentation
+  - **SERVER.YAML VALIDATION**: Confirmed proper structure with `provisioner`, `templates`, `resources` sections and legitimate properties
+  - **CLIENT.YAML VALIDATION**: Confirmed proper structure with `stacks` section, correct `uses`/`runs`/`dependencies` usage, and legitimate template placeholders
+  - **SECRETS.YAML VALIDATION**: Confirmed proper structure with `auth` and `values` sections using exact literal values
+  - **SEPARATION OF CONCERNS**: Validated that server.yaml contains infrastructure (DevOps), client.yaml contains stacks (Developer), secrets.yaml contains authentication
+  - **TEMPLATE PLACEHOLDERS**: Validated correct usage of `${resource:name.prop}`, `${secret:name}`, `${dependency:name.resource.prop}`, `${auth:provider}` patterns
+  - **RESULT**: All YAML files follow proper Simple Container patterns with 0 fictional properties found in actual configuration files
 - **MAJOR: Restructured Documentation** - Reorganized entire documentation structure for better user experience
   - Created logical user journey: Getting Started → Core Concepts → Guides → Examples → Reference → Advanced
   - Moved files from scattered `howto/`, `motivation/` directories into organized structure

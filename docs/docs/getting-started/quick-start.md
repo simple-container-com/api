@@ -24,28 +24,46 @@ This creates a `.sc/` directory with basic configuration files.
 
 Simple Container supports several deployment patterns. For this quick start, we'll deploy a simple static website.
 
-Create a basic configuration file `.sc/stacks/prod.yaml`:
+Create the parent stack configuration file `.sc/stacks/infrastructure/server.yaml`:
 
 ```yaml
-version: "1.0"
+# .sc/stacks/infrastructure/server.yaml
+schemaVersion: 1.0
 templates:
   static-site:
     type: aws-static-website
-    domain: "${secret:DOMAIN_NAME}"
-    s3BucketResource: "main-bucket"
+    config:
+      domain: "${secret:DOMAIN_NAME}"
 
 resources:
   resources:
     prod:
       main-bucket:
-        type: aws-s3-bucket
-        name: "my-app-${env:ENVIRONMENT}-bucket"
-        allowOnlyHttps: true
+        type: s3-bucket
+        config:
+          name: "my-app-${env:ENVIRONMENT}-bucket"
+          allowOnlyHttps: true
+```
 
-environments:
+Create the client stack configuration file `.sc/stacks/myapp/client.yaml`:
+
+```yaml
+# .sc/stacks/myapp/client.yaml
+schemaVersion: 1.0
+stacks:
   prod:
-    uses: static-site
-    account: "${auth:aws}"
+    type: static
+    parent: infrastructure
+    template: static-site
+    config:
+      bundleDir: "./dist"
+      bucketName: "my-app-prod-bucket"
+      location: "us-east-1"
+      domain: "myapp.com"
+      baseDnsZone: "myapp.com"
+      indexDocument: "index.html"
+      errorDocument: "index.html"
+      provisionWwwDomain: true
 ```
 
 ## Step 3: Set Up Secrets

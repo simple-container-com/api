@@ -1,0 +1,1078 @@
+{
+  "name": "CloudRunInput",
+  "type": "template",
+  "provider": "gcp",
+  "description": "GCP Cloud Run deployment template",
+  "goPackage": "pkg/clouds/gcloud/cloudrun.go",
+  "goStruct": "CloudRunInput",
+  "templateType": "cloudrun",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "deployment": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "containers": {
+            "items": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "args": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "command": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "composeDir": {
+                  "type": "string"
+                },
+                "env": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "image": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "build": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "args": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "args"
+                      ],
+                      "type": "object"
+                    },
+                    "context": {
+                      "type": "string"
+                    },
+                    "dockerfile": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "dockerfile",
+                    "context",
+                    "build",
+                    "platform"
+                  ],
+                  "type": "object"
+                },
+                "imagePullPolicy": {
+                  "type": "string"
+                },
+                "mainPort": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ports": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "readinessProbe": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "failureThreshold": {
+                      "type": "integer"
+                    },
+                    "httpGet": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "port": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "port"
+                      ],
+                      "type": "object"
+                    },
+                    "initialDelaySeconds": {
+                      "type": "integer"
+                    },
+                    "intervaSeconds": {
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "type": "integer"
+                    },
+                    "successThreshold": {
+                      "type": "integer"
+                    },
+                    "timeoutSeconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "httpGet",
+                    "interval",
+                    "initialDelaySeconds",
+                    "intervaSeconds",
+                    "failureThreshold",
+                    "successThreshold",
+                    "timeoutSeconds"
+                  ],
+                  "type": "object"
+                },
+                "resources": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "limits": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "requests": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "limits",
+                    "requests"
+                  ],
+                  "type": "object"
+                },
+                "secrets": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "startupProbe": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "failureThreshold": {
+                      "type": "integer"
+                    },
+                    "httpGet": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "port": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "port"
+                      ],
+                      "type": "object"
+                    },
+                    "initialDelaySeconds": {
+                      "type": "integer"
+                    },
+                    "intervaSeconds": {
+                      "type": "integer"
+                    },
+                    "interval": {
+                      "type": "integer"
+                    },
+                    "successThreshold": {
+                      "type": "integer"
+                    },
+                    "timeoutSeconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "httpGet",
+                    "interval",
+                    "initialDelaySeconds",
+                    "intervaSeconds",
+                    "failureThreshold",
+                    "successThreshold",
+                    "timeoutSeconds"
+                  ],
+                  "type": "object"
+                },
+                "volumes": {
+                  "items": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "accessModes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "mountPath": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "storage": {
+                        "type": "string"
+                      },
+                      "storageClassName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "mountPath",
+                      "storage",
+                      "accessModes",
+                      "storageClassName"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name",
+                "command",
+                "args",
+                "image",
+                "env",
+                "secrets",
+                "ports",
+                "mainPort",
+                "readinessProbe",
+                "startupProbe",
+                "composeDir",
+                "resources",
+                "volumes",
+                "imagePullPolicy",
+                "warnings"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "disruptionBudget": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "maxUnavailable": {
+                "type": "integer"
+              },
+              "minAvailable": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "maxUnavailable",
+              "minAvailable"
+            ],
+            "type": "object"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "ingressContainer": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "args": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "command": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "composeDir": {
+                "type": "string"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "image": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "build": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "args": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "args"
+                    ],
+                    "type": "object"
+                  },
+                  "context": {
+                    "type": "string"
+                  },
+                  "dockerfile": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "dockerfile",
+                  "context",
+                  "build",
+                  "platform"
+                ],
+                "type": "object"
+              },
+              "imagePullPolicy": {
+                "type": "string"
+              },
+              "mainPort": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ports": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "readinessProbe": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "failureThreshold": {
+                    "type": "integer"
+                  },
+                  "httpGet": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "port": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "port"
+                    ],
+                    "type": "object"
+                  },
+                  "initialDelaySeconds": {
+                    "type": "integer"
+                  },
+                  "intervaSeconds": {
+                    "type": "integer"
+                  },
+                  "interval": {
+                    "type": "integer"
+                  },
+                  "successThreshold": {
+                    "type": "integer"
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "httpGet",
+                  "interval",
+                  "initialDelaySeconds",
+                  "intervaSeconds",
+                  "failureThreshold",
+                  "successThreshold",
+                  "timeoutSeconds"
+                ],
+                "type": "object"
+              },
+              "resources": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "limits": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "requests": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "limits",
+                  "requests"
+                ],
+                "type": "object"
+              },
+              "secrets": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "startupProbe": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "failureThreshold": {
+                    "type": "integer"
+                  },
+                  "httpGet": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "port": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "port"
+                    ],
+                    "type": "object"
+                  },
+                  "initialDelaySeconds": {
+                    "type": "integer"
+                  },
+                  "intervaSeconds": {
+                    "type": "integer"
+                  },
+                  "interval": {
+                    "type": "integer"
+                  },
+                  "successThreshold": {
+                    "type": "integer"
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "httpGet",
+                  "interval",
+                  "initialDelaySeconds",
+                  "intervaSeconds",
+                  "failureThreshold",
+                  "successThreshold",
+                  "timeoutSeconds"
+                ],
+                "type": "object"
+              },
+              "volumes": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "accessModes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "mountPath": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "storage": {
+                      "type": "string"
+                    },
+                    "storageClassName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "mountPath",
+                    "storage",
+                    "accessModes",
+                    "storageClassName"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "command",
+              "args",
+              "image",
+              "env",
+              "secrets",
+              "ports",
+              "mainPort",
+              "readinessProbe",
+              "startupProbe",
+              "composeDir",
+              "resources",
+              "volumes",
+              "imagePullPolicy",
+              "warnings"
+            ],
+            "type": "object"
+          },
+          "nodeSelector": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "replicas": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "replicas": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "replicas"
+            ],
+            "type": "object"
+          },
+          "rollingUpdate": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "maxSurge": {
+                "type": "integer"
+              },
+              "maxUnavailable": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "maxSurge",
+              "maxUnavailable"
+            ],
+            "type": "object"
+          },
+          "stackConfig": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "alerts": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "discord": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "webhookUrl": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "webhookUrl"
+                    ],
+                    "type": "object"
+                  },
+                  "maxCPU": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "alertName": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "periodSec": {
+                            "type": "integer"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "threshold",
+                          "periodSec",
+                          "alertName",
+                          "description"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      ""
+                    ],
+                    "type": "object"
+                  },
+                  "maxErrors": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "alertName": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "periodSec": {
+                            "type": "integer"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "threshold",
+                          "periodSec",
+                          "alertName",
+                          "description"
+                        ],
+                        "type": "object"
+                      },
+                      "errorLogMessageRegexp": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "",
+                      "errorLogMessageRegexp"
+                    ],
+                    "type": "object"
+                  },
+                  "maxMemory": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "alertName": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "periodSec": {
+                            "type": "integer"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "threshold",
+                          "periodSec",
+                          "alertName",
+                          "description"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      ""
+                    ],
+                    "type": "object"
+                  },
+                  "slack": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "webhookUrl": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "webhookUrl"
+                    ],
+                    "type": "object"
+                  },
+                  "telegram": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "chatID": {
+                        "type": "string"
+                      },
+                      "token": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "chatID",
+                      "token"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "baseDnsZone": {
+                "type": "string"
+              },
+              "cloudExtras": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "object",
+                  "array",
+                  "null"
+                ]
+              },
+              "clusterIPAddress": {
+                "type": "string"
+              },
+              "dependencies": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "env": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "owner": {
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "owner",
+                    "resource",
+                    "env"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "dockerComposeFile": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "domainProxied": {
+                "type": "boolean"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "headers": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "imagePullPolicy": {
+                "type": "string"
+              },
+              "lbConfig": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "extraHelpers": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "https": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "https",
+                  "extraHelpers"
+                ],
+                "type": "object"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "proxyKeepPrefix": {
+                "type": "boolean"
+              },
+              "runs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "scale": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "max": {
+                    "type": "integer"
+                  },
+                  "min": {
+                    "type": "integer"
+                  },
+                  "policy": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "cpu": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "max": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "max"
+                        ],
+                        "type": "object"
+                      },
+                      "memory": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "max": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "max"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "cpu",
+                      "memory"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "min",
+                  "max",
+                  "policy"
+                ],
+                "type": "object"
+              },
+              "secrets": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "size": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "cpu": {
+                    "type": "string"
+                  },
+                  "ephemeral": {
+                    "type": "string"
+                  },
+                  "memory": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "cpu",
+                  "memory",
+                  "ephemeral"
+                ],
+                "type": "object"
+              },
+              "staticEgressIP": {
+                "type": "boolean"
+              },
+              "textVolumes": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "mountPath": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "content",
+                    "name",
+                    "mountPath"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "uses": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "dockerComposeFile",
+              "domain",
+              "prefix",
+              "proxyKeepPrefix",
+              "domainProxied",
+              "baseDnsZone",
+              "uses",
+              "runs",
+              "env",
+              "secrets",
+              "version",
+              "textVolumes",
+              "headers",
+              "lbConfig",
+              "cloudExtras",
+              "staticEgressIP",
+              "imagePullPolicy",
+              "clusterIPAddress"
+            ],
+            "type": "object"
+          },
+          "textVolumes": {
+            "items": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "mountPath": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "content",
+                    "name",
+                    "mountPath"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                ""
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "stackConfig",
+          "containers",
+          "ingressContainer",
+          "replicas",
+          "headers",
+          "textVolumes",
+          "disruptionBudget",
+          "rollingUpdate",
+          "nodeSelector"
+        ],
+        "type": "object"
+      },
+      "templateConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "projectId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "",
+              ""
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          ""
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "templateConfig",
+      "deployment"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "JSON Schema definitions for Github resources and templates",
+  "provider": "github",
+  "resources": [
+    {
+      "name": "ActionsCiCdConfig",
+      "type": "resource",
+      "provider": "github",
+      "description": "GITHUB actionscicd configuration",
+      "goPackage": "pkg/clouds/github/",
+      "goStruct": "ActionsCiCdConfig",
+      "resourceType": "github-actions",
+      "schema": {}
+    }
+  ]
+}

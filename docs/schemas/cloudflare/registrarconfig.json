@@ -1,0 +1,91 @@
+{
+  "name": "RegistrarConfig",
+  "type": "resource",
+  "provider": "cloudflare",
+  "description": "Cloudflare registrar configuration",
+  "goPackage": "pkg/clouds/cloudflare/",
+  "goStruct": "RegistrarConfig",
+  "resourceType": "cloudflare",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "accountId"
+        ],
+        "type": "object"
+      },
+      "dnsRecords": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "proxied": {
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "valueOut": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "OutputState": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "OutputState"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "valueOut",
+            "value",
+            "proxied"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "zoneName": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "zoneName",
+      "dnsRecords"
+    ],
+    "type": "object"
+  }
+}

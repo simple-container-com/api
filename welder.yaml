@@ -24,6 +24,7 @@ modules:
         - task: linters
         - task: fmt
         - task: test
+        - task: generate-schemas
         - task: build-all
         - task: docker-login
         - task: build-cloud-helpers
@@ -59,6 +60,8 @@ tasks:
       - rm -fR ${project:root}/.sc/stacks/dist/bundle/*
       - mkdir -p ${project:root}/docs/site
       - rm -fR ${project:root}/docs/site/*
+      - mkdir -p ${project:root}/docs/schemas
+      - rm -fR ${project:root}/docs/schemas/*
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"
@@ -104,6 +107,13 @@ tasks:
     runOn: host
     script:
       - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
+  generate-schemas:
+    runOn: host
+    script:
+      - echo "Generating JSON Schema files for Simple Container resources..."
+      - go build -o ${project:root}/bin/schema-gen ./cmd/schema-gen
+      - ${project:root}/bin/schema-gen ${project:root}/docs/schemas
+      - echo "Successfully generated JSON Schema files in docs/schemas/"
   build:
     runOn: host
     env:

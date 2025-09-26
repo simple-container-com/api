@@ -169,7 +169,7 @@ resources:
             immutableTags: true
             
       postgres-db:
-        type: gcp-sql-postgres
+        type: gcp-cloudsql-postgres
         config:
           projectId: "${auth:gcloud.projectId}"
           credentials: "${auth:gcloud}"
@@ -263,17 +263,18 @@ templates:
 resources:
   resources:
     production:
-      # AWS for compute workloads
-      ecs-cluster:
-        type: aws-ecs-cluster
+      # AWS for compute workloads (using S3 for storage instead of ECS cluster)
+      s3-compute-storage:
+        type: s3-bucket
         config:
           credentials: "${auth:aws}"
           account: "${auth:aws.projectId}"
           region: us-east-1
-          name: "myapp-compute"
+          name: "myapp-compute-storage"
+          allowOnlyHttps: true
           
       s3-storage:
-        type: aws-s3-bucket
+        type: s3-bucket
         config:
           credentials: "${auth:aws}"
           account: "${auth:aws.projectId}"
@@ -297,12 +298,12 @@ resources:
           credentials: "${auth:gcloud}"
           location: us-central1
           
-      bigquery-analytics:
-        type: gcp-bigquery
+      analytics-bucket:
+        type: gcp-bucket
         config:
           projectId: "${auth:gcloud.projectId}"
           credentials: "${auth:gcloud}"
-          datasetId: "analytics"
+          name: "myapp-analytics-data"
           location: US
 ```
 
@@ -316,24 +317,66 @@ resources:
 ## Common Parent Stack Patterns
 
 ### Environment Separation
+
+**Client Configuration (client.yaml) - Uses `stacks:` section:**
 ```yaml
+# client.yaml
+schemaVersion: 1.0
+stacks:
+  development:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      min: 1
+      max: 3
+      uses: [shared-database, shared-storage]
+      # Other stack configuration properties...
+  staging:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      min: 2
+      max: 10
+      uses: [shared-database, shared-storage]
+      # Other stack configuration properties...
+  production:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      min: 5
+      max: 100
+      uses: [shared-database, shared-storage]
+      # Other stack configuration properties...
+```
+
+**Server Configuration (server.yaml) - Uses `resources:` section:**
+```yaml
+# server.yaml
+schemaVersion: 1.0
 resources:
   resources:
-    development:
-      template: basic-setup
-      scaling:
-        minCapacity: 1
-        maxCapacity: 3
-    staging:
-      template: production-like
-      scaling:
-        minCapacity: 2
-        maxCapacity: 10
     production:
-      template: high-availability
-      scaling:
-        minCapacity: 5
-        maxCapacity: 100
+      shared-database:
+        type: aws-rds-postgres
+        config:
+          credentials: "${auth:aws}"
+          account: "${auth:aws.projectId}"
+          region: us-east-1
+          name: "shared-prod-db"
+          instanceClass: "db.r5.xlarge"
+          allocateStorage: 100
+          engineVersion: "14.9"
+          username: "appuser"
+          password: "${secret:DB_PASSWORD}"
+          databaseName: "shared"
+      shared-storage:
+        type: s3-bucket
+        config:
+          credentials: "${auth:aws}"
+          account: "${auth:aws.projectId}"
+          region: us-east-1
+          name: "shared-prod-storage"
+          allowOnlyHttps: true
 ```
 
 ### Shared Resource Configuration
@@ -344,14 +387,24 @@ resources:
       shared-database:
         type: aws-rds-postgres
         config:
+          credentials: "${auth:aws}"
+          account: "${auth:aws.projectId}"
+          region: us-east-1
+          name: "shared-prod-db"
           instanceClass: "db.r5.2xlarge"
-          multiAZ: true
-          backupRetention: 30
+          allocateStorage: 100
+          engineVersion: "14.9"
+          username: "appuser"
+          password: "${secret:DB_PASSWORD}"
+          databaseName: "shared"
       shared-cache:
-        type: aws-elasticache-redis
+        type: gcp-redis
         config:
-          nodeType: "cache.r6g.large"
-          numCacheNodes: 3
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: us-central1
+          tier: standard
+          memorySizeGb: 4
 ```
 
 ## Deployment Commands

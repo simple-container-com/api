@@ -153,41 +153,129 @@ stacks:
 - `${resource:postgres-name.password}` - Database password
 
 #### RDS MySQL
-Similar to PostgreSQL but with MySQL-specific environment variables:
+Similar to PostgreSQL but with MySQL-specific environment variables.
 
-- `MYSQL_HOST_<NAME>`, `MYSQL_USER_<NAME>`, etc.
-- Generic variables: `MYSQL_HOST`, `MYSQL_USER`, etc.
+**Auto-injected Environment Variables:**
+- `MYSQL_HOST` - Database host
+- `MYSQL_PORT` - Database port (3306)
+- `MYSQL_USER` - Database username (stack name)
+- `MYSQL_DB` - Database name (stack name)
+- `MYSQL_PASSWORD` - Database password (auto-generated)
+- `MYSQL_HOST_<NAME>` - Named MySQL host (where `<NAME>` is the resource name)
+- `MYSQL_USER_<NAME>` - Named MySQL username
+- `MYSQL_PORT_<NAME>` - Named MySQL port
+- `MYSQL_DB_<NAME>` - Named MySQL database
+- `MYSQL_PASSWORD_<NAME>` - Named MySQL password
+
+**Template Placeholders:**
+- `${resource:mysql-name.host}` - Database host
+- `${resource:mysql-name.port}` - Database port
+- `${resource:mysql-name.user}` - Database username
+- `${resource:mysql-name.database}` - Database name
+- `${resource:mysql-name.password}` - Database password
+- `${resource:mysql-name.url}` - Full MySQL connection string
 
 ### GCP Resources
 
 #### GCP Bucket
-Auto-injected environment variables and template placeholders for Google Cloud Storage buckets.
+**Note:** GCP Bucket compute processor is currently not implemented. No environment variables are automatically injected for GCP Bucket resources at this time.
 
 #### GKE Autopilot
-Kubernetes cluster connection details and configuration.
+**Note:** GKE Autopilot compute processor is currently not implemented. No environment variables are automatically injected for GKE Autopilot resources at this time.
 
 #### PostgreSQL Cloud SQL
 PostgreSQL database connection details similar to AWS RDS.
+
+**Auto-injected Environment Variables:**
+- `POSTGRES_HOST` - Database host (localhost via Cloud SQL Proxy)
+- `POSTGRES_PORT` - Database port (5432)
+- `POSTGRES_USERNAME` - Database username (stack name)
+- `POSTGRES_DATABASE` - Database name (stack name)
+- `POSTGRES_PASSWORD` - Database password (auto-generated)
+- `PGHOST` - PostgreSQL host (localhost via Cloud SQL Proxy)
+- `PGPORT` - PostgreSQL port (5432)
+- `PGUSER` - PostgreSQL username
+- `PGDATABASE` - PostgreSQL database name
+- `PGPASSWORD` - PostgreSQL password
+
+**Template Placeholders:**
+- `${resource:postgres-name.host}` - Database host
+- `${resource:postgres-name.port}` - Database port
+- `${resource:postgres-name.user}` - Database username
+- `${resource:postgres-name.database}` - Database name
+- `${resource:postgres-name.password}` - Database password
 
 ### Kubernetes Resources
 
 #### Helm Postgres Operator
 PostgreSQL database connections managed by Kubernetes operators.
 
+**Auto-injected Environment Variables:**
+- `POSTGRES_HOST` - PostgreSQL service host
+- `POSTGRES_PORT` - PostgreSQL service port (5432)
+- `POSTGRES_USERNAME` - Database username (stack name)
+- `POSTGRES_DATABASE` - Database name (stack name)
+- `POSTGRES_PASSWORD` - Database password (auto-generated)
+- `PGHOST` - PostgreSQL host
+- `PGPORT` - PostgreSQL port
+- `PGUSER` - PostgreSQL username
+- `PGDATABASE` - PostgreSQL database name
+- `PGPASSWORD` - PostgreSQL password
+
+**Template Placeholders:**
+- `${resource:postgres-name.host}` - Database host
+- `${resource:postgres-name.port}` - Database port
+- `${resource:postgres-name.user}` - Database username
+- `${resource:postgres-name.database}` - Database name
+- `${resource:postgres-name.password}` - Database password
+- `${resource:postgres-name.url}` - Full connection URL
+
 #### Helm RabbitMQ Operator
 Message queue connection details and configuration.
+
+**Auto-injected Environment Variables:**
+- `RABBITMQ_HOST` - RabbitMQ service host
+- `RABBITMQ_PORT` - RabbitMQ service port
+- `RABBITMQ_USERNAME` - RabbitMQ username
+- `RABBITMQ_PASSWORD` - RabbitMQ password (auto-generated)
+- `RABBITMQ_URI` - Full AMQP connection string
+
+**Template Placeholders:**
+- `${resource:rabbitmq-name.host}` - RabbitMQ host
+- `${resource:rabbitmq-name.port}` - RabbitMQ port
+- `${resource:rabbitmq-name.user}` - Username
+- `${resource:rabbitmq-name.password}` - Password
+- `${resource:rabbitmq-name.uri}` - Full AMQP connection string
 
 #### Helm Redis Operator
 Redis cache connection details and configuration.
 
+**Auto-injected Environment Variables:**
+- `REDIS_HOST` - Redis service host
+- `REDIS_PORT` - Redis service port
+
+**Template Placeholders:**
+- `${resource:redis-name.host}` - Redis host
+- `${resource:redis-name.port}` - Redis port
+
 ### MongoDB Atlas
 
 #### MongoDB Atlas Cluster
-**Template Placeholders:**
+**Auto-injected Environment Variables:**
+- `MONGO_USER` - Database username (stack name)
+- `MONGO_DATABASE` - Database name (stack name)
+- `MONGO_PASSWORD` - Database password (auto-generated)
+- `MONGO_URI` - Full MongoDB connection string with authentication
+- `MONGO_DEP_<OWNER>_USER` - Dependency username (for dependency relationships)
+- `MONGO_DEP_<OWNER>_PASSWORD` - Dependency password (for dependency relationships)
+- `MONGO_DEP_<OWNER>_URI` - Dependency connection string (for dependency relationships)
 
-- `${resource:mongodb-name.connectionString}` - Full MongoDB connection string
-- `${resource:mongodb-name.host}` - MongoDB host
-- `${resource:mongodb-name.database}` - Database name
+**Template Placeholders:**
+- `${resource:mongodb-name.uri}` - Full MongoDB connection string
+- `${resource:mongodb-name.user}` - Database username
+- `${resource:mongodb-name.password}` - Database password
+- `${resource:mongodb-name.dbName}` - Database name
+- `${resource:mongodb-name.oplogUri}` - MongoDB oplog connection string
 
 ## Practical Examples
 
@@ -199,7 +287,7 @@ resources:
   resources:
     production:
       file-storage:
-        type: aws-s3-bucket
+        type: s3-bucket
         config:
           name: myapp-files
           allowOnlyHttps: true
