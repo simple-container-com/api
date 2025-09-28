@@ -13,6 +13,7 @@ const EncryptedSecretFilesDataFileName = "secrets.yaml"
 
 type Cryptor interface {
 	GenerateKeyPairWithProfile(projectName, profile string) error
+	GenerateEd25519KeyPairWithProfile(projectName, profile string) error
 	ReadProfileConfig() error
 	AddFile(path string) error
 	RemoveFile(path string) error

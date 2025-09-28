@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/go-git/go-billy/v5"
@@ -381,7 +382,6 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 		return nil, errors.New("private key is not configured")
 	}
 
-	var key *rsa.PrivateKey
 	var err error
 
 	if _, err := ssh.ParseRawPrivateKey([]byte(c.currentPrivateKey)); errors.As(err, new(*ssh.PassphraseMissingError)) && c.privateKeyPassphrase == "" {
@@ -408,15 +408,22 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 		return nil, errors.Wrapf(err, "failed to parse private key with passphrase (did you configure privateKeyPassword?)")
 	} else if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse private key")
-	} else if castedKey, ok := rawKey.(*rsa.PrivateKey); !ok {
-		return nil, errors.Errorf("unsupported private key type: %T", rawKey)
-	} else {
-		key = castedKey
 	}
 
-	decrypted, err := ciphers.DecryptLargeString(key, encryptedData)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to decrypt secret")
+	var decrypted []byte
+	// Handle different key types
+	if rsaKey, ok := rawKey.(*rsa.PrivateKey); ok {
+		decrypted, err = ciphers.DecryptLargeString(rsaKey, encryptedData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret with RSA key")
+		}
+	} else if ed25519Key, ok := rawKey.(ed25519.PrivateKey); ok {
+		decrypted, err = ciphers.DecryptLargeStringWithEd25519(ed25519Key, encryptedData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret with ed25519 key")
+		}
+	} else {
+		return nil, errors.Errorf("unsupported private key type: %T", rawKey)
 	}
 	return decrypted, nil
 }
@@ -525,6 +532,37 @@ func (c *cryptor) GenerateKeyPairWithProfile(projectName string, profile string)
 	mPubKey, err := ciphers.MarshalPublicKey(pubKey)
 	if err != nil {
 		return errors.Wrapf(err, "failed to serialize public key")
+	}
+
+	c.currentPublicKey = TrimPubKey(string(mPubKey))
+
+	config := &api.ConfigFile{
+		ProjectName: projectName,
+		PrivateKey:  c.currentPrivateKey,
+		PublicKey:   c.currentPublicKey,
+	}
+	if err := config.WriteConfigFile(c.workDir, c.profile); err != nil {
+		return errors.Wrapf(err, "failed to write config file")
+	}
+	return nil
+}
+
+func (c *cryptor) GenerateEd25519KeyPairWithProfile(projectName string, profile string) error {
+	c.profile = profile
+	privKey, pubKey, err := ciphers.GenerateEd25519KeyPair()
+	if err != nil {
+		return errors.Wrapf(err, "failed to generate ed25519 key pair")
+	}
+
+	privKeyPem, err := ciphers.MarshalEd25519PrivateKey(privKey)
+	if err != nil {
+		return errors.Wrapf(err, "failed to marshal ed25519 private key")
+	}
+	c.currentPrivateKey = privKeyPem
+
+	mPubKey, err := ciphers.MarshalEd25519PublicKey(pubKey)
+	if err != nil {
+		return errors.Wrapf(err, "failed to serialize ed25519 public key")
 	}
 
 	c.currentPublicKey = TrimPubKey(string(mPubKey))

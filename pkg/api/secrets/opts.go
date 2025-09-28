@@ -111,6 +111,16 @@ func WithGeneratedKeys(projectName, profile string) Option {
 	}
 }
 
+func WithGeneratedEd25519Keys(projectName, profile string) Option {
+	return Option{
+		f: func(c *cryptor) error {
+			c.profile = profile
+			c.projectName = projectName
+			return c.GenerateEd25519KeyPairWithProfile(c.projectName, c.profile)
+		},
+	}
+}
+
 func WithKeysFromScConfig(profile string) Option {
 	return Option{
 		f: func(c *cryptor) error {

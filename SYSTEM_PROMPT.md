@@ -154,6 +154,28 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
   - Verified MongoDB Atlas and Redis resources rely on compute processor auto-injection of environment variables
   - Final verification confirmed zero remaining instances of fictional `connectionString` property
 
+## Cryptographic Capabilities
+### Public Key Support
+- **RSA 2048+**: Traditional RSA encryption using OAEP padding with SHA-256/SHA-512
+- **ED25519**: Modern elliptic curve cryptography using HKDF-based approach
+  - **Key Derivation**: HKDF-SHA256 derives encryption keys from ed25519 public key + random salt
+  - **Symmetric Encryption**: ChaCha20-Poly1305 authenticated encryption
+  - **Security**: Non-deterministic encryption with random salts for each operation
+  - **Format**: SSH authorized key format for public keys, PKCS#8 for private keys
+
+### Encryption Functions
+- `EncryptLargeString()` - Auto-detects and supports both RSA and ed25519 public keys
+- `DecryptLargeString()` - RSA decryption with chunked support  
+- `DecryptLargeStringWithEd25519()` - Ed25519 HKDF-based decryption
+- `GenerateKeyPair()` - RSA key pair generation
+- `GenerateEd25519KeyPair()` - Ed25519 key pair generation
+
+### Cryptor Integration
+- `GenerateEd25519KeyPairWithProfile()` - Creates ed25519 keys with profile configuration
+- `WithGeneratedEd25519Keys()` - Option for ed25519 key generation in cryptor
+- Automatic key type detection in decryption process
+- Full backward compatibility with existing RSA workflows
+
 ## Key Learnings
 - Always verify actual struct definitions before documenting resource properties
 - Use real-world examples from the aiwayz-sc-config project for accurate documentation

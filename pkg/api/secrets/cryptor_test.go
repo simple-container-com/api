@@ -173,6 +173,17 @@ func TestNewCryptor(t *testing.T) {
 			},
 			wantErr: "git repo is not configured",
 		},
+		{
+			name:           "happy path with ed25519 keys",
+			testExampleDir: "testdata/repo",
+			opts: []Option{
+				withGitDir("gitdir"),
+				WithProfile("test-profile"),
+				WithGeneratedEd25519Keys("test-project", "test-profile"),
+			},
+			prepareMocks: acceptAllChanges,
+			actions:      happyPathEd25519Scenario,
+		},
 	}
 	t.Parallel()
 	for _, tt := range cases {
@@ -359,4 +370,122 @@ func cloneWorkdir(c Cryptor, wd, pubKey, privKey string, m *mocks) (Cryptor, fun
 		WithConsoleReader(m.consoleReaderMock),
 	)
 	return anotherC, cleanup, err
+}
+
+func happyPathEd25519Scenario(t *testing.T, c Cryptor, m *mocks, wd string) {
+	oldSecretFile1Content, err := os.ReadFile("testdata/repo/stacks/common/secrets.yaml")
+	Expect(err).To(BeNil())
+	oldSecretFile2Content, err := os.ReadFile("testdata/repo/stacks/refapp/secrets.yaml")
+	Expect(err).To(BeNil())
+	commonSecretsFilePath := path.Join(wd, "stacks/common/secrets.yaml")
+	refappSecretsFilePath := path.Join(wd, "stacks/refapp/secrets.yaml")
+
+	t.Run("add file", func(t *testing.T) {
+		Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+		secrets := c.GetSecretFiles().Secrets
+		Expect(secrets).NotTo(BeNil())
+		Expect(secrets).To(HaveKey(c.PublicKey()))
+		files := secrets[c.PublicKey()].Files
+		Expect(files).To(HaveLen(1))
+		Expect(files[0].Path).To(Equal("stacks/common/secrets.yaml"))
+		Expect(files[0].EncryptedData).NotTo(BeEmpty())
+		Expect(c.AddFile("stacks/refapp/secrets.yaml")).To(BeNil())
+	})
+
+	gitIgnoreFile := path.Join(wd, ".gitignore")
+	t.Run("secrets added to gitignore", func(t *testing.T) {
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile(gitIgnoreFile)
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/common/secrets.yaml"))
+		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/refapp/secrets.yaml"))
+	})
+
+	t.Run("decrypt file", func(t *testing.T) {
+		Expect(os.RemoveAll(commonSecretsFilePath)).To(BeNil())
+		Expect(c.DecryptAll(false)).To(BeNil())
+		newSecretFileContent, err := os.ReadFile(commonSecretsFilePath)
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFile1Content))
+
+		newSecretFileContent, err = os.ReadFile(refappSecretsFilePath)
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
+	})
+
+	// Test ed25519 key compatibility by generating another ed25519 key pair
+	anotherEd25519PrivKey, anotherEd25519PubKey, err := ciphers.GenerateEd25519KeyPair()
+	Expect(err).To(BeNil())
+	anotherEd25519PubKeySSH, err := ciphers.MarshalEd25519PublicKey(anotherEd25519PubKey)
+	Expect(err).To(BeNil())
+	anotherEd25519PrivKeyPEM, err := ciphers.MarshalEd25519PrivateKey(anotherEd25519PrivKey)
+	Expect(err).To(BeNil())
+
+	anotherEd25519PubKeyString := strings.TrimSpace(string(anotherEd25519PubKeySSH))
+
+	t.Run("allow another ed25519 key", func(t *testing.T) {
+		Expect(c.AddPublicKey(anotherEd25519PubKeyString)).To(BeNil())
+		Expect(c.ReadSecretFiles()).To(BeNil())
+		knownKeys := c.GetKnownPublicKeys()
+		Expect(knownKeys).To(ContainElement(c.PublicKey()))
+		Expect(knownKeys).To(ContainElement(anotherEd25519PubKeyString))
+	})
+
+	// clone to another dir with ed25519 key
+	anotherC, cleanup, err := cloneWorkdir(c, wd, anotherEd25519PubKeyString, anotherEd25519PrivKeyPEM, m)
+	Expect(err).To(BeNil())
+	defer cleanup()
+
+	t.Run("decrypt secrets in another dir with ed25519", func(t *testing.T) {
+		Expect(anotherC.PrivateKey()).To(Equal(anotherEd25519PrivKeyPEM))
+		Expect(anotherC.ReadSecretFiles()).To(BeNil())
+		knownKeys := anotherC.GetKnownPublicKeys()
+		Expect(knownKeys).To(ContainElement(c.PublicKey()))
+		Expect(knownKeys).To(ContainElement(anotherEd25519PubKeyString))
+		Expect(anotherC.DecryptAll(false)).To(BeNil())
+
+		newSecretFileContent, err := os.ReadFile(path.Join(anotherC.Workdir(), "stacks/common/secrets.yaml"))
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFile1Content))
+
+		newSecretFileContent, err = os.ReadFile(path.Join(anotherC.Workdir(), "stacks/refapp/secrets.yaml"))
+		Expect(err).To(BeNil())
+		Expect(newSecretFileContent).To(Equal(oldSecretFile2Content))
+	})
+
+	t.Run("verify ed25519 key format in config", func(t *testing.T) {
+		// Verify the generated ed25519 keys are properly formatted
+		Expect(c.PublicKey()).To(HavePrefix("ssh-ed25519 "))
+		Expect(c.PrivateKey()).To(ContainSubstring("-----BEGIN PRIVATE KEY-----"))
+		Expect(c.PrivateKey()).To(ContainSubstring("-----END PRIVATE KEY-----"))
+	})
+
+	t.Run("do not re-encrypt if no changes", func(t *testing.T) {
+		prevEncrypted := c.GetSecretFiles().Secrets[c.PublicKey()].Files
+		Expect(c.EncryptChanged(false, false)).To(BeNil())
+		newEncrypted := c.GetSecretFiles().Secrets[c.PublicKey()].Files
+		Expect(prevEncrypted).To(Equal(newEncrypted))
+	})
+
+	t.Run("remove file", func(t *testing.T) {
+		Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(BeNil())
+		secrets := c.GetSecretFiles().Secrets
+		Expect(secrets).NotTo(BeNil())
+		Expect(secrets).To(HaveKey(c.PublicKey()))
+		files := secrets[c.PublicKey()].Files
+		Expect(files).To(HaveLen(1))
+
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile(path.Join(wd, ".gitignore"))
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).NotTo(ContainSubstring("stacks/common/secrets.yaml"))
+	})
+
+	t.Run("secrets removed from gitignore", func(t *testing.T) {
+		Expect(gitIgnoreFile).To(BeAnExistingFile())
+		gitignoreContent, err := os.ReadFile(path.Join(wd, ".gitignore"))
+		Expect(err).To(BeNil())
+		Expect(string(gitignoreContent)).NotTo(ContainSubstring("stacks/common/secrets.yaml"))
+		Expect(string(gitignoreContent)).To(ContainSubstring("stacks/refapp/secrets.yaml"))
+	})
 }
