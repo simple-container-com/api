@@ -37,6 +37,11 @@ modules:
         - task: rebuild
         - task: deploy
     dockerImages:
+      - name: kubectl
+        dockerFile: ${project:root}/kubectl.Dockerfile
+        tags:
+          - simplecontainer/kubectl:latest
+          - simplecontainer/kubectl:${project:version}
       - name: caddy
         dockerFile: ${project:root}/caddy.Dockerfile
         tags:

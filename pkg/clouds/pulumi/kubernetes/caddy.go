@@ -104,7 +104,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 	initContainer := corev1.ContainerArgs{
 		Name:  sdk.String("generate-caddyfile"),
-		Image: sdk.String("bitnami/kubectl:latest"),
+		Image: sdk.String("simplecontainer/kubectl:latest"),
 		VolumeMounts: corev1.VolumeMountArray{
 			corev1.VolumeMountArgs{
 				MountPath: sdk.String("/tmp"),
