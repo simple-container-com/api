@@ -148,10 +148,7 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 				deployCfg.NodeSelector["node.kubernetes.io/instance-type"] = *k8sCloudExtras.Affinity.ComputeClass
 			}
 
-			// For exclusive node pool, add anti-affinity to prevent scheduling on other pools
-			if k8sCloudExtras.Affinity.ExclusiveNodePool != nil && *k8sCloudExtras.Affinity.ExclusiveNodePool {
-				// This will be handled in simple_container.go with proper Kubernetes affinity rules
-			}
+			// For exclusive node pool, anti-affinity rules are handled in simple_container.go
 		}
 	}
 	res := &KubeRunInput{

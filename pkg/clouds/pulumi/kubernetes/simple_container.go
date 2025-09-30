@@ -677,7 +677,7 @@ func convertAffinityRulesToKubernetes(affinity *k8s.AffinityRules) *corev1.Affin
 
 	// Convert pod anti-affinity
 	if affinity.PodAntiAffinity != nil {
-		kubeAffinity.PodAntiAffinity = convertPodAffinity(affinity.PodAntiAffinity)
+		kubeAffinity.PodAntiAffinity = convertPodAntiAffinity(affinity.PodAntiAffinity)
 	}
 
 	// Handle Space Pay specific rules for exclusive node pool
@@ -693,23 +693,19 @@ func convertAffinityRulesToKubernetes(affinity *k8s.AffinityRules) *corev1.Affin
 			Values:   sdk.StringArray{sdk.String(*affinity.NodePool)},
 		}
 
-		if kubeAffinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
-			kubeAffinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelectorArgs{
+		// Create a new node affinity with the exclusive node pool requirement
+		nodeAffinityArgs := &corev1.NodeAffinityArgs{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelectorArgs{
 				NodeSelectorTerms: corev1.NodeSelectorTermArray{
 					corev1.NodeSelectorTermArgs{
 						MatchExpressions: corev1.NodeSelectorRequirementArray{nodePoolRequirement},
 					},
 				},
-			}
-		} else {
-			// Add to existing requirements
-			kubeAffinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = append(
-				kubeAffinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
-				corev1.NodeSelectorTermArgs{
-					MatchExpressions: corev1.NodeSelectorRequirementArray{nodePoolRequirement},
-				},
-			)
+			},
 		}
+
+		// Override existing node affinity with exclusive node pool requirement
+		kubeAffinity.NodeAffinity = nodeAffinityArgs
 	}
 
 	return kubeAffinity
@@ -830,6 +826,38 @@ func convertPodAffinity(podAffinity *k8s.PodAffinity) *corev1.PodAffinityArgs {
 	}
 
 	return kubePodAffinity
+}
+
+// convertPodAntiAffinity converts Simple Container pod anti-affinity to Kubernetes pod anti-affinity
+func convertPodAntiAffinity(podAntiAffinity *k8s.PodAffinity) *corev1.PodAntiAffinityArgs {
+	if podAntiAffinity == nil {
+		return nil
+	}
+
+	kubePodAntiAffinity := &corev1.PodAntiAffinityArgs{}
+
+	// Convert required pod anti-affinity
+	if len(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+		requiredTerms := make(corev1.PodAffinityTermArray, len(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+			requiredTerms[i] = convertPodAffinityTerm(term)
+		}
+		kubePodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution = requiredTerms
+	}
+
+	// Convert preferred pod anti-affinity
+	if len(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.WeightedPodAffinityTermArray, len(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.WeightedPodAffinityTermArgs{
+				Weight:          sdk.Int(int(term.Weight)),
+				PodAffinityTerm: convertPodAffinityTerm(term.PodAffinityTerm),
+			}
+		}
+		kubePodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubePodAntiAffinity
 }
 
 // convertPodAffinityTerm converts Simple Container pod affinity term to Kubernetes pod affinity term
