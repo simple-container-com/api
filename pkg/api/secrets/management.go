@@ -40,14 +40,17 @@ func (c *cryptor) ReadSecretFiles() error {
 func (c *cryptor) GetAndDecryptFileContent(relPath string) ([]byte, error) {
 	defer c.withReadLock()()
 
-	if f, found := c.secrets.Secrets[c.currentPublicKey]; !found {
+	// Normalize the current public key to ensure it matches how keys are stored in secrets map
+	normalizedCurrentKey := TrimPubKey(c.currentPublicKey)
+
+	if f, found := c.secrets.Secrets[normalizedCurrentKey]; !found {
 		return nil, errors.Errorf("secret file %q not found", relPath)
 	} else if encrypted, found := lo.Find(f.Files, func(item EncryptedSecretFile) bool {
 		return item.Path == relPath
 	}); !found {
 		return nil, errors.Errorf("encrypted secret file %q not found", relPath)
 	} else if content, err := c.decryptSecretData(encrypted.EncryptedData); err != nil {
-		return nil, errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", relPath, c.currentPublicKey)
+		return nil, errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", relPath, normalizedCurrentKey)
 	} else {
 		return content, nil
 	}
@@ -180,13 +183,17 @@ func (c *cryptor) DecryptAll(forceChanged bool) error {
 		return errors.New("public key is not configured")
 	}
 
-	if _, ok := c.secrets.Secrets[c.currentPublicKey]; !ok {
-		return errors.Errorf("current public key (%s) is not found in secrets: no decryption can be made", c.currentPublicKey)
+	// Normalize the current public key to ensure it matches how keys are stored in secrets map
+	// Keys in secrets.Secrets are always normalized (aliases removed) by EncryptChanged()
+	normalizedCurrentKey := TrimPubKey(c.currentPublicKey)
+
+	if _, ok := c.secrets.Secrets[normalizedCurrentKey]; !ok {
+		return errors.Errorf("current public key (%s) is not found in secrets: no decryption can be made", normalizedCurrentKey)
 	}
 
-	for _, sFile := range c.secrets.Secrets[c.currentPublicKey].Files {
+	for _, sFile := range c.secrets.Secrets[normalizedCurrentKey].Files {
 		if _, err := c.decryptSecretDataToFile(sFile.EncryptedData, sFile.Path, forceChanged); err != nil {
-			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, c.currentPublicKey)
+			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, normalizedCurrentKey)
 		}
 	}
 
@@ -194,6 +201,9 @@ func (c *cryptor) DecryptAll(forceChanged bool) error {
 }
 
 func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
+	// Normalize the current public key to ensure it matches how keys are stored in secrets map
+	normalizedCurrentKey := TrimPubKey(c.currentPublicKey)
+
 	c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
 		return TrimPubKey(key)
 	})
@@ -211,7 +221,7 @@ func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to read secret file %q", relFilePath)
 		}
-		secrets := c.secrets.Secrets[c.currentPublicKey]
+		secrets := c.secrets.Secrets[normalizedCurrentKey]
 
 		currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath))
 		if currentContent != nil && string(secretData) == string(currentContent) && !force {
@@ -243,7 +253,7 @@ func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 			c.secrets.Secrets[publicKey] = pKeySecrets
 		}
 
-		sFile, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
+		sFile, err := c.encryptSecretsFileWith(normalizedCurrentKey, relFilePath)
 		if err != nil {
 			return err
 		}
@@ -257,7 +267,7 @@ func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 			secrets.RemoveFile(sFile)
 		}
 		secrets.AddFileIfNotExist(sFile)
-		c.secrets.Secrets[c.currentPublicKey] = secrets
+		c.secrets.Secrets[normalizedCurrentKey] = secrets
 	}
 	return nil
 }
