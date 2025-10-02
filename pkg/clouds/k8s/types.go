@@ -25,6 +25,7 @@ type DeploymentConfig struct {
 	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
 	RollingUpdate    *RollingUpdate          `json:"rollingUpdate" yaml:"rollingUpdate"`
 	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
 }
 
 type CaddyConfig struct {

@@ -110,6 +110,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			"pulumi.com/patchForce": "true",
 		},
 		NodeSelector: nodeSelector,
+		Affinity:     kubeRunInput.Deployment.Affinity,
 	}
 
 	if kubeRunInput.RegistryRequiresAuth() {

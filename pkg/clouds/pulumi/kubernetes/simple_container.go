@@ -63,6 +63,7 @@ type SimpleContainerArgs struct {
 	SecretEnvs        map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
 	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
 	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
 	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
@@ -353,6 +354,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Deployment
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
+		Affinity:     convertAffinityRulesToKubernetes(args.Affinity),
 		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
 			for _, c := range scOuts {
 				initContainers = append(initContainers, c.(corev1.ContainerInput))
@@ -653,4 +655,263 @@ func addVolumeMountsFromOutputs(volumeName string, volumes []any, volumeMounts *
 			}
 		}).(corev1.VolumeMountOutput))
 	}
+}
+
+// convertAffinityRulesToKubernetes converts Simple Container affinity rules to Kubernetes affinity
+func convertAffinityRulesToKubernetes(affinity *k8s.AffinityRules) *corev1.AffinityArgs {
+	if affinity == nil {
+		return nil
+	}
+
+	kubeAffinity := &corev1.AffinityArgs{}
+
+	// Convert node affinity
+	if affinity.NodeAffinity != nil {
+		kubeAffinity.NodeAffinity = convertNodeAffinity(affinity.NodeAffinity)
+	}
+
+	// Convert pod affinity
+	if affinity.PodAffinity != nil {
+		kubeAffinity.PodAffinity = convertPodAffinity(affinity.PodAffinity)
+	}
+
+	// Convert pod anti-affinity
+	if affinity.PodAntiAffinity != nil {
+		kubeAffinity.PodAntiAffinity = convertPodAntiAffinity(affinity.PodAntiAffinity)
+	}
+
+	// Handle Space Pay specific rules for exclusive node pool
+	if affinity.ExclusiveNodePool != nil && *affinity.ExclusiveNodePool && affinity.NodePool != nil {
+		// Create node affinity to require the specific node pool
+		if kubeAffinity.NodeAffinity == nil {
+			kubeAffinity.NodeAffinity = &corev1.NodeAffinityArgs{}
+		}
+
+		nodePoolRequirement := corev1.NodeSelectorRequirementArgs{
+			Key:      sdk.String("cloud.google.com/gke-nodepool"),
+			Operator: sdk.String("In"),
+			Values:   sdk.StringArray{sdk.String(*affinity.NodePool)},
+		}
+
+		// Create a new node affinity with the exclusive node pool requirement
+		nodeAffinityArgs := &corev1.NodeAffinityArgs{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelectorArgs{
+				NodeSelectorTerms: corev1.NodeSelectorTermArray{
+					corev1.NodeSelectorTermArgs{
+						MatchExpressions: corev1.NodeSelectorRequirementArray{nodePoolRequirement},
+					},
+				},
+			},
+		}
+
+		// Override existing node affinity with exclusive node pool requirement
+		kubeAffinity.NodeAffinity = nodeAffinityArgs
+	}
+
+	return kubeAffinity
+}
+
+// convertNodeAffinity converts Simple Container node affinity to Kubernetes node affinity
+func convertNodeAffinity(nodeAffinity *k8s.NodeAffinity) *corev1.NodeAffinityArgs {
+	if nodeAffinity == nil {
+		return nil
+	}
+
+	kubeNodeAffinity := &corev1.NodeAffinityArgs{}
+
+	// Convert required node affinity
+	if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+		kubeNodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = convertNodeSelector(nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution)
+	}
+
+	// Convert preferred node affinity
+	if len(nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.PreferredSchedulingTermArray, len(nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.PreferredSchedulingTermArgs{
+				Weight:     sdk.Int(int(term.Weight)),
+				Preference: convertNodeSelectorTerm(term.Preference),
+			}
+		}
+		kubeNodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubeNodeAffinity
+}
+
+// convertNodeSelector converts Simple Container node selector to Kubernetes node selector
+func convertNodeSelector(nodeSelector *k8s.NodeSelector) *corev1.NodeSelectorArgs {
+	if nodeSelector == nil {
+		return nil
+	}
+
+	terms := make(corev1.NodeSelectorTermArray, len(nodeSelector.NodeSelectorTerms))
+	for i, term := range nodeSelector.NodeSelectorTerms {
+		terms[i] = convertNodeSelectorTerm(term)
+	}
+
+	return &corev1.NodeSelectorArgs{
+		NodeSelectorTerms: terms,
+	}
+}
+
+// convertNodeSelectorTerm converts Simple Container node selector term to Kubernetes node selector term
+func convertNodeSelectorTerm(term k8s.NodeSelectorTerm) corev1.NodeSelectorTermArgs {
+	kubeTerm := corev1.NodeSelectorTermArgs{}
+
+	// Convert match expressions
+	if len(term.MatchExpressions) > 0 {
+		matchExpressions := make(corev1.NodeSelectorRequirementArray, len(term.MatchExpressions))
+		for i, expr := range term.MatchExpressions {
+			values := make(sdk.StringArray, len(expr.Values))
+			for j, val := range expr.Values {
+				values[j] = sdk.String(val)
+			}
+			matchExpressions[i] = corev1.NodeSelectorRequirementArgs{
+				Key:      sdk.String(expr.Key),
+				Operator: sdk.String(expr.Operator),
+				Values:   values,
+			}
+		}
+		kubeTerm.MatchExpressions = matchExpressions
+	}
+
+	// Convert match fields
+	if len(term.MatchFields) > 0 {
+		matchFields := make(corev1.NodeSelectorRequirementArray, len(term.MatchFields))
+		for i, field := range term.MatchFields {
+			values := make(sdk.StringArray, len(field.Values))
+			for j, val := range field.Values {
+				values[j] = sdk.String(val)
+			}
+			matchFields[i] = corev1.NodeSelectorRequirementArgs{
+				Key:      sdk.String(field.Key),
+				Operator: sdk.String(field.Operator),
+				Values:   values,
+			}
+		}
+		kubeTerm.MatchFields = matchFields
+	}
+
+	return kubeTerm
+}
+
+// convertPodAffinity converts Simple Container pod affinity to Kubernetes pod affinity
+func convertPodAffinity(podAffinity *k8s.PodAffinity) *corev1.PodAffinityArgs {
+	if podAffinity == nil {
+		return nil
+	}
+
+	kubePodAffinity := &corev1.PodAffinityArgs{}
+
+	// Convert required pod affinity
+	if len(podAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+		requiredTerms := make(corev1.PodAffinityTermArray, len(podAffinity.RequiredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+			requiredTerms[i] = convertPodAffinityTerm(term)
+		}
+		kubePodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = requiredTerms
+	}
+
+	// Convert preferred pod affinity
+	if len(podAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.WeightedPodAffinityTermArray, len(podAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.WeightedPodAffinityTermArgs{
+				Weight:          sdk.Int(int(term.Weight)),
+				PodAffinityTerm: convertPodAffinityTerm(term.PodAffinityTerm),
+			}
+		}
+		kubePodAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubePodAffinity
+}
+
+// convertPodAntiAffinity converts Simple Container pod anti-affinity to Kubernetes pod anti-affinity
+func convertPodAntiAffinity(podAntiAffinity *k8s.PodAffinity) *corev1.PodAntiAffinityArgs {
+	if podAntiAffinity == nil {
+		return nil
+	}
+
+	kubePodAntiAffinity := &corev1.PodAntiAffinityArgs{}
+
+	// Convert required pod anti-affinity
+	if len(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+		requiredTerms := make(corev1.PodAffinityTermArray, len(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+			requiredTerms[i] = convertPodAffinityTerm(term)
+		}
+		kubePodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution = requiredTerms
+	}
+
+	// Convert preferred pod anti-affinity
+	if len(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.WeightedPodAffinityTermArray, len(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.WeightedPodAffinityTermArgs{
+				Weight:          sdk.Int(int(term.Weight)),
+				PodAffinityTerm: convertPodAffinityTerm(term.PodAffinityTerm),
+			}
+		}
+		kubePodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubePodAntiAffinity
+}
+
+// convertPodAffinityTerm converts Simple Container pod affinity term to Kubernetes pod affinity term
+func convertPodAffinityTerm(term k8s.PodAffinityTerm) corev1.PodAffinityTermArgs {
+	kubeTerm := corev1.PodAffinityTermArgs{
+		TopologyKey: sdk.String(term.TopologyKey),
+	}
+
+	// Convert label selector
+	if term.LabelSelector != nil {
+		kubeTerm.LabelSelector = convertLabelSelector(term.LabelSelector)
+	}
+
+	// Convert namespaces
+	if len(term.Namespaces) > 0 {
+		namespaces := make(sdk.StringArray, len(term.Namespaces))
+		for i, ns := range term.Namespaces {
+			namespaces[i] = sdk.String(ns)
+		}
+		kubeTerm.Namespaces = namespaces
+	}
+
+	return kubeTerm
+}
+
+// convertLabelSelector converts Simple Container label selector to Kubernetes label selector
+func convertLabelSelector(labelSelector *k8s.LabelSelector) *metav1.LabelSelectorArgs {
+	if labelSelector == nil {
+		return nil
+	}
+
+	kubeLabelSelector := &metav1.LabelSelectorArgs{}
+
+	// Convert match labels
+	if len(labelSelector.MatchLabels) > 0 {
+		kubeLabelSelector.MatchLabels = sdk.ToStringMap(labelSelector.MatchLabels)
+	}
+
+	// Convert match expressions
+	if len(labelSelector.MatchExpressions) > 0 {
+		matchExpressions := make(metav1.LabelSelectorRequirementArray, len(labelSelector.MatchExpressions))
+		for i, expr := range labelSelector.MatchExpressions {
+			values := make(sdk.StringArray, len(expr.Values))
+			for j, val := range expr.Values {
+				values[j] = sdk.String(val)
+			}
+			matchExpressions[i] = metav1.LabelSelectorRequirementArgs{
+				Key:      sdk.String(expr.Key),
+				Operator: sdk.String(expr.Operator),
+				Values:   values,
+			}
+		}
+		kubeLabelSelector.MatchExpressions = matchExpressions
+	}
+
+	return kubeLabelSelector
 }

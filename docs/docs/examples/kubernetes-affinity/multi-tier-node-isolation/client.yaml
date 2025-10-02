@@ -1,0 +1,152 @@
+# Multi-Tier Services - Client Stack Configuration
+# File: .sc/stacks/mycompany-services/client.yaml
+
+schemaVersion: 1.0
+
+stacks:
+  # Processing Services - High Performance Node Pool
+  processing-production:
+    type: cloud-compose
+    parent: mycompany/infrastructure
+    config:
+      uses: [cloud-sql-postgres, redis-memorystore]
+      domain: api.mycompany.com
+      runs: [processing-api, celery-workers]
+      scale:
+        min: 2
+        max: 8
+      # Node Pool Isolation for Processing Workloads
+      cloudExtras:
+        affinity:
+          # Space Pay specific node pool assignment
+          nodePool: "processing"
+          # Ensure exclusive scheduling on the processing node pool
+          exclusiveNodePool: true
+          # Specify compute class for performance optimization
+          computeClass: "Performance"
+          # Advanced node affinity for high-performance requirements
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "cloud.google.com/gke-nodepool"
+                      operator: "In"
+                      values: ["processing"]
+                    - key: "node.kubernetes.io/instance-type"
+                      operator: "In"
+                      values: ["n1-highmem-4", "n1-highmem-8"]
+
+  # Telegram Bot Services - General Purpose Node Pool
+  telegram-bot-production:
+    type: cloud-compose  
+    parent: mycompany/infrastructure
+    config:
+      uses: [cloud-sql-postgres, redis-memorystore]
+      domain: bot.mycompany.com
+      runs: [telegram-bot, support-bot]
+      scale:
+        min: 1
+        max: 6
+      # Node Pool Isolation for Bot Services
+      cloudExtras:
+        affinity:
+          nodePool: "bots"
+          exclusiveNodePool: true
+          computeClass: "general-purpose"
+          # Prefer spreading across different nodes for availability
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 50
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      appName: "telegram-bot"
+                  topologyKey: "kubernetes.io/hostname"
+          
+  # White Label Client A - Scale-Out Node Pool
+  whitelabel-client-a:
+    type: cloud-compose
+    parent: mycompany/infrastructure
+    config:
+      uses: [cloud-sql-postgres, redis-memorystore]
+      domain: client-a.mycompany.com
+      runs: [telegram-bot]
+      scale:
+        min: 0  # Can scale to zero for cost optimization
+        max: 3
+      env:
+        # Client-specific configuration
+        CLIENT_NAME: "client-a"
+        CLIENT_ID: "mycompany-client-a"
+      # Scale-Out Node Pool for Cost Optimization
+      cloudExtras:
+        affinity:
+          nodePool: "whitelabel"
+          exclusiveNodePool: true
+          computeClass: "Scale-Out"
+          # Anti-affinity to spread white label clients across nodes
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      appType: "simple-container"
+                  topologyKey: "kubernetes.io/hostname"
+
+  # White Label Client B - Another Scale-Out Example
+  whitelabel-client-b:
+    type: cloud-compose
+    parent: mycompany/infrastructure
+    config:
+      uses: [cloud-sql-postgres, redis-memorystore]
+      domain: client-b.mycompany.com
+      runs: [telegram-bot]
+      scale:
+        min: 0
+        max: 3
+      env:
+        CLIENT_NAME: "client-b"
+        CLIENT_ID: "mycompany-client-b"
+      # Same affinity rules as other white label clients
+      cloudExtras:
+        affinity:
+          nodePool: "whitelabel"
+          exclusiveNodePool: true
+          computeClass: "Scale-Out"
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      appType: "simple-container"
+                  topologyKey: "kubernetes.io/hostname"
+
+  # Staging Environment - Shared Node Pool
+  processing-staging:
+    type: cloud-compose
+    parent: mycompany/infrastructure
+    parentEnv: staging
+    config:
+      uses: [cloud-sql-postgres, redis-memorystore]
+      domain: api-staging.mycompany.com
+      runs: [processing-api, celery-workers]
+      scale:
+        min: 1
+        max: 3
+      # Staging can use default node pool (no affinity rules)
+      # This demonstrates mixed deployment strategies
+
+  telegram-bot-staging:
+    type: cloud-compose
+    parent: mycompany/infrastructure
+    parentEnv: staging
+    config:
+      uses: [cloud-sql-postgres, redis-memorystore]
+      domain: bot-staging.mycompany.com
+      runs: [telegram-bot]
+      scale:
+        min: 1
+        max: 2
+      # Staging environment without specific node pool requirements

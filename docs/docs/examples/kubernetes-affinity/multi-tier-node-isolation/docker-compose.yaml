@@ -1,0 +1,120 @@
+# Multi-Tier Application Services
+# File: docker-compose.yaml
+
+version: '3.8'
+
+services:
+  # Processing API - Django REST API
+  processing-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    labels:
+      - "simple-container.com/ingress=true"
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=mycompany.settings.production
+      - DATABASE_URL=postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}/0
+      - CELERY_BROKER_URL=redis://${REDIS_HOST}:${REDIS_PORT}/1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Celery Workers - Background Task Processing
+  celery-workers:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - DJANGO_SETTINGS_MODULE=mycompany.settings.production
+      - DATABASE_URL=postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}/0
+      - CELERY_BROKER_URL=redis://${REDIS_HOST}:${REDIS_PORT}/1
+      - CELERY_WORKER_CONCURRENCY=4
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    command: ["celery", "-A", "mycompany", "worker", "--loglevel=info", "--concurrency=4"]
+
+  # Telegram Bot - Main Bot Service
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    labels:
+      - "simple-container.com/ingress=true"
+    ports:
+      - "8080:8080"
+    environment:
+      - DJANGO_SETTINGS_MODULE=mycompany.settings.production
+      - DATABASE_URL=postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}/0
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - CLIENT_NAME=${CLIENT_NAME:-mycompany}
+      - CLIENT_ID=${CLIENT_ID:-mycompany-main}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Support Bot - Customer Support Bot
+  support-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.support
+    environment:
+      - DJANGO_SETTINGS_MODULE=mycompany.settings.production
+      - DATABASE_URL=postgresql://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
+      - REDIS_URL=redis://${REDIS_HOST}:${REDIS_PORT}/0
+      - TELEGRAM_BOT_TOKEN=${SUPPORT_BOT_TOKEN}
+      - SUPPORT_MODE=true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+    command: ["python", "manage.py", "run_support_bot"]
+
+# Volumes for persistent data (if needed)
+volumes:
+  postgres_data:
+    labels:
+      - "simple-container.com/volume-size=10Gi"
+      - "simple-container.com/volume-access-modes=ReadWriteOnce"
+      - "simple-container.com/volume-storage-class=ssd"
+
+# Networks (Simple Container handles networking automatically)
+networks:
+  default:
+    name: mycompany-network
