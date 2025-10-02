@@ -181,3 +181,16 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
 - Use real-world examples from the aiwayz-sc-config project for accurate documentation
 - Template and resource separation allows flexible deployment patterns across environments
 - Resource references enable reusable templates with environment-specific configurations
+
+## Plugin System Architecture
+### Implementation Plan
+- **COMPREHENSIVE PLUGIN SYSTEM PLAN COMPLETED** - Created detailed implementation plan for Simple Container plugin system enabling custom Pulumi providers without core modifications
+- **Location**: `docs/docs/advanced/plugin-system-implementation-plan.md` 
+- **Communication Layer**: Go plugin architecture (.so files) with gRPC support planned for cross-language plugins
+- **Core Integration**: Seamless integration with existing resource registration (pApi.ProvisionFuncByType), JSON schema generation, compute processors, template placeholders
+- **Configuration**: server.yaml plugins section with source management (local/git/registry), versioning, security checksums
+- **Security**: Plugin sandboxing, source verification, runtime limits, audit logging
+- **Development Kit**: Plugin templates, build tools, testing framework, comprehensive documentation
+- **Implementation Phases**: 4 phases over 13-18 weeks covering core framework, PDK, advanced features, enterprise capabilities
+- **Backward Compatibility**: Full compatibility with existing Simple Container configurations and concepts
+- **Plugin automatically inherits**: Template placeholders (${resource:plugin-resource.property}), compute processor environment variables, JSON schema generation, secrets management
