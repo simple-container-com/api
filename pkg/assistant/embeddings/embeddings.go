@@ -5,14 +5,13 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	chromem "github.com/philippgille/chromem-go"
+	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
 //go:embed docs/**/*.md
@@ -52,7 +51,8 @@ type PrebuiltEmbeddings struct {
 }
 
 // LoadEmbeddedDatabase loads the pre-built documentation database from embedded data
-func LoadEmbeddedDatabase() (*Database, error) {
+func LoadEmbeddedDatabase(ctx context.Context) (*Database, error) {
+	log := logger.New()
 	// Initialize chromem-go database
 	db := chromem.NewDB()
 
@@ -73,12 +73,21 @@ func LoadEmbeddedDatabase() (*Database, error) {
 	}
 
 	// Load pre-built embeddings if available, otherwise build from embedded docs
-	if err := database.loadPrebuiltEmbeddings(); err != nil {
-		log.Printf("Warning: Failed to load pre-built embeddings, building from embedded docs: %v", err)
-		if err := database.loadFromEmbeddedDocs(); err != nil {
-			log.Printf("Warning: Failed to load from embedded docs: %v", err)
+	if err := database.loadPrebuiltEmbeddings(ctx, log); err != nil {
+		// This is expected when no pre-built vectors exist - only log in debug mode
+		log.Debug(ctx, "Failed to load pre-built embeddings, building from embedded docs: %v", err)
+	}
+
+	// If we have no documents (either pre-built failed or was empty), load from embedded docs
+	if database.Count() == 0 {
+		if err := database.loadFromEmbeddedDocs(ctx, log); err != nil {
+			log.Error(ctx, "Failed to initialize documentation database: %v", err)
 			return database, nil // Return empty database instead of failing
 		}
+		// Only show count in debug mode - users don't need to see internal details
+		log.Debug(ctx, "Initialized documentation database with %d documents", database.Count())
+	} else {
+		log.Debug(ctx, "Successfully loaded pre-built embeddings with %d documents", database.Count())
 	}
 
 	return database, nil
@@ -140,7 +149,7 @@ func SearchDocumentation(db *Database, query string, limit int) ([]SearchResult,
 }
 
 // loadPrebuiltEmbeddings loads pre-built embeddings from embedded data
-func (db *Database) loadPrebuiltEmbeddings() error {
+func (db *Database) loadPrebuiltEmbeddings(ctx context.Context, log logger.Logger) error {
 	if len(embeddedVectors) == 0 {
 		return fmt.Errorf("no embedded vectors data available")
 	}
@@ -170,18 +179,20 @@ func (db *Database) loadPrebuiltEmbeddings() error {
 			Embedding: doc.Embedding,
 		})
 		if err != nil {
-			log.Printf("Warning: Failed to add pre-built document %s: %v", doc.ID, err)
+			log.Warn(ctx, "Failed to add pre-built document %s: %v", doc.ID, err)
 		}
 	}
 
-	log.Printf("Loaded %d pre-built embeddings", len(prebuilt.Documents))
+	log.Debug(ctx, "Loaded %d pre-built embeddings", len(prebuilt.Documents))
 	return nil
 }
 
 // loadFromEmbeddedDocs builds embeddings from embedded markdown files
-func (db *Database) loadFromEmbeddedDocs() error {
+func (db *Database) loadFromEmbeddedDocs(ctx context.Context, log logger.Logger) error {
+	log.Debug(ctx, "Starting to load documents from embedded docs...")
 	// Walk through embedded documentation files
-	return db.walkEmbeddedDocs("docs", func(path string, content []byte) error {
+	docCount := 0
+	err := db.walkEmbeddedDocs(ctx, log, "docs", func(path string, content []byte) error {
 		// Skip non-markdown files
 		if !strings.HasSuffix(strings.ToLower(path), ".md") {
 			return nil
@@ -211,33 +222,42 @@ func (db *Database) loadFromEmbeddedDocs() error {
 			Metadata: metadata,
 		})
 		if err != nil {
-			log.Printf("Warning: Failed to add document %s: %v", id, err)
+			log.Warn(ctx, "Failed to add document %s: %v", id, err)
+		} else {
+			docCount++
+			log.Debug(ctx, "Added document: %s (%s)", id, title)
 		}
 
 		return nil
 	})
+
+	log.Debug(ctx, "Successfully loaded %d documents from embedded docs", docCount)
+	return err
 }
 
 // walkEmbeddedDocs walks through embedded documentation files
-func (db *Database) walkEmbeddedDocs(root string, fn func(path string, content []byte) error) error {
+func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, root string, fn func(path string, content []byte) error) error {
+	log.Debug(ctx, "Walking embedded docs starting from root: %s", root)
 	entries, err := embeddedDocs.ReadDir(root)
 	if err != nil {
+		log.Error(ctx, "Error reading embedded docs dir %s: %v", root, err)
 		return err
 	}
+	log.Debug(ctx, "Found %d entries in %s", len(entries), root)
 
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
 
 		if entry.IsDir() {
 			// Recursively walk subdirectories
-			if err := db.walkEmbeddedDocs(path, fn); err != nil {
+			if err := db.walkEmbeddedDocs(ctx, log, path, fn); err != nil {
 				return err
 			}
 		} else {
 			// Read file content
 			content, err := embeddedDocs.ReadFile(path)
 			if err != nil {
-				log.Printf("Warning: Failed to read embedded file %s: %v", path, err)
+				log.Warn(ctx, "Failed to read embedded file %s: %v", path, err)
 				continue
 			}
 
@@ -248,97 +268,6 @@ func (db *Database) walkEmbeddedDocs(root string, fn func(path string, content [
 	}
 
 	return nil
-}
-
-// initializeIfEmpty loads documentation into the database if it's empty (legacy method)
-func (db *Database) initializeIfEmpty() error {
-	// Check if collection already has documents
-	count := db.collection.Count()
-
-	if count > 0 {
-		// Already initialized
-		return nil
-	}
-
-	// Find documentation directory
-	docsPath := findDocsPath()
-	if docsPath == "" {
-		return fmt.Errorf("documentation directory not found")
-	}
-
-	// Index documentation files
-	return db.indexDocumentation(docsPath)
-}
-
-// findDocsPath attempts to find the documentation directory
-func findDocsPath() string {
-	// Common locations for Simple Container documentation
-	possiblePaths := []string{
-		"docs/docs",
-		"../docs/docs",
-		"../../docs/docs",
-		"./docs",
-		"../docs",
-	}
-
-	for _, path := range possiblePaths {
-		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			return path
-		}
-	}
-
-	return ""
-}
-
-// indexDocumentation recursively indexes markdown files in the documentation directory
-func (db *Database) indexDocumentation(docsPath string) error {
-	return filepath.Walk(docsPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Only process markdown files
-		if !strings.HasSuffix(strings.ToLower(path), ".md") {
-			return nil
-		}
-
-		// Read file content
-		content, err := os.ReadFile(path)
-		if err != nil {
-			log.Printf("Warning: Failed to read %s: %v", path, err)
-			return nil // Continue processing other files
-		}
-
-		// Create relative path for ID
-		relPath, _ := filepath.Rel(docsPath, path)
-		id := strings.ReplaceAll(relPath, "\\", "/") // Normalize path separators
-
-		// Extract title from first heading or use filename
-		title := extractTitleFromMarkdown(string(content))
-		if title == "" {
-			title = strings.TrimSuffix(filepath.Base(path), ".md")
-		}
-
-		// Create metadata
-		metadata := map[string]string{
-			"title": title,
-			"path":  relPath,
-			"type":  "documentation",
-		}
-
-		// Add document to collection
-		err = db.collection.AddDocument(context.Background(), chromem.Document{
-			ID:       id,
-			Content:  string(content),
-			Metadata: metadata,
-		})
-		if err != nil {
-			log.Printf("Warning: Failed to add document %s: %v", id, err)
-			return nil // Continue processing other files
-		}
-
-		return nil
-	})
 }
 
 // extractTitleFromMarkdown extracts the first heading from markdown content

@@ -275,7 +275,7 @@ func NewDefaultMCPHandler() MCPHandler {
 
 func (h *DefaultMCPHandler) SearchDocumentation(ctx context.Context, params SearchDocumentationParams) (*DocumentationSearchResult, error) {
 	// Load embedded documentation database
-	db, err := embeddings.LoadEmbeddedDatabase()
+	db, err := embeddings.LoadEmbeddedDatabase(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load documentation database: %w", err)
 	}

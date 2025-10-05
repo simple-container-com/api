@@ -50,7 +50,8 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 	}
 
 	// Load embeddings database
-	embeddingsDB, err := embeddings.LoadEmbeddedDatabase()
+	ctx := context.Background()
+	embeddingsDB, err := embeddings.LoadEmbeddedDatabase(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load embeddings database: %w", err)
 	}

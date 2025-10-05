@@ -40,7 +40,7 @@ func NewDeveloperMode() *DeveloperMode {
 	}
 
 	// Initialize embeddings database for documentation search
-	embeddingsDB, err := embeddings.LoadEmbeddedDatabase()
+	embeddingsDB, err := embeddings.LoadEmbeddedDatabase(context.Background())
 	if err != nil {
 		// Don't fail if embeddings can't be loaded - just use nil
 		embeddingsDB = nil

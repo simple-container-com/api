@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
@@ -397,8 +398,16 @@ func (a *AssistantCmd) runSearch(cmd *cobra.Command, query string, limit int, do
 	}
 	fmt.Println()
 
+	// Set up logging context based on verbose flag
+	ctx := context.Background()
+	log := logger.New()
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	if verbose {
+		ctx = log.SetLogLevel(ctx, logger.LogLevelDebug)
+	}
+
 	// Load embedded documentation database
-	db, err := embeddings.LoadEmbeddedDatabase()
+	db, err := embeddings.LoadEmbeddedDatabase(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load documentation database: %w", err)
 	}
@@ -463,7 +472,8 @@ func (a *AssistantCmd) runMCP(cmd *cobra.Command, host string, port int) error {
 
 // Helper function to check if embedded documentation is available
 func (a *AssistantCmd) checkEmbeddingsAvailable() bool {
-	_, err := embeddings.LoadEmbeddedDatabase()
+	ctx := context.Background()
+	_, err := embeddings.LoadEmbeddedDatabase(ctx)
 	return err == nil
 }
 
