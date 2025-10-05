@@ -81,6 +81,7 @@ type SessionConfig struct {
 	Mode           string            `json:"mode"`            // Chat mode (dev, devops, general)
 	ProjectPath    string            `json:"project_path"`    // Project path
 	LLMProvider    string            `json:"llm_provider"`    // LLM provider (openai, local, etc.)
+	APIKey         string            `json:"api_key"`         // LLM provider API key
 	MaxTokens      int               `json:"max_tokens"`      // Maximum tokens per response
 	Temperature    float32           `json:"temperature"`     // LLM temperature setting
 	EnableCommands bool              `json:"enable_commands"` // Enable chat commands

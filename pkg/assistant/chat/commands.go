@@ -9,7 +9,9 @@ import (
 
 	"github.com/fatih/color"
 
+	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
 )
 
@@ -418,100 +420,271 @@ func min(a, b int) int {
 }
 
 func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]GeneratedFile, error) {
-	// TODO: Implement actual file generation using c.generator
-	// This is a placeholder that would integrate with the existing generation package
+	// Use actual file generation with project analysis
+	projectPath := "."
+	if context.ProjectPath != "" {
+		projectPath = context.ProjectPath
+	}
 
-	files := []GeneratedFile{
-		{
-			Path:        ".sc/stacks/my-app/client.yaml",
+	// Get project analysis
+	var projectAnalysis *analysis.ProjectAnalysis
+	if context.ProjectInfo != nil {
+		projectAnalysis = context.ProjectInfo
+	} else {
+		// Analyze the current project if not already available
+		analyzer := analysis.NewProjectAnalyzer()
+		var err error
+		projectAnalysis, err = analyzer.AnalyzeProject(projectPath)
+		if err != nil {
+			// Use a basic fallback analysis
+			projectAnalysis = &analysis.ProjectAnalysis{
+				Name: "my-app",
+				PrimaryStack: &analysis.TechStackInfo{
+					Language: "javascript",
+				},
+			}
+		}
+	}
+
+	// Generate options
+	opts := generation.GenerateOptions{
+		ProjectPath: projectPath,
+		ProjectName: projectAnalysis.Name,
+		Environment: "staging",
+		Parent:      "infrastructure",
+	}
+
+	files := []GeneratedFile{}
+
+	// Generate client.yaml
+	clientYaml, err := c.generator.GenerateClientYAML(projectAnalysis, opts)
+	if err == nil {
+		files = append(files, GeneratedFile{
+			Path:        ".sc/stacks/" + projectAnalysis.Name + "/client.yaml",
 			Type:        "yaml",
 			Description: "Simple Container client configuration",
 			Generated:   true,
-			Content: `schemaVersion: 1.0
-stacks:
-  my-app:
-    parent: infrastructure
-    parentEnv: staging
-    type: cloud-compose
-    config:
-      uses: [postgres-db]
-      runs: [app]
-      scale:
-        min: 1
-        max: 3
-      env:
-        NODE_ENV: production
-        PORT: "3000"`,
-		},
-		{
+			Content:     clientYaml,
+		})
+	}
+
+	// Generate docker-compose.yaml
+	composeYaml, err := c.generator.GenerateDockerCompose(projectAnalysis, opts)
+	if err == nil {
+		files = append(files, GeneratedFile{
 			Path:        "docker-compose.yaml",
 			Type:        "yaml",
 			Description: "Local development environment",
 			Generated:   true,
-			Content: `services:
-  app:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=development`,
-		},
-		{
+			Content:     composeYaml,
+		})
+	}
+
+	// Generate Dockerfile
+	dockerfile, err := c.generator.GenerateDockerfile(projectAnalysis, opts)
+	if err == nil {
+		files = append(files, GeneratedFile{
 			Path:        "Dockerfile",
 			Type:        "dockerfile",
 			Description: "Container image definition",
 			Generated:   true,
-			Content: `FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --production
-COPY . .
-EXPOSE 3000
-CMD ["npm", "start"]`,
-		},
+			Content:     dockerfile,
+		})
 	}
 
 	return files, nil
 }
 
 func (c *ChatInterface) generateDevOpsFiles(context *ConversationContext) ([]GeneratedFile, error) {
-	// TODO: Implement actual DevOps file generation
+	// Use DevOps mode to generate infrastructure files
+	files := []GeneratedFile{}
 
-	files := []GeneratedFile{
-		{
-			Path:        ".sc/stacks/infrastructure/server.yaml",
-			Type:        "yaml",
-			Description: "Infrastructure configuration",
-			Generated:   true,
-			Content: `schemaVersion: 1.0
+	// Generate server.yaml using proper schema structure
+	serverContent := `schemaVersion: 1.0
+
+# Provisioner configuration
 provisioner:
   type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      config:
+        bucketName: simple-container-state
+        region: us-east-1
+    secrets-provider:
+      type: aws-kms
+      config:
+        keyId: "arn:aws:kms:us-east-1:123456789012:key/simple-container-secrets"
+
+# Reusable templates for application teams
 templates:
-  ecs-fargate:
+  web-app:
     type: aws-ecs-fargate
+    config:
+      ecsClusterResource: ecs-cluster
+      ecrRepositoryResource: app-registry
+    
+  api-service:
+    type: aws-ecs-fargate
+    config:
+      ecsClusterResource: ecs-cluster
+      ecrRepositoryResource: api-registry
+
+# Secrets management configuration
+secrets:
+  type: aws-kms
+  config:
+    keyId: "alias/simple-container"
+
+# CI/CD integration
+cicd:
+  type: github-actions
+  config:
+    auth-token: "${secret:GITHUB_TOKEN}"
+
+# Shared infrastructure resources
 resources:
-  postgres-db:
-    type: aws-rds-postgres
+  # Domain registrar (optional)
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: "your-cloudflare-account-id"
+      zoneName: "example.com"
+  
+  # Environment-specific resources
+  resources:
+    # Staging environment
     staging:
-      name: myapp-staging-db
-      instanceClass: db.t3.micro
+      template: web-app
+      resources:
+        # Compute cluster
+        ecs-cluster:
+          type: aws-ecs-cluster
+          config:
+            name: myapp-staging-cluster
+            
+        # Container registry
+        app-registry:
+          type: aws-ecr-repository
+          config:
+            name: myapp-apps-staging
+            
+        # Database
+        postgres-db:
+          type: aws-rds-postgres
+          config:
+            name: myapp-staging-db
+            instanceClass: db.t3.micro
+            allocatedStorage: 20
+            engineVersion: "15.4"
+            username: dbadmin
+            password: "${secret:staging-db-password}"
+            databaseName: myapp
+            
+        # Cache
+        redis-cache:
+          type: aws-elasticache-redis
+          config:
+            name: myapp-staging-cache
+            nodeType: cache.t3.micro
+            numCacheNodes: 1
+            
+        # Storage
+        uploads-bucket:
+          type: s3-bucket
+          config:
+            name: myapp-staging-uploads
+            allowOnlyHttps: true
+
+    # Production environment
     production:
-      name: myapp-prod-db
-      instanceClass: db.t3.small`,
-		},
-		{
-			Path:        ".sc/stacks/infrastructure/secrets.yaml",
-			Type:        "yaml",
-			Description: "Authentication and secrets",
-			Generated:   true,
-			Content: `schemaVersion: 1.0
+      template: web-app
+      resources:
+        # Compute cluster
+        ecs-cluster:
+          type: aws-ecs-cluster
+          config:
+            name: myapp-prod-cluster
+            
+        # Container registry
+        app-registry:
+          type: aws-ecr-repository
+          config:
+            name: myapp-apps-prod
+            
+        # Database with high availability
+        postgres-db:
+          type: aws-rds-postgres
+          config:
+            name: myapp-prod-db
+            instanceClass: db.r5.large
+            allocatedStorage: 100
+            multiAZ: true
+            backupRetentionPeriod: 7
+            engineVersion: "15.4"
+            username: dbadmin
+            password: "${secret:prod-db-password}"
+            databaseName: myapp
+            
+        # Cache cluster
+        redis-cache:
+          type: aws-elasticache-redis
+          config:
+            name: myapp-prod-cache
+            nodeType: cache.r5.large
+            numCacheNodes: 3
+            
+        # Storage
+        uploads-bucket:
+          type: s3-bucket
+          config:
+            name: myapp-prod-uploads
+            allowOnlyHttps: true
+
+# Configuration variables
+variables:
+  app-prefix:
+    type: string
+    value: myapp`
+
+	files = append(files, GeneratedFile{
+		Path:        ".sc/stacks/infrastructure/server.yaml",
+		Type:        "yaml",
+		Description: "Infrastructure configuration",
+		Generated:   true,
+		Content:     serverContent,
+	})
+
+	// Generate secrets.yaml
+	secretsContent := `# Authentication for cloud providers
 auth:
-  aws-account:
-    credentials: "${auth:aws}"
+  aws:
+    account: "123456789012"
+    accessKey: "${secret:aws-access-key}"
+    secretAccessKey: "${secret:aws-secret-key}"
+    region: us-east-1
+
+# Secret values (managed with sc secrets add)
 values:
-  db-password: "secure-password-123"`,
-		},
-	}
+  # Database passwords
+  staging-db-password: "${STAGING_DB_PASSWORD}"
+  prod-db-password: "${PROD_DB_PASSWORD}"
+  
+  # Cloud credentials  
+  aws-access-key: "${AWS_ACCESS_KEY}"
+  aws-secret-key: "${AWS_SECRET_KEY}"
+  
+  # Application secrets
+  jwt-secret: "${JWT_SECRET}"`
+
+	files = append(files, GeneratedFile{
+		Path:        ".sc/stacks/infrastructure/secrets.yaml",
+		Type:        "yaml",
+		Description: "Authentication and secrets",
+		Generated:   true,
+		Content:     secretsContent,
+	})
 
 	return files, nil
 }

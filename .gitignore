@@ -9,6 +9,7 @@ bin
 pkg/assistant/embeddings/docs/
 pkg/assistant/embeddings/vectors/
 pkg/assistant/mcp/schemas/
+pkg/assistant/modes/schemas/
 
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml

@@ -6,15 +6,19 @@ import (
 	"path/filepath"
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
 // FileGenerator handles configuration file generation
 type FileGenerator struct {
+	devMode *modes.DeveloperMode
 }
 
 // NewFileGenerator creates a new file generator instance
 func NewFileGenerator() *FileGenerator {
-	return &FileGenerator{}
+	return &FileGenerator{
+		devMode: modes.NewDeveloperMode(),
+	}
 }
 
 // GenerateOptions contains options for file generation
@@ -80,14 +84,22 @@ stacks:
 
 // GenerateDockerCompose generates docker-compose.yaml for local development
 func (g *FileGenerator) GenerateDockerCompose(analysis *analysis.ProjectAnalysis, opts GenerateOptions) (string, error) {
-	// TODO: Implement docker-compose generation based on analysis
-	return "# Docker Compose generation will be implemented in Phase 2", nil
+	// Use the LLM-based generation from DeveloperMode
+	content, err := g.devMode.GenerateComposeYAMLWithLLM(analysis)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate docker-compose.yaml: %w", err)
+	}
+	return content, nil
 }
 
 // GenerateDockerfile generates optimized Dockerfile based on tech stack
 func (g *FileGenerator) GenerateDockerfile(analysis *analysis.ProjectAnalysis, opts GenerateOptions) (string, error) {
-	// TODO: Implement Dockerfile generation based on analysis
-	return "# Dockerfile generation will be implemented in Phase 2", nil
+	// Use the LLM-based generation from DeveloperMode
+	content, err := g.devMode.GenerateDockerfileWithLLM(analysis)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate Dockerfile: %w", err)
+	}
+	return content, nil
 }
 
 // Helper methods

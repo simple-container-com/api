@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -14,6 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
+	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
@@ -22,14 +24,24 @@ import (
 
 type AssistantCmd struct {
 	rootCmd       *root_cmd.RootCmd
+	coreManager   *core.Manager
 	developerMode *modes.DeveloperMode
 	devopsMode    *modes.DevOpsMode
 	mode          string // Current mode (dev, devops, general)
 }
 
+// initCoreManager ensures the core manager is initialized
+func (a *AssistantCmd) initCoreManager() {
+	if a.coreManager == nil {
+		config := core.DefaultManagerConfig()
+		a.coreManager = core.NewManager(config, a.rootCmd.Logger)
+	}
+}
+
 func NewAssistantCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	assistantCmd := &AssistantCmd{
 		rootCmd:       rootCmd,
+		coreManager:   nil, // Will be initialized lazily
 		developerMode: modes.NewDeveloperMode(),
 		devopsMode:    modes.NewDevOpsMode(),
 	}
@@ -72,6 +84,9 @@ func NewAssistantCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		assistantCmd.newSearchCmd(),
 		assistantCmd.newChatCmd(),
 		assistantCmd.newMCPCmd(),
+		assistantCmd.newTestCmd(),
+		assistantCmd.newHealthCmd(),
+		assistantCmd.newStatsCmd(),
 	)
 
 	return cmd
@@ -519,6 +534,225 @@ func promptForOpenAIKey() (string, error) {
 	}
 
 	return apiKey, nil
+}
+
+// Test command for comprehensive testing
+func (a *AssistantCmd) newTestCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "test [project-path]",
+		Short: "Run comprehensive AI Assistant tests",
+		Long: `Run comprehensive tests of all AI Assistant components including:
+- Embeddings system functionality
+- Project analysis capabilities  
+- Performance benchmarks
+- Schema validation
+- Memory usage analysis`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// Initialize core manager
+			a.initCoreManager()
+			if err := a.coreManager.Initialize(ctx); err != nil {
+				return fmt.Errorf("failed to initialize core manager: %w", err)
+			}
+			defer a.coreManager.Shutdown(ctx)
+
+			// Determine project path
+			projectPath := "."
+			if len(args) > 0 {
+				projectPath = args[0]
+			}
+
+			fmt.Println(color.CyanFmt("🧪 Starting AI Assistant comprehensive test suite..."))
+			fmt.Printf("   Project path: %s\n\n", projectPath)
+
+			// Run tests
+			results, err := a.coreManager.RunTests(ctx, projectPath)
+			if err != nil {
+				return fmt.Errorf("test execution failed: %w", err)
+			}
+
+			// Display summary
+			totalTests := 0
+			totalPassed := 0
+			totalFailed := 0
+
+			for suiteName, suite := range results {
+				totalTests += suite.Total
+				totalPassed += suite.Passed
+				totalFailed += suite.Failed
+
+				status := color.GreenFmt("PASS")
+				if suite.Failed > 0 {
+					status = color.RedFmt("FAIL")
+				}
+
+				fmt.Printf("Suite %s: %s (%d/%d passed, %v duration)\n",
+					suiteName, status, suite.Passed, suite.Total, suite.Duration)
+			}
+
+			fmt.Printf("\n%s Overall: %d/%d tests passed (%.1f%% success rate)\n",
+				color.CyanFmt("📊"), totalPassed, totalTests,
+				float64(totalPassed)/float64(totalTests)*100)
+
+			if totalFailed > 0 {
+				return fmt.Errorf("%d tests failed", totalFailed)
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// Health command for system health check
+func (a *AssistantCmd) newHealthCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "health",
+		Short: "Check AI Assistant system health",
+		Long:  "Check the health status of all AI Assistant components",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// Initialize core manager
+			a.initCoreManager()
+			if err := a.coreManager.Initialize(ctx); err != nil {
+				return fmt.Errorf("failed to initialize core manager: %w", err)
+			}
+			defer a.coreManager.Shutdown(ctx)
+
+			fmt.Println(color.CyanFmt("🏥 AI Assistant Health Check"))
+			fmt.Println(strings.Repeat("=", 40))
+
+			health := a.coreManager.GetSystemHealth(ctx)
+
+			// Overall status
+			status := health["status"].(string)
+			statusColor := color.GreenFmt
+			if status != "healthy" {
+				statusColor = color.YellowFmt
+			}
+			fmt.Printf("Overall Status: %s\n", statusColor(strings.ToUpper(status)))
+
+			// Components
+			fmt.Println("\nComponent Status:")
+			if components, ok := health["components"].(map[string]interface{}); ok {
+				for name, status := range components {
+					statusStr := status.(string)
+					statusColor := color.GreenFmt
+					if statusStr != "healthy" {
+						statusColor = color.YellowFmt
+					}
+					fmt.Printf("  %s: %s\n", name, statusColor(statusStr))
+				}
+			}
+
+			// Memory usage
+			if memUsage, ok := health["memory_usage_mb"]; ok {
+				fmt.Printf("\nMemory Usage: %.2f MB\n", memUsage.(float64))
+			}
+
+			// Timestamp
+			if timestamp, ok := health["timestamp"]; ok {
+				fmt.Printf("Check Time: %s\n", timestamp.(time.Time).Format("2006-01-02 15:04:05"))
+			}
+
+			if status != "healthy" {
+				return fmt.Errorf("system health check failed: %s", status)
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// Stats command for performance and usage statistics
+func (a *AssistantCmd) newStatsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show AI Assistant performance statistics",
+		Long:  "Display detailed performance metrics, cache statistics, and usage information",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// Initialize core manager
+			a.initCoreManager()
+			if err := a.coreManager.Initialize(ctx); err != nil {
+				return fmt.Errorf("failed to initialize core manager: %w", err)
+			}
+			defer a.coreManager.Shutdown(ctx)
+
+			fmt.Println(color.CyanFmt("📊 AI Assistant Statistics"))
+			fmt.Println(strings.Repeat("=", 40))
+
+			// Performance metrics
+			fmt.Println(color.GreenFmt("Performance Metrics:"))
+			perfMetrics := a.coreManager.GetPerformanceMetrics()
+			if perfData, ok := perfMetrics["performance_metrics"]; ok {
+				fmt.Printf("  Embedding Load Time: %s\n",
+					getMetricDuration(perfData, "EmbeddingLoadTime"))
+				fmt.Printf("  Schema Load Time: %s\n",
+					getMetricDuration(perfData, "SchemaLoadTime"))
+				fmt.Printf("  LLM Response Time: %s\n",
+					getMetricDuration(perfData, "LLMResponseTime"))
+				fmt.Printf("  Semantic Search Time: %s\n",
+					getMetricDuration(perfData, "SemanticSearchTime"))
+			}
+
+			// Memory analysis
+			if memData, ok := perfMetrics["memory_analysis"].(map[string]interface{}); ok {
+				fmt.Println(color.GreenFmt("\nMemory Analysis:"))
+				if currentMem, ok := memData["current_alloc_mb"].(float64); ok {
+					fmt.Printf("  Current Usage: %.2f MB\n", currentMem)
+				}
+				if avgMem, ok := memData["average_alloc_mb"].(float64); ok {
+					fmt.Printf("  Average Usage: %.2f MB\n", avgMem)
+				}
+				if gcCount, ok := memData["gc_count"].(uint32); ok {
+					fmt.Printf("  GC Count: %d\n", gcCount)
+				}
+			}
+
+			// Cache statistics
+			fmt.Println(color.GreenFmt("\nCache Statistics:"))
+			cacheStats := a.coreManager.GetCacheStats()
+			for cacheName, stats := range cacheStats {
+				if statsMap, ok := stats.(map[string]interface{}); ok {
+					if entries, ok := statsMap["total_entries"].(int); ok {
+						fmt.Printf("  %s: %d entries\n", cacheName, entries)
+					}
+				}
+			}
+
+			// Security status
+			fmt.Println(color.GreenFmt("\nSecurity Status:"))
+			secStats := a.coreManager.GetSecurityStats()
+			if enabled, ok := secStats["security_enabled"].(bool); ok {
+				fmt.Printf("  Security Enabled: %v\n", enabled)
+				if level, ok := secStats["security_level"].(string); ok {
+					fmt.Printf("  Security Level: %s\n", level)
+				}
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+// Helper function to extract duration metrics
+func getMetricDuration(data interface{}, key string) string {
+	if metricsMap, ok := data.(map[string]interface{}); ok {
+		if duration, ok := metricsMap[key].(time.Duration); ok {
+			return duration.String()
+		}
+	}
+	return "N/A"
 }
 
 func init() {

@@ -38,11 +38,16 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 	}
 
 	// Configure provider
+	apiKey := config.APIKey
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+
 	llmConfig := llm.Config{
 		Provider:    config.LLMProvider,
 		MaxTokens:   config.MaxTokens,
 		Temperature: config.Temperature,
-		APIKey:      os.Getenv("OPENAI_API_KEY"), // TODO: Make this configurable
+		APIKey:      apiKey,
 	}
 
 	if err := provider.Configure(llmConfig); err != nil {

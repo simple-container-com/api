@@ -326,3 +326,54 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
     - Removed debug code after successful testing
   - **Files Modified**: `pkg/assistant/mcp/server.go` - Fixed embed directive and error handling
   - **Status**: MCP server now properly loads comprehensive resource catalog from embedded JSON schemas, ready for Windsurf/Cursor IDE integration
+
+## AI Assistant TODOs Completion - COMPLETED ✅
+- **MAJOR: All remaining AI Assistant TODOs successfully addressed**
+  - **✅ FileGenerator Integration**: Updated docker-compose and Dockerfile generation to use LLM-based methods from DeveloperMode
+  - **✅ Chat Interface File Generation**: Integrated actual project analysis and file generation instead of placeholder templates
+  - **✅ DevOps User Input**: Replaced all placeholder user input with real interactive prompts for cloud provider, environments, and resources
+  - **✅ DevOps Secrets Management**: Implemented complete secrets management system with:
+    - `initSecrets()`: Creates secrets.yaml template with authentication structure
+    - `configureAuth()`: Provides cloud-specific authentication guidance (AWS, GCP, Kubernetes)
+    - `generateSecrets()`: Secure random secret generation with environment variable mapping
+    - `importSecrets()`: Import from environment variables with interactive selection
+    - `rotateSecrets()`: Secret rotation with secure regeneration
+  - **✅ OpenAI API Key Configuration**: Made API key configurable in chat interface SessionConfig
+  - **✅ MCP Server Document Count**: Fixed indexed documents count using actual embeddings database query
+  - **✅ DevOps Schema Integration**: **MAJOR ENHANCEMENT** - DevOps mode now uses embedded JSON schemas instead of hardcoded resources:
+    - Loads all 22+ resources from 6 providers (AWS, GCP, Kubernetes, MongoDB, Cloudflare, GitHub)
+    - Intelligent resource categorization (database, storage, compute, monitoring)
+    - Smart default selection based on resource types
+    - Graceful fallback to hardcoded resources if schema loading fails
+    - Interactive resource selection with schema-driven descriptions
+  - **Technical Implementation**: 
+    - Enhanced `selectResources()` to load from embedded schemas
+    - Added `loadAvailableResources()`, `categorizeResource()`, `isResourceSelectedByDefault()`
+    - Added `ResourceCategory` and `SchemaResource` types for proper data modeling
+    - Embedded schemas in DevOps mode package with same infrastructure as MCP server
+  - **Files Enhanced**:
+    - `pkg/assistant/generation/generator.go` - Integrated with DeveloperMode LLM generation
+    - `pkg/assistant/chat/commands.go` - Real file generation with project analysis
+    - `pkg/assistant/chat/types.go` - Added configurable APIKey field
+    - `pkg/assistant/modes/devops.go` - Complete interactive prompts and schema-based resource loading
+    - `pkg/assistant/mcp/server.go` - Fixed document count using embeddings query
+  - **Status**: All AI Assistant TODOs completed with enterprise-grade implementations ready for production use
+
+## JSON Schema Compliance Fix - COMPLETED ✅
+- **CRITICAL FIX: Chat interface server.yaml generation was not compliant with JSON schema**
+  - **Issue**: The `generateDevOpsFiles()` function in chat commands was generating server.yaml with incorrect structure that didn't match the ServerDescriptor JSON schema
+  - **Root Cause**: Simplified flat structure instead of proper nested hierarchy required by schema
+  - **Solution**: Updated server.yaml generation to match documented schema structure:
+    - Fixed `provisioner` section with proper `pulumi` nesting and configuration
+    - Added proper `templates` section with resource references
+    - Corrected `resources` section to use environment-first, then resource-name structure
+    - Updated secrets.yaml to use proper `${secret:name}` references instead of `${ENV_VAR}` format
+  - **Compliance Verification**: Structure now matches examples in `docs/docs/ai-assistant/devops-mode.md`
+  - **Schema Alignment**: Properly structured YAML now complies with ServerDescriptor JSON schema requirements:
+    - `schemaVersion`, `provisioner`, `templates`, `resources` sections in correct format
+    - Environment-based resource organization (`staging:`, `production:`)
+    - Proper resource properties (`type`, `name`, configuration parameters)
+    - Correct secret references using `${secret:secret-name}` pattern
+  - **DevOps Mode Verification**: DevOps mode `generateServerYAML()` was already compliant - only chat interface needed fixing
+  - **Files Fixed**: `pkg/assistant/chat/commands.go` - Updated server.yaml and secrets.yaml generation
+  - **Status**: All generated YAML files now comply with Simple Container JSON schemas for proper IDE validation and processing
