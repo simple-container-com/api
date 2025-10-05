@@ -343,52 +343,84 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			host, _ := cmd.Flags().GetString("host")
 			port, _ := cmd.Flags().GetInt("port")
-
-			fmt.Printf("🚀 Starting Simple Container MCP Server...\n")
-			fmt.Printf("   Host: %s\n", host)
-			fmt.Printf("   Port: %d\n", port)
-			fmt.Printf("   Protocol: JSON-RPC 2.0 over HTTP\n\n")
+			stdio, _ := cmd.Flags().GetBool("stdio")
 
 			// Setup signal handling for graceful shutdown
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			// Handle CTRL+C gracefully
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			if stdio {
+				// Use stdin/stdout mode for IDE integration
+				// No output to stdout - only JSON-RPC responses
 
-			// Initialize MCP server
-			server := mcp.NewMCPServer(host, port)
+				// Handle CTRL+C gracefully in stdio mode
+				sigCh := make(chan os.Signal, 1)
+				signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-			fmt.Printf("📡 MCP Server ready for Windsurf integration\n")
-			fmt.Printf("   Health: http://%s:%d/health\n", host, port)
-			fmt.Printf("   Capabilities: http://%s:%d/capabilities\n", host, port)
-			fmt.Printf("   MCP Endpoint: http://%s:%d/mcp\n", host, port)
-			fmt.Printf("\n🔗 To integrate with Windsurf, add this MCP server configuration\n")
-			fmt.Printf("   Press Ctrl+C to stop\n\n")
+				// Initialize MCP server
+				server := mcp.NewMCPServer(host, port)
 
-			// Start MCP server in goroutine
-			errCh := make(chan error, 1)
-			go func() {
-				errCh <- server.Start(ctx)
-			}()
+				// Start MCP server in goroutine
+				errCh := make(chan error, 1)
+				go func() {
+					errCh <- server.StartStdio(ctx)
+				}()
 
-			// Wait for completion or signal
-			select {
-			case err := <-errCh:
-				return err
-			case <-sigCh:
-				fmt.Println("\n🛑 Shutting down MCP server...")
-				cancel()
-				// Give server a moment to shut down gracefully
-				time.Sleep(100 * time.Millisecond)
-				return nil
+				// Wait for completion or signal
+				select {
+				case err := <-errCh:
+					return err
+				case <-sigCh:
+					cancel()
+					// Give server a moment to shut down gracefully
+					time.Sleep(100 * time.Millisecond)
+					return nil
+				}
+			} else {
+				// Use HTTP mode
+				fmt.Printf("🚀 Starting Simple Container MCP Server...\n")
+				fmt.Printf("   Host: %s\n", host)
+				fmt.Printf("   Port: %d\n", port)
+				fmt.Printf("   Protocol: JSON-RPC 2.0 over HTTP\n\n")
+
+				// Handle CTRL+C gracefully
+				sigCh := make(chan os.Signal, 1)
+				signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+				// Initialize MCP server
+				server := mcp.NewMCPServer(host, port)
+
+				fmt.Printf("📡 MCP Server ready for Windsurf integration\n")
+				fmt.Printf("   Health: http://%s:%d/health\n", host, port)
+				fmt.Printf("   Capabilities: http://%s:%d/capabilities\n", host, port)
+				fmt.Printf("   MCP Endpoint: http://%s:%d/mcp\n", host, port)
+				fmt.Printf("\n🔗 To integrate with Windsurf, add this MCP server configuration\n")
+				fmt.Printf("   Press Ctrl+C to stop\n\n")
+
+				// Start MCP server in goroutine
+				errCh := make(chan error, 1)
+				go func() {
+					errCh <- server.Start(ctx)
+				}()
+
+				// Wait for completion or signal
+				select {
+				case err := <-errCh:
+					return err
+				case <-sigCh:
+					fmt.Println("\n🛑 Shutting down MCP server...")
+					cancel()
+					// Give server a moment to shut down gracefully
+					time.Sleep(100 * time.Millisecond)
+					return nil
+				}
 			}
 		},
 	}
 
 	cmd.Flags().IntVar(&port, "port", 9999, "Port to listen on")
 	cmd.Flags().StringVar(&host, "host", "localhost", "Host to bind to")
+	cmd.Flags().Bool("stdio", false, "Use stdin/stdout for JSON-RPC communication (for IDE integration)")
 
 	return cmd
 }

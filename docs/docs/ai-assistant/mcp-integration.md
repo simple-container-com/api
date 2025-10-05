@@ -21,11 +21,16 @@ sc assistant mcp
 # Custom host and port
 sc assistant mcp --host 0.0.0.0 --port 8080
 
+# Start in stdio mode (for IDE integration)
+sc assistant mcp --stdio
+
 # Start with verbose logging
 sc assistant mcp --verbose
 ```
 
 ### Test Server
+
+#### **HTTP Mode Testing**
 ```bash
 # Health check
 curl http://localhost:9999/health
@@ -39,9 +44,45 @@ curl -X POST http://localhost:9999/mcp \
   -d '{"jsonrpc":"2.0","method":"ping","id":"test"}'
 ```
 
+#### **Stdio Mode Testing (MCP Compliant)**
+```bash
+# Test full MCP initialization sequence
+printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}},"id":1}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","method":"tools/list","id":2}\n' | sc assistant mcp --stdio
+
+# Test tool execution
+printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}},"id":1}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search_documentation","arguments":{"query":"kubernetes deployment"}},"id":3}\n' | sc assistant mcp --stdio
+
+# Test resources
+printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}},"id":1}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","method":"resources/list","id":4}\n' | sc assistant mcp --stdio
+```
+
 ## 🔌 IDE Integrations
 
 ### **Windsurf IDE Integration**
+
+#### **Option 1: Global MCP Configuration**
+
+In Windsurf IDE Settings → MCP Servers, add:
+
+```json
+{
+  "simple-container": {
+    "command": "sc",
+    "args": ["assistant", "mcp", "--stdio"],
+    "env": {
+      "PATH": "/usr/local/bin:/usr/bin:/bin"
+    }
+  }
+}
+```
+
+**Note**: The MCP server now fully complies with MCP specification 2024-11-05, including:
+- Proper initialization handshake (`initialize` → `notifications/initialized`)
+- Standard MCP methods (`tools/list`, `tools/call`, `resources/list`, `resources/read`)
+- Protocol version negotiation and capability declaration
+- Clean JSON-RPC 2.0 format with no embedded newlines
+
+#### **Option 2: Project-Specific Configuration**
 
 Create `.windsurf/tools.json` in your project:
 ```json
@@ -116,19 +157,72 @@ Install Simple Container extension and configure:
 }
 ```
 
+## 🔧 Troubleshooting
+
+### **Common Issues**
+
+#### **"Failed to initialize server" in Windsurf**
+- **Cause**: MCP server not responding to initialization sequence
+- **Solution**: Ensure `sc` command is in PATH and server starts correctly
+- **Test**: Run `sc assistant mcp --stdio` manually and test with initialization sequence
+
+#### **"Server not found" errors**
+- **Cause**: Incorrect server name or configuration format
+- **Solution**: Ensure server name in configuration matches exactly
+- **Test**: Verify `.windsurf/tools.json` syntax with JSON validator
+
+#### **Tool calls not working**
+- **Cause**: Server not properly initialized before tool calls
+- **Solution**: Ensure proper MCP initialization sequence (initialize → initialized → tool calls)
+- **Test**: Use manual stdio testing commands above
+
+#### **Signal handling issues**
+- **Cause**: Server not responding to SIGTERM
+- **Solution**: Updated implementation now handles signals properly in stdio mode
+- **Test**: Start server and test with `timeout 2s sc assistant mcp --stdio`
+
+### **Debug Commands**
+
+```bash
+# Check if sc command is available
+which sc
+
+# Test server startup
+sc assistant mcp --stdio &
+sleep 1
+pkill -f "sc assistant mcp"
+
+# Verify MCP protocol compliance
+printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"debug","version":"1.0.0"}},"id":1}\n' | sc assistant mcp --stdio
+```
+
 ## 📡 MCP API Reference
 
 ### **Available Methods**
 
-| Method                    | Purpose              | Developer Mode | DevOps Mode |
-|---------------------------|----------------------|----------------|-------------|
-| `ping`                    | Connectivity test    | ✅              | ✅           |
-| `get_capabilities`        | Server info          | ✅              | ✅           |
-| `search_documentation`    | Semantic doc search  | ✅              | ✅           |
-| `get_project_context`     | Project analysis     | ✅              | ✅           |
-| `get_supported_resources` | Resource catalog     | ✅              | ✅           |
-| `analyze_project`         | Tech stack detection | ✅              | ❌           |
-| `generate_configuration`  | File generation      | ✅              | ✅           |
+#### **Standard MCP Methods (2024-11-05)**
+| Method            | Purpose                    | Status |
+|-------------------|----------------------------|--------|
+| `initialize`      | Protocol initialization    | ✅      |
+| `ping`            | Connectivity test          | ✅      |
+| `tools/list`      | List available tools       | ✅      |
+| `tools/call`      | Execute tools              | ✅      |
+| `resources/list`  | List available resources   | ✅      |
+| `resources/read`  | Read resource content      | ✅      |
+
+#### **Available Tools (via `tools/call`)**
+| Tool Name                 | Purpose                             | Status |
+|---------------------------|-------------------------------------|--------|
+| `search_documentation`    | Semantic doc search                 | ✅      |
+| `get_project_context`     | Basic project info & SC config      | ✅      |
+| `analyze_project`         | Detailed analysis & recommendations | ✅      |
+| `get_supported_resources` | Resource catalog                    | ✅      |
+
+**Note**: Legacy direct method calls have been removed. All functionality is now accessed through standard MCP `tools/call` method for better compliance and cleaner architecture.
+
+**Key Differences:**
+- **`get_project_context`**: Returns basic project info and Simple Container configuration status
+- **`analyze_project`**: Returns detailed tech stack analysis, recommendations, and architectural insights
 
 ### **1. Search Documentation**
 
