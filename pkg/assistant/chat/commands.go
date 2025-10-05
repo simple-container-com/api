@@ -149,17 +149,18 @@ func (c *ChatInterface) handleSearch(ctx context.Context, args []string, context
 		}, nil
 	}
 
-	query := strings.Join(args[:len(args)-1], " ")
+	// Default: use all args as query
+	query := strings.Join(args, " ")
 	limit := 5
 
 	// Check if last arg is a number (limit)
 	if len(args) > 1 {
 		if num, err := strconv.Atoi(args[len(args)-1]); err == nil && num > 0 && num <= 20 {
+			// Last argument is a valid limit, use remaining args as query
 			query = strings.Join(args[:len(args)-1], " ")
 			limit = num
-		} else {
-			query = strings.Join(args, " ")
 		}
+		// If last arg is not a valid number, use all args as query (already set above)
 	}
 
 	// Perform search
