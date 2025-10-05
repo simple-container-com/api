@@ -3,16 +3,6 @@
   "provider": "fs",
   "resources": [
     {
-      "name": "FileSystemStateStorage",
-      "type": "provisioner",
-      "provider": "fs",
-      "description": "FS filesystemstatestorage configuration",
-      "goPackage": "pkg/clouds/fs/",
-      "goStruct": "FileSystemStateStorage",
-      "resourceType": "fs",
-      "schema": {}
-    },
-    {
       "name": "PassphraseSecretsProvider",
       "type": "provisioner",
       "provider": "fs",
@@ -20,6 +10,16 @@
       "goPackage": "pkg/clouds/fs/",
       "goStruct": "PassphraseSecretsProvider",
       "resourceType": "passphrase",
+      "schema": {}
+    },
+    {
+      "name": "FileSystemStateStorage",
+      "type": "provisioner",
+      "provider": "fs",
+      "description": "FS filesystemstatestorage configuration",
+      "goPackage": "pkg/clouds/fs/",
+      "goStruct": "FileSystemStateStorage",
+      "resourceType": "fs",
       "schema": {}
     }
   ]

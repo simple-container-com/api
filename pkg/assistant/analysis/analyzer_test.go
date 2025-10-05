@@ -1,7 +1,7 @@
 package analysis
 
 import (
-	"fmt
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -232,7 +232,7 @@ require (
 )`,
 			"main.go": `package main
 
-import "fmt"
+import "fmt""
 
 func main() {
     fmt.Println("Hello World")

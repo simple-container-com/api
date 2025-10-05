@@ -14,8 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
-	"github.com/simple-container-co
-	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
 	"github.com/simple-container-com/api/pkg/assistant/core"
@@ -485,18 +483,6 @@ func (a *AssistantCmd) runSearch(cmd *cobra.Command, query string, limit int, do
 	return nil
 }
 
-	fmt.Println("This will expose Simple Container context to external LLM tools.")
-	fmt.Printf("🌐 Starting MCP server on %s:%d\n", color.CyanFmt(host), port)
-	fmt.Println("This will expose Simple Container context to external LLM tools.\n")
-
-	// Create MCP server instance
-	mcpServer := mcp.NewMCPServer(host, port)
-
-	// Start the server
-	ctx := cmd.Context()
-	return mcpServer.Start(ctx)
-}
-	return err == nil
 }
 
 // promptForOpenAIKey prompts the user to enter their OpenAI API key securely

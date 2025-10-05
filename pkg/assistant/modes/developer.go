@@ -432,7 +432,6 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 	return nil
 }
 
-
 // LLM-based file generation functions
 func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *analysis.ProjectAnalysis) (string, error) {
 	if d.llm == nil {
@@ -459,7 +458,6 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 	yamlContent := strings.TrimSpace(response.Content)
 	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```")
-	if strings.HasSuffix(yamlContent, "```") {
 	yamlContent = strings.TrimSuffix(yamlContent, "```")
 	return strings.TrimSpace(yamlContent), nil
 }
@@ -662,7 +660,6 @@ func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAna
 	yamlContent := strings.TrimSpace(response.Content)
 	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```")
-	if strings.HasSuffix(yamlContent, "```") {
 	yamlContent = strings.TrimSuffix(yamlContent, "```")
 	return strings.TrimSpace(yamlContent), nil
 }
@@ -829,11 +826,6 @@ CMD ["npm", "start"]`
 
 	return template, nil
 }
-
-
-
-
-
 
 func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis.ProjectAnalysis) {
 	fmt.Println("\n📁 Generated files:")
