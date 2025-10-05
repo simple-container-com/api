@@ -159,7 +159,7 @@ stacks:
       runs: [web-app]                   # Container services
       scale: {min: 2, max: 10}         # Application scaling
       env:
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
+        DATABASE_URL: "${resource:postgres-db.url}"
 ```
 
 #### **DevOps Mode Output**

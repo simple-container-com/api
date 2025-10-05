@@ -85,10 +85,10 @@ make dev-build
 
 ### 📦 **Embedding Generation**
 The build system:
-1. Copies documentation from `docs/docs/` to `pkg/assistant/embeddings/docs/`
-2. Creates placeholder `prebuilt_embeddings.json` file
-3. Embeds both documentation and vectors using Go embed directives
-4. On first run, generates embeddings from embedded docs if pre-built vectors not available
+1. Uses Go embed directives to directly access documentation from `docs/docs/`
+2. Creates placeholder `prebuilt_embeddings.json` file in local `vectors/` directory
+3. On first run, generates embeddings from embedded docs if pre-built vectors not available
+4. No build-time file copying required - docs embedded directly from source
 
 ## Technical Details
 

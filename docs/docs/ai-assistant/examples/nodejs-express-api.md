@@ -194,8 +194,8 @@ stacks:
       env:
         NODE_ENV: production
         PORT: 3000
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"
+        DATABASE_URL: "${resource:postgres-db.url}"
+        REDIS_URL: "${resource:redis-cache.url}"
         JWT_SECRET: "${secret:jwt-secret}"
         
       # Health check configuration

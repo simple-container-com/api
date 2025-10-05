@@ -82,19 +82,26 @@ stacks:
   my-awesome-app:
     type: cloud-compose
     parent: infrastructure  # References DevOps-managed resources
+    parentEnv: staging
     config:
-      uses: [postgres-db, redis-cache]  # Shared resources
+      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to local compose file
+      uses: [postgres-db, redis-cache]  # Shared resources from parent
       runs: [web-app, worker]  # Services from docker-compose
+      domain: my-awesome-app.mycompany.com  # Optional: DNS domain (requires registrar)
       scale:
         min: 1
         max: 3
       env:
-        NODE_ENV: production
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"
+        NODE_ENV: production  # Non-sensitive environment variables only
+        PORT: 3000
+        # Database connections use auto-injected environment variables:
+        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD
+        # Redis: REDIS_HOST, REDIS_PORT
       secrets:
         JWT_SECRET: "${secret:jwt-secret}"
         API_KEY: "${secret:third-party-api-key}"
+        DATABASE_URL: "${secret:database-url}"  # Connection strings in secrets
+        REDIS_URL: "${secret:redis-url}"        # Not in env section
 ```
 
 ### 2. **docker-compose.yaml** - Local Development
@@ -228,9 +235,18 @@ Developer Mode assumes DevOps has already set up shared infrastructure. Your `cl
 config:
   uses: [postgres-db, redis-cache, s3-uploads]  # Managed by DevOps
   env:
-    DATABASE_URL: "${resource:postgres-db.connectionString}"
-    CACHE_URL: "${resource:redis-cache.connectionString}"
-    S3_BUCKET: "${resource:s3-uploads.bucketName}"
+    # Non-sensitive configuration only
+    NODE_ENV: production
+    PORT: 3000
+    # Database connections use auto-injected environment variables:
+    # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD
+    # Redis: REDIS_HOST, REDIS_PORT
+    # S3: S3_BUCKET, S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY
+  secrets:
+    # Sensitive connection strings go in secrets section
+    DATABASE_URL: "${secret:database-url}"
+    REDIS_URL: "${secret:redis-url}"
+    S3_ACCESS_KEY: "${secret:s3-access-key}"
 ```
 
 ### **Parent Stack Reference**
@@ -295,9 +311,10 @@ curl https://my-app.yourcompany.com/health
 
 ### **Configuration Management**
 - ✅ **Use Environment Variables**: Never hardcode secrets or config
-- ✅ **Reference Shared Resources**: Use `${resource:name.property}` syntax
+- ✅ **Reference Shared Resources**: Use `uses: [resource-name]` array for resource consumption
 - ✅ **Environment Separation**: Different configs for dev/staging/prod
-- ✅ **Secret Management**: Use `${secret:name}` for sensitive data
+- ✅ **Secret Management**: Use `${secret:name}` for sensitive data (connection strings, API keys)
+- ✅ **Security Separation**: env: for non-sensitive config, secrets: for sensitive data
 
 ### **Docker Optimization**
 - ✅ **Multi-stage Builds**: Separate build and runtime environments

@@ -185,8 +185,8 @@ stacks:
         max: 50
       env:
         MULTI_TENANT: "true"
-        DATABASE_URL: "${resource:tenant-db.connectionString}"
-        CACHE_URL: "${resource:cache-cluster.connectionString}"
+        DATABASE_URL: "${resource:tenant-db.url}"
+        CACHE_URL: "${resource:cache-cluster.url}"
         TENANT_ISOLATION: "database"
 ```
 

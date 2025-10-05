@@ -517,6 +517,15 @@ CRITICAL INSTRUCTIONS:
 ❌ minCapacity/maxCapacity (use min/max in scale)
 ❌ bucketName in resources (use name)
 ❌ connectionString property (fictional)
+❌ Connection strings in env: section (security risk)
+
+✅ CORRECT SECURITY PATTERNS:
+✅ ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED)
+✅ Optional: domain property for DNS routing (requires registrar in server.yaml)
+✅ env: section for non-sensitive config (PORT, NODE_ENV, LOG_LEVEL)
+✅ secrets: section for sensitive data (API keys, connection strings, tokens)
+✅ Use ${resource:name.connectionString} when consuming resources via 'uses:'
+✅ Use ${secret:name} for manually defined secrets in parent stack
 
 RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
@@ -598,6 +607,15 @@ CRITICAL INSTRUCTIONS:
 ❌ minCapacity/maxCapacity (use min/max in scale)
 ❌ bucketName in resources (use name)
 ❌ connectionString property (fictional)
+❌ Connection strings in env: section (security risk)
+
+✅ CORRECT SECURITY PATTERNS:
+✅ ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED)
+✅ Optional: domain property for DNS routing (requires registrar in server.yaml)
+✅ env: section for non-sensitive config (PORT, NODE_ENV, LOG_LEVEL)
+✅ secrets: section for sensitive data (API keys, connection strings, tokens)
+✅ Use ${resource:name.connectionString} when consuming resources via 'uses:'
+✅ Use ${secret:name} for manually defined secrets in parent stack
 
 RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
@@ -681,14 +699,24 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("    parent: " + opts.Parent + "\n")
 	prompt.WriteString("    parentEnv: " + opts.Environment + "\n")
 	prompt.WriteString("    config:\n")
+	prompt.WriteString("      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to local docker-compose file\n")
 	prompt.WriteString("      runs: [app]            # Container names from docker-compose.yaml\n")
+	prompt.WriteString(fmt.Sprintf("      domain: %s.mycompany.com  # Optional: DNS domain (requires registrar in server.yaml)\n", projectName))
 	prompt.WriteString("      scale:\n")
 	prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
 	prompt.WriteString("        max: 3\n")
-	prompt.WriteString("      env:                  # Environment variables (NOT 'environment')\n")
+	prompt.WriteString("      uses: [postgres-db, redis-cache]  # Consume shared resources from parent\n")
+	prompt.WriteString("      env:                  # Non-sensitive environment variables only\n")
 	prompt.WriteString("        PORT: 3000\n")
-	prompt.WriteString("      secrets:              # Secret references using ${secret:name} format\n")
-	prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"\n")
+	prompt.WriteString("        NODE_ENV: production\n")
+	prompt.WriteString("        # Database connections use auto-injected environment variables:\n")
+	prompt.WriteString("        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD\n")
+	prompt.WriteString("        # Redis: REDIS_HOST, REDIS_PORT\n")
+	prompt.WriteString("        # MongoDB Atlas: MONGO_USER, MONGO_DATABASE, MONGO_PASSWORD, MONGO_URI\n")
+	prompt.WriteString("      secrets:              # Sensitive data: secrets vs resource consumption\n")
+	prompt.WriteString("        DATABASE_URL: \"${resource:postgres-db.url}\"  # From consumed resource\n")
+	prompt.WriteString("        REDIS_URL: \"${resource:redis-cache.url}\"    # From consumed resource\n")
+	prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"                    # Manual secrets from parent\n")
 
 	// Enrich context with validated examples
 	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
@@ -702,6 +730,19 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("- version: property (use 'schemaVersion:')\n")
 	prompt.WriteString("- account: property (DevOps server.yaml only)\n")
 	prompt.WriteString("- minCapacity/maxCapacity (use min/max in scale)\n")
+	prompt.WriteString("- ${secret:database-url} when using 'uses:' array (use ${resource:postgres-db.url} instead)\n")
+	prompt.WriteString("- ${secret:redis-url} when using 'uses:' array (use ${resource:redis-cache.url} instead)\n")
+	prompt.WriteString("- ${resource:name.connectionString} (fictional property - use .url instead)\n")
+	prompt.WriteString("- Missing dockerComposeFile property (REQUIRED for cloud-compose stacks)\n")
+	prompt.WriteString("\n✅ CORRECT PATTERNS:\n")
+	prompt.WriteString("- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED)\n")
+	prompt.WriteString("- Optional: domain property for DNS routing (requires registrar in server.yaml)\n")
+	prompt.WriteString("- Resource consumption: uses: [resource-name] + ${resource:name.url}\n")
+	prompt.WriteString("- Manual secrets: Use ${secret:name} for parent-defined secrets only\n")
+	prompt.WriteString("- Connection URLs: ${resource:postgres-db.url}, ${resource:redis-cache.url}\n")
+	prompt.WriteString("- Auto-injected env vars: PGHOST, REDIS_HOST available from consumed resources\n")
+	prompt.WriteString("- env: section for non-sensitive config (PORT, NODE_ENV, etc.)\n")
+	prompt.WriteString("- secrets: section for sensitive data (API keys, connection strings, tokens)\n")
 
 	prompt.WriteString("\n⚡ Generate ONLY the valid YAML (no explanations, no markdown):")
 
@@ -834,13 +875,22 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 	template.WriteString(fmt.Sprintf("    parent: %s\n", opts.Parent))
 	template.WriteString(fmt.Sprintf("    parentEnv: %s\n", opts.Environment))
 	template.WriteString("    config:\n")
+	template.WriteString("      # Reference to local docker-compose.yaml (REQUIRED)\n")
+	template.WriteString("      dockerComposeFile: docker-compose.yaml\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Shared resources from DevOps team\n")
+	template.WriteString("      uses: [postgres-db]\n")
+	template.WriteString("      \n")
 	template.WriteString("      # Services from docker-compose.yaml\n")
 	template.WriteString("      runs: [app]\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Optional: DNS domain (only works if registrar configured in server.yaml)\n")
+	template.WriteString("      # domain: myapp.mycompany.com\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Scaling configuration\n")
 	template.WriteString("      scale:\n")
 	template.WriteString("        min: 1\n")
-	template.WriteString("        max: 3\n")
+	template.WriteString("        max: 5\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Environment variables\n")
 	template.WriteString("      env:\n")
@@ -876,21 +926,16 @@ func (d *DeveloperMode) buildLanguageSpecificEnvVars(analysis *analysis.ProjectA
 	case "javascript", "nodejs":
 		envVars["NODE_ENV"] = "production"
 		envVars["PORT"] = "3000"
-		if analysis.PrimaryStack.Framework == "express" {
-			envVars["EXPRESS_SESSION_SECRET"] = "${secret:session-secret}"
-		} else if analysis.PrimaryStack.Framework == "nextjs" {
-			envVars["NEXTAUTH_URL"] = "https://myapp.com"
-			envVars["NEXTAUTH_SECRET"] = "${secret:nextauth-secret}"
+		if analysis.PrimaryStack.Framework == "nextjs" {
+			envVars["NEXTAUTH_URL"] = "https://myapp.com" // Non-sensitive URL
 		}
 	case "python":
 		envVars["PYTHON_ENV"] = "production"
 		envVars["PORT"] = "8000"
 		if analysis.PrimaryStack.Framework == "django" {
 			envVars["DJANGO_SETTINGS_MODULE"] = "myapp.settings.production"
-			envVars["DJANGO_SECRET_KEY"] = "${secret:django-secret}"
 		} else if analysis.PrimaryStack.Framework == "flask" {
 			envVars["FLASK_ENV"] = "production"
-			envVars["FLASK_SECRET_KEY"] = "${secret:flask-secret}"
 		} else if analysis.PrimaryStack.Framework == "fastapi" {
 			envVars["FASTAPI_ENV"] = "production"
 		}
@@ -914,24 +959,39 @@ func (d *DeveloperMode) buildLanguageSpecificSecrets(analysis *analysis.ProjectA
 	// Common secrets for all applications
 	secrets["JWT_SECRET"] = "${secret:jwt-secret}"
 
+	// Database connection strings from consumed resources
+	secrets["DATABASE_URL"] = "${resource:postgres-db.url}"
+	secrets["REDIS_URL"] = "${resource:redis-cache.url}"
+
+	// Common API keys and tokens
+	secrets["API_KEY"] = "${secret:api-key}"
+
 	if analysis == nil || analysis.PrimaryStack == nil {
 		return secrets
 	}
 
 	switch analysis.PrimaryStack.Language {
 	case "javascript", "nodejs":
+		secrets["SESSION_SECRET"] = "${secret:session-secret}"
 		if analysis.PrimaryStack.Framework == "nextjs" {
 			secrets["NEXTAUTH_SECRET"] = "${secret:nextauth-secret}"
+		} else if analysis.PrimaryStack.Framework == "nestjs" {
+			secrets["NEST_JWT_SECRET"] = "${secret:nest-jwt-secret}"
 		}
-		secrets["SESSION_SECRET"] = "${secret:session-secret}"
+		// MongoDB connection from consumed resource
+		secrets["MONGODB_URI"] = "${resource:mongo-db.uri}"
 	case "python":
 		if analysis.PrimaryStack.Framework == "django" {
 			secrets["DJANGO_SECRET_KEY"] = "${secret:django-secret}"
+			secrets["DATABASE_URL"] = "${resource:postgres-db.url}" // Keep consistent with resource consumption
 		} else if analysis.PrimaryStack.Framework == "flask" {
 			secrets["FLASK_SECRET_KEY"] = "${secret:flask-secret}"
+		} else if analysis.PrimaryStack.Framework == "fastapi" {
+			secrets["SECRET_KEY"] = "${secret:fastapi-secret}"
 		}
 	case "go":
 		secrets["API_SECRET"] = "${secret:api-secret}"
+		secrets["JWT_SIGNING_KEY"] = "${secret:jwt-signing-key}"
 	}
 
 	return secrets

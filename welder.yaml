@@ -22,7 +22,6 @@ modules:
         - task: clean
         - task: tools
         - task: generate-schemas
-        - task: generate-embeddings
         - task: linters
         - task: fmt
         - task: test
@@ -68,10 +67,6 @@ tasks:
       - rm -fR ${project:root}/docs/site/*
       - mkdir -p ${project:root}/docs/schemas
       - rm -fR ${project:root}/docs/schemas/*
-      - rm -fR ${project:root}/pkg/assistant/embeddings/docs/ || true
-      - rm -fR ${project:root}/pkg/assistant/embeddings/vectors/ || true
-      - find ${project:root}/pkg/assistant/mcp/schemas/ -name "*.json" -delete || true
-      - find ${project:root}/pkg/assistant/mcp/schemas/ -type d ! -name "schemas" -exec rm -rf {} + 2>/dev/null || true
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"
@@ -124,19 +119,6 @@ tasks:
       - go build -o ${project:root}/bin/schema-gen ./cmd/schema-gen
       - ${project:root}/bin/schema-gen ${project:root}/docs/schemas
       - echo "Successfully generated JSON Schema files in docs/schemas/"
-  generate-embeddings:
-    runOn: host
-    script:
-      - echo "Preparing documentation and schemas for AI assistant embedding..."
-      - mkdir -p ${project:root}/pkg/assistant/embeddings/docs
-      - mkdir -p ${project:root}/pkg/assistant/embeddings/vectors
-      - mkdir -p ${project:root}/pkg/assistant/mcp/schemas
-      - cp -r ${project:root}/docs/docs/* ${project:root}/pkg/assistant/embeddings/docs/
-      - cp -r ${project:root}/docs/schemas/* ${project:root}/pkg/assistant/mcp/schemas/
-      - mkdir -p ${project:root}/pkg/assistant/modes/schemas
-      - cp -r ${project:root}/docs/schemas/* ${project:root}/pkg/assistant/modes/schemas/
-      - 'echo "{\"version\": \"1.0\", \"documents\": []}" > ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings.json'
-      - echo "Successfully prepared embedded documentation and schemas (vectors generated on first run)"
   build:
     runOn: host
     env:
@@ -180,5 +162,4 @@ tasks:
     runOn: host
     script:
       - welder run generate-schemas
-      - welder run generate-embeddings
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc

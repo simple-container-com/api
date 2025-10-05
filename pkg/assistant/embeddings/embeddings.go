@@ -2,7 +2,7 @@ package embeddings
 
 import (
 	"context"
-	"embed"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -12,11 +12,9 @@ import (
 
 	chromem "github.com/philippgille/chromem-go"
 
+	"github.com/simple-container-com/api/docs"
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
-
-//go:embed docs/**/*.md
-var embeddedDocs embed.FS
 
 //go:embed vectors/prebuilt_embeddings.json
 var embeddedVectors []byte
@@ -241,7 +239,7 @@ func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, roo
 	if log != nil {
 		log.Debug(ctx, "Walking embedded docs starting from root: %s", root)
 	}
-	entries, err := embeddedDocs.ReadDir(root)
+	entries, err := docs.EmbeddedDocs.ReadDir(root)
 	if err != nil {
 		if log != nil {
 			log.Error(ctx, "Error reading embedded docs dir %s: %v", root, err)
@@ -262,7 +260,7 @@ func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, roo
 			}
 		} else {
 			// Read file content
-			content, err := embeddedDocs.ReadFile(path)
+			content, err := docs.EmbeddedDocs.ReadFile(path)
 			if err != nil {
 				if log != nil {
 					log.Warn(ctx, "Failed to read embedded file %s: %v", path, err)

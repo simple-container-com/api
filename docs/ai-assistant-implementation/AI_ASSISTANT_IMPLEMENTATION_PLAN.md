@@ -547,7 +547,7 @@ You: How do I add a PostgreSQL database to my setup?
    config:
      uses: [postgres-db]
      env:
-       DATABASE_URL: "${resource:postgres-db.connectionString}"
+       DATABASE_URL: "${resource:postgres-db.url}"
    ```
 
 Would you like me to generate these files for you?
