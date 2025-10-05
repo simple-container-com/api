@@ -19,6 +19,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
@@ -339,7 +340,26 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 		Short: "Start MCP (Model Context Protocol) server",
 		Long:  "Start a JSON-RPC server that exposes Simple Container context to external LLM tools",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("MCP server functionality temporarily disabled")
+			ctx := cmd.Context()
+			host, _ := cmd.Flags().GetString("host")
+			port, _ := cmd.Flags().GetInt("port")
+
+			fmt.Printf("🚀 Starting Simple Container MCP Server...\n")
+			fmt.Printf("   Host: %s\n", host)
+			fmt.Printf("   Port: %d\n", port)
+			fmt.Printf("   Protocol: JSON-RPC 2.0 over HTTP\n\n")
+
+			// Initialize and start MCP server
+			server := mcp.NewMCPServer(host, port)
+
+			fmt.Printf("📡 MCP Server ready for Windsurf integration\n")
+			fmt.Printf("   Health: http://%s:%d/health\n", host, port)
+			fmt.Printf("   Capabilities: http://%s:%d/capabilities\n", host, port)
+			fmt.Printf("   MCP Endpoint: http://%s:%d/mcp\n", host, port)
+			fmt.Printf("\n🔗 To integrate with Windsurf, add this MCP server configuration\n")
+			fmt.Printf("   Press Ctrl+C to stop\n\n")
+
+			return server.Start(ctx)
 		},
 	}
 

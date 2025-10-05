@@ -170,7 +170,6 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 			return callback(streamChunk)
 		}),
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("OpenAI streaming API error: %w", err)
 	}

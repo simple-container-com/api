@@ -476,13 +476,13 @@ func (d *DeveloperMode) writeGeneratedFiles(ctx context.Context, req MultiFileGe
 	for _, file := range filesToWrite {
 		if file.content != "" && file.path != "" {
 			// Create directory if it doesn't exist
-			if err := os.MkdirAll(filepath.Dir(file.path), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
 				errors = append(errors, fmt.Sprintf("Failed to create directory for %s: %v", file.name, err))
 				continue
 			}
 
 			// Write file
-			if err := os.WriteFile(file.path, []byte(file.content), 0644); err != nil {
+			if err := os.WriteFile(file.path, []byte(file.content), 0o644); err != nil {
 				errors = append(errors, fmt.Sprintf("Failed to write %s: %v", file.name, err))
 			} else {
 				fmt.Printf("✅ Generated %s → %s\n", color.GreenFmt(file.name), color.CyanFmt(file.path))

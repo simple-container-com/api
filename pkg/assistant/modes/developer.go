@@ -602,7 +602,6 @@ CRITICAL INSTRUCTIONS:
 RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
 	}, progressCallback)
-
 	if err != nil {
 		fmt.Printf("\nLLM streaming generation failed, using fallback: %v\n", err)
 		return d.generateFallbackClientYAML(opts, analysis)
