@@ -1,0 +1,6 @@
+# Ignore all generated JSON schema files
+**/*.json
+*/
+
+# Keep the Go package files
+!embed.go

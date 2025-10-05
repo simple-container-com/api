@@ -10,6 +10,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
+	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
 // MultiFileGenerationRequest represents a request to generate multiple coordinated files
@@ -228,37 +229,61 @@ func (d *DeveloperMode) generateCoordinatedContent(ctx context.Context, req Mult
 func (d *DeveloperMode) buildCoordinatedSystemPrompt(req MultiFileGenerationRequest) string {
 	var prompt strings.Builder
 
-	prompt.WriteString(`You are an expert in full-stack application development and containerization. You will generate multiple coordinated files that work together seamlessly.
+	prompt.WriteString(`You are an expert in Simple Container configuration and containerization. You will generate multiple coordinated files that work together seamlessly and follow Simple Container schema requirements EXACTLY.
 
-CRITICAL INSTRUCTIONS:
-✅ Generate production-ready, coordinated files that work together perfectly
-✅ Ensure consistency across all files (ports, service names, volumes, etc.)
-✅ Follow language-specific best practices for detected framework
-✅ Use Simple Container labels and patterns where applicable
-✅ All generated content must be valid and immediately usable
+CRITICAL SIMPLE CONTAINER SCHEMA REQUIREMENTS:
+
+FOR CLIENT.YAML:
+✅ MUST have: schemaVersion: 1.0
+✅ MUST have: stacks section (NOT environments)
+✅ Each stack MUST have: type, parent, parentEnv, config
+✅ config section can contain: runs, env, secrets, scale, uses, dependencies
+✅ scale uses: {min: number, max: number} structure only
+✅ env: for environment variables, secrets: using ${secret:name} format
+
+🚫 FORBIDDEN in client.yaml (will cause validation errors):
+❌ apiVersion, kind (Kubernetes properties)
+❌ environments section (use stacks only)
+❌ version property (use schemaVersion)
+❌ account property (belongs in server.yaml)
+❌ scaling section (use scale in config)
+❌ minCapacity/maxCapacity (use min/max in scale)
+
+FOR DOCKER-COMPOSE.YAML:
+✅ MUST include Simple Container labels:
+   - "simple-container.com/ingress": "true" (for main service)
+   - "simple-container.com/ingress/port": "PORT_NUMBER"
+   - "simple-container.com/healthcheck/path": "/health"
+✅ MUST have separate volumes block with labels:
+   - "simple-container.com/volume-size": "10Gi"
+   - "simple-container.com/volume-storage-class": "gp3"
+   - "simple-container.com/volume-access-modes": "ReadWriteOnce"
+
+FOR DOCKERFILE:
+✅ Multi-stage builds for production
+✅ Non-root user for security
+✅ Proper EXPOSE directive
 
 RESPONSE FORMAT:
 Generate files in this exact format, separated by clear markers:
 
 === DOCKERFILE ===
-[Dockerfile content here]
+[Multi-stage Dockerfile content here]
 
 === DOCKER-COMPOSE ===
-[docker-compose.yaml content here]
+[docker-compose.yaml with Simple Container labels]
 
 === CLIENT-YAML ===
-[client.yaml content here]
+[Simple Container client.yaml with schemaVersion and stacks]
 
 === SERVER-YAML ===
-[server.yaml content here]
+[Simple Container server.yaml with resources]
 
 COORDINATION REQUIREMENTS:
-- Use consistent service names across all files
-- Ensure port mappings match between Dockerfile, compose, and Simple Container configs
-- Volume mounts should be consistent and properly labeled
-- Environment variables should be coordinated between files
-- Simple Container labels must be present and correct
-`)
+- Use consistent service names and ports across all files
+- Ensure Simple Container labels are properly configured
+- All files must be immediately deployable
+- Follow schema requirements EXACTLY`)
 
 	return prompt.String()
 }
@@ -389,8 +414,10 @@ func (d *DeveloperMode) validateMultipleFiles(ctx context.Context, content *Coor
 	}
 
 	if content.ClientYAML != "" {
-		// Add client YAML validation here
-		results["client.yaml"] = true // Placeholder
+		// Validate client.yaml against Simple Container schema
+		validator := validation.NewValidator()
+		result := validator.ValidateClientYAML(ctx, content.ClientYAML)
+		results["client.yaml"] = result.Valid
 	}
 
 	if content.ServerYAML != "" {

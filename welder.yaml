@@ -70,7 +70,8 @@ tasks:
       - rm -fR ${project:root}/docs/schemas/*
       - rm -fR ${project:root}/pkg/assistant/embeddings/docs/ || true
       - rm -fR ${project:root}/pkg/assistant/embeddings/vectors/ || true
-      - rm -fR ${project:root}/pkg/assistant/mcp/schemas/ || true
+      - find ${project:root}/pkg/assistant/mcp/schemas/ -name "*.json" -delete || true
+      - find ${project:root}/pkg/assistant/mcp/schemas/ -type d ! -name "schemas" -exec rm -rf {} + 2>/dev/null || true
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"

@@ -8,7 +8,6 @@ bin
 # AI Assistant build artifacts
 pkg/assistant/embeddings/docs/
 pkg/assistant/embeddings/vectors/
-pkg/assistant/mcp/schemas/
 pkg/assistant/modes/schemas/
 
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
