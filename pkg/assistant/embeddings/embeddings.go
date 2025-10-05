@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	chromem "github.com/philippgille/chromem-go"
+
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 

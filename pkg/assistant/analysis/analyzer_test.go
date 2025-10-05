@@ -1,9 +1,9 @@
 package analysis
 
 import (
+	"fmt
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

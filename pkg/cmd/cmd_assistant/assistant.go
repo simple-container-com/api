@@ -9,9 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-co
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
@@ -34,6 +37,15 @@ type AssistantCmd struct {
 func (a *AssistantCmd) initCoreManager() {
 	if a.coreManager == nil {
 		config := core.DefaultManagerConfig()
+		a.coreManager = core.NewManager(config, a.rootCmd.Logger)
+	}
+}
+
+// initCoreManagerWithTesting ensures the core manager is initialized with testing enabled
+func (a *AssistantCmd) initCoreManagerWithTesting() {
+	if a.coreManager == nil {
+		config := core.DefaultManagerConfig()
+		config.EnableTesting = true // Enable testing for test command
 		a.coreManager = core.NewManager(config, a.rootCmd.Logger)
 	}
 }
@@ -473,7 +485,7 @@ func (a *AssistantCmd) runSearch(cmd *cobra.Command, query string, limit int, do
 	return nil
 }
 
-func (a *AssistantCmd) runMCP(cmd *cobra.Command, host string, port int) error {
+	fmt.Println("This will expose Simple Container context to external LLM tools.")
 	fmt.Printf("🌐 Starting MCP server on %s:%d\n", color.CyanFmt(host), port)
 	fmt.Println("This will expose Simple Container context to external LLM tools.\n")
 
@@ -484,11 +496,6 @@ func (a *AssistantCmd) runMCP(cmd *cobra.Command, host string, port int) error {
 	ctx := cmd.Context()
 	return mcpServer.Start(ctx)
 }
-
-// Helper function to check if embedded documentation is available
-func (a *AssistantCmd) checkEmbeddingsAvailable() bool {
-	ctx := context.Background()
-	_, err := embeddings.LoadEmbeddedDatabase(ctx)
 	return err == nil
 }
 
@@ -552,11 +559,11 @@ func (a *AssistantCmd) newTestCmd() *cobra.Command {
 			ctx := cmd.Context()
 
 			// Initialize core manager
-			a.initCoreManager()
+			a.initCoreManagerWithTesting()
 			if err := a.coreManager.Initialize(ctx); err != nil {
 				return fmt.Errorf("failed to initialize core manager: %w", err)
 			}
-			defer a.coreManager.Shutdown(ctx)
+			defer func() { _ = a.coreManager.Shutdown(ctx) }()
 
 			// Determine project path
 			projectPath := "."
@@ -621,7 +628,7 @@ func (a *AssistantCmd) newHealthCmd() *cobra.Command {
 			if err := a.coreManager.Initialize(ctx); err != nil {
 				return fmt.Errorf("failed to initialize core manager: %w", err)
 			}
-			defer a.coreManager.Shutdown(ctx)
+			defer func() { _ = a.coreManager.Shutdown(ctx) }()
 
 			fmt.Println(color.CyanFmt("🏥 AI Assistant Health Check"))
 			fmt.Println(strings.Repeat("=", 40))
@@ -684,7 +691,7 @@ func (a *AssistantCmd) newStatsCmd() *cobra.Command {
 			if err := a.coreManager.Initialize(ctx); err != nil {
 				return fmt.Errorf("failed to initialize core manager: %w", err)
 			}
-			defer a.coreManager.Shutdown(ctx)
+			defer func() { _ = a.coreManager.Shutdown(ctx) }()
 
 			fmt.Println(color.CyanFmt("📊 AI Assistant Statistics"))
 			fmt.Println(strings.Repeat("=", 40))

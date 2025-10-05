@@ -21,7 +21,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
-//go:embed schemas/*.json schemas/**/*.json
+//go:embed schemas/**/*.json
 var embeddedSchemas embed.FS
 
 // MCPServer implements the Model Context Protocol for Simple Container
@@ -106,7 +106,7 @@ func (s *MCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Request) {
 	response := s.processRequest(ctx, &req)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // processRequest routes MCP requests to appropriate handlers
@@ -218,7 +218,7 @@ func (s *MCPServer) handlePing(ctx context.Context, req *MCPRequest) *MCPRespons
 func (s *MCPServer) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":    "healthy",
 		"timestamp": time.Now(),
 		"version":   MCPVersion,
@@ -229,7 +229,7 @@ func (s *MCPServer) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 func (s *MCPServer) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	capabilities, _ := s.handler.GetCapabilities(r.Context())
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(capabilities)
+	_ = json.NewEncoder(w).Encode(capabilities)
 }
 
 // Utility methods
@@ -250,7 +250,7 @@ func (s *MCPServer) writeError(w http.ResponseWriter, id interface{}, code int, 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	response := NewMCPError(id, code, message, data)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (s *MCPServer) corsMiddleware(next http.Handler) http.Handler {
@@ -270,7 +270,6 @@ func (s *MCPServer) corsMiddleware(next http.Handler) http.Handler {
 
 // DefaultMCPHandler provides default implementations of MCP methods
 type DefaultMCPHandler struct {
-	embeddings *embeddings.DB // This will be chromem-go DB instance
 }
 
 func NewDefaultMCPHandler() MCPHandler {
@@ -381,7 +380,7 @@ func (h *DefaultMCPHandler) discoverResources(projectPath string, scConfigExists
 		return resources
 	}
 
-	filepath.Walk(stacksPath, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(stacksPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(info.Name(), "server.yaml") {
 			return nil
 		}

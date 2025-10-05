@@ -3,23 +3,23 @@
   "provider": "gcp",
   "resources": [
     {
-      "name": "RemoteImagePush",
+      "name": "GkeAutopilotTemplate",
       "type": "resource",
       "provider": "gcp",
-      "description": "Google Cloud Platform remoteimagepush configuration",
+      "description": "Google Cloud Platform gkeautopilottemplate configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "RemoteImagePush",
-      "resourceType": "gcp-docker-image-push",
+      "goStruct": "GkeAutopilotTemplate",
+      "resourceType": "gcp-gke-autopilot",
       "schema": {}
     },
     {
-      "name": "ArtifactRegistryConfig",
+      "name": "PubSubConfig",
       "type": "resource",
       "provider": "gcp",
-      "description": "Google Cloud Platform artifactregistry configuration",
+      "description": "Google Cloud Platform pubsub configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "ArtifactRegistryConfig",
-      "resourceType": "gcp-artifact-registry",
+      "goStruct": "PubSubConfig",
+      "resourceType": "gcp-pubsub",
       "schema": {}
     },
     {
@@ -30,16 +30,6 @@
       "goPackage": "pkg/clouds/gcp/",
       "goStruct": "Credentials",
       "resourceType": "gcp-service-account",
-      "schema": {}
-    },
-    {
-      "name": "PostgresGcpCloudsqlConfig",
-      "type": "resource",
-      "provider": "gcp",
-      "description": "Google Cloud Platform postgresgcpcloudsql configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "PostgresGcpCloudsqlConfig",
-      "resourceType": "gcp-cloudsql-postgres",
       "schema": {}
     },
     {
@@ -54,27 +44,6 @@
       "schema": {}
     },
     {
-      "name": "TemplateConfig",
-      "type": "template",
-      "provider": "gcp",
-      "description": "Google Cloud Platform deployment template configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "cloudrun",
-      "templateType": "cloudrun",
-      "schema": {}
-    },
-    {
-      "name": "PubSubConfig",
-      "type": "resource",
-      "provider": "gcp",
-      "description": "Google Cloud Platform pubsub configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "PubSubConfig",
-      "resourceType": "gcp-pubsub",
-      "schema": {}
-    },
-    {
       "name": "GcpBucket",
       "type": "resource",
       "provider": "gcp",
@@ -85,13 +54,23 @@
       "schema": {}
     },
     {
-      "name": "GkeAutopilotTemplate",
+      "name": "ArtifactRegistryConfig",
       "type": "resource",
       "provider": "gcp",
-      "description": "Google Cloud Platform gkeautopilottemplate configuration",
+      "description": "Google Cloud Platform artifactregistry configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "GkeAutopilotTemplate",
-      "resourceType": "gcp-gke-autopilot",
+      "goStruct": "ArtifactRegistryConfig",
+      "resourceType": "gcp-artifact-registry",
+      "schema": {}
+    },
+    {
+      "name": "RemoteImagePush",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform remoteimagepush configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "RemoteImagePush",
+      "resourceType": "gcp-docker-image-push",
       "schema": {}
     },
     {
@@ -102,6 +81,17 @@
       "goPackage": "pkg/clouds/gcp/",
       "goStruct": "RedisConfig",
       "resourceType": "gcp-redis",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "gcp",
+      "description": "Google Cloud Platform deployment template configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "cloudrun",
+      "templateType": "cloudrun",
       "schema": {}
     },
     {
@@ -122,6 +112,16 @@
       "goPackage": "pkg/clouds/gcp/",
       "goStruct": "TemplateConfig",
       "resourceType": "gcp-static-website",
+      "schema": {}
+    },
+    {
+      "name": "PostgresGcpCloudsqlConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform postgresgcpcloudsql configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PostgresGcpCloudsqlConfig",
+      "resourceType": "gcp-cloudsql-postgres",
       "schema": {}
     },
     {

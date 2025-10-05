@@ -21,11 +21,11 @@ modules:
       steps:
         - task: clean
         - task: tools
+        - task: generate-schemas
+        - task: generate-embeddings
         - task: linters
         - task: fmt
         - task: test
-        - task: generate-schemas
-        - task: generate-embeddings
         - task: build-all
         - task: docker-login
         - task: build-cloud-helpers
@@ -132,6 +132,8 @@ tasks:
       - mkdir -p ${project:root}/pkg/assistant/mcp/schemas
       - cp -r ${project:root}/docs/docs/* ${project:root}/pkg/assistant/embeddings/docs/
       - cp -r ${project:root}/docs/schemas/* ${project:root}/pkg/assistant/mcp/schemas/
+      - mkdir -p ${project:root}/pkg/assistant/modes/schemas
+      - cp -r ${project:root}/docs/schemas/* ${project:root}/pkg/assistant/modes/schemas/
       - 'echo "{\"version\": \"1.0\", \"documents\": []}" > ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings.json'
       - echo "Successfully prepared embedded documentation and schemas (vectors generated on first run)"
   build:

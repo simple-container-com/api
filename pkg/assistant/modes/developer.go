@@ -29,15 +29,12 @@ type DeveloperMode struct {
 func NewDeveloperMode() *DeveloperMode {
 	// Initialize LLM provider (OpenAI by default)
 	provider := llm.NewOpenAIProvider()
-	if err := provider.Configure(llm.Config{
+	_ = provider.Configure(llm.Config{
 		Provider:    "openai",
 		MaxTokens:   2048,
 		Temperature: 0.7,
 		APIKey:      os.Getenv("OPENAI_API_KEY"),
-	}); err != nil {
-		// Don't print warning here as it will show even when LLM is not needed
-		// The individual generation functions will handle fallback gracefully
-	}
+	}) // Ignore configuration errors - fallback will be used
 
 	// Initialize embeddings database for documentation search
 	embeddingsDB, err := embeddings.LoadEmbeddedDatabase(context.Background())
@@ -350,7 +347,7 @@ func (d *DeveloperMode) interactiveSetup(opts *SetupOptions, analysis *analysis.
 	}
 
 	// 6. Summary
-	fmt.Printf("\n📋 " + color.BlueFmt("Configuration Summary:"))
+	fmt.Printf("%s", "\n📋 "+color.BlueFmt("Configuration Summary:"))
 	fmt.Printf("\n   Environment: %s", color.CyanFmt(opts.Environment))
 	fmt.Printf("\n   Parent: %s", color.CyanFmt(opts.Parent))
 	fmt.Printf("\n   Scaling: %s-%s instances", color.YellowFmt(fmt.Sprintf("%d", minInstances)), color.YellowFmt(fmt.Sprintf("%d", maxInstances)))
@@ -435,95 +432,6 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 	return nil
 }
 
-func (d *DeveloperMode) generateClientYAML(opts *SetupOptions, analysis *analysis.ProjectAnalysis) string {
-	projectName := filepath.Base(".")
-	if analysis != nil {
-		projectName = analysis.Name
-	}
-
-	// Extract recommended resources from analysis
-	resources := []string{}
-	if analysis != nil {
-		for _, rec := range analysis.Recommendations {
-			if rec.Type == "resource" && rec.Resource != "" {
-				// Map resource recommendations to Simple Container resource names
-				switch rec.Resource {
-				case "aws-rds-postgres", "gcp-cloudsql-postgres":
-					resources = append(resources, "postgres-db")
-				case "redis-cache":
-					resources = append(resources, "redis-cache")
-				case "mongodb-atlas":
-					resources = append(resources, "mongo-db")
-				case "s3-bucket":
-					resources = append(resources, "uploads-bucket")
-				}
-			}
-		}
-	}
-
-	// Default to common resources if none detected
-	if len(resources) == 0 {
-		resources = []string{"postgres-db"}
-	}
-
-	yaml := fmt.Sprintf(`schemaVersion: 1.0
-
-stacks:
-  %s:
-    type: cloud-compose
-    parent: %s
-    parentEnv: %s
-    config:
-      # Shared resources from DevOps team
-      uses: %v
-
-      # Services from docker-compose.yaml
-      runs: [app]
-
-      # Scaling configuration
-      scale:
-        min: 1
-        max: 5
-
-      # Environment variables
-      env:
-        PORT: 3000`,
-		projectName, opts.Parent, opts.Environment, resources)
-
-	// Add language-specific environment variables
-	if analysis != nil && analysis.PrimaryStack != nil {
-		switch analysis.PrimaryStack.Language {
-		case "javascript":
-			yaml += `
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"`
-		case "python":
-			yaml += `
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"
-        DJANGO_SECRET_KEY: "${secret:django-secret-key}"`
-		case "go":
-			yaml += `
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"`
-		}
-	}
-
-	yaml += `
-
-      # Health check configuration
-      healthCheck:
-        path: "/health"
-        port: 3000
-        initialDelaySeconds: 30
-        periodSeconds: 10
-
-      # Secrets
-      secrets:
-        JWT_SECRET: "${secret:jwt-secret}"`
-
-	return yaml
-}
 
 // LLM-based file generation functions
 func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *analysis.ProjectAnalysis) (string, error) {
@@ -549,16 +457,10 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 
 	// Extract YAML from response (remove any markdown formatting)
 	yamlContent := strings.TrimSpace(response.Content)
-	if strings.HasPrefix(yamlContent, "```yaml") {
-		yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
-	}
-	if strings.HasPrefix(yamlContent, "```") {
-		yamlContent = strings.TrimPrefix(yamlContent, "```")
-	}
+	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	yamlContent = strings.TrimPrefix(yamlContent, "```")
 	if strings.HasSuffix(yamlContent, "```") {
-		yamlContent = strings.TrimSuffix(yamlContent, "```")
-	}
-
+	yamlContent = strings.TrimSuffix(yamlContent, "```")
 	return strings.TrimSpace(yamlContent), nil
 }
 
@@ -758,16 +660,10 @@ func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAna
 
 	// Extract YAML from response
 	yamlContent := strings.TrimSpace(response.Content)
-	if strings.HasPrefix(yamlContent, "```yaml") {
-		yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
-	}
-	if strings.HasPrefix(yamlContent, "```") {
-		yamlContent = strings.TrimPrefix(yamlContent, "```")
-	}
+	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	yamlContent = strings.TrimPrefix(yamlContent, "```")
 	if strings.HasSuffix(yamlContent, "```") {
-		yamlContent = strings.TrimSuffix(yamlContent, "```")
-	}
-
+	yamlContent = strings.TrimSuffix(yamlContent, "```")
 	return strings.TrimSpace(yamlContent), nil
 }
 
@@ -861,9 +757,7 @@ func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnal
 	if strings.HasPrefix(dockerfileContent, "```") {
 		dockerfileContent = strings.TrimPrefix(dockerfileContent, "```")
 	}
-	if strings.HasSuffix(dockerfileContent, "```") {
-		dockerfileContent = strings.TrimSuffix(dockerfileContent, "```")
-	}
+	dockerfileContent = strings.TrimSuffix(dockerfileContent, "```")
 
 	return strings.TrimSpace(dockerfileContent), nil
 }
@@ -936,268 +830,10 @@ CMD ["npm", "start"]`
 	return template, nil
 }
 
-func (d *DeveloperMode) generateComposeYAML(analysis *analysis.ProjectAnalysis) string {
-	// Base compose structure
-	compose := `version: '3.8'
 
-services:
-  app:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=development
-      - PORT=3000
-    volumes:
-      - .:/app:delegated
-    command: npm run dev`
 
-	// Add database services based on analysis
-	if analysis != nil {
-		hasDatabase := false
-		hasRedis := false
 
-		// Check for database dependencies
-		for _, rec := range analysis.Recommendations {
-			if rec.Category == "database" {
-				hasDatabase = true
-			}
-			if rec.Category == "cache" {
-				hasRedis = true
-			}
-		}
 
-		if hasDatabase {
-			compose += `
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: appdb
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: apppass
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
-      interval: 10s
-      timeout: 5s
-      retries: 5`
-
-			compose = compose[:strings.LastIndex(compose, "command: npm run dev")] +
-				`depends_on:
-        postgres:
-          condition: service_healthy
-      environment:
-        - NODE_ENV=development
-        - PORT=3000
-        - DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb
-    command: npm run dev`
-		}
-
-		if hasRedis {
-			compose += `
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5`
-
-			// Add Redis URL to app environment
-			compose = strings.Replace(compose,
-				"- DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb",
-				`- DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb
-        - REDIS_URL=redis://redis:6379`, 1)
-		}
-
-		// Add volumes section
-		if hasDatabase || hasRedis {
-			compose += `
-
-volumes:`
-			if hasDatabase {
-				compose += `
-  postgres_data:`
-			}
-			if hasRedis {
-				compose += `
-  redis_data:`
-			}
-		}
-	}
-
-	return compose
-}
-
-func (d *DeveloperMode) generateDockerfile(analysis *analysis.ProjectAnalysis) string {
-	if analysis == nil || analysis.PrimaryStack == nil {
-		// Default Node.js Dockerfile
-		return d.getNodeJSDockerfile()
-	}
-
-	switch analysis.PrimaryStack.Language {
-	case "javascript":
-		return d.getNodeJSDockerfile()
-	case "python":
-		return d.getPythonDockerfile()
-	case "go":
-		return d.getGoDockerfile()
-	default:
-		return d.getNodeJSDockerfile() // Default fallback
-	}
-}
-
-func (d *DeveloperMode) getNodeJSDockerfile() string {
-	return `# Multi-stage build for Node.js
-FROM node:18-alpine AS dependencies
-
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
-# Create app directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install production dependencies
-RUN npm ci --only=production --silent && npm cache clean --force
-
-# Production stage
-FROM node:18-alpine AS production
-
-# Install dumb-init
-RUN apk add --no-cache dumb-init
-
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodeuser -u 1001
-
-WORKDIR /app
-
-# Copy dependencies
-COPY --from=dependencies --chown=nodeuser:nodejs /app/node_modules ./node_modules
-
-# Copy application code
-COPY --chown=nodeuser:nodejs . .
-
-# Switch to non-root user
-USER nodeuser
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
-
-# Start the application
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["npm", "start"]`
-}
-
-func (d *DeveloperMode) getPythonDockerfile() string {
-	return `# Multi-stage build for Python
-FROM python:3.11-slim AS base
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-
-WORKDIR /app
-
-# Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY --chown=appuser:appuser . .
-
-# Switch to non-root user
-USER appuser
-
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-
-# Start the application
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]`
-}
-
-func (d *DeveloperMode) getGoDockerfile() string {
-	return `# Multi-stage build for Go
-FROM golang:1.21-alpine AS builder
-
-# Install git (required for some go modules)
-RUN apk add --no-cache git
-
-WORKDIR /app
-
-# Copy go mod files
-COPY go.mod go.sum ./
-
-# Download dependencies
-RUN go mod download
-
-# Copy source code
-COPY . .
-
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
-
-# Production stage
-FROM alpine:latest
-
-# Install ca-certificates for HTTPS calls
-RUN apk --no-cache add ca-certificates
-
-# Create non-root user
-RUN addgroup -g 1001 -S appuser && \
-    adduser -S appuser -u 1001 -G appuser
-
-WORKDIR /root/
-
-# Copy the binary from builder
-COPY --from=builder /app/main .
-
-# Change ownership to non-root user
-RUN chown appuser:appuser ./main
-
-# Switch to non-root user
-USER appuser
-
-# Expose port
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ./main -health-check || exit 1
-
-# Start the application
-CMD ["./main"]`
-}
 
 func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis.ProjectAnalysis) {
 	fmt.Println("\n📁 Generated files:")

@@ -1,13 +1,14 @@
 package embeddings
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
 
 func TestEmbeddedDocumentationSystem(t *testing.T) {
 	// Test that we can load the embedded database
-	db, err := LoadEmbeddedDatabase()
+	db, err := LoadEmbeddedDatabase(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to load embedded database: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestEmbeddedDocumentationSystem(t *testing.T) {
 
 func TestEmbeddedDocumentationSearch(t *testing.T) {
 	// Load the embedded database
-	db, err := LoadEmbeddedDatabase()
+	db, err := LoadEmbeddedDatabase(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to load embedded database: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestEmbeddedDocsFileSystem(t *testing.T) {
 		// Try to find any .md files in the embedded filesystem
 		t.Log("Looking for .md files in embedded filesystem...")
 		db := &Database{}
-		db.walkEmbeddedDocs("docs", func(path string, content []byte) error {
+		_ = db.walkEmbeddedDocs(context.Background(), nil, "docs", func(path string, content []byte) error {
 			if strings.HasSuffix(path, ".md") {
 				t.Logf("  Found: %s (%d bytes)", path, len(content))
 			}
@@ -102,7 +103,7 @@ func TestEmbeddedDocsFileSystem(t *testing.T) {
 
 func TestContextEnrichmentQueries(t *testing.T) {
 	// Load the embedded database
-	db, err := LoadEmbeddedDatabase()
+	db, err := LoadEmbeddedDatabase(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to load embedded database: %v", err)
 	}

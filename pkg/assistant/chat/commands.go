@@ -222,7 +222,6 @@ func (c *ChatInterface) handleAnalyze(ctx context.Context, args []string, contex
 	}
 
 	context.ProjectInfo = projectInfo
-	context.UpdatedAt = context.UpdatedAt
 
 	// Format analysis results
 	message := fmt.Sprintf("Project Analysis for %s:", color.CyanString(projectInfo.Name))
@@ -381,7 +380,7 @@ func (c *ChatInterface) handleClear(ctx context.Context, args []string, context 
 
 // handleStatus shows session status
 func (c *ChatInterface) handleStatus(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
-	message := fmt.Sprintf("Session Status:")
+	message := "Session Status:"
 	message += fmt.Sprintf("\n🆔 Session ID: %s", context.SessionID)
 	message += fmt.Sprintf("\n⚡ Mode: %s", strings.ToTitle(context.Mode))
 	message += fmt.Sprintf("\n📁 Project: %s", func() string {

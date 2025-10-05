@@ -108,7 +108,7 @@ func (tf *TestFramework) RunEmbeddingsTests(ctx context.Context) *TestSuite {
 			return err
 		}
 
-		results, err := embeddings.SearchDocumentation(db, "simple", 1000)
+		results, err := embeddings.SearchDocumentation(db, "simple", 10)
 		if err != nil {
 			return err
 		}

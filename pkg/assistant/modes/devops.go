@@ -17,7 +17,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-//go:embed schemas/*.json schemas/**/*.json
+//go:embed schemas/**/*.json
 var embeddedSchemas embed.FS
 
 // DevOpsMode handles infrastructure-focused workflows

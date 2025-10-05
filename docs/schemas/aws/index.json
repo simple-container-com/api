@@ -3,47 +3,6 @@
   "provider": "aws",
   "resources": [
     {
-      "name": "MysqlConfig",
-      "type": "resource",
-      "provider": "aws",
-      "description": "AWS mysql configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "MysqlConfig",
-      "resourceType": "aws-rds-mysql",
-      "schema": {}
-    },
-    {
-      "name": "PostgresConfig",
-      "type": "resource",
-      "provider": "aws",
-      "description": "AWS postgres configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "PostgresConfig",
-      "resourceType": "aws-rds-postgres",
-      "schema": {}
-    },
-    {
-      "name": "TemplateConfig",
-      "type": "template",
-      "provider": "aws",
-      "description": "AWS deployment template configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "ecs-fargate",
-      "templateType": "ecs-fargate",
-      "schema": {}
-    },
-    {
-      "name": "SecretsConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsConfig",
-      "resourceType": "aws-secrets-manager",
-      "schema": {}
-    },
-    {
       "name": "SecretsProviderConfig",
       "type": "secrets",
       "provider": "aws",
@@ -51,16 +10,6 @@
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "SecretsProviderConfig",
       "resourceType": "gcp-secrets-manager",
-      "schema": {}
-    },
-    {
-      "name": "TemplateConfig",
-      "type": "template",
-      "provider": "aws",
-      "description": "AWS deployment template configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "aws-static-website",
       "schema": {}
     },
     {
@@ -74,14 +23,23 @@
       "schema": {}
     },
     {
-      "name": "TemplateConfig",
-      "type": "template",
+      "name": "PostgresConfig",
+      "type": "resource",
       "provider": "aws",
-      "description": "AWS deployment template configuration",
+      "description": "AWS postgres configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "aws-lambda",
-      "templateType": "aws-lambda",
+      "goStruct": "PostgresConfig",
+      "resourceType": "aws-rds-postgres",
+      "schema": {}
+    },
+    {
+      "name": "SecretsConfig",
+      "type": "secrets",
+      "provider": "aws",
+      "description": "AWS secrets management configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "SecretsConfig",
+      "resourceType": "aws-secrets-manager",
       "schema": {}
     },
     {
@@ -102,6 +60,48 @@
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "EcrRepository",
       "resourceType": "ecr-repository",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "aws",
+      "description": "AWS deployment template configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "aws-lambda",
+      "templateType": "aws-lambda",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "aws",
+      "description": "AWS deployment template configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "aws-static-website",
+      "schema": {}
+    },
+    {
+      "name": "MysqlConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS mysql configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "MysqlConfig",
+      "resourceType": "aws-rds-mysql",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "aws",
+      "description": "AWS deployment template configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "ecs-fargate",
+      "templateType": "ecs-fargate",
       "schema": {}
     },
     {
