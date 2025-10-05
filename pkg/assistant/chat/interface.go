@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -20,13 +19,14 @@ import (
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm        llm.Provider
-	context    *ConversationContext
-	embeddings *embeddings.Database
-	analyzer   *analysis.ProjectAnalyzer
-	generator  *generation.FileGenerator
-	commands   map[string]*ChatCommand
-	config     SessionConfig
+	llm          llm.Provider
+	context      *ConversationContext
+	embeddings   *embeddings.Database
+	analyzer     *analysis.ProjectAnalyzer
+	generator    *generation.FileGenerator
+	commands     map[string]*ChatCommand
+	config       SessionConfig
+	inputHandler *InputHandler
 }
 
 // NewChatInterface creates a new chat interface
@@ -83,6 +83,9 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 
 	// Register commands
 	chat.registerCommands()
+	
+	// Initialize input handler with commands
+	chat.inputHandler = NewInputHandler(chat.commands)
 
 	// Add system prompt
 	systemPrompt := prompts.GenerateContextualPrompt(config.Mode, nil, []string{})
@@ -108,18 +111,18 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 
 // chatLoop handles the main conversation loop
 func (c *ChatInterface) chatLoop(ctx context.Context) error {
-	scanner := bufio.NewScanner(os.Stdin)
-
 	for {
-		// Show prompt
-		fmt.Printf("\n%s ", color.CyanString("💬"))
-
-		// Read user input
-		if !scanner.Scan() {
-			break
+		// Read user input with autocomplete and history
+		input, err := c.inputHandler.ReadLine(color.CyanString("\n💬 "))
+		if err != nil {
+			if err.Error() == "interrupted" {
+				fmt.Println(color.GreenString("👋 Goodbye! Happy coding with Simple Container!"))
+				return nil
+			}
+			return fmt.Errorf("input error: %w", err)
 		}
 
-		input := strings.TrimSpace(scanner.Text())
+		input = strings.TrimSpace(input)
 		if input == "" {
 			continue
 		}
@@ -140,10 +143,6 @@ func (c *ChatInterface) chatLoop(ctx context.Context) error {
 				fmt.Printf("%s %v\n", color.RedString("❌"), err)
 			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("input error: %w", err)
 	}
 
 	return nil
@@ -239,7 +238,8 @@ func (c *ChatInterface) printWelcome() {
 
 	fmt.Println()
 	fmt.Println(color.WhiteString("Type '/help' for commands or just ask me questions!"))
-	fmt.Println(color.GrayString("Type 'exit' to quit"))
+	fmt.Println(color.GrayString("💡 Use Tab for autocomplete, ↑/↓ for history"))
+	fmt.Println(color.GrayString("Type 'exit' or Ctrl+C to quit"))
 }
 
 // analyzeProject analyzes the current project

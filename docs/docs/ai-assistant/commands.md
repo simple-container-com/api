@@ -368,7 +368,14 @@ sc assistant chat --save-session conversation.json
 - `/status` - Show current session status
 - `/apikey <set|delete|status> [provider]` - Manage LLM provider API keys
 - `/provider <list|switch|info> [provider]` - Manage LLM providers
+- `/history [clear]` - Show or clear command history
 - `/exit` - Exit chat session
+
+**Input Features:**
+- **Tab** - Autocomplete commands (shows suggestions if multiple matches)
+- **↑/↓ Arrow Keys** - Navigate command history
+- **Ctrl+C** - Exit chat session
+- Type `/` to see command suggestions
 
 ### Multi-Provider Support
 

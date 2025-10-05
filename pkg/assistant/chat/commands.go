@@ -108,6 +108,16 @@ func (c *ChatInterface) registerCommands() {
 			{Name: "provider", Type: "string", Required: false, Description: "Provider name for switch/info"},
 		},
 	}
+
+	c.commands["history"] = &ChatCommand{
+		Name:        "history",
+		Description: "Show command history",
+		Usage:       "/history [clear]",
+		Handler:     c.handleHistory,
+		Args: []CommandArg{
+			{Name: "action", Type: "string", Required: false, Description: "Action: clear to clear history"},
+		},
+	}
 }
 
 // handleHelp shows help information
@@ -1187,6 +1197,45 @@ func selectProvider(cfg *config.Config) (string, error) {
 	fmt.Println()
 	
 	return selectedProvider, nil
+}
+
+// handleHistory shows or clears command history
+func (c *ChatInterface) handleHistory(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) > 0 && strings.ToLower(args[0]) == "clear" {
+		c.inputHandler.ClearHistory()
+		return &CommandResult{
+			Success: true,
+			Message: "✅ Command history cleared",
+		}, nil
+	}
+
+	history := c.inputHandler.GetHistory()
+	if len(history) == 0 {
+		return &CommandResult{
+			Success: true,
+			Message: "No command history yet",
+		}, nil
+	}
+
+	message := fmt.Sprintf("📜 Command History (%d commands):\n", len(history))
+	
+	// Show last 20 commands
+	start := 0
+	if len(history) > 20 {
+		start = len(history) - 20
+		message += fmt.Sprintf("\n(Showing last 20 of %d commands)\n", len(history))
+	}
+	
+	for i := start; i < len(history); i++ {
+		message += fmt.Sprintf("\n  %d. %s", i+1, history[i])
+	}
+	
+	message += "\n\n💡 Tip: Use ↑/↓ arrow keys to navigate history, Tab for autocomplete"
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+	}, nil
 }
 
 // selectConfiguredProvider shows an interactive menu to select from configured providers only
