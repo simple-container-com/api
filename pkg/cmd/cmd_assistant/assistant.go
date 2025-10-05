@@ -192,6 +192,11 @@ func (a *AssistantCmd) newDevSetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.CloudProvider, "cloud", "", "Target cloud provider")
 	cmd.Flags().StringVar(&opts.OutputDir, "output-dir", "", "Output directory")
 
+	// Multi-file generation options
+	cmd.Flags().BoolVar(&opts.GenerateAll, "generate-all", false, "Generate all files using coordinated multi-file generation for better consistency")
+	cmd.Flags().BoolVar(&opts.UseStreaming, "streaming", false, "Use streaming LLM responses for real-time progress feedback")
+	cmd.Flags().BoolVar(&opts.BackupExisting, "backup-existing", true, "Backup existing files before overwriting")
+
 	return cmd
 }
 

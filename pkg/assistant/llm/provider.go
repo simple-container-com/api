@@ -13,10 +13,26 @@ type Message struct {
 	Metadata  map[string]interface{} `json:"metadata"`  // Additional context
 }
 
+// StreamCallback is called for each chunk of streaming response
+type StreamCallback func(chunk StreamChunk) error
+
+// StreamChunk represents a chunk of streaming response
+type StreamChunk struct {
+	Content     string            `json:"content"`      // Partial content
+	Delta       string            `json:"delta"`        // New content since last chunk
+	IsComplete  bool              `json:"is_complete"`  // Whether this is the final chunk
+	Usage       *TokenUsage       `json:"usage"`        // Token usage (only on final chunk)
+	Metadata    map[string]string `json:"metadata"`     // Additional metadata
+	GeneratedAt time.Time         `json:"generated_at"` // When chunk was generated
+}
+
 // Provider defines the interface for LLM providers
 type Provider interface {
 	// Chat sends messages to the LLM and returns a response
 	Chat(ctx context.Context, messages []Message) (*ChatResponse, error)
+
+	// StreamChat sends messages to the LLM and streams the response via callback
+	StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error)
 
 	// GetCapabilities returns the provider's capabilities
 	GetCapabilities() Capabilities

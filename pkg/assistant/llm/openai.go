@@ -114,6 +114,105 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 	}, nil
 }
 
+// StreamChat sends messages to OpenAI and streams the response via callback
+func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
+	if !p.configured {
+		return nil, fmt.Errorf("OpenAI provider not configured")
+	}
+
+	// Convert messages to langchaingo format
+	llmMessages := make([]llms.MessageContent, 0, len(messages))
+
+	for _, msg := range messages {
+		var msgType llms.ChatMessageType
+		switch strings.ToLower(msg.Role) {
+		case "user":
+			msgType = llms.ChatMessageTypeHuman
+		case "assistant":
+			msgType = llms.ChatMessageTypeAI
+		case "system":
+			msgType = llms.ChatMessageTypeSystem
+		default:
+			msgType = llms.ChatMessageTypeHuman
+		}
+
+		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
+	}
+
+	startTime := time.Now()
+	var fullContent strings.Builder
+	var completionTokens int
+
+	// Use streaming generation
+	_, err := p.client.GenerateContent(ctx, llmMessages,
+		llms.WithMaxTokens(p.config.MaxTokens),
+		llms.WithTemperature(float64(p.config.Temperature)),
+		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+			chunkStr := string(chunk)
+			if chunkStr == "" {
+				return nil
+			}
+
+			fullContent.WriteString(chunkStr)
+			completionTokens += estimateTokens(chunkStr)
+
+			// Send chunk to callback
+			streamChunk := StreamChunk{
+				Content:    fullContent.String(),
+				Delta:      chunkStr,
+				IsComplete: false,
+				Metadata: map[string]string{
+					"provider": "openai",
+				},
+				GeneratedAt: time.Now(),
+			}
+
+			return callback(streamChunk)
+		}),
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("OpenAI streaming API error: %w", err)
+	}
+
+	// Calculate final token usage
+	usage := TokenUsage{
+		PromptTokens:     estimateTokens(messagesToString(messages)),
+		CompletionTokens: completionTokens,
+	}
+	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+
+	// Send final chunk
+	finalChunk := StreamChunk{
+		Content:    fullContent.String(),
+		Delta:      "",
+		IsComplete: true,
+		Usage:      &usage,
+		Metadata: map[string]string{
+			"provider":   "openai",
+			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+		},
+		GeneratedAt: time.Now(),
+	}
+
+	if callbackErr := callback(finalChunk); callbackErr != nil {
+		return nil, fmt.Errorf("callback error: %w", callbackErr)
+	}
+
+	return &ChatResponse{
+		Content:      fullContent.String(),
+		Usage:        usage,
+		Model:        p.model,
+		FinishReason: "stop",
+		Metadata: map[string]string{
+			"provider":   "openai",
+			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+		},
+		GeneratedAt: time.Now(),
+	}, nil
+}
+
 // GetCapabilities returns OpenAI capabilities
 func (p *OpenAIProvider) GetCapabilities() Capabilities {
 	return Capabilities{
@@ -125,7 +224,7 @@ func (p *OpenAIProvider) GetCapabilities() Capabilities {
 			"gpt-3.5-turbo-16k",
 		},
 		MaxTokens:         4096,
-		SupportsStreaming: false,    // Not implemented in this version
+		SupportsStreaming: true,     // Now implemented with StreamChat
 		SupportsFunctions: false,    // Not implemented in this version
 		CostPerToken:      0.000002, // Approximate cost for gpt-3.5-turbo
 		RequiresAuth:      true,
