@@ -17,8 +17,8 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
-	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
 // registerCommands registers all available chat commands
@@ -357,7 +357,7 @@ func (c *ChatInterface) handleSetup(ctx context.Context, args []string, context 
 		Success:  true,
 		Message:  message,
 		Files:    files,
-		NextStep: "Review the generated files and run 'docker-compose up -d' to test locally, then 'sc deploy -e staging' to deploy",
+		NextStep: "Review the generated files and run 'docker-compose up -d' from ${project:root} to test locally, then 'sc deploy -e staging' to deploy",
 	}, nil
 }
 
@@ -393,7 +393,7 @@ func (c *ChatInterface) handleSwitch(ctx context.Context, args []string, context
 
 	message := fmt.Sprintf("Switched from %s mode to %s mode", oldMode, newMode)
 	if newMode == "dev" {
-		message += "\n\n🚀 Developer Mode: I'll help you set up your application with client.yaml, docker-compose.yaml, and Dockerfile"
+		message += "\n\n🚀 Developer Mode: I'll help you set up your application with client.yaml, ${project:root}/docker-compose.yaml, and ${project:root}/Dockerfile"
 	} else {
 		message += "\n\n🛠️  DevOps Mode: I'll help you set up infrastructure with server.yaml, secrets.yaml, and shared resources"
 	}
@@ -458,21 +458,39 @@ func min(a, b int) int {
 }
 
 func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]GeneratedFile, error) {
-	// Use actual file generation with project analysis
+	// Use DeveloperMode for consistent file generation
 	projectPath := "."
 	if context.ProjectPath != "" {
 		projectPath = context.ProjectPath
 	}
 
-	// Get project analysis
+	// Create SetupOptions for DeveloperMode
+	opts := &modes.SetupOptions{
+		Interactive:    false, // Chat interface handles interactivity differently
+		Environment:    "staging",
+		Parent:         "infrastructure",
+		SkipAnalysis:   false,
+		SkipDockerfile: false,
+		SkipCompose:    false,
+		OutputDir:      projectPath,
+		GenerateAll:    false,
+		UseStreaming:   false,
+		BackupExisting: false, // Chat interface handles file writing separately
+	}
+
+	// Capture the generated files by temporarily redirecting the DeveloperMode output
+	// We'll use a custom approach to get the generated content without writing files
+	return c.generateFilesUsingDeveloperMode(context, opts)
+}
+
+func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationContext, opts *modes.SetupOptions) ([]GeneratedFile, error) {
+	// Get or create project analysis
 	var projectAnalysis *analysis.ProjectAnalysis
 	if context.ProjectInfo != nil {
 		projectAnalysis = context.ProjectInfo
 	} else {
-		// Analyze the current project if not already available
-		analyzer := analysis.NewProjectAnalyzer()
 		var err error
-		projectAnalysis, err = analyzer.AnalyzeProject(projectPath)
+		projectAnalysis, err = c.analyzer.AnalyzeProject(opts.OutputDir)
 		if err != nil {
 			// Use a basic fallback analysis
 			projectAnalysis = &analysis.ProjectAnalysis{
@@ -487,26 +505,17 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 	// Determine proper project name for file paths
 	projectName := projectAnalysis.Name
 	if projectName == "." || projectName == "" {
-		// Use the directory name as the project name
-		if absPath, err := filepath.Abs(projectPath); err == nil {
+		if absPath, err := filepath.Abs(opts.OutputDir); err == nil {
 			projectName = filepath.Base(absPath)
 		} else {
 			projectName = "my-app"
 		}
 	}
 
-	// Generate options
-	opts := generation.GenerateOptions{
-		ProjectPath: projectPath,
-		ProjectName: projectName,
-		Environment: "staging",
-		Parent:      "infrastructure",
-	}
-
 	files := []GeneratedFile{}
 
-	// Generate client.yaml
-	clientYaml, err := c.generator.GenerateClientYAML(projectAnalysis, opts)
+	// Generate client.yaml using DeveloperMode logic
+	clientYaml, err := c.developerMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
 	if err == nil {
 		files = append(files, GeneratedFile{
 			Path:        ".sc/stacks/" + projectName + "/client.yaml",
@@ -517,28 +526,32 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 		})
 	}
 
-	// Generate docker-compose.yaml
-	composeYaml, err := c.generator.GenerateDockerCompose(projectAnalysis, opts)
-	if err == nil {
-		files = append(files, GeneratedFile{
-			Path:        "docker-compose.yaml",
-			Type:        "yaml",
-			Description: "Local development environment",
-			Generated:   true,
-			Content:     composeYaml,
-		})
+	// Generate docker-compose.yaml using DeveloperMode logic
+	if !opts.SkipCompose {
+		composeYaml, err := c.developerMode.GenerateComposeYAMLWithLLM(projectAnalysis)
+		if err == nil {
+			files = append(files, GeneratedFile{
+				Path:        "docker-compose.yaml",
+				Type:        "yaml",
+				Description: "Local development environment",
+				Generated:   true,
+				Content:     composeYaml,
+			})
+		}
 	}
 
-	// Generate Dockerfile
-	dockerfile, err := c.generator.GenerateDockerfile(projectAnalysis, opts)
-	if err == nil {
-		files = append(files, GeneratedFile{
-			Path:        "Dockerfile",
-			Type:        "dockerfile",
-			Description: "Container image definition",
-			Generated:   true,
-			Content:     dockerfile,
-		})
+	// Generate Dockerfile using DeveloperMode logic
+	if !opts.SkipDockerfile {
+		dockerfile, err := c.developerMode.GenerateDockerfileWithLLM(projectAnalysis)
+		if err == nil {
+			files = append(files, GeneratedFile{
+				Path:        "Dockerfile",
+				Type:        "dockerfile",
+				Description: "Container image definition",
+				Generated:   true,
+				Content:     dockerfile,
+			})
+		}
 	}
 
 	return files, nil

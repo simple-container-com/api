@@ -311,7 +311,7 @@ func (d *DeveloperMode) buildCoordinatedPrompt(req MultiFileGenerationRequest) s
 		prompt.WriteString("- Dockerfile: Multi-stage, optimized, secure\n")
 	}
 	if req.GenerateDockerCompose {
-		prompt.WriteString("- docker-compose.yaml: With Simple Container labels, proper volumes, networking\n")
+		prompt.WriteString("- ${project:root}/docker-compose.yaml: With Simple Container labels, proper volumes, networking\n")
 	}
 	if req.GenerateClientYAML {
 		prompt.WriteString("- client.yaml: Schema-compliant Simple Container client configuration\n")

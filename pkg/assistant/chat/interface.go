@@ -17,18 +17,20 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm          llm.Provider
-	context      *ConversationContext
-	embeddings   *embeddings.Database
-	analyzer     *analysis.ProjectAnalyzer
-	generator    *generation.FileGenerator
-	commands     map[string]*ChatCommand
-	config       SessionConfig
-	inputHandler *InputHandler
+	llm           llm.Provider
+	context       *ConversationContext
+	embeddings    *embeddings.Database
+	analyzer      *analysis.ProjectAnalyzer
+	generator     *generation.FileGenerator
+	developerMode *modes.DeveloperMode
+	commands      map[string]*ChatCommand
+	config        SessionConfig
+	inputHandler  *InputHandler
 }
 
 // NewChatInterface creates a new chat interface
@@ -65,12 +67,13 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 
 	// Create chat interface
 	chat := &ChatInterface{
-		llm:        provider,
-		embeddings: embeddingsDB,
-		analyzer:   analysis.NewProjectAnalyzer(),
-		generator:  generation.NewFileGenerator(),
-		commands:   make(map[string]*ChatCommand),
-		config:     config,
+		llm:           provider,
+		embeddings:    embeddingsDB,
+		analyzer:      analysis.NewProjectAnalyzer(),
+		generator:     generation.NewFileGenerator(),
+		developerMode: modes.NewDeveloperMode(),
+		commands:      make(map[string]*ChatCommand),
+		config:        config,
 	}
 
 	// Initialize conversation context

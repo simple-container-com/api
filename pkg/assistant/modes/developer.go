@@ -68,6 +68,9 @@ type SetupOptions struct {
 	GenerateAll    bool // Generate all files in one coordinated operation
 	UseStreaming   bool // Use streaming LLM responses for better UX
 	BackupExisting bool // Backup existing files before overwriting
+
+	// Deployment type override (if user manually selected)
+	DeploymentType string // Override detected deployment type: "static", "single-image", "cloud-compose"
 }
 
 // AnalyzeOptions for developer analyze command
@@ -115,7 +118,21 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts *SetupOptions) error {
 		}
 	}
 
-	// Step 3: Generate Configuration Files
+	// Step 3: Deployment Type Confirmation
+	if !opts.Interactive {
+		// For non-interactive mode, confirm deployment type
+		if err := d.confirmDeploymentType(opts, projectAnalysis); err != nil {
+			return err
+		}
+	} else {
+		// Interactive mode already handled deployment type selection
+		// Just show what was selected
+		if opts.DeploymentType != "" {
+			fmt.Printf("\n🔍 Using deployment type: %s\n", color.CyanString(opts.DeploymentType))
+		}
+	}
+
+	// Step 4: Generate Configuration Files
 	fmt.Println("\n📝 Generating configuration files...")
 
 	// Check if coordinated multi-file generation is requested
@@ -287,16 +304,18 @@ func (d *DeveloperMode) interactiveSetup(opts *SetupOptions, analysis *analysis.
 		scanner.Scan()
 		input := strings.TrimSpace(scanner.Text())
 		if input == "" || input == "1" {
-			// Default to cloud-compose (already the default in templates)
+			// Default to cloud-compose
+			opts.DeploymentType = "cloud-compose"
+			fmt.Printf("   %s Multi-container deployment selected\n", color.GreenFmt("✓"))
 			break
 		}
 		if input == "2" {
-			// Note: We'd need to modify the template generation to support this
+			opts.DeploymentType = "static"
 			fmt.Printf("   %s Static deployment selected\n", color.GreenFmt("✓"))
 			break
 		}
 		if input == "3" {
-			// Note: We'd need to modify the template generation to support this
+			opts.DeploymentType = "single-image"
 			fmt.Printf("   %s Single-image deployment selected\n", color.GreenFmt("✓"))
 			break
 		}
@@ -508,6 +527,77 @@ func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool) bo
 
 	response = strings.ToLower(strings.TrimSpace(response))
 	return response == "y" || response == "yes"
+}
+
+// confirmDeploymentType confirms the detected deployment type with the user
+func (d *DeveloperMode) confirmDeploymentType(opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
+	detectedType := d.determineDeploymentTypeWithOptions(analysis, opts)
+
+	fmt.Printf("\n🔍 Detected deployment type: %s\n", color.CyanString(detectedType))
+
+	// Show what this means
+	switch detectedType {
+	case "static":
+		fmt.Printf("   📄 Static site deployment (HTML/CSS/JS files)\n")
+		fmt.Printf("   💡 Best for: React, Vue, Angular, static sites\n")
+	case "single-image":
+		fmt.Printf("   🚀 Single container deployment (serverless/lambda style)\n")
+		fmt.Printf("   💡 Best for: AWS Lambda, simple APIs, microservices\n")
+	case "cloud-compose":
+		fmt.Printf("   🐳 Multi-container deployment (docker-compose based)\n")
+		fmt.Printf("   💡 Best for: Full-stack apps, databases, complex services\n")
+	}
+
+	fmt.Printf("\n   Is this correct? [Y/n]: ")
+
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		// If there's an error reading input, default to "yes"
+		return nil
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response == "n" || response == "no" {
+		// Let user choose the deployment type
+		return d.selectDeploymentType(opts, analysis)
+	}
+
+	return nil
+}
+
+// selectDeploymentType allows user to manually select deployment type
+func (d *DeveloperMode) selectDeploymentType(opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
+	fmt.Println("\n📋 Available deployment types:")
+	fmt.Printf("   1. %s - Static site (HTML/CSS/JS files)\n", color.CyanString("static"))
+	fmt.Printf("   2. %s - Single container (serverless/lambda style)\n", color.CyanString("single-image"))
+	fmt.Printf("   3. %s - Multi-container (docker-compose based)\n", color.CyanString("cloud-compose"))
+
+	fmt.Printf("\n   Select deployment type [1-3]: ")
+
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+
+	response = strings.TrimSpace(response)
+	switch response {
+	case "1":
+		// Update options to reflect static deployment
+		opts.DeploymentType = "static"
+		fmt.Printf("✅ Selected: %s\n", color.GreenString("static"))
+	case "2":
+		// Update options to reflect single-image deployment
+		opts.DeploymentType = "single-image"
+		fmt.Printf("✅ Selected: %s\n", color.GreenString("single-image"))
+	case "3":
+		// Update options to reflect cloud-compose deployment
+		opts.DeploymentType = "cloud-compose"
+		fmt.Printf("✅ Selected: %s\n", color.GreenString("cloud-compose"))
+	default:
+		fmt.Printf("⚠️  Invalid selection, using detected type: %s\n", color.YellowString(d.determineDeploymentType(analysis)))
+	}
+
+	return nil
 }
 
 // generateFilesCoordinated generates multiple files using coordinated multi-file generation
@@ -793,7 +883,7 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("stacks:\n")
 	prompt.WriteString("  " + projectName + ":\n")
 	// Determine deployment type for example
-	deploymentType := d.determineDeploymentType(analysis)
+	deploymentType := d.determineDeploymentTypeWithOptions(analysis, opts)
 	prompt.WriteString(fmt.Sprintf("    type: %s       # Valid types: cloud-compose, static, single-image\n", deploymentType))
 	prompt.WriteString("    parent: " + opts.Parent + "\n")
 	prompt.WriteString("    parentEnv: " + opts.Environment + "\n")
@@ -817,8 +907,8 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		prompt.WriteString("      secrets:\n")
 		prompt.WriteString("        API_KEY: \"${secret:api-key}\"\n")
 	default: // cloud-compose
-		prompt.WriteString("      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to local docker-compose file\n")
-		prompt.WriteString("      runs: [app]            # Container names from docker-compose.yaml\n")
+		prompt.WriteString("      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to ${project:root}/docker-compose.yaml\n")
+		prompt.WriteString("      runs: [app]            # Container names from ${project:root}/docker-compose.yaml\n")
 		prompt.WriteString(fmt.Sprintf("      domain: %s.mycompany.com  # Optional: DNS domain (requires registrar in server.yaml)\n", projectName))
 		prompt.WriteString("      scale:\n")
 		prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
@@ -854,7 +944,7 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("- ${resource:name.connectionString} (fictional property - use .url instead)\n")
 	prompt.WriteString("- Missing dockerComposeFile property (REQUIRED for cloud-compose stacks)\n")
 	prompt.WriteString("\n✅ CORRECT PATTERNS:\n")
-	prompt.WriteString("- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED)\n")
+	prompt.WriteString("- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED - references ${project:root}/docker-compose.yaml)\n")
 	prompt.WriteString("- Optional: domain property for DNS routing (requires registrar in server.yaml)\n")
 	prompt.WriteString("- Resource consumption: uses: [resource-name] + ${resource:name.url}\n")
 	prompt.WriteString("- Manual secrets: Use ${secret:name} for parent-defined secrets only\n")
@@ -978,6 +1068,16 @@ func (d *DeveloperMode) enrichContextWithDocumentation(configType string, analys
 
 // determineDeploymentType detects the appropriate deployment type based on project analysis
 func (d *DeveloperMode) determineDeploymentType(analysis *analysis.ProjectAnalysis) string {
+	return d.determineDeploymentTypeWithOptions(analysis, nil)
+}
+
+// determineDeploymentTypeWithOptions detects deployment type with optional override from SetupOptions
+func (d *DeveloperMode) determineDeploymentTypeWithOptions(analysis *analysis.ProjectAnalysis, opts *SetupOptions) string {
+	// Check for manual override first
+	if opts != nil && opts.DeploymentType != "" {
+		return opts.DeploymentType
+	}
+
 	if analysis == nil {
 		return "cloud-compose" // Default fallback
 	}
@@ -1047,7 +1147,7 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 	}
 
 	// Determine deployment type based on project analysis
-	deploymentType := d.determineDeploymentType(analysis)
+	deploymentType := d.determineDeploymentTypeWithOptions(analysis, opts)
 
 	// Build language-specific environment variables based on project analysis
 	envVars := d.buildLanguageSpecificEnvVars(analysis)
@@ -1132,13 +1232,13 @@ func (d *DeveloperMode) generateSingleImageConfig(template *strings.Builder, ana
 
 // generateCloudComposeConfig generates configuration for multi-container deployments
 func (d *DeveloperMode) generateCloudComposeConfig(template *strings.Builder, analysis *analysis.ProjectAnalysis, envVars, secrets map[string]string) {
-	template.WriteString("      # Reference to local docker-compose.yaml (REQUIRED)\n")
+	template.WriteString("      # Reference to ${project:root}/docker-compose.yaml (REQUIRED)\n")
 	template.WriteString("      dockerComposeFile: docker-compose.yaml\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Shared resources from DevOps team\n")
 	template.WriteString("      uses: [postgres-db]\n")
 	template.WriteString("      \n")
-	template.WriteString("      # Services from docker-compose.yaml\n")
+	template.WriteString("      # Services from ${project:root}/docker-compose.yaml\n")
 	template.WriteString("      runs: [app]\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Optional: DNS domain (only works if registrar configured in server.yaml)\n")
@@ -1289,7 +1389,7 @@ func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAna
 func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysis) string {
 	var prompt strings.Builder
 
-	prompt.WriteString("Generate a docker-compose.yaml file for local development with these requirements:\n\n")
+	prompt.WriteString("Generate a ${project:root}/docker-compose.yaml file for local development with these requirements:\n\n")
 
 	if analysis != nil && analysis.PrimaryStack != nil {
 		prompt.WriteString(fmt.Sprintf("Technology: %s", analysis.PrimaryStack.Language))
@@ -1520,12 +1620,12 @@ func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis
 	}
 
 	fmt.Println("\n📁 Generated files:")
-	fmt.Printf("   • client.yaml          - Simple Container configuration\n")
+	fmt.Printf("   • client.yaml                    - Simple Container configuration\n")
 	if !opts.SkipCompose {
-		fmt.Printf("   • docker-compose.yaml  - Local development environment\n")
+		fmt.Printf("   • ${project:root}/docker-compose.yaml  - Local development environment\n")
 	}
 	if !opts.SkipDockerfile {
-		fmt.Printf("   • Dockerfile           - Container image definition\n")
+		fmt.Printf("   • ${project:root}/Dockerfile            - Container image definition\n")
 	}
 
 	fmt.Println("\n🚀 Next steps:")
