@@ -135,12 +135,12 @@ Enter number (1-5) or 'q' to cancel: 1
 
 Enter number: 2
 ✓ Selected: Ollama
-✅ Switched to Ollama
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
 
-# Restart chat
-exit
-./bin/sc assistant chat
-✅ Using stored Ollama API key
+# No restart needed - provider is active immediately!
+💬 Hello
+🤖 [Response from Ollama]
 ```
 
 ### Check Current Provider

@@ -11,6 +11,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
@@ -284,6 +285,56 @@ func (c *ChatInterface) addMessage(role, content string) {
 // GetContext returns the current conversation context
 func (c *ChatInterface) GetContext() *ConversationContext {
 	return c.context
+}
+
+// ReloadLLMProvider reloads the LLM provider with current config
+func (c *ChatInterface) ReloadLLMProvider() error {
+	// Load current config
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Get default provider
+	provider := cfg.GetDefaultProvider()
+	if provider == "" {
+		return fmt.Errorf("no default provider configured")
+	}
+
+	// Get provider config
+	providerCfg, exists := cfg.GetProviderConfig(provider)
+	if !exists || providerCfg.APIKey == "" {
+		return fmt.Errorf("provider %s not configured", provider)
+	}
+
+	// Close old provider
+	if c.llm != nil {
+		c.llm.Close()
+	}
+
+	// Create new provider
+	newProvider := llm.GlobalRegistry.Create(provider)
+	if newProvider == nil {
+		return fmt.Errorf("unsupported LLM provider: %s", provider)
+	}
+
+	// Configure provider
+	llmConfig := llm.Config{
+		Provider:    provider,
+		MaxTokens:   c.config.MaxTokens,
+		Temperature: c.config.Temperature,
+		APIKey:      providerCfg.APIKey,
+	}
+
+	if err := newProvider.Configure(llmConfig); err != nil {
+		return fmt.Errorf("failed to configure LLM provider: %w", err)
+	}
+
+	// Update LLM provider
+	c.llm = newProvider
+	c.config.LLMProvider = provider
+
+	return nil
 }
 
 // Close cleans up resources

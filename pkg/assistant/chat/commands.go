@@ -1018,11 +1018,18 @@ func (c *ChatInterface) handleProvider(ctx context.Context, args []string, conte
 			}, nil
 		}
 
+		// Reload LLM provider immediately
+		if err := c.ReloadLLMProvider(); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("⚠️  Provider switched in config but failed to reload: %v\nPlease restart the chat session.", err),
+			}, nil
+		}
+
 		providerName := config.GetProviderDisplayName(provider)
 		return &CommandResult{
 			Success:  true,
-			Message:  fmt.Sprintf("✅ Switched to %s", providerName),
-			NextStep: "Restart the chat session to use the new provider",
+			Message:  fmt.Sprintf("✅ Switched to %s and reloaded successfully!\nYou can continue chatting with the new provider.", providerName),
 		}, nil
 
 	case "info":

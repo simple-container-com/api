@@ -207,20 +207,17 @@ Stored in: ~/.sc/assistant-config.json
 
 Enter number (1-3) or 'q' to cancel: 2
 ✓ Selected: Ollama
-✅ Switched to Ollama
-💡 Restart the chat session to use the new provider
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
 
 # Or switch directly
 💬 /provider switch ollama
-✅ Switched to Ollama
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
 
-# Exit and restart
-exit
-
-./bin/sc assistant chat
-✅ Using stored Ollama API key
-   Base URL: http://localhost:11434
-   Model: llama2
+# Provider is now active immediately - no restart needed!
+💬 Hello
+🤖 [Response from Ollama]
 ```
 
 ### View Provider Info

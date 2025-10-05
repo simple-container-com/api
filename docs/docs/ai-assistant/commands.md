@@ -478,13 +478,13 @@ Use '/provider switch <provider>' to change the default provider
 
 Enter number (1-3) or 'q' to cancel: 2
 ✓ Selected: Ollama
-✅ Switched to Ollama
-💡 Restart the chat session to use the new provider
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
 
 # Or specify provider directly
 💬 /provider switch ollama
-✅ Switched to Ollama
-💡 Restart the chat session to use the new provider
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
 ```
 
 **View Provider Info:**
