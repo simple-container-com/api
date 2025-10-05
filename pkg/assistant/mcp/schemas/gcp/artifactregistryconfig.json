@@ -1,0 +1,79 @@
+{
+  "name": "ArtifactRegistryConfig",
+  "type": "resource",
+  "provider": "gcp",
+  "description": "Google Cloud Platform artifactregistry configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "ArtifactRegistryConfig",
+  "resourceType": "gcp-artifact-registry",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "basicAuth": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "password",
+          "username"
+        ],
+        "type": "object"
+      },
+      "docker": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "immutableTags": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "immutableTags"
+        ],
+        "type": "object"
+      },
+      "domain": {
+        "type": "string"
+      },
+      "location": {
+        "type": "string"
+      },
+      "public": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "",
+      "domain",
+      "location"
+    ],
+    "type": "object"
+  }
+}

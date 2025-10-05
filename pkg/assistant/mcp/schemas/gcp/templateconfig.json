@@ -1,0 +1,41 @@
+{
+  "name": "TemplateConfig",
+  "type": "template",
+  "provider": "gcp",
+  "description": "Google Cloud Platform deployment template configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "TemplateConfig",
+  "resourceType": "cloudrun",
+  "templateType": "cloudrun",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "",
+          ""
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      ""
+    ],
+    "type": "object"
+  }
+}

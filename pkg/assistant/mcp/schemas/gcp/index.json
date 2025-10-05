@@ -1,0 +1,148 @@
+{
+  "description": "JSON Schema definitions for Gcp resources and templates",
+  "provider": "gcp",
+  "resources": [
+    {
+      "name": "ArtifactRegistryConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform artifactregistry configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "ArtifactRegistryConfig",
+      "resourceType": "gcp-artifact-registry",
+      "schema": {}
+    },
+    {
+      "name": "CloudrunTemplate",
+      "type": "template",
+      "provider": "gcp",
+      "description": "Google Cloud Platform deployment template configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "CloudrunTemplate",
+      "resourceType": "kubernetes-cloudrun",
+      "templateType": "kubernetes-cloudrun",
+      "schema": {}
+    },
+    {
+      "name": "Credentials",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform credentials configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "Credentials",
+      "resourceType": "gcp-service-account",
+      "schema": {}
+    },
+    {
+      "name": "GcpBucket",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform gcpbucket configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "GcpBucket",
+      "resourceType": "gcp-bucket",
+      "schema": {}
+    },
+    {
+      "name": "GkeAutopilotResource",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform gkeautopilotresource configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "GkeAutopilotResource",
+      "resourceType": "gcp-gke-autopilot-cluster",
+      "schema": {}
+    },
+    {
+      "name": "GkeAutopilotTemplate",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform gkeautopilottemplate configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "GkeAutopilotTemplate",
+      "resourceType": "gcp-gke-autopilot",
+      "schema": {}
+    },
+    {
+      "name": "PostgresGcpCloudsqlConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform postgresgcpcloudsql configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PostgresGcpCloudsqlConfig",
+      "resourceType": "gcp-cloudsql-postgres",
+      "schema": {}
+    },
+    {
+      "name": "PubSubConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform pubsub configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PubSubConfig",
+      "resourceType": "gcp-pubsub",
+      "schema": {}
+    },
+    {
+      "name": "RedisConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform redis configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "RedisConfig",
+      "resourceType": "gcp-redis",
+      "schema": {}
+    },
+    {
+      "name": "RemoteImagePush",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform remoteimagepush configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "RemoteImagePush",
+      "resourceType": "gcp-docker-image-push",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "provisioner",
+      "provider": "gcp",
+      "description": "Google Cloud Platform secretsprovider configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-kms",
+      "schema": {}
+    },
+    {
+      "name": "StateStorageConfig",
+      "type": "provisioner",
+      "provider": "gcp",
+      "description": "Google Cloud Platform statestorage configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "StateStorageConfig",
+      "resourceType": "gcp-bucket",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "gcp",
+      "description": "Google Cloud Platform deployment template configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "gcp-static-website",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "gcp",
+      "description": "Google Cloud Platform deployment template configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "cloudrun",
+      "templateType": "cloudrun",
+      "schema": {}
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "name": "GkeAutopilotTemplate",
+  "type": "resource",
+  "provider": "gcp",
+  "description": "Google Cloud Platform gkeautopilottemplate configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "GkeAutopilotTemplate",
+  "resourceType": "gcp-gke-autopilot",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "artifactRegistryResource": {
+        "type": "string"
+      },
+      "gkeClusterResource": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "artifactRegistryResource",
+      "gkeClusterResource"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "name": "HelmPostgresOperator",
+  "type": "resource",
+  "provider": "kubernetes",
+  "description": "Kubernetes helmpostgresoperator configuration",
+  "goPackage": "pkg/clouds/kubernetes/",
+  "goStruct": "HelmPostgresOperator",
+  "resourceType": "kubernetes-helm-postgres-operator",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "kubeconfig": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kubeconfig"
+        ],
+        "type": "object"
+      },
+      "initSQL": {
+        "type": "string"
+      },
+      "numberOfInstances": {
+        "type": "integer"
+      },
+      "pg_hba": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "version": {
+        "type": "string"
+      },
+      "volumeSize": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "",
+      "pg_hba"
+    ],
+    "type": "object"
+  }
+}

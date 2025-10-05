@@ -1,0 +1,34 @@
+{
+  "name": "HelmRabbitmqOperator",
+  "type": "resource",
+  "provider": "kubernetes",
+  "description": "Kubernetes helmrabbitmqoperator configuration",
+  "goPackage": "pkg/clouds/kubernetes/",
+  "goStruct": "HelmRabbitmqOperator",
+  "resourceType": "kubernetes-helm-rabbitmq-operator",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "kubeconfig": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kubeconfig"
+        ],
+        "type": "object"
+      },
+      "replicas": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "",
+      ""
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "name": "StackConfigStatic",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Simple Container static site stack configuration schema",
+  "goPackage": "pkg/api/client.go",
+  "goStruct": "StackConfigStatic",
+  "resourceType": "stack-config-static",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "baseDnsZone": {
+            "type": "string"
+          },
+          "corsConfig": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "allowedMethods": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "allowedOrigins": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "allowedOrigins"
+            ],
+            "type": "object"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "errorDocument": {
+            "type": "string"
+          },
+          "indexDocument": {
+            "type": "string"
+          },
+          "provisionWwwDomain": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "baseDnsZone",
+          "domain",
+          "errorDocument",
+          "indexDocument",
+          "provisionWwwDomain"
+        ],
+        "type": "object"
+      },
+      "bucketName": {
+        "type": "string"
+      },
+      "bundleDir": {
+        "type": "string"
+      },
+      "location": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "bucketName",
+      "bundleDir",
+      "location"
+    ],
+    "type": "object"
+  }
+}

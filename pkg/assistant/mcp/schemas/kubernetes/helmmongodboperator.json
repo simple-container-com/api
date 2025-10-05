@@ -1,0 +1,37 @@
+{
+  "name": "HelmMongodbOperator",
+  "type": "resource",
+  "provider": "kubernetes",
+  "description": "Kubernetes helmmongodboperator configuration",
+  "goPackage": "pkg/clouds/kubernetes/",
+  "goStruct": "HelmMongodbOperator",
+  "resourceType": "kubernetes-helm-mongodb-operator",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "kubeconfig": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kubeconfig"
+        ],
+        "type": "object"
+      },
+      "replicas": {
+        "type": "integer"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      ""
+    ],
+    "type": "object"
+  }
+}
