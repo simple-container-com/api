@@ -1,15 +1,20 @@
 package chat
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/fatih/color"
+	"golang.org/x/term"
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
@@ -80,6 +85,16 @@ func (c *ChatInterface) registerCommands() {
 		Usage:       "/status",
 		Handler:     c.handleStatus,
 		Aliases:     []string{"info"},
+	}
+
+	c.commands["apikey"] = &ChatCommand{
+		Name:        "apikey",
+		Description: "Manage OpenAI API key",
+		Usage:       "/apikey <set|delete|status>",
+		Handler:     c.handleAPIKey,
+		Args: []CommandArg{
+			{Name: "action", Type: "string", Required: true, Description: "Action: set, delete, or status"},
+		},
 	}
 }
 
@@ -686,4 +701,154 @@ values:
 	})
 
 	return files, nil
+}
+
+// handleAPIKey manages OpenAI API key storage
+func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) == 0 {
+		return &CommandResult{
+			Success: false,
+			Message: "Please specify an action: set, delete, or status\nUsage: /apikey <set|delete|status>",
+		}, nil
+	}
+
+	action := strings.ToLower(args[0])
+
+	// Load config
+	cfg, err := config.Load()
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to load config: %v", err),
+		}, nil
+	}
+
+	switch action {
+	case "set":
+		// Prompt for API key
+		apiKey, err := promptForOpenAIKey()
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to read API key: %v", err),
+			}, nil
+		}
+
+		if apiKey == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "API key cannot be empty",
+			}, nil
+		}
+
+		// Save API key
+		if err := cfg.SetOpenAIAPIKey(apiKey); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to save API key: %v", err),
+			}, nil
+		}
+
+		configPath, _ := config.ConfigPath()
+		return &CommandResult{
+			Success:  true,
+			Message:  fmt.Sprintf("✅ OpenAI API key saved successfully to %s", configPath),
+			NextStep: "Your API key will be automatically used in future sessions",
+		}, nil
+
+	case "delete", "remove":
+		if !cfg.HasOpenAIAPIKey() {
+			return &CommandResult{
+				Success: false,
+				Message: "No API key is currently stored",
+			}, nil
+		}
+
+		if err := cfg.DeleteOpenAIAPIKey(); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to delete API key: %v", err),
+			}, nil
+		}
+
+		return &CommandResult{
+			Success: true,
+			Message: "✅ OpenAI API key deleted successfully",
+		}, nil
+
+	case "status", "show":
+		if cfg.HasOpenAIAPIKey() {
+			// Mask the API key for security
+			apiKey := cfg.GetOpenAIAPIKey()
+			masked := maskAPIKey(apiKey)
+			configPath, _ := config.ConfigPath()
+			return &CommandResult{
+				Success: true,
+				Message: fmt.Sprintf("✅ API key is configured: %s\nStored in: %s", masked, configPath),
+			}, nil
+		}
+
+		return &CommandResult{
+			Success: false,
+			Message: "❌ No API key is currently stored\nUse '/apikey set' to configure one",
+		}, nil
+
+	default:
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Unknown action: %s\nValid actions: set, delete, status", action),
+		}, nil
+	}
+}
+
+// promptForOpenAIKey prompts the user to enter their OpenAI API key securely
+func promptForOpenAIKey() (string, error) {
+	fmt.Print(color.CyanString("🔑 Enter your OpenAI API key: "))
+
+	// Check if we're running in a terminal
+	if !term.IsTerminal(int(syscall.Stdin)) {
+		// Not a terminal, read from stdin normally
+		reader := bufio.NewReader(os.Stdin)
+		apiKey, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(apiKey), nil
+	}
+
+	// Read password from terminal (hidden input)
+	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Println() // Add newline after hidden input
+	apiKey := strings.TrimSpace(string(bytePassword))
+
+	// Basic validation - OpenAI keys should start with "sk-"
+	if apiKey != "" && !strings.HasPrefix(apiKey, "sk-") {
+		fmt.Println(color.YellowString("⚠️  Warning: OpenAI API keys typically start with 'sk-'"))
+		fmt.Print("Continue anyway? (y/N): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			return "", fmt.Errorf("API key validation failed")
+		}
+	}
+
+	return apiKey, nil
+}
+
+// maskAPIKey masks an API key for display purposes
+func maskAPIKey(apiKey string) string {
+	if len(apiKey) <= 8 {
+		return "sk-****"
+	}
+	return apiKey[:7] + "..." + apiKey[len(apiKey)-4:]
 }

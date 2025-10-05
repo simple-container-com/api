@@ -3,23 +3,14 @@
   "provider": "aws",
   "resources": [
     {
-      "name": "SecretsProviderConfig",
-      "type": "secrets",
+      "name": "TemplateConfig",
+      "type": "template",
       "provider": "aws",
-      "description": "AWS secrets management configuration",
+      "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "gcp-secrets-manager",
-      "schema": {}
-    },
-    {
-      "name": "AccountConfig",
-      "type": "auth",
-      "provider": "aws",
-      "description": "AWS authentication configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "AccountConfig",
-      "resourceType": "aws-token",
+      "goStruct": "TemplateConfig",
+      "resourceType": "aws-lambda",
+      "templateType": "aws-lambda",
       "schema": {}
     },
     {
@@ -33,6 +24,16 @@
       "schema": {}
     },
     {
+      "name": "AccountConfig",
+      "type": "auth",
+      "provider": "aws",
+      "description": "AWS authentication configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "AccountConfig",
+      "resourceType": "aws-token",
+      "schema": {}
+    },
+    {
       "name": "SecretsConfig",
       "type": "secrets",
       "provider": "aws",
@@ -43,13 +44,13 @@
       "schema": {}
     },
     {
-      "name": "S3Bucket",
-      "type": "resource",
+      "name": "SecretsProviderConfig",
+      "type": "secrets",
       "provider": "aws",
-      "description": "AWS s3bucket configuration",
+      "description": "AWS secrets management configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "S3Bucket",
-      "resourceType": "s3-bucket",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-secrets-manager",
       "schema": {}
     },
     {
@@ -69,28 +70,17 @@
       "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "TemplateConfig",
-      "resourceType": "aws-lambda",
-      "templateType": "aws-lambda",
-      "schema": {}
-    },
-    {
-      "name": "TemplateConfig",
-      "type": "template",
-      "provider": "aws",
-      "description": "AWS deployment template configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "TemplateConfig",
       "resourceType": "aws-static-website",
       "schema": {}
     },
     {
-      "name": "MysqlConfig",
+      "name": "S3Bucket",
       "type": "resource",
       "provider": "aws",
-      "description": "AWS mysql configuration",
+      "description": "AWS s3bucket configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "MysqlConfig",
-      "resourceType": "aws-rds-mysql",
+      "goStruct": "S3Bucket",
+      "resourceType": "s3-bucket",
       "schema": {}
     },
     {
@@ -102,6 +92,16 @@
       "goStruct": "TemplateConfig",
       "resourceType": "ecs-fargate",
       "templateType": "ecs-fargate",
+      "schema": {}
+    },
+    {
+      "name": "MysqlConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS mysql configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "MysqlConfig",
+      "resourceType": "aws-rds-mysql",
       "schema": {}
     },
     {

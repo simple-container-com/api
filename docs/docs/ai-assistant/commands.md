@@ -340,7 +340,7 @@ sc assistant chat [options]
 
 **Examples:**
 ```bash
-# Start general chat
+# Start general chat (uses stored API key if available)
 sc assistant chat
 
 # Developer-focused chat with project context
@@ -349,16 +349,76 @@ sc assistant chat --mode developer --context .
 # DevOps chat for infrastructure questions
 sc assistant chat --mode devops
 
+# Use specific API key for this session
+sc assistant chat --openai-key sk-your-key-here
+
 # Save conversation for later reference
 sc assistant chat --save-session conversation.json
 ```
+
+**Note:** If you have stored your OpenAI API key using `/apikey set` in a previous session, it will be automatically loaded. You can manage your stored API key using the `/apikey` command within the chat interface.
 
 **Chat Commands:**
 - `/help` - Show available chat commands
 - `/search <query>` - Search documentation inline
 - `/analyze` - Analyze current project
-- `/generate <type>` - Generate configuration file
+- `/setup` - Generate configuration files
+- `/switch <mode>` - Switch between dev and devops modes
+- `/clear` - Clear conversation history
+- `/status` - Show current session status
+- `/apikey <set|delete|status>` - Manage OpenAI API key
 - `/exit` - Exit chat session
+
+### API Key Management
+
+The assistant supports persistent storage of your OpenAI API key for convenience across sessions.
+
+**Setting an API Key:**
+```bash
+# In chat, use the /apikey command
+💬 /apikey set
+🔑 Enter your OpenAI API key: [hidden input]
+✅ OpenAI API key saved successfully to ~/.sc/assistant-config.json
+```
+
+**Checking API Key Status:**
+```bash
+💬 /apikey status
+✅ API key is configured: sk-proj...xyz
+Stored in: /Users/username/.sc/assistant-config.json
+```
+
+**Deleting Stored API Key:**
+```bash
+💬 /apikey delete
+✅ OpenAI API key deleted successfully
+```
+
+**API Key Priority:**
+
+The assistant checks for API keys in the following order:
+1. Command line flag: `--openai-key sk-...`
+2. Environment variable: `OPENAI_API_KEY`
+3. Stored config: `~/.sc/assistant-config.json`
+4. Interactive prompt (with option to save)
+
+**First-Time Setup:**
+
+When you start chat without an API key, you'll be prompted to enter it and asked if you want to save it:
+
+```bash
+sc assistant chat
+⚠️  OpenAI API key not found
+...
+🔑 Enter your OpenAI API key: [hidden input]
+💾 Save this API key for future sessions? (Y/n): y
+✅ API key saved to ~/.sc/assistant-config.json
+```
+
+**Security Notes:**
+- API keys are stored in `~/.sc/assistant-config.json` with restricted permissions (0600)
+- Keys are masked when displayed (e.g., `sk-proj...xyz`)
+- The config file is stored in your home directory and not committed to version control
 
 ## 🌐 MCP Commands
 

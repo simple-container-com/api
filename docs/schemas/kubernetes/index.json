@@ -3,6 +3,16 @@
   "provider": "kubernetes",
   "resources": [
     {
+      "name": "KubernetesConfig",
+      "type": "resource",
+      "provider": "kubernetes",
+      "description": "Kubernetes kubernetes configuration",
+      "goPackage": "pkg/clouds/kubernetes/",
+      "goStruct": "KubernetesConfig",
+      "resourceType": "kubernetes",
+      "schema": {}
+    },
+    {
       "name": "HelmPostgresOperator",
       "type": "resource",
       "provider": "kubernetes",
@@ -10,16 +20,6 @@
       "goPackage": "pkg/clouds/kubernetes/",
       "goStruct": "HelmPostgresOperator",
       "resourceType": "kubernetes-helm-postgres-operator",
-      "schema": {}
-    },
-    {
-      "name": "HelmMongodbOperator",
-      "type": "resource",
-      "provider": "kubernetes",
-      "description": "Kubernetes helmmongodboperator configuration",
-      "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "HelmMongodbOperator",
-      "resourceType": "kubernetes-helm-mongodb-operator",
       "schema": {}
     },
     {
@@ -33,16 +33,6 @@
       "schema": {}
     },
     {
-      "name": "HelmRabbitmqOperator",
-      "type": "resource",
-      "provider": "kubernetes",
-      "description": "Kubernetes helmrabbitmqoperator configuration",
-      "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "HelmRabbitmqOperator",
-      "resourceType": "kubernetes-helm-rabbitmq-operator",
-      "schema": {}
-    },
-    {
       "name": "HelmRedisOperator",
       "type": "resource",
       "provider": "kubernetes",
@@ -53,13 +43,23 @@
       "schema": {}
     },
     {
-      "name": "KubernetesConfig",
+      "name": "HelmRabbitmqOperator",
       "type": "resource",
       "provider": "kubernetes",
-      "description": "Kubernetes kubernetes configuration",
+      "description": "Kubernetes helmrabbitmqoperator configuration",
       "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "KubernetesConfig",
-      "resourceType": "kubernetes",
+      "goStruct": "HelmRabbitmqOperator",
+      "resourceType": "kubernetes-helm-rabbitmq-operator",
+      "schema": {}
+    },
+    {
+      "name": "HelmMongodbOperator",
+      "type": "resource",
+      "provider": "kubernetes",
+      "description": "Kubernetes helmmongodboperator configuration",
+      "goPackage": "pkg/clouds/kubernetes/",
+      "goStruct": "HelmMongodbOperator",
+      "resourceType": "kubernetes-helm-mongodb-operator",
       "schema": {}
     }
   ]
