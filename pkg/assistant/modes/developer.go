@@ -406,15 +406,32 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 
 	// Generate client.yaml using LLM - always generate, regardless of analysis skip
 	fmt.Printf("   📄 Generating client.yaml...")
-	clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
-	if err != nil {
-		return fmt.Errorf("failed to generate client.yaml: %w", err)
-	}
 	clientPath := filepath.Join(scDir, "client.yaml")
-	if err := os.WriteFile(clientPath, []byte(clientYaml), 0o644); err != nil {
-		return fmt.Errorf("failed to write client.yaml: %w", err)
+
+	// Check if client.yaml already exists and prompt for confirmation
+	if _, err := os.Stat(clientPath); err == nil {
+		if !d.confirmOverwrite("client.yaml", opts.BackupExisting) {
+			fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
+		} else {
+			clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
+			if err != nil {
+				return fmt.Errorf("failed to generate client.yaml: %w", err)
+			}
+			if err := os.WriteFile(clientPath, []byte(clientYaml), 0o644); err != nil {
+				return fmt.Errorf("failed to write client.yaml: %w", err)
+			}
+			fmt.Printf(" %s\n", color.GreenFmt("✓"))
+		}
+	} else {
+		clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
+		if err != nil {
+			return fmt.Errorf("failed to generate client.yaml: %w", err)
+		}
+		if err := os.WriteFile(clientPath, []byte(clientYaml), 0o644); err != nil {
+			return fmt.Errorf("failed to write client.yaml: %w", err)
+		}
+		fmt.Printf(" %s\n", color.GreenFmt("✓"))
 	}
-	fmt.Printf(" %s\n", color.GreenFmt("✓"))
 
 	// Generate docker-compose.yaml using LLM
 	if !opts.SkipCompose {
@@ -430,7 +447,19 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			}
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
 		} else {
-			fmt.Printf(" %s (already exists)\n", color.YellowFmt("⚠"))
+			// File exists, prompt for confirmation
+			if !d.confirmOverwrite("docker-compose.yaml", opts.BackupExisting) {
+				fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
+			} else {
+				composeYaml, err := d.GenerateComposeYAMLWithLLM(analysis)
+				if err != nil {
+					return fmt.Errorf("failed to generate docker-compose.yaml: %w", err)
+				}
+				if err := os.WriteFile(composePath, []byte(composeYaml), 0o644); err != nil {
+					return fmt.Errorf("failed to write docker-compose.yaml: %w", err)
+				}
+				fmt.Printf(" %s\n", color.GreenFmt("✓"))
+			}
 		}
 	}
 
@@ -448,11 +477,37 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			}
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
 		} else {
-			fmt.Printf(" %s (already exists)\n", color.YellowFmt("⚠"))
+			// File exists, prompt for confirmation
+			if !d.confirmOverwrite("Dockerfile", opts.BackupExisting) {
+				fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
+			} else {
+				dockerfile, err := d.GenerateDockerfileWithLLM(analysis)
+				if err != nil {
+					return fmt.Errorf("failed to generate Dockerfile: %w", err)
+				}
+				if err := os.WriteFile(dockerfilePath, []byte(dockerfile), 0o644); err != nil {
+					return fmt.Errorf("failed to write Dockerfile: %w", err)
+				}
+				fmt.Printf(" %s\n", color.GreenFmt("✓"))
+			}
 		}
 	}
 
 	return nil
+}
+
+// confirmOverwrite prompts the user to confirm overwriting an existing file
+func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool) bool {
+	fmt.Printf("\n   ⚠️  %s already exists. Overwrite? [y/N]: ", color.YellowString(filename))
+
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		// If there's an error reading input, default to "no"
+		return false
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "y" || response == "yes"
 }
 
 // generateFilesCoordinated generates multiple files using coordinated multi-file generation

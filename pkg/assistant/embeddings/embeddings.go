@@ -2,7 +2,7 @@ package embeddings
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -16,8 +16,8 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
-//go:embed vectors/prebuilt_embeddings.json
-var embeddedVectors []byte
+//go:embed vectors/*.json
+var embeddedVectors embed.FS
 
 // Database represents an embedded vector database using chromem-go
 type Database struct {
@@ -149,12 +149,14 @@ func SearchDocumentation(db *Database, query string, limit int) ([]SearchResult,
 
 // loadPrebuiltEmbeddings loads pre-built embeddings from embedded data
 func (db *Database) loadPrebuiltEmbeddings(ctx context.Context, log logger.Logger) error {
-	if len(embeddedVectors) == 0 {
-		return fmt.Errorf("no embedded vectors data available")
+	// Try to read the prebuilt embeddings file
+	data, err := embeddedVectors.ReadFile("vectors/prebuilt_embeddings.json")
+	if err != nil {
+		return fmt.Errorf("no embedded vectors data available: %w", err)
 	}
 
 	var prebuilt PrebuiltEmbeddings
-	if err := json.Unmarshal(embeddedVectors, &prebuilt); err != nil {
+	if err := json.Unmarshal(data, &prebuilt); err != nil {
 		return fmt.Errorf("failed to unmarshal embedded vectors: %w", err)
 	}
 

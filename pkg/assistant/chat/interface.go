@@ -209,6 +209,33 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 
 	// Handle generated files - actually write them to disk
 	if len(result.Files) > 0 {
+		// Check for existing files and get confirmation
+		existingFiles := []string{}
+		for _, file := range result.Files {
+			if _, err := os.Stat(file.Path); err == nil {
+				existingFiles = append(existingFiles, filepath.Base(file.Path))
+			}
+		}
+
+		// If there are existing files, prompt for confirmation
+		if len(existingFiles) > 0 {
+			fmt.Printf("\n⚠️  The following files already exist: %s\n", color.YellowString(strings.Join(existingFiles, ", ")))
+			fmt.Printf("   Overwrite all existing files? [y/N]: ")
+
+			var response string
+			if _, err := fmt.Scanln(&response); err != nil {
+				// If there's an error reading input, default to "no"
+				fmt.Printf("   %s (cancelled)\n", color.YellowString("⚠"))
+				return nil
+			}
+
+			response = strings.ToLower(strings.TrimSpace(response))
+			if !(response == "y" || response == "yes") {
+				fmt.Printf("   %s (cancelled)\n", color.YellowString("⚠"))
+				return nil
+			}
+		}
+
 		fmt.Printf("\n%s Generated files:\n", color.CyanString("📁"))
 		for _, file := range result.Files {
 			// Create directory if needed

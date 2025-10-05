@@ -119,6 +119,15 @@ tasks:
       - go build -o ${project:root}/bin/schema-gen ./cmd/schema-gen
       - ${project:root}/bin/schema-gen ${project:root}/docs/schemas
       - echo "Successfully generated JSON Schema files in docs/schemas/"
+  generate-embeddings:
+    runOn: host
+    script:
+      - echo "Generating embeddings for AI Assistant..."
+      - mkdir -p ${project:root}/pkg/assistant/embeddings/docs
+      - mkdir -p ${project:root}/pkg/assistant/embeddings/vectors
+      - cp -r ${project:root}/docs/docs/* ${project:root}/pkg/assistant/embeddings/docs/ 2>/dev/null || true
+      - echo '{"documents":[]}' > ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings.json
+      - echo "Successfully prepared embeddings structure"
   build:
     runOn: host
     env:
@@ -162,4 +171,5 @@ tasks:
     runOn: host
     script:
       - welder run generate-schemas
+      - welder run generate-embeddings
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
