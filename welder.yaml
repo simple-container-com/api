@@ -70,6 +70,7 @@ tasks:
       - rm -fR ${project:root}/docs/schemas/*
       - rm -fR ${project:root}/pkg/assistant/embeddings/docs/ || true
       - rm -fR ${project:root}/pkg/assistant/embeddings/vectors/ || true
+      - rm -fR ${project:root}/pkg/assistant/mcp/schemas/ || true
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"
@@ -125,12 +126,14 @@ tasks:
   generate-embeddings:
     runOn: host
     script:
-      - echo "Preparing documentation for AI assistant embedding..."
+      - echo "Preparing documentation and schemas for AI assistant embedding..."
       - mkdir -p ${project:root}/pkg/assistant/embeddings/docs
       - mkdir -p ${project:root}/pkg/assistant/embeddings/vectors
+      - mkdir -p ${project:root}/pkg/assistant/mcp/schemas
       - cp -r ${project:root}/docs/docs/* ${project:root}/pkg/assistant/embeddings/docs/
+      - cp -r ${project:root}/docs/schemas/* ${project:root}/pkg/assistant/mcp/schemas/
       - 'echo "{\"version\": \"1.0\", \"documents\": []}" > ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings.json'
-      - echo "Successfully prepared embedded documentation (vectors generated on first run)"
+      - echo "Successfully prepared embedded documentation and schemas (vectors generated on first run)"
   build:
     runOn: host
     env:

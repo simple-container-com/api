@@ -3,6 +3,57 @@
   "provider": "aws",
   "resources": [
     {
+      "name": "MysqlConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS mysql configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "MysqlConfig",
+      "resourceType": "aws-rds-mysql",
+      "schema": {}
+    },
+    {
+      "name": "PostgresConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS postgres configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "PostgresConfig",
+      "resourceType": "aws-rds-postgres",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "aws",
+      "description": "AWS deployment template configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "ecs-fargate",
+      "templateType": "ecs-fargate",
+      "schema": {}
+    },
+    {
+      "name": "SecretsConfig",
+      "type": "secrets",
+      "provider": "aws",
+      "description": "AWS secrets management configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "SecretsConfig",
+      "resourceType": "aws-secrets-manager",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "secrets",
+      "provider": "aws",
+      "description": "AWS secrets management configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-secrets-manager",
+      "schema": {}
+    },
+    {
       "name": "TemplateConfig",
       "type": "template",
       "provider": "aws",
@@ -23,37 +74,6 @@
       "schema": {}
     },
     {
-      "name": "EcrRepository",
-      "type": "resource",
-      "provider": "aws",
-      "description": "AWS ecrrepository configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "EcrRepository",
-      "resourceType": "ecr-repository",
-      "schema": {}
-    },
-    {
-      "name": "MysqlConfig",
-      "type": "resource",
-      "provider": "aws",
-      "description": "AWS mysql configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "MysqlConfig",
-      "resourceType": "aws-rds-mysql",
-      "schema": {}
-    },
-    {
-      "name": "TemplateConfig",
-      "type": "template",
-      "provider": "aws",
-      "description": "AWS deployment template configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "ecs-fargate",
-      "templateType": "ecs-fargate",
-      "schema": {}
-    },
-    {
       "name": "TemplateConfig",
       "type": "template",
       "provider": "aws",
@@ -62,16 +82,6 @@
       "goStruct": "TemplateConfig",
       "resourceType": "aws-lambda",
       "templateType": "aws-lambda",
-      "schema": {}
-    },
-    {
-      "name": "SecretsProviderConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "gcp-secrets-manager",
       "schema": {}
     },
     {
@@ -85,23 +95,13 @@
       "schema": {}
     },
     {
-      "name": "SecretsConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsConfig",
-      "resourceType": "aws-secrets-manager",
-      "schema": {}
-    },
-    {
-      "name": "PostgresConfig",
+      "name": "EcrRepository",
       "type": "resource",
       "provider": "aws",
-      "description": "AWS postgres configuration",
+      "description": "AWS ecrrepository configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "PostgresConfig",
-      "resourceType": "aws-rds-postgres",
+      "goStruct": "EcrRepository",
+      "resourceType": "ecr-repository",
       "schema": {}
     },
     {

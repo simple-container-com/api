@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,6 +20,9 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
+
+//go:embed schemas/*.json schemas/**/*.json
+var embeddedSchemas embed.FS
 
 // MCPServer implements the Model Context Protocol for Simple Container
 type MCPServer struct {
@@ -656,44 +660,219 @@ stacks:
 }
 
 func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzeProjectParams) (*ProjectAnalysis, error) {
-	// TODO: Implement project analysis
+	// Use the actual project analyzer
+	analyzer := analysis.NewProjectAnalyzer()
+
+	projectPath := params.Path
+	if projectPath == "" {
+		projectPath = "."
+	}
+
+	// Check if path exists
+	if _, err := os.Stat(projectPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("project path does not exist: %s", projectPath)
+	}
+
+	// Perform actual project analysis
+	analysisResult, err := analyzer.AnalyzeProject(projectPath)
+	if err != nil {
+		return &ProjectAnalysis{
+			Path: projectPath,
+			TechStacks: []TechStackInfo{
+				{
+					Language:   "unknown",
+					Confidence: 0.0,
+					Framework:  "",
+				},
+			},
+			Recommendations: []Recommendation{
+				{
+					Type:        "error",
+					Category:    "analysis",
+					Priority:    "medium",
+					Title:       "Analysis Failed",
+					Description: fmt.Sprintf("Failed to analyze project: %v", err),
+				},
+			},
+			Timestamp: time.Now(),
+			Metadata: map[string]interface{}{
+				"status": "error",
+				"error":  err.Error(),
+			},
+		}, nil
+	}
+
+	// Convert analysis result to MCP format
+	techStacks := make([]TechStackInfo, 0)
+	if len(analysisResult.TechStacks) > 0 {
+		for _, stack := range analysisResult.TechStacks {
+			// Extract dependencies as string slice
+			deps := make([]string, 0)
+			for _, dep := range stack.Dependencies {
+				deps = append(deps, dep.Name)
+			}
+
+			// Create metadata with additional info
+			metadata := make(map[string]string)
+			if stack.Version != "" {
+				metadata["version"] = stack.Version
+			}
+			if stack.Runtime != "" {
+				metadata["runtime"] = stack.Runtime
+			}
+			for k, v := range stack.Metadata {
+				metadata[k] = v
+			}
+
+			techStack := TechStackInfo{
+				Language:     stack.Language,
+				Framework:    stack.Framework,
+				Runtime:      stack.Runtime,
+				Dependencies: deps,
+				Architecture: analysisResult.Architecture,
+				Confidence:   stack.Confidence,
+				Metadata:     metadata,
+			}
+			techStacks = append(techStacks, techStack)
+		}
+	} else {
+		// Fallback if no tech stacks detected
+		techStacks = append(techStacks, TechStackInfo{
+			Language:   "unknown",
+			Confidence: 0.0,
+		})
+	}
+
+	// Convert recommendations
+	recommendations := make([]Recommendation, 0)
+	for _, rec := range analysisResult.Recommendations {
+		recommendation := Recommendation{
+			Type:        rec.Type,
+			Category:    rec.Category,
+			Priority:    rec.Priority,
+			Title:       rec.Title,
+			Description: rec.Description,
+		}
+		recommendations = append(recommendations, recommendation)
+	}
+
+	// Add some default recommendations if none provided
+	if len(recommendations) == 0 {
+		primaryLanguage := "unknown"
+		if analysisResult.PrimaryStack != nil {
+			primaryLanguage = analysisResult.PrimaryStack.Language
+		} else if len(analysisResult.TechStacks) > 0 {
+			primaryLanguage = analysisResult.TechStacks[0].Language
+		}
+
+		recommendations = append(recommendations, Recommendation{
+			Type:        "setup",
+			Category:    "development",
+			Priority:    "medium",
+			Title:       "Project Analysis Complete",
+			Description: fmt.Sprintf("Successfully analyzed %s project", primaryLanguage),
+		})
+	}
+
 	return &ProjectAnalysis{
-		Path: params.Path,
-		TechStacks: []TechStackInfo{
-			{
-				Language:   "unknown",
-				Confidence: 0.0,
-			},
-		},
-		Recommendations: []Recommendation{
-			{
-				Type:        "analysis",
-				Category:    "setup",
-				Priority:    "medium",
-				Title:       "Project Analysis Not Implemented",
-				Description: "Project analysis will be available in Phase 2",
-			},
-		},
-		Timestamp: time.Now(),
+		Path:            projectPath,
+		TechStacks:      techStacks,
+		Recommendations: recommendations,
+		Timestamp:       time.Now(),
 		Metadata: map[string]interface{}{
-			"status": "placeholder",
+			"status":       "success",
+			"name":         analysisResult.Name,
+			"architecture": analysisResult.Architecture,
+			"confidence":   analysisResult.Confidence,
 		},
 	}, nil
 }
 
 func (h *DefaultMCPHandler) GetSupportedResources(ctx context.Context) (*SupportedResourcesResult, error) {
-	// TODO: Load from schema files or registry
+	// Load schemas from embedded files
+	resources := make([]ResourceInfo, 0)
+	providers := make(map[string]*ProviderInfo)
+
+	// Define provider display names
+	providerDisplayNames := map[string]string{
+		"aws":        "Amazon Web Services",
+		"gcp":        "Google Cloud Platform",
+		"kubernetes": "Kubernetes",
+		"mongodb":    "MongoDB Atlas",
+		"cloudflare": "Cloudflare",
+		"github":     "GitHub",
+		"fs":         "File System",
+	}
+
+	// Read main index from embedded schemas
+	mainIndex, err := h.readEmbeddedProviderIndex("schemas/index.json")
+	if err != nil {
+		// If schema loading fails, fall back to static resources for backwards compatibility
+		fmt.Printf("Warning: failed to load schemas from embedded files (%v), using fallback resources\n", err)
+		return h.getFallbackResources(), nil
+	}
+
+	// Process each provider
+	for providerName := range mainIndex {
+		if providerName == "core" {
+			continue // Skip core schemas (client.yaml, server.yaml)
+		}
+
+		providerIndexPath := fmt.Sprintf("schemas/%s/index.json", providerName)
+		providerResources, err := h.readEmbeddedProviderResources(providerIndexPath, providerName)
+		if err != nil {
+			// Skip providers with missing/invalid indexes
+			continue
+		}
+
+		// Initialize provider info
+		displayName, exists := providerDisplayNames[providerName]
+		if !exists {
+			displayName = strings.ToUpper(providerName[:1]) + providerName[1:]
+		}
+
+		providerInfo := &ProviderInfo{
+			Name:        providerName,
+			DisplayName: displayName,
+			Resources:   make([]string, 0),
+		}
+
+		// Add resources from this provider
+		for _, resource := range providerResources {
+			// Only include actual resources (not templates, auth, provisioner)
+			if resource.Type == "resource" {
+				resourceInfo := ResourceInfo{
+					Type:        resource.ResourceType,
+					Name:        resource.Name,
+					Provider:    providerName,
+					Description: resource.Description,
+				}
+
+				resources = append(resources, resourceInfo)
+				providerInfo.Resources = append(providerInfo.Resources, resource.ResourceType)
+			}
+		}
+
+		if len(providerInfo.Resources) > 0 {
+			providers[providerName] = providerInfo
+		}
+	}
+
+	// Convert providers map to slice
+	providerList := make([]ProviderInfo, 0, len(providers))
+	for _, provider := range providers {
+		providerList = append(providerList, *provider)
+	}
+
+	// If no resources were loaded, fall back to static resources
+	if len(resources) == 0 {
+		return h.getFallbackResources(), nil
+	}
+
 	return &SupportedResourcesResult{
-		Resources: []ResourceInfo{
-			{Type: "s3-bucket", Name: "S3 Bucket", Provider: "aws", Description: "Amazon S3 storage bucket"},
-			{Type: "gcp-bucket", Name: "GCS Bucket", Provider: "gcp", Description: "Google Cloud Storage bucket"},
-			{Type: "aws-rds-postgres", Name: "PostgreSQL RDS", Provider: "aws", Description: "Amazon RDS PostgreSQL database"},
-		},
-		Providers: []ProviderInfo{
-			{Name: "aws", DisplayName: "Amazon Web Services", Resources: []string{"s3-bucket", "aws-rds-postgres"}},
-			{Name: "gcp", DisplayName: "Google Cloud Platform", Resources: []string{"gcp-bucket"}},
-		},
-		Total: 3,
+		Resources: resources,
+		Providers: providerList,
+		Total:     len(resources),
 	}, nil
 }
 
@@ -712,9 +891,9 @@ func (h *DefaultMCPHandler) GetCapabilities(ctx context.Context) (map[string]int
 		},
 		"features": map[string]interface{}{
 			"documentation_search":     true,
-			"project_analysis":         false, // Phase 2
-			"configuration_generation": false, // Phase 2
-			"interactive_chat":         false, // Phase 3
+			"project_analysis":         true,  // ✅ Fully implemented
+			"configuration_generation": false, // Future enhancement
+			"interactive_chat":         false, // Available via separate chat command
 		},
 		"documentation": map[string]interface{}{
 			"indexed_documents": 0, // TODO: Get actual count
@@ -731,4 +910,65 @@ func (h *DefaultMCPHandler) GetCapabilities(ctx context.Context) (map[string]int
 
 func (h *DefaultMCPHandler) Ping(ctx context.Context) (string, error) {
 	return "pong", nil
+}
+
+// Helper functions for schema loading
+
+func (h *DefaultMCPHandler) getFallbackResources() *SupportedResourcesResult {
+	return &SupportedResourcesResult{
+		Resources: []ResourceInfo{
+			{Type: "s3-bucket", Name: "S3 Bucket", Provider: "aws", Description: "Amazon S3 storage bucket"},
+			{Type: "gcp-bucket", Name: "GCS Bucket", Provider: "gcp", Description: "Google Cloud Storage bucket"},
+			{Type: "aws-rds-postgres", Name: "PostgreSQL RDS", Provider: "aws", Description: "Amazon RDS PostgreSQL database"},
+		},
+		Providers: []ProviderInfo{
+			{Name: "aws", DisplayName: "Amazon Web Services", Resources: []string{"s3-bucket", "aws-rds-postgres"}},
+			{Name: "gcp", DisplayName: "Google Cloud Platform", Resources: []string{"gcp-bucket"}},
+		},
+		Total: 3,
+	}
+}
+
+func (h *DefaultMCPHandler) readEmbeddedProviderIndex(indexPath string) (map[string]interface{}, error) {
+	data, err := embeddedSchemas.ReadFile(indexPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var index struct {
+		Providers map[string]interface{} `json:"providers"`
+	}
+
+	if err := json.Unmarshal(data, &index); err != nil {
+		return nil, err
+	}
+
+	return index.Providers, nil
+}
+
+type SchemaResource struct {
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Provider     string `json:"provider"`
+	Description  string `json:"description"`
+	ResourceType string `json:"resourceType"`
+	GoPackage    string `json:"goPackage"`
+	GoStruct     string `json:"goStruct"`
+}
+
+func (h *DefaultMCPHandler) readEmbeddedProviderResources(indexPath, providerName string) ([]SchemaResource, error) {
+	data, err := embeddedSchemas.ReadFile(indexPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var providerIndex struct {
+		Resources []SchemaResource `json:"resources"`
+	}
+
+	if err := json.Unmarshal(data, &providerIndex); err != nil {
+		return nil, err
+	}
+
+	return providerIndex.Resources, nil
 }

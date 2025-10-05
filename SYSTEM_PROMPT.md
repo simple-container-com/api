@@ -310,3 +310,19 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
   - **✅ DECISION: Continue with chromem-go as primary solution** - Phase 1 already production-ready, simple distribution, better scalability
   - **Future Enhancement**: Consider kelindar/search as optional alternative in Phase 4 for air-gapped/privacy-sensitive environments
   - **Documentation**: EMBEDDING_LIBRARY_ANALYSIS.md contains complete technical comparison and implementation strategy
+
+## MCP Server Schema Loading Fix - COMPLETED ✅
+- **CRITICAL FIX: MCP Server was returning fallback resources instead of loading from embedded JSON schemas**
+  - **Root Cause**: Go embed directive pattern `schemas/**/*.json` only matched files in subdirectories, not `schemas/index.json` directly
+  - **Solution**: Updated embed directive to `schemas/*.json schemas/**/*.json` to include both direct files and subdirectory files
+  - **Impact**: MCP server now successfully loads all 22 resources from 6 providers (AWS, GCP, Kubernetes, MongoDB, Cloudflare, GitHub) from embedded schemas
+  - **Verification**: All MCP endpoints tested and working correctly:
+    - `get_supported_resources`: Returns 22 real resources instead of 3 fallback resources
+    - `get_capabilities`: Returns proper server capabilities
+    - `health`: Returns healthy status
+  - **Technical Details**: 
+    - Fixed embedded FS path resolution for main schema index
+    - Added proper error handling with fallback for backward compatibility
+    - Removed debug code after successful testing
+  - **Files Modified**: `pkg/assistant/mcp/server.go` - Fixed embed directive and error handling
+  - **Status**: MCP server now properly loads comprehensive resource catalog from embedded JSON schemas, ready for Windsurf/Cursor IDE integration
