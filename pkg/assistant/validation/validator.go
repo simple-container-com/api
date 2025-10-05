@@ -318,9 +318,8 @@ func (v *Validator) GetAvailableSchemas(ctx context.Context) []string {
 		}
 		return nil
 	})
-	if err != nil {
-		// Error walking schema directory
-	}
+	// Ignore walk errors - return collected schemas regardless
+	_ = err
 	return schemas
 }
 
