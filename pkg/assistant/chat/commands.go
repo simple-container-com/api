@@ -17,6 +17,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
@@ -107,6 +108,17 @@ func (c *ChatInterface) registerCommands() {
 		Args: []CommandArg{
 			{Name: "action", Type: "string", Required: true, Description: "Action: list, switch, or info"},
 			{Name: "provider", Type: "string", Required: false, Description: "Provider name for switch/info"},
+		},
+	}
+
+	c.commands["model"] = &ChatCommand{
+		Name:        "model",
+		Description: "Manage LLM model selection",
+		Usage:       "/model <list|switch|info> [model]",
+		Handler:     c.handleModel,
+		Args: []CommandArg{
+			{Name: "action", Type: "string", Required: true, Description: "Action: list, switch, or info"},
+			{Name: "model", Type: "string", Required: false, Description: "Model name for switch"},
 		},
 	}
 
@@ -870,11 +882,28 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 			}, nil
 		}
 
+		// Set as default provider
+		if err := cfg.SetDefaultProvider(provider); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to set default provider: %v", err),
+			}, nil
+		}
+
+		// Reload LLM provider immediately
+		if err := c.ReloadLLMProvider(); err != nil {
+			configPath, _ := config.ConfigPath()
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("⚠️  %s API key saved to %s but failed to reload: %v\nPlease use '/provider switch %s' to activate.", providerName, configPath, err, provider),
+			}, nil
+		}
+
 		configPath, _ := config.ConfigPath()
 		return &CommandResult{
 			Success:  true,
-			Message:  fmt.Sprintf("✅ %s API key saved successfully to %s", providerName, configPath),
-			NextStep: fmt.Sprintf("Provider '%s' is now set as default. Use '/provider switch' to change providers.", provider),
+			Message:  fmt.Sprintf("✅ %s API key saved to %s and activated successfully!\nYou can now chat with %s.", providerName, configPath, providerName),
+			NextStep: "Start chatting or use '/model list' to see available models",
 		}, nil
 
 	case "delete", "remove":
@@ -1319,4 +1348,255 @@ func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContex
 
 	// Use DeveloperMode's confirmation logic
 	return c.developerMode.ConfirmDeploymentType(opts, context.ProjectInfo)
+}
+
+// handleModel handles model management commands
+func (c *ChatInterface) handleModel(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to load config: %v", err),
+		}, nil
+	}
+
+	if len(args) == 0 {
+		return &CommandResult{
+			Success: false,
+			Message: "Usage: /model <list|switch|info> [model]",
+		}, nil
+	}
+
+	action := strings.ToLower(args[0])
+
+	switch action {
+	case "list":
+		// Get current provider
+		provider := cfg.GetDefaultProvider()
+		if provider == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "No provider configured. Use '/provider switch' first.",
+			}, nil
+		}
+
+		// Get provider instance to list available models
+		providerInstance := llm.GlobalRegistry.Create(provider)
+		if providerInstance == nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Provider %s not available", provider),
+			}, nil
+		}
+
+		// Configure provider to enable API calls
+		providerCfg, _ := cfg.GetProviderConfig(provider)
+		providerInstance.Configure(llm.Config{
+			Provider: provider,
+			APIKey:   providerCfg.APIKey,
+			BaseURL:  providerCfg.BaseURL,
+		})
+
+		// Get models from API
+		models, err := providerInstance.ListModels(ctx)
+		if err != nil {
+			// Fallback to capabilities if API fails
+			capabilities := providerInstance.GetCapabilities()
+			models = capabilities.Models
+		}
+
+		currentModel := providerCfg.Model
+		if currentModel == "" {
+			currentModel = providerInstance.GetModel()
+		}
+
+		capabilities := providerInstance.GetCapabilities()
+		message := fmt.Sprintf("📋 Available Models for %s:\n\n", capabilities.Name)
+		for i, model := range models {
+			mark := ""
+			if model == currentModel {
+				mark = color.YellowString(" ⭐ (current)")
+			}
+			message += fmt.Sprintf("  %d. %s%s\n", i+1, model, mark)
+		}
+		message += "\n💡 Use '/model switch <model>' to change the model"
+
+		return &CommandResult{
+			Success: true,
+			Message: message,
+		}, nil
+
+	case "switch":
+		// Get current provider
+		provider := cfg.GetDefaultProvider()
+		if provider == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "No provider configured. Use '/provider switch' first.",
+			}, nil
+		}
+
+		var modelName string
+		if len(args) > 1 {
+			// Model specified directly
+			modelName = args[1]
+		} else {
+			// Show interactive menu
+			selectedModel, err := c.selectModel(cfg, provider)
+			if err != nil {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("Failed to select model: %v", err),
+				}, nil
+			}
+			if selectedModel == "" {
+				return &CommandResult{
+					Success: false,
+					Message: "No model selected",
+				}, nil
+			}
+			modelName = selectedModel
+		}
+
+		// Update provider config with new model
+		providerCfg, exists := cfg.GetProviderConfig(provider)
+		if !exists {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Provider %s not configured", provider),
+			}, nil
+		}
+
+		providerCfg.Model = modelName
+		if err := cfg.SetProviderConfig(provider, providerCfg); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to save model: %v", err),
+			}, nil
+		}
+
+		// Reload provider with new model
+		if err := c.ReloadLLMProvider(); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("⚠️  Model switched in config but failed to reload: %v\nPlease restart the chat session.", err),
+			}, nil
+		}
+
+		return &CommandResult{
+			Success: true,
+			Message: fmt.Sprintf("✅ Switched to model %s and reloaded successfully!", modelName),
+		}, nil
+
+	case "info":
+		// Get current model info
+		provider := cfg.GetDefaultProvider()
+		if provider == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "No provider configured",
+			}, nil
+		}
+
+		providerCfg, _ := cfg.GetProviderConfig(provider)
+		currentModel := providerCfg.Model
+		if currentModel == "" {
+			currentModel = c.llm.GetModel()
+		}
+
+		capabilities := c.llm.GetCapabilities()
+
+		message := fmt.Sprintf("ℹ️  Current Model Information:\n\n")
+		message += fmt.Sprintf("Provider: %s\n", capabilities.Name)
+		message += fmt.Sprintf("Model: %s\n", currentModel)
+		message += fmt.Sprintf("Max Tokens: %d\n", capabilities.MaxTokens)
+		message += fmt.Sprintf("Supports Streaming: %v\n", capabilities.SupportsStreaming)
+
+		return &CommandResult{
+			Success: true,
+			Message: message,
+		}, nil
+
+	default:
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Unknown action: %s\nUsage: /model <list|switch|info> [model]", action),
+		}, nil
+	}
+}
+
+// selectModel shows an interactive menu to select a model for current provider
+func (c *ChatInterface) selectModel(cfg *config.Config, provider string) (string, error) {
+	// Get provider instance
+	providerInstance := llm.GlobalRegistry.Create(provider)
+	if providerInstance == nil {
+		return "", fmt.Errorf("provider %s not available", provider)
+	}
+
+	// Configure provider to enable API calls
+	providerCfg, _ := cfg.GetProviderConfig(provider)
+	providerInstance.Configure(llm.Config{
+		Provider: provider,
+		APIKey:   providerCfg.APIKey,
+		BaseURL:  providerCfg.BaseURL,
+	})
+
+	// Get models from API
+	ctx := context.Background()
+	models, err := providerInstance.ListModels(ctx)
+	if err != nil {
+		// Fallback to capabilities
+		capabilities := providerInstance.GetCapabilities()
+		models = capabilities.Models
+	}
+
+	if len(models) == 0 {
+		return "", fmt.Errorf("no models available for provider %s", provider)
+	}
+
+	capabilities := providerInstance.GetCapabilities()
+
+	if len(models) == 1 {
+		return models[0], nil
+	}
+
+	// Get current model
+	currentModel := providerCfg.Model
+
+	// Display menu
+	fmt.Println(color.CyanString(fmt.Sprintf("\n📋 Select a model for %s:", capabilities.Name)))
+	fmt.Println()
+
+	for i, model := range models {
+		mark := ""
+		if model == currentModel {
+			mark = color.YellowString(" ⭐ (current)")
+		}
+		fmt.Printf("  %d. %s%s\n", i+1, model, mark)
+	}
+
+	fmt.Println()
+
+	// Read user input
+	input, err := c.inputHandler.ReadSimple(color.CyanString(fmt.Sprintf("Enter number (1-%d) or 'q' to cancel: ", len(models))))
+	if err != nil {
+		return "", err
+	}
+
+	// Check for cancel
+	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {
+		return "", nil
+	}
+
+	// Parse selection
+	selection, err := strconv.Atoi(input)
+	if err != nil || selection < 1 || selection > len(models) {
+		return "", fmt.Errorf("invalid selection: %s", input)
+	}
+
+	selectedModel := models[selection-1]
+	fmt.Println(color.GreenString(fmt.Sprintf("✓ Selected: %s", selectedModel)))
+	fmt.Println()
+
+	return selectedModel, nil
 }

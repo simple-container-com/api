@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -173,15 +174,10 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 // GetCapabilities returns the provider's capabilities
 func (p *AnthropicProvider) GetCapabilities() Capabilities {
 	return Capabilities{
-		Name: "Anthropic Claude",
-		Models: []string{
-			"claude-3-5-sonnet-20241022",
-			"claude-3-opus-20240229",
-			"claude-3-sonnet-20240229",
-			"claude-3-haiku-20240307",
-		},
+		Name:              "Anthropic Claude",
+		Models:            []string{}, // Models fetched via API
 		MaxTokens:         200000,
-		SupportsStreaming: false, // TODO: implement streaming
+		SupportsStreaming: false,
 		SupportsFunctions: false,
 		RequiresAuth:      true,
 	}
@@ -195,6 +191,102 @@ func (p *AnthropicProvider) GetModel() string {
 // IsAvailable checks if the provider is configured and available
 func (p *AnthropicProvider) IsAvailable() bool {
 	return p.config.APIKey != ""
+}
+
+// ListModels returns available models by fetching from Anthropic documentation
+func (p *AnthropicProvider) ListModels(ctx context.Context) ([]string, error) {
+	// Anthropic doesn't have a dedicated /models endpoint
+	// Fetch from their documentation
+	return p.extractModelsFromDocs(ctx)
+}
+
+// extractModelsFromDocs fetches model list from Anthropic documentation API
+func (p *AnthropicProvider) extractModelsFromDocs(ctx context.Context) ([]string, error) {
+	// Try fetching from their docs API/JSON endpoint first
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Try the models documentation page
+	urls := []string{
+		"https://docs.anthropic.com/en/docs/about-claude/models",
+		"https://raw.githubusercontent.com/anthropics/anthropic-sdk-python/main/src/anthropic/types/model.py",
+	}
+
+	var allModels []string
+	for _, url := range urls {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			continue
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			continue
+		}
+
+		// Extract model IDs from content
+		models := extractModelNamesFromText(string(body))
+		allModels = append(allModels, models...)
+	}
+
+	// Remove duplicates
+	seen := make(map[string]bool)
+	var uniqueModels []string
+	for _, model := range allModels {
+		if !seen[model] {
+			uniqueModels = append(uniqueModels, model)
+			seen[model] = true
+		}
+	}
+
+	if len(uniqueModels) == 0 {
+		return nil, fmt.Errorf("failed to fetch models from Anthropic documentation")
+	}
+
+	return uniqueModels, nil
+}
+
+// extractModelNamesFromText extracts Claude model names from text
+func extractModelNamesFromText(text string) []string {
+	var models []string
+	seen := make(map[string]bool)
+
+	// Look for patterns like: claude-3-5-sonnet-20241022
+	// Also match in JSON, HTML attributes, etc
+	text = strings.ReplaceAll(text, "&quot;", `"`)
+	text = strings.ReplaceAll(text, "&#x27;", "'")
+
+	// Split by common delimiters
+	delimiters := []string{" ", "\n", "\t", ",", ";", "'", `"`, ">", "<", "(", ")", "[", "]", "{", "}"}
+	words := []string{text}
+	for _, delim := range delimiters {
+		var newWords []string
+		for _, w := range words {
+			newWords = append(newWords, strings.Split(w, delim)...)
+		}
+		words = newWords
+	}
+
+	// Extract claude model names
+	for _, word := range words {
+		word = strings.TrimSpace(word)
+		if strings.HasPrefix(word, "claude-") && !seen[word] {
+			// Validate format: claude-X-Y-YYYYMMDD or claude-X.Y
+			parts := strings.Split(word, "-")
+			if len(parts) >= 3 {
+				// Looks like a valid model ID
+				models = append(models, word)
+				seen[word] = true
+			}
+		}
+	}
+
+	return models
 }
 
 // Close cleans up resources

@@ -2,7 +2,9 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,6 +17,8 @@ type OpenAIProvider struct {
 	client     *openai.LLM
 	config     Config
 	model      string
+	apiKey     string
+	baseURL    string
 	configured bool
 }
 
@@ -47,6 +51,8 @@ func (p *OpenAIProvider) Configure(config Config) error {
 	p.client = llm
 	p.config = config
 	p.model = config.Model
+	p.apiKey = config.APIKey
+	p.baseURL = config.BaseURL
 	p.configured = true
 
 	return nil
@@ -215,17 +221,12 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 // GetCapabilities returns OpenAI capabilities
 func (p *OpenAIProvider) GetCapabilities() Capabilities {
 	return Capabilities{
-		Name: "OpenAI",
-		Models: []string{
-			"gpt-4",
-			"gpt-4-turbo-preview",
-			"gpt-3.5-turbo",
-			"gpt-3.5-turbo-16k",
-		},
-		MaxTokens:         4096,
-		SupportsStreaming: true,     // Now implemented with StreamChat
-		SupportsFunctions: false,    // Not implemented in this version
-		CostPerToken:      0.000002, // Approximate cost for gpt-3.5-turbo
+		Name:              "OpenAI",
+		Models:            []string{}, // Models fetched via API using ListModels()
+		MaxTokens:         128000,     // Max for gpt-4-turbo and newer
+		SupportsStreaming: true,
+		SupportsFunctions: false,
+		CostPerToken:      0.000002,
 		RequiresAuth:      true,
 	}
 }
@@ -238,6 +239,66 @@ func (p *OpenAIProvider) GetModel() string {
 // IsAvailable checks if the provider is available
 func (p *OpenAIProvider) IsAvailable() bool {
 	return p.configured && p.client != nil
+}
+
+// ListModels returns available models from OpenAI API
+func (p *OpenAIProvider) ListModels(ctx context.Context) ([]string, error) {
+	if p.client == nil {
+		return nil, fmt.Errorf("provider not configured")
+	}
+
+	// Create HTTP request to list models
+	baseURL := "https://api.openai.com/v1"
+	if p.baseURL != "" {
+		baseURL = p.baseURL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var modelsResp struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Object  string `json:"object"`
+			Created int64  `json:"created"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Filter to chat models only
+	var chatModels []string
+	for _, model := range modelsResp.Data {
+		id := model.ID
+		// Include GPT models and O1 models
+		if strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "o1") {
+			// Exclude fine-tuned models (contain ':')
+			if !strings.Contains(id, ":") {
+				chatModels = append(chatModels, id)
+			}
+		}
+	}
+
+	return chatModels, nil
 }
 
 // Close cleans up resources

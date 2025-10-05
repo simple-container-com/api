@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"github.com/peterh/liner"
 )
@@ -163,6 +165,7 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 	subcommands := map[string][]string{
 		"apikey":   {"set", "delete", "status"},
 		"provider": {"list", "switch", "info"},
+		"model":    {"list", "switch", "info"},
 		"history":  {"clear"},
 		"search":   {}, // search takes a query
 		"help":     {}, // help can take command names
@@ -260,20 +263,26 @@ func (h *InputHandler) ReadSimple(promptText string) (string, error) {
 		h.liner = nil
 	}
 
-	// Reset terminal to sane state using stty command
-	// This is the ONLY reliable way to fix the terminal after liner
-	cmd := exec.Command("stty", "sane")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run() // Ignore errors
+	// Reset terminal to sane state using syscall
+	// Get terminal fd
+	fd := int(syscall.Stdin)
 
-	// Also ensure echo is on and canonical mode is set
-	cmd2 := exec.Command("stty", "echo", "icanon")
-	cmd2.Stdin = os.Stdin
-	cmd2.Stdout = os.Stdout
-	cmd2.Stderr = os.Stderr
-	_ = cmd2.Run()
+	// Get current terminal settings
+	var termios syscall.Termios
+	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), syscall.TIOCGETA, uintptr(unsafe.Pointer(&termios))); err != 0 {
+		// Fallback: try using stty command
+		cmd := exec.Command("stty", "sane", "-F", "/dev/tty")
+		_ = cmd.Run()
+	} else {
+		// Enable canonical mode (ICANON) and echo (ECHO)
+		termios.Lflag |= syscall.ICANON | syscall.ECHO | syscall.ECHOE | syscall.ECHOK | syscall.ECHOCTL | syscall.ECHOKE
+		// Enable ICRNL (translate CR to NL on input)
+		termios.Iflag |= syscall.ICRNL
+		// Enable ONLCR (translate NL to CR-NL on output)
+		termios.Oflag |= syscall.ONLCR
+		// Set the terminal attributes
+		syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), syscall.TIOCSETA, uintptr(unsafe.Pointer(&termios)))
+	}
 
 	// Print prompt
 	fmt.Print(promptText)
