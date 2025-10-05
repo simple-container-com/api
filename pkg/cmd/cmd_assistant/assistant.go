@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 	"syscall"
 	"time"
@@ -340,7 +341,6 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 		Short: "Start MCP (Model Context Protocol) server",
 		Long:  "Start a JSON-RPC server that exposes Simple Container context to external LLM tools",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
 			host, _ := cmd.Flags().GetString("host")
 			port, _ := cmd.Flags().GetInt("port")
 
@@ -349,7 +349,15 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 			fmt.Printf("   Port: %d\n", port)
 			fmt.Printf("   Protocol: JSON-RPC 2.0 over HTTP\n\n")
 
-			// Initialize and start MCP server
+			// Setup signal handling for graceful shutdown
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Handle CTRL+C gracefully
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+			// Initialize MCP server
 			server := mcp.NewMCPServer(host, port)
 
 			fmt.Printf("📡 MCP Server ready for Windsurf integration\n")
@@ -359,7 +367,23 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 			fmt.Printf("\n🔗 To integrate with Windsurf, add this MCP server configuration\n")
 			fmt.Printf("   Press Ctrl+C to stop\n\n")
 
-			return server.Start(ctx)
+			// Start MCP server in goroutine
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- server.Start(ctx)
+			}()
+
+			// Wait for completion or signal
+			select {
+			case err := <-errCh:
+				return err
+			case <-sigCh:
+				fmt.Println("\n🛑 Shutting down MCP server...")
+				cancel()
+				// Give server a moment to shut down gracefully
+				time.Sleep(100 * time.Millisecond)
+				return nil
+			}
 		},
 	}
 
@@ -404,14 +428,14 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 			if provider == "" {
 				provider = config.ProviderOpenAI
 			}
-			
+
 			// Load provider config
 			if providerCfg, exists := cfg.GetProviderConfig(provider); exists && providerCfg.APIKey != "" {
 				apiKey = providerCfg.APIKey
 				os.Setenv("OPENAI_API_KEY", apiKey)
 				providerName := config.GetProviderDisplayName(provider)
 				fmt.Println(color.GreenFmt(fmt.Sprintf("✅ Using stored %s API key", providerName)))
-				
+
 				// Show provider info
 				if providerCfg.BaseURL != "" {
 					fmt.Println(color.CyanFmt(fmt.Sprintf("   Base URL: %s", providerCfg.BaseURL)))
@@ -448,7 +472,7 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 
 		// Set the API key for this session
 		os.Setenv("OPENAI_API_KEY", apiKey)
-		
+
 		// Ask if user wants to save it permanently
 		fmt.Print(color.YellowFmt("💾 Save this API key for future sessions? (Y/n): "))
 		reader := bufio.NewReader(os.Stdin)
@@ -492,9 +516,29 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 	}
 	defer chatInterface.Close()
 
-	// Start interactive session
-	ctx := context.Background()
-	return chatInterface.StartSession(ctx)
+	// Setup signal handling for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle CTRL+C gracefully
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	// Start chat session in goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- chatInterface.StartSession(ctx)
+	}()
+
+	// Wait for completion or signal
+	select {
+	case err := <-errCh:
+		return err
+	case <-sigCh:
+		fmt.Println("\n\n👋 Goodbye! Chat session ended.")
+		cancel()
+		return nil
+	}
 }
 
 func (a *AssistantCmd) runSearch(cmd *cobra.Command, query string, limit int, docType string) error {

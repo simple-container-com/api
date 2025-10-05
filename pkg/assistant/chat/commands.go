@@ -10,8 +10,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/fatih/color"
 	"golang.org/x/term"
+
+	"github.com/fatih/color"
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/config"
@@ -186,17 +187,18 @@ func (c *ChatInterface) handleSearch(ctx context.Context, args []string, context
 		}, nil
 	}
 
-	query := strings.Join(args[:len(args)-1], " ")
+	// Default: use all args as query
+	query := strings.Join(args, " ")
 	limit := 5
 
 	// Check if last arg is a number (limit)
 	if len(args) > 1 {
 		if num, err := strconv.Atoi(args[len(args)-1]); err == nil && num > 0 && num <= 20 {
+			// Last argument is a valid limit, use remaining args as query
 			query = strings.Join(args[:len(args)-1], " ")
 			limit = num
-		} else {
-			query = strings.Join(args, " ")
 		}
+		// If last arg is not a valid number, use all args as query (already set above)
 	}
 
 	// Perform search
@@ -482,10 +484,21 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 		}
 	}
 
+	// Determine proper project name for file paths
+	projectName := projectAnalysis.Name
+	if projectName == "." || projectName == "" {
+		// Use the directory name as the project name
+		if absPath, err := filepath.Abs(projectPath); err == nil {
+			projectName = filepath.Base(absPath)
+		} else {
+			projectName = "my-app"
+		}
+	}
+
 	// Generate options
 	opts := generation.GenerateOptions{
 		ProjectPath: projectPath,
-		ProjectName: projectAnalysis.Name,
+		ProjectName: projectName,
 		Environment: "staging",
 		Parent:      "infrastructure",
 	}
@@ -496,7 +509,7 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 	clientYaml, err := c.generator.GenerateClientYAML(projectAnalysis, opts)
 	if err == nil {
 		files = append(files, GeneratedFile{
-			Path:        ".sc/stacks/" + projectAnalysis.Name + "/client.yaml",
+			Path:        ".sc/stacks/" + projectName + "/client.yaml",
 			Type:        "yaml",
 			Description: "Simple Container client configuration",
 			Generated:   true,
@@ -735,7 +748,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 	}
 
 	action := strings.ToLower(args[0])
-	
+
 	// Load config first
 	cfg, err := config.Load()
 	if err != nil {
@@ -744,7 +757,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 			Message: fmt.Sprintf("Failed to load config: %v", err),
 		}, nil
 	}
-	
+
 	// Determine provider
 	var provider string
 	if len(args) > 1 {
@@ -783,7 +796,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 	switch action {
 	case "set":
 		providerName := config.GetProviderDisplayName(provider)
-		
+
 		// Prompt for API key
 		fmt.Print(color.CyanString(fmt.Sprintf("🔑 Enter your %s API key: ", providerName)))
 		apiKey, err := readSecureInput()
@@ -812,7 +825,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 				baseURL = "http://localhost:11434"
 			}
 			providerCfg.BaseURL = baseURL
-			
+
 			fmt.Print(color.CyanString("🤖 Enter default model (press Enter for llama2): "))
 			model, _ := reader.ReadString('\n')
 			model = strings.TrimSpace(model)
@@ -887,7 +900,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 				Message: fmt.Sprintf("❌ No API key is stored for %s\nUse '/apikey set %s' to configure one", providerName, provider),
 			}, nil
 		}
-		
+
 		// Show all configured providers
 		providers := cfg.ListProviders()
 		if len(providers) == 0 {
@@ -896,7 +909,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 				Message: "❌ No API keys are currently stored\nUse '/apikey set [provider]' to configure one",
 			}, nil
 		}
-		
+
 		message := "📋 Configured Providers:\n"
 		defaultProvider := cfg.GetDefaultProvider()
 		for _, p := range providers {
@@ -914,7 +927,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 		}
 		configPath, _ := config.ConfigPath()
 		message += fmt.Sprintf("\n\nStored in: %s", configPath)
-		
+
 		return &CommandResult{
 			Success: true,
 			Message: message,
@@ -975,7 +988,7 @@ func (c *ChatInterface) handleProvider(ctx context.Context, args []string, conte
 
 	case "switch":
 		var provider string
-		
+
 		if len(args) < 2 {
 			// No provider specified - show interactive menu
 			selectedProvider, err := selectConfiguredProvider(cfg)
@@ -1028,8 +1041,8 @@ func (c *ChatInterface) handleProvider(ctx context.Context, args []string, conte
 
 		providerName := config.GetProviderDisplayName(provider)
 		return &CommandResult{
-			Success:  true,
-			Message:  fmt.Sprintf("✅ Switched to %s and reloaded successfully!\nYou can continue chatting with the new provider.", providerName),
+			Success: true,
+			Message: fmt.Sprintf("✅ Switched to %s and reloaded successfully!\nYou can continue chatting with the new provider.", providerName),
 		}, nil
 
 	case "info":
@@ -1107,34 +1120,6 @@ func readSecureInput() (string, error) {
 	return strings.TrimSpace(string(bytePassword)), nil
 }
 
-// promptForOpenAIKey prompts the user to enter their OpenAI API key securely
-func promptForOpenAIKey() (string, error) {
-	fmt.Print(color.CyanString("🔑 Enter your OpenAI API key: "))
-	apiKey, err := readSecureInput()
-	if err != nil {
-		return "", err
-	}
-
-	// Basic validation - OpenAI keys should start with "sk-"
-	if apiKey != "" && !strings.HasPrefix(apiKey, "sk-") {
-		fmt.Println(color.YellowString("⚠️  Warning: OpenAI API keys typically start with 'sk-'"))
-		fmt.Print("Continue anyway? (y/N): ")
-
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-
-		response = strings.ToLower(strings.TrimSpace(response))
-		if response != "y" && response != "yes" {
-			return "", fmt.Errorf("API key validation failed")
-		}
-	}
-
-	return apiKey, nil
-}
-
 // maskAPIKey masks an API key for display purposes
 func maskAPIKey(apiKey string) string {
 	if len(apiKey) <= 8 {
@@ -1153,18 +1138,18 @@ func selectProvider(cfg *config.Config) (string, error) {
 		config.ProviderDeepseek,
 		config.ProviderYandex,
 	}
-	
+
 	// Get configured providers
 	configuredProviders := cfg.ListProviders()
 	configuredMap := make(map[string]bool)
 	for _, p := range configuredProviders {
 		configuredMap[p] = true
 	}
-	
+
 	// Display menu
 	fmt.Println(color.CyanString("\n📋 Select a provider to configure:"))
 	fmt.Println()
-	
+
 	for i, provider := range allProviders {
 		providerName := config.GetProviderDisplayName(provider)
 		status := ""
@@ -1175,34 +1160,34 @@ func selectProvider(cfg *config.Config) (string, error) {
 		}
 		fmt.Printf("  %d. %s%s\n", i+1, providerName, status)
 	}
-	
+
 	fmt.Println()
 	fmt.Print(color.CyanString("Enter number (1-5) or 'q' to cancel: "))
-	
+
 	// Read user input
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
 	}
-	
+
 	input = strings.TrimSpace(input)
-	
+
 	// Check for cancel
 	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {
 		return "", nil
 	}
-	
+
 	// Parse selection
 	selection, err := strconv.Atoi(input)
 	if err != nil || selection < 1 || selection > len(allProviders) {
 		return "", fmt.Errorf("invalid selection: %s", input)
 	}
-	
+
 	selectedProvider := allProviders[selection-1]
 	fmt.Println(color.GreenString(fmt.Sprintf("✓ Selected: %s", config.GetProviderDisplayName(selectedProvider))))
 	fmt.Println()
-	
+
 	return selectedProvider, nil
 }
 
@@ -1225,18 +1210,18 @@ func (c *ChatInterface) handleHistory(ctx context.Context, args []string, contex
 	}
 
 	message := fmt.Sprintf("📜 Command History (%d commands):\n", len(history))
-	
+
 	// Show last 20 commands
 	start := 0
 	if len(history) > 20 {
 		start = len(history) - 20
 		message += fmt.Sprintf("\n(Showing last 20 of %d commands)\n", len(history))
 	}
-	
+
 	for i := start; i < len(history); i++ {
 		message += fmt.Sprintf("\n  %d. %s", i+1, history[i])
 	}
-	
+
 	message += "\n\n💡 Tip: Use ↑/↓ arrow keys to navigate history, Tab for autocomplete"
 
 	return &CommandResult{
@@ -1249,23 +1234,23 @@ func (c *ChatInterface) handleHistory(ctx context.Context, args []string, contex
 func selectConfiguredProvider(cfg *config.Config) (string, error) {
 	// Get configured providers
 	configuredProviders := cfg.ListProviders()
-	
+
 	if len(configuredProviders) == 0 {
 		return "", fmt.Errorf("no providers configured. Use '/apikey set' to configure a provider first")
 	}
-	
+
 	if len(configuredProviders) == 1 {
 		// Only one provider configured, no need to show menu
 		return configuredProviders[0], nil
 	}
-	
+
 	// Get current default
 	defaultProvider := cfg.GetDefaultProvider()
-	
+
 	// Display menu
 	fmt.Println(color.CyanString("\n📋 Select a provider to switch to:"))
 	fmt.Println()
-	
+
 	for i, provider := range configuredProviders {
 		providerName := config.GetProviderDisplayName(provider)
 		defaultMark := ""
@@ -1274,33 +1259,33 @@ func selectConfiguredProvider(cfg *config.Config) (string, error) {
 		}
 		fmt.Printf("  %d. %s%s\n", i+1, providerName, defaultMark)
 	}
-	
+
 	fmt.Println()
 	fmt.Print(color.CyanString(fmt.Sprintf("Enter number (1-%d) or 'q' to cancel: ", len(configuredProviders))))
-	
+
 	// Read user input
 	reader := bufio.NewReader(os.Stdin)
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
 	}
-	
+
 	input = strings.TrimSpace(input)
-	
+
 	// Check for cancel
 	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {
 		return "", nil
 	}
-	
+
 	// Parse selection
 	selection, err := strconv.Atoi(input)
 	if err != nil || selection < 1 || selection > len(configuredProviders) {
 		return "", fmt.Errorf("invalid selection: %s", input)
 	}
-	
+
 	selectedProvider := configuredProviders[selection-1]
 	fmt.Println(color.GreenString(fmt.Sprintf("✓ Selected: %s", config.GetProviderDisplayName(selectedProvider))))
 	fmt.Println()
-	
+
 	return selectedProvider, nil
 }

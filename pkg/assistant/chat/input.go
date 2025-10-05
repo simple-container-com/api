@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/fatih/color"
 	"golang.org/x/term"
+	"github.com/fatih/color"
 )
 
 // InputHandler handles enhanced input with autocomplete and history
@@ -61,7 +60,7 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 		}
 		return strings.TrimSpace(line), nil
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
+	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 
 	buf := make([]byte, 3)
 	historyPos := len(h.history)
@@ -169,12 +168,30 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 				input.Reset()
 				input.WriteString(str[:len(str)-1])
 				fmt.Print("\b \b")
+				showingSuggestions = false
+
+				// Show suggestions if typing command
+				if strings.HasPrefix(input.String(), "/") {
+					suggestions = h.getCommandSuggestions(input.String())
+					if len(suggestions) > 0 && len(suggestions) <= 5 {
+						h.showInlineSuggestions(input.String(), suggestions)
+					}
+				}
 			}
 			continue
 		default:
 			if buf[0] >= 32 && buf[0] < 127 { // Printable characters
 				input.WriteByte(buf[0])
 				fmt.Printf("%c", buf[0])
+				showingSuggestions = false
+
+				// Show suggestions if typing command
+				if strings.HasPrefix(input.String(), "/") {
+					suggestions = h.getCommandSuggestions(input.String())
+					if len(suggestions) > 0 && len(suggestions) <= 5 {
+						h.showInlineSuggestions(input.String(), suggestions)
+					}
+				}
 			}
 		}
 	}
@@ -183,10 +200,11 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 // getCommandSuggestions returns command suggestions based on input
 func (h *InputHandler) getCommandSuggestions(input string) []string {
 	input = strings.TrimPrefix(input, "/")
+	input = strings.ToLower(input)
 
 	// Check if input contains a space (subcommand)
 	spaceIndex := strings.Index(input, " ")
-	
+
 	if spaceIndex != -1 {
 		// Has space - extract command and subcommand
 		cmdName := input[:spaceIndex]
@@ -258,12 +276,12 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 				break
 			}
 		}
-		
+
 		// If already complete, don't show suggestions
 		if isComplete {
 			return suggestions
 		}
-		
+
 		// Filter subcommands by prefix
 		for _, sub := range subs {
 			if strings.HasPrefix(sub, subCmd) {
@@ -314,6 +332,17 @@ func (h *InputHandler) printSuggestionsRaw(suggestions []string) {
 			os.Stdout.WriteString("  " + color.CyanString(suggestion) + "\r\n")
 		}
 	}
+
+	// Save cursor position
+	fmt.Print("\033[s")
+
+	// Print suggestion in gray
+	suggestion := suggestions[0]
+	remaining := strings.TrimPrefix(suggestion, input)
+	fmt.Print(color.New(color.FgHiBlack).Sprint(remaining))
+
+	// Restore cursor position
+	fmt.Print("\033[u")
 }
 
 // clearLine clears the current input line
