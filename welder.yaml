@@ -25,6 +25,7 @@ modules:
         - task: fmt
         - task: test
         - task: generate-schemas
+        - task: generate-embeddings
         - task: build-all
         - task: docker-login
         - task: build-cloud-helpers
@@ -119,6 +120,13 @@ tasks:
       - go build -o ${project:root}/bin/schema-gen ./cmd/schema-gen
       - ${project:root}/bin/schema-gen ${project:root}/docs/schemas
       - echo "Successfully generated JSON Schema files in docs/schemas/"
+  generate-embeddings:
+    runOn: host
+    script:
+      - echo "Generating documentation embeddings for AI assistant..."
+      - go build -o ${project:root}/bin/embed-docs ./cmd/embed-docs
+      - ${project:root}/bin/embed-docs --docs-path ${project:root}/docs --examples-path ${project:root}/docs/docs/examples --schemas-path ${project:root}/docs/schemas --output ${project:root}/pkg/assistant/embeddings/embedded_docs.go
+      - echo "Successfully generated documentation embeddings in pkg/assistant/embeddings/"
   build:
     runOn: host
     env:

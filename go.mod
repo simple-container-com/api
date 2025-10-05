@@ -26,6 +26,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/onsi/gomega v1.36.2
 	github.com/otiai10/copy v1.14.0
+	github.com/philippgille/chromem-go v0.7.0
 	github.com/pkg/errors v0.9.1
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.83.0
 	github.com/pulumi/pulumi-awsx/sdk/v2 v2.22.0
@@ -42,6 +43,7 @@ require (
 	github.com/spf13/afero v1.14.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
+	github.com/tmc/langchaingo v0.1.13
 	github.com/valyala/fasttemplate v1.2.2
 	github.com/vektra/mockery/v2 v2.53.4
 	go.uber.org/atomic v1.11.0
@@ -108,8 +110,8 @@ require (
 	github.com/aws/aws-sdk-go v1.50.36 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.26.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.2 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.27.11 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.17.11 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.27.12 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.12 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.1 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.16.15 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.5 // indirect
@@ -122,9 +124,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.17.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/kms v1.30.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.53.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.20.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.23.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.28.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.20.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.23.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.28.7 // indirect
 	github.com/aws/smithy-go v1.20.2 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -152,7 +154,6 @@ require (
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cncf/xds/go v0.0.0-20250121191232-2f005788dc42 // indirect
 	github.com/containerd/console v1.0.4 // indirect
-	github.com/containerd/log v0.1.0 // indirect
 	github.com/cosiner/argv v0.1.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
@@ -166,7 +167,8 @@ require (
 	github.com/disgoorg/snowflake/v2 v2.0.1 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/djherbis/times v1.5.0 // indirect
-	github.com/docker/go-connections v0.4.0 // indirect
+	github.com/dlclark/regexp2 v1.11.0 // indirect
+	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
@@ -294,9 +296,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
-	github.com/moby/term v0.0.0-20221205130635-1aeaba878587 // indirect
 	github.com/moricho/tparallel v0.3.2 // indirect
-	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
@@ -309,7 +309,7 @@ require (
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.0-rc2 // indirect
+	github.com/opencontainers/image-spec v1.1.0 // indirect
 	github.com/opentracing/basictracer-go v1.1.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
@@ -320,6 +320,7 @@ require (
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/term v1.1.0 // indirect
+	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/polyfloyd/go-errorlint v1.7.1 // indirect
