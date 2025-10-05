@@ -889,9 +889,9 @@ func (h *DefaultMCPHandler) GetCapabilities(ctx context.Context) (map[string]int
 		},
 		"features": map[string]interface{}{
 			"documentation_search":     true,
-			"project_analysis":         true,  // ✅ Fully implemented
-			"configuration_generation": false, // Future enhancement
-			"interactive_chat":         false, // Available via separate chat command
+			"project_analysis":         true, // ✅ Fully implemented
+			"configuration_generation": true, // ✅ Fully implemented: multi-file generation with validation
+			"interactive_chat":         true, // ✅ Fully implemented: conversational interface with OpenAI
 		},
 		"documentation": map[string]interface{}{
 			"indexed_documents": h.getIndexedDocumentsCount(),
