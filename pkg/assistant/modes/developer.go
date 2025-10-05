@@ -121,7 +121,7 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts *SetupOptions) error {
 	// Step 3: Deployment Type Confirmation
 	if !opts.Interactive {
 		// For non-interactive mode, confirm deployment type
-		if err := d.confirmDeploymentType(opts, projectAnalysis); err != nil {
+		if err := d.ConfirmDeploymentType(opts, projectAnalysis); err != nil {
 			return err
 		}
 	} else {
@@ -529,8 +529,8 @@ func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool) bo
 	return response == "y" || response == "yes"
 }
 
-// confirmDeploymentType confirms the detected deployment type with the user
-func (d *DeveloperMode) confirmDeploymentType(opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
+// ConfirmDeploymentType confirms the detected deployment type with the user
+func (d *DeveloperMode) ConfirmDeploymentType(opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
 	detectedType := d.determineDeploymentTypeWithOptions(analysis, opts)
 
 	fmt.Printf("\n🔍 Detected deployment type: %s\n", color.CyanString(detectedType))

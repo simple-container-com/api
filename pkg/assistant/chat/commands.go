@@ -329,12 +329,26 @@ func (c *ChatInterface) handleSetup(ctx context.Context, args []string, context 
 
 	switch mode {
 	case "dev", "developer":
+		// Add deployment type confirmation for developer mode
+		if err := c.confirmDeploymentTypeForChat(context); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Setup cancelled: %v", err),
+			}, nil
+		}
 		files, err = c.generateDeveloperFiles(context)
 	case "devops":
 		files, err = c.generateDevOpsFiles(context)
 	default:
 		// Auto-detect based on project
 		if context.ProjectInfo.PrimaryStack != nil {
+			// Add deployment type confirmation for auto-detected developer mode
+			if err := c.confirmDeploymentTypeForChat(context); err != nil {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("Setup cancelled: %v", err),
+				}, nil
+			}
 			files, err = c.generateDeveloperFiles(context)
 		} else {
 			return &CommandResult{
@@ -1301,4 +1315,16 @@ func selectConfiguredProvider(cfg *config.Config) (string, error) {
 	fmt.Println()
 
 	return selectedProvider, nil
+}
+
+// confirmDeploymentTypeForChat handles deployment type confirmation in chat interface
+func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContext) error {
+	// Create a temporary SetupOptions to use DeveloperMode's detection logic
+	opts := &modes.SetupOptions{
+		Environment: "staging",
+		Parent:      "infrastructure",
+	}
+
+	// Use DeveloperMode's confirmation logic
+	return c.developerMode.ConfirmDeploymentType(opts, context.ProjectInfo)
 }
