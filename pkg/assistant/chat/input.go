@@ -1,268 +1,107 @@
 package chat
 
 import (
-	"bufio"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 
-	"github.com/fatih/color"
-	"golang.org/x/term"
+	"github.com/peterh/liner"
 )
 
 // InputHandler handles enhanced input with autocomplete and history
 type InputHandler struct {
-	history           []string
-	historyIndex      int
-	commands          map[string]*ChatCommand
-	maxHistory        int
-	currentInput      string
-	cursorPos         int
-	menuVisible       bool
-	menuLines         int
+	history    []string
+	commands   map[string]*ChatCommand
+	maxHistory int
+	liner      *liner.State
 }
 
 // NewInputHandler creates a new input handler
 func NewInputHandler(commands map[string]*ChatCommand) *InputHandler {
 	return &InputHandler{
-		history:      make([]string, 0),
-		historyIndex: -1,
-		commands:     commands,
-		maxHistory:   100,
+		history:    make([]string, 0),
+		commands:   commands,
+		maxHistory: 100,
 	}
 }
 
 // ReadLine reads a line with autocomplete and history support
-func (h *InputHandler) ReadLine(prompt string) (string, error) {
-	// Check if we're in a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		// Fallback to simple input
-		fmt.Print(prompt)
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "", err
+func (h *InputHandler) ReadLine(promptText string) (string, error) {
+	// Initialize liner if not done
+	if h.liner == nil {
+		h.liner = liner.NewLiner()
+		h.liner.SetCtrlCAborts(true)
+
+		// Set completer function
+		h.liner.SetCompleter(func(line string) []string {
+			return h.getCommandSuggestions(line)
+		})
+
+		// Load history
+		for _, item := range h.history {
+			h.liner.AppendHistory(item)
 		}
-		return strings.TrimSpace(line), nil
 	}
 
-	// Print prompt
-	fmt.Print(prompt)
+	// Strip ANSI color codes from prompt for liner
+	// liner doesn't handle ANSI codes well in prompts
+	cleanPrompt := stripANSI(promptText)
 
-	var input strings.Builder
-	var suggestions []string
-	var selectedSuggestionIndex int = -1
+	// liner also doesn't like newlines or emojis in prompt
+	// Use a simple prompt instead
+	cleanPrompt = strings.ReplaceAll(cleanPrompt, "\n", "")
+	// If prompt contains non-ASCII (emoji), use a simple prompt
+	simplePrompt := "> "
+	for _, r := range cleanPrompt {
+		if r > 127 {
+			cleanPrompt = simplePrompt
+			break
+		}
+	}
 
-	// Set terminal to raw mode
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	line, err := h.liner.Prompt(cleanPrompt)
 	if err != nil {
-		// Fallback to simple input
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(line), nil
-	}
-	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
-
-	buf := make([]byte, 3)
-	historyPos := len(h.history)
-
-	for {
-		n, err := os.Stdin.Read(buf)
-		if err != nil {
-			return "", err
-		}
-
-		if n == 0 {
-			continue
-		}
-
-		// Handle escape sequences (arrow keys, etc.)
-		if buf[0] == 27 && n >= 3 {
-			if buf[1] == 91 {
-				switch buf[2] {
-				case 65: // Up arrow
-					if historyPos > 0 {
-						historyPos--
-						// Clear menu first
-						h.hideMenu()
-						suggestions = nil
-						selectedSuggestionIndex = -1
-						// Clear current line
-						h.clearLine(&input)
-						// Set input to history item
-						input.Reset()
-						input.WriteString(h.history[historyPos])
-						fmt.Print("\r" + prompt + input.String())
-					}
-					continue
-				case 66: // Down arrow
-					if historyPos < len(h.history)-1 {
-						historyPos++
-						// Clear menu first
-						h.hideMenu()
-						suggestions = nil
-						selectedSuggestionIndex = -1
-						// Clear current line
-						h.clearLine(&input)
-						// Set input to history item
-						input.Reset()
-						input.WriteString(h.history[historyPos])
-						fmt.Print("\r" + prompt + input.String())
-					} else if historyPos == len(h.history)-1 {
-						historyPos = len(h.history)
-						// Clear menu first
-						h.hideMenu()
-						suggestions = nil
-						selectedSuggestionIndex = -1
-						// Clear current line
-						h.clearLine(&input)
-						input.Reset()
-						fmt.Print("\r" + prompt)
-					}
-					continue
-				}
-			}
-			continue
-		}
-
-		// Handle regular characters
-		switch buf[0] {
-		case 3: // Ctrl+C
-			h.hideMenu()
-			fmt.Println()
+		if err == liner.ErrPromptAborted {
 			return "", fmt.Errorf("interrupted")
-		case 4: // Ctrl+D (EOF)
-			if input.Len() == 0 {
-				h.hideMenu()
-				fmt.Println()
-				return "exit", nil
-			}
-		case 9: // Tab - autocomplete/cycle
-			currentInput := input.String()
-			if strings.HasPrefix(currentInput, "/") {
-				newSuggestions := h.getCommandSuggestions(currentInput)
-
-				if len(newSuggestions) == 0 {
-					// No suggestions - hide menu
-					h.hideMenu()
-					suggestions = nil
-					selectedSuggestionIndex = -1
-					continue
-				}
-
-				if len(newSuggestions) == 1 {
-					// Single match - autocomplete and add space
-					if newSuggestions[0] == currentInput {
-						// Already complete - do nothing
-						continue
-					}
-					// Clear menu if visible
-					h.hideMenu()
-					// Autocomplete with space at the end
-					completed := newSuggestions[0] + " "
-					fmt.Print("\r\033[K" + prompt + completed)
-					input.Reset()
-					input.WriteString(completed)
-					suggestions = nil
-					selectedSuggestionIndex = -1
-					continue
-				}
-
-				// Multiple suggestions
-				if !equalSlices(suggestions, newSuggestions) {
-					// New suggestions - reset selection
-					suggestions = newSuggestions
-					selectedSuggestionIndex = 0
-
-					// Update menu
-					h.updateMenu(suggestions, selectedSuggestionIndex, prompt, currentInput)
-				} else {
-					// Same suggestions - cycle selection
-					selectedSuggestionIndex++
-					if selectedSuggestionIndex >= len(suggestions) {
-						selectedSuggestionIndex = 0
-					}
-
-					// Update menu with new selection
-					h.updateMenu(suggestions, selectedSuggestionIndex, prompt, currentInput)
-				}
-				continue
-			}
-			// For non-command input, Tab does nothing (ignore it)
-			continue
-		case 13, 10: // Enter
-			// If menu is shown, accept selected suggestion
-			if h.menuVisible && selectedSuggestionIndex >= 0 && len(suggestions) > 0 {
-				selected := suggestions[selectedSuggestionIndex]
-				// Clear menu
-				h.hideMenu()
-				// Add space after selection
-				completed := selected + " "
-				fmt.Print("\r\033[K" + prompt + completed)
-				input.Reset()
-				input.WriteString(completed)
-				suggestions = nil
-				selectedSuggestionIndex = -1
-				continue
-			}
-
-			// Clear menu if visible
-			h.hideMenu()
-
-			// Normal enter - execute command
-			fmt.Println()
-			result := input.String()
-			if result != "" {
-				h.addToHistory(result)
-			}
-			return result, nil
-		case 127, 8: // Backspace
-			if input.Len() > 0 {
-				// Clear menu if shown
-				h.hideMenu()
-
-				str := input.String()
-				input.Reset()
-				input.WriteString(str[:len(str)-1])
-				fmt.Print("\b \b")
-				// Reset suggestions when user types
-				suggestions = nil
-				selectedSuggestionIndex = -1
-			}
-			continue
-		default:
-			if buf[0] >= 32 && buf[0] < 127 { // Printable characters
-				// Clear menu if shown
-				h.hideMenu()
-
-				input.WriteByte(buf[0])
-				fmt.Printf("%c", buf[0])
-				// Reset suggestions when user types
-				suggestions = nil
-				selectedSuggestionIndex = -1
-			}
 		}
+		if err == io.EOF {
+			return "exit", nil
+		}
+		return "", err
 	}
+
+	line = strings.TrimSpace(line)
+	if line != "" {
+		h.addToHistory(line)
+		h.liner.AppendHistory(line)
+	}
+
+	return line, nil
 }
 
-// equalSlices compares two string slices
-func equalSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+// stripANSI removes ANSI escape codes from a string
+func stripANSI(str string) string {
+	result := str
+	for strings.Contains(result, "\x1b[") {
+		start := strings.Index(result, "\x1b[")
+		if start == -1 {
+			break
 		}
+		end := strings.Index(result[start:], "m")
+		if end == -1 {
+			break
+		}
+		result = result[:start] + result[start+end+1:]
 	}
-	return true
+	return result
 }
 
 // getCommandSuggestions returns command suggestions based on input
 func (h *InputHandler) getCommandSuggestions(input string) []string {
+	if !strings.HasPrefix(input, "/") {
+		return nil
+	}
+
 	input = strings.TrimPrefix(input, "/")
 
 	// Check if input contains a space (subcommand)
@@ -373,157 +212,6 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 	return suggestions
 }
 
-// printSuggestions prints command suggestions
-func (h *InputHandler) printSuggestions(suggestions []string) {
-	fmt.Println(color.YellowString("Suggestions:"))
-	for _, suggestion := range suggestions {
-		if cmd, exists := h.commands[strings.TrimPrefix(suggestion, "/")]; exists {
-			fmt.Printf("  %s - %s\n", color.CyanString(suggestion), cmd.Description)
-		} else {
-			fmt.Printf("  %s\n", color.CyanString(suggestion))
-		}
-	}
-}
-
-// printSuggestionsRaw prints command suggestions in raw mode without extra newlines
-func (h *InputHandler) printSuggestionsRaw(suggestions []string) {
-	os.Stdout.WriteString(color.YellowString("Suggestions:") + "\r\n")
-	for _, suggestion := range suggestions {
-		if cmd, exists := h.commands[strings.TrimPrefix(suggestion, "/")]; exists {
-			os.Stdout.WriteString("  " + color.CyanString(suggestion) + " - " + cmd.Description + "\r\n")
-		} else {
-			os.Stdout.WriteString("  " + color.CyanString(suggestion) + "\r\n")
-		}
-	}
-}
-
-// printSuggestionsCompact prints suggestions in compact format (like bash)
-func (h *InputHandler) printSuggestionsCompact(suggestions []string) {
-	// Extract just the last part (subcommand) for compact display
-	var parts []string
-	for _, s := range suggestions {
-		// Get the part after last space
-		idx := strings.LastIndex(s, " ")
-		if idx != -1 {
-			parts = append(parts, s[idx+1:])
-		} else {
-			parts = append(parts, strings.TrimPrefix(s, "/"))
-		}
-	}
-	
-	// Print in one line, separated by spaces
-	os.Stdout.WriteString(color.YellowString("Options: "))
-	for i, part := range parts {
-		if i > 0 {
-			os.Stdout.WriteString("  ")
-		}
-		os.Stdout.WriteString(color.CyanString(part))
-	}
-	os.Stdout.WriteString("\r\n")
-}
-
-// updateMenu updates the menu display - erases old one if needed and draws new one
-func (h *InputHandler) updateMenu(suggestions []string, selectedIndex int, prompt, currentInput string) {
-	var output strings.Builder
-
-	// If menu exists, we update in place
-	// If menu doesn't exist, we need to create space first
-	if !h.menuVisible {
-		// First time showing menu
-		// Step 1: Clear current line and print input
-		output.WriteString("\r\033[K")
-		output.WriteString(prompt + currentInput)
-
-		// Step 2: Create space for menu by printing newlines
-		for i := 0; i < len(suggestions); i++ {
-			output.WriteString("\n")
-		}
-
-		// Step 3: Go back up to input line
-		for i := 0; i < len(suggestions); i++ {
-			output.WriteString("\033[A")
-		}
-
-		// Mark that we now have menu space
-		h.menuLines = len(suggestions)
-	}
-
-	// Now update the menu in-place without creating new lines
-	// Save cursor position (at end of input)
-	output.WriteString("\033[s")
-
-	// Draw each menu item by moving down from saved position
-	for i, suggestion := range suggestions {
-		// Extract display text
-		idx := strings.LastIndex(suggestion, " ")
-		var display string
-		if idx != -1 {
-			display = suggestion[idx+1:]
-		} else {
-			display = strings.TrimPrefix(suggestion, "/")
-		}
-
-		// Move down i+1 lines from saved position
-		output.WriteString("\033[u")           // Restore to input line
-		output.WriteString("\033[")
-		output.WriteString(fmt.Sprintf("%d", i+1))
-		output.WriteString("B")                // Move down
-		output.WriteString("\r\033[K")         // Clear line
-
-		// Print with or without highlight
-		if i == selectedIndex {
-			output.WriteString("\033[7m" + display + "\033[0m")
-		} else {
-			output.WriteString(display)
-		}
-	}
-
-	// Restore cursor to end of input
-	output.WriteString("\033[u")
-
-	// Write everything at once
-	fmt.Print(output.String())
-
-	// Update state
-	h.menuVisible = true
-}
-
-// hideMenu hides the menu if visible
-func (h *InputHandler) hideMenu() {
-	if !h.menuVisible || h.menuLines == 0 {
-		return
-	}
-
-	var output strings.Builder
-
-	// Save cursor position
-	output.WriteString("\033[s")
-
-	// Clear each menu line by moving down and clearing
-	for i := 0; i < h.menuLines; i++ {
-		output.WriteString("\033[u")  // Restore position
-		output.WriteString("\033[")
-		output.WriteString(fmt.Sprintf("%d", i+1))
-		output.WriteString("B")       // Move down
-		output.WriteString("\r\033[K") // Clear line
-	}
-
-	// Restore cursor
-	output.WriteString("\033[u")
-
-	// Write everything at once
-	fmt.Print(output.String())
-
-	h.menuVisible = false
-	h.menuLines = 0
-}
-
-// clearLine clears the current input line
-func (h *InputHandler) clearLine(input *strings.Builder) {
-	// Move cursor to beginning and clear line
-	fmt.Print("\r\033[K")
-}
-
 // addToHistory adds a command to history
 func (h *InputHandler) addToHistory(cmd string) {
 	// Don't add empty commands or duplicates of the last command
@@ -547,4 +235,16 @@ func (h *InputHandler) GetHistory() []string {
 // ClearHistory clears the command history
 func (h *InputHandler) ClearHistory() {
 	h.history = make([]string, 0)
+	if h.liner != nil {
+		// Clear liner history too
+		h.liner.ClearHistory()
+	}
+}
+
+// Close closes the liner instance
+func (h *InputHandler) Close() error {
+	if h.liner != nil {
+		return h.liner.Close()
+	}
+	return nil
 }
