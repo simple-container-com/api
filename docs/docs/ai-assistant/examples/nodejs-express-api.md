@@ -194,8 +194,8 @@ stacks:
       env:
         NODE_ENV: production
         PORT: 3000
-        DATABASE_URL: "${resource:postgres-db.connectionString}"
-        REDIS_URL: "${resource:redis-cache.connectionString}"
+        DATABASE_URL: "${resource:postgres-db.url}"
+        REDIS_URL: "${resource:redis-cache.url}"
         JWT_SECRET: "${secret:jwt-secret}"
         
       # Health check configuration
@@ -410,7 +410,7 @@ sc secrets add jwt-secret
 # Enter value: your-super-secret-jwt-key-here
 
 # Deploy to staging
-sc deploy -e staging
+sc deploy -s nodejs-express-api -e staging
 
 # Verify staging deployment is working
 curl https://staging-api.yourcompany.com/health
@@ -430,7 +430,7 @@ sc secrets add prod-jwt-secret
 sc secrets add prod-db-password
 
 # Deploy to production
-sc deploy -e production
+sc deploy -s nodejs-express-api -e production
 
 # Verify production deployment is working
 curl https://api.yourcompany.com/health

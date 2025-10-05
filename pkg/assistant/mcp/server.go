@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,14 +14,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/simple-container-com/api/docs"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
-
-//go:embed schemas/**/*.json
-var embeddedSchemas embed.FS
 
 // MCPServer implements the Model Context Protocol for Simple Container
 type MCPServer struct {
@@ -946,7 +943,7 @@ func (h *DefaultMCPHandler) getFallbackResources() *SupportedResourcesResult {
 }
 
 func (h *DefaultMCPHandler) readEmbeddedProviderIndex(indexPath string) (map[string]interface{}, error) {
-	data, err := embeddedSchemas.ReadFile(indexPath)
+	data, err := docs.EmbeddedSchemas.ReadFile(indexPath)
 	if err != nil {
 		return nil, err
 	}
@@ -973,7 +970,7 @@ type SchemaResource struct {
 }
 
 func (h *DefaultMCPHandler) readEmbeddedProviderResources(indexPath, providerName string) ([]SchemaResource, error) {
-	data, err := embeddedSchemas.ReadFile(indexPath)
+	data, err := docs.EmbeddedSchemas.ReadFile(indexPath)
 	if err != nil {
 		return nil, err
 	}

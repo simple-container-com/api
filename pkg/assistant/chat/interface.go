@@ -17,18 +17,20 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm          llm.Provider
-	context      *ConversationContext
-	embeddings   *embeddings.Database
-	analyzer     *analysis.ProjectAnalyzer
-	generator    *generation.FileGenerator
-	commands     map[string]*ChatCommand
-	config       SessionConfig
-	inputHandler *InputHandler
+	llm           llm.Provider
+	context       *ConversationContext
+	embeddings    *embeddings.Database
+	analyzer      *analysis.ProjectAnalyzer
+	generator     *generation.FileGenerator
+	developerMode *modes.DeveloperMode
+	commands      map[string]*ChatCommand
+	config        SessionConfig
+	inputHandler  *InputHandler
 }
 
 // NewChatInterface creates a new chat interface
@@ -65,12 +67,13 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 
 	// Create chat interface
 	chat := &ChatInterface{
-		llm:        provider,
-		embeddings: embeddingsDB,
-		analyzer:   analysis.NewProjectAnalyzer(),
-		generator:  generation.NewFileGenerator(),
-		commands:   make(map[string]*ChatCommand),
-		config:     config,
+		llm:           provider,
+		embeddings:    embeddingsDB,
+		analyzer:      analysis.NewProjectAnalyzer(),
+		generator:     generation.NewFileGenerator(),
+		developerMode: modes.NewDeveloperMode(),
+		commands:      make(map[string]*ChatCommand),
+		config:        config,
 	}
 
 	// Initialize conversation context
@@ -209,6 +212,33 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 
 	// Handle generated files - actually write them to disk
 	if len(result.Files) > 0 {
+		// Check for existing files and get confirmation
+		existingFiles := []string{}
+		for _, file := range result.Files {
+			if _, err := os.Stat(file.Path); err == nil {
+				existingFiles = append(existingFiles, filepath.Base(file.Path))
+			}
+		}
+
+		// If there are existing files, prompt for confirmation
+		if len(existingFiles) > 0 {
+			fmt.Printf("\n⚠️  The following files already exist: %s\n", color.YellowString(strings.Join(existingFiles, ", ")))
+			fmt.Printf("   Overwrite all existing files? [y/N]: ")
+
+			var response string
+			if _, err := fmt.Scanln(&response); err != nil {
+				// If there's an error reading input, default to "no"
+				fmt.Printf("   %s (cancelled)\n", color.YellowString("⚠"))
+				return nil
+			}
+
+			response = strings.ToLower(strings.TrimSpace(response))
+			if !(response == "y" || response == "yes") {
+				fmt.Printf("   %s (cancelled)\n", color.YellowString("⚠"))
+				return nil
+			}
+		}
+
 		fmt.Printf("\n%s Generated files:\n", color.CyanString("📁"))
 		for _, file := range result.Files {
 			// Create directory if needed

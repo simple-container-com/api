@@ -88,6 +88,12 @@ func (d *DeveloperMode) GenerateMultipleFiles(ctx context.Context, req MultiFile
 
 	fmt.Printf("📋 Files to generate: %s\n\n", color.GreenFmt(strings.Join(fileTypes, ", ")))
 
+	// Check for existing files and get user confirmation
+	if !d.checkExistingFilesAndConfirm(req) {
+		result.Errors = append(result.Errors, "User cancelled file generation due to existing files")
+		return result, fmt.Errorf("file generation cancelled by user")
+	}
+
 	// Generate coordinated content using intelligent prompting
 	coordinated, err := d.generateCoordinatedContent(ctx, req, progressDisplays)
 	if err != nil {
@@ -148,12 +154,6 @@ func (d *DeveloperMode) GenerateMultipleFiles(ctx context.Context, req MultiFile
 				result.ClientYAMLContent = fallback
 			}
 		}
-	}
-
-	// Backup existing files if requested
-	if req.BackupExisting {
-		backupWarnings := d.backupExistingFiles(ctx, req, result)
-		result.Warnings = append(result.Warnings, backupWarnings...)
 	}
 
 	// Write generated files
@@ -311,7 +311,7 @@ func (d *DeveloperMode) buildCoordinatedPrompt(req MultiFileGenerationRequest) s
 		prompt.WriteString("- Dockerfile: Multi-stage, optimized, secure\n")
 	}
 	if req.GenerateDockerCompose {
-		prompt.WriteString("- docker-compose.yaml: With Simple Container labels, proper volumes, networking\n")
+		prompt.WriteString("- ${project:root}/docker-compose.yaml: With Simple Container labels, proper volumes, networking\n")
 	}
 	if req.GenerateClientYAML {
 		prompt.WriteString("- client.yaml: Schema-compliant Simple Container client configuration\n")
@@ -428,34 +428,69 @@ func (d *DeveloperMode) validateMultipleFiles(ctx context.Context, content *Coor
 	return results
 }
 
-// backupExistingFiles creates backups of existing files
-func (d *DeveloperMode) backupExistingFiles(ctx context.Context, req MultiFileGenerationRequest, result *MultiFileGenerationResult) []string {
-	var warnings []string
+// checkExistingFilesAndConfirm checks for existing files and prompts user for confirmation
+func (d *DeveloperMode) checkExistingFilesAndConfirm(req MultiFileGenerationRequest) bool {
+	var existingFiles []string
 
-	filesToBackup := []struct {
-		path   string
-		exists bool
-	}{
-		{result.DockerfilePath, result.DockerfileContent != ""},
-		{result.DockerComposePath, result.DockerComposeContent != ""},
-		{result.ClientYAMLPath, result.ClientYAMLContent != ""},
-		{result.ServerYAMLPath, result.ServerYAMLContent != ""},
-	}
-
-	for _, file := range filesToBackup {
-		if file.exists && file.path != "" {
-			if _, err := os.Stat(file.path); err == nil {
-				backupPath := file.path + ".backup"
-				if err := os.Rename(file.path, backupPath); err != nil {
-					warnings = append(warnings, fmt.Sprintf("Failed to backup %s: %v", file.path, err))
-				} else {
-					warnings = append(warnings, fmt.Sprintf("Backed up existing %s to %s", file.path, backupPath))
-				}
-			}
+	// Check which files already exist
+	if req.GenerateDockerfile {
+		dockerfilePath := filepath.Join(req.ProjectPath, "Dockerfile")
+		if _, err := os.Stat(dockerfilePath); err == nil {
+			existingFiles = append(existingFiles, "Dockerfile")
 		}
 	}
 
-	return warnings
+	if req.GenerateDockerCompose {
+		composePath := filepath.Join(req.ProjectPath, "docker-compose.yaml")
+		if _, err := os.Stat(composePath); err == nil {
+			existingFiles = append(existingFiles, "docker-compose.yaml")
+		}
+	}
+
+	if req.GenerateClientYAML {
+		// Determine project name for client.yaml path
+		projectName := filepath.Base(req.ProjectPath)
+		if req.ProjectAnalysis != nil && req.ProjectAnalysis.Name != "" && req.ProjectAnalysis.Name != "." {
+			projectName = req.ProjectAnalysis.Name
+		}
+		if projectName == "." || projectName == "" {
+			if wd, err := os.Getwd(); err == nil {
+				projectName = filepath.Base(wd)
+			} else {
+				projectName = "myapp"
+			}
+		}
+
+		clientPath := filepath.Join(req.ProjectPath, ".sc", "stacks", projectName, "client.yaml")
+		if _, err := os.Stat(clientPath); err == nil {
+			existingFiles = append(existingFiles, "client.yaml")
+		}
+	}
+
+	if req.GenerateServerYAML {
+		serverPath := filepath.Join(req.ProjectPath, ".sc", "stacks", "infrastructure", "server.yaml")
+		if _, err := os.Stat(serverPath); err == nil {
+			existingFiles = append(existingFiles, "server.yaml")
+		}
+	}
+
+	// If no existing files, proceed
+	if len(existingFiles) == 0 {
+		return true
+	}
+
+	// Prompt user for confirmation
+	fmt.Printf("\n⚠️  The following files already exist: %s\n", color.YellowString(strings.Join(existingFiles, ", ")))
+	fmt.Printf("   Overwrite all existing files? [y/N]: ")
+
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		// If there's an error reading input, default to "no"
+		return false
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "y" || response == "yes"
 }
 
 // writeGeneratedFiles writes all generated files to disk

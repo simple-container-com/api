@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/simple-container-com/api/pkg/assistant/mcp/schemas"
+	"github.com/simple-container-com/api/docs"
 )
 
 // Validator provides validation of generated YAML configurations against JSON schemas
@@ -20,7 +20,7 @@ type Validator struct {
 // NewValidator creates a new validator with embedded schemas
 func NewValidator() *Validator {
 	return &Validator{
-		schemaFS: schemas.EmbeddedSchemas,
+		schemaFS: docs.EmbeddedSchemas,
 	}
 }
 
@@ -43,7 +43,7 @@ func (v *Validator) ValidateClientYAML(ctx context.Context, yamlContent string) 
 	}
 
 	// Load ClientDescriptor schema
-	schemaPath := "core/clientdescriptor.json"
+	schemaPath := "schemas/core/clientdescriptor.json"
 	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
 	if err != nil {
 		return ValidationResult{
@@ -78,7 +78,7 @@ func (v *Validator) ValidateServerYAML(ctx context.Context, yamlContent string) 
 	}
 
 	// Load ServerDescriptor schema
-	schemaPath := "core/serverdescriptor.json"
+	schemaPath := "schemas/core/serverdescriptor.json"
 	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
 	if err != nil {
 		return ValidationResult{
@@ -308,7 +308,7 @@ func (v *Validator) checkForFictionalPropsRecursive(data map[string]interface{},
 func (v *Validator) GetAvailableSchemas(ctx context.Context) []string {
 	var schemas []string
 
-	err := fs.WalkDir(v.schemaFS, ".", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(v.schemaFS, "schemas", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -325,7 +325,7 @@ func (v *Validator) GetAvailableSchemas(ctx context.Context) []string {
 
 // GetClientYAMLSchema returns the client.yaml schema for prompt enrichment
 func (v *Validator) GetClientYAMLSchema(ctx context.Context) (map[string]interface{}, error) {
-	schemaPath := "core/clientdescriptor.json"
+	schemaPath := "schemas/core/clientdescriptor.json"
 	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load schema %s: %w", schemaPath, err)
@@ -341,7 +341,7 @@ func (v *Validator) GetClientYAMLSchema(ctx context.Context) (map[string]interfa
 
 // GetStackConfigComposeSchema returns the stack config schema for prompt enrichment
 func (v *Validator) GetStackConfigComposeSchema(ctx context.Context) (map[string]interface{}, error) {
-	schemaPath := "core/stackconfigcompose.json"
+	schemaPath := "schemas/core/stackconfigcompose.json"
 	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load schema %s: %w", schemaPath, err)
@@ -357,7 +357,7 @@ func (v *Validator) GetStackConfigComposeSchema(ctx context.Context) (map[string
 
 // GetServerYAMLSchema returns the server.yaml schema for prompt enrichment
 func (v *Validator) GetServerYAMLSchema(ctx context.Context) (map[string]interface{}, error) {
-	schemaPath := "core/serverdescriptor.json"
+	schemaPath := "schemas/core/serverdescriptor.json"
 	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load schema %s: %w", schemaPath, err)

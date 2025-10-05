@@ -242,7 +242,7 @@ npm start  # or python manage.py runserver, go run main.go
 ### Step 6: Deploy to Staging
 ```bash
 # Deploy to staging environment  
-sc deploy -e staging
+sc deploy -s my-awesome-app -e staging
 
 # Verify deployment is working
 curl https://staging-api.yourcompany.com/health
@@ -254,7 +254,7 @@ docker logs my-awesome-app_app_1
 ### Step 7: Deploy to Production
 ```bash
 # Deploy to production environment
-sc deploy -e production
+sc deploy -s my-awesome-app -e production
 
 # Scaling is configured in client.yaml config.scale section
 # Edit .sc/stacks/my-awesome-app/client.yaml to update scaling
@@ -304,11 +304,11 @@ docker-compose up -d  # Starts local db + redis
 npm run dev           # Starts application
 
 # 4. Deploy to staging
-sc deploy -e staging
+sc deploy -s my-awesome-app -e staging
 # Uses shared staging database and cache
 
 # 5. Deploy to production  
-sc deploy -e production
+sc deploy -s my-awesome-app -e production
 # Uses shared production database and cache
 ```
 
@@ -321,9 +321,9 @@ sc assistant devops setup --cloud aws --envs staging,production
 sc provision -s infrastructure -e staging,production
 
 # Step 2: Multiple dev teams deploy apps
-cd team-a/api-service && sc assistant dev setup && sc deploy -e staging
-cd team-b/web-app && sc assistant dev setup && sc deploy -e staging  
-cd team-c/worker && sc assistant dev setup && sc deploy -e staging
+cd team-a/api-service && sc assistant dev setup && sc deploy -s api-service -e staging
+cd team-b/web-app && sc assistant dev setup && sc deploy -s web-app -e staging  
+cd team-c/worker && sc assistant dev setup && sc deploy -s worker -e staging
 ```
 
 ### **Scenario 2: Adding New Environment**
@@ -333,7 +333,7 @@ sc assistant devops resources --env preview --copy-from staging
 sc provision -s infrastructure -e preview
 
 # Developers can now deploy to preview
-sc deploy -e preview
+sc deploy -s myapp -e preview
 ```
 
 ### **Scenario 3: New Resource Required**
@@ -344,7 +344,7 @@ sc provision -s infrastructure -e staging,production
 
 # Developers update their apps to use MongoDB
 sc assistant dev setup --update --add-resource mongodb
-sc deploy -e staging
+sc deploy -s myapp -e staging
 ```
 
 ## 🔍 Validation Steps
@@ -368,11 +368,11 @@ docker-compose up -d
 curl http://localhost:3000/health
 
 # Verify staging deployment works
-sc deploy -e staging  
+sc deploy -s myapp -e staging  
 curl https://staging-api.mycompany.com/health
 
 # Verify production deployment works
-sc deploy -e production
+sc deploy -s myapp -e production
 curl https://api.mycompany.com/health
 ```
 

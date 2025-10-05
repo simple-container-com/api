@@ -12,14 +12,12 @@ import (
 
 	chromem "github.com/philippgille/chromem-go"
 
+	"github.com/simple-container-com/api/docs"
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
-//go:embed docs/**/*.md
-var embeddedDocs embed.FS
-
-//go:embed vectors/prebuilt_embeddings.json
-var embeddedVectors []byte
+//go:embed vectors/*.json
+var embeddedVectors embed.FS
 
 // Database represents an embedded vector database using chromem-go
 type Database struct {
@@ -151,12 +149,14 @@ func SearchDocumentation(db *Database, query string, limit int) ([]SearchResult,
 
 // loadPrebuiltEmbeddings loads pre-built embeddings from embedded data
 func (db *Database) loadPrebuiltEmbeddings(ctx context.Context, log logger.Logger) error {
-	if len(embeddedVectors) == 0 {
-		return fmt.Errorf("no embedded vectors data available")
+	// Try to read the prebuilt embeddings file
+	data, err := embeddedVectors.ReadFile("vectors/prebuilt_embeddings.json")
+	if err != nil {
+		return fmt.Errorf("no embedded vectors data available: %w", err)
 	}
 
 	var prebuilt PrebuiltEmbeddings
-	if err := json.Unmarshal(embeddedVectors, &prebuilt); err != nil {
+	if err := json.Unmarshal(data, &prebuilt); err != nil {
 		return fmt.Errorf("failed to unmarshal embedded vectors: %w", err)
 	}
 
@@ -241,7 +241,7 @@ func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, roo
 	if log != nil {
 		log.Debug(ctx, "Walking embedded docs starting from root: %s", root)
 	}
-	entries, err := embeddedDocs.ReadDir(root)
+	entries, err := docs.EmbeddedDocs.ReadDir(root)
 	if err != nil {
 		if log != nil {
 			log.Error(ctx, "Error reading embedded docs dir %s: %v", root, err)
@@ -262,7 +262,7 @@ func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, roo
 			}
 		} else {
 			// Read file content
-			content, err := embeddedDocs.ReadFile(path)
+			content, err := docs.EmbeddedDocs.ReadFile(path)
 			if err != nil {
 				if log != nil {
 					log.Warn(ctx, "Failed to read embedded file %s: %v", path, err)

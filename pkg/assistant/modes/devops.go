@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
-	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,13 +13,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/simple-container-com/api/docs"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
-
-//go:embed schemas/**/*.json
-var embeddedSchemas embed.FS
 
 // DevOpsMode handles infrastructure-focused workflows
 type DevOpsMode struct {
@@ -1192,7 +1189,7 @@ func (d *DevOpsMode) loadAvailableResources(cloudProvider string) ([]SchemaResou
 }
 
 func (d *DevOpsMode) readEmbeddedProviderIndex(indexPath string) (map[string]interface{}, error) {
-	data, err := embeddedSchemas.ReadFile(indexPath)
+	data, err := docs.EmbeddedSchemas.ReadFile(indexPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1209,7 +1206,7 @@ func (d *DevOpsMode) readEmbeddedProviderIndex(indexPath string) (map[string]int
 }
 
 func (d *DevOpsMode) readEmbeddedProviderResources(indexPath, providerName string) ([]SchemaResource, error) {
-	data, err := embeddedSchemas.ReadFile(indexPath)
+	data, err := docs.EmbeddedSchemas.ReadFile(indexPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1539,7 +1536,7 @@ func (d *DevOpsMode) rotateSecrets(opts SecretsOptions) error {
 
 		fmt.Printf("\n   %s Rotated %d secrets in secrets.yaml\n", color.GreenFmt("✓"), len(rotated))
 		fmt.Printf("   %s Update environment variables and redeploy services\n", color.CyanFmt("💡"))
-		fmt.Printf("   %s Run 'sc deploy' to apply changes\n", color.CyanFmt("💡"))
+		fmt.Printf("   %s Run 'sc deploy -s <stack> -e <environment>' to apply changes\n", color.CyanFmt("💡"))
 	} else {
 		fmt.Printf("   %s No secrets were rotated\n", color.YellowFmt("⚠"))
 	}

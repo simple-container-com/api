@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/simple-container-com/api/docs"
 )
 
 func TestEmbeddedDocumentationSystem(t *testing.T) {
@@ -53,7 +55,7 @@ func TestEmbeddedDocumentationSearch(t *testing.T) {
 
 func TestEmbeddedDocsFileSystem(t *testing.T) {
 	// Test that we can read from the embedded filesystem
-	entries, err := embeddedDocs.ReadDir("docs")
+	entries, err := docs.EmbeddedDocs.ReadDir("docs")
 	if err != nil {
 		t.Fatalf("Failed to read embedded docs directory: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestEmbeddedDocsFileSystem(t *testing.T) {
 
 			// If it's a directory, try to list its contents
 			if entry.IsDir() {
-				subEntries, err := embeddedDocs.ReadDir("docs/" + entry.Name())
+				subEntries, err := docs.EmbeddedDocs.ReadDir("docs/" + entry.Name())
 				if err == nil && len(subEntries) > 0 {
 					t.Logf("    Contains %d items:", len(subEntries))
 					for j, subEntry := range subEntries {
@@ -83,9 +85,9 @@ func TestEmbeddedDocsFileSystem(t *testing.T) {
 	}
 
 	// Test reading a specific file (if it exists)
-	_, err = embeddedDocs.ReadFile("docs/index.md")
+	_, err = docs.EmbeddedDocs.ReadFile("docs/index.md")
 	if err == nil {
-		t.Log("✅ Successfully read docs/index.md from embedded filesystem")
+		t.Log("✅ Successfully read docs/docs/index.md from embedded filesystem")
 	} else {
 		t.Logf("Note: docs/index.md not found in embedded filesystem: %v", err)
 

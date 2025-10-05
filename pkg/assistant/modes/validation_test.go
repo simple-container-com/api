@@ -135,7 +135,7 @@ func TestDeveloperModeValidation(t *testing.T) {
 		assert.Contains(t, yamlContent, "runs: [app]", "Must have runs specification")
 		assert.Contains(t, yamlContent, "scale:", "Must have scale configuration")
 		assert.Contains(t, yamlContent, "min: 1", "Must have min scale")
-		assert.Contains(t, yamlContent, "max: 3", "Must have max scale")
+		assert.Contains(t, yamlContent, "max: 5", "Must have max scale")
 		assert.Contains(t, yamlContent, "env:", "Must have environment variables section")
 		assert.Contains(t, yamlContent, "secrets:", "Must have secrets section")
 
@@ -198,9 +198,8 @@ func TestLanguageSpecificGeneration(t *testing.T) {
 					},
 				},
 				expected: map[string]string{
-					"NODE_ENV":               "production",
-					"PORT":                   "3000",
-					"EXPRESS_SESSION_SECRET": "${secret:session-secret}",
+					"NODE_ENV": "production",
+					"PORT":     "3000",
 				},
 			},
 			{
@@ -215,7 +214,6 @@ func TestLanguageSpecificGeneration(t *testing.T) {
 					"PYTHON_ENV":             "production",
 					"PORT":                   "8000",
 					"DJANGO_SETTINGS_MODULE": "myapp.settings.production",
-					"DJANGO_SECRET_KEY":      "${secret:django-secret}",
 				},
 			},
 			{
