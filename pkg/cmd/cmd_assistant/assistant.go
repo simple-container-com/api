@@ -17,6 +17,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
+	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/mcp"
@@ -407,18 +408,53 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 	temperature, _ := cmd.Flags().GetFloat32("temperature")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	// Handle OpenAI API key
-	if apiKey, _ := cmd.Flags().GetString("openai-key"); apiKey != "" {
+	// Handle OpenAI API key with priority:
+	// 1. Command line flag
+	// 2. Environment variable
+	// 3. Stored config
+	// 4. Interactive prompt
+	apiKey := ""
+	if flagKey, _ := cmd.Flags().GetString("openai-key"); flagKey != "" {
+		apiKey = flagKey
 		os.Setenv("OPENAI_API_KEY", apiKey)
+	} else if envKey := os.Getenv("OPENAI_API_KEY"); envKey != "" {
+		apiKey = envKey
+	} else {
+		// Try to load from config
+		cfg, err := config.Load()
+		if err == nil {
+			// Get default provider or use openai
+			provider := cfg.GetDefaultProvider()
+			if provider == "" {
+				provider = config.ProviderOpenAI
+			}
+			
+			// Load provider config
+			if providerCfg, exists := cfg.GetProviderConfig(provider); exists && providerCfg.APIKey != "" {
+				apiKey = providerCfg.APIKey
+				os.Setenv("OPENAI_API_KEY", apiKey)
+				providerName := config.GetProviderDisplayName(provider)
+				fmt.Println(color.GreenFmt(fmt.Sprintf("✅ Using stored %s API key", providerName)))
+				
+				// Show provider info
+				if providerCfg.BaseURL != "" {
+					fmt.Println(color.CyanFmt(fmt.Sprintf("   Base URL: %s", providerCfg.BaseURL)))
+				}
+				if providerCfg.Model != "" {
+					fmt.Println(color.CyanFmt(fmt.Sprintf("   Model: %s", providerCfg.Model)))
+				}
+			}
+		}
 	}
 
-	// Check if API key is available
-	if llmProvider == "openai" && os.Getenv("OPENAI_API_KEY") == "" {
+	// If still no API key and using OpenAI, prompt for it
+	if llmProvider == "openai" && apiKey == "" {
 		fmt.Println(color.YellowFmt("⚠️  OpenAI API key not found"))
 		fmt.Println("You can provide your OpenAI API key in several ways:")
-		fmt.Println("  1. Environment variable: export OPENAI_API_KEY=sk-your-key-here")
-		fmt.Println("  2. Command line flag: sc assistant chat --openai-key sk-your-key-here")
-		fmt.Println("  3. Enter it interactively now")
+		fmt.Println("  1. Stored config: Use '/apikey set' command in chat to save it permanently")
+		fmt.Println("  2. Environment variable: export OPENAI_API_KEY=sk-your-key-here")
+		fmt.Println("  3. Command line flag: sc assistant chat --openai-key sk-your-key-here")
+		fmt.Println("  4. Enter it interactively now (not saved)")
 		fmt.Println()
 		fmt.Println("Get your API key from: " + color.CyanFmt("https://platform.openai.com/api-keys"))
 		fmt.Println()
@@ -434,9 +470,30 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("OpenAI API key required for chat mode")
 		}
 
-		// Set the API key
+		// Set the API key for this session
 		os.Setenv("OPENAI_API_KEY", apiKey)
-		fmt.Println(color.GreenFmt("✅ OpenAI API key configured successfully"))
+		
+		// Ask if user wants to save it permanently
+		fmt.Print(color.YellowFmt("💾 Save this API key for future sessions? (Y/n): "))
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err == nil {
+			response = strings.ToLower(strings.TrimSpace(response))
+			if response == "" || response == "y" || response == "yes" {
+				// Save to config
+				cfg, err := config.Load()
+				if err == nil {
+					if err := cfg.SetOpenAIAPIKey(apiKey); err == nil {
+						configPath, _ := config.ConfigPath()
+						fmt.Println(color.GreenFmt("✅ API key saved to " + configPath))
+					} else {
+						fmt.Println(color.YellowFmt("⚠️  Failed to save API key: " + err.Error()))
+					}
+				}
+			} else {
+				fmt.Println(color.YellowFmt("💡 Tip: Use '/apikey set' in chat to save it later"))
+			}
+		}
 		fmt.Println()
 	}
 

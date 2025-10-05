@@ -340,7 +340,7 @@ sc assistant chat [options]
 
 **Examples:**
 ```bash
-# Start general chat
+# Start general chat (uses stored API key if available)
 sc assistant chat
 
 # Developer-focused chat with project context
@@ -349,16 +349,199 @@ sc assistant chat --mode developer --context .
 # DevOps chat for infrastructure questions
 sc assistant chat --mode devops
 
+# Use specific API key for this session
+sc assistant chat --openai-key sk-your-key-here
+
 # Save conversation for later reference
 sc assistant chat --save-session conversation.json
 ```
+
+**Note:** If you have stored your OpenAI API key using `/apikey set` in a previous session, it will be automatically loaded. You can manage your stored API key using the `/apikey` command within the chat interface.
 
 **Chat Commands:**
 - `/help` - Show available chat commands
 - `/search <query>` - Search documentation inline
 - `/analyze` - Analyze current project
-- `/generate <type>` - Generate configuration file
+- `/setup` - Generate configuration files
+- `/switch <mode>` - Switch between dev and devops modes
+- `/clear` - Clear conversation history
+- `/status` - Show current session status
+- `/apikey <set|delete|status> [provider]` - Manage LLM provider API keys
+- `/provider <list|switch|info> [provider]` - Manage LLM providers
+- `/history [clear]` - Show or clear command history
 - `/exit` - Exit chat session
+
+**Input Features:**
+- **Tab** - Autocomplete commands (shows suggestions if multiple matches)
+- **↑/↓ Arrow Keys** - Navigate command history
+- **Ctrl+C** - Exit chat session
+- Type `/` to see command suggestions
+
+### Multi-Provider Support
+
+The assistant supports multiple LLM providers with persistent API key storage:
+
+**Supported Providers:**
+- **OpenAI** - GPT models (gpt-3.5-turbo, gpt-4, etc.)
+- **Ollama** - Local or self-hosted models (llama2, mistral, etc.)
+- **Anthropic** - Claude models
+- **DeepSeek** - DeepSeek models
+- **Yandex** - Yandex ChatGPT
+
+### API Key Management
+
+**Setting an API Key:**
+```bash
+# Interactive provider selection (recommended)
+💬 /apikey set
+
+📋 Select a provider to configure:
+
+  1. OpenAI ✓ (configured)
+  2. Ollama (not configured)
+  3. Anthropic (not configured)
+  4. DeepSeek (not configured)
+  5. Yandex ChatGPT (not configured)
+
+Enter number (1-5) or 'q' to cancel: 2
+✓ Selected: Ollama
+
+🔑 Enter your Ollama API key: [hidden input]
+🌐 Enter Ollama base URL (press Enter for http://localhost:11434): 
+🤖 Enter default model (press Enter for llama2): 
+✅ Ollama API key saved successfully
+
+# Or specify provider directly
+💬 /apikey set openai
+🔑 Enter your OpenAI API key: [hidden input]
+✅ OpenAI API key saved successfully
+
+# Set Anthropic API key
+💬 /apikey set anthropic
+🔑 Enter your Anthropic API key: [hidden input]
+✅ Anthropic API key saved successfully
+```
+
+**Checking API Key Status:**
+```bash
+# Show all configured providers
+💬 /apikey status
+📋 Configured Providers:
+
+  • OpenAI (default): sk-proj...xyz
+  • Ollama: none...xyz
+    Base URL: http://localhost:11434
+
+Stored in: /Users/username/.sc/assistant-config.json
+
+# Show specific provider
+💬 /apikey status openai
+✅ OpenAI API key is configured: sk-proj...xyz
+   Stored in: /Users/username/.sc/assistant-config.json
+```
+
+**Deleting Stored API Key:**
+```bash
+# Delete default provider's API key
+💬 /apikey delete
+✅ OpenAI API key deleted successfully
+
+# Delete specific provider's API key
+💬 /apikey delete ollama
+✅ Ollama API key deleted successfully
+```
+
+### Provider Management
+
+**List Configured Providers:**
+```bash
+💬 /provider list
+📋 Available Providers:
+
+  • OpenAI ⭐ (current)
+  • Ollama
+  • Anthropic
+
+Use '/provider switch <provider>' to change the default provider
+```
+
+**Switch Between Providers:**
+```bash
+# Interactive selection (recommended)
+💬 /provider switch
+
+📋 Select a provider to switch to:
+
+  1. OpenAI ⭐ (current)
+  2. Ollama
+  3. Anthropic
+
+Enter number (1-3) or 'q' to cancel: 2
+✓ Selected: Ollama
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
+
+# Or specify provider directly
+💬 /provider switch ollama
+✅ Switched to Ollama and reloaded successfully!
+You can continue chatting with the new provider.
+```
+
+**View Provider Info:**
+```bash
+💬 /provider info
+ℹ️  OpenAI Configuration:
+
+  Provider: openai
+  API Key: sk-proj...xyz
+
+# View specific provider
+💬 /provider info ollama
+ℹ️  Ollama Configuration:
+
+  Provider: ollama
+  API Key: none...xyz
+  Base URL: http://localhost:11434
+  Default Model: llama2
+```
+
+**API Key Priority:**
+
+The assistant checks for API keys in the following order:
+1. Command line flag: `--openai-key sk-...`
+2. Environment variable: `OPENAI_API_KEY`
+3. Stored config (default provider): `~/.sc/assistant-config.json`
+4. Interactive prompt (with option to save)
+
+**First-Time Setup:**
+
+When you start chat without an API key, you'll be prompted to enter it and asked if you want to save it:
+
+```bash
+sc assistant chat
+⚠️  OpenAI API key not found
+...
+🔑 Enter your OpenAI API key: [hidden input]
+💾 Save this API key for future sessions? (Y/n): y
+✅ API key saved to ~/.sc/assistant-config.json
+```
+
+**Provider Display on Start:**
+
+When you start a chat session, the assistant shows which provider is being used:
+
+```bash
+sc assistant chat
+✅ Using stored OpenAI API key
+
+🚀 Simple Container AI Assistant
+...
+```
+
+**Security Notes:**
+- API keys are stored in `~/.sc/assistant-config.json` with restricted permissions (0600)
+- Keys are masked when displayed (e.g., `sk-proj...xyz`)
+- The config file is stored in your home directory and not committed to version control
 
 ## 🌐 MCP Commands
 
