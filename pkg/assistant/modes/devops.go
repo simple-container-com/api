@@ -372,7 +372,7 @@ func (d *DevOpsMode) generateInfrastructureFiles(opts DevOpsSetupOptions) error 
 		outputDir = ".sc/stacks/infrastructure"
 	}
 
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -380,7 +380,7 @@ func (d *DevOpsMode) generateInfrastructureFiles(opts DevOpsSetupOptions) error 
 	fmt.Printf("   📄 Generating server.yaml...")
 	serverYaml := d.generateServerYAML(opts)
 	serverPath := filepath.Join(outputDir, "server.yaml")
-	if err := os.WriteFile(serverPath, []byte(serverYaml), 0644); err != nil {
+	if err := os.WriteFile(serverPath, []byte(serverYaml), 0o644); err != nil {
 		return fmt.Errorf("failed to write server.yaml: %w", err)
 	}
 	fmt.Printf(" %s\n", color.GreenFmt("✓"))
@@ -389,7 +389,7 @@ func (d *DevOpsMode) generateInfrastructureFiles(opts DevOpsSetupOptions) error 
 	fmt.Printf("   📄 Generating secrets.yaml...")
 	secretsYaml := d.generateSecretsYAML(opts)
 	secretsPath := filepath.Join(outputDir, "secrets.yaml")
-	if err := os.WriteFile(secretsPath, []byte(secretsYaml), 0644); err != nil {
+	if err := os.WriteFile(secretsPath, []byte(secretsYaml), 0o644); err != nil {
 		return fmt.Errorf("failed to write secrets.yaml: %w", err)
 	}
 	fmt.Printf(" %s\n", color.GreenFmt("✓"))
@@ -398,10 +398,10 @@ func (d *DevOpsMode) generateInfrastructureFiles(opts DevOpsSetupOptions) error 
 	fmt.Printf("   📄 Generating cfg.default.yaml...")
 	configYaml := d.generateDefaultConfig(opts)
 	configPath := filepath.Join(".sc", "cfg.default.yaml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create .sc directory: %w", err)
 	}
-	if err := os.WriteFile(configPath, []byte(configYaml), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configYaml), 0o644); err != nil {
 		return fmt.Errorf("failed to write cfg.default.yaml: %w", err)
 	}
 	fmt.Printf(" %s\n", color.GreenFmt("✓"))
@@ -793,7 +793,7 @@ func (d *DevOpsMode) addResource(opts ResourceOptions) error {
 		return fmt.Errorf("failed to marshal updated config: %w", err)
 	}
 
-	if err := os.WriteFile(serverYamlPath, updatedData, 0644); err != nil {
+	if err := os.WriteFile(serverYamlPath, updatedData, 0o644); err != nil {
 		return fmt.Errorf("failed to write server.yaml: %w", err)
 	}
 
@@ -849,7 +849,7 @@ func (d *DevOpsMode) removeResource(opts ResourceOptions) error {
 		return fmt.Errorf("failed to marshal updated config: %w", err)
 	}
 
-	if err := os.WriteFile(serverYamlPath, updatedData, 0644); err != nil {
+	if err := os.WriteFile(serverYamlPath, updatedData, 0o644); err != nil {
 		return fmt.Errorf("failed to write server.yaml: %w", err)
 	}
 
@@ -931,7 +931,7 @@ func (d *DevOpsMode) updateResource(opts ResourceOptions) error {
 		return fmt.Errorf("failed to marshal updated config: %w", err)
 	}
 
-	if err := os.WriteFile(serverYamlPath, updatedData, 0644); err != nil {
+	if err := os.WriteFile(serverYamlPath, updatedData, 0o644); err != nil {
 		return fmt.Errorf("failed to write server.yaml: %w", err)
 	}
 
@@ -958,7 +958,6 @@ func (d *DevOpsMode) findServerYaml() (string, error) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		return "", fmt.Errorf("error searching for server.yaml: %w", err)
 	}
@@ -1198,7 +1197,7 @@ func (d *DevOpsMode) initSecrets(opts SecretsOptions) error {
 	}
 
 	// Create directory
-	if err := os.MkdirAll(filepath.Dir(secretsPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(secretsPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create secrets directory: %w", err)
 	}
 
@@ -1208,7 +1207,7 @@ func (d *DevOpsMode) initSecrets(opts SecretsOptions) error {
 		return fmt.Errorf("failed to marshal secrets config: %w", err)
 	}
 
-	if err := os.WriteFile(secretsPath, secretsData, 0644); err != nil {
+	if err := os.WriteFile(secretsPath, secretsData, 0o644); err != nil {
 		return fmt.Errorf("failed to write secrets.yaml: %w", err)
 	}
 
@@ -1313,7 +1312,7 @@ func (d *DevOpsMode) generateSecrets(opts SecretsOptions) error {
 		return fmt.Errorf("failed to marshal secrets config: %w", err)
 	}
 
-	if err := os.WriteFile(secretsPath, updatedData, 0644); err != nil {
+	if err := os.WriteFile(secretsPath, updatedData, 0o644); err != nil {
 		return fmt.Errorf("failed to write secrets.yaml: %w", err)
 	}
 
@@ -1405,7 +1404,7 @@ func (d *DevOpsMode) rotateSecrets(opts SecretsOptions) error {
 			return fmt.Errorf("failed to marshal secrets config: %w", err)
 		}
 
-		if err := os.WriteFile(secretsPath, updatedData, 0644); err != nil {
+		if err := os.WriteFile(secretsPath, updatedData, 0o644); err != nil {
 			return fmt.Errorf("failed to write secrets.yaml: %w", err)
 		}
 
@@ -1478,7 +1477,7 @@ func (d *DevOpsMode) importFromEnvironment(secretsPath string, secretNames []str
 			return fmt.Errorf("failed to marshal secrets config: %w", err)
 		}
 
-		if err := os.WriteFile(secretsPath, updatedData, 0644); err != nil {
+		if err := os.WriteFile(secretsPath, updatedData, 0o644); err != nil {
 			return fmt.Errorf("failed to write secrets.yaml: %w", err)
 		}
 

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/philippgille/chromem-go"
-	
 )
 
 type Config struct {
@@ -220,7 +219,7 @@ func createChunks(content, path, docType string, maxSize int) []DocumentChunk {
 func exportEmbeddings(db *chromem.DB, outputPath string) error {
 	// Create output directory if it doesn't exist
 	outputDir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -301,5 +300,5 @@ func GetCollectionInfo(db *chromem.DB) (map[string]interface{}, error) {
 }
 `, gobFile)
 
-	return os.WriteFile(goPath, []byte(goCode), 0644)
+	return os.WriteFile(goPath, []byte(goCode), 0o644)
 }

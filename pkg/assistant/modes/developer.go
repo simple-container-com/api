@@ -186,7 +186,6 @@ func (d *DeveloperMode) createManualAnalysis(projectPath, language, framework st
 }
 
 func (d *DeveloperMode) printAnalysisResults(analysis *analysis.ProjectAnalysis) {
-
 	if analysis.PrimaryStack != nil {
 		fmt.Printf("   Language:     %s\n", color.GreenFmt(analysis.PrimaryStack.Language))
 		if analysis.PrimaryStack.Framework != "" {
@@ -379,7 +378,7 @@ func (d *DeveloperMode) interactiveSetup(opts *SetupOptions, analysis *analysis.
 func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
 	// Create .sc directory structure
 	scDir := filepath.Join(projectPath, ".sc", "stacks", filepath.Base(projectPath))
-	if err := os.MkdirAll(scDir, 0755); err != nil {
+	if err := os.MkdirAll(scDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create .sc directory: %w", err)
 	}
 
@@ -391,7 +390,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			return fmt.Errorf("failed to generate client.yaml: %w", err)
 		}
 		clientPath := filepath.Join(scDir, "client.yaml")
-		if err := os.WriteFile(clientPath, []byte(clientYaml), 0644); err != nil {
+		if err := os.WriteFile(clientPath, []byte(clientYaml), 0o644); err != nil {
 			return fmt.Errorf("failed to write client.yaml: %w", err)
 		}
 		fmt.Printf(" %s\n", color.GreenFmt("✓"))
@@ -406,7 +405,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			if err != nil {
 				return fmt.Errorf("failed to generate docker-compose.yaml: %w", err)
 			}
-			if err := os.WriteFile(composePath, []byte(composeYaml), 0644); err != nil {
+			if err := os.WriteFile(composePath, []byte(composeYaml), 0o644); err != nil {
 				return fmt.Errorf("failed to write docker-compose.yaml: %w", err)
 			}
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
@@ -424,7 +423,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			if err != nil {
 				return fmt.Errorf("failed to generate Dockerfile: %w", err)
 			}
-			if err := os.WriteFile(dockerfilePath, []byte(dockerfile), 0644); err != nil {
+			if err := os.WriteFile(dockerfilePath, []byte(dockerfile), 0o644); err != nil {
 				return fmt.Errorf("failed to write Dockerfile: %w", err)
 			}
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
@@ -1201,7 +1200,6 @@ CMD ["./main"]`
 }
 
 func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis.ProjectAnalysis) {
-
 	fmt.Println("\n📁 Generated files:")
 	fmt.Printf("   • client.yaml          - Simple Container configuration\n")
 	if !opts.SkipCompose {
@@ -1307,7 +1305,7 @@ func (d *DeveloperMode) outputAnalysisJSON(analysis *analysis.ProjectAnalysis, o
 	}
 
 	if outputFile != "" {
-		if err := os.WriteFile(outputFile, jsonData, 0644); err != nil {
+		if err := os.WriteFile(outputFile, jsonData, 0o644); err != nil {
 			return fmt.Errorf("failed to write JSON to file %s: %w", outputFile, err)
 		}
 		fmt.Printf("✅ Analysis exported to %s\n", color.GreenFmt(outputFile))
@@ -1325,7 +1323,7 @@ func (d *DeveloperMode) outputAnalysisYAML(analysis *analysis.ProjectAnalysis, o
 	}
 
 	if outputFile != "" {
-		if err := os.WriteFile(outputFile, yamlData, 0644); err != nil {
+		if err := os.WriteFile(outputFile, yamlData, 0o644); err != nil {
 			return fmt.Errorf("failed to write YAML to file %s: %w", outputFile, err)
 		}
 		fmt.Printf("✅ Analysis exported to %s\n", color.GreenFmt(outputFile))

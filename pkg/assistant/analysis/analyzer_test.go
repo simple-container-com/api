@@ -524,11 +524,11 @@ func createTempProject(t *testing.T, files map[string]string) string {
 		fullPath := filepath.Join(tmpDir, path)
 
 		// Create directory if needed
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
 
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
 			t.Fatalf("Failed to write file %s: %v", path, err)
 		}
 	}
@@ -588,10 +588,10 @@ func createBenchmarkProject(b *testing.B) string {
 	// Create files
 	for path, content := range files {
 		fullPath := filepath.Join(tmpDir, path)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			b.Fatalf("Failed to create directory: %v", err)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
 			b.Fatalf("Failed to write file: %v", err)
 		}
 	}

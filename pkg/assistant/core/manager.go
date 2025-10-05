@@ -241,7 +241,6 @@ func (m *Manager) SearchDocumentation(ctx context.Context, query string, limit i
 			return embeddings.SearchDocumentation(m.embeddingsDB, query, limit)
 		}
 	}, 10*time.Minute) // Cache search results for 10 minutes
-
 	if err != nil {
 		return nil, err
 	}
