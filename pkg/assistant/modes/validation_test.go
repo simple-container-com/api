@@ -129,7 +129,7 @@ func TestDeveloperModeValidation(t *testing.T) {
 		assert.Contains(t, yamlContent, "schemaVersion: 1.0", "Must have correct schema version")
 		assert.Contains(t, yamlContent, "stacks:", "Must have stacks section")
 		assert.Contains(t, yamlContent, "type: cloud-compose", "Must have correct stack type")
-		assert.Contains(t, yamlContent, "parent: myinfra", "Must reference parent stack")
+		assert.Contains(t, yamlContent, "parent: mycompany/myinfra", "Must reference parent stack with project/stack format")
 		assert.Contains(t, yamlContent, "parentEnv: staging", "Must reference parent environment")
 		assert.Contains(t, yamlContent, "config:", "Must have config section")
 		assert.Contains(t, yamlContent, "runs: [app]", "Must have runs specification")

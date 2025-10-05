@@ -798,13 +798,18 @@ CRITICAL INSTRUCTIONS:
 ❌ connectionString property (fictional)
 ❌ Connection strings in env: section (security risk)
 
-✅ CORRECT SECURITY PATTERNS:
-✅ ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED)
-✅ Optional: domain property for DNS routing (requires registrar in server.yaml)
-✅ env: section for non-sensitive config (PORT, NODE_ENV, LOG_LEVEL)
-✅ secrets: section for sensitive data (API keys, connection strings, tokens)
-✅ Use ${resource:name.connectionString} when consuming resources via 'uses:'
-✅ Use ${secret:name} for manually defined secrets in parent stack
+✅ CORRECT PATTERNS:
+- parent: Use format <parent-project>/<parent-stack-name> (e.g., mycompany/devops)
+- parentEnv: Maps to environment in parent's server.yaml (staging, prod, etc.)
+- template: Optional - only if overriding parent's default (must exist in server.yaml templates section)
+- Stack naming: Use environment names directly (staging, prod) or custom names with parentEnv reference
+- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED for cloud-compose - references ${project:root}/docker-compose.yaml)
+- ALWAYS include image.dockerfile: ${git:root}/Dockerfile (REQUIRED for single-image deployments)
+- Optional: domain property for DNS routing (requires registrar in server.yaml)
+- env: section for non-sensitive config (PORT, NODE_ENV, LOG_LEVEL)
+- secrets: section for sensitive data (API keys, connection strings, tokens)
+- Use ${resource:name.url} when consuming resources via 'uses:'
+- Use ${secret:name} for manually defined secrets in parent stack
 
 RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
@@ -883,12 +888,12 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("\n✅ REQUIRED STRUCTURE EXAMPLE:\n")
 	prompt.WriteString("schemaVersion: 1.0\n")
 	prompt.WriteString("stacks:\n")
-	prompt.WriteString("  " + projectName + ":\n")
+	prompt.WriteString("  " + opts.Environment + ":\n")
 	// Determine deployment type for example
 	deploymentType := d.determineDeploymentTypeWithOptions(analysis, opts)
 	prompt.WriteString(fmt.Sprintf("    type: %s       # Valid types: cloud-compose, static, single-image\n", deploymentType))
-	prompt.WriteString("    parent: " + opts.Parent + "\n")
-	prompt.WriteString("    parentEnv: " + opts.Environment + "\n")
+	prompt.WriteString("    parent: mycompany/" + opts.Parent + "     # Format: <parent-project>/<parent-stack-name>\n")
+	prompt.WriteString("    parentEnv: " + opts.Environment + "        # Environment in parent's server.yaml\n")
 	prompt.WriteString("    config:\n")
 
 	// Generate different example configs based on deployment type
@@ -899,7 +904,7 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		prompt.WriteString("      errorDocument: error.html     # Custom error page\n")
 		prompt.WriteString(fmt.Sprintf("      domain: %s.mycompany.com  # Optional: DNS domain (requires registrar in server.yaml)\n", projectName))
 	case "single-image":
-		prompt.WriteString("      template: lambda-us           # AWS Lambda template from parent\n")
+		prompt.WriteString("      template: lambda-us           # Optional: Override parent's default (must exist in server.yaml templates)\n")
 		prompt.WriteString("      image:\n")
 		prompt.WriteString("        dockerfile: ${git:root}/Dockerfile  # Path to Dockerfile\n")
 		prompt.WriteString("      timeout: 120                 # Function timeout in seconds\n")
@@ -929,6 +934,25 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"                    # Manual secrets from parent\n")
 	}
 
+	// Show multiple environments example
+	prompt.WriteString("\n✅ MULTIPLE ENVIRONMENTS EXAMPLE:\n")
+	prompt.WriteString("stacks:\n")
+	prompt.WriteString("  staging:\n")
+	prompt.WriteString("    type: " + deploymentType + "\n")
+	prompt.WriteString("    parent: mycompany/devops\n")
+	prompt.WriteString("    parentEnv: staging          # Maps to 'resources: staging:' in server.yaml\n")
+	prompt.WriteString("    config: { ... }\n")
+	prompt.WriteString("  prod:\n")
+	prompt.WriteString("    type: " + deploymentType + "\n")
+	prompt.WriteString("    parent: mycompany/devops\n")
+	prompt.WriteString("    parentEnv: prod             # Maps to 'resources: prod:' in server.yaml\n")
+	prompt.WriteString("    config: { ... }\n")
+	prompt.WriteString("  custom-env:\n")
+	prompt.WriteString("    type: " + deploymentType + "\n")
+	prompt.WriteString("    parent: mycompany/devops\n")
+	prompt.WriteString("    parentEnv: staging          # REQUIRED: Custom env name must reference actual server.yaml environment\n")
+	prompt.WriteString("    config: { ... }\n")
+
 	// Enrich context with validated examples
 	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
 	if contextEnrichment != "" {
@@ -946,6 +970,10 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("- ${resource:name.connectionString} (fictional property - use .url instead)\n")
 	prompt.WriteString("- Missing dockerComposeFile property (REQUIRED for cloud-compose stacks)\n")
 	prompt.WriteString("\n✅ CORRECT PATTERNS:\n")
+	prompt.WriteString("- parent: Use format <parent-project>/<parent-stack-name> (e.g., mycompany/devops)\n")
+	prompt.WriteString("- parentEnv: Maps to environment in parent's server.yaml (staging, prod, etc.)\n")
+	prompt.WriteString("- template: Optional - only if overriding parent's default (must exist in server.yaml templates section)\n")
+	prompt.WriteString("- Stack naming: Use environment names directly (staging, prod) or custom names with parentEnv reference\n")
 	prompt.WriteString("- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED for cloud-compose - references ${project:root}/docker-compose.yaml)\n")
 	prompt.WriteString("- ALWAYS include image.dockerfile: ${git:root}/Dockerfile (REQUIRED for single-image deployments)\n")
 	prompt.WriteString("- Optional: domain property for DNS routing (requires registrar in server.yaml)\n")
@@ -1159,9 +1187,9 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 	var template strings.Builder
 	template.WriteString("schemaVersion: 1.0\n\n")
 	template.WriteString("stacks:\n")
-	template.WriteString(fmt.Sprintf("  %s:\n", projectName))
+	template.WriteString(fmt.Sprintf("  %s:\n", opts.Environment))
 	template.WriteString(fmt.Sprintf("    type: %s\n", deploymentType))
-	template.WriteString(fmt.Sprintf("    parent: %s\n", opts.Parent))
+	template.WriteString(fmt.Sprintf("    parent: mycompany/%s\n", opts.Parent))
 	template.WriteString(fmt.Sprintf("    parentEnv: %s\n", opts.Environment))
 	template.WriteString("    config:\n")
 
@@ -1198,13 +1226,17 @@ func (d *DeveloperMode) generateStaticConfig(template *strings.Builder, analysis
 	template.WriteString("      errorDocument: error.html\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Optional: Custom domain (requires registrar in server.yaml)\n")
-	template.WriteString("      # domain: mysite.mycompany.com\n")
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
+		template.WriteString(fmt.Sprintf("      # domain: %s.mycompany.com\n", analysis.Name))
+	} else {
+		template.WriteString("      # domain: mysite.mycompany.com\n")
+	}
 }
 
 // generateSingleImageConfig generates configuration for single-image deployments (Lambda, Cloud Run)
 func (d *DeveloperMode) generateSingleImageConfig(template *strings.Builder, analysis *analysis.ProjectAnalysis, envVars, secrets map[string]string) {
 	template.WriteString("      # Single-image deployment (Lambda/Cloud Run)\n")
-	template.WriteString("      template: lambda-us  # Or cloud-run template from parent\n")
+	template.WriteString("      template: lambda-us  # Optional: Override parent's default (must exist in server.yaml templates)\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Container image configuration\n")
 	template.WriteString("      image:\n")
@@ -1245,7 +1277,11 @@ func (d *DeveloperMode) generateCloudComposeConfig(template *strings.Builder, an
 	template.WriteString("      runs: [app]\n")
 	template.WriteString("      \n")
 	template.WriteString("      # Optional: DNS domain (only works if registrar configured in server.yaml)\n")
-	template.WriteString("      # domain: myapp.mycompany.com\n")
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
+		template.WriteString(fmt.Sprintf("      # domain: %s.mycompany.com\n", analysis.Name))
+	} else {
+		template.WriteString("      # domain: myapp.mycompany.com\n")
+	}
 	template.WriteString("      \n")
 	template.WriteString("      # Scaling configuration\n")
 	template.WriteString("      scale:\n")
