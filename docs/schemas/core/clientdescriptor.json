@@ -49,11 +49,11 @@
             }
           },
           "required": [
-            "type",
+            "",
             "parent",
             "parentEnv",
             "template",
-            ""
+            "type"
           ],
           "type": "object"
         },

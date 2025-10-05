@@ -86,8 +86,8 @@
         },
         "required": [
           "create",
-          "update",
-          "delete"
+          "delete",
+          "update"
         ],
         "type": "object"
       },

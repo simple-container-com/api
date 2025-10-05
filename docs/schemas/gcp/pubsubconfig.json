@@ -77,13 +77,13 @@
             }
           },
           "required": [
-            "name",
-            "topic",
-            "labels",
+            "ackDeadlineSec",
             "deadLetterPolicy",
             "exactlyOnceDelivery",
-            "ackDeadlineSec",
-            "messageRetentionDuration"
+            "labels",
+            "messageRetentionDuration",
+            "name",
+            "topic"
           ],
           "type": "object"
         },
@@ -107,9 +107,9 @@
             }
           },
           "required": [
-            "name",
             "labels",
-            "messageRetentionDuration"
+            "messageRetentionDuration",
+            "name"
           ],
           "type": "object"
         },
@@ -118,9 +118,9 @@
     },
     "required": [
       "",
-      "topics",
+      "labels",
       "subscriptions",
-      "labels"
+      "topics"
     ],
     "type": "object"
   }

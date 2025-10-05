@@ -47,10 +47,10 @@
           }
         },
         "required": [
-          "domain",
           "baseDnsZone",
-          "indexDocument",
+          "domain",
           "errorDocument",
+          "indexDocument",
           "provisionWwwDomain"
         ],
         "type": "object"

@@ -42,8 +42,8 @@
           }
         },
         "required": [
-          "username",
-          "password"
+          "password",
+          "username"
         ],
         "type": "object"
       },
@@ -71,8 +71,8 @@
     },
     "required": [
       "",
-      "location",
-      "domain"
+      "domain",
+      "location"
     ],
     "type": "object"
   }

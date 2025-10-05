@@ -5,8 +5,7 @@
   "description": "AWS deployment template configuration",
   "goPackage": "pkg/clouds/aws/",
   "goStruct": "TemplateConfig",
-  "resourceType": "ecs-fargate",
-  "templateType": "ecs-fargate",
+  "resourceType": "aws-static-website",
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
@@ -39,11 +38,11 @@
           }
         },
         "required": [
-          "account",
+          "",
           "accessKey",
-          "secretAccessKey",
+          "account",
           "region",
-          ""
+          "secretAccessKey"
         ],
         "type": "object"
       }

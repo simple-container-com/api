@@ -12,35 +12,13 @@
       "": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
-          "caddyfile": {
+          "kubeconfig": {
             "type": "string"
-          },
-          "enable": {
-            "type": "boolean"
-          },
-          "image": {
-            "type": "string"
-          },
-          "namespace": {
-            "type": "string"
-          },
-          "provisionIngress": {
-            "type": "boolean"
-          },
-          "replicas": {
-            "type": "integer"
-          },
-          "serviceType": {
-            "type": "string"
-          },
-          "usePrefixes": {
-            "type": "boolean"
-          },
-          "useSSL": {
-            "type": "boolean"
           }
         },
-        "required": [],
+        "required": [
+          "kubeconfig"
+        ],
         "type": "object"
       }
     },

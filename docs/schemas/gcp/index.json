@@ -3,27 +3,6 @@
   "provider": "gcp",
   "resources": [
     {
-      "name": "Credentials",
-      "type": "resource",
-      "provider": "gcp",
-      "description": "Google Cloud Platform credentials configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "Credentials",
-      "resourceType": "gcp-service-account",
-      "schema": {}
-    },
-    {
-      "name": "TemplateConfig",
-      "type": "template",
-      "provider": "gcp",
-      "description": "Google Cloud Platform deployment template configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "cloudrun",
-      "templateType": "cloudrun",
-      "schema": {}
-    },
-    {
       "name": "ArtifactRegistryConfig",
       "type": "resource",
       "provider": "gcp",
@@ -31,36 +10,6 @@
       "goPackage": "pkg/clouds/gcp/",
       "goStruct": "ArtifactRegistryConfig",
       "resourceType": "gcp-artifact-registry",
-      "schema": {}
-    },
-    {
-      "name": "PostgresGcpCloudsqlConfig",
-      "type": "resource",
-      "provider": "gcp",
-      "description": "Google Cloud Platform postgresgcpcloudsql configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "PostgresGcpCloudsqlConfig",
-      "resourceType": "gcp-cloudsql-postgres",
-      "schema": {}
-    },
-    {
-      "name": "GcpBucket",
-      "type": "resource",
-      "provider": "gcp",
-      "description": "Google Cloud Platform gcpbucket configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "GcpBucket",
-      "resourceType": "gcp-bucket",
-      "schema": {}
-    },
-    {
-      "name": "RedisConfig",
-      "type": "resource",
-      "provider": "gcp",
-      "description": "Google Cloud Platform redis configuration",
-      "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "RedisConfig",
-      "resourceType": "gcp-redis",
       "schema": {}
     },
     {
@@ -75,13 +24,23 @@
       "schema": {}
     },
     {
-      "name": "TemplateConfig",
-      "type": "template",
+      "name": "Credentials",
+      "type": "resource",
       "provider": "gcp",
-      "description": "Google Cloud Platform deployment template configuration",
+      "description": "Google Cloud Platform credentials configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "gcp-static-website",
+      "goStruct": "Credentials",
+      "resourceType": "gcp-service-account",
+      "schema": {}
+    },
+    {
+      "name": "GcpBucket",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform gcpbucket configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "GcpBucket",
+      "resourceType": "gcp-bucket",
       "schema": {}
     },
     {
@@ -95,13 +54,23 @@
       "schema": {}
     },
     {
-      "name": "RemoteImagePush",
+      "name": "GkeAutopilotTemplate",
       "type": "resource",
       "provider": "gcp",
-      "description": "Google Cloud Platform remoteimagepush configuration",
+      "description": "Google Cloud Platform gkeautopilottemplate configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "RemoteImagePush",
-      "resourceType": "gcp-docker-image-push",
+      "goStruct": "GkeAutopilotTemplate",
+      "resourceType": "gcp-gke-autopilot",
+      "schema": {}
+    },
+    {
+      "name": "PostgresGcpCloudsqlConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform postgresgcpcloudsql configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PostgresGcpCloudsqlConfig",
+      "resourceType": "gcp-cloudsql-postgres",
       "schema": {}
     },
     {
@@ -115,13 +84,33 @@
       "schema": {}
     },
     {
-      "name": "GkeAutopilotTemplate",
+      "name": "RedisConfig",
       "type": "resource",
       "provider": "gcp",
-      "description": "Google Cloud Platform gkeautopilottemplate configuration",
+      "description": "Google Cloud Platform redis configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "GkeAutopilotTemplate",
-      "resourceType": "gcp-gke-autopilot",
+      "goStruct": "RedisConfig",
+      "resourceType": "gcp-redis",
+      "schema": {}
+    },
+    {
+      "name": "RemoteImagePush",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform remoteimagepush configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "RemoteImagePush",
+      "resourceType": "gcp-docker-image-push",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "provisioner",
+      "provider": "gcp",
+      "description": "Google Cloud Platform secretsprovider configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-kms",
       "schema": {}
     },
     {
@@ -135,13 +124,24 @@
       "schema": {}
     },
     {
-      "name": "SecretsProviderConfig",
-      "type": "provisioner",
+      "name": "TemplateConfig",
+      "type": "template",
       "provider": "gcp",
-      "description": "Google Cloud Platform secretsprovider configuration",
+      "description": "Google Cloud Platform deployment template configuration",
       "goPackage": "pkg/clouds/gcp/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "gcp-kms",
+      "goStruct": "TemplateConfig",
+      "resourceType": "gcp-static-website",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "gcp",
+      "description": "Google Cloud Platform deployment template configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "cloudrun",
+      "templateType": "cloudrun",
       "schema": {}
     }
   ]

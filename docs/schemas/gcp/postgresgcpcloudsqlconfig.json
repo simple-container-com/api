@@ -63,8 +63,8 @@
           }
         },
         "required": [
-          "type",
-          "resourceName"
+          "resourceName",
+          "type"
         ],
         "type": "object"
       },
@@ -74,15 +74,15 @@
     },
     "required": [
       "",
-      "version",
-      "project",
-      "tier",
-      "region",
-      "maxConnections",
       "deletionProtection",
+      "maxConnections",
+      "project",
       "queryInsightsEnabled",
       "queryStringLength",
-      "usersProvisionRuntime"
+      "region",
+      "tier",
+      "usersProvisionRuntime",
+      "version"
     ],
     "type": "object"
   }

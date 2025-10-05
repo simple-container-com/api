@@ -52,12 +52,12 @@
     },
     "required": [
       "",
-      "remoteImage",
-      "name",
-      "tag",
       "artifactRegistryResource",
+      "name",
+      "platform",
       "registryCredentials",
-      "platform"
+      "remoteImage",
+      "tag"
     ],
     "type": "object"
   }

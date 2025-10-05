@@ -3,14 +3,33 @@
   "provider": "aws",
   "resources": [
     {
-      "name": "TemplateConfig",
-      "type": "template",
+      "name": "AccountConfig",
+      "type": "auth",
       "provider": "aws",
-      "description": "AWS deployment template configuration",
+      "description": "AWS authentication configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "TemplateConfig",
-      "resourceType": "aws-lambda",
-      "templateType": "aws-lambda",
+      "goStruct": "AccountConfig",
+      "resourceType": "aws-token",
+      "schema": {}
+    },
+    {
+      "name": "EcrRepository",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS ecrrepository configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "EcrRepository",
+      "resourceType": "ecr-repository",
+      "schema": {}
+    },
+    {
+      "name": "MysqlConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS mysql configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "MysqlConfig",
+      "resourceType": "aws-rds-mysql",
       "schema": {}
     },
     {
@@ -24,13 +43,13 @@
       "schema": {}
     },
     {
-      "name": "AccountConfig",
-      "type": "auth",
+      "name": "S3Bucket",
+      "type": "resource",
       "provider": "aws",
-      "description": "AWS authentication configuration",
+      "description": "AWS s3bucket configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "AccountConfig",
-      "resourceType": "aws-token",
+      "goStruct": "S3Bucket",
+      "resourceType": "s3-bucket",
       "schema": {}
     },
     {
@@ -54,13 +73,23 @@
       "schema": {}
     },
     {
-      "name": "EcrRepository",
-      "type": "resource",
+      "name": "SecretsProviderConfig",
+      "type": "provisioner",
       "provider": "aws",
-      "description": "AWS ecrrepository configuration",
+      "description": "AWS secretsprovider configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "EcrRepository",
-      "resourceType": "ecr-repository",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "aws-kms",
+      "schema": {}
+    },
+    {
+      "name": "StateStorageConfig",
+      "type": "provisioner",
+      "provider": "aws",
+      "description": "AWS statestorage configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "StateStorageConfig",
+      "resourceType": "s3-bucket",
       "schema": {}
     },
     {
@@ -70,17 +99,8 @@
       "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "TemplateConfig",
-      "resourceType": "aws-static-website",
-      "schema": {}
-    },
-    {
-      "name": "S3Bucket",
-      "type": "resource",
-      "provider": "aws",
-      "description": "AWS s3bucket configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "S3Bucket",
-      "resourceType": "s3-bucket",
+      "resourceType": "aws-lambda",
+      "templateType": "aws-lambda",
       "schema": {}
     },
     {
@@ -95,33 +115,13 @@
       "schema": {}
     },
     {
-      "name": "MysqlConfig",
-      "type": "resource",
+      "name": "TemplateConfig",
+      "type": "template",
       "provider": "aws",
-      "description": "AWS mysql configuration",
+      "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "MysqlConfig",
-      "resourceType": "aws-rds-mysql",
-      "schema": {}
-    },
-    {
-      "name": "StateStorageConfig",
-      "type": "provisioner",
-      "provider": "aws",
-      "description": "AWS statestorage configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "StateStorageConfig",
-      "resourceType": "s3-bucket",
-      "schema": {}
-    },
-    {
-      "name": "SecretsProviderConfig",
-      "type": "provisioner",
-      "provider": "aws",
-      "description": "AWS secretsprovider configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "aws-kms",
+      "goStruct": "TemplateConfig",
+      "resourceType": "aws-static-website",
       "schema": {}
     }
   ]

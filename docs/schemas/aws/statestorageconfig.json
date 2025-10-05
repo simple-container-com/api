@@ -38,11 +38,11 @@
           }
         },
         "required": [
-          "account",
+          "",
           "accessKey",
-          "secretAccessKey",
+          "account",
           "region",
-          ""
+          "secretAccessKey"
         ],
         "type": "object"
       },

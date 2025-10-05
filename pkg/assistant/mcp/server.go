@@ -269,8 +269,7 @@ func (s *MCPServer) corsMiddleware(next http.Handler) http.Handler {
 }
 
 // DefaultMCPHandler provides default implementations of MCP methods
-type DefaultMCPHandler struct {
-}
+type DefaultMCPHandler struct{}
 
 func NewDefaultMCPHandler() MCPHandler {
 	return &DefaultMCPHandler{}

@@ -66,10 +66,10 @@
           }
         },
         "required": [
-          "name",
-          "dockerfile",
-          "context",
           "build",
+          "context",
+          "dockerfile",
+          "name",
           "platform"
         ],
         "type": "object"
@@ -109,21 +109,21 @@
       }
     },
     "required": [
-      "image",
-      "domain",
       "baseDnsZone",
-      "env",
-      "secrets",
-      "min",
-      "max",
-      "version",
-      "timeout",
       "basePath",
-      "maxMemory",
+      "cloudExtras",
+      "domain",
+      "env",
+      "image",
+      "max",
       "maxEphemeralStorage",
-      "uses",
+      "maxMemory",
+      "min",
+      "secrets",
       "staticEgressIP",
-      "cloudExtras"
+      "timeout",
+      "uses",
+      "version"
     ],
     "type": "object"
   }

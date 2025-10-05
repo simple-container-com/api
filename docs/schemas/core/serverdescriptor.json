@@ -29,9 +29,9 @@
           }
         },
         "required": [
-          "type",
           "",
-          ""
+          "",
+          "type"
         ],
         "type": "object"
       },
@@ -55,9 +55,9 @@
           }
         },
         "required": [
-          "type",
           "",
-          ""
+          "",
+          "type"
         ],
         "type": "object"
       },
@@ -84,9 +84,9 @@
               }
             },
             "required": [
-              "type",
               "",
-              ""
+              "",
+              "type"
             ],
             "type": "object"
           },
@@ -130,10 +130,10 @@
                       }
                     },
                     "required": [
-                      "type",
-                      "name",
                       "",
-                      ""
+                      "",
+                      "name",
+                      "type"
                     ],
                     "type": "object"
                   },
@@ -144,9 +144,9 @@
                 }
               },
               "required": [
-                "template",
+                "",
                 "resources",
-                ""
+                "template"
               ],
               "type": "object"
             },
@@ -182,9 +182,9 @@
           }
         },
         "required": [
-          "type",
           "",
-          ""
+          "",
+          "type"
         ],
         "type": "object"
       },
@@ -212,10 +212,10 @@
             }
           },
           "required": [
-            "type",
-            "parentStack",
             "",
-            ""
+            "",
+            "parentStack",
+            "type"
           ],
           "type": "object"
         },
@@ -242,12 +242,12 @@
       }
     },
     "required": [
-      "schemaVersion",
-      "provisioner",
-      "secrets",
       "cicd",
-      "templates",
+      "provisioner",
       "resources",
+      "schemaVersion",
+      "secrets",
+      "templates",
       "variables"
     ],
     "type": "object"

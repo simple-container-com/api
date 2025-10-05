@@ -256,15 +256,11 @@ func (d *DeveloperMode) interactiveSetup(opts *SetupOptions, analysis *analysis.
 	}
 
 	// 2. Confirm or change parent stack
-	for {
-		fmt.Printf("🏗️  Parent stack [%s]: ", color.CyanFmt(opts.Parent))
-		scanner.Scan()
-		input := strings.TrimSpace(scanner.Text())
-		if input == "" {
-			break // Keep default
-		}
+	fmt.Printf("🏗️  Parent stack [%s]: ", color.CyanFmt(opts.Parent))
+	scanner.Scan()
+	input := strings.TrimSpace(scanner.Text())
+	if input != "" {
 		opts.Parent = input
-		break
 	}
 
 	// 3. Ask about stack type preferences
@@ -748,12 +744,8 @@ func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnal
 
 	// Extract Dockerfile content from response
 	dockerfileContent := strings.TrimSpace(response.Content)
-	if strings.HasPrefix(dockerfileContent, "```dockerfile") {
-		dockerfileContent = strings.TrimPrefix(dockerfileContent, "```dockerfile")
-	}
-	if strings.HasPrefix(dockerfileContent, "```") {
-		dockerfileContent = strings.TrimPrefix(dockerfileContent, "```")
-	}
+	dockerfileContent = strings.TrimPrefix(dockerfileContent, "```dockerfile")
+	dockerfileContent = strings.TrimPrefix(dockerfileContent, "```")
 	dockerfileContent = strings.TrimSuffix(dockerfileContent, "```")
 
 	return strings.TrimSpace(dockerfileContent), nil

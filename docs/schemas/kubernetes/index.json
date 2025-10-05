@@ -3,13 +3,23 @@
   "provider": "kubernetes",
   "resources": [
     {
-      "name": "KubernetesConfig",
+      "name": "CaddyResource",
       "type": "resource",
       "provider": "kubernetes",
-      "description": "Kubernetes kubernetes configuration",
+      "description": "Kubernetes caddyresource configuration",
       "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "KubernetesConfig",
-      "resourceType": "kubernetes",
+      "goStruct": "CaddyResource",
+      "resourceType": "kubernetes-caddy",
+      "schema": {}
+    },
+    {
+      "name": "HelmMongodbOperator",
+      "type": "resource",
+      "provider": "kubernetes",
+      "description": "Kubernetes helmmongodboperator configuration",
+      "goPackage": "pkg/clouds/kubernetes/",
+      "goStruct": "HelmMongodbOperator",
+      "resourceType": "kubernetes-helm-mongodb-operator",
       "schema": {}
     },
     {
@@ -23,13 +33,13 @@
       "schema": {}
     },
     {
-      "name": "CaddyResource",
+      "name": "HelmRabbitmqOperator",
       "type": "resource",
       "provider": "kubernetes",
-      "description": "Kubernetes caddyresource configuration",
+      "description": "Kubernetes helmrabbitmqoperator configuration",
       "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "CaddyResource",
-      "resourceType": "kubernetes-caddy",
+      "goStruct": "HelmRabbitmqOperator",
+      "resourceType": "kubernetes-helm-rabbitmq-operator",
       "schema": {}
     },
     {
@@ -43,23 +53,13 @@
       "schema": {}
     },
     {
-      "name": "HelmRabbitmqOperator",
+      "name": "KubernetesConfig",
       "type": "resource",
       "provider": "kubernetes",
-      "description": "Kubernetes helmrabbitmqoperator configuration",
+      "description": "Kubernetes kubernetes configuration",
       "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "HelmRabbitmqOperator",
-      "resourceType": "kubernetes-helm-rabbitmq-operator",
-      "schema": {}
-    },
-    {
-      "name": "HelmMongodbOperator",
-      "type": "resource",
-      "provider": "kubernetes",
-      "description": "Kubernetes helmmongodboperator configuration",
-      "goPackage": "pkg/clouds/kubernetes/",
-      "goStruct": "HelmMongodbOperator",
-      "resourceType": "kubernetes-helm-mongodb-operator",
+      "goStruct": "KubernetesConfig",
+      "resourceType": "kubernetes",
       "schema": {}
     }
   ]
