@@ -480,11 +480,12 @@ func (d *DockerDetector) Detect(projectPath string) (*TechStackInfo, error) {
 				stack.Metadata["base_image"] = strings.ToLower(baseImage)
 
 				// Detect runtime from base image
-				if strings.Contains(baseImage, "node") {
+				baseImageLower := strings.ToLower(baseImage)
+				if strings.Contains(baseImageLower, "node") {
 					stack.Framework = "nodejs"
-				} else if strings.Contains(baseImage, "python") {
+				} else if strings.Contains(baseImageLower, "python") {
 					stack.Framework = "python"
-				} else if strings.Contains(baseImage, "golang") {
+				} else if strings.Contains(baseImageLower, "golang") {
 					stack.Framework = "go"
 				}
 				break

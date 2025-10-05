@@ -238,13 +238,19 @@ func (db *Database) loadFromEmbeddedDocs(ctx context.Context, log logger.Logger)
 
 // walkEmbeddedDocs walks through embedded documentation files
 func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, root string, fn func(path string, content []byte) error) error {
-	log.Debug(ctx, "Walking embedded docs starting from root: %s", root)
+	if log != nil {
+		log.Debug(ctx, "Walking embedded docs starting from root: %s", root)
+	}
 	entries, err := embeddedDocs.ReadDir(root)
 	if err != nil {
-		log.Error(ctx, "Error reading embedded docs dir %s: %v", root, err)
+		if log != nil {
+			log.Error(ctx, "Error reading embedded docs dir %s: %v", root, err)
+		}
 		return err
 	}
-	log.Debug(ctx, "Found %d entries in %s", len(entries), root)
+	if log != nil {
+		log.Debug(ctx, "Found %d entries in %s", len(entries), root)
+	}
 
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
@@ -258,7 +264,9 @@ func (db *Database) walkEmbeddedDocs(ctx context.Context, log logger.Logger, roo
 			// Read file content
 			content, err := embeddedDocs.ReadFile(path)
 			if err != nil {
-				log.Warn(ctx, "Failed to read embedded file %s: %v", path, err)
+				if log != nil {
+					log.Warn(ctx, "Failed to read embedded file %s: %v", path, err)
+				}
 				continue
 			}
 
