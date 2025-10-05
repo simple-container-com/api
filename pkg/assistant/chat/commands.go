@@ -798,7 +798,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 		}
 	} else if action == "set" {
 		// No provider specified for 'set' - show interactive menu
-		selectedProvider, err := selectProvider(cfg)
+		selectedProvider, err := c.selectProvider(cfg)
 		if err != nil {
 			return &CommandResult{
 				Success: false,
@@ -1018,7 +1018,7 @@ func (c *ChatInterface) handleProvider(ctx context.Context, args []string, conte
 
 		if len(args) < 2 {
 			// No provider specified - show interactive menu
-			selectedProvider, err := selectConfiguredProvider(cfg)
+			selectedProvider, err := c.selectConfiguredProvider(cfg)
 			if err != nil {
 				return &CommandResult{
 					Success: false,
@@ -1156,7 +1156,7 @@ func maskAPIKey(apiKey string) string {
 }
 
 // selectProvider shows an interactive menu to select a provider
-func selectProvider(cfg *config.Config) (string, error) {
+func (c *ChatInterface) selectProvider(cfg *config.Config) (string, error) {
 	// Get all valid providers
 	allProviders := []string{
 		config.ProviderOpenAI,
@@ -1189,16 +1189,12 @@ func selectProvider(cfg *config.Config) (string, error) {
 	}
 
 	fmt.Println()
-	fmt.Print(color.CyanString("Enter number (1-5) or 'q' to cancel: "))
 
-	// Read user input
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
+	// Read user input using inputHandler
+	input, err := c.inputHandler.ReadSimple(color.CyanString("Enter number (1-5) or 'q' to cancel: "))
 	if err != nil {
 		return "", err
 	}
-
-	input = strings.TrimSpace(input)
 
 	// Check for cancel
 	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {
@@ -1258,7 +1254,7 @@ func (c *ChatInterface) handleHistory(ctx context.Context, args []string, contex
 }
 
 // selectConfiguredProvider shows an interactive menu to select from configured providers only
-func selectConfiguredProvider(cfg *config.Config) (string, error) {
+func (c *ChatInterface) selectConfiguredProvider(cfg *config.Config) (string, error) {
 	// Get configured providers
 	configuredProviders := cfg.ListProviders()
 
@@ -1288,16 +1284,12 @@ func selectConfiguredProvider(cfg *config.Config) (string, error) {
 	}
 
 	fmt.Println()
-	fmt.Print(color.CyanString(fmt.Sprintf("Enter number (1-%d) or 'q' to cancel: ", len(configuredProviders))))
 
-	// Read user input
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
+	// Read user input using inputHandler to properly handle stdin
+	input, err := c.inputHandler.ReadSimple(color.CyanString(fmt.Sprintf("Enter number (1-%d) or 'q' to cancel: ", len(configuredProviders))))
 	if err != nil {
 		return "", err
 	}
-
-	input = strings.TrimSpace(input)
 
 	// Check for cancel
 	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {

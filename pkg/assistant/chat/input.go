@@ -1,8 +1,11 @@
 package chat
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/peterh/liner"
@@ -32,9 +35,17 @@ func (h *InputHandler) ReadLine(promptText string) (string, error) {
 		h.liner = liner.NewLiner()
 		h.liner.SetCtrlCAborts(true)
 
+		// Set tab completion to circular mode (cycle through options)
+		h.liner.SetTabCompletionStyle(liner.TabCircular)
+
 		// Set completer function
 		h.liner.SetCompleter(func(line string) []string {
-			return h.getCommandSuggestions(line)
+			suggestions := h.getCommandSuggestions(line)
+			// Return nil if no suggestions to avoid showing empty menu
+			if len(suggestions) == 0 {
+				return nil
+			}
+			return suggestions
 		})
 
 		// Load history
@@ -239,6 +250,43 @@ func (h *InputHandler) ClearHistory() {
 		// Clear liner history too
 		h.liner.ClearHistory()
 	}
+}
+
+// ReadSimple reads a simple line without autocomplete (for menus, prompts, etc)
+func (h *InputHandler) ReadSimple(promptText string) (string, error) {
+	// Temporarily close liner to release stdin
+	if h.liner != nil {
+		h.liner.Close()
+		h.liner = nil
+	}
+
+	// Reset terminal to sane state using stty command
+	// This is the ONLY reliable way to fix the terminal after liner
+	cmd := exec.Command("stty", "sane")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run() // Ignore errors
+
+	// Also ensure echo is on and canonical mode is set
+	cmd2 := exec.Command("stty", "echo", "icanon")
+	cmd2.Stdin = os.Stdin
+	cmd2.Stdout = os.Stdout
+	cmd2.Stderr = os.Stderr
+	_ = cmd2.Run()
+
+	// Print prompt
+	fmt.Print(promptText)
+
+	// Now use normal buffered reading
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+
+	// Clean the input
+	return strings.TrimSpace(line), nil
 }
 
 // Close closes the liner instance
