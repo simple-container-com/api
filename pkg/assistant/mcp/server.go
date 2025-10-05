@@ -9,10 +9,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/simple-container-com/api/pkg/api/logger/color"
+	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
 // MCPServer implements the Model Context Protocol for Simple Container
@@ -338,16 +343,19 @@ func (h *DefaultMCPHandler) GetProjectContext(ctx context.Context, params GetPro
 		scConfigExists = true
 	}
 
+	// Discover resources in the project
+	resources := h.discoverResources(projectPath, scConfigExists)
+
+	// Generate context-aware recommendations
+	recommendations := h.generateRecommendations(projectPath, scConfigExists, resources)
+
 	return &ProjectContext{
-		Path:           projectPath,
-		Name:           filepath.Base(projectPath),
-		SCConfigExists: scConfigExists,
-		SCConfigPath:   scConfigPath,
-		Resources:      []ResourceInfo{}, // TODO: Implement resource discovery
-		Recommendations: []string{
-			"Consider adding Simple Container configuration",
-			"Review documentation for best practices",
-		},
+		Path:            projectPath,
+		Name:            filepath.Base(projectPath),
+		SCConfigExists:  scConfigExists,
+		SCConfigPath:    scConfigPath,
+		Resources:       resources,
+		Recommendations: recommendations,
 		Metadata: map[string]interface{}{
 			"analyzed_at": time.Now(),
 			"mcp_version": MCPVersion,
@@ -355,27 +363,296 @@ func (h *DefaultMCPHandler) GetProjectContext(ctx context.Context, params GetPro
 	}, nil
 }
 
+// discoverResources scans the project for existing Simple Container resources
+func (h *DefaultMCPHandler) discoverResources(projectPath string, scConfigExists bool) []ResourceInfo {
+	var resources []ResourceInfo
+
+	if !scConfigExists {
+		return resources
+	}
+
+	// Scan .sc/stacks directory for server.yaml files
+	stacksPath := filepath.Join(projectPath, ".sc", "stacks")
+	if _, err := os.Stat(stacksPath); err != nil {
+		return resources
+	}
+
+	filepath.Walk(stacksPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !strings.HasSuffix(info.Name(), "server.yaml") {
+			return nil
+		}
+
+		// Parse server.yaml to extract resources
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		var config map[string]interface{}
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			return nil
+		}
+
+		// Extract resources from server.yaml
+		if resourcesSection, ok := config["resources"].(map[interface{}]interface{}); ok {
+			for env, envResources := range resourcesSection {
+				if envResourcesMap, ok := envResources.(map[interface{}]interface{}); ok {
+					for resourceName, resourceDef := range envResourcesMap {
+						if resourceMap, ok := resourceDef.(map[interface{}]interface{}); ok {
+							if resourceType, ok := resourceMap["type"].(string); ok {
+								resources = append(resources, ResourceInfo{
+									Type:        resourceType,
+									Name:        fmt.Sprintf("%v", resourceName),
+									Provider:    h.extractProviderFromType(resourceType),
+									Description: fmt.Sprintf("Resource in %v environment", env),
+									Properties: map[string]string{
+										"environment": fmt.Sprintf("%v", env),
+										"stack":       strings.TrimSuffix(info.Name(), ".yaml"),
+									},
+								})
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+
+	return resources
+}
+
+// generateRecommendations creates context-aware recommendations
+func (h *DefaultMCPHandler) generateRecommendations(projectPath string, scConfigExists bool, resources []ResourceInfo) []string {
+	var recommendations []string
+
+	if !scConfigExists {
+		recommendations = append(recommendations,
+			"Initialize Simple Container configuration with 'sc init'",
+			"Create a parent stack for shared infrastructure",
+			"Set up secrets management with 'sc secrets init'",
+		)
+		return recommendations
+	}
+
+	// Check for missing common files
+	if _, err := os.Stat(filepath.Join(projectPath, "Dockerfile")); os.IsNotExist(err) {
+		recommendations = append(recommendations, "Consider adding a Dockerfile for containerization")
+	}
+
+	if _, err := os.Stat(filepath.Join(projectPath, "docker-compose.yaml")); os.IsNotExist(err) {
+		recommendations = append(recommendations, "Add docker-compose.yaml for local development")
+	}
+
+	// Analyze resource patterns
+	hasDatabase := false
+	hasStorage := false
+	for _, resource := range resources {
+		if strings.Contains(resource.Type, "postgres") || strings.Contains(resource.Type, "mysql") || strings.Contains(resource.Type, "mongodb") {
+			hasDatabase = true
+		}
+		if strings.Contains(resource.Type, "bucket") || strings.Contains(resource.Type, "s3") {
+			hasStorage = true
+		}
+	}
+
+	if len(resources) == 0 {
+		recommendations = append(recommendations, "Define shared resources in server.yaml for infrastructure")
+	}
+
+	if !hasDatabase {
+		recommendations = append(recommendations, "Consider adding a database resource for data persistence")
+	}
+
+	if !hasStorage {
+		recommendations = append(recommendations, "Consider adding storage resources for file/object storage")
+	}
+
+	return recommendations
+}
+
+// extractProviderFromType extracts the provider from a resource type
+func (h *DefaultMCPHandler) extractProviderFromType(resourceType string) string {
+	parts := strings.Split(resourceType, "-")
+	if len(parts) > 0 {
+		switch parts[0] {
+		case "aws":
+			return "aws"
+		case "gcp":
+			return "gcp"
+		case "k8s", "kubernetes":
+			return "kubernetes"
+		case "mongodb":
+			return "mongodb"
+		case "cloudflare":
+			return "cloudflare"
+		default:
+			if strings.Contains(resourceType, "s3") {
+				return "aws"
+			}
+			if strings.Contains(resourceType, "gke") || strings.Contains(resourceType, "cloudrun") {
+				return "gcp"
+			}
+			return "unknown"
+		}
+	}
+	return "unknown"
+}
+
 func (h *DefaultMCPHandler) GenerateConfiguration(ctx context.Context, params GenerateConfigurationParams) (*GeneratedConfiguration, error) {
-	// TODO: Implement configuration generation
+	var files []GeneratedFile
+	var messages []string
+
+	// Use project analyzer to understand the project
+	analyzer := analysis.NewProjectAnalyzer()
+	projectAnalysis, err := analyzer.AnalyzeProject(params.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to analyze project: %w", err)
+	}
+
+	// Use developer mode for intelligent file generation
+	devMode := modes.NewDeveloperMode()
+
+	switch params.ConfigType {
+	case "dockerfile":
+		content, err := devMode.GenerateDockerfileWithLLM(projectAnalysis)
+		if err != nil {
+			messages = append(messages, fmt.Sprintf("Failed to generate Dockerfile: %v", err))
+			content = h.getFallbackDockerfile()
+		}
+		files = append(files, GeneratedFile{
+			Path:        "Dockerfile",
+			Content:     content,
+			ContentType: "dockerfile",
+			Description: "Generated Dockerfile based on project analysis",
+		})
+		messages = append(messages, "Generated Dockerfile using AI analysis")
+
+	case "docker-compose":
+		content, err := devMode.GenerateComposeYAMLWithLLM(projectAnalysis)
+		if err != nil {
+			messages = append(messages, fmt.Sprintf("Failed to generate docker-compose.yaml: %v", err))
+			content = h.getFallbackComposeYAML()
+		}
+		files = append(files, GeneratedFile{
+			Path:        "docker-compose.yaml",
+			Content:     content,
+			ContentType: "yaml",
+			Description: "Generated docker-compose.yaml for local development",
+		})
+		messages = append(messages, "Generated docker-compose.yaml using AI analysis")
+
+	case "client-yaml":
+		opts := &modes.SetupOptions{
+			Environment: "staging",
+			Parent:      "infrastructure",
+		}
+		content, err := devMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
+		if err != nil {
+			messages = append(messages, fmt.Sprintf("Failed to generate client.yaml: %v", err))
+			content = h.getFallbackClientYAML()
+		}
+		files = append(files, GeneratedFile{
+			Path:        ".sc/stacks/" + filepath.Base(params.ProjectPath) + "/client.yaml",
+			Content:     content,
+			ContentType: "yaml",
+			Description: "Generated Simple Container client configuration",
+		})
+		messages = append(messages, "Generated client.yaml using AI analysis")
+
+	case "full-setup":
+		// Generate all three files
+		dockerfileContent, _ := devMode.GenerateDockerfileWithLLM(projectAnalysis)
+		composeContent, _ := devMode.GenerateComposeYAMLWithLLM(projectAnalysis)
+		opts := &modes.SetupOptions{Environment: "staging", Parent: "infrastructure"}
+		clientContent, _ := devMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
+
+		files = append(files,
+			GeneratedFile{
+				Path:        "Dockerfile",
+				Content:     dockerfileContent,
+				ContentType: "dockerfile",
+				Description: "Generated Dockerfile based on project analysis",
+			},
+			GeneratedFile{
+				Path:        "docker-compose.yaml",
+				Content:     composeContent,
+				ContentType: "yaml",
+				Description: "Generated docker-compose.yaml for local development",
+			},
+			GeneratedFile{
+				Path:        ".sc/stacks/" + filepath.Base(params.ProjectPath) + "/client.yaml",
+				Content:     clientContent,
+				ContentType: "yaml",
+				Description: "Generated Simple Container client configuration",
+			})
+		messages = append(messages, "Generated complete Simple Container setup")
+
+	default:
+		return nil, fmt.Errorf("unsupported configuration type: %s", params.ConfigType)
+	}
+
 	return &GeneratedConfiguration{
 		ConfigType: params.ConfigType,
-		Files: []GeneratedFile{
-			{
-				Path:        "Dockerfile",
-				Content:     "# Generated Dockerfile\n# TODO: Implement generation logic",
-				ContentType: "dockerfile",
-				Description: "Basic Dockerfile for the project",
-			},
-		},
-		Messages: []string{
-			"Configuration generation is not yet implemented",
-			"This will be available in Phase 2 of the implementation",
-		},
+		Files:      files,
+		Messages:   messages,
 		Metadata: map[string]interface{}{
 			"generated_at": time.Now(),
-			"status":       "placeholder",
+			"project_path": params.ProjectPath,
 		},
 	}, nil
+}
+
+// Fallback functions for when LLM generation fails
+func (h *DefaultMCPHandler) getFallbackDockerfile() string {
+	return `FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]`
+}
+
+func (h *DefaultMCPHandler) getFallbackComposeYAML() string {
+	return `version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+    volumes:
+      - .:/app:delegated
+    command: npm run dev`
+}
+
+func (h *DefaultMCPHandler) getFallbackClientYAML() string {
+	return `schemaVersion: 1.0
+
+stacks:
+  app:
+    type: cloud-compose
+    parent: infrastructure
+    parentEnv: staging
+    config:
+      runs: [app]
+      scale:
+        min: 1
+        max: 3
+      env:
+        PORT: 3000
+      secrets:
+        JWT_SECRET: "${secret:jwt-secret}"`
 }
 
 func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzeProjectParams) (*ProjectAnalysis, error) {

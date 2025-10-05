@@ -1,12 +1,15 @@
 package cmd_assistant
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
@@ -149,7 +152,7 @@ func (a *AssistantCmd) newDevSetupCmd() *cobra.Command {
 		Short: "Generate application configuration files",
 		Long:  "Analyze project and generate client.yaml, docker-compose.yaml, and Dockerfile",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.developerMode.Setup(cmd.Context(), opts)
+			return a.developerMode.Setup(cmd.Context(), &opts)
 		},
 	}
 
@@ -175,7 +178,7 @@ func (a *AssistantCmd) newDevAnalyzeCmd() *cobra.Command {
 		Short: "Analyze project structure and tech stack",
 		Long:  "Detect technology stack, dependencies, and architecture patterns",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.developerMode.Analyze(cmd.Context(), opts)
+			return a.developerMode.Analyze(cmd.Context(), &opts)
 		},
 	}
 
@@ -338,12 +341,29 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 	// Check if API key is available
 	if llmProvider == "openai" && os.Getenv("OPENAI_API_KEY") == "" {
 		fmt.Println(color.YellowFmt("⚠️  OpenAI API key not found"))
-		fmt.Println("Please set your OpenAI API key:")
-		fmt.Println("  export OPENAI_API_KEY=sk-your-key-here")
-		fmt.Println("  or use: sc assistant chat --openai-key sk-your-key-here")
+		fmt.Println("You can provide your OpenAI API key in several ways:")
+		fmt.Println("  1. Environment variable: export OPENAI_API_KEY=sk-your-key-here")
+		fmt.Println("  2. Command line flag: sc assistant chat --openai-key sk-your-key-here")
+		fmt.Println("  3. Enter it interactively now")
 		fmt.Println()
-		fmt.Println("Get your API key from: https://platform.openai.com/api-keys")
-		return fmt.Errorf("OpenAI API key required for chat mode")
+		fmt.Println("Get your API key from: " + color.CyanFmt("https://platform.openai.com/api-keys"))
+		fmt.Println()
+
+		// Prompt for interactive input
+		apiKey, err := promptForOpenAIKey()
+		if err != nil {
+			return fmt.Errorf("failed to read OpenAI API key: %w", err)
+		}
+
+		if apiKey == "" {
+			fmt.Println(color.RedFmt("❌ OpenAI API key is required for chat mode"))
+			return fmt.Errorf("OpenAI API key required for chat mode")
+		}
+
+		// Set the API key
+		os.Setenv("OPENAI_API_KEY", apiKey)
+		fmt.Println(color.GreenFmt("✅ OpenAI API key configured successfully"))
+		fmt.Println()
 	}
 
 	// Create session config
@@ -445,6 +465,50 @@ func (a *AssistantCmd) runMCP(cmd *cobra.Command, host string, port int) error {
 func (a *AssistantCmd) checkEmbeddingsAvailable() bool {
 	_, err := embeddings.LoadEmbeddedDatabase()
 	return err == nil
+}
+
+// promptForOpenAIKey prompts the user to enter their OpenAI API key securely
+func promptForOpenAIKey() (string, error) {
+	fmt.Print(color.CyanFmt("🔑 Enter your OpenAI API key: "))
+
+	// Check if we're running in a terminal
+	if !term.IsTerminal(int(syscall.Stdin)) {
+		// Not a terminal, read from stdin normally
+		reader := bufio.NewReader(os.Stdin)
+		apiKey, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(apiKey), nil
+	}
+
+	// Read password from terminal (hidden input)
+	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Println() // Add newline after hidden input
+	apiKey := strings.TrimSpace(string(bytePassword))
+
+	// Basic validation - OpenAI keys should start with "sk-"
+	if apiKey != "" && !strings.HasPrefix(apiKey, "sk-") {
+		fmt.Println(color.YellowFmt("⚠️  Warning: OpenAI API keys typically start with 'sk-'"))
+		fmt.Print("Continue anyway? (y/N): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			return "", fmt.Errorf("API key validation failed")
+		}
+	}
+
+	return apiKey, nil
 }
 
 func init() {

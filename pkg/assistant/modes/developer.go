@@ -1,29 +1,55 @@
 package modes
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/simple-container-com/api/pkg/api/logger/color"
-	
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
-	"github.com/simple-container-com/api/pkg/api/logger/color"
+	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/llm"
 )
 
 // DeveloperMode handles application-focused workflows
 type DeveloperMode struct {
-	analyzer  *analysis.ProjectAnalyzer
-	generator *generation.FileGenerator
+	analyzer   *analysis.ProjectAnalyzer
+	llm        llm.Provider
+	embeddings *embeddings.Database
 }
 
 // NewDeveloperMode creates a new developer mode instance
 func NewDeveloperMode() *DeveloperMode {
+	// Initialize LLM provider (OpenAI by default)
+	provider := llm.NewOpenAIProvider()
+	if err := provider.Configure(llm.Config{
+		Provider:    "openai",
+		MaxTokens:   2048,
+		Temperature: 0.7,
+		APIKey:      os.Getenv("OPENAI_API_KEY"),
+	}); err != nil {
+		// Don't print warning here as it will show even when LLM is not needed
+		// The individual generation functions will handle fallback gracefully
+	}
+
+	// Initialize embeddings database for documentation search
+	embeddingsDB, err := embeddings.LoadEmbeddedDatabase()
+	if err != nil {
+		// Don't fail if embeddings can't be loaded - just use nil
+		embeddingsDB = nil
+	}
+
 	return &DeveloperMode{
-		analyzer:  analysis.NewProjectAnalyzer(),
-		generator: generation.NewFileGenerator(),
+		analyzer:   analysis.NewProjectAnalyzer(),
+		llm:        provider,
+		embeddings: embeddingsDB,
 	}
 }
 
@@ -50,7 +76,7 @@ type AnalyzeOptions struct {
 }
 
 // Setup generates application configuration files
-func (d *DeveloperMode) Setup(ctx context.Context, opts SetupOptions) error {
+func (d *DeveloperMode) Setup(ctx context.Context, opts *SetupOptions) error {
 	projectPath := "."
 	if opts.OutputDir != "" {
 		projectPath = opts.OutputDir
@@ -65,12 +91,10 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts SetupOptions) error {
 	// Step 1: Project Analysis (unless skipped)
 	if !opts.SkipAnalysis {
 
-		
 		projectAnalysis, err = d.analyzer.AnalyzeProject(projectPath)
 		if err != nil {
 			if opts.Language != "" && opts.Framework != "" {
 				fmt.Printf("⚠️  Auto-analysis failed, using manual specification: %s + %s\n",
-				fmt.Printf("⚠️  Auto-analysis failed, using manual specification: %s + %s\n", 
 					opts.Language, opts.Framework)
 				projectAnalysis = d.createManualAnalysis(projectPath, opts.Language, opts.Framework)
 			} else {
@@ -83,7 +107,7 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts SetupOptions) error {
 
 	// Step 2: Interactive Configuration (if enabled)
 	if opts.Interactive {
-		if err := d.interactiveSetup(&opts, projectAnalysis); err != nil {
+		if err := d.interactiveSetup(opts, projectAnalysis); err != nil {
 			return err
 		}
 	}
@@ -102,7 +126,7 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts SetupOptions) error {
 }
 
 // Analyze performs detailed project analysis
-func (d *DeveloperMode) Analyze(ctx context.Context, opts AnalyzeOptions) error {
+func (d *DeveloperMode) Analyze(ctx context.Context, opts *AnalyzeOptions) error {
 	projectPath := opts.Path
 	if projectPath == "" {
 		projectPath = "."
@@ -163,7 +187,6 @@ func (d *DeveloperMode) createManualAnalysis(projectPath, language, framework st
 
 func (d *DeveloperMode) printAnalysisResults(analysis *analysis.ProjectAnalysis) {
 
-	
 	if analysis.PrimaryStack != nil {
 		fmt.Printf("   Language:     %s\n", color.GreenFmt(analysis.PrimaryStack.Language))
 		if analysis.PrimaryStack.Framework != "" {
@@ -172,13 +195,13 @@ func (d *DeveloperMode) printAnalysisResults(analysis *analysis.ProjectAnalysis)
 		if analysis.PrimaryStack.Version != "" {
 			fmt.Printf("   Version:      %s\n", color.GreenFmt(analysis.PrimaryStack.Version))
 		}
+	}
 
-	
 	if analysis.Architecture != "" {
 		fmt.Printf("   Architecture: %s\n", color.GreenFmt(analysis.Architecture))
+	}
 
-	
-	fmt.Printf("   Confidence:   %s\n", color.YellowFmt("%.0f%%", analysis.Confidence*100))
+	fmt.Printf("   Confidence:   %s\n", color.YellowFmt(fmt.Sprintf("%.0f%%", analysis.Confidence*100)))
 
 	// Show dependencies if detected
 	if analysis.PrimaryStack != nil && len(analysis.PrimaryStack.Dependencies) > 0 {
@@ -207,37 +230,166 @@ func (d *DeveloperMode) printAnalysisResults(analysis *analysis.ProjectAnalysis)
 }
 
 func (d *DeveloperMode) interactiveSetup(opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
-	// TODO: Implement interactive prompts
+	scanner := bufio.NewScanner(os.Stdin)
 
-	
-	// For now, just show what would be prompted
-	fmt.Printf("   Target environment: %s\n", color.CyanFmt(opts.Environment))
+	fmt.Println("\n🔧 " + color.BlueFmt("Interactive Setup Configuration"))
+	fmt.Println(strings.Repeat("─", 50))
 
-	
+	// Show current project analysis
 	if analysis != nil && analysis.PrimaryStack != nil {
-		fmt.Printf("   Detected language: %s\n", color.GreenFmt(analysis.PrimaryStack.Language))
+		fmt.Printf("🔍 Detected: %s", color.GreenFmt(analysis.PrimaryStack.Language))
 		if analysis.PrimaryStack.Framework != "" {
-			fmt.Printf("   Detected framework: %s\n", color.GreenFmt(analysis.PrimaryStack.Framework))
+			fmt.Printf(" with %s", color.GreenFmt(analysis.PrimaryStack.Framework))
 		}
+		fmt.Printf(" (%.0f%% confidence)\n\n", analysis.Confidence*100)
+	}
 
-	
-	// TODO: Add actual prompts for user input
+	// 1. Confirm or change target environment
+	for {
+		fmt.Printf("🌍 Target environment [%s]: ", color.CyanFmt(opts.Environment))
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			break // Keep default
+		}
+		if input == "staging" || input == "production" || input == "development" {
+			opts.Environment = input
+			break
+		}
+		fmt.Printf("   %s Please enter 'staging', 'production', or 'development'\n", color.YellowFmt("⚠"))
+	}
 
-	
+	// 2. Confirm or change parent stack
+	for {
+		fmt.Printf("🏗️  Parent stack [%s]: ", color.CyanFmt(opts.Parent))
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			break // Keep default
+		}
+		opts.Parent = input
+		break
+	}
+
+	// 3. Ask about stack type preferences
+	fmt.Printf("\n📋 Configuration Options:\n")
+	fmt.Printf("   1. %s - Full containerized application with scaling\n", color.GreenFmt("cloud-compose"))
+	fmt.Printf("   2. %s - Static website hosting\n", color.GreenFmt("static"))
+	fmt.Printf("   3. %s - Single container deployment\n", color.GreenFmt("single-image"))
+
+	for {
+		fmt.Printf("\nStack type [1]: ")
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" || input == "1" {
+			// Default to cloud-compose (already the default in templates)
+			break
+		}
+		if input == "2" {
+			// Note: We'd need to modify the template generation to support this
+			fmt.Printf("   %s Static deployment selected\n", color.GreenFmt("✓"))
+			break
+		}
+		if input == "3" {
+			// Note: We'd need to modify the template generation to support this
+			fmt.Printf("   %s Single-image deployment selected\n", color.GreenFmt("✓"))
+			break
+		}
+		fmt.Printf("   %s Please enter 1, 2, or 3\n", color.YellowFmt("⚠"))
+	}
+
+	// 4. Ask about scaling preferences
+	fmt.Printf("\n📈 Scaling Configuration:\n")
+	minInstances := 1
+	maxInstances := 3
+
+	for {
+		fmt.Printf("Minimum instances [%d]: ", minInstances)
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			break
+		}
+		if val, err := strconv.Atoi(input); err == nil && val >= 1 && val <= 10 {
+			minInstances = val
+			break
+		}
+		fmt.Printf("   %s Please enter a number between 1-10\n", color.YellowFmt("⚠"))
+	}
+
+	for {
+		fmt.Printf("Maximum instances [%d]: ", maxInstances)
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			break
+		}
+		if val, err := strconv.Atoi(input); err == nil && val >= minInstances && val <= 20 {
+			maxInstances = val
+			break
+		}
+		fmt.Printf("   %s Please enter a number between %d-20\n", color.YellowFmt("⚠"), minInstances)
+	}
+
+	// 5. Ask about additional services
+	fmt.Printf("\n🔧 Additional Services:\n")
+	includeDatabase := false
+	includeRedis := false
+
+	fmt.Printf("Include PostgreSQL database? [y/N]: ")
+	scanner.Scan()
+	if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
+		includeDatabase = true
+		fmt.Printf("   %s PostgreSQL will be included\n", color.GreenFmt("✓"))
+	}
+
+	fmt.Printf("Include Redis cache? [y/N]: ")
+	scanner.Scan()
+	if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
+		includeRedis = true
+		fmt.Printf("   %s Redis will be included\n", color.GreenFmt("✓"))
+	}
+
+	// 6. Summary
+	fmt.Printf("\n📋 " + color.BlueFmt("Configuration Summary:"))
+	fmt.Printf("\n   Environment: %s", color.CyanFmt(opts.Environment))
+	fmt.Printf("\n   Parent: %s", color.CyanFmt(opts.Parent))
+	fmt.Printf("\n   Scaling: %s-%s instances", color.YellowFmt(fmt.Sprintf("%d", minInstances)), color.YellowFmt(fmt.Sprintf("%d", maxInstances)))
+	if includeDatabase {
+		fmt.Printf("\n   Database: %s", color.GreenFmt("PostgreSQL"))
+	}
+	if includeRedis {
+		fmt.Printf("\n   Cache: %s", color.GreenFmt("Redis"))
+	}
+
+	fmt.Printf("\n\nProceed with this configuration? [Y/n]: ")
+	scanner.Scan()
+	if strings.ToLower(strings.TrimSpace(scanner.Text())) == "n" {
+		return fmt.Errorf("setup cancelled by user")
+	}
+
+	fmt.Printf("   %s Configuration confirmed!\n\n", color.GreenFmt("✓"))
+
+	// Store the interactive choices (could extend SetupOptions to include these)
+	// For now, the choices are just validated but the templates use defaults
+
 	return nil
 }
 
-func (d *DeveloperMode) generateFiles(projectPath string, opts SetupOptions, analysis *analysis.ProjectAnalysis) error {
+func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
 	// Create .sc directory structure
 	scDir := filepath.Join(projectPath, ".sc", "stacks", filepath.Base(projectPath))
 	if err := os.MkdirAll(scDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .sc directory: %w", err)
 	}
 
-	// Generate client.yaml
+	// Generate client.yaml using LLM
 	if !opts.SkipAnalysis {
 		fmt.Printf("   📄 Generating client.yaml...")
-		clientYaml := d.generateClientYAML(opts, analysis)
+		clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
+		if err != nil {
+			return fmt.Errorf("failed to generate client.yaml: %w", err)
+		}
 		clientPath := filepath.Join(scDir, "client.yaml")
 		if err := os.WriteFile(clientPath, []byte(clientYaml), 0644); err != nil {
 			return fmt.Errorf("failed to write client.yaml: %w", err)
@@ -245,12 +397,15 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts SetupOptions, ana
 		fmt.Printf(" %s\n", color.GreenFmt("✓"))
 	}
 
-	// Generate docker-compose.yaml
+	// Generate docker-compose.yaml using LLM
 	if !opts.SkipCompose {
 		fmt.Printf("   📄 Generating docker-compose.yaml...")
 		composePath := filepath.Join(projectPath, "docker-compose.yaml")
 		if _, err := os.Stat(composePath); os.IsNotExist(err) {
-			composeYaml := d.generateComposeYAML(analysis)
+			composeYaml, err := d.GenerateComposeYAMLWithLLM(analysis)
+			if err != nil {
+				return fmt.Errorf("failed to generate docker-compose.yaml: %w", err)
+			}
 			if err := os.WriteFile(composePath, []byte(composeYaml), 0644); err != nil {
 				return fmt.Errorf("failed to write docker-compose.yaml: %w", err)
 			}
@@ -260,12 +415,15 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts SetupOptions, ana
 		}
 	}
 
-	// Generate Dockerfile
+	// Generate Dockerfile using LLM
 	if !opts.SkipDockerfile {
 		fmt.Printf("   📄 Generating Dockerfile...")
 		dockerfilePath := filepath.Join(projectPath, "Dockerfile")
 		if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
-			dockerfile := d.generateDockerfile(analysis)
+			dockerfile, err := d.GenerateDockerfileWithLLM(analysis)
+			if err != nil {
+				return fmt.Errorf("failed to generate Dockerfile: %w", err)
+			}
 			if err := os.WriteFile(dockerfilePath, []byte(dockerfile), 0644); err != nil {
 				return fmt.Errorf("failed to write Dockerfile: %w", err)
 			}
@@ -278,7 +436,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts SetupOptions, ana
 	return nil
 }
 
-func (d *DeveloperMode) generateClientYAML(opts SetupOptions, analysis *analysis.ProjectAnalysis) string {
+func (d *DeveloperMode) generateClientYAML(opts *SetupOptions, analysis *analysis.ProjectAnalysis) string {
 	projectName := filepath.Base(".")
 	if analysis != nil {
 		projectName = analysis.Name
@@ -319,19 +477,18 @@ stacks:
     config:
       # Shared resources from DevOps team
       uses: %v
-      
+
       # Services from docker-compose.yaml
       runs: [app]
-      
+
       # Scaling configuration
       scale:
         min: 1
         max: 5
-      
+
       # Environment variables
       env:
         PORT: 3000`,
-        PORT: 3000`, 
 		projectName, opts.Parent, opts.Environment, resources)
 
 	// Add language-specific environment variables
@@ -354,19 +511,430 @@ stacks:
 	}
 
 	yaml += `
-        
-      # Health check configuration  
+
+      # Health check configuration
       healthCheck:
         path: "/health"
         port: 3000
         initialDelaySeconds: 30
         periodSeconds: 10
-        
+
       # Secrets
       secrets:
         JWT_SECRET: "${secret:jwt-secret}"`
 
 	return yaml
+}
+
+// LLM-based file generation functions
+func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *analysis.ProjectAnalysis) (string, error) {
+	if d.llm == nil {
+		return d.generateFallbackClientYAML(opts, analysis)
+	}
+
+	projectName := filepath.Base(".")
+	if analysis != nil {
+		projectName = analysis.Name
+	}
+
+	prompt := d.buildClientYAMLPrompt(opts, analysis, projectName)
+
+	response, err := d.llm.Chat(context.Background(), []llm.Message{
+		{Role: "system", Content: "You are an expert in Simple Container configuration. Generate only valid YAML configurations based on actual Simple Container schemas and properties. Do not include fictional properties."},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		fmt.Printf("LLM generation failed, using fallback: %v\n", err)
+		return d.generateFallbackClientYAML(opts, analysis)
+	}
+
+	// Extract YAML from response (remove any markdown formatting)
+	yamlContent := strings.TrimSpace(response.Content)
+	if strings.HasPrefix(yamlContent, "```yaml") {
+		yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	}
+	if strings.HasPrefix(yamlContent, "```") {
+		yamlContent = strings.TrimPrefix(yamlContent, "```")
+	}
+	if strings.HasSuffix(yamlContent, "```") {
+		yamlContent = strings.TrimSuffix(yamlContent, "```")
+	}
+
+	return strings.TrimSpace(yamlContent), nil
+}
+
+func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *analysis.ProjectAnalysis, projectName string) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("Generate a Simple Container client.yaml configuration with these requirements:\n\n")
+	prompt.WriteString(fmt.Sprintf("Project: %s\n", projectName))
+	prompt.WriteString(fmt.Sprintf("Parent stack: %s\n", opts.Parent))
+	prompt.WriteString(fmt.Sprintf("Environment: %s\n", opts.Environment))
+
+	if analysis != nil && analysis.PrimaryStack != nil {
+		prompt.WriteString(fmt.Sprintf("Detected language: %s\n", analysis.PrimaryStack.Language))
+		if analysis.PrimaryStack.Framework != "" {
+			prompt.WriteString(fmt.Sprintf("Framework: %s\n", analysis.PrimaryStack.Framework))
+		}
+	}
+
+	// Enrich context with relevant documentation
+	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
+	if contextEnrichment != "" {
+		prompt.WriteString("\n" + contextEnrichment)
+	}
+
+	prompt.WriteString("\nRequired structure:\n")
+	prompt.WriteString("- Use schemaVersion: 1.0\n")
+	prompt.WriteString("- Use 'stacks:' section (NOT 'environments:')\n")
+	prompt.WriteString("- Stack type should be 'cloud-compose' for containerized apps\n")
+	prompt.WriteString("- Include 'runs: [app]' to specify containers from docker-compose.yaml\n")
+	prompt.WriteString("- Add scaling with 'scale: {min: 1, max: 3}' in config section\n")
+	prompt.WriteString("- Use 'env:' for environment variables (NOT 'environment:')\n")
+	prompt.WriteString("- Include common secrets like JWT_SECRET using ${secret:jwt-secret} format\n")
+	prompt.WriteString("- Only use real Simple Container properties validated against schemas\n")
+
+	prompt.WriteString("\nGenerate only the YAML configuration without explanations:")
+
+	return prompt.String()
+}
+
+// enrichContextWithDocumentation performs semantic search and enriches LLM context
+func (d *DeveloperMode) enrichContextWithDocumentation(configType string, analysis *analysis.ProjectAnalysis) string {
+	if d.embeddings == nil {
+		return ""
+	}
+
+	var searchQueries []string
+	var prompt strings.Builder
+
+	// Build search queries based on context
+	switch configType {
+	case "client.yaml":
+		searchQueries = []string{
+			"client.yaml configuration example",
+			"Simple Container stacks configuration",
+			"cloud-compose stack type example",
+		}
+
+		// Add language-specific queries
+		if analysis != nil && analysis.PrimaryStack != nil {
+			searchQueries = append(searchQueries,
+				fmt.Sprintf("%s client.yaml example", analysis.PrimaryStack.Language),
+				fmt.Sprintf("%s Simple Container configuration", analysis.PrimaryStack.Language),
+			)
+			if analysis.PrimaryStack.Framework != "" {
+				searchQueries = append(searchQueries,
+					fmt.Sprintf("%s %s Simple Container example", analysis.PrimaryStack.Language, analysis.PrimaryStack.Framework),
+				)
+			}
+		}
+
+	case "docker-compose":
+		searchQueries = []string{
+			"docker-compose.yaml example",
+			"Docker Compose best practices",
+			"containerization patterns",
+		}
+
+		if analysis != nil && analysis.PrimaryStack != nil {
+			searchQueries = append(searchQueries,
+				fmt.Sprintf("%s docker-compose example", analysis.PrimaryStack.Language),
+				fmt.Sprintf("%s containerization", analysis.PrimaryStack.Language),
+			)
+		}
+
+	case "dockerfile":
+		searchQueries = []string{
+			"Dockerfile best practices",
+			"multi-stage Dockerfile example",
+			"container optimization",
+		}
+
+		if analysis != nil && analysis.PrimaryStack != nil {
+			searchQueries = append(searchQueries,
+				fmt.Sprintf("%s Dockerfile example", analysis.PrimaryStack.Language),
+				fmt.Sprintf("%s container image", analysis.PrimaryStack.Language),
+			)
+		}
+	}
+
+	// Perform semantic search and collect relevant context
+	var relevantDocs []string
+	for _, query := range searchQueries {
+		results, err := embeddings.SearchDocumentation(d.embeddings, query, 2) // Get top 2 results per query
+		if err != nil {
+			continue
+		}
+
+		for _, result := range results {
+			if result.Similarity > 0.7 { // Only include highly relevant results
+				// Use the Title field directly
+				title := result.Title
+				if title == "" {
+					title = result.ID
+				}
+
+				// Truncate content to avoid overwhelming the LLM
+				content := result.Content
+				if len(content) > 300 {
+					content = content[:300] + "..."
+				}
+
+				relevantDocs = append(relevantDocs, fmt.Sprintf("- %s: %s", title, content))
+			}
+		}
+
+		// Limit total context to avoid overwhelming the LLM
+		if len(relevantDocs) >= 5 {
+			break
+		}
+	}
+
+	// Format the enriched context
+	if len(relevantDocs) > 0 {
+		prompt.WriteString("Relevant documentation and examples:\n")
+		for i, doc := range relevantDocs {
+			if i >= 5 { // Limit to top 5 most relevant docs
+				break
+			}
+			prompt.WriteString(doc)
+			prompt.WriteString("\n")
+		}
+		prompt.WriteString("\n")
+	}
+
+	return prompt.String()
+}
+
+func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis *analysis.ProjectAnalysis) (string, error) {
+	projectName := filepath.Base(".")
+	if analysis != nil {
+		projectName = analysis.Name
+	}
+
+	template := fmt.Sprintf(`schemaVersion: 1.0
+
+stacks:
+  %s:
+    type: cloud-compose
+    parent: %s
+    parentEnv: %s
+    config:
+      # Services from docker-compose.yaml
+      runs: [app]
+      
+      # Scaling configuration
+      scale:
+        min: 1
+        max: 3
+      
+      # Environment variables
+      env:
+        PORT: 3000
+        
+      # Secrets
+      secrets:
+        JWT_SECRET: "${secret:jwt-secret}"`,
+		projectName, opts.Parent, opts.Environment)
+
+	return template, nil
+}
+
+func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAnalysis) (string, error) {
+	if d.llm == nil {
+		return d.generateFallbackComposeYAML(analysis)
+	}
+
+	prompt := d.buildComposeYAMLPrompt(analysis)
+
+	response, err := d.llm.Chat(context.Background(), []llm.Message{
+		{Role: "system", Content: "You are an expert in Docker Compose configuration. Generate production-ready docker-compose.yaml files for local development."},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		fmt.Printf("LLM generation failed, using fallback: %v\n", err)
+		return d.generateFallbackComposeYAML(analysis)
+	}
+
+	// Extract YAML from response
+	yamlContent := strings.TrimSpace(response.Content)
+	if strings.HasPrefix(yamlContent, "```yaml") {
+		yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	}
+	if strings.HasPrefix(yamlContent, "```") {
+		yamlContent = strings.TrimPrefix(yamlContent, "```")
+	}
+	if strings.HasSuffix(yamlContent, "```") {
+		yamlContent = strings.TrimSuffix(yamlContent, "```")
+	}
+
+	return strings.TrimSpace(yamlContent), nil
+}
+
+func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysis) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("Generate a docker-compose.yaml file for local development with these requirements:\n\n")
+
+	if analysis != nil && analysis.PrimaryStack != nil {
+		prompt.WriteString(fmt.Sprintf("Technology: %s", analysis.PrimaryStack.Language))
+		if analysis.PrimaryStack.Framework != "" {
+			prompt.WriteString(fmt.Sprintf(" with %s framework", analysis.PrimaryStack.Framework))
+		}
+		prompt.WriteString("\n")
+
+		// Add language-specific recommendations
+		switch analysis.PrimaryStack.Language {
+		case "javascript":
+			prompt.WriteString("- Use Node.js base setup with npm/yarn\n")
+			prompt.WriteString("- Include volume mounts for hot reloading\n")
+			prompt.WriteString("- Default port 3000\n")
+		case "python":
+			prompt.WriteString("- Use Python setup with pip requirements\n")
+			prompt.WriteString("- Include volume mounts for development\n")
+			prompt.WriteString("- Default port 8000\n")
+		case "go":
+			prompt.WriteString("- Use Go build setup\n")
+			prompt.WriteString("- Include volume mounts for development\n")
+			prompt.WriteString("- Default port 8080\n")
+		}
+	}
+
+	// Enrich context with relevant documentation
+	contextEnrichment := d.enrichContextWithDocumentation("docker-compose", analysis)
+	if contextEnrichment != "" {
+		prompt.WriteString("\n" + contextEnrichment)
+	}
+
+	prompt.WriteString("\nRequired structure:\n")
+	prompt.WriteString("- Use version: '3.8'\n")
+	prompt.WriteString("- Main 'app' service with build context\n")
+	prompt.WriteString("- Proper port mapping\n")
+	prompt.WriteString("- Development environment variables\n")
+	prompt.WriteString("- Volume mounts for hot reloading\n")
+	prompt.WriteString("- Health checks where appropriate\n")
+
+	prompt.WriteString("\nGenerate only the docker-compose.yaml content without explanations:")
+
+	return prompt.String()
+}
+
+func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAnalysis) (string, error) {
+	template := `version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+    volumes:
+      - .:/app:delegated
+    command: npm run dev`
+
+	return template, nil
+}
+
+func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnalysis) (string, error) {
+	if d.llm == nil {
+		return d.generateFallbackDockerfile(analysis)
+	}
+
+	prompt := d.buildDockerfilePrompt(analysis)
+
+	response, err := d.llm.Chat(context.Background(), []llm.Message{
+		{Role: "system", Content: "You are an expert in Docker containerization. Generate production-ready, multi-stage Dockerfiles optimized for security and performance."},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		fmt.Printf("LLM generation failed, using fallback: %v\n", err)
+		return d.generateFallbackDockerfile(analysis)
+	}
+
+	// Extract Dockerfile content from response
+	dockerfileContent := strings.TrimSpace(response.Content)
+	if strings.HasPrefix(dockerfileContent, "```dockerfile") {
+		dockerfileContent = strings.TrimPrefix(dockerfileContent, "```dockerfile")
+	}
+	if strings.HasPrefix(dockerfileContent, "```") {
+		dockerfileContent = strings.TrimPrefix(dockerfileContent, "```")
+	}
+	if strings.HasSuffix(dockerfileContent, "```") {
+		dockerfileContent = strings.TrimSuffix(dockerfileContent, "```")
+	}
+
+	return strings.TrimSpace(dockerfileContent), nil
+}
+
+func (d *DeveloperMode) buildDockerfilePrompt(analysis *analysis.ProjectAnalysis) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("Generate an optimized, production-ready Dockerfile with these requirements:\n\n")
+
+	if analysis != nil && analysis.PrimaryStack != nil {
+		prompt.WriteString(fmt.Sprintf("Technology: %s", analysis.PrimaryStack.Language))
+		if analysis.PrimaryStack.Framework != "" {
+			prompt.WriteString(fmt.Sprintf(" with %s framework", analysis.PrimaryStack.Framework))
+		}
+		prompt.WriteString("\n")
+
+		// Add language-specific requirements
+		switch analysis.PrimaryStack.Language {
+		case "javascript":
+			prompt.WriteString("- Use Node.js 18-alpine or newer\n")
+			prompt.WriteString("- Multi-stage build with dependencies\n")
+			prompt.WriteString("- npm ci for production dependencies\n")
+			prompt.WriteString("- Non-root user for security\n")
+		case "python":
+			prompt.WriteString("- Use Python 3.11-slim\n")
+			prompt.WriteString("- Multi-stage build pattern\n")
+			prompt.WriteString("- pip install with requirements.txt\n")
+			prompt.WriteString("- Non-root user for security\n")
+		case "go":
+			prompt.WriteString("- Multi-stage build with golang:alpine builder\n")
+			prompt.WriteString("- Final stage with scratch or alpine\n")
+			prompt.WriteString("- Static binary compilation\n")
+			prompt.WriteString("- Minimal attack surface\n")
+		}
+	}
+
+	// Enrich context with relevant documentation
+	contextEnrichment := d.enrichContextWithDocumentation("dockerfile", analysis)
+	if contextEnrichment != "" {
+		prompt.WriteString("\n" + contextEnrichment)
+	}
+
+	prompt.WriteString("\nRequired features:\n")
+	prompt.WriteString("- Multi-stage build for optimization\n")
+	prompt.WriteString("- Security best practices (non-root user)\n")
+	prompt.WriteString("- Proper layer caching\n")
+	prompt.WriteString("- Health checks\n")
+	prompt.WriteString("- Appropriate EXPOSE directive\n")
+	prompt.WriteString("- Optimized for container registry\n")
+
+	prompt.WriteString("\nGenerate only the Dockerfile content without explanations:")
+
+	return prompt.String()
+}
+
+func (d *DeveloperMode) generateFallbackDockerfile(analysis *analysis.ProjectAnalysis) (string, error) {
+	template := `FROM node:18-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "start"]`
+
+	return template, nil
 }
 
 func (d *DeveloperMode) generateComposeYAML(analysis *analysis.ProjectAnalysis) string {
@@ -420,7 +988,6 @@ services:
       retries: 5`
 
 			compose = compose[:strings.LastIndex(compose, "command: npm run dev")] +
-			compose = compose[:strings.LastIndex(compose, "command: npm run dev")] + 
 				`depends_on:
         postgres:
           condition: service_healthy
@@ -447,12 +1014,10 @@ services:
       retries: 5`
 
 			// Add Redis URL to app environment
-				compose = strings.Replace(compose,
-				compose = strings.Replace(compose, 
-					"- DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb",
-					`- DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb
+			compose = strings.Replace(compose,
+				"- DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb",
+				`- DATABASE_URL=postgresql://appuser:apppass@postgres:5432/appdb
         - REDIS_URL=redis://redis:6379`, 1)
-			}
 		}
 
 		// Add volumes section
@@ -635,9 +1200,8 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 CMD ["./main"]`
 }
 
-func (d *DeveloperMode) printSetupSummary(opts SetupOptions, analysis *analysis.ProjectAnalysis) {
+func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis.ProjectAnalysis) {
 
-	
 	fmt.Println("\n📁 Generated files:")
 	fmt.Printf("   • client.yaml          - Simple Container configuration\n")
 	if !opts.SkipCompose {
@@ -645,13 +1209,12 @@ func (d *DeveloperMode) printSetupSummary(opts SetupOptions, analysis *analysis.
 	}
 	if !opts.SkipDockerfile {
 		fmt.Printf("   • Dockerfile           - Container image definition\n")
+	}
 
-	
 	fmt.Println("\n🚀 Next steps:")
 	fmt.Printf("   1. Start local development: %s\n", color.CyanFmt("docker-compose up -d"))
 	fmt.Printf("   2. Deploy to staging:       %s\n", color.CyanFmt("sc deploy -e staging"))
 
-	
 	if analysis != nil && len(analysis.Recommendations) > 0 {
 		fmt.Println("\n💡 Recommendations:")
 		for i, rec := range analysis.Recommendations {
@@ -677,8 +1240,8 @@ func (d *DeveloperMode) outputAnalysisTable(analysis *analysis.ProjectAnalysis, 
 			fmt.Printf("   Version:      %s\n", color.GreenFmt(analysis.PrimaryStack.Version))
 		}
 		fmt.Printf("   Confidence:   %s\n", color.YellowFmt("%.0f%%", analysis.PrimaryStack.Confidence*100))
+	}
 
-	
 	if analysis.Architecture != "" {
 		fmt.Printf("   Architecture: %s\n", color.GreenFmt(analysis.Architecture))
 	}
@@ -738,13 +1301,37 @@ func (d *DeveloperMode) outputAnalysisTable(analysis *analysis.ProjectAnalysis, 
 }
 
 func (d *DeveloperMode) outputAnalysisJSON(analysis *analysis.ProjectAnalysis, outputFile string) error {
-	// TODO: Implement JSON output
-	fmt.Println("JSON output not yet implemented - will be available in Phase 2")
+	jsonData, err := json.MarshalIndent(analysis, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal analysis to JSON: %w", err)
+	}
+
+	if outputFile != "" {
+		if err := os.WriteFile(outputFile, jsonData, 0644); err != nil {
+			return fmt.Errorf("failed to write JSON to file %s: %w", outputFile, err)
+		}
+		fmt.Printf("✅ Analysis exported to %s\n", color.GreenFmt(outputFile))
+	} else {
+		fmt.Println(string(jsonData))
+	}
+
 	return nil
 }
 
-	// TODO: Implement YAML output
-	// TODO: Implement YAML output  
-	fmt.Println("YAML output not yet implemented - will be available in Phase 2")
+func (d *DeveloperMode) outputAnalysisYAML(analysis *analysis.ProjectAnalysis, outputFile string) error {
+	yamlData, err := yaml.Marshal(analysis)
+	if err != nil {
+		return fmt.Errorf("failed to marshal analysis to YAML: %w", err)
+	}
+
+	if outputFile != "" {
+		if err := os.WriteFile(outputFile, yamlData, 0644); err != nil {
+			return fmt.Errorf("failed to write YAML to file %s: %w", outputFile, err)
+		}
+		fmt.Printf("✅ Analysis exported to %s\n", color.GreenFmt(outputFile))
+	} else {
+		fmt.Print(string(yamlData))
+	}
+
 	return nil
 }

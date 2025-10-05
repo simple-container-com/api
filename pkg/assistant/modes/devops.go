@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
@@ -563,8 +565,54 @@ func (d *DevOpsMode) addResource(opts ResourceOptions) error {
 	fmt.Printf("➕ Adding %s resource to %s environment\n",
 		color.GreenFmt(opts.ResourceType), color.CyanFmt(opts.Environment))
 
-	// TODO: Implement actual resource addition
-	fmt.Println("Resource addition will be implemented in Phase 2")
+	// Find server.yaml file in .sc/stacks directory
+	serverYamlPath, err := d.findServerYaml()
+	if err != nil {
+		return fmt.Errorf("failed to find server.yaml: %w", err)
+	}
+
+	// Read and parse server.yaml
+	data, err := os.ReadFile(serverYamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read server.yaml: %w", err)
+	}
+
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse server.yaml: %w", err)
+	}
+
+	// Ensure resources section exists
+	if config["resources"] == nil {
+		config["resources"] = make(map[string]interface{})
+	}
+
+	resources := config["resources"].(map[string]interface{})
+
+	// Ensure environment section exists
+	if resources[opts.Environment] == nil {
+		resources[opts.Environment] = make(map[string]interface{})
+	}
+
+	envResources := resources[opts.Environment].(map[string]interface{})
+
+	// Create new resource based on type
+	newResource := d.createResourceTemplate(opts.ResourceType, opts.ResourceName)
+	envResources[opts.ResourceName] = newResource
+
+	// Write back to file
+	updatedData, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated config: %w", err)
+	}
+
+	if err := os.WriteFile(serverYamlPath, updatedData, 0644); err != nil {
+		return fmt.Errorf("failed to write server.yaml: %w", err)
+	}
+
+	fmt.Printf("   %s Added %s resource '%s' to %s environment\n",
+		color.GreenFmt("✓"), opts.ResourceType, opts.ResourceName, opts.Environment)
+
 	return nil
 }
 
@@ -572,8 +620,55 @@ func (d *DevOpsMode) removeResource(opts ResourceOptions) error {
 	fmt.Printf("➖ Removing %s resource from %s environment\n",
 		color.RedFmt(opts.ResourceName), color.CyanFmt(opts.Environment))
 
-	// TODO: Implement actual resource removal
-	fmt.Println("Resource removal will be implemented in Phase 2")
+	// Find server.yaml file in .sc/stacks directory
+	serverYamlPath, err := d.findServerYaml()
+	if err != nil {
+		return fmt.Errorf("failed to find server.yaml: %w", err)
+	}
+
+	// Read and parse server.yaml
+	data, err := os.ReadFile(serverYamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read server.yaml: %w", err)
+	}
+
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse server.yaml: %w", err)
+	}
+
+	// Navigate to resources section
+	resources, ok := config["resources"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("no resources section found in server.yaml")
+	}
+
+	envResources, ok := resources[opts.Environment].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("environment '%s' not found in resources", opts.Environment)
+	}
+
+	// Check if resource exists
+	if _, exists := envResources[opts.ResourceName]; !exists {
+		return fmt.Errorf("resource '%s' not found in %s environment", opts.ResourceName, opts.Environment)
+	}
+
+	// Remove the resource
+	delete(envResources, opts.ResourceName)
+
+	// Write back to file
+	updatedData, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated config: %w", err)
+	}
+
+	if err := os.WriteFile(serverYamlPath, updatedData, 0644); err != nil {
+		return fmt.Errorf("failed to write server.yaml: %w", err)
+	}
+
+	fmt.Printf("   %s Removed resource '%s' from %s environment\n",
+		color.GreenFmt("✓"), opts.ResourceName, opts.Environment)
+
 	return nil
 }
 
@@ -581,9 +676,168 @@ func (d *DevOpsMode) updateResource(opts ResourceOptions) error {
 	fmt.Printf("🔄 Updating %s resource in %s environment\n",
 		color.YellowFmt(opts.ResourceName), color.CyanFmt(opts.Environment))
 
-	// TODO: Implement actual resource updates
-	fmt.Println("Resource updates will be implemented in Phase 2")
+	// Find server.yaml file in .sc/stacks directory
+	serverYamlPath, err := d.findServerYaml()
+	if err != nil {
+		return fmt.Errorf("failed to find server.yaml: %w", err)
+	}
+
+	// Read and parse server.yaml
+	data, err := os.ReadFile(serverYamlPath)
+	if err != nil {
+		return fmt.Errorf("failed to read server.yaml: %w", err)
+	}
+
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse server.yaml: %w", err)
+	}
+
+	// Navigate to resources section
+	resources, ok := config["resources"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("no resources section found in server.yaml")
+	}
+
+	envResources, ok := resources[opts.Environment].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("environment '%s' not found in resources", opts.Environment)
+	}
+
+	// Check if resource exists
+	existingResource, exists := envResources[opts.ResourceName]
+	if !exists {
+		return fmt.Errorf("resource '%s' not found in %s environment", opts.ResourceName, opts.Environment)
+	}
+
+	// Handle different update operations
+	if opts.CopyFromEnv != "" {
+		// Copy resource from another environment
+		sourceEnvResources, ok := resources[opts.CopyFromEnv].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("source environment '%s' not found", opts.CopyFromEnv)
+		}
+
+		sourceResource, exists := sourceEnvResources[opts.ResourceName]
+		if !exists {
+			return fmt.Errorf("resource '%s' not found in source environment '%s'", opts.ResourceName, opts.CopyFromEnv)
+		}
+
+		envResources[opts.ResourceName] = sourceResource
+		fmt.Printf("   %s Copied resource '%s' from %s to %s environment\n",
+			color.GreenFmt("✓"), opts.ResourceName, opts.CopyFromEnv, opts.Environment)
+	} else {
+		// Update resource properties (for now, just update the type if provided)
+		if opts.ResourceType != "" {
+			if resourceMap, ok := existingResource.(map[string]interface{}); ok {
+				resourceMap["type"] = opts.ResourceType
+				envResources[opts.ResourceName] = resourceMap
+			}
+		}
+		fmt.Printf("   %s Updated resource '%s' in %s environment\n",
+			color.GreenFmt("✓"), opts.ResourceName, opts.Environment)
+	}
+
+	// Write back to file
+	updatedData, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated config: %w", err)
+	}
+
+	if err := os.WriteFile(serverYamlPath, updatedData, 0644); err != nil {
+		return fmt.Errorf("failed to write server.yaml: %w", err)
+	}
+
 	return nil
+}
+
+// Helper methods for resource management
+
+func (d *DevOpsMode) findServerYaml() (string, error) {
+	// Look for server.yaml in .sc/stacks directory
+	stacksDir := ".sc/stacks"
+	if _, err := os.Stat(stacksDir); os.IsNotExist(err) {
+		return "", fmt.Errorf("no .sc/stacks directory found - run 'sc init' first")
+	}
+
+	var serverYamlPath string
+	err := filepath.Walk(stacksDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Name() == "server.yaml" {
+			serverYamlPath = path
+			return filepath.SkipDir // Stop searching once found
+		}
+		return nil
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("error searching for server.yaml: %w", err)
+	}
+
+	if serverYamlPath == "" {
+		return "", fmt.Errorf("no server.yaml found in .sc/stacks directory")
+	}
+
+	return serverYamlPath, nil
+}
+
+func (d *DevOpsMode) createResourceTemplate(resourceType, resourceName string) map[string]interface{} {
+	// Create a basic resource template based on the resource type
+	resource := map[string]interface{}{
+		"type": resourceType,
+	}
+
+	// Add type-specific default properties based on validated Simple Container schemas
+	switch resourceType {
+	case "s3-bucket":
+		resource["name"] = resourceName
+		resource["allowOnlyHttps"] = true
+	case "aws-rds-postgres":
+		resource["name"] = resourceName
+		resource["instanceClass"] = "db.t3.micro"
+		resource["allocateStorage"] = "20"
+		resource["engineVersion"] = "13.7"
+		resource["username"] = "postgres"
+		resource["databaseName"] = "main"
+	case "aws-rds-mysql":
+		resource["name"] = resourceName
+		resource["instanceClass"] = "db.t3.micro"
+		resource["allocateStorage"] = "20"
+		resource["engineVersion"] = "8.0"
+		resource["username"] = "admin"
+		resource["databaseName"] = "main"
+	case "gcp-bucket":
+		resource["name"] = resourceName
+		resource["location"] = "US"
+	case "gcp-cloudsql-postgres":
+		resource["name"] = resourceName
+		resource["region"] = "us-central1"
+		resource["tier"] = "db-f1-micro"
+	case "mongodb-atlas":
+		resource["name"] = resourceName
+		resource["instanceSize"] = "M10"
+		resource["region"] = "US_EAST_1"
+		resource["cloudProvider"] = "AWS"
+	case "k8s-helm-postgres":
+		resource["name"] = resourceName
+		resource["chart"] = "postgresql"
+		resource["repo"] = "https://charts.bitnami.com/bitnami"
+	case "k8s-helm-redis":
+		resource["name"] = resourceName
+		resource["chart"] = "redis"
+		resource["repo"] = "https://charts.bitnami.com/bitnami"
+	case "k8s-helm-rabbitmq":
+		resource["name"] = resourceName
+		resource["chart"] = "rabbitmq"
+		resource["repo"] = "https://charts.bitnami.com/bitnami"
+	default:
+		// For unknown types, just provide the basic structure
+		resource["name"] = resourceName
+	}
+
+	return resource
 }
 
 // Secrets management methods

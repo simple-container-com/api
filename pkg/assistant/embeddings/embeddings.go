@@ -2,6 +2,8 @@ package embeddings
 
 import (
 	"context"
+	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -12,6 +14,12 @@ import (
 
 	chromem "github.com/philippgille/chromem-go"
 )
+
+//go:embed docs/**/*.md
+var embeddedDocs embed.FS
+
+//go:embed vectors/prebuilt_embeddings.json
+var embeddedVectors []byte
 
 // Database represents an embedded vector database using chromem-go
 type Database struct {
@@ -26,21 +34,34 @@ type SearchResult struct {
 	Score      float64                `json:"score"`
 	Similarity float64                `json:"similarity"`
 	Metadata   map[string]interface{} `json:"metadata"`
+	Title      string                 `json:"title"`
 }
 
-// LoadEmbeddedDatabase loads or creates the documentation database
+// EmbeddedDocument represents a pre-embedded document
+type EmbeddedDocument struct {
+	ID        string                 `json:"id"`
+	Content   string                 `json:"content"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	Embedding []float32              `json:"embedding"`
+}
+
+// PrebuiltEmbeddings represents the embedded vectors data
+type PrebuiltEmbeddings struct {
+	Version   string             `json:"version"`
+	Documents []EmbeddedDocument `json:"documents"`
+}
+
+// LoadEmbeddedDatabase loads the pre-built documentation database from embedded data
 func LoadEmbeddedDatabase() (*Database, error) {
 	// Initialize chromem-go database
 	db := chromem.NewDB()
 
-	// Create a simple local embedding function (basic word count vectors)
+	// Create a simple local embedding function (for new documents if needed)
 	embeddingFunc := func(ctx context.Context, text string) ([]float32, error) {
-		// Simple embedding based on text characteristics
-		// This is a placeholder - in production you'd want a proper embedding model
 		return createSimpleEmbedding(text), nil
 	}
 
-	// Create or get documentation collection with local embedding function
+	// Create documentation collection with local embedding function
 	collection, err := db.GetOrCreateCollection("simple-container-docs", nil, embeddingFunc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create collection: %w", err)
@@ -51,9 +72,13 @@ func LoadEmbeddedDatabase() (*Database, error) {
 		db:         db,
 	}
 
-	// Initialize with documentation if empty
-	if err := database.initializeIfEmpty(); err != nil {
-		log.Printf("Warning: Failed to initialize documentation database: %v", err)
+	// Load pre-built embeddings if available, otherwise build from embedded docs
+	if err := database.loadPrebuiltEmbeddings(); err != nil {
+		log.Printf("Warning: Failed to load pre-built embeddings, building from embedded docs: %v", err)
+		if err := database.loadFromEmbeddedDocs(); err != nil {
+			log.Printf("Warning: Failed to load from embedded docs: %v", err)
+			return database, nil // Return empty database instead of failing
+		}
 	}
 
 	return database, nil
@@ -93,19 +118,139 @@ func SearchDocumentation(db *Database, query string, limit int) ([]SearchResult,
 			metadata["path"] = result.ID
 		}
 
+		// Extract title for easy access
+		title := result.ID
+		if titleVal, ok := metadata["title"]; ok {
+			if titleStr, ok := titleVal.(string); ok {
+				title = titleStr
+			}
+		}
+
 		searchResults[i] = SearchResult{
 			ID:         result.ID,
 			Content:    result.Content,
 			Score:      float64(result.Similarity),
 			Similarity: float64(result.Similarity),
 			Metadata:   metadata,
+			Title:      title,
 		}
 	}
 
 	return searchResults, nil
 }
 
-// initializeIfEmpty loads documentation into the database if it's empty
+// loadPrebuiltEmbeddings loads pre-built embeddings from embedded data
+func (db *Database) loadPrebuiltEmbeddings() error {
+	if len(embeddedVectors) == 0 {
+		return fmt.Errorf("no embedded vectors data available")
+	}
+
+	var prebuilt PrebuiltEmbeddings
+	if err := json.Unmarshal(embeddedVectors, &prebuilt); err != nil {
+		return fmt.Errorf("failed to unmarshal embedded vectors: %w", err)
+	}
+
+	// Add each pre-built document to the collection
+	for _, doc := range prebuilt.Documents {
+		// Convert metadata to string map for chromem
+		stringMetadata := make(map[string]string)
+		for k, v := range doc.Metadata {
+			if str, ok := v.(string); ok {
+				stringMetadata[k] = str
+			} else {
+				stringMetadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+
+		// Add document with pre-computed embedding
+		err := db.collection.AddDocument(context.Background(), chromem.Document{
+			ID:        doc.ID,
+			Content:   doc.Content,
+			Metadata:  stringMetadata,
+			Embedding: doc.Embedding,
+		})
+		if err != nil {
+			log.Printf("Warning: Failed to add pre-built document %s: %v", doc.ID, err)
+		}
+	}
+
+	log.Printf("Loaded %d pre-built embeddings", len(prebuilt.Documents))
+	return nil
+}
+
+// loadFromEmbeddedDocs builds embeddings from embedded markdown files
+func (db *Database) loadFromEmbeddedDocs() error {
+	// Walk through embedded documentation files
+	return db.walkEmbeddedDocs("docs", func(path string, content []byte) error {
+		// Skip non-markdown files
+		if !strings.HasSuffix(strings.ToLower(path), ".md") {
+			return nil
+		}
+
+		// Create relative path for ID
+		id := strings.TrimPrefix(path, "docs/")
+		id = strings.ReplaceAll(id, "\\", "/") // Normalize path separators
+
+		// Extract title from first heading or use filename
+		title := extractTitleFromMarkdown(string(content))
+		if title == "" {
+			title = strings.TrimSuffix(filepath.Base(path), ".md")
+		}
+
+		// Create metadata
+		metadata := map[string]string{
+			"title": title,
+			"path":  id,
+			"type":  "documentation",
+		}
+
+		// Add document to collection (embedding will be computed automatically)
+		err := db.collection.AddDocument(context.Background(), chromem.Document{
+			ID:       id,
+			Content:  string(content),
+			Metadata: metadata,
+		})
+		if err != nil {
+			log.Printf("Warning: Failed to add document %s: %v", id, err)
+		}
+
+		return nil
+	})
+}
+
+// walkEmbeddedDocs walks through embedded documentation files
+func (db *Database) walkEmbeddedDocs(root string, fn func(path string, content []byte) error) error {
+	entries, err := embeddedDocs.ReadDir(root)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+
+		if entry.IsDir() {
+			// Recursively walk subdirectories
+			if err := db.walkEmbeddedDocs(path, fn); err != nil {
+				return err
+			}
+		} else {
+			// Read file content
+			content, err := embeddedDocs.ReadFile(path)
+			if err != nil {
+				log.Printf("Warning: Failed to read embedded file %s: %v", path, err)
+				continue
+			}
+
+			if err := fn(path, content); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// initializeIfEmpty loads documentation into the database if it's empty (legacy method)
 func (db *Database) initializeIfEmpty() error {
 	// Check if collection already has documents
 	count := db.collection.Count()
@@ -465,6 +610,14 @@ func normalizeVector(vec []float32) []float32 {
 	}
 
 	return normalized
+}
+
+// Count returns the number of documents in the database
+func (db *Database) Count() int {
+	if db == nil || db.collection == nil {
+		return 0
+	}
+	return db.collection.Count()
 }
 
 // DB alias for backward compatibility
