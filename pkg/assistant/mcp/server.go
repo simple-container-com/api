@@ -700,7 +700,7 @@ func (h *DefaultMCPHandler) GenerateConfiguration(ctx context.Context, params Ge
 }
 
 func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzeProjectParams) (*ProjectAnalysis, error) {
-	// Use existing project analysis
+	// Use existing project analysis (LLM enhancement can be added via SetLLMProvider)
 	analyzer := analysis.NewProjectAnalyzer()
 	projectInfo, err := analyzer.AnalyzeProject(params.Path)
 	if err != nil {

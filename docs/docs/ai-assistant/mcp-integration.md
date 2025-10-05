@@ -224,6 +224,15 @@ printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024
 - **`get_project_context`**: Returns basic project info and Simple Container configuration status
 - **`analyze_project`**: Returns detailed tech stack analysis, recommendations, and architectural insights
 
+**🤖 LLM Enhancement Available:**
+The `analyze_project` tool now supports optional LLM enhancement for:
+- **Smarter Architecture Detection**: AI-powered validation of detected patterns
+- **Context-Aware Recommendations**: Deployment and optimization suggestions based on Simple Container best practices
+- **Performance Insights**: AI-generated performance and cost optimization recommendations
+- **Integration Guidance**: Specific Simple Container resource recommendations and migration strategies
+
+*Note: LLM enhancement requires API keys and is optional - the analyzer works fully without it.*
+
 ### **1. Search Documentation**
 
 Search Simple Container documentation using semantic similarity:
