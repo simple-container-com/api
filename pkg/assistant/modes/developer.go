@@ -676,7 +676,8 @@ CRITICAL INSTRUCTIONS:
 ✅ DEPLOYMENT TYPES: cloud-compose, static, single-image
 ✅ cloud-compose: Multi-container (dockerComposeFile, runs, env, secrets, scale, uses)
 ✅ static: Static websites (bundleDir, indexDocument, errorDocument)
-✅ single-image: Single container (template, image, timeout, maxMemory)
+✅ single-image: Single container (template, image.dockerfile, timeout, maxMemory)
+✅ single-image MUST include image.dockerfile: ${git:root}/Dockerfile (REQUIRED)
 ✅ config section can contain: runs, env, secrets, scale, uses, dependencies
 ✅ scale uses: {min: number, max: number} structure only
 ✅ env: for environment variables (NOT environment)
@@ -780,7 +781,8 @@ CRITICAL INSTRUCTIONS:
 ✅ DEPLOYMENT TYPES: cloud-compose, static, single-image
 ✅ cloud-compose: Multi-container (dockerComposeFile, runs, env, secrets, scale, uses)
 ✅ static: Static websites (bundleDir, indexDocument, errorDocument)
-✅ single-image: Single container (template, image, timeout, maxMemory)
+✅ single-image: Single container (template, image.dockerfile, timeout, maxMemory)
+✅ single-image MUST include image.dockerfile: ${git:root}/Dockerfile (REQUIRED)
 ✅ config section can contain: runs, env, secrets, scale, uses, dependencies
 ✅ scale uses: {min: number, max: number} structure only
 ✅ env: for environment variables (NOT environment)
@@ -944,7 +946,8 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("- ${resource:name.connectionString} (fictional property - use .url instead)\n")
 	prompt.WriteString("- Missing dockerComposeFile property (REQUIRED for cloud-compose stacks)\n")
 	prompt.WriteString("\n✅ CORRECT PATTERNS:\n")
-	prompt.WriteString("- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED - references ${project:root}/docker-compose.yaml)\n")
+	prompt.WriteString("- ALWAYS include dockerComposeFile: docker-compose.yaml (REQUIRED for cloud-compose - references ${project:root}/docker-compose.yaml)\n")
+	prompt.WriteString("- ALWAYS include image.dockerfile: ${git:root}/Dockerfile (REQUIRED for single-image deployments)\n")
 	prompt.WriteString("- Optional: domain property for DNS routing (requires registrar in server.yaml)\n")
 	prompt.WriteString("- Resource consumption: uses: [resource-name] + ${resource:name.url}\n")
 	prompt.WriteString("- Manual secrets: Use ${secret:name} for parent-defined secrets only\n")
