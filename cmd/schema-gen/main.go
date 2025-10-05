@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 
 	"golang.org/x/text/cases"
@@ -48,6 +50,68 @@ type SchemaGenerator struct {
 
 func NewSchemaGenerator(outputDir string) *SchemaGenerator {
 	return &SchemaGenerator{outputDir: outputDir}
+}
+
+// marshalJSONDeterministic marshals data to JSON with deterministic ordering
+func marshalJSONDeterministic(data interface{}) ([]byte, error) {
+	// First, normalize the data structure to ensure consistent ordering
+	normalized := normalizeForJSON(data)
+
+	// Use a buffer to build JSON with consistent formatting
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetIndent("", "  ")
+	encoder.SetEscapeHTML(false)
+
+	if err := encoder.Encode(normalized); err != nil {
+		return nil, err
+	}
+
+	// Remove the trailing newline added by Encode
+	result := buf.Bytes()
+	if len(result) > 0 && result[len(result)-1] == '\n' {
+		result = result[:len(result)-1]
+	}
+
+	return result, nil
+}
+
+// normalizeForJSON recursively sorts all maps and slices for deterministic output
+func normalizeForJSON(data interface{}) interface{} {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		// Create a new map and process keys in sorted order
+		normalized := make(map[string]interface{})
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			normalized[k] = normalizeForJSON(v[k])
+		}
+		return normalized
+
+	case []interface{}:
+		// Process each element in the slice
+		normalized := make([]interface{}, len(v))
+		for i, item := range v {
+			normalized[i] = normalizeForJSON(item)
+		}
+		return normalized
+
+	case []string:
+		// Sort string slices for consistency
+		normalized := make([]string, len(v))
+		copy(normalized, v)
+		sort.Strings(normalized)
+		return normalized
+
+	default:
+		// For primitive types, return as-is
+		return v
+	}
 }
 
 func (sg *SchemaGenerator) Generate() error {
@@ -100,7 +164,16 @@ func (sg *SchemaGenerator) discoverRegisteredResources() ([]ResourceDefinition, 
 
 	// Get all registered provider configurations (resources, templates, auth)
 	providerConfigs := api.GetRegisteredProviderConfigs()
-	for resourceType, readerFunc := range providerConfigs {
+
+	// Sort resource types for consistent ordering
+	var resourceTypes []string
+	for resourceType := range providerConfigs {
+		resourceTypes = append(resourceTypes, resourceType)
+	}
+	sort.Strings(resourceTypes)
+
+	for _, resourceType := range resourceTypes {
+		readerFunc := providerConfigs[resourceType]
 		// Create a dummy config to call the reader function and get the struct type
 		dummyConfig := &api.Config{Config: make(map[string]interface{})}
 		result, err := readerFunc(dummyConfig)
@@ -138,7 +211,16 @@ func (sg *SchemaGenerator) discoverRegisteredResources() ([]ResourceDefinition, 
 
 	// Get all registered provisioner field configurations
 	provisionerConfigs := api.GetRegisteredProvisionerFieldConfigs()
-	for resourceType, readerFunc := range provisionerConfigs {
+
+	// Sort provisioner resource types for consistent ordering
+	var provisionerResourceTypes []string
+	for resourceType := range provisionerConfigs {
+		provisionerResourceTypes = append(provisionerResourceTypes, resourceType)
+	}
+	sort.Strings(provisionerResourceTypes)
+
+	for _, resourceType := range provisionerResourceTypes {
+		readerFunc := provisionerConfigs[resourceType]
 		dummyConfig := &api.Config{Config: make(map[string]interface{})}
 		result, err := readerFunc(dummyConfig)
 		if err != nil {
@@ -166,6 +248,11 @@ func (sg *SchemaGenerator) discoverRegisteredResources() ([]ResourceDefinition, 
 			resources = append(resources, resourceDef)
 		}
 	}
+
+	// Sort all resources by name for consistent ordering
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].Name < resources[j].Name
+	})
 
 	fmt.Printf("Discovered %d registered resources dynamically\n", len(resources))
 	return resources, nil
@@ -359,8 +446,8 @@ func (sg *SchemaGenerator) generateSchemaFile(resource ResourceDefinition) error
 		Schema:       schema,
 	}
 
-	// Marshal to JSON with pretty printing
-	jsonData, err := json.MarshalIndent(resourceDef, "", "  ")
+	// Marshal to JSON with deterministic ordering
+	jsonData, err := marshalJSONDeterministic(resourceDef)
 	if err != nil {
 		return err
 	}
@@ -389,8 +476,22 @@ func (sg *SchemaGenerator) generateJSONSchema(t reflect.Type) map[string]interfa
 
 	// Process struct fields
 	if t.Kind() == reflect.Struct {
+		// Create a slice to sort fields by name for consistent ordering
+		type fieldInfo struct {
+			field reflect.StructField
+			index int
+		}
+		var fields []fieldInfo
 		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
+			fields = append(fields, fieldInfo{field: t.Field(i), index: i})
+		}
+		// Sort fields by name for consistent ordering
+		sort.Slice(fields, func(i, j int) bool {
+			return fields[i].field.Name < fields[j].field.Name
+		})
+
+		for _, fieldInfo := range fields {
+			field := fieldInfo.field
 
 			// Skip unexported fields
 			if !field.IsExported() {
@@ -424,6 +525,12 @@ func (sg *SchemaGenerator) generateJSONSchema(t reflect.Type) map[string]interfa
 				schema["required"] = append(required, fieldName)
 			}
 		}
+	}
+
+	// Sort the required fields for consistent ordering
+	if required, ok := schema["required"].([]string); ok {
+		sort.Strings(required)
+		schema["required"] = required
 	}
 
 	return schema
@@ -475,15 +582,27 @@ func (sg *SchemaGenerator) generateIndexFiles(resources []ResourceDefinition) er
 		byProvider[resource.Provider] = append(byProvider[resource.Provider], resource)
 	}
 
-	// Generate index for each provider
-	for provider, providerResources := range byProvider {
+	// Generate index for each provider (sort providers for consistent ordering)
+	var providers []string
+	for provider := range byProvider {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+
+	for _, provider := range providers {
+		providerResources := byProvider[provider]
+
+		// Sort resources within provider for consistent ordering
+		sort.Slice(providerResources, func(i, j int) bool {
+			return providerResources[i].Name < providerResources[j].Name
+		})
 		index := map[string]interface{}{
 			"provider":    provider,
 			"description": fmt.Sprintf("JSON Schema definitions for %s resources and templates", cases.Title(language.English).String(provider)),
 			"resources":   providerResources,
 		}
 
-		jsonData, err := json.MarshalIndent(index, "", "  ")
+		jsonData, err := marshalJSONDeterministic(index)
 		if err != nil {
 			return err
 		}
@@ -501,8 +620,9 @@ func (sg *SchemaGenerator) generateIndexFiles(resources []ResourceDefinition) er
 		"providers":   make(map[string]interface{}),
 	}
 
-	providers := globalIndex["providers"].(map[string]interface{})
-	for provider, providerResources := range byProvider {
+	providersMap := globalIndex["providers"].(map[string]interface{})
+	for _, provider := range providers {
+		providerResources := byProvider[provider]
 		var description string
 		if provider == "core" {
 			description = "Simple Container configuration file schemas (client.yaml, server.yaml, etc.)"
@@ -510,13 +630,13 @@ func (sg *SchemaGenerator) generateIndexFiles(resources []ResourceDefinition) er
 			description = fmt.Sprintf("%s cloud provider resources and templates", cases.Title(language.English).String(provider))
 		}
 
-		providers[provider] = map[string]interface{}{
+		providersMap[provider] = map[string]interface{}{
 			"count":       len(providerResources),
 			"description": description,
 		}
 	}
 
-	jsonData, err := json.MarshalIndent(globalIndex, "", "  ")
+	jsonData, err := marshalJSONDeterministic(globalIndex)
 	if err != nil {
 		return err
 	}
