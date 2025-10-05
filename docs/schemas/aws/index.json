@@ -3,16 +3,6 @@
   "provider": "aws",
   "resources": [
     {
-      "name": "SecretsProviderConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "gcp-secrets-manager",
-      "schema": {}
-    },
-    {
       "name": "AccountConfig",
       "type": "auth",
       "provider": "aws",
@@ -20,6 +10,26 @@
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "AccountConfig",
       "resourceType": "aws-token",
+      "schema": {}
+    },
+    {
+      "name": "EcrRepository",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS ecrrepository configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "EcrRepository",
+      "resourceType": "ecr-repository",
+      "schema": {}
+    },
+    {
+      "name": "MysqlConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS mysql configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "MysqlConfig",
+      "resourceType": "aws-rds-mysql",
       "schema": {}
     },
     {
@@ -33,16 +43,6 @@
       "schema": {}
     },
     {
-      "name": "SecretsConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsConfig",
-      "resourceType": "aws-secrets-manager",
-      "schema": {}
-    },
-    {
       "name": "S3Bucket",
       "type": "resource",
       "provider": "aws",
@@ -53,13 +53,43 @@
       "schema": {}
     },
     {
-      "name": "EcrRepository",
-      "type": "resource",
+      "name": "SecretsConfig",
+      "type": "secrets",
       "provider": "aws",
-      "description": "AWS ecrrepository configuration",
+      "description": "AWS secrets management configuration",
       "goPackage": "pkg/clouds/aws/",
-      "goStruct": "EcrRepository",
-      "resourceType": "ecr-repository",
+      "goStruct": "SecretsConfig",
+      "resourceType": "aws-secrets-manager",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "secrets",
+      "provider": "aws",
+      "description": "AWS secrets management configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-secrets-manager",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "provisioner",
+      "provider": "aws",
+      "description": "AWS secretsprovider configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "aws-kms",
+      "schema": {}
+    },
+    {
+      "name": "StateStorageConfig",
+      "type": "provisioner",
+      "provider": "aws",
+      "description": "AWS statestorage configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "StateStorageConfig",
+      "resourceType": "s3-bucket",
       "schema": {}
     },
     {
@@ -80,17 +110,8 @@
       "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "TemplateConfig",
-      "resourceType": "aws-static-website",
-      "schema": {}
-    },
-    {
-      "name": "MysqlConfig",
-      "type": "resource",
-      "provider": "aws",
-      "description": "AWS mysql configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "MysqlConfig",
-      "resourceType": "aws-rds-mysql",
+      "resourceType": "ecs-fargate",
+      "templateType": "ecs-fargate",
       "schema": {}
     },
     {
@@ -100,28 +121,7 @@
       "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "TemplateConfig",
-      "resourceType": "ecs-fargate",
-      "templateType": "ecs-fargate",
-      "schema": {}
-    },
-    {
-      "name": "StateStorageConfig",
-      "type": "provisioner",
-      "provider": "aws",
-      "description": "AWS statestorage configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "StateStorageConfig",
-      "resourceType": "s3-bucket",
-      "schema": {}
-    },
-    {
-      "name": "SecretsProviderConfig",
-      "type": "provisioner",
-      "provider": "aws",
-      "description": "AWS secretsprovider configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "aws-kms",
+      "resourceType": "aws-static-website",
       "schema": {}
     }
   ]

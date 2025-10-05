@@ -38,11 +38,11 @@
           }
         },
         "required": [
-          "account",
+          "",
           "accessKey",
-          "secretAccessKey",
+          "account",
           "region",
-          ""
+          "secretAccessKey"
         ],
         "type": "object"
       },
@@ -73,13 +73,13 @@
     },
     "required": [
       "",
-      "name",
-      "instanceClass",
       "allocateStorage",
+      "databaseName",
       "engineVersion",
-      "username",
+      "instanceClass",
+      "name",
       "password",
-      "databaseName"
+      "username"
     ],
     "type": "object"
   }

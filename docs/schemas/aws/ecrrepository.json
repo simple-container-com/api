@@ -38,11 +38,11 @@
           }
         },
         "required": [
-          "account",
+          "",
           "accessKey",
-          "secretAccessKey",
+          "account",
           "region",
-          ""
+          "secretAccessKey"
         ],
         "type": "object"
       },
@@ -85,18 +85,18 @@
                     }
                   },
                   "required": [
-                    "tagStatus",
+                    "countNumber",
                     "countType",
-                    "countNumber"
+                    "tagStatus"
                   ],
                   "type": "object"
                 }
               },
               "required": [
-                "rulePriority",
+                "action",
                 "description",
-                "selection",
-                "action"
+                "rulePriority",
+                "selection"
               ],
               "type": "object"
             },

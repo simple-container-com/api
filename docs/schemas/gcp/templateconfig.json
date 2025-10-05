@@ -5,7 +5,8 @@
   "description": "Google Cloud Platform deployment template configuration",
   "goPackage": "pkg/clouds/gcp/",
   "goStruct": "TemplateConfig",
-  "resourceType": "gcp-static-website",
+  "resourceType": "cloudrun",
+  "templateType": "cloudrun",
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {

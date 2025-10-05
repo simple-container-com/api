@@ -44,10 +44,10 @@
                   }
                 },
                 "required": [
-                  "threshold",
-                  "periodSec",
                   "alertName",
-                  "description"
+                  "description",
+                  "periodSec",
+                  "threshold"
                 ],
                 "type": "object"
               }
@@ -77,10 +77,10 @@
                   }
                 },
                 "required": [
-                  "threshold",
-                  "periodSec",
                   "alertName",
-                  "description"
+                  "description",
+                  "periodSec",
+                  "threshold"
                 ],
                 "type": "object"
               },
@@ -114,10 +114,10 @@
                   }
                 },
                 "required": [
-                  "threshold",
-                  "periodSec",
                   "alertName",
-                  "description"
+                  "description",
+                  "periodSec",
+                  "threshold"
                 ],
                 "type": "object"
               }
@@ -193,10 +193,10 @@
             }
           },
           "required": [
+            "env",
             "name",
             "owner",
-            "resource",
-            "env"
+            "resource"
           ],
           "type": "object"
         },
@@ -240,8 +240,8 @@
           }
         },
         "required": [
-          "https",
-          "extraHelpers"
+          "extraHelpers",
+          "https"
         ],
         "type": "object"
       },
@@ -302,8 +302,8 @@
           }
         },
         "required": [
-          "min",
           "max",
+          "min",
           "policy"
         ],
         "type": "object"
@@ -331,10 +331,10 @@
           }
         },
         "required": [
-          "name",
           "cpu",
+          "ephemeral",
           "memory",
-          "ephemeral"
+          "name"
         ],
         "type": "object"
       },
@@ -357,8 +357,8 @@
           },
           "required": [
             "content",
-            "name",
-            "mountPath"
+            "mountPath",
+            "name"
           ],
           "type": "object"
         },
@@ -375,24 +375,24 @@
       }
     },
     "required": [
+      "baseDnsZone",
+      "cloudExtras",
+      "clusterIPAddress",
       "dockerComposeFile",
       "domain",
+      "domainProxied",
+      "env",
+      "headers",
+      "imagePullPolicy",
+      "lbConfig",
       "prefix",
       "proxyKeepPrefix",
-      "domainProxied",
-      "baseDnsZone",
-      "uses",
       "runs",
-      "env",
       "secrets",
-      "version",
-      "textVolumes",
-      "headers",
-      "lbConfig",
-      "cloudExtras",
       "staticEgressIP",
-      "imagePullPolicy",
-      "clusterIPAddress"
+      "textVolumes",
+      "uses",
+      "version"
     ],
     "type": "object"
   }

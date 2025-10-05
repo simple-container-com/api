@@ -52,11 +52,11 @@
     },
     "required": [
       "",
-      "version",
-      "project",
       "memorySizeGb",
+      "project",
       "redisConfig",
-      "region"
+      "region",
+      "version"
     ],
     "type": "object"
   }

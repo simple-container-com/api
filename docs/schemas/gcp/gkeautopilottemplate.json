@@ -40,8 +40,8 @@
     },
     "required": [
       "",
-      "gkeClusterResource",
-      "artifactRegistryResource"
+      "artifactRegistryResource",
+      "gkeClusterResource"
     ],
     "type": "object"
   }

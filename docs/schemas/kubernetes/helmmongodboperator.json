@@ -12,27 +12,13 @@
       "": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
-          "namespace": {
+          "kubeconfig": {
             "type": "string"
-          },
-          "operatorNamespace": {
-            "type": "string"
-          },
-          "values": {
-            "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "object",
-                "array",
-                "null"
-              ]
-            },
-            "type": "object"
           }
         },
-        "required": [],
+        "required": [
+          "kubeconfig"
+        ],
         "type": "object"
       },
       "replicas": {

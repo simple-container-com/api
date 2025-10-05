@@ -64,9 +64,9 @@
             }
           },
           "required": [
-            "type",
             "",
-            ""
+            "",
+            "type"
           ],
           "type": "object"
         },
@@ -127,15 +127,15 @@
     },
     "required": [
       "admins",
+      "cloudProvider",
       "developers",
       "instanceSize",
       "orgId",
+      "privateKey",
       "projectId",
       "projectName",
-      "region",
-      "privateKey",
       "publicKey",
-      "cloudProvider"
+      "region"
     ],
     "type": "object"
   }

@@ -68,10 +68,10 @@
           },
           "required": [
             "name",
+            "proxied",
             "type",
-            "valueOut",
             "value",
-            "proxied"
+            "valueOut"
           ],
           "type": "object"
         },
@@ -83,8 +83,8 @@
     },
     "required": [
       "",
-      "zoneName",
-      "dnsRecords"
+      "dnsRecords",
+      "zoneName"
     ],
     "type": "object"
   }

@@ -13,6 +13,26 @@
       "schema": {}
     },
     {
+      "name": "ConfigFile",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container project configuration file schema",
+      "goPackage": "pkg/api/config.go",
+      "goStruct": "ConfigFile",
+      "resourceType": "project-config",
+      "schema": {}
+    },
+    {
+      "name": "ServerDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container server.yaml configuration file schema",
+      "goPackage": "pkg/api/server.go",
+      "goStruct": "ServerDescriptor",
+      "resourceType": "server-config",
+      "schema": {}
+    },
+    {
       "name": "StackConfigCompose",
       "type": "configuration",
       "provider": "core",
@@ -40,26 +60,6 @@
       "goPackage": "pkg/api/client.go",
       "goStruct": "StackConfigStatic",
       "resourceType": "stack-config-static",
-      "schema": {}
-    },
-    {
-      "name": "ServerDescriptor",
-      "type": "configuration",
-      "provider": "core",
-      "description": "Simple Container server.yaml configuration file schema",
-      "goPackage": "pkg/api/server.go",
-      "goStruct": "ServerDescriptor",
-      "resourceType": "server-config",
-      "schema": {}
-    },
-    {
-      "name": "ConfigFile",
-      "type": "configuration",
-      "provider": "core",
-      "description": "Simple Container project configuration file schema",
-      "goPackage": "pkg/api/config.go",
-      "goStruct": "ConfigFile",
-      "resourceType": "project-config",
       "schema": {}
     }
   ]
