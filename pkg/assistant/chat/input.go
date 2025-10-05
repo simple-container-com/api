@@ -142,6 +142,11 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 						h.printSuggestions(suggestions)
 						fmt.Print(prompt + input.String())
 						showingSuggestions = true
+					} else {
+						// Already showing suggestions, cycle through them or show again
+						fmt.Println()
+						h.printSuggestions(suggestions)
+						fmt.Print(prompt + input.String())
 					}
 				}
 			}
@@ -191,20 +196,86 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 // getCommandSuggestions returns command suggestions based on input
 func (h *InputHandler) getCommandSuggestions(input string) []string {
 	input = strings.TrimPrefix(input, "/")
-	input = strings.ToLower(input)
 	
+	// Check if input contains a space (subcommand)
+	parts := strings.Fields(input)
+	
+	if len(parts) > 1 {
+		// Subcommand suggestions
+		return h.getSubcommandSuggestions(parts[0], parts[1])
+	}
+	
+	// Command suggestions
+	inputLower := strings.ToLower(input)
 	var suggestions []string
 	
 	for cmdName, cmd := range h.commands {
 		// Check command name
-		if strings.HasPrefix(cmdName, input) {
+		if strings.HasPrefix(cmdName, inputLower) {
 			suggestions = append(suggestions, "/"+cmdName)
 		}
 		
 		// Check aliases
 		for _, alias := range cmd.Aliases {
-			if strings.HasPrefix(alias, input) {
+			if strings.HasPrefix(alias, inputLower) {
 				suggestions = append(suggestions, "/"+alias)
+			}
+		}
+	}
+	
+	return suggestions
+}
+
+// getSubcommandSuggestions returns subcommand suggestions for a command
+func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string {
+	cmdName = strings.ToLower(cmdName)
+	subCmd = strings.ToLower(subCmd)
+	
+	var suggestions []string
+	
+	// Define subcommands for each command
+	subcommands := map[string][]string{
+		"apikey":   {"set", "delete", "status"},
+		"provider": {"list", "switch", "info"},
+		"history":  {"clear"},
+		"search":   {}, // search takes a query
+		"help":     {}, // help can take command names
+		"switch":   {"dev", "devops", "general"},
+	}
+	
+	// Get subcommands for this command
+	subs, exists := subcommands[cmdName]
+	if !exists {
+		return suggestions
+	}
+	
+	// If subCmd is empty, show all subcommands
+	if subCmd == "" {
+		for _, sub := range subs {
+			suggestions = append(suggestions, "/"+cmdName+" "+sub)
+		}
+	} else {
+		// Filter subcommands by prefix
+		for _, sub := range subs {
+			if strings.HasPrefix(sub, subCmd) {
+				suggestions = append(suggestions, "/"+cmdName+" "+sub)
+			}
+		}
+	}
+	
+	// For help command, suggest other command names
+	if cmdName == "help" {
+		if subCmd == "" {
+			// Show all commands
+			for name := range h.commands {
+				suggestions = append(suggestions, "/help "+name)
+			}
+		} else {
+			// Filter by prefix
+			for name := range h.commands {
+				if strings.HasPrefix(name, subCmd) {
+					suggestions = append(suggestions, "/help "+name)
+				}
 			}
 		}
 	}
