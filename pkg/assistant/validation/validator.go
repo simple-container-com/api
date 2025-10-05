@@ -247,10 +247,10 @@ func (v *Validator) checkForFictionalProperties(data map[string]interface{}, con
 
 	// Common fictional properties
 	fictionalProps := map[string]string{
-		"version":        "use 'schemaVersion' instead",
-		"environments":   "use 'stacks' section instead",
-		"account":        "belongs in server.yaml, not client.yaml",
-		"bucketName":     "use 'name' in resource definitions",
+		"version":          "use 'schemaVersion' instead",
+		"environments":     "use 'stacks' section instead",
+		"account":          "belongs in server.yaml, not client.yaml",
+		"bucketName":       "use 'name' in resource definitions",
 		"connectionString": "fictional property - use auto-injected environment variables",
 	}
 
@@ -345,6 +345,22 @@ func (v *Validator) GetClientYAMLSchema(ctx context.Context) (map[string]interfa
 // GetStackConfigComposeSchema returns the stack config schema for prompt enrichment
 func (v *Validator) GetStackConfigComposeSchema(ctx context.Context) (map[string]interface{}, error) {
 	schemaPath := "core/stackconfigcompose.json"
+	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load schema %s: %w", schemaPath, err)
+	}
+
+	var schema map[string]interface{}
+	if err := json.Unmarshal(schemaContent, &schema); err != nil {
+		return nil, fmt.Errorf("schema parsing error: %w", err)
+	}
+
+	return schema, nil
+}
+
+// GetServerYAMLSchema returns the server.yaml schema for prompt enrichment
+func (v *Validator) GetServerYAMLSchema(ctx context.Context) (map[string]interface{}, error) {
+	schemaPath := "core/serverdescriptor.json"
 	schemaContent, err := fs.ReadFile(v.schemaFS, schemaPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load schema %s: %w", schemaPath, err)

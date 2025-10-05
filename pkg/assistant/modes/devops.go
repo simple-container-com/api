@@ -15,17 +15,28 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
+	"github.com/simple-container-com/api/pkg/assistant/llm"
+	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
 //go:embed schemas/**/*.json
 var embeddedSchemas embed.FS
 
 // DevOpsMode handles infrastructure-focused workflows
-type DevOpsMode struct{}
+type DevOpsMode struct {
+	llm llm.Provider
+}
 
 // NewDevOpsMode creates a new DevOps mode instance
 func NewDevOpsMode() *DevOpsMode {
 	return &DevOpsMode{}
+}
+
+// NewDevOpsModeWithLLM creates a new DevOps mode instance with LLM support
+func NewDevOpsModeWithLLM(llmProvider llm.Provider) *DevOpsMode {
+	return &DevOpsMode{
+		llm: llmProvider,
+	}
 }
 
 // SetupOptions for DevOps setup command
@@ -378,7 +389,10 @@ func (d *DevOpsMode) generateInfrastructureFiles(opts DevOpsSetupOptions) error 
 
 	// Generate server.yaml
 	fmt.Printf("   📄 Generating server.yaml...")
-	serverYaml := d.generateServerYAML(opts)
+	serverYaml, err := d.GenerateServerYAMLWithLLM(opts)
+	if err != nil {
+		return fmt.Errorf("failed to generate server.yaml: %w", err)
+	}
 	serverPath := filepath.Join(outputDir, "server.yaml")
 	if err := os.WriteFile(serverPath, []byte(serverYaml), 0o644); err != nil {
 		return fmt.Errorf("failed to write server.yaml: %w", err)
@@ -409,7 +423,122 @@ func (d *DevOpsMode) generateInfrastructureFiles(opts DevOpsSetupOptions) error 
 	return nil
 }
 
-func (d *DevOpsMode) generateServerYAML(opts DevOpsSetupOptions) string {
+// GenerateServerYAMLWithLLM generates server.yaml using LLM with validation
+func (d *DevOpsMode) GenerateServerYAMLWithLLM(opts DevOpsSetupOptions) (string, error) {
+	if d.llm == nil {
+		return d.generateFallbackServerYAML(opts), nil
+	}
+
+	prompt := d.buildServerYAMLPrompt(opts)
+
+	response, err := d.llm.Chat(context.Background(), []llm.Message{
+		{Role: "system", Content: `You are an expert in Simple Container server.yaml configuration. Generate ONLY valid YAML that EXACTLY follows the provided JSON schemas.
+
+CRITICAL INSTRUCTIONS:
+✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
+✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
+✅ server.yaml MUST have: schemaVersion, provisioner, templates, resources sections
+✅ provisioner MUST have: type, config (with state-storage and secrets-provider)
+✅ resources section contains shared infrastructure resources
+✅ templates section contains reusable deployment templates
+
+🚫 FORBIDDEN (will cause validation errors):
+❌ stacks section (belongs in client.yaml only)
+❌ environments section (use proper file separation)
+❌ version property (use schemaVersion)
+❌ fictional resource types or properties
+
+RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		fmt.Printf("LLM generation failed, using fallback: %v\n", err)
+		return d.generateFallbackServerYAML(opts), nil
+	}
+
+	// Extract YAML from response (remove any markdown formatting)
+	yamlContent := strings.TrimSpace(response.Content)
+	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	yamlContent = strings.TrimPrefix(yamlContent, "```")
+	yamlContent = strings.TrimSuffix(yamlContent, "```")
+	yamlContent = strings.TrimSpace(yamlContent)
+
+	// Validate generated YAML against schemas
+	validator := validation.NewValidator()
+	result := validator.ValidateServerYAML(context.Background(), yamlContent)
+
+	if !result.Valid {
+		fmt.Printf("⚠️  Generated server.yaml has validation errors:\n")
+		for _, err := range result.Errors {
+			fmt.Printf("   • %s\n", color.RedFmt(err))
+		}
+		fmt.Printf("   🔄 Using schema-compliant fallback template...\n")
+		return d.generateFallbackServerYAML(opts), nil
+	}
+
+	if len(result.Warnings) > 0 {
+		for _, warning := range result.Warnings {
+			fmt.Printf("   ⚠️  %s\n", color.YellowFmt(warning))
+		}
+	}
+
+	return yamlContent, nil
+}
+
+func (d *DevOpsMode) buildServerYAMLPrompt(opts DevOpsSetupOptions) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("Generate a Simple Container server.yaml configuration using ONLY these validated properties:\n\n")
+	prompt.WriteString(fmt.Sprintf("Cloud Provider: %s\n", opts.CloudProvider))
+	prompt.WriteString(fmt.Sprintf("Company/Organization: %s\n", opts.Prefix))
+	prompt.WriteString(fmt.Sprintf("Environments: %s\n", strings.Join(opts.Environments, ", ")))
+	prompt.WriteString(fmt.Sprintf("Resources: %s\n", strings.Join(opts.Resources, ", ")))
+
+	// Add JSON schema context for better generation
+	validator := validation.NewValidator()
+	if serverSchema, err := validator.GetServerYAMLSchema(context.Background()); err == nil {
+		if schemaContent, err := json.MarshalIndent(serverSchema, "", "  "); err == nil {
+			prompt.WriteString("\n📋 SERVER.YAML JSON SCHEMA (follow this structure exactly):\n")
+			prompt.WriteString("```json\n")
+			prompt.WriteString(string(schemaContent))
+			prompt.WriteString("\n```\n")
+		}
+	}
+
+	// Add validated example structure
+	prompt.WriteString("\n✅ REQUIRED STRUCTURE EXAMPLE:\n")
+	prompt.WriteString("schemaVersion: 1.0\n")
+	prompt.WriteString("provisioner:\n")
+	prompt.WriteString("  type: pulumi\n")
+	prompt.WriteString("  config:\n")
+	prompt.WriteString("    state-storage:\n")
+	prompt.WriteString("      type: s3-bucket\n")
+	prompt.WriteString("      config:\n")
+	prompt.WriteString(fmt.Sprintf("        bucketName: %s-sc-state\n", opts.Prefix))
+	prompt.WriteString("        region: us-east-1\n")
+	prompt.WriteString("    secrets-provider:\n")
+	prompt.WriteString("      type: aws-kms\n")
+	prompt.WriteString("      config:\n")
+	prompt.WriteString("        keyId: \"alias/simple-container\"\n")
+	prompt.WriteString("templates:\n")
+	prompt.WriteString("  web-app:\n")
+	prompt.WriteString("    type: aws-ecs-fargate\n")
+	prompt.WriteString("resources:\n")
+	prompt.WriteString("  infrastructure:\n")
+	prompt.WriteString("    ecs-cluster:\n")
+	prompt.WriteString("      type: aws-ecs-cluster\n")
+
+	prompt.WriteString("\n🚫 NEVER USE THESE (fictional properties eliminated in validation):\n")
+	prompt.WriteString("- stacks: section (use 'resources:' only)\n")
+	prompt.WriteString("- environments: section (use proper file separation)\n")
+	prompt.WriteString("- version: property (use 'schemaVersion:')\n")
+
+	prompt.WriteString("\n⚡ Generate ONLY the valid YAML (no explanations, no markdown):")
+
+	return prompt.String()
+}
+
+func (d *DevOpsMode) generateFallbackServerYAML(opts DevOpsSetupOptions) string {
 	prefix := opts.Prefix
 	if prefix == "" {
 		prefix = "mycompany"
