@@ -16,6 +16,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
+	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
 // DeveloperMode handles application-focused workflows
@@ -442,7 +443,28 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 	prompt := d.buildClientYAMLPrompt(opts, analysis, projectName)
 
 	response, err := d.llm.Chat(context.Background(), []llm.Message{
-		{Role: "system", Content: "You are an expert in Simple Container configuration. Generate only valid YAML configurations based on actual Simple Container schemas and properties. Do not include fictional properties."},
+		{Role: "system", Content: `You are an expert in Simple Container configuration. Generate ONLY valid YAML that EXACTLY follows the provided JSON schemas.
+
+CRITICAL INSTRUCTIONS:
+✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
+✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
+✅ client.yaml MUST have: schemaVersion, stacks section
+✅ Each stack MUST have: type, parent, parentEnv, config
+✅ config section can contain: runs, env, secrets, scale, uses, dependencies
+✅ scale uses: {min: number, max: number} structure only
+✅ env: for environment variables (NOT environment)
+✅ secrets: using ${secret:name} format for secret references
+
+🚫 FORBIDDEN (will cause validation errors):
+❌ environments section (use stacks only)
+❌ scaling section (use scale in config)  
+❌ version property (use schemaVersion)
+❌ account property (server.yaml only)
+❌ minCapacity/maxCapacity (use min/max in scale)
+❌ bucketName in resources (use name)
+❌ connectionString property (fictional)
+
+RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
@@ -455,13 +477,34 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```")
 	yamlContent = strings.TrimSuffix(yamlContent, "```")
-	return strings.TrimSpace(yamlContent), nil
+	yamlContent = strings.TrimSpace(yamlContent)
+
+	// Validate generated YAML against schemas
+	validator := validation.NewValidator()
+	result := validator.ValidateClientYAML(context.Background(), yamlContent)
+	
+	if !result.Valid {
+		fmt.Printf("⚠️  Generated client.yaml has validation errors:\n")
+		for _, err := range result.Errors {
+			fmt.Printf("   • %s\n", color.RedFmt(err))
+		}
+		fmt.Printf("   🔄 Using schema-compliant fallback template...\n")
+		return d.generateFallbackClientYAML(opts, analysis)
+	}
+
+	if len(result.Warnings) > 0 {
+		for _, warning := range result.Warnings {
+			fmt.Printf("   ⚠️  %s\n", color.YellowFmt(warning))
+		}
+	}
+
+	return yamlContent, nil
 }
 
 func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *analysis.ProjectAnalysis, projectName string) string {
 	var prompt strings.Builder
 
-	prompt.WriteString("Generate a Simple Container client.yaml configuration with these requirements:\n\n")
+	prompt.WriteString("Generate a Simple Container client.yaml configuration using ONLY these validated properties:\n\n")
 	prompt.WriteString(fmt.Sprintf("Project: %s\n", projectName))
 	prompt.WriteString(fmt.Sprintf("Parent stack: %s\n", opts.Parent))
 	prompt.WriteString(fmt.Sprintf("Environment: %s\n", opts.Environment))
@@ -473,23 +516,58 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		}
 	}
 
-	// Enrich context with relevant documentation
-	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
-	if contextEnrichment != "" {
-		prompt.WriteString("\n" + contextEnrichment)
+	// Add JSON schema context for better generation
+	validator := validation.NewValidator()
+	if clientSchema, err := validator.GetClientYAMLSchema(context.Background()); err == nil {
+		if schemaContent, err := json.MarshalIndent(clientSchema, "", "  "); err == nil {
+			prompt.WriteString("\n📋 CLIENT.YAML JSON SCHEMA (follow this structure exactly):\n")
+			prompt.WriteString("```json\n")
+			prompt.WriteString(string(schemaContent))
+			prompt.WriteString("\n```\n")
+		}
 	}
 
-	prompt.WriteString("\nRequired structure:\n")
-	prompt.WriteString("- Use schemaVersion: 1.0\n")
-	prompt.WriteString("- Use 'stacks:' section (NOT 'environments:')\n")
-	prompt.WriteString("- Stack type should be 'cloud-compose' for containerized apps\n")
-	prompt.WriteString("- Include 'runs: [app]' to specify containers from docker-compose.yaml\n")
-	prompt.WriteString("- Add scaling with 'scale: {min: 1, max: 3}' in config section\n")
-	prompt.WriteString("- Use 'env:' for environment variables (NOT 'environment:')\n")
-	prompt.WriteString("- Include common secrets like JWT_SECRET using ${secret:jwt-secret} format\n")
-	prompt.WriteString("- Only use real Simple Container properties validated against schemas\n")
+	if stackSchema, err := validator.GetStackConfigComposeSchema(context.Background()); err == nil {
+		if schemaContent, err := json.MarshalIndent(stackSchema, "", "  "); err == nil {
+			prompt.WriteString("\n📋 STACK CONFIG SCHEMA (for config section structure):\n")
+			prompt.WriteString("```json\n")
+			prompt.WriteString(string(schemaContent))
+			prompt.WriteString("\n```\n")
+		}
+	}
 
-	prompt.WriteString("\nGenerate only the YAML configuration without explanations:")
+	// Add validated example structure
+	prompt.WriteString("\n✅ REQUIRED STRUCTURE EXAMPLE:\n")
+	prompt.WriteString("schemaVersion: 1.0\n")
+	prompt.WriteString("stacks:\n")
+	prompt.WriteString("  " + projectName + ":\n")
+	prompt.WriteString("    type: cloud-compose       # Valid types: cloud-compose, static, single-image\n")
+	prompt.WriteString("    parent: " + opts.Parent + "\n")
+	prompt.WriteString("    parentEnv: " + opts.Environment + "\n")
+	prompt.WriteString("    config:\n")
+	prompt.WriteString("      runs: [app]            # Container names from docker-compose.yaml\n")
+	prompt.WriteString("      scale:\n")
+	prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
+	prompt.WriteString("        max: 3\n")
+	prompt.WriteString("      env:                  # Environment variables (NOT 'environment')\n")
+	prompt.WriteString("        PORT: 3000\n")
+	prompt.WriteString("      secrets:              # Secret references using ${secret:name} format\n")
+	prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"\n")
+
+	// Enrich context with validated examples
+	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
+	if contextEnrichment != "" {
+		prompt.WriteString("\n📋 VALIDATED EXAMPLES:\n" + contextEnrichment)
+	}
+
+	prompt.WriteString("\n🚫 NEVER USE THESE (fictional properties eliminated in validation):\n")
+	prompt.WriteString("- environments: section (use 'stacks:' only)\n")
+	prompt.WriteString("- scaling: section (use 'scale:' in config)\n")
+	prompt.WriteString("- version: property (use 'schemaVersion:')\n")
+	prompt.WriteString("- account: property (DevOps server.yaml only)\n")
+	prompt.WriteString("- minCapacity/maxCapacity (use min/max in scale)\n")
+
+	prompt.WriteString("\n⚡ Generate ONLY the valid YAML (no explanations, no markdown):")
 
 	return prompt.String()
 }
