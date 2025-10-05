@@ -18,7 +18,6 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/chat"
 	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
-	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
@@ -334,7 +333,7 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 		Short: "Start MCP (Model Context Protocol) server",
 		Long:  "Start a JSON-RPC server that exposes Simple Container context to external LLM tools",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runMCP(cmd, host, port)
+			return fmt.Errorf("MCP server functionality temporarily disabled")
 		},
 	}
 
@@ -481,8 +480,6 @@ func (a *AssistantCmd) runSearch(cmd *cobra.Command, query string, limit int, do
 	}
 
 	return nil
-}
-
 }
 
 // promptForOpenAIKey prompts the user to enter their OpenAI API key securely
