@@ -382,25 +382,39 @@ func (d *DeveloperMode) interactiveSetup(opts *SetupOptions, analysis *analysis.
 }
 
 func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
+	// Determine project name for directory structure
+	projectName := filepath.Base(projectPath)
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
+		projectName = analysis.Name
+	}
+
+	// Ensure we have a valid project name
+	if projectName == "." || projectName == "" {
+		// Use the current directory name as fallback
+		if wd, err := os.Getwd(); err == nil {
+			projectName = filepath.Base(wd)
+		} else {
+			projectName = "myapp"
+		}
+	}
+
 	// Create .sc directory structure
-	scDir := filepath.Join(projectPath, ".sc", "stacks", filepath.Base(projectPath))
+	scDir := filepath.Join(projectPath, ".sc", "stacks", projectName)
 	if err := os.MkdirAll(scDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create .sc directory: %w", err)
 	}
 
-	// Generate client.yaml using LLM
-	if !opts.SkipAnalysis {
-		fmt.Printf("   📄 Generating client.yaml...")
-		clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
-		if err != nil {
-			return fmt.Errorf("failed to generate client.yaml: %w", err)
-		}
-		clientPath := filepath.Join(scDir, "client.yaml")
-		if err := os.WriteFile(clientPath, []byte(clientYaml), 0o644); err != nil {
-			return fmt.Errorf("failed to write client.yaml: %w", err)
-		}
-		fmt.Printf(" %s\n", color.GreenFmt("✓"))
+	// Generate client.yaml using LLM - always generate, regardless of analysis skip
+	fmt.Printf("   📄 Generating client.yaml...")
+	clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
+	if err != nil {
+		return fmt.Errorf("failed to generate client.yaml: %w", err)
 	}
+	clientPath := filepath.Join(scDir, "client.yaml")
+	if err := os.WriteFile(clientPath, []byte(clientYaml), 0o644); err != nil {
+		return fmt.Errorf("failed to write client.yaml: %w", err)
+	}
+	fmt.Printf(" %s\n", color.GreenFmt("✓"))
 
 	// Generate docker-compose.yaml using LLM
 	if !opts.SkipCompose {
@@ -490,8 +504,18 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 	}
 
 	projectName := filepath.Base(".")
-	if analysis != nil {
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
 		projectName = analysis.Name
+	}
+
+	// Ensure we have a valid stack name
+	if projectName == "." || projectName == "" {
+		// Use the current directory name as fallback
+		if wd, err := os.Getwd(); err == nil {
+			projectName = filepath.Base(wd)
+		} else {
+			projectName = "myapp"
+		}
 	}
 
 	prompt := d.buildClientYAMLPrompt(opts, analysis, projectName)
@@ -504,6 +528,10 @@ CRITICAL INSTRUCTIONS:
 ✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
 ✅ client.yaml MUST have: schemaVersion, stacks section
 ✅ Each stack MUST have: type, parent, parentEnv, config
+✅ DEPLOYMENT TYPES: cloud-compose, static, single-image
+✅ cloud-compose: Multi-container (dockerComposeFile, runs, env, secrets, scale, uses)
+✅ static: Static websites (bundleDir, indexDocument, errorDocument)
+✅ single-image: Single container (template, image, timeout, maxMemory)
 ✅ config section can contain: runs, env, secrets, scale, uses, dependencies
 ✅ scale uses: {min: number, max: number} structure only
 ✅ env: for environment variables (NOT environment)
@@ -524,8 +552,8 @@ CRITICAL INSTRUCTIONS:
 ✅ Optional: domain property for DNS routing (requires registrar in server.yaml)
 ✅ env: section for non-sensitive config (PORT, NODE_ENV, LOG_LEVEL)
 ✅ secrets: section for sensitive data (API keys, connection strings, tokens)
-✅ Use ${resource:name.connectionString} when consuming resources via 'uses:'
-✅ Use ${secret:name} for manually defined secrets in parent stack
+✅ Use ${resource:<name>.<property>} when consuming resources via 'uses:'
+✅ Use ${secret:<name>} for manually defined secrets in parent stack
 
 RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
@@ -578,8 +606,18 @@ func (d *DeveloperMode) GenerateClientYAMLWithStreamingLLM(opts *SetupOptions, a
 	}
 
 	projectName := filepath.Base(".")
-	if analysis != nil {
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
 		projectName = analysis.Name
+	}
+
+	// Ensure we have a valid stack name
+	if projectName == "." || projectName == "" {
+		// Use the current directory name as fallback
+		if wd, err := os.Getwd(); err == nil {
+			projectName = filepath.Base(wd)
+		} else {
+			projectName = "myapp"
+		}
 	}
 
 	prompt := d.buildClientYAMLPrompt(opts, analysis, projectName)
@@ -594,6 +632,10 @@ CRITICAL INSTRUCTIONS:
 ✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
 ✅ client.yaml MUST have: schemaVersion, stacks section
 ✅ Each stack MUST have: type, parent, parentEnv, config
+✅ DEPLOYMENT TYPES: cloud-compose, static, single-image
+✅ cloud-compose: Multi-container (dockerComposeFile, runs, env, secrets, scale, uses)
+✅ static: Static websites (bundleDir, indexDocument, errorDocument)
+✅ single-image: Single container (template, image, timeout, maxMemory)
 ✅ config section can contain: runs, env, secrets, scale, uses, dependencies
 ✅ scale uses: {min: number, max: number} structure only
 ✅ env: for environment variables (NOT environment)
@@ -695,28 +737,50 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	prompt.WriteString("schemaVersion: 1.0\n")
 	prompt.WriteString("stacks:\n")
 	prompt.WriteString("  " + projectName + ":\n")
-	prompt.WriteString("    type: cloud-compose       # Valid types: cloud-compose, static, single-image\n")
+	// Determine deployment type for example
+	deploymentType := d.determineDeploymentType(analysis)
+	prompt.WriteString(fmt.Sprintf("    type: %s       # Valid types: cloud-compose, static, single-image\n", deploymentType))
 	prompt.WriteString("    parent: " + opts.Parent + "\n")
 	prompt.WriteString("    parentEnv: " + opts.Environment + "\n")
 	prompt.WriteString("    config:\n")
-	prompt.WriteString("      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to local docker-compose file\n")
-	prompt.WriteString("      runs: [app]            # Container names from docker-compose.yaml\n")
-	prompt.WriteString(fmt.Sprintf("      domain: %s.mycompany.com  # Optional: DNS domain (requires registrar in server.yaml)\n", projectName))
-	prompt.WriteString("      scale:\n")
-	prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
-	prompt.WriteString("        max: 3\n")
-	prompt.WriteString("      uses: [postgres-db, redis-cache]  # Consume shared resources from parent\n")
-	prompt.WriteString("      env:                  # Non-sensitive environment variables only\n")
-	prompt.WriteString("        PORT: 3000\n")
-	prompt.WriteString("        NODE_ENV: production\n")
-	prompt.WriteString("        # Database connections use auto-injected environment variables:\n")
-	prompt.WriteString("        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD\n")
-	prompt.WriteString("        # Redis: REDIS_HOST, REDIS_PORT\n")
-	prompt.WriteString("        # MongoDB Atlas: MONGO_USER, MONGO_DATABASE, MONGO_PASSWORD, MONGO_URI\n")
-	prompt.WriteString("      secrets:              # Sensitive data: secrets vs resource consumption\n")
-	prompt.WriteString("        DATABASE_URL: \"${resource:postgres-db.url}\"  # From consumed resource\n")
-	prompt.WriteString("        REDIS_URL: \"${resource:redis-cache.url}\"    # From consumed resource\n")
-	prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"                    # Manual secrets from parent\n")
+
+	// Generate different example configs based on deployment type
+	switch deploymentType {
+	case "static":
+		prompt.WriteString("      bundleDir: ${git:root}/build  # Directory containing static files\n")
+		prompt.WriteString("      indexDocument: index.html     # Entry point for static site\n")
+		prompt.WriteString("      errorDocument: error.html     # Custom error page\n")
+		prompt.WriteString(fmt.Sprintf("      domain: %s.mycompany.com  # Optional: DNS domain (requires registrar in server.yaml)\n", projectName))
+	case "single-image":
+		prompt.WriteString("      template: lambda-us           # AWS Lambda template from parent\n")
+		prompt.WriteString("      image:\n")
+		prompt.WriteString("        dockerfile: ${git:root}/Dockerfile  # Path to Dockerfile\n")
+		prompt.WriteString("      timeout: 120                 # Function timeout in seconds\n")
+		prompt.WriteString("      maxMemory: 512               # Memory allocation in MB\n")
+		prompt.WriteString("      env:\n")
+		prompt.WriteString("        ENVIRONMENT: production\n")
+		prompt.WriteString("      secrets:\n")
+		prompt.WriteString("        API_KEY: \"${secret:api-key}\"\n")
+	default: // cloud-compose
+		prompt.WriteString("      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to local docker-compose file\n")
+		prompt.WriteString("      runs: [app]            # Container names from docker-compose.yaml\n")
+		prompt.WriteString(fmt.Sprintf("      domain: %s.mycompany.com  # Optional: DNS domain (requires registrar in server.yaml)\n", projectName))
+		prompt.WriteString("      scale:\n")
+		prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
+		prompt.WriteString("        max: 3\n")
+		prompt.WriteString("      uses: [postgres-db, redis-cache]  # Consume shared resources from parent\n")
+		prompt.WriteString("      env:                  # Non-sensitive environment variables only\n")
+		prompt.WriteString("        PORT: 3000\n")
+		prompt.WriteString("        NODE_ENV: production\n")
+		prompt.WriteString("        # Database connections use auto-injected environment variables:\n")
+		prompt.WriteString("        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD\n")
+		prompt.WriteString("        # Redis: REDIS_HOST, REDIS_PORT\n")
+		prompt.WriteString("        # MongoDB Atlas: MONGO_USER, MONGO_DATABASE, MONGO_PASSWORD, MONGO_URI\n")
+		prompt.WriteString("      secrets:              # Sensitive data: secrets vs resource consumption\n")
+		prompt.WriteString("        DATABASE_URL: \"${resource:postgres-db.url}\"  # From consumed resource\n")
+		prompt.WriteString("        REDIS_URL: \"${resource:redis-cache.url}\"    # From consumed resource\n")
+		prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"                    # Manual secrets from parent\n")
+	}
 
 	// Enrich context with validated examples
 	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
@@ -857,11 +921,78 @@ func (d *DeveloperMode) enrichContextWithDocumentation(configType string, analys
 	return prompt.String()
 }
 
+// determineDeploymentType detects the appropriate deployment type based on project analysis
+func (d *DeveloperMode) determineDeploymentType(analysis *analysis.ProjectAnalysis) string {
+	if analysis == nil {
+		return "cloud-compose" // Default fallback
+	}
+
+	// Check for static site indicators
+	staticIndicators := []string{"build", "dist", "public", "_site", "out"}
+	for _, dir := range staticIndicators {
+		if _, err := os.Stat(dir); err == nil {
+			// Check if it contains web assets
+			if d.containsStaticAssets(dir) {
+				return "static"
+			}
+		}
+	}
+
+	// Check for single-image indicators (serverless/lambda patterns)
+	if analysis.PrimaryStack != nil {
+		// Check for AWS Lambda indicators
+		if analysis.PrimaryStack.Language == "javascript" || analysis.PrimaryStack.Language == "python" || analysis.PrimaryStack.Language == "go" {
+			// Look for handler files or serverless configurations
+			serverlessFiles := []string{"handler.js", "lambda_function.py", "main.go", "serverless.yml", "template.yaml", "sam.yaml"}
+			for _, file := range serverlessFiles {
+				if _, err := os.Stat(file); err == nil {
+					return "single-image"
+				}
+			}
+		}
+	}
+
+	// Check for docker-compose.yaml (multi-container)
+	if _, err := os.Stat("docker-compose.yaml"); err == nil {
+		return "cloud-compose"
+	}
+	if _, err := os.Stat("docker-compose.yml"); err == nil {
+		return "cloud-compose"
+	}
+
+	// Default to cloud-compose for containerized applications
+	return "cloud-compose"
+}
+
+// containsStaticAssets checks if a directory contains typical static web assets
+func (d *DeveloperMode) containsStaticAssets(dir string) bool {
+	staticFiles := []string{"index.html", "index.htm", "main.js", "app.js", "style.css", "main.css"}
+	for _, file := range staticFiles {
+		if _, err := os.Stat(filepath.Join(dir, file)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis *analysis.ProjectAnalysis) (string, error) {
 	projectName := filepath.Base(".")
-	if analysis != nil {
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
 		projectName = analysis.Name
 	}
+
+	// Ensure we have a valid stack name
+	if projectName == "." || projectName == "" {
+		// Use the current directory name as fallback
+		if wd, err := os.Getwd(); err == nil {
+			projectName = filepath.Base(wd)
+		} else {
+			projectName = "myapp"
+		}
+	}
+
+	// Determine deployment type based on project analysis
+	deploymentType := d.determineDeploymentType(analysis)
 
 	// Build language-specific environment variables based on project analysis
 	envVars := d.buildLanguageSpecificEnvVars(analysis)
@@ -871,10 +1002,81 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 	template.WriteString("schemaVersion: 1.0\n\n")
 	template.WriteString("stacks:\n")
 	template.WriteString(fmt.Sprintf("  %s:\n", projectName))
-	template.WriteString("    type: cloud-compose\n")
+	template.WriteString(fmt.Sprintf("    type: %s\n", deploymentType))
 	template.WriteString(fmt.Sprintf("    parent: %s\n", opts.Parent))
 	template.WriteString(fmt.Sprintf("    parentEnv: %s\n", opts.Environment))
 	template.WriteString("    config:\n")
+
+	// Generate different configurations based on deployment type
+	switch deploymentType {
+	case "static":
+		d.generateStaticConfig(&template, analysis)
+	case "single-image":
+		d.generateSingleImageConfig(&template, analysis, envVars, secrets)
+	case "cloud-compose":
+		fallthrough
+	default:
+		d.generateCloudComposeConfig(&template, analysis, envVars, secrets)
+	}
+
+	return template.String(), nil
+}
+
+// generateStaticConfig generates configuration for static website deployments
+func (d *DeveloperMode) generateStaticConfig(template *strings.Builder, analysis *analysis.ProjectAnalysis) {
+	// Detect bundle directory
+	bundleDir := "${git:root}/dist"
+	staticDirs := []string{"build", "dist", "public", "_site", "out"}
+	for _, dir := range staticDirs {
+		if _, err := os.Stat(dir); err == nil {
+			bundleDir = fmt.Sprintf("${git:root}/%s", dir)
+			break
+		}
+	}
+
+	template.WriteString("      # Static website configuration\n")
+	template.WriteString(fmt.Sprintf("      bundleDir: %s\n", bundleDir))
+	template.WriteString("      indexDocument: index.html\n")
+	template.WriteString("      errorDocument: error.html\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Optional: Custom domain (requires registrar in server.yaml)\n")
+	template.WriteString("      # domain: mysite.mycompany.com\n")
+}
+
+// generateSingleImageConfig generates configuration for single-image deployments (Lambda, Cloud Run)
+func (d *DeveloperMode) generateSingleImageConfig(template *strings.Builder, analysis *analysis.ProjectAnalysis, envVars, secrets map[string]string) {
+	template.WriteString("      # Single-image deployment (Lambda/Cloud Run)\n")
+	template.WriteString("      template: lambda-us  # Or cloud-run template from parent\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Container image configuration\n")
+	template.WriteString("      image:\n")
+	template.WriteString("        dockerfile: ${git:root}/Dockerfile\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Function configuration\n")
+	template.WriteString("      timeout: 120  # seconds\n")
+	template.WriteString("      maxMemory: 512  # MB\n")
+
+	if len(envVars) > 0 {
+		template.WriteString("      \n")
+		template.WriteString("      # Environment variables\n")
+		template.WriteString("      env:\n")
+		for key, value := range envVars {
+			template.WriteString(fmt.Sprintf("        %s: %s\n", key, value))
+		}
+	}
+
+	if len(secrets) > 0 {
+		template.WriteString("      \n")
+		template.WriteString("      # Secrets\n")
+		template.WriteString("      secrets:\n")
+		for key, value := range secrets {
+			template.WriteString(fmt.Sprintf("        %s: \"%s\"\n", key, value))
+		}
+	}
+}
+
+// generateCloudComposeConfig generates configuration for multi-container deployments
+func (d *DeveloperMode) generateCloudComposeConfig(template *strings.Builder, analysis *analysis.ProjectAnalysis, envVars, secrets map[string]string) {
 	template.WriteString("      # Reference to local docker-compose.yaml (REQUIRED)\n")
 	template.WriteString("      dockerComposeFile: docker-compose.yaml\n")
 	template.WriteString("      \n")
@@ -891,25 +1093,24 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 	template.WriteString("      scale:\n")
 	template.WriteString("        min: 1\n")
 	template.WriteString("        max: 5\n")
-	template.WriteString("      \n")
-	template.WriteString("      # Environment variables\n")
-	template.WriteString("      env:\n")
 
-	// Add language-specific environment variables
-	for key, value := range envVars {
-		template.WriteString(fmt.Sprintf("        %s: %s\n", key, value))
+	if len(envVars) > 0 {
+		template.WriteString("      \n")
+		template.WriteString("      # Environment variables\n")
+		template.WriteString("      env:\n")
+		for key, value := range envVars {
+			template.WriteString(fmt.Sprintf("        %s: %s\n", key, value))
+		}
 	}
 
-	template.WriteString("        \n")
-	template.WriteString("      # Secrets\n")
-	template.WriteString("      secrets:\n")
-
-	// Add language-specific secrets
-	for key, value := range secrets {
-		template.WriteString(fmt.Sprintf("        %s: \"%s\"\n", key, value))
+	if len(secrets) > 0 {
+		template.WriteString("      \n")
+		template.WriteString("      # Secrets\n")
+		template.WriteString("      secrets:\n")
+		for key, value := range secrets {
+			template.WriteString(fmt.Sprintf("        %s: \"%s\"\n", key, value))
+		}
 	}
-
-	return template.String(), nil
 }
 
 // buildLanguageSpecificEnvVars creates environment variables based on detected language/framework
@@ -1247,6 +1448,22 @@ CMD ["npm", "start"]`
 }
 
 func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis.ProjectAnalysis) {
+	// Determine project name for the deploy command
+	projectName := filepath.Base(".")
+	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
+		projectName = analysis.Name
+	}
+
+	// Ensure we have a valid project name
+	if projectName == "." || projectName == "" {
+		// Use the current directory name as fallback
+		if wd, err := os.Getwd(); err == nil {
+			projectName = filepath.Base(wd)
+		} else {
+			projectName = "myapp"
+		}
+	}
+
 	fmt.Println("\n📁 Generated files:")
 	fmt.Printf("   • client.yaml          - Simple Container configuration\n")
 	if !opts.SkipCompose {
@@ -1258,7 +1475,7 @@ func (d *DeveloperMode) printSetupSummary(opts *SetupOptions, analysis *analysis
 
 	fmt.Println("\n🚀 Next steps:")
 	fmt.Printf("   1. Start local development: %s\n", color.CyanFmt("docker-compose up -d"))
-	fmt.Printf("   2. Deploy to staging:       %s\n", color.CyanFmt("sc deploy -e staging"))
+	fmt.Printf("   2. Deploy to %s:       %s\n", opts.Environment, color.CyanFmt(fmt.Sprintf("sc deploy -s %s -e %s", projectName, opts.Environment)))
 
 	if analysis != nil && len(analysis.Recommendations) > 0 {
 		fmt.Println("\n💡 Recommendations:")

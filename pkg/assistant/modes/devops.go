@@ -1536,7 +1536,7 @@ func (d *DevOpsMode) rotateSecrets(opts SecretsOptions) error {
 
 		fmt.Printf("\n   %s Rotated %d secrets in secrets.yaml\n", color.GreenFmt("✓"), len(rotated))
 		fmt.Printf("   %s Update environment variables and redeploy services\n", color.CyanFmt("💡"))
-		fmt.Printf("   %s Run 'sc deploy' to apply changes\n", color.CyanFmt("💡"))
+		fmt.Printf("   %s Run 'sc deploy -s <stack> -e <environment>' to apply changes\n", color.CyanFmt("💡"))
 	} else {
 		fmt.Printf("   %s No secrets were rotated\n", color.YellowFmt("⚠"))
 	}

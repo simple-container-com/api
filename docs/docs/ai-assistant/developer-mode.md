@@ -292,7 +292,7 @@ npm run dev  # or python manage.py runserver, go run main.go
 ### **Staging Deployment**
 ```bash
 # Deploy to staging (uses shared staging resources)
-sc deploy -e staging
+sc deploy -s myapp -e staging
 
 # Application scaling is configured in client.yaml config.scale section
 # Edit client.yaml to update scaling configuration
@@ -301,7 +301,7 @@ sc deploy -e staging
 ### **Production Deployment**
 ```bash
 # Deploy to production (uses shared production resources)
-sc deploy -e production
+sc deploy -s myapp -e production
 
 # Verify deployment is working
 curl https://my-app.yourcompany.com/health

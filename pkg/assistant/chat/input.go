@@ -6,8 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fatih/color"
 	"golang.org/x/term"
+
+	"github.com/fatih/color"
 )
 
 // InputHandler handles enhanced input with autocomplete and history
@@ -16,8 +17,6 @@ type InputHandler struct {
 	historyIndex int
 	commands     map[string]*ChatCommand
 	maxHistory   int
-	currentInput string
-	cursorPos    int
 }
 
 // NewInputHandler creates a new input handler
@@ -290,18 +289,6 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 	}
 
 	return suggestions
-}
-
-// printSuggestions prints command suggestions
-func (h *InputHandler) printSuggestions(suggestions []string) {
-	fmt.Println(color.YellowString("Suggestions:"))
-	for _, suggestion := range suggestions {
-		if cmd, exists := h.commands[strings.TrimPrefix(suggestion, "/")]; exists {
-			fmt.Printf("  %s - %s\n", color.CyanString(suggestion), cmd.Description)
-		} else {
-			fmt.Printf("  %s\n", color.CyanString(suggestion))
-		}
-	}
 }
 
 // printSuggestionsRaw prints command suggestions in raw mode without extra newlines
