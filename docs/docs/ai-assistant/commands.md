@@ -372,10 +372,11 @@ sc assistant chat --save-session conversation.json
 - `/exit` - Exit chat session
 
 **Input Features:**
-- **Tab** - Autocomplete commands (shows suggestions if multiple matches)
+- **Tab** - Autocomplete commands and subcommands (shows suggestions if multiple matches)
 - **↑/↓ Arrow Keys** - Navigate command history
 - **Ctrl+C** - Exit chat session
 - Type `/` to see command suggestions
+- Type `/command ` (with space) and Tab to see subcommand options
 
 ### Multi-Provider Support
 
