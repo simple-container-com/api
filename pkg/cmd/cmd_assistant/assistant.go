@@ -428,14 +428,14 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 			if provider == "" {
 				provider = config.ProviderOpenAI
 			}
-			
+
 			// Load provider config
 			if providerCfg, exists := cfg.GetProviderConfig(provider); exists && providerCfg.APIKey != "" {
 				apiKey = providerCfg.APIKey
 				os.Setenv("OPENAI_API_KEY", apiKey)
 				providerName := config.GetProviderDisplayName(provider)
 				fmt.Println(color.GreenFmt(fmt.Sprintf("✅ Using stored %s API key", providerName)))
-				
+
 				// Show provider info
 				if providerCfg.BaseURL != "" {
 					fmt.Println(color.CyanFmt(fmt.Sprintf("   Base URL: %s", providerCfg.BaseURL)))
@@ -472,7 +472,7 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 
 		// Set the API key for this session
 		os.Setenv("OPENAI_API_KEY", apiKey)
-		
+
 		// Ask if user wants to save it permanently
 		fmt.Print(color.YellowFmt("💾 Save this API key for future sessions? (Y/n): "))
 		reader := bufio.NewReader(os.Stdin)
@@ -869,42 +869,6 @@ func getMetricDuration(data interface{}, key string) string {
 		}
 	}
 	return "N/A"
-}
-
-// Helper function to handle interactive input with signal handling
-func interactiveInput(prompt string) (string, error) {
-	// Setup signal handling
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	// Create channels for input
-	inputCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-
-	// Start reading input in goroutine
-	go func() {
-		fmt.Print(prompt)
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			inputCh <- scanner.Text()
-		} else if err := scanner.Err(); err != nil {
-			errCh <- err
-		} else {
-			inputCh <- "" // EOF
-		}
-	}()
-
-	// Wait for input or signal
-	select {
-	case input := <-inputCh:
-		return strings.TrimSpace(input), nil
-	case err := <-errCh:
-		return "", err
-	case <-sigCh:
-		fmt.Println("\n\n👋 Goodbye! Interactive mode cancelled.")
-		return "", fmt.Errorf("interrupted by user")
-	}
 }
 
 func init() {

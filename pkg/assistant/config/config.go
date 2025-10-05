@@ -29,7 +29,7 @@ type Config struct {
 	DefaultProvider string                    `json:"default_provider,omitempty"` // Last used or preferred provider
 	Providers       map[string]ProviderConfig `json:"providers,omitempty"`        // Provider-specific configs
 	Preferences     map[string]string         `json:"preferences,omitempty"`      // General preferences
-	
+
 	// Deprecated fields (kept for backward compatibility)
 	OpenAIAPIKey string `json:"openai_api_key,omitempty"`
 	LLMProvider  string `json:"llm_provider,omitempty"`
@@ -43,7 +43,7 @@ func configPath() (string, error) {
 	}
 
 	configDir := filepath.Join(homeDir, ".sc")
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return "", fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -111,7 +111,7 @@ func (c *Config) Save() error {
 	}
 
 	// Write with restricted permissions (0600 = rw-------)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

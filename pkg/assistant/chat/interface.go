@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -84,7 +85,7 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 
 	// Register commands
 	chat.registerCommands()
-	
+
 	// Initialize input handler with commands
 	chat.inputHandler = NewInputHandler(chat.commands)
 
@@ -206,11 +207,25 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 		fmt.Printf("%s %s\n", color.RedString("❌"), result.Message)
 	}
 
-	// Handle generated files
+	// Handle generated files - actually write them to disk
 	if len(result.Files) > 0 {
 		fmt.Printf("\n%s Generated files:\n", color.CyanString("📁"))
 		for _, file := range result.Files {
-			fmt.Printf("  - %s (%s)\n", color.WhiteString(file.Path), file.Type)
+			// Create directory if needed
+			dir := filepath.Dir(file.Path)
+			if dir != "." {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					fmt.Printf("  - %s (%s) - %s\n", color.RedString(file.Path), file.Type, color.RedString("Failed to create directory: "+err.Error()))
+					continue
+				}
+			}
+
+			// Write file content
+			if err := os.WriteFile(file.Path, []byte(file.Content), 0o644); err != nil {
+				fmt.Printf("  - %s (%s) - %s\n", color.RedString(file.Path), file.Type, color.RedString("Failed to write: "+err.Error()))
+			} else {
+				fmt.Printf("  - %s (%s) - %s\n", color.GreenString(file.Path), file.Type, color.GreenString("✓ Written"))
+			}
 		}
 	}
 

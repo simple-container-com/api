@@ -6,18 +6,17 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fatih/color"
 	"golang.org/x/term"
+
+	"github.com/fatih/color"
 )
 
 // InputHandler handles enhanced input with autocomplete and history
 type InputHandler struct {
-	history        []string
-	historyIndex   int
-	commands       map[string]*ChatCommand
-	maxHistory     int
-	currentInput   string
-	cursorPos      int
+	history      []string
+	historyIndex int
+	commands     map[string]*ChatCommand
+	maxHistory   int
 }
 
 // NewInputHandler creates a new input handler
@@ -62,7 +61,7 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 		}
 		return strings.TrimSpace(line), nil
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
+	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }()
 
 	buf := make([]byte, 3)
 	historyPos := len(h.history)
@@ -160,7 +159,7 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 				input.WriteString(str[:len(str)-1])
 				fmt.Print("\b \b")
 				showingSuggestions = false
-				
+
 				// Show suggestions if typing command
 				if strings.HasPrefix(input.String(), "/") {
 					suggestions = h.getCommandSuggestions(input.String())
@@ -175,7 +174,7 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 				input.WriteByte(buf[0])
 				fmt.Printf("%c", buf[0])
 				showingSuggestions = false
-				
+
 				// Show suggestions if typing command
 				if strings.HasPrefix(input.String(), "/") {
 					suggestions = h.getCommandSuggestions(input.String())
@@ -192,15 +191,15 @@ func (h *InputHandler) ReadLine(prompt string) (string, error) {
 func (h *InputHandler) getCommandSuggestions(input string) []string {
 	input = strings.TrimPrefix(input, "/")
 	input = strings.ToLower(input)
-	
+
 	var suggestions []string
-	
+
 	for cmdName, cmd := range h.commands {
 		// Check command name
 		if strings.HasPrefix(cmdName, input) {
 			suggestions = append(suggestions, "/"+cmdName)
 		}
-		
+
 		// Check aliases
 		for _, alias := range cmd.Aliases {
 			if strings.HasPrefix(alias, input) {
@@ -208,7 +207,7 @@ func (h *InputHandler) getCommandSuggestions(input string) []string {
 			}
 		}
 	}
-	
+
 	return suggestions
 }
 
@@ -229,15 +228,15 @@ func (h *InputHandler) showInlineSuggestions(input string, suggestions []string)
 	if len(suggestions) == 0 {
 		return
 	}
-	
+
 	// Save cursor position
 	fmt.Print("\033[s")
-	
+
 	// Print suggestion in gray
 	suggestion := suggestions[0]
 	remaining := strings.TrimPrefix(suggestion, input)
 	fmt.Print(color.New(color.FgHiBlack).Sprint(remaining))
-	
+
 	// Restore cursor position
 	fmt.Print("\033[u")
 }
@@ -254,9 +253,9 @@ func (h *InputHandler) addToHistory(cmd string) {
 	if cmd == "" || (len(h.history) > 0 && h.history[len(h.history)-1] == cmd) {
 		return
 	}
-	
+
 	h.history = append(h.history, cmd)
-	
+
 	// Limit history size
 	if len(h.history) > h.maxHistory {
 		h.history = h.history[1:]
