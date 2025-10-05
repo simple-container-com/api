@@ -16,6 +16,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
+	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
 // DeveloperMode handles application-focused workflows
@@ -442,7 +443,28 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 	prompt := d.buildClientYAMLPrompt(opts, analysis, projectName)
 
 	response, err := d.llm.Chat(context.Background(), []llm.Message{
-		{Role: "system", Content: "You are an expert in Simple Container configuration. Generate only valid YAML configurations based on actual Simple Container schemas and properties. Do not include fictional properties."},
+		{Role: "system", Content: `You are an expert in Simple Container configuration. Generate ONLY valid YAML that EXACTLY follows the provided JSON schemas.
+
+CRITICAL INSTRUCTIONS:
+✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
+✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
+✅ client.yaml MUST have: schemaVersion, stacks section
+✅ Each stack MUST have: type, parent, parentEnv, config
+✅ config section can contain: runs, env, secrets, scale, uses, dependencies
+✅ scale uses: {min: number, max: number} structure only
+✅ env: for environment variables (NOT environment)
+✅ secrets: using ${secret:name} format for secret references
+
+🚫 FORBIDDEN (will cause validation errors):
+❌ environments section (use stacks only)
+❌ scaling section (use scale in config)  
+❌ version property (use schemaVersion)
+❌ account property (server.yaml only)
+❌ minCapacity/maxCapacity (use min/max in scale)
+❌ bucketName in resources (use name)
+❌ connectionString property (fictional)
+
+RESPONSE FORMAT: Generate ONLY the YAML content. No explanations, no markdown blocks, no additional text.`},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
@@ -455,13 +477,34 @@ func (d *DeveloperMode) GenerateClientYAMLWithLLM(opts *SetupOptions, analysis *
 	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```")
 	yamlContent = strings.TrimSuffix(yamlContent, "```")
-	return strings.TrimSpace(yamlContent), nil
+	yamlContent = strings.TrimSpace(yamlContent)
+
+	// Validate generated YAML against schemas
+	validator := validation.NewValidator()
+	result := validator.ValidateClientYAML(context.Background(), yamlContent)
+
+	if !result.Valid {
+		fmt.Printf("⚠️  Generated client.yaml has validation errors:\n")
+		for _, err := range result.Errors {
+			fmt.Printf("   • %s\n", color.RedFmt(err))
+		}
+		fmt.Printf("   🔄 Using schema-compliant fallback template...\n")
+		return d.generateFallbackClientYAML(opts, analysis)
+	}
+
+	if len(result.Warnings) > 0 {
+		for _, warning := range result.Warnings {
+			fmt.Printf("   ⚠️  %s\n", color.YellowFmt(warning))
+		}
+	}
+
+	return yamlContent, nil
 }
 
 func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *analysis.ProjectAnalysis, projectName string) string {
 	var prompt strings.Builder
 
-	prompt.WriteString("Generate a Simple Container client.yaml configuration with these requirements:\n\n")
+	prompt.WriteString("Generate a Simple Container client.yaml configuration using ONLY these validated properties:\n\n")
 	prompt.WriteString(fmt.Sprintf("Project: %s\n", projectName))
 	prompt.WriteString(fmt.Sprintf("Parent stack: %s\n", opts.Parent))
 	prompt.WriteString(fmt.Sprintf("Environment: %s\n", opts.Environment))
@@ -473,23 +516,58 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		}
 	}
 
-	// Enrich context with relevant documentation
-	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
-	if contextEnrichment != "" {
-		prompt.WriteString("\n" + contextEnrichment)
+	// Add JSON schema context for better generation
+	validator := validation.NewValidator()
+	if clientSchema, err := validator.GetClientYAMLSchema(context.Background()); err == nil {
+		if schemaContent, err := json.MarshalIndent(clientSchema, "", "  "); err == nil {
+			prompt.WriteString("\n📋 CLIENT.YAML JSON SCHEMA (follow this structure exactly):\n")
+			prompt.WriteString("```json\n")
+			prompt.WriteString(string(schemaContent))
+			prompt.WriteString("\n```\n")
+		}
 	}
 
-	prompt.WriteString("\nRequired structure:\n")
-	prompt.WriteString("- Use schemaVersion: 1.0\n")
-	prompt.WriteString("- Use 'stacks:' section (NOT 'environments:')\n")
-	prompt.WriteString("- Stack type should be 'cloud-compose' for containerized apps\n")
-	prompt.WriteString("- Include 'runs: [app]' to specify containers from docker-compose.yaml\n")
-	prompt.WriteString("- Add scaling with 'scale: {min: 1, max: 3}' in config section\n")
-	prompt.WriteString("- Use 'env:' for environment variables (NOT 'environment:')\n")
-	prompt.WriteString("- Include common secrets like JWT_SECRET using ${secret:jwt-secret} format\n")
-	prompt.WriteString("- Only use real Simple Container properties validated against schemas\n")
+	if stackSchema, err := validator.GetStackConfigComposeSchema(context.Background()); err == nil {
+		if schemaContent, err := json.MarshalIndent(stackSchema, "", "  "); err == nil {
+			prompt.WriteString("\n📋 STACK CONFIG SCHEMA (for config section structure):\n")
+			prompt.WriteString("```json\n")
+			prompt.WriteString(string(schemaContent))
+			prompt.WriteString("\n```\n")
+		}
+	}
 
-	prompt.WriteString("\nGenerate only the YAML configuration without explanations:")
+	// Add validated example structure
+	prompt.WriteString("\n✅ REQUIRED STRUCTURE EXAMPLE:\n")
+	prompt.WriteString("schemaVersion: 1.0\n")
+	prompt.WriteString("stacks:\n")
+	prompt.WriteString("  " + projectName + ":\n")
+	prompt.WriteString("    type: cloud-compose       # Valid types: cloud-compose, static, single-image\n")
+	prompt.WriteString("    parent: " + opts.Parent + "\n")
+	prompt.WriteString("    parentEnv: " + opts.Environment + "\n")
+	prompt.WriteString("    config:\n")
+	prompt.WriteString("      runs: [app]            # Container names from docker-compose.yaml\n")
+	prompt.WriteString("      scale:\n")
+	prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
+	prompt.WriteString("        max: 3\n")
+	prompt.WriteString("      env:                  # Environment variables (NOT 'environment')\n")
+	prompt.WriteString("        PORT: 3000\n")
+	prompt.WriteString("      secrets:              # Secret references using ${secret:name} format\n")
+	prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"\n")
+
+	// Enrich context with validated examples
+	contextEnrichment := d.enrichContextWithDocumentation("client.yaml", analysis)
+	if contextEnrichment != "" {
+		prompt.WriteString("\n📋 VALIDATED EXAMPLES:\n" + contextEnrichment)
+	}
+
+	prompt.WriteString("\n🚫 NEVER USE THESE (fictional properties eliminated in validation):\n")
+	prompt.WriteString("- environments: section (use 'stacks:' only)\n")
+	prompt.WriteString("- scaling: section (use 'scale:' in config)\n")
+	prompt.WriteString("- version: property (use 'schemaVersion:')\n")
+	prompt.WriteString("- account: property (DevOps server.yaml only)\n")
+	prompt.WriteString("- minCapacity/maxCapacity (use min/max in scale)\n")
+
+	prompt.WriteString("\n⚡ Generate ONLY the valid YAML (no explanations, no markdown):")
 
 	return prompt.String()
 }
@@ -608,32 +686,119 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 		projectName = analysis.Name
 	}
 
-	template := fmt.Sprintf(`schemaVersion: 1.0
+	// Build language-specific environment variables based on project analysis
+	envVars := d.buildLanguageSpecificEnvVars(analysis)
+	secrets := d.buildLanguageSpecificSecrets(analysis)
 
-stacks:
-  %s:
-    type: cloud-compose
-    parent: %s
-    parentEnv: %s
-    config:
-      # Services from docker-compose.yaml
-      runs: [app]
-      
-      # Scaling configuration
-      scale:
-        min: 1
-        max: 3
-      
-      # Environment variables
-      env:
-        PORT: 3000
-        
-      # Secrets
-      secrets:
-        JWT_SECRET: "${secret:jwt-secret}"`,
-		projectName, opts.Parent, opts.Environment)
+	var template strings.Builder
+	template.WriteString("schemaVersion: 1.0\n\n")
+	template.WriteString("stacks:\n")
+	template.WriteString(fmt.Sprintf("  %s:\n", projectName))
+	template.WriteString("    type: cloud-compose\n")
+	template.WriteString(fmt.Sprintf("    parent: %s\n", opts.Parent))
+	template.WriteString(fmt.Sprintf("    parentEnv: %s\n", opts.Environment))
+	template.WriteString("    config:\n")
+	template.WriteString("      # Services from docker-compose.yaml\n")
+	template.WriteString("      runs: [app]\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Scaling configuration\n")
+	template.WriteString("      scale:\n")
+	template.WriteString("        min: 1\n")
+	template.WriteString("        max: 3\n")
+	template.WriteString("      \n")
+	template.WriteString("      # Environment variables\n")
+	template.WriteString("      env:\n")
 
-	return template, nil
+	// Add language-specific environment variables
+	for key, value := range envVars {
+		template.WriteString(fmt.Sprintf("        %s: %s\n", key, value))
+	}
+
+	template.WriteString("        \n")
+	template.WriteString("      # Secrets\n")
+	template.WriteString("      secrets:\n")
+
+	// Add language-specific secrets
+	for key, value := range secrets {
+		template.WriteString(fmt.Sprintf("        %s: \"%s\"\n", key, value))
+	}
+
+	return template.String(), nil
+}
+
+// buildLanguageSpecificEnvVars creates environment variables based on detected language/framework
+func (d *DeveloperMode) buildLanguageSpecificEnvVars(analysis *analysis.ProjectAnalysis) map[string]string {
+	envVars := make(map[string]string)
+
+	if analysis == nil || analysis.PrimaryStack == nil {
+		// Default environment variables
+		envVars["PORT"] = "3000"
+		return envVars
+	}
+
+	switch analysis.PrimaryStack.Language {
+	case "javascript", "nodejs":
+		envVars["NODE_ENV"] = "production"
+		envVars["PORT"] = "3000"
+		if analysis.PrimaryStack.Framework == "express" {
+			envVars["EXPRESS_SESSION_SECRET"] = "${secret:session-secret}"
+		} else if analysis.PrimaryStack.Framework == "nextjs" {
+			envVars["NEXTAUTH_URL"] = "https://myapp.com"
+			envVars["NEXTAUTH_SECRET"] = "${secret:nextauth-secret}"
+		}
+	case "python":
+		envVars["PYTHON_ENV"] = "production"
+		envVars["PORT"] = "8000"
+		if analysis.PrimaryStack.Framework == "django" {
+			envVars["DJANGO_SETTINGS_MODULE"] = "myapp.settings.production"
+			envVars["DJANGO_SECRET_KEY"] = "${secret:django-secret}"
+		} else if analysis.PrimaryStack.Framework == "flask" {
+			envVars["FLASK_ENV"] = "production"
+			envVars["FLASK_SECRET_KEY"] = "${secret:flask-secret}"
+		} else if analysis.PrimaryStack.Framework == "fastapi" {
+			envVars["FASTAPI_ENV"] = "production"
+		}
+	case "go":
+		envVars["GO_ENV"] = "production"
+		envVars["PORT"] = "8080"
+		if analysis.PrimaryStack.Framework == "gin" {
+			envVars["GIN_MODE"] = "release"
+		}
+	default:
+		envVars["PORT"] = "3000"
+	}
+
+	return envVars
+}
+
+// buildLanguageSpecificSecrets creates secrets based on detected language/framework
+func (d *DeveloperMode) buildLanguageSpecificSecrets(analysis *analysis.ProjectAnalysis) map[string]string {
+	secrets := make(map[string]string)
+
+	// Common secrets for all applications
+	secrets["JWT_SECRET"] = "${secret:jwt-secret}"
+
+	if analysis == nil || analysis.PrimaryStack == nil {
+		return secrets
+	}
+
+	switch analysis.PrimaryStack.Language {
+	case "javascript", "nodejs":
+		if analysis.PrimaryStack.Framework == "nextjs" {
+			secrets["NEXTAUTH_SECRET"] = "${secret:nextauth-secret}"
+		}
+		secrets["SESSION_SECRET"] = "${secret:session-secret}"
+	case "python":
+		if analysis.PrimaryStack.Framework == "django" {
+			secrets["DJANGO_SECRET_KEY"] = "${secret:django-secret}"
+		} else if analysis.PrimaryStack.Framework == "flask" {
+			secrets["FLASK_SECRET_KEY"] = "${secret:flask-secret}"
+		}
+	case "go":
+		secrets["API_SECRET"] = "${secret:api-secret}"
+	}
+
+	return secrets
 }
 
 func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAnalysis) (string, error) {
@@ -655,9 +820,18 @@ func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAna
 	// Extract YAML from response
 	yamlContent := strings.TrimSpace(response.Content)
 	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	yamlContent = strings.TrimPrefix(yamlContent, "```yml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```")
 	yamlContent = strings.TrimSuffix(yamlContent, "```")
-	return strings.TrimSpace(yamlContent), nil
+	yamlContent = strings.TrimSpace(yamlContent)
+
+	// Validate docker-compose content for best practices
+	if !d.validateComposeContent(yamlContent) {
+		fmt.Printf("⚠️  Generated docker-compose.yaml doesn't meet best practices, using fallback...\n")
+		return d.generateFallbackComposeYAML(analysis)
+	}
+
+	return yamlContent, nil
 }
 
 func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysis) string {
@@ -695,33 +869,83 @@ func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysi
 		prompt.WriteString("\n" + contextEnrichment)
 	}
 
-	prompt.WriteString("\nRequired structure:\n")
-	prompt.WriteString("- Use version: '3.8'\n")
-	prompt.WriteString("- Main 'app' service with build context\n")
-	prompt.WriteString("- Proper port mapping\n")
-	prompt.WriteString("- Development environment variables\n")
-	prompt.WriteString("- Volume mounts for hot reloading\n")
-	prompt.WriteString("- Health checks where appropriate\n")
+	prompt.WriteString("\n🏷️ REQUIRED SIMPLE CONTAINER LABELS:\n")
+	prompt.WriteString("For the MAIN SERVICE (ingress container):\n")
+	prompt.WriteString("  labels:\n")
+	prompt.WriteString("    \"simple-container.com/ingress\": \"true\"  # Marks this as the main ingress service\n")
+	prompt.WriteString("    \"simple-container.com/ingress/port\": \"3000\"  # Optional: specify ingress port\n")
+	prompt.WriteString("    \"simple-container.com/healthcheck/path\": \"/health\"  # Optional: health check endpoint\n")
+	prompt.WriteString("    \"simple-container.com/healthcheck/port\": \"3000\"  # Optional: health check port\n")
 
-	prompt.WriteString("\nGenerate only the docker-compose.yaml content without explanations:")
+	prompt.WriteString("\nFor VOLUMES (create separate volumes block):\n")
+	prompt.WriteString("  volumes:\n")
+	prompt.WriteString("    app_data:  # Example volume name\n")
+	prompt.WriteString("      labels:\n")
+	prompt.WriteString("        \"simple-container.com/volume-size\": \"10Gi\"  # Volume size specification\n")
+	prompt.WriteString("        \"simple-container.com/volume-storage-class\": \"gp3\"  # Optional: storage class\n")
+	prompt.WriteString("        \"simple-container.com/volume-access-modes\": \"ReadWriteOnce\"  # Optional: access mode\n")
+
+	prompt.WriteString("\n📋 REQUIRED STRUCTURE:\n")
+	prompt.WriteString("- Use version: '3.8' or higher\n")
+	prompt.WriteString("- Main 'app' service with build context and Simple Container labels\n")
+	prompt.WriteString("- Create separate volumes block for ALL required volumes with labels\n")
+	prompt.WriteString("- Proper port mapping with ingress labels\n")
+	prompt.WriteString("- Environment variables for configuration\n")
+	prompt.WriteString("- Volume mounts using the defined volumes\n")
+	prompt.WriteString("- Restart policies (restart: unless-stopped recommended)\n")
+	prompt.WriteString("- Include networks block if multiple services need communication\n")
+
+	prompt.WriteString("\n⚡ Generate ONLY the valid docker-compose.yaml content (no explanations, no markdown blocks):")
 
 	return prompt.String()
 }
 
 func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAnalysis) (string, error) {
-	template := `version: '3.8'
+	// Build language-specific template
+	port := "3000"
+	if analysis != nil && analysis.PrimaryStack != nil {
+		switch analysis.PrimaryStack.Language {
+		case "python":
+			port = "8000"
+		case "go":
+			port = "8080"
+		default:
+			port = "3000"
+		}
+	}
+
+	template := fmt.Sprintf(`version: '3.8'
 
 services:
   app:
     build: .
+    labels:
+      "simple-container.com/ingress": "true"
+      "simple-container.com/ingress/port": "%s"
+      "simple-container.com/healthcheck/path": "/health"
+      "simple-container.com/healthcheck/port": "%s"
     ports:
-      - "3000:3000"
+      - "%s:%s"
     environment:
       - NODE_ENV=development
-      - PORT=3000
+      - PORT=%s
     volumes:
       - .:/app:delegated
-    command: npm run dev`
+      - app_data:/data
+    restart: unless-stopped
+    networks:
+      - app_network
+
+volumes:
+  app_data:
+    labels:
+      "simple-container.com/volume-size": "10Gi"
+      "simple-container.com/volume-storage-class": "gp3"
+      "simple-container.com/volume-access-modes": "ReadWriteOnce"
+
+networks:
+  app_network:
+    driver: bridge`, port, port, port, port, port)
 
 	return template, nil
 }
@@ -747,8 +971,15 @@ func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnal
 	dockerfileContent = strings.TrimPrefix(dockerfileContent, "```dockerfile")
 	dockerfileContent = strings.TrimPrefix(dockerfileContent, "```")
 	dockerfileContent = strings.TrimSuffix(dockerfileContent, "```")
+	dockerfileContent = strings.TrimSpace(dockerfileContent)
 
-	return strings.TrimSpace(dockerfileContent), nil
+	// Validate Dockerfile content for best practices
+	if !d.validateDockerfileContent(dockerfileContent) {
+		fmt.Printf("⚠️  Generated Dockerfile doesn't meet security standards, using fallback...\n")
+		return d.generateFallbackDockerfile(analysis)
+	}
+
+	return dockerfileContent, nil
 }
 
 func (d *DeveloperMode) buildDockerfilePrompt(analysis *analysis.ProjectAnalysis) string {
@@ -952,4 +1183,69 @@ func (d *DeveloperMode) outputAnalysisYAML(analysis *analysis.ProjectAnalysis, o
 	}
 
 	return nil
+}
+
+// validateDockerfileContent checks Dockerfile for security best practices
+func (d *DeveloperMode) validateDockerfileContent(content string) bool {
+	lines := strings.Split(content, "\n")
+
+	var hasNonRootUser bool
+	var hasMultiStage bool
+	var hasSecurityPractices bool
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		lineLower := strings.ToLower(line)
+
+		// Check for non-root user
+		if strings.HasPrefix(lineLower, "user ") && !strings.Contains(lineLower, "user 0") && !strings.Contains(lineLower, "user root") {
+			hasNonRootUser = true
+		}
+
+		// Check for multi-stage build
+		if strings.HasPrefix(lineLower, "from ") && strings.Contains(lineLower, " as ") {
+			hasMultiStage = true
+		}
+
+		// Check for security practices
+		if strings.Contains(lineLower, "apk add --no-cache") ||
+			strings.Contains(lineLower, "apt-get update") ||
+			strings.Contains(lineLower, "npm ci") ||
+			strings.Contains(lineLower, "pip install --no-cache-dir") {
+			hasSecurityPractices = true
+		}
+	}
+
+	// Basic validation - at least one security practice should be present
+	return hasNonRootUser || hasMultiStage || hasSecurityPractices
+}
+
+// validateComposeContent checks docker-compose.yaml for best practices and Simple Container labels
+func (d *DeveloperMode) validateComposeContent(content string) bool {
+	// Basic validation - check for required sections
+	requiredSections := []string{
+		"version:",
+		"services:",
+	}
+
+	for _, section := range requiredSections {
+		if !strings.Contains(content, section) {
+			return false
+		}
+	}
+
+	// Check for Simple Container ingress label (critical for deployment)
+	hasIngressLabel := strings.Contains(content, "simple-container.com/ingress")
+
+	// Check for security and operational practices
+	hasSecurityPractices := false
+	if strings.Contains(content, "restart:") ||
+		strings.Contains(content, "healthcheck:") ||
+		strings.Contains(content, "environment:") {
+		hasSecurityPractices = true
+	}
+
+	// Pass validation if it has ingress label and basic security practices
+	// Volume labels are optional but recommended
+	return hasIngressLabel && hasSecurityPractices
 }
