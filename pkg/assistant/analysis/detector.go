@@ -407,23 +407,27 @@ func (d *GoDetector) hasGoSourceFiles(projectPath string) (bool, error) {
 }
 
 func (d *GoDetector) detectFramework(projectPath string) string {
-	frameworks := map[string]string{
-		"gin-gonic/gin": "gin",
-		"gorilla/mux":   "gorilla-mux",
-		"labstack/echo": "echo",
-		"gofiber/fiber": "fiber",
-		"go-chi/chi":    "chi",
-		"spf13/cobra":   "cobra",
-		"urfave/cli":    "cli",
+	// Framework detection in priority order: web frameworks first, then CLI frameworks
+	frameworks := []struct {
+		importPath string
+		framework  string
+	}{
+		{"gin-gonic/gin", "gin"},
+		{"gorilla/mux", "gorilla-mux"},
+		{"labstack/echo", "echo"},
+		{"gofiber/fiber", "fiber"},
+		{"go-chi/chi", "chi"},
+		{"spf13/cobra", "cobra"},
+		{"urfave/cli", "cli"},
 	}
 
 	// Read go.mod for dependencies
 	goModPath := filepath.Join(projectPath, "go.mod")
 	if content, err := os.ReadFile(goModPath); err == nil {
 		modContent := string(content)
-		for importPath, framework := range frameworks {
-			if strings.Contains(modContent, importPath) {
-				return framework
+		for _, fw := range frameworks {
+			if strings.Contains(modContent, fw.importPath) {
+				return fw.framework
 			}
 		}
 	}
