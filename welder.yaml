@@ -178,4 +178,6 @@ tasks:
   rebuild:
     runOn: host
     script:
+      - welder run generate-schemas
+      - welder run generate-embeddings
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
