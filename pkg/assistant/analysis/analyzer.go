@@ -1,21 +1,35 @@
 package analysis
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 )
+
+// LLMProvider interface for project analysis enhancement
+type LLMProvider interface {
+	GenerateResponse(ctx context.Context, prompt string) (string, error)
+}
 
 // ProjectAnalyzer orchestrates tech stack detection and generates recommendations
 type ProjectAnalyzer struct {
-	detectors []TechStackDetector
+	detectors    []TechStackDetector
+	llmProvider  LLMProvider
+	embeddingsDB *embeddings.Database
 }
 
 // NewProjectAnalyzer creates a new analyzer with default detectors
 func NewProjectAnalyzer() *ProjectAnalyzer {
+	// Initialize embeddings database for context enrichment
+	embeddingsDB, _ := embeddings.LoadEmbeddedDatabase(context.Background())
+
 	return &ProjectAnalyzer{
 		detectors: []TechStackDetector{
 			&NodeJSDetector{},
@@ -23,7 +37,14 @@ func NewProjectAnalyzer() *ProjectAnalyzer {
 			&GoDetector{},
 			&DockerDetector{},
 		},
+		llmProvider:  nil, // Can be set later with SetLLMProvider
+		embeddingsDB: embeddingsDB,
 	}
+}
+
+// SetLLMProvider sets the LLM provider for enhanced analysis
+func (pa *ProjectAnalyzer) SetLLMProvider(provider LLMProvider) {
+	pa.llmProvider = provider
 }
 
 // AddDetector adds a custom detector
@@ -85,13 +106,20 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 	// Detect architecture patterns
 	analysis.Architecture = pa.detectArchitecture(detectedStacks, projectPath)
 
-	// Generate recommendations
+	// Generate recommendations (enhanced with LLM)
 	analysis.Recommendations = pa.generateRecommendations(analysis)
 
 	// Analyze file structure
 	files, err := pa.analyzeFiles(projectPath)
 	if err == nil {
 		analysis.Files = files
+	}
+
+	// Enhance analysis with LLM insights
+	if pa.llmProvider != nil {
+		if enhanced, err := pa.enhanceWithLLM(context.Background(), analysis); err == nil {
+			analysis = enhanced
+		}
 	}
 
 	return analysis, nil
@@ -731,4 +759,226 @@ func (pa *ProjectAnalyzer) getFileType(filename string) string {
 	default:
 		return "other"
 	}
+}
+
+// enhanceWithLLM uses LLM to provide deeper insights and better recommendations
+func (pa *ProjectAnalyzer) enhanceWithLLM(ctx context.Context, analysis *ProjectAnalysis) (*ProjectAnalysis, error) {
+	if pa.llmProvider == nil {
+		return analysis, nil
+	}
+
+	// Prepare project context for LLM analysis
+	projectSummary := pa.buildProjectSummary(analysis)
+
+	// Get relevant documentation context
+	var docContext string
+	if pa.embeddingsDB != nil {
+		if results, err := embeddings.SearchDocumentation(pa.embeddingsDB,
+			fmt.Sprintf("%s %s architecture patterns", analysis.PrimaryStack.Language, analysis.PrimaryStack.Framework), 3); err == nil {
+			for _, result := range results {
+				docContext += result.Content + "\n"
+			}
+		}
+	}
+
+	// Build LLM prompt for enhanced analysis
+	prompt := pa.buildAnalysisPrompt(projectSummary, docContext)
+
+	// Get LLM insights
+	response, err := pa.llmProvider.GenerateResponse(ctx, prompt)
+	if err != nil {
+		return analysis, err // Return original analysis if LLM fails
+	}
+
+	// Parse LLM response and enhance analysis
+	enhanced := pa.parseAndEnhanceAnalysis(analysis, response)
+
+	return enhanced, nil
+}
+
+// buildProjectSummary creates a concise summary for LLM analysis
+func (pa *ProjectAnalyzer) buildProjectSummary(analysis *ProjectAnalysis) string {
+	var summary strings.Builder
+
+	summary.WriteString(fmt.Sprintf("Project: %s\n", analysis.Name))
+	summary.WriteString(fmt.Sprintf("Path: %s\n", analysis.Path))
+	summary.WriteString(fmt.Sprintf("Architecture: %s\n", analysis.Architecture))
+
+	if analysis.PrimaryStack != nil {
+		summary.WriteString(fmt.Sprintf("Primary Stack: %s %s (%.1f%% confidence)\n",
+			analysis.PrimaryStack.Language, analysis.PrimaryStack.Framework, analysis.PrimaryStack.Confidence*100))
+	}
+
+	summary.WriteString(fmt.Sprintf("Tech Stacks: %d detected\n", len(analysis.TechStacks)))
+	for _, stack := range analysis.TechStacks {
+		summary.WriteString(fmt.Sprintf("- %s %s (%d dependencies)\n",
+			stack.Language, stack.Framework, len(stack.Dependencies)))
+	}
+
+	summary.WriteString(fmt.Sprintf("Files: %d analyzed\n", len(analysis.Files)))
+
+	return summary.String()
+}
+
+// buildAnalysisPrompt creates the LLM prompt for enhanced analysis
+func (pa *ProjectAnalyzer) buildAnalysisPrompt(projectSummary, docContext string) string {
+	return fmt.Sprintf(`You are an expert software architect analyzing a project for Simple Container deployment recommendations.
+
+PROJECT ANALYSIS:
+%s
+
+SIMPLE CONTAINER CONTEXT:
+%s
+
+Please provide enhanced analysis in the following areas:
+
+1. ARCHITECTURE ASSESSMENT:
+   - Validate the detected architecture pattern
+   - Suggest improvements or alternative patterns
+   - Identify potential scalability concerns
+
+2. DEPLOYMENT RECOMMENDATIONS:
+   - Recommend specific Simple Container deployment types (cloud-compose, single-image, etc.)
+   - Suggest resource requirements and scaling strategies
+   - Identify security considerations
+
+3. OPTIMIZATION OPPORTUNITIES:
+   - Performance optimization suggestions
+   - Cost optimization recommendations
+   - Best practices for the detected tech stack
+
+4. SIMPLE CONTAINER INTEGRATION:
+   - Specific resources that would benefit this project
+   - Configuration recommendations
+   - Migration strategy if applicable
+
+Respond in JSON format with the following structure:
+{
+  "architecture_assessment": {
+    "validated_pattern": "string",
+    "confidence": 0.0-1.0,
+    "improvements": ["string"],
+    "concerns": ["string"]
+  },
+  "deployment_recommendations": {
+    "recommended_type": "string",
+    "resources": ["string"],
+    "scaling_strategy": "string",
+    "security_notes": ["string"]
+  },
+  "optimizations": {
+    "performance": ["string"],
+    "cost": ["string"],
+    "best_practices": ["string"]
+  },
+  "simple_container_integration": {
+    "recommended_resources": ["string"],
+    "configuration_tips": ["string"],
+    "migration_steps": ["string"]
+  }
+}`, projectSummary, docContext)
+}
+
+// parseAndEnhanceAnalysis parses LLM response and enhances the original analysis
+func (pa *ProjectAnalyzer) parseAndEnhanceAnalysis(original *ProjectAnalysis, llmResponse string) *ProjectAnalysis {
+	enhanced := *original // Copy original analysis
+
+	// Try to parse JSON response
+	var llmInsights struct {
+		ArchitectureAssessment struct {
+			ValidatedPattern string   `json:"validated_pattern"`
+			Confidence       float32  `json:"confidence"`
+			Improvements     []string `json:"improvements"`
+			Concerns         []string `json:"concerns"`
+		} `json:"architecture_assessment"`
+		DeploymentRecommendations struct {
+			RecommendedType string   `json:"recommended_type"`
+			Resources       []string `json:"resources"`
+			ScalingStrategy string   `json:"scaling_strategy"`
+			SecurityNotes   []string `json:"security_notes"`
+		} `json:"deployment_recommendations"`
+		Optimizations struct {
+			Performance   []string `json:"performance"`
+			Cost          []string `json:"cost"`
+			BestPractices []string `json:"best_practices"`
+		} `json:"optimizations"`
+		SimpleContainerIntegration struct {
+			RecommendedResources []string `json:"recommended_resources"`
+			ConfigurationTips    []string `json:"configuration_tips"`
+			MigrationSteps       []string `json:"migration_steps"`
+		} `json:"simple_container_integration"`
+	}
+
+	if err := json.Unmarshal([]byte(llmResponse), &llmInsights); err != nil {
+		// If JSON parsing fails, add raw LLM response as metadata
+		enhanced.Metadata["llm_insights"] = llmResponse
+		return &enhanced
+	}
+
+	// Enhance architecture with LLM insights
+	if llmInsights.ArchitectureAssessment.ValidatedPattern != "" {
+		enhanced.Architecture = llmInsights.ArchitectureAssessment.ValidatedPattern
+	}
+
+	// Add LLM-generated recommendations
+	llmRecommendations := []Recommendation{}
+
+	// Architecture improvements
+	for _, improvement := range llmInsights.ArchitectureAssessment.Improvements {
+		llmRecommendations = append(llmRecommendations, Recommendation{
+			Type:        "architecture",
+			Category:    "improvement",
+			Priority:    "medium",
+			Title:       "Architecture Improvement",
+			Description: improvement,
+			Action:      "review_architecture",
+		})
+	}
+
+	// Deployment recommendations
+	if llmInsights.DeploymentRecommendations.RecommendedType != "" {
+		llmRecommendations = append(llmRecommendations, Recommendation{
+			Type:        "deployment",
+			Category:    "configuration",
+			Priority:    "high",
+			Title:       "Recommended Deployment Type",
+			Description: fmt.Sprintf("Use %s deployment type for optimal performance", llmInsights.DeploymentRecommendations.RecommendedType),
+			Action:      "configure_deployment",
+		})
+	}
+
+	// Resource recommendations
+	for _, resource := range llmInsights.SimpleContainerIntegration.RecommendedResources {
+		llmRecommendations = append(llmRecommendations, Recommendation{
+			Type:        "resource",
+			Category:    "infrastructure",
+			Priority:    "medium",
+			Title:       "Recommended Resource",
+			Description: fmt.Sprintf("Consider adding %s resource for better functionality", resource),
+			Action:      "add_resource",
+		})
+	}
+
+	// Performance optimizations
+	for _, optimization := range llmInsights.Optimizations.Performance {
+		llmRecommendations = append(llmRecommendations, Recommendation{
+			Type:        "optimization",
+			Category:    "performance",
+			Priority:    "medium",
+			Title:       "Performance Optimization",
+			Description: optimization,
+			Action:      "optimize_performance",
+		})
+	}
+
+	// Merge with existing recommendations
+	enhanced.Recommendations = append(enhanced.Recommendations, llmRecommendations...)
+
+	// Add LLM metadata
+	enhanced.Metadata["llm_enhanced"] = true
+	enhanced.Metadata["llm_confidence"] = llmInsights.ArchitectureAssessment.Confidence
+	enhanced.Metadata["deployment_recommendation"] = llmInsights.DeploymentRecommendations.RecommendedType
+	enhanced.Metadata["scaling_strategy"] = llmInsights.DeploymentRecommendations.ScalingStrategy
+
+	return &enhanced
 }

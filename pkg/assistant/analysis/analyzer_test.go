@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -597,4 +598,66 @@ func createBenchmarkProject(b *testing.B) string {
 	}
 
 	return tmpDir
+}
+
+// Test LLM Enhancement functionality
+
+// MockLLMProvider implements LLMProvider for testing
+type MockLLMProvider struct {
+	response string
+	err      error
+}
+
+func (m *MockLLMProvider) GenerateResponse(ctx context.Context, prompt string) (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.response, nil
+}
+
+func TestLLMEnhancement(t *testing.T) {
+	t.Run("test analyzer without LLM provider", func(t *testing.T) {
+		tmpDir := createTempProject(t, map[string]string{
+			"package.json": `{"name": "test", "dependencies": {"express": "^4.0.0"}}`,
+		})
+		defer os.RemoveAll(tmpDir)
+
+		analyzer := NewProjectAnalyzer()
+		// Don't set LLM provider
+
+		analysis, err := analyzer.AnalyzeProject(tmpDir)
+		require.NoError(t, err)
+
+		// Should work fine without LLM enhancement
+		assert.NotEmpty(t, analysis.TechStacks)
+		assert.NotEmpty(t, analysis.Recommendations)
+
+		// Should not have LLM enhancement metadata
+		_, hasLLMEnhanced := analysis.Metadata["llm_enhanced"]
+		assert.False(t, hasLLMEnhanced, "Should not have LLM enhancement without provider")
+	})
+
+	t.Run("test LLM provider interface", func(t *testing.T) {
+		tmpDir := createTempProject(t, map[string]string{
+			"go.mod":  "module test\ngo 1.21\nrequire github.com/gin-gonic/gin v1.9.0",
+			"main.go": "package main",
+		})
+		defer os.RemoveAll(tmpDir)
+
+		analyzer := NewProjectAnalyzer()
+
+		// Test with mock LLM that returns simple response
+		mockLLM := &MockLLMProvider{response: "LLM analysis complete"}
+		analyzer.SetLLMProvider(mockLLM)
+
+		analysis, err := analyzer.AnalyzeProject(tmpDir)
+		require.NoError(t, err)
+
+		// Should have basic analysis
+		assert.NotEmpty(t, analysis.TechStacks)
+		assert.Equal(t, "go", analysis.PrimaryStack.Language)
+
+		// LLM response should be stored in metadata since it's not valid JSON
+		assert.Equal(t, "LLM analysis complete", analysis.Metadata["llm_insights"])
+	})
 }
