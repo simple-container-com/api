@@ -373,10 +373,28 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 	} else {
 		// Try to load from config
 		cfg, err := config.Load()
-		if err == nil && cfg.HasOpenAIAPIKey() {
-			apiKey = cfg.GetOpenAIAPIKey()
-			os.Setenv("OPENAI_API_KEY", apiKey)
-			fmt.Println(color.GreenFmt("✅ Using stored OpenAI API key"))
+		if err == nil {
+			// Get default provider or use openai
+			provider := cfg.GetDefaultProvider()
+			if provider == "" {
+				provider = config.ProviderOpenAI
+			}
+			
+			// Load provider config
+			if providerCfg, exists := cfg.GetProviderConfig(provider); exists && providerCfg.APIKey != "" {
+				apiKey = providerCfg.APIKey
+				os.Setenv("OPENAI_API_KEY", apiKey)
+				providerName := config.GetProviderDisplayName(provider)
+				fmt.Println(color.GreenFmt(fmt.Sprintf("✅ Using stored %s API key", providerName)))
+				
+				// Show provider info
+				if providerCfg.BaseURL != "" {
+					fmt.Println(color.CyanFmt(fmt.Sprintf("   Base URL: %s", providerCfg.BaseURL)))
+				}
+				if providerCfg.Model != "" {
+					fmt.Println(color.CyanFmt(fmt.Sprintf("   Model: %s", providerCfg.Model)))
+				}
+			}
 		}
 	}
 

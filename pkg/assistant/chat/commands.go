@@ -89,11 +89,23 @@ func (c *ChatInterface) registerCommands() {
 
 	c.commands["apikey"] = &ChatCommand{
 		Name:        "apikey",
-		Description: "Manage OpenAI API key",
-		Usage:       "/apikey <set|delete|status>",
+		Description: "Manage LLM provider API keys",
+		Usage:       "/apikey <set|delete|status> [provider]",
 		Handler:     c.handleAPIKey,
 		Args: []CommandArg{
 			{Name: "action", Type: "string", Required: true, Description: "Action: set, delete, or status"},
+			{Name: "provider", Type: "string", Required: false, Description: "Provider: openai, ollama, anthropic, deepseek, yandex"},
+		},
+	}
+
+	c.commands["provider"] = &ChatCommand{
+		Name:        "provider",
+		Description: "Manage LLM provider settings",
+		Usage:       "/provider <list|switch|info> [provider]",
+		Handler:     c.handleProvider,
+		Args: []CommandArg{
+			{Name: "action", Type: "string", Required: true, Description: "Action: list, switch, or info"},
+			{Name: "provider", Type: "string", Required: false, Description: "Provider name for switch/info"},
 		},
 	}
 }
@@ -703,18 +715,18 @@ values:
 	return files, nil
 }
 
-// handleAPIKey manages OpenAI API key storage
+// handleAPIKey manages LLM provider API key storage
 func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
 	if len(args) == 0 {
 		return &CommandResult{
 			Success: false,
-			Message: "Please specify an action: set, delete, or status\nUsage: /apikey <set|delete|status>",
+			Message: "Please specify an action: set, delete, or status\nUsage: /apikey <set|delete|status> [provider]",
 		}, nil
 	}
 
 	action := strings.ToLower(args[0])
-
-	// Load config
+	
+	// Load config first
 	cfg, err := config.Load()
 	if err != nil {
 		return &CommandResult{
@@ -722,11 +734,49 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 			Message: fmt.Sprintf("Failed to load config: %v", err),
 		}, nil
 	}
+	
+	// Determine provider
+	var provider string
+	if len(args) > 1 {
+		// Provider specified in command
+		provider = strings.ToLower(args[1])
+		if !config.IsValidProvider(provider) {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Invalid provider: %s\nValid providers: openai, ollama, anthropic, deepseek, yandex", args[1]),
+			}, nil
+		}
+	} else if action == "set" {
+		// No provider specified for 'set' - show interactive menu
+		selectedProvider, err := selectProvider(cfg)
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to select provider: %v", err),
+			}, nil
+		}
+		if selectedProvider == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "No provider selected",
+			}, nil
+		}
+		provider = selectedProvider
+	} else {
+		// For other actions, use default provider
+		provider = cfg.GetDefaultProvider()
+		if provider == "" {
+			provider = config.ProviderOpenAI
+		}
+	}
 
 	switch action {
 	case "set":
+		providerName := config.GetProviderDisplayName(provider)
+		
 		// Prompt for API key
-		apiKey, err := promptForOpenAIKey()
+		fmt.Print(color.CyanString(fmt.Sprintf("🔑 Enter your %s API key: ", providerName)))
+		apiKey, err := readSecureInput()
 		if err != nil {
 			return &CommandResult{
 				Success: false,
@@ -741,8 +791,29 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 			}, nil
 		}
 
-		// Save API key
-		if err := cfg.SetOpenAIAPIKey(apiKey); err != nil {
+		// For Ollama, also ask for base URL
+		providerCfg := config.ProviderConfig{APIKey: apiKey}
+		if provider == config.ProviderOllama {
+			fmt.Print(color.CyanString("🌐 Enter Ollama base URL (press Enter for http://localhost:11434): "))
+			reader := bufio.NewReader(os.Stdin)
+			baseURL, _ := reader.ReadString('\n')
+			baseURL = strings.TrimSpace(baseURL)
+			if baseURL == "" {
+				baseURL = "http://localhost:11434"
+			}
+			providerCfg.BaseURL = baseURL
+			
+			fmt.Print(color.CyanString("🤖 Enter default model (press Enter for llama2): "))
+			model, _ := reader.ReadString('\n')
+			model = strings.TrimSpace(model)
+			if model == "" {
+				model = "llama2"
+			}
+			providerCfg.Model = model
+		}
+
+		// Save provider config
+		if err := cfg.SetProviderConfig(provider, providerCfg); err != nil {
 			return &CommandResult{
 				Success: false,
 				Message: fmt.Sprintf("Failed to save API key: %v", err),
@@ -752,45 +823,91 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 		configPath, _ := config.ConfigPath()
 		return &CommandResult{
 			Success:  true,
-			Message:  fmt.Sprintf("✅ OpenAI API key saved successfully to %s", configPath),
-			NextStep: "Your API key will be automatically used in future sessions",
+			Message:  fmt.Sprintf("✅ %s API key saved successfully to %s", providerName, configPath),
+			NextStep: fmt.Sprintf("Provider '%s' is now set as default. Use '/provider switch' to change providers.", provider),
 		}, nil
 
 	case "delete", "remove":
-		if !cfg.HasOpenAIAPIKey() {
+		if !cfg.HasProviderConfig(provider) {
+			providerName := config.GetProviderDisplayName(provider)
 			return &CommandResult{
 				Success: false,
-				Message: "No API key is currently stored",
+				Message: fmt.Sprintf("No API key is stored for %s", providerName),
 			}, nil
 		}
 
-		if err := cfg.DeleteOpenAIAPIKey(); err != nil {
+		if err := cfg.DeleteProviderConfig(provider); err != nil {
 			return &CommandResult{
 				Success: false,
 				Message: fmt.Sprintf("Failed to delete API key: %v", err),
 			}, nil
 		}
 
+		providerName := config.GetProviderDisplayName(provider)
 		return &CommandResult{
 			Success: true,
-			Message: "✅ OpenAI API key deleted successfully",
+			Message: fmt.Sprintf("✅ %s API key deleted successfully", providerName),
 		}, nil
 
 	case "status", "show":
-		if cfg.HasOpenAIAPIKey() {
-			// Mask the API key for security
-			apiKey := cfg.GetOpenAIAPIKey()
-			masked := maskAPIKey(apiKey)
-			configPath, _ := config.ConfigPath()
+		// Show status for specific provider or all
+		if len(args) > 1 {
+			// Show specific provider
+			if cfg.HasProviderConfig(provider) {
+				providerCfg, _ := cfg.GetProviderConfig(provider)
+				masked := maskAPIKey(providerCfg.APIKey)
+				providerName := config.GetProviderDisplayName(provider)
+				message := fmt.Sprintf("✅ %s API key is configured: %s", providerName, masked)
+				if providerCfg.BaseURL != "" {
+					message += fmt.Sprintf("\n   Base URL: %s", providerCfg.BaseURL)
+				}
+				if providerCfg.Model != "" {
+					message += fmt.Sprintf("\n   Default Model: %s", providerCfg.Model)
+				}
+				configPath, _ := config.ConfigPath()
+				message += fmt.Sprintf("\n   Stored in: %s", configPath)
+				return &CommandResult{
+					Success: true,
+					Message: message,
+				}, nil
+			}
+			providerName := config.GetProviderDisplayName(provider)
 			return &CommandResult{
-				Success: true,
-				Message: fmt.Sprintf("✅ API key is configured: %s\nStored in: %s", masked, configPath),
+				Success: false,
+				Message: fmt.Sprintf("❌ No API key is stored for %s\nUse '/apikey set %s' to configure one", providerName, provider),
 			}, nil
 		}
-
+		
+		// Show all configured providers
+		providers := cfg.ListProviders()
+		if len(providers) == 0 {
+			return &CommandResult{
+				Success: false,
+				Message: "❌ No API keys are currently stored\nUse '/apikey set [provider]' to configure one",
+			}, nil
+		}
+		
+		message := "📋 Configured Providers:\n"
+		defaultProvider := cfg.GetDefaultProvider()
+		for _, p := range providers {
+			providerCfg, _ := cfg.GetProviderConfig(p)
+			masked := maskAPIKey(providerCfg.APIKey)
+			providerName := config.GetProviderDisplayName(p)
+			defaultMark := ""
+			if p == defaultProvider {
+				defaultMark = " (default)"
+			}
+			message += fmt.Sprintf("\n  • %s%s: %s", providerName, defaultMark, masked)
+			if providerCfg.BaseURL != "" {
+				message += fmt.Sprintf("\n    Base URL: %s", providerCfg.BaseURL)
+			}
+		}
+		configPath, _ := config.ConfigPath()
+		message += fmt.Sprintf("\n\nStored in: %s", configPath)
+		
 		return &CommandResult{
-			Success: false,
-			Message: "❌ No API key is currently stored\nUse '/apikey set' to configure one",
+			Success: true,
+			Message: message,
 		}, nil
 
 	default:
@@ -801,19 +918,166 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 	}
 }
 
-// promptForOpenAIKey prompts the user to enter their OpenAI API key securely
-func promptForOpenAIKey() (string, error) {
-	fmt.Print(color.CyanString("🔑 Enter your OpenAI API key: "))
+// handleProvider manages LLM provider settings
+func (c *ChatInterface) handleProvider(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) == 0 {
+		return &CommandResult{
+			Success: false,
+			Message: "Please specify an action: list, switch, or info\nUsage: /provider <list|switch|info> [provider]",
+		}, nil
+	}
 
+	action := strings.ToLower(args[0])
+	cfg, err := config.Load()
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to load config: %v", err),
+		}, nil
+	}
+
+	switch action {
+	case "list":
+		providers := cfg.ListProviders()
+		if len(providers) == 0 {
+			return &CommandResult{
+				Success: false,
+				Message: "❌ No providers configured\nUse '/apikey set [provider]' to configure a provider",
+			}, nil
+		}
+
+		message := "📋 Available Providers:\n"
+		defaultProvider := cfg.GetDefaultProvider()
+		for _, p := range providers {
+			providerName := config.GetProviderDisplayName(p)
+			defaultMark := ""
+			if p == defaultProvider {
+				defaultMark = " ⭐ (current)"
+			}
+			message += fmt.Sprintf("\n  • %s%s", providerName, defaultMark)
+		}
+		message += "\n\nUse '/provider switch <provider>' to change the default provider"
+
+		return &CommandResult{
+			Success: true,
+			Message: message,
+		}, nil
+
+	case "switch":
+		var provider string
+		
+		if len(args) < 2 {
+			// No provider specified - show interactive menu
+			selectedProvider, err := selectConfiguredProvider(cfg)
+			if err != nil {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("Failed to select provider: %v", err),
+				}, nil
+			}
+			if selectedProvider == "" {
+				return &CommandResult{
+					Success: false,
+					Message: "No provider selected",
+				}, nil
+			}
+			provider = selectedProvider
+		} else {
+			// Provider specified directly
+			provider = strings.ToLower(args[1])
+			if !config.IsValidProvider(provider) {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("Invalid provider: %s\nValid providers: openai, ollama, anthropic, deepseek, yandex", args[1]),
+				}, nil
+			}
+
+			if !cfg.HasProviderConfig(provider) {
+				providerName := config.GetProviderDisplayName(provider)
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("❌ %s is not configured\nUse '/apikey set %s' to configure it first", providerName, provider),
+				}, nil
+			}
+		}
+
+		if err := cfg.SetDefaultProvider(provider); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to switch provider: %v", err),
+			}, nil
+		}
+
+		providerName := config.GetProviderDisplayName(provider)
+		return &CommandResult{
+			Success:  true,
+			Message:  fmt.Sprintf("✅ Switched to %s", providerName),
+			NextStep: "Restart the chat session to use the new provider",
+		}, nil
+
+	case "info":
+		provider := cfg.GetDefaultProvider()
+		if len(args) > 1 {
+			provider = strings.ToLower(args[1])
+			if !config.IsValidProvider(provider) {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("Invalid provider: %s", args[1]),
+				}, nil
+			}
+		}
+
+		if provider == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "❌ No default provider set\nUse '/apikey set [provider]' to configure one",
+			}, nil
+		}
+
+		if !cfg.HasProviderConfig(provider) {
+			providerName := config.GetProviderDisplayName(provider)
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ %s is not configured", providerName),
+			}, nil
+		}
+
+		providerCfg, _ := cfg.GetProviderConfig(provider)
+		providerName := config.GetProviderDisplayName(provider)
+		message := fmt.Sprintf("ℹ️  %s Configuration:\n", providerName)
+		message += fmt.Sprintf("\n  Provider: %s", provider)
+		message += fmt.Sprintf("\n  API Key: %s", maskAPIKey(providerCfg.APIKey))
+		if providerCfg.BaseURL != "" {
+			message += fmt.Sprintf("\n  Base URL: %s", providerCfg.BaseURL)
+		}
+		if providerCfg.Model != "" {
+			message += fmt.Sprintf("\n  Default Model: %s", providerCfg.Model)
+		}
+
+		return &CommandResult{
+			Success: true,
+			Message: message,
+		}, nil
+
+	default:
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Unknown action: %s\nValid actions: list, switch, info", action),
+		}, nil
+	}
+}
+
+// readSecureInput reads input securely (hidden) from terminal
+func readSecureInput() (string, error) {
 	// Check if we're running in a terminal
 	if !term.IsTerminal(int(syscall.Stdin)) {
 		// Not a terminal, read from stdin normally
 		reader := bufio.NewReader(os.Stdin)
-		apiKey, err := reader.ReadString('\n')
+		input, err := reader.ReadString('\n')
 		if err != nil {
 			return "", err
 		}
-		return strings.TrimSpace(apiKey), nil
+		return strings.TrimSpace(input), nil
 	}
 
 	// Read password from terminal (hidden input)
@@ -823,7 +1087,16 @@ func promptForOpenAIKey() (string, error) {
 	}
 
 	fmt.Println() // Add newline after hidden input
-	apiKey := strings.TrimSpace(string(bytePassword))
+	return strings.TrimSpace(string(bytePassword)), nil
+}
+
+// promptForOpenAIKey prompts the user to enter their OpenAI API key securely
+func promptForOpenAIKey() (string, error) {
+	fmt.Print(color.CyanString("🔑 Enter your OpenAI API key: "))
+	apiKey, err := readSecureInput()
+	if err != nil {
+		return "", err
+	}
 
 	// Basic validation - OpenAI keys should start with "sk-"
 	if apiKey != "" && !strings.HasPrefix(apiKey, "sk-") {
@@ -851,4 +1124,127 @@ func maskAPIKey(apiKey string) string {
 		return "sk-****"
 	}
 	return apiKey[:7] + "..." + apiKey[len(apiKey)-4:]
+}
+
+// selectProvider shows an interactive menu to select a provider
+func selectProvider(cfg *config.Config) (string, error) {
+	// Get all valid providers
+	allProviders := []string{
+		config.ProviderOpenAI,
+		config.ProviderOllama,
+		config.ProviderAnthropic,
+		config.ProviderDeepseek,
+		config.ProviderYandex,
+	}
+	
+	// Get configured providers
+	configuredProviders := cfg.ListProviders()
+	configuredMap := make(map[string]bool)
+	for _, p := range configuredProviders {
+		configuredMap[p] = true
+	}
+	
+	// Display menu
+	fmt.Println(color.CyanString("\n📋 Select a provider to configure:"))
+	fmt.Println()
+	
+	for i, provider := range allProviders {
+		providerName := config.GetProviderDisplayName(provider)
+		status := ""
+		if configuredMap[provider] {
+			status = color.GreenString(" ✓ (configured)")
+		} else {
+			status = color.YellowString(" (not configured)")
+		}
+		fmt.Printf("  %d. %s%s\n", i+1, providerName, status)
+	}
+	
+	fmt.Println()
+	fmt.Print(color.CyanString("Enter number (1-5) or 'q' to cancel: "))
+	
+	// Read user input
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	
+	input = strings.TrimSpace(input)
+	
+	// Check for cancel
+	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {
+		return "", nil
+	}
+	
+	// Parse selection
+	selection, err := strconv.Atoi(input)
+	if err != nil || selection < 1 || selection > len(allProviders) {
+		return "", fmt.Errorf("invalid selection: %s", input)
+	}
+	
+	selectedProvider := allProviders[selection-1]
+	fmt.Println(color.GreenString(fmt.Sprintf("✓ Selected: %s", config.GetProviderDisplayName(selectedProvider))))
+	fmt.Println()
+	
+	return selectedProvider, nil
+}
+
+// selectConfiguredProvider shows an interactive menu to select from configured providers only
+func selectConfiguredProvider(cfg *config.Config) (string, error) {
+	// Get configured providers
+	configuredProviders := cfg.ListProviders()
+	
+	if len(configuredProviders) == 0 {
+		return "", fmt.Errorf("no providers configured. Use '/apikey set' to configure a provider first")
+	}
+	
+	if len(configuredProviders) == 1 {
+		// Only one provider configured, no need to show menu
+		return configuredProviders[0], nil
+	}
+	
+	// Get current default
+	defaultProvider := cfg.GetDefaultProvider()
+	
+	// Display menu
+	fmt.Println(color.CyanString("\n📋 Select a provider to switch to:"))
+	fmt.Println()
+	
+	for i, provider := range configuredProviders {
+		providerName := config.GetProviderDisplayName(provider)
+		defaultMark := ""
+		if provider == defaultProvider {
+			defaultMark = color.YellowString(" ⭐ (current)")
+		}
+		fmt.Printf("  %d. %s%s\n", i+1, providerName, defaultMark)
+	}
+	
+	fmt.Println()
+	fmt.Print(color.CyanString(fmt.Sprintf("Enter number (1-%d) or 'q' to cancel: ", len(configuredProviders))))
+	
+	// Read user input
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	
+	input = strings.TrimSpace(input)
+	
+	// Check for cancel
+	if input == "q" || input == "Q" || input == "quit" || input == "cancel" {
+		return "", nil
+	}
+	
+	// Parse selection
+	selection, err := strconv.Atoi(input)
+	if err != nil || selection < 1 || selection > len(configuredProviders) {
+		return "", fmt.Errorf("invalid selection: %s", input)
+	}
+	
+	selectedProvider := configuredProviders[selection-1]
+	fmt.Println(color.GreenString(fmt.Sprintf("✓ Selected: %s", config.GetProviderDisplayName(selectedProvider))))
+	fmt.Println()
+	
+	return selectedProvider, nil
 }
