@@ -68,7 +68,6 @@ func (v *Validator) ValidateClientYAML(ctx context.Context, yamlContent string) 
 
 // ValidateServerYAML validates server.yaml content against ServerDescriptor schema
 func (v *Validator) ValidateServerYAML(ctx context.Context, yamlContent string) ValidationResult {
-
 	// Parse YAML content
 	var data map[string]interface{}
 	if err := yaml.Unmarshal([]byte(yamlContent), &data); err != nil {
@@ -319,7 +318,6 @@ func (v *Validator) GetAvailableSchemas(ctx context.Context) []string {
 		}
 		return nil
 	})
-
 	if err != nil {
 		// Error walking schema directory
 	}
