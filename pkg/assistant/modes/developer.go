@@ -1162,21 +1162,6 @@ func (d *DeveloperMode) containsStaticAssets(dir string) bool {
 }
 
 func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis *analysis.ProjectAnalysis) (string, error) {
-	projectName := filepath.Base(".")
-	if analysis != nil && analysis.Name != "" && analysis.Name != "." {
-		projectName = analysis.Name
-	}
-
-	// Ensure we have a valid stack name
-	if projectName == "." || projectName == "" {
-		// Use the current directory name as fallback
-		if wd, err := os.Getwd(); err == nil {
-			projectName = filepath.Base(wd)
-		} else {
-			projectName = "myapp"
-		}
-	}
-
 	// Determine deployment type based on project analysis
 	deploymentType := d.determineDeploymentTypeWithOptions(analysis, opts)
 
