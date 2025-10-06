@@ -677,6 +677,13 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			path = p
 		}
 
+		// Resolve path to absolute path to ensure we work in the correct directory
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Invalid path", fmt.Sprintf("Failed to resolve path '%s': %v", path, err))
+		}
+		path = absPath
+
 		environment := "development"
 		if env, ok := params.Arguments["environment"].(string); ok {
 			environment = env
@@ -955,10 +962,10 @@ type DefaultMCPHandler struct {
 
 // NewDefaultMCPHandler creates a new default MCP handler
 func NewDefaultMCPHandler() MCPHandler {
-	// Initialize unified command handler
+	// Initialize unified command handler (should not fail with new robust implementation)
 	commandHandler, err := core.NewUnifiedCommandHandler()
 	if err != nil {
-		// Log error but continue with nil handler
+		// This should rarely happen now, but handle gracefully
 		log.Printf("Warning: Failed to initialize command handler: %v", err)
 		commandHandler = nil
 	}
@@ -1290,6 +1297,18 @@ func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzePr
 }
 
 func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params SetupSimpleContainerParams) (*SetupSimpleContainerResult, error) {
+	// Resolve path to absolute path to ensure we work in the correct directory
+	path := params.Path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return &SetupSimpleContainerResult{
+			Message:      fmt.Sprintf("Failed to resolve path '%s': %v", path, err),
+			FilesCreated: []string{},
+			Success:      false,
+		}, err
+	}
+	path = absPath
+
 	// Use the existing developer mode setup functionality
 	developerMode := modes.NewDeveloperMode()
 
@@ -1325,8 +1344,37 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 		ForceOverwrite:   true,                  // Force overwrite existing files for MCP
 	}
 
+	// Change working directory temporarily to ensure all file operations happen in the correct location
+	originalWd, err := os.Getwd()
+	if err != nil {
+		return &SetupSimpleContainerResult{
+			Message:      fmt.Sprintf("Failed to get current directory: %v", err),
+			FilesCreated: []string{},
+			Success:      false,
+		}, err
+	}
+
+	// Change to the target directory
+	if err := os.Chdir(path); err != nil {
+		return &SetupSimpleContainerResult{
+			Message:      fmt.Sprintf("Cannot change to directory '%s': %v", path, err),
+			FilesCreated: []string{},
+			Success:      false,
+		}, err
+	}
+
+	// Ensure we restore the working directory
+	defer func() {
+		if restoreErr := os.Chdir(originalWd); restoreErr != nil {
+			fmt.Printf("Warning: Failed to restore working directory: %v\n", restoreErr)
+		}
+	}()
+
+	// Now use "." as the path since we're in the correct directory
+	setupOptions.OutputDir = "."
+
 	// Execute the setup
-	err := developerMode.Setup(ctx, &setupOptions)
+	err = developerMode.Setup(ctx, &setupOptions)
 	if err != nil {
 		return &SetupSimpleContainerResult{
 			Message:      fmt.Sprintf("Setup failed: %v", err),
@@ -1338,31 +1386,65 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 		}, err
 	}
 
-	// Check what files were created
+	// Check what files were created - Simple Container uses .sc/stacks/ directory structure
 	filesCreated := []string{}
-	commonFiles := []string{"client.yaml", "server.yaml", ".simple-container/", "Dockerfile"}
 
-	for _, file := range commonFiles {
-		fullPath := filepath.Join(params.Path, file)
+	// Analyze project to get project name for correct path (now using current directory since we changed to it)
+	analyzer := analysis.NewProjectAnalyzer()
+	projectInfo, err := analyzer.AnalyzeProject(".")
+	if err != nil {
+		projectInfo = &analysis.ProjectAnalysis{Name: "project"}
+	}
+
+	projectName := projectInfo.Name
+	if projectName == "" || projectName == "." {
+		// Use directory name as fallback (current directory)
+		if absPath, err := filepath.Abs("."); err == nil {
+			projectName = filepath.Base(absPath)
+		} else {
+			projectName = "project"
+		}
+	}
+
+	// Check for Simple Container files in correct locations (relative to current directory)
+	filesToCheck := map[string]string{
+		"client.yaml":         filepath.Join(".sc", "stacks", projectName, "client.yaml"),
+		"server.yaml":         filepath.Join(".sc", "stacks", "infrastructure", "server.yaml"),
+		"docker-compose.yaml": "docker-compose.yaml",
+		"Dockerfile":          "Dockerfile",
+	}
+
+	for displayName, fullPath := range filesToCheck {
 		if _, err := os.Stat(fullPath); err == nil {
-			filesCreated = append(filesCreated, file)
+			filesCreated = append(filesCreated, displayName)
 		}
 	}
 
 	message := "✅ Simple Container setup completed successfully!\n"
-	message += fmt.Sprintf("📁 Project path: %s\n", params.Path)
+	message += fmt.Sprintf("📁 Project path: %s\n", path)
 	message += fmt.Sprintf("🌍 Environment: %s\n", params.Environment)
 	if params.Parent != "" {
 		message += fmt.Sprintf("👨‍👩‍👧‍👦 Parent stack: %s\n", params.Parent)
 	}
-	message += fmt.Sprintf("📄 Files created: %v", filesCreated)
+	message += fmt.Sprintf("📄 Files created: %v\n", filesCreated)
+
+	// Add helpful information about the .sc directory structure
+	if len(filesCreated) > 0 {
+		message += "\n📂 Directory Structure:\n"
+		message += fmt.Sprintf("├── .sc/stacks/%s/client.yaml (stack configuration)\n", projectName)
+		if params.Parent != "" {
+			message += "├── .sc/stacks/infrastructure/server.yaml (parent resources)\n"
+		}
+		message += "├── docker-compose.yaml (local development)\n"
+		message += "└── Dockerfile (container image)\n"
+	}
 
 	return &SetupSimpleContainerResult{
 		Message:      message,
 		FilesCreated: filesCreated,
 		Success:      true,
 		Metadata: map[string]interface{}{
-			"path":        params.Path,
+			"path":        path,
 			"environment": params.Environment,
 			"parent":      params.Parent,
 			"setup_time":  time.Now(),
@@ -1612,20 +1694,39 @@ func (h *DefaultMCPHandler) ModifyStackConfig(ctx context.Context, params Modify
 	// Use unified command handler
 	result, err := h.commandHandler.ModifyStackConfig(ctx, params.StackName, params.Changes)
 	if err != nil {
+		errorMessage := fmt.Sprintf("❌ Failed to modify stack configuration: %v", err)
+		if result != nil {
+			errorMessage = result.Message
+		}
 		return &ModifyStackConfigResult{
 			StackName: params.StackName,
 			Success:   false,
-			Message:   result.Message,
+			Message:   errorMessage,
 		}, err
 	}
 
 	// Convert unified result to MCP format
+	stackName := params.StackName
+	if sn, ok := result.Data["stack_name"].(string); ok {
+		stackName = sn
+	}
+
+	filePath := ""
+	if fp, ok := result.Data["file_path"].(string); ok {
+		filePath = fp
+	}
+
+	changesApplied := make(map[string]interface{})
+	if ca, ok := result.Data["changes_applied"].(map[string]interface{}); ok {
+		changesApplied = ca
+	}
+
 	return &ModifyStackConfigResult{
-		StackName:      result.Data["stack_name"].(string),
-		FilePath:       result.Data["file_path"].(string),
+		StackName:      stackName,
+		FilePath:       filePath,
 		Message:        result.Message,
 		Success:        result.Success,
-		ChangesApplied: result.Data["changes_applied"].(map[string]interface{}),
+		ChangesApplied: changesApplied,
 	}, nil
 }
 

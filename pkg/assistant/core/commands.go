@@ -34,10 +34,12 @@ type CommandResult struct {
 
 // NewUnifiedCommandHandler creates a new unified command handler
 func NewUnifiedCommandHandler() (*UnifiedCommandHandler, error) {
-	// Initialize embeddings database
+	// Initialize embeddings database (optional - only needed for documentation search)
 	db, err := embeddings.LoadEmbeddedDatabase(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to load embeddings database: %w", err)
+		// Log warning but continue without embeddings database
+		fmt.Printf("Warning: Failed to load embeddings database: %v\n", err)
+		db = nil
 	}
 
 	return &UnifiedCommandHandler{
@@ -49,6 +51,14 @@ func NewUnifiedCommandHandler() (*UnifiedCommandHandler, error) {
 
 // SearchDocumentation searches Simple Container documentation
 func (h *UnifiedCommandHandler) SearchDocumentation(ctx context.Context, query string, limit int) (*CommandResult, error) {
+	if h.embeddingsDB == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Documentation search is not available - embeddings database not loaded",
+			Error:   "embeddings database not initialized",
+		}, fmt.Errorf("embeddings database not initialized")
+	}
+
 	results, err := embeddings.SearchDocumentation(h.embeddingsDB, query, limit)
 	if err != nil {
 		return &CommandResult{
