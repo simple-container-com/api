@@ -65,6 +65,7 @@ type DocumentationSearchResult struct {
 	Total     int             `json:"total"`
 	Query     string          `json:"query"`
 	Timestamp time.Time       `json:"timestamp"`
+	Message   string          `json:"message,omitempty"` // Optional message for errors or info
 }
 
 type DocumentChunk struct {

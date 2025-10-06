@@ -8,6 +8,7 @@ import (
 	"math"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	chromem "github.com/philippgille/chromem-go"
@@ -98,8 +99,8 @@ func SearchDocumentation(db *Database, query string, limit int) ([]SearchResult,
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Perform similarity search using chromem-go
-	results, err := db.collection.Query(context.Background(), query, limit, nil, nil)
+	// Perform similarity search using chromem-go (get more results for better filtering)
+	results, err := db.collection.Query(context.Background(), query, limit*2, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
@@ -134,17 +135,73 @@ func SearchDocumentation(db *Database, query string, limit int) ([]SearchResult,
 			}
 		}
 
+		// Calculate enhanced similarity score with term-specific boosting
+		baseSimilarity := float64(result.Similarity)
+		enhancedScore := calculateEnhancedScore(query, result.Content, baseSimilarity)
+
 		searchResults[i] = SearchResult{
 			ID:         result.ID,
 			Content:    result.Content,
-			Score:      float64(result.Similarity),
-			Similarity: float64(result.Similarity),
+			Score:      enhancedScore,
+			Similarity: enhancedScore,
 			Metadata:   metadata,
 			Title:      title,
 		}
 	}
 
+	// Sort by enhanced score and return top results
+	sort.Slice(searchResults, func(i, j int) bool {
+		return searchResults[i].Similarity > searchResults[j].Similarity
+	})
+
+	// Return only requested limit
+	if len(searchResults) > limit {
+		searchResults = searchResults[:limit]
+	}
+
 	return searchResults, nil
+}
+
+// calculateEnhancedScore boosts similarity scores for specific term matches
+func calculateEnhancedScore(query, content string, baseSimilarity float64) float64 {
+	queryLower := strings.ToLower(query)
+	contentLower := strings.ToLower(content)
+
+	boostFactor := 1.0
+
+	// Strong boost for exact compound term matches (most important for Simple Container)
+	compoundTerms := map[string]float64{
+		"cloud-compose":   1.5, // Highest boost for this critical deployment type
+		"single-image":    1.4,
+		"multi-container": 1.3,
+		"docker-compose":  1.2,
+	}
+
+	for term, boost := range compoundTerms {
+		if strings.Contains(queryLower, term) && strings.Contains(contentLower, term) {
+			boostFactor *= boost
+		}
+	}
+
+	// Boost for configuration-related content with deployment types
+	if strings.Contains(queryLower, "configuration") || strings.Contains(queryLower, "deployment") {
+		if strings.Contains(contentLower, "type:") && strings.Contains(contentLower, "stack") {
+			boostFactor *= 1.3
+		}
+	}
+
+	// Boost for YAML examples that show actual configurations
+	if strings.Contains(contentLower, "```yaml") || strings.Contains(contentLower, "```yml") {
+		boostFactor *= 1.2
+	}
+
+	// Ensure we don't exceed reasonable similarity bounds
+	enhancedScore := baseSimilarity * boostFactor
+	if enhancedScore > 1.0 {
+		enhancedScore = 1.0
+	}
+
+	return enhancedScore
 }
 
 // loadPrebuiltEmbeddings loads pre-built embeddings from embedded data
@@ -294,10 +351,12 @@ func extractTitleFromMarkdown(content string) string {
 // createSimpleEmbedding creates a basic embedding vector based on text characteristics
 // This is a simple local implementation that doesn't require external APIs
 func createSimpleEmbedding(text string) []float32 {
-	// Normalize and clean text
-	text = strings.ToLower(text)
-	text = regexp.MustCompile(`[^\w\s]`).ReplaceAllString(text, " ")
-	words := strings.Fields(text)
+	// Keep original text for compound term matching
+	originalText := strings.ToLower(text)
+
+	// Normalize and clean text for word-based analysis
+	cleanText := regexp.MustCompile(`[^\w\s-]`).ReplaceAllString(originalText, " ") // Keep hyphens for compound terms
+	words := strings.Fields(cleanText)
 
 	// Create a feature vector based on text characteristics
 	embedding := make([]float32, 128) // 128-dimensional vector
@@ -307,18 +366,26 @@ func createSimpleEmbedding(text string) []float32 {
 	}
 
 	// Feature 1-10: Common Simple Container terms
-	scTerms := []string{"docker", "kubernetes", "aws", "gcp", "postgres", "redis", "mongo", "yaml", "stack", "resource"}
+	scTerms := []string{"docker", "kubernetes", "aws", "gcp", "postgres", "redis", "mongo", "yaml", "stack", "compose"}
 	for i, term := range scTerms {
 		if i < 10 {
 			embedding[i] = float32(countTermOccurrences(words, term))
 		}
 	}
 
-	// Feature 11-20: Technical concepts
-	techTerms := []string{"deployment", "configuration", "service", "database", "api", "server", "client", "secret", "template", "scale"}
-	for i, term := range techTerms {
+	// Feature 11-20: Deployment types and technical concepts
+	// Use full text search for compound terms
+	compoundTerms := []string{"cloud-compose", "single-image"}
+	regularTerms := []string{"deployment", "configuration", "static", "database", "api", "server", "client", "template"}
+
+	for i, term := range compoundTerms {
 		if i < 10 {
-			embedding[10+i] = float32(countTermOccurrences(words, term))
+			embedding[10+i] = float32(countTermInText(originalText, term))
+		}
+	}
+	for i, term := range regularTerms {
+		if i+2 < 10 { // Offset by 2 since we used first 2 slots for compound terms
+			embedding[10+i+2] = float32(countTermOccurrences(words, term))
 		}
 	}
 
@@ -431,6 +498,13 @@ func countTermOccurrences(words []string, term string) int {
 	return count
 }
 
+// countTermInText counts occurrences of a term in the full text (handles compound terms like "cloud-compose")
+func countTermInText(text, term string) int {
+	text = strings.ToLower(text)
+	term = strings.ToLower(term)
+	return strings.Count(text, term)
+}
+
 func averageWordLength(words []string) float64 {
 	if len(words) == 0 {
 		return 0
@@ -440,6 +514,11 @@ func averageWordLength(words []string) float64 {
 		totalLen += len(word)
 	}
 	return float64(totalLen) / float64(len(words))
+}
+
+// CreateTestEmbedding exposes the embedding function for testing
+func CreateTestEmbedding(text string) []float32 {
+	return createSimpleEmbedding(text)
 }
 
 func countCodeBlocks(text string) int {

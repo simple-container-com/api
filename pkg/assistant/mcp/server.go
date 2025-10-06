@@ -554,11 +554,17 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			return NewMCPError(req.ID, ErrorCodeEmbeddingError, "Documentation search failed", err.Error())
 		}
 
+		// Prepare response text
+		responseText := fmt.Sprintf("Found %d documentation results for '%s'", result.Total, query)
+		if result.Message != "" {
+			responseText = result.Message
+		}
+
 		return NewMCPResponse(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{
 				{
 					"type": "text",
-					"text": fmt.Sprintf("Found %d documentation results for '%s'", result.Total, query),
+					"text": responseText,
 				},
 			},
 			"isError": false,
@@ -992,7 +998,14 @@ func (h *DefaultMCPHandler) SearchDocumentation(ctx context.Context, params Sear
 	// Use unified command handler
 	result, err := h.commandHandler.SearchDocumentation(ctx, params.Query, params.Limit)
 	if err != nil {
-		return nil, err
+		// If embeddings database is not available, return empty results with helpful message
+		return &DocumentationSearchResult{
+			Documents: []DocumentChunk{},
+			Total:     0,
+			Query:     params.Query,
+			Timestamp: time.Now(),
+			Message:   fmt.Sprintf("⚠️ Documentation search is not available - embeddings database not loaded. Error: %v", err),
+		}, nil
 	}
 
 	// Convert unified result to MCP format
