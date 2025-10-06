@@ -7,6 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
+
+	"golang.org/x/term"
 
 	"github.com/peterh/liner"
 )
@@ -261,17 +264,35 @@ func (h *InputHandler) ReadSimple(promptText string) (string, error) {
 		h.liner = nil
 	}
 
-	// Reset terminal to sane state using portable approach
-	// Try using stty command (works on most Unix-like systems)
-	cmd := exec.Command("stty", "sane")
-	if err := cmd.Run(); err != nil {
-		// If stty fails, try alternative approach
-		cmd = exec.Command("reset")
+	// Get the file descriptor for stdin
+	fd := int(syscall.Stdin)
+
+	// Save the current terminal state
+	oldState, err := term.GetState(fd)
+	if err != nil {
+		// If we can't get terminal state, fall back to stty
+		cmd := exec.Command("stty", "sane")
 		_ = cmd.Run()
+	} else {
+		// Restore terminal to cooked mode (normal line editing)
+		if err := term.Restore(fd, oldState); err != nil {
+			cmd := exec.Command("stty", "sane")
+			_ = cmd.Run()
+		}
 	}
+
+	// Also explicitly set cooked mode with stty
+	cmd := exec.Command("stty", "-raw", "echo", "icanon")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
 
 	// Print prompt
 	fmt.Print(promptText)
+
+	// Flush output
+	os.Stdout.Sync()
 
 	// Now use normal buffered reading
 	reader := bufio.NewReader(os.Stdin)
@@ -280,8 +301,11 @@ func (h *InputHandler) ReadSimple(promptText string) (string, error) {
 		return "", err
 	}
 
-	// Clean the input
-	return strings.TrimSpace(line), nil
+	// Clean the input - remove all control characters including \r and \n
+	line = strings.TrimSpace(line)
+	line = strings.ReplaceAll(line, "\r", "")
+	line = strings.ReplaceAll(line, "\n", "")
+	return line, nil
 }
 
 // Close closes the liner instance
