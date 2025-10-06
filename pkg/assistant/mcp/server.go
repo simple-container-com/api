@@ -610,6 +610,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to get supported resources", err.Error())
 		}
 
+		// Return full structured data for tools, content format for display
 		return NewMCPResponse(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{
 				{
@@ -617,7 +618,10 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 					"text": fmt.Sprintf("Simple Container supports %d resource types across %d providers", result.Total, len(result.Providers)),
 				},
 			},
-			"isError": false,
+			"isError":   false,
+			"resources": result.Resources,
+			"providers": result.Providers,
+			"total":     result.Total,
 		})
 
 	case "analyze_project":
@@ -1108,7 +1112,8 @@ func (h *DefaultMCPHandler) loadResourcesFromEmbeddedSchemas() (*SupportedResour
 
 		providerResources, err := h.loadProviderResources(providerName)
 		if err != nil {
-			log.Printf("Warning: Failed to load resources for provider %s: %v", providerName, err)
+			// Log warning but continue - partial resource loading is acceptable
+			fmt.Fprintf(os.Stderr, "MCP Warning: Failed to load resources for provider %s: %v\n", providerName, err)
 			continue
 		}
 
