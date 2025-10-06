@@ -459,12 +459,25 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 	temperature, _ := cmd.Flags().GetFloat32("temperature")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 
-	// Handle OpenAI API key with priority:
+	// Handle API key and provider with priority:
 	// 1. Command line flag
 	// 2. Environment variable
 	// 3. Stored config
 	// 4. Interactive prompt
 	apiKey := ""
+
+	// Load config first to determine the actual provider
+	cfg, err := config.Load()
+	if err == nil {
+		// If llm-provider flag was not explicitly set, use default from config
+		if !cmd.Flags().Changed("llm-provider") {
+			provider := cfg.GetDefaultProvider()
+			if provider != "" {
+				llmProvider = provider
+			}
+		}
+	}
+
 	if flagKey, _ := cmd.Flags().GetString("openai-key"); flagKey != "" {
 		apiKey = flagKey
 		os.Setenv("OPENAI_API_KEY", apiKey)
@@ -472,19 +485,24 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 		apiKey = envKey
 	} else {
 		// Try to load from config
-		cfg, err := config.Load()
-		if err == nil {
-			// Get default provider or use openai
-			provider := cfg.GetDefaultProvider()
-			if provider == "" {
-				provider = config.ProviderOpenAI
-			}
-
+		if cfg != nil {
 			// Load provider config
-			if providerCfg, exists := cfg.GetProviderConfig(provider); exists && providerCfg.APIKey != "" {
+			if providerCfg, exists := cfg.GetProviderConfig(llmProvider); exists && providerCfg.APIKey != "" {
 				apiKey = providerCfg.APIKey
-				os.Setenv("OPENAI_API_KEY", apiKey)
-				providerName := config.GetProviderDisplayName(provider)
+
+				// Set appropriate environment variable based on provider
+				switch llmProvider {
+				case config.ProviderAnthropic:
+					os.Setenv("ANTHROPIC_API_KEY", apiKey)
+				case config.ProviderOpenAI:
+					os.Setenv("OPENAI_API_KEY", apiKey)
+				case config.ProviderDeepseek:
+					os.Setenv("DEEPSEEK_API_KEY", apiKey)
+				case config.ProviderYandex:
+					os.Setenv("YANDEX_API_KEY", apiKey)
+				}
+
+				providerName := config.GetProviderDisplayName(llmProvider)
 				fmt.Println(color.GreenFmt(fmt.Sprintf("✅ Using stored %s API key", providerName)))
 
 				// Show provider info

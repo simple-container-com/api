@@ -36,24 +36,53 @@ type ChatInterface struct {
 }
 
 // NewChatInterface creates a new chat interface
-func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
+func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 	// Initialize LLM provider
-	provider := llm.GlobalRegistry.Create(config.LLMProvider)
+	provider := llm.GlobalRegistry.Create(sessionConfig.LLMProvider)
 	if provider == nil {
-		return nil, fmt.Errorf("unsupported LLM provider: %s", config.LLMProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s", sessionConfig.LLMProvider)
 	}
 
 	// Configure provider
-	apiKey := config.APIKey
+	apiKey := sessionConfig.APIKey
+	baseURL := ""
+	model := ""
+
+	// Load provider config to get additional settings
+	cfg, err := config.Load()
+	if err == nil {
+		if providerCfg, exists := cfg.GetProviderConfig(sessionConfig.LLMProvider); exists {
+			if apiKey == "" {
+				apiKey = providerCfg.APIKey
+			}
+			baseURL = providerCfg.BaseURL
+			model = providerCfg.Model
+		}
+	}
+
 	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
+		// Try to get API key from environment based on provider
+		switch sessionConfig.LLMProvider {
+		case "anthropic":
+			apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		case "openai":
+			apiKey = os.Getenv("OPENAI_API_KEY")
+		case "deepseek":
+			apiKey = os.Getenv("DEEPSEEK_API_KEY")
+		case "yandex":
+			apiKey = os.Getenv("YANDEX_API_KEY")
+		default:
+			apiKey = os.Getenv("OPENAI_API_KEY")
+		}
 	}
 
 	llmConfig := llm.Config{
-		Provider:    config.LLMProvider,
-		MaxTokens:   config.MaxTokens,
-		Temperature: config.Temperature,
+		Provider:    sessionConfig.LLMProvider,
+		Model:       model,
+		MaxTokens:   sessionConfig.MaxTokens,
+		Temperature: sessionConfig.Temperature,
 		APIKey:      apiKey,
+		BaseURL:     baseURL,
 	}
 
 	if err := provider.Configure(llmConfig); err != nil {
@@ -87,13 +116,13 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 		developerMode:  developerMode,
 		commandHandler: commandHandler,
 		commands:       make(map[string]*ChatCommand),
-		config:         config,
+		config:         sessionConfig,
 	}
 
 	// Initialize conversation context
 	chat.context = &ConversationContext{
-		ProjectPath: config.ProjectPath,
-		Mode:        config.Mode,
+		ProjectPath: sessionConfig.ProjectPath,
+		Mode:        sessionConfig.Mode,
 		History:     []Message{},
 		SessionID:   uuid.New().String(),
 		CreatedAt:   time.Now(),
@@ -107,7 +136,7 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 	chat.inputHandler = NewInputHandler(chat.commands)
 
 	// Add system prompt
-	systemPrompt := prompts.GenerateContextualPrompt(config.Mode, nil, []string{})
+	systemPrompt := prompts.GenerateContextualPrompt(sessionConfig.Mode, nil, []string{})
 	chat.addMessage("system", systemPrompt)
 
 	return chat, nil
