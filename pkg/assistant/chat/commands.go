@@ -19,6 +19,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
+	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
@@ -177,6 +178,23 @@ func (c *ChatInterface) registerCommands() {
 			{Name: "resource_type", Type: "string", Required: true, Description: "Type of resource (e.g., mongodb-atlas, redis)"},
 			{Name: "environment", Type: "string", Required: true, Description: "Environment to add resource to"},
 		},
+	}
+
+	// Missing commands for MCP parity
+	c.commands["context"] = &ChatCommand{
+		Name:        "context",
+		Description: "Get basic project context information",
+		Usage:       "/context",
+		Handler:     c.handleGetProjectContext,
+		Args:        []CommandArg{},
+	}
+
+	c.commands["resources"] = &ChatCommand{
+		Name:        "resources",
+		Description: "List all supported Simple Container resources",
+		Usage:       "/resources",
+		Handler:     c.handleGetSupportedResources,
+		Args:        []CommandArg{},
 	}
 }
 
@@ -1867,5 +1885,70 @@ func (c *ChatInterface) handleAddResource(ctx context.Context, args []string, co
 		Success:  result.Success,
 		Message:  result.Message,
 		NextStep: "Resource added successfully! You can now reference it in your application stacks.",
+	}, nil
+}
+
+// handleGetProjectContext gets basic project context information using unified handler
+func (c *ChatInterface) handleGetProjectContext(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	// Use unified command handler
+	result, err := c.commandHandler.GetProjectContext(ctx, ".")
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to get project context: %v", err),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+	}, nil
+}
+
+// handleGetSupportedResources lists all supported Simple Container resources
+func (c *ChatInterface) handleGetSupportedResources(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	// Use the MCP handler implementation for consistency
+	handler := &mcp.DefaultMCPHandler{}
+	resources, err := handler.GetSupportedResources(ctx)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to get supported resources: %v", err),
+		}, nil
+	}
+
+	// Format the response for chat interface
+	message := fmt.Sprintf("📦 **Simple Container Supported Resources** (%d providers, %d resources)\n\n",
+		len(resources.Providers), len(resources.Resources))
+
+	// Group resources by provider for better display
+	providerResources := make(map[string][]mcp.ResourceInfo)
+	for _, resource := range resources.Resources {
+		providerResources[resource.Provider] = append(providerResources[resource.Provider], resource)
+	}
+
+	for _, provider := range resources.Providers {
+		resourcesForProvider := providerResources[provider.Name]
+		message += fmt.Sprintf("**%s** (%d resources)\n", provider.DisplayName, len(resourcesForProvider))
+		for _, resource := range resourcesForProvider {
+			description := resource.Description
+			if description == "" {
+				description = resource.Name
+			}
+			message += fmt.Sprintf("  • %s - %s\n", resource.Type, description)
+		}
+		message += "\n"
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
 	}, nil
 }
