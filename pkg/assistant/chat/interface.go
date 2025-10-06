@@ -80,11 +80,11 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 
 	// Create chat interface
 	chat := &ChatInterface{
-		llm:           provider,
-		embeddings:    embeddingsDB,
-		analyzer:      analyzer,
-		generator:     generator,
-		developerMode: developerMode,
+		llm:            provider,
+		embeddings:     embeddingsDB,
+		analyzer:       analyzer,
+		generator:      generator,
+		developerMode:  developerMode,
 		commandHandler: commandHandler,
 		commands:       make(map[string]*ChatCommand),
 		config:         config,
