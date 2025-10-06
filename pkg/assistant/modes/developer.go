@@ -51,6 +51,15 @@ func NewDeveloperMode() *DeveloperMode {
 	}
 }
 
+// NewDeveloperModeWithComponents creates a new developer mode with provided components (for reuse)
+func NewDeveloperModeWithComponents(provider llm.Provider, embeddingsDB *embeddings.Database, analyzer *analysis.ProjectAnalyzer) *DeveloperMode {
+	return &DeveloperMode{
+		analyzer:   analyzer,
+		llm:        provider,
+		embeddings: embeddingsDB,
+	}
+}
+
 // SetupOptions for developer setup command
 type SetupOptions struct {
 	Interactive    bool

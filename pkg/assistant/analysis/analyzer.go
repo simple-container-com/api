@@ -42,6 +42,20 @@ func NewProjectAnalyzer() *ProjectAnalyzer {
 	}
 }
 
+// NewProjectAnalyzerWithEmbeddings creates an analyzer with existing embeddings DB (for reuse)
+func NewProjectAnalyzerWithEmbeddings(embeddingsDB *embeddings.Database) *ProjectAnalyzer {
+	return &ProjectAnalyzer{
+		detectors: []TechStackDetector{
+			&NodeJSDetector{},
+			&PythonDetector{},
+			&GoDetector{},
+			&DockerDetector{},
+		},
+		llmProvider:  nil,
+		embeddingsDB: embeddingsDB,
+	}
+}
+
 // SetLLMProvider sets the LLM provider for enhanced analysis
 func (pa *ProjectAnalyzer) SetLLMProvider(provider LLMProvider) {
 	pa.llmProvider = provider

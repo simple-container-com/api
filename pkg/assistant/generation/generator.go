@@ -21,6 +21,13 @@ func NewFileGenerator() *FileGenerator {
 	}
 }
 
+// NewFileGeneratorWithMode creates a file generator with existing DeveloperMode (for reuse)
+func NewFileGeneratorWithMode(devMode *modes.DeveloperMode) *FileGenerator {
+	return &FileGenerator{
+		devMode: devMode,
+	}
+}
+
 // GenerateOptions contains options for file generation
 type GenerateOptions struct {
 	ProjectPath   string

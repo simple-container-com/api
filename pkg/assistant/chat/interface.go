@@ -65,13 +65,17 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 		return nil, fmt.Errorf("failed to load embeddings database: %w", err)
 	}
 
-	// Create chat interface
+	// Create chat interface components (reuse embeddings to avoid reloading)
+	analyzer := analysis.NewProjectAnalyzerWithEmbeddings(embeddingsDB)
+	developerMode := modes.NewDeveloperModeWithComponents(provider, embeddingsDB, analyzer)
+	generator := generation.NewFileGeneratorWithMode(developerMode)
+
 	chat := &ChatInterface{
 		llm:           provider,
 		embeddings:    embeddingsDB,
-		analyzer:      analysis.NewProjectAnalyzer(),
-		generator:     generation.NewFileGenerator(),
-		developerMode: modes.NewDeveloperMode(),
+		analyzer:      analyzer,
+		generator:     generator,
+		developerMode: developerMode,
 		commands:      make(map[string]*ChatCommand),
 		config:        config,
 	}
@@ -105,6 +109,7 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 
 	// Analyze project if path is provided
 	if c.config.ProjectPath != "" {
+		fmt.Printf("🔍 Analyzing project at %s...\n", c.config.ProjectPath)
 		if err := c.analyzeProject(ctx); err != nil {
 			fmt.Printf("%s Failed to analyze project: %v\n", color.YellowString("⚠️"), err)
 		}

@@ -50,12 +50,26 @@ func (a *AssistantCmd) initCoreManagerWithTesting() {
 	}
 }
 
+// initDeveloperMode initializes developer mode lazily
+func (a *AssistantCmd) initDeveloperMode() {
+	if a.developerMode == nil {
+		a.developerMode = modes.NewDeveloperMode()
+	}
+}
+
+// initDevOpsMode initializes devops mode lazily
+func (a *AssistantCmd) initDevOpsMode() {
+	if a.devopsMode == nil {
+		a.devopsMode = modes.NewDevOpsMode()
+	}
+}
+
 func NewAssistantCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	assistantCmd := &AssistantCmd{
 		rootCmd:       rootCmd,
 		coreManager:   nil, // Will be initialized lazily
-		developerMode: modes.NewDeveloperMode(),
-		devopsMode:    modes.NewDevOpsMode(),
+		developerMode: nil, // Will be initialized lazily when needed
+		devopsMode:    nil, // Will be initialized lazily when needed
 	}
 
 	cmd := &cobra.Command{
@@ -180,6 +194,7 @@ func (a *AssistantCmd) newDevSetupCmd() *cobra.Command {
 		Short: "Generate application configuration files",
 		Long:  "Analyze project and generate client.yaml, docker-compose.yaml, and Dockerfile",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			a.initDeveloperMode()
 			return a.developerMode.Setup(cmd.Context(), &opts)
 		},
 	}
@@ -211,6 +226,7 @@ func (a *AssistantCmd) newDevAnalyzeCmd() *cobra.Command {
 		Short: "Analyze project structure and tech stack",
 		Long:  "Detect technology stack, dependencies, and architecture patterns",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			a.initDeveloperMode()
 			return a.developerMode.Analyze(cmd.Context(), &opts)
 		},
 	}
@@ -246,6 +262,7 @@ func (a *AssistantCmd) newDevOpsSetupCmd() *cobra.Command {
 				opts.Templates = strings.Split(templateString, ",")
 			}
 
+			a.initDevOpsMode()
 			return a.devopsMode.Setup(cmd.Context(), opts)
 		},
 	}
@@ -270,6 +287,7 @@ func (a *AssistantCmd) newDevOpsResourcesCmd() *cobra.Command {
 		Short: "Manage shared infrastructure resources",
 		Long:  "Add, remove, or update shared infrastructure resources",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			a.initDevOpsMode()
 			return a.devopsMode.Resources(cmd.Context(), opts)
 		},
 	}
@@ -296,6 +314,7 @@ func (a *AssistantCmd) newDevOpsSecretsCmd() *cobra.Command {
 			if secretString != "" {
 				opts.SecretNames = strings.Split(secretString, ",")
 			}
+			a.initDevOpsMode()
 			return a.devopsMode.Secrets(cmd.Context(), opts)
 		},
 	}
