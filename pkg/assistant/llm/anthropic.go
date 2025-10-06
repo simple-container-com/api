@@ -21,11 +21,11 @@ type AnthropicProvider struct {
 
 // Anthropic API request/response structures
 type anthropicRequest struct {
-	Model       string              `json:"model"`
-	Messages    []anthropicMessage  `json:"messages"`
-	MaxTokens   int                 `json:"max_tokens"`
-	Temperature float32             `json:"temperature,omitempty"`
-	Stream      bool                `json:"stream,omitempty"`
+	Model       string             `json:"model"`
+	Messages    []anthropicMessage `json:"messages"`
+	MaxTokens   int                `json:"max_tokens"`
+	Temperature float32            `json:"temperature,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -34,13 +34,13 @@ type anthropicMessage struct {
 }
 
 type anthropicResponse struct {
-	ID           string              `json:"id"`
-	Type         string              `json:"type"`
-	Role         string              `json:"role"`
-	Content      []anthropicContent  `json:"content"`
-	Model        string              `json:"model"`
-	StopReason   string              `json:"stop_reason"`
-	Usage        anthropicUsage      `json:"usage"`
+	ID         string             `json:"id"`
+	Type       string             `json:"type"`
+	Role       string             `json:"role"`
+	Content    []anthropicContent `json:"content"`
+	Model      string             `json:"model"`
+	StopReason string             `json:"stop_reason"`
+	Usage      anthropicUsage     `json:"usage"`
 }
 
 type anthropicContent struct {

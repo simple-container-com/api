@@ -13,6 +13,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/config"
+	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
@@ -22,15 +23,16 @@ import (
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm           llm.Provider
-	context       *ConversationContext
-	embeddings    *embeddings.Database
-	analyzer      *analysis.ProjectAnalyzer
-	generator     *generation.FileGenerator
-	developerMode *modes.DeveloperMode
-	commands      map[string]*ChatCommand
-	config        SessionConfig
-	inputHandler  *InputHandler
+	llm            llm.Provider
+	context        *ConversationContext
+	embeddings     *embeddings.Database
+	analyzer       *analysis.ProjectAnalyzer
+	generator      *generation.FileGenerator
+	developerMode  *modes.DeveloperMode
+	commandHandler *core.UnifiedCommandHandler // New unified command handler
+	commands       map[string]*ChatCommand
+	config         SessionConfig
+	inputHandler   *InputHandler
 }
 
 // NewChatInterface creates a new chat interface
@@ -65,15 +67,22 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 		return nil, fmt.Errorf("failed to load embeddings database: %w", err)
 	}
 
+	// Initialize unified command handler
+	commandHandler, err := core.NewUnifiedCommandHandler()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize unified command handler: %w", err)
+	}
+
 	// Create chat interface
 	chat := &ChatInterface{
-		llm:           provider,
-		embeddings:    embeddingsDB,
-		analyzer:      analysis.NewProjectAnalyzer(),
-		generator:     generation.NewFileGenerator(),
-		developerMode: modes.NewDeveloperMode(),
-		commands:      make(map[string]*ChatCommand),
-		config:        config,
+		llm:            provider,
+		embeddings:     embeddingsDB,
+		analyzer:       analysis.NewProjectAnalyzer(),
+		generator:      generation.NewFileGenerator(),
+		developerMode:  modes.NewDeveloperMode(),
+		commandHandler: commandHandler,
+		commands:       make(map[string]*ChatCommand),
+		config:         config,
 	}
 
 	// Initialize conversation context

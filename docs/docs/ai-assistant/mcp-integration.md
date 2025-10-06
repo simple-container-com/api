@@ -220,13 +220,59 @@ printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024
 | `get_project_context`     | Basic project info & SC config                             | ✅      |
 | `analyze_project`         | Detailed analysis & recommendations                        | ✅      |
 | `get_supported_resources` | Resource catalog                                           | ✅      |
-| `setup_simple_container`  | **NEW** - Initialize SC configuration using built-in setup | ✅      |
+| `setup_simple_container`  | Initialize SC configuration using built-in setup           | ✅      |
+| `get_current_config`      | **NEW** - Read and parse existing configuration files      | ✅      |
+| `add_environment`         | **NEW** - Add new environment/stack to client.yaml        | ✅      |
+| `modify_stack_config`     | **NEW** - Modify existing stack configuration             | ✅      |
+| `add_resource`            | **NEW** - Add new resource to server.yaml                 | ✅      |
 
 **Note**: Legacy direct method calls have been removed. All functionality is now accessed through standard MCP `tools/call` method for better compliance and cleaner architecture.
+
+#### **🔧 Configuration Modification Tools**
+
+The MCP server now includes powerful configuration modification capabilities:
+
+**🎯 Developer Tools (client.yaml modifications):**
+- **`get_current_config`** - Read and parse existing configuration files
+- **`add_environment`** - Add new stack environments (prod, staging, etc.)
+- **`modify_stack_config`** - Change deployment types, scaling, domains
+
+**⚙️ DevOps Tools (server.yaml modifications):**
+- **`add_resource`** - Add new resources (databases, caches, queues)
+
+**Example Usage:**
+
+```bash
+# Read current client configuration
+{"name": "get_current_config", "arguments": {"config_type": "client"}}
+
+# Add production environment  
+{"name": "add_environment", "arguments": {
+    "stack_name": "prod",
+    "deployment_type": "cloud-compose", 
+    "parent": "mycompany/infrastructure",
+    "parent_env": "production"
+}}
+
+# Change deployment type for staging
+{"name": "modify_stack_config", "arguments": {
+    "stack_name": "staging", 
+    "changes": {"type": "single-image"}
+}}
+
+# Add MongoDB Atlas cluster
+{"name": "add_resource", "arguments": {
+    "resource_name": "mongodb-atlas",
+    "resource_type": "mongodb-atlas",
+    "environment": "prod",
+    "config": {"tier": "M10", "region": "us-east-1"}
+}}
+```
 
 **Key Differences:**
 - **`get_project_context`**: Returns basic project info and Simple Container configuration status
 - **`analyze_project`**: Returns detailed tech stack analysis, recommendations, and architectural insights
+- **Configuration tools**: Enable direct modification of client.yaml and server.yaml files with automatic backups
 
 **🤖 LLM Enhancement Available:**
 The `analyze_project` tool now supports optional LLM enhancement for:

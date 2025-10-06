@@ -15,7 +15,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
-	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
@@ -421,6 +421,100 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 				},
 			},
 		},
+		{
+			"name":        "get_current_config",
+			"description": "📖 Read and parse existing Simple Container configuration files (client.yaml or server.yaml)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"config_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of configuration to read: 'client' or 'server'",
+						"enum":        []string{"client", "server"},
+					},
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "For client.yaml, specific stack name to focus on (optional)",
+					},
+				},
+				"required": []string{"config_type"},
+			},
+		},
+		{
+			"name":        "add_environment",
+			"description": "🌍 Add new environment/stack to client.yaml (e.g., add 'prod' environment)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the new stack/environment (e.g., 'prod', 'staging')",
+					},
+					"deployment_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Deployment type for the new stack",
+						"enum":        []string{"static", "single-image", "cloud-compose"},
+					},
+					"parent": map[string]interface{}{
+						"type":        "string",
+						"description": "Parent stack reference in format '<parent-project>/<parent-stack-name>'",
+					},
+					"parent_env": map[string]interface{}{
+						"type":        "string",
+						"description": "Parent environment to map to (e.g., 'prod', 'staging')",
+					},
+					"config": map[string]interface{}{
+						"type":        "object",
+						"description": "Additional configuration for the new stack (optional)",
+					},
+				},
+				"required": []string{"stack_name", "deployment_type", "parent", "parent_env"},
+			},
+		},
+		{
+			"name":        "modify_stack_config",
+			"description": "⚙️ Modify existing stack configuration in client.yaml (e.g., change deployment type, update scaling)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the stack to modify",
+					},
+					"changes": map[string]interface{}{
+						"type":        "object",
+						"description": "Configuration changes to apply (e.g., {'type': 'single-image', 'config.scale.max': 10})",
+					},
+				},
+				"required": []string{"stack_name", "changes"},
+			},
+		},
+		{
+			"name":        "add_resource",
+			"description": "🗄️ Add new resource to server.yaml (e.g., add MongoDB Atlas cluster, Redis cache)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"resource_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the resource (e.g., 'mongodb-prod', 'redis-cache')",
+					},
+					"resource_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of resource (e.g., 'mongodb-atlas', 'redis', 'postgres')",
+					},
+					"environment": map[string]interface{}{
+						"type":        "string",
+						"description": "Environment to add the resource to (e.g., 'prod', 'staging')",
+					},
+					"config": map[string]interface{}{
+						"type":        "object",
+						"description": "Resource configuration (e.g., {'tier': 'M10', 'region': 'us-east-1'})",
+					},
+				},
+				"required": []string{"resource_name", "resource_type", "environment", "config"},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -621,6 +715,160 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			"isError": false,
 		})
 
+	case "get_current_config":
+		configType := "client"
+		if ct, ok := params.Arguments["config_type"].(string); ok {
+			configType = ct
+		}
+
+		var stackName string
+		if sn, ok := params.Arguments["stack_name"].(string); ok {
+			stackName = sn
+		}
+
+		configParams := GetCurrentConfigParams{
+			ConfigType: configType,
+			StackName:  stackName,
+		}
+
+		result, err := s.handler.GetCurrentConfig(ctx, configParams)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to read configuration", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "add_environment":
+		stackName, ok := params.Arguments["stack_name"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
+		}
+
+		deploymentType, ok := params.Arguments["deployment_type"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "deployment_type is required", nil)
+		}
+
+		parent, ok := params.Arguments["parent"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "parent is required", nil)
+		}
+
+		parentEnv, ok := params.Arguments["parent_env"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "parent_env is required", nil)
+		}
+
+		var config map[string]interface{}
+		if c, ok := params.Arguments["config"].(map[string]interface{}); ok {
+			config = c
+		}
+
+		envParams := AddEnvironmentParams{
+			StackName:      stackName,
+			DeploymentType: deploymentType,
+			Parent:         parent,
+			ParentEnv:      parentEnv,
+			Config:         config,
+		}
+
+		result, err := s.handler.AddEnvironment(ctx, envParams)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to add environment", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "modify_stack_config":
+		stackName, ok := params.Arguments["stack_name"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
+		}
+
+		changes, ok := params.Arguments["changes"].(map[string]interface{})
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "changes is required", nil)
+		}
+
+		modifyParams := ModifyStackConfigParams{
+			StackName: stackName,
+			Changes:   changes,
+		}
+
+		result, err := s.handler.ModifyStackConfig(ctx, modifyParams)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to modify stack configuration", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "add_resource":
+		resourceName, ok := params.Arguments["resource_name"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "resource_name is required", nil)
+		}
+
+		resourceType, ok := params.Arguments["resource_type"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "resource_type is required", nil)
+		}
+
+		environment, ok := params.Arguments["environment"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "environment is required", nil)
+		}
+
+		config, ok := params.Arguments["config"].(map[string]interface{})
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "config is required", nil)
+		}
+
+		resourceParams := AddResourceParams{
+			ResourceName: resourceName,
+			ResourceType: resourceType,
+			Environment:  environment,
+			Config:       config,
+		}
+
+		result, err := s.handler.AddResource(ctx, resourceParams)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to add resource", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
 	default:
 		return NewMCPError(req.ID, ErrorCodeMethodNotFound, fmt.Sprintf("Tool '%s' not found", params.Name), nil)
 	}
@@ -696,22 +944,23 @@ func (s *MCPServer) handleReadResource(ctx context.Context, req *MCPRequest) *MC
 
 // DefaultMCPHandler implements MCPHandler interface with only essential functionality
 type DefaultMCPHandler struct {
-	embeddingsDB       *embeddings.Database
+	commandHandler     *core.UnifiedCommandHandler
 	clientCapabilities map[string]interface{} // Store client capabilities for feature detection
 }
 
 // NewDefaultMCPHandler creates a new default MCP handler
 func NewDefaultMCPHandler() MCPHandler {
-	// Initialize embeddings database
-	db, err := embeddings.LoadEmbeddedDatabase(context.Background())
+	// Initialize unified command handler
+	commandHandler, err := core.NewUnifiedCommandHandler()
 	if err != nil {
-		// Log error but continue - server will work without embeddings
-		log.Printf("Warning: Failed to load embeddings database: %v", err)
-		db = nil
+		// Log error but continue with nil handler
+		log.Printf("Warning: Failed to initialize command handler: %v", err)
+		commandHandler = nil
 	}
 
 	return &DefaultMCPHandler{
-		embeddingsDB: db,
+		commandHandler:     commandHandler,
+		clientCapabilities: make(map[string]interface{}),
 	}
 }
 
@@ -721,34 +970,41 @@ func (h *DefaultMCPHandler) SetClientCapabilities(capabilities map[string]interf
 }
 
 func (h *DefaultMCPHandler) SearchDocumentation(ctx context.Context, params SearchDocumentationParams) (*DocumentationSearchResult, error) {
-	if h.embeddingsDB == nil {
+	if h.commandHandler == nil {
 		return &DocumentationSearchResult{
 			Documents: []DocumentChunk{},
 			Total:     0,
 		}, nil
 	}
 
-	// Perform semantic search
-	results, err := embeddings.SearchDocumentation(h.embeddingsDB, params.Query, params.Limit)
+	// Use unified command handler
+	result, err := h.commandHandler.SearchDocumentation(ctx, params.Query, params.Limit)
 	if err != nil {
-		return nil, fmt.Errorf("search failed: %w", err)
+		return nil, err
 	}
 
-	// Convert results to MCP format
-	documents := make([]DocumentChunk, len(results))
-	for i, result := range results {
-		// Convert metadata map
-		metadata := make(map[string]string)
-		for k, v := range result.Metadata {
-			if str, ok := v.(string); ok {
-				metadata[k] = str
-			}
-		}
+	// Convert unified result to MCP format
+	documents := []DocumentChunk{}
+	if resultsData, ok := result.Data["results"].([]interface{}); ok {
+		documents = make([]DocumentChunk, len(resultsData))
+		for i, res := range resultsData {
+			if resultMap, ok := res.(map[string]interface{}); ok {
+				// Convert metadata map
+				metadata := make(map[string]string)
+				if metaData, ok := resultMap["metadata"].(map[string]interface{}); ok {
+					for k, v := range metaData {
+						if str, ok := v.(string); ok {
+							metadata[k] = str
+						}
+					}
+				}
 
-		documents[i] = DocumentChunk{
-			Content:    result.Content,
-			Similarity: float32(result.Similarity),
-			Metadata:   metadata,
+				documents[i] = DocumentChunk{
+					Content:    fmt.Sprintf("%v", resultMap["content"]),
+					Similarity: float32(0.8), // Default similarity since unified handler doesn't expose it
+					Metadata:   metadata,
+				}
+			}
 		}
 	}
 
@@ -759,45 +1015,42 @@ func (h *DefaultMCPHandler) SearchDocumentation(ctx context.Context, params Sear
 }
 
 func (h *DefaultMCPHandler) GetProjectContext(ctx context.Context, params GetProjectContextParams) (*ProjectContext, error) {
-	// Analyze project at given path
-	analyzer := analysis.NewProjectAnalyzer()
-	projectInfo, err := analyzer.AnalyzeProject(params.Path)
+	if h.commandHandler == nil {
+		return nil, fmt.Errorf("command handler not initialized")
+	}
+
+	// Use unified command handler
+	result, err := h.commandHandler.GetProjectContext(ctx, params.Path)
 	if err != nil {
-		return nil, fmt.Errorf("project analysis failed: %w", err)
+		return nil, err
 	}
 
-	// Check for Simple Container configuration
-	scConfigPath := filepath.Join(params.Path, ".sc")
-	scConfigExists := false
-	if _, err := os.Stat(scConfigPath); err == nil {
-		scConfigExists = true
+	// Convert unified result to MCP format
+	projectInfo, ok := result.Data["project_info"]
+	if !ok {
+		return nil, fmt.Errorf("invalid project context data")
 	}
 
-	// Convert to MCP format
 	context := &ProjectContext{
-		Path:           params.Path,
-		Name:           projectInfo.Name,
-		SCConfigExists: scConfigExists,
-		SCConfigPath:   scConfigPath,
+		Path:           result.Data["absolute_path"].(string),
+		Name:           fmt.Sprintf("%v", projectInfo.(map[string]interface{})["name"]),
+		SCConfigExists: result.Data["has_client_config"].(bool) || result.Data["has_server_config"].(bool),
+		SCConfigPath:   filepath.Join(params.Path, ".sc"),
 		Metadata:       make(map[string]interface{}),
 	}
 
 	// Add tech stack info if available
-	if projectInfo.PrimaryStack != nil {
-		// Convert dependencies to strings
-		deps := make([]string, len(projectInfo.PrimaryStack.Dependencies))
-		for i, dep := range projectInfo.PrimaryStack.Dependencies {
-			deps[i] = dep.Name
-		}
-
-		context.TechStack = &TechStackInfo{
-			Language:     projectInfo.PrimaryStack.Language,
-			Framework:    projectInfo.PrimaryStack.Framework,
-			Runtime:      projectInfo.PrimaryStack.Runtime,
-			Dependencies: deps,
-			Architecture: projectInfo.Architecture,
-			Confidence:   projectInfo.PrimaryStack.Confidence,
-			Metadata:     projectInfo.PrimaryStack.Metadata,
+	if projInfo, ok := projectInfo.(map[string]interface{}); ok {
+		if primaryStack, ok := projInfo["primary_stack"].(map[string]interface{}); ok && primaryStack != nil {
+			context.TechStack = &TechStackInfo{
+				Language:     fmt.Sprintf("%v", primaryStack["language"]),
+				Framework:    fmt.Sprintf("%v", primaryStack["framework"]),
+				Runtime:      fmt.Sprintf("%v", primaryStack["runtime"]),
+				Dependencies: []string{}, // TODO: Convert dependencies properly
+				Architecture: fmt.Sprintf("%v", projInfo["architecture"]),
+				Confidence:   0.8, // Default confidence
+				Metadata:     make(map[string]string),
+			}
 		}
 	}
 
@@ -1169,6 +1422,125 @@ func (h *DefaultMCPHandler) elicitDeploymentType(ctx context.Context, params Set
 			"setup_time":       time.Now(),
 			"elicitation_used": false, // Set to true when real elicitation is implemented
 		},
+	}, nil
+}
+
+// Configuration modification methods
+
+func (h *DefaultMCPHandler) GetCurrentConfig(ctx context.Context, params GetCurrentConfigParams) (*GetCurrentConfigResult, error) {
+	if h.commandHandler == nil {
+		return &GetCurrentConfigResult{
+			Success: false,
+			Message: "❌ Command handler not initialized",
+		}, fmt.Errorf("command handler not initialized")
+	}
+
+	// Use unified command handler
+	result, err := h.commandHandler.GetCurrentConfig(ctx, params.ConfigType, params.StackName)
+	if err != nil {
+		return &GetCurrentConfigResult{
+			ConfigType: params.ConfigType,
+			Success:    false,
+			Message:    result.Message,
+		}, err
+	}
+
+	// Convert unified result to MCP format
+	return &GetCurrentConfigResult{
+		ConfigType: params.ConfigType,
+		FilePath:   result.Data["file_path"].(string),
+		Content:    result.Data["content"].(map[string]interface{}),
+		Message:    result.Message,
+		Success:    result.Success,
+	}, nil
+}
+
+func (h *DefaultMCPHandler) AddEnvironment(ctx context.Context, params AddEnvironmentParams) (*AddEnvironmentResult, error) {
+	if h.commandHandler == nil {
+		return &AddEnvironmentResult{
+			Success: false,
+			Message: "❌ Command handler not initialized",
+		}, fmt.Errorf("command handler not initialized")
+	}
+
+	// Use unified command handler
+	result, err := h.commandHandler.AddEnvironment(ctx, params.StackName, params.DeploymentType, params.Parent, params.ParentEnv, params.Config)
+	if err != nil {
+		return &AddEnvironmentResult{
+			StackName: params.StackName,
+			Success:   false,
+			Message:   result.Message,
+		}, err
+	}
+
+	// Convert unified result to MCP format
+	return &AddEnvironmentResult{
+		StackName:   result.Data["stack_name"].(string),
+		FilePath:    result.Data["file_path"].(string),
+		Message:     result.Message,
+		Success:     result.Success,
+		ConfigAdded: result.Data["config_added"].(map[string]interface{}),
+		BackupPath:  result.Data["backup_path"].(string),
+	}, nil
+}
+
+func (h *DefaultMCPHandler) ModifyStackConfig(ctx context.Context, params ModifyStackConfigParams) (*ModifyStackConfigResult, error) {
+	if h.commandHandler == nil {
+		return &ModifyStackConfigResult{
+			Success: false,
+			Message: "❌ Command handler not initialized",
+		}, fmt.Errorf("command handler not initialized")
+	}
+
+	// Use unified command handler
+	result, err := h.commandHandler.ModifyStackConfig(ctx, params.StackName, params.Changes)
+	if err != nil {
+		return &ModifyStackConfigResult{
+			StackName: params.StackName,
+			Success:   false,
+			Message:   result.Message,
+		}, err
+	}
+
+	// Convert unified result to MCP format
+	return &ModifyStackConfigResult{
+		StackName:      result.Data["stack_name"].(string),
+		FilePath:       result.Data["file_path"].(string),
+		Message:        result.Message,
+		Success:        result.Success,
+		ChangesApplied: result.Data["changes_applied"].(map[string]interface{}),
+		BackupPath:     result.Data["backup_path"].(string),
+	}, nil
+}
+
+func (h *DefaultMCPHandler) AddResource(ctx context.Context, params AddResourceParams) (*AddResourceResult, error) {
+	if h.commandHandler == nil {
+		return &AddResourceResult{
+			Success: false,
+			Message: "❌ Command handler not initialized",
+		}, fmt.Errorf("command handler not initialized")
+	}
+
+	// Use unified command handler
+	result, err := h.commandHandler.AddResource(ctx, params.ResourceName, params.ResourceType, params.Environment, params.Config)
+	if err != nil {
+		return &AddResourceResult{
+			ResourceName: params.ResourceName,
+			Environment:  params.Environment,
+			Success:      false,
+			Message:      result.Message,
+		}, err
+	}
+
+	// Convert unified result to MCP format
+	return &AddResourceResult{
+		ResourceName: result.Data["resource_name"].(string),
+		Environment:  result.Data["environment"].(string),
+		FilePath:     result.Data["file_path"].(string),
+		Message:      result.Message,
+		Success:      result.Success,
+		ConfigAdded:  result.Data["config_added"].(map[string]interface{}),
+		BackupPath:   result.Data["backup_path"].(string),
 	}, nil
 }
 

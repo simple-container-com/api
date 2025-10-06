@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
-	"unsafe"
 
 	"github.com/peterh/liner"
 )
@@ -263,25 +261,13 @@ func (h *InputHandler) ReadSimple(promptText string) (string, error) {
 		h.liner = nil
 	}
 
-	// Reset terminal to sane state using syscall
-	// Get terminal fd
-	fd := int(syscall.Stdin)
-
-	// Get current terminal settings
-	var termios syscall.Termios
-	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), syscall.TIOCGETA, uintptr(unsafe.Pointer(&termios))); err != 0 {
-		// Fallback: try using stty command
-		cmd := exec.Command("stty", "sane", "-F", "/dev/tty")
+	// Reset terminal to sane state using portable approach
+	// Try using stty command (works on most Unix-like systems)
+	cmd := exec.Command("stty", "sane")
+	if err := cmd.Run(); err != nil {
+		// If stty fails, try alternative approach
+		cmd = exec.Command("reset")
 		_ = cmd.Run()
-	} else {
-		// Enable canonical mode (ICANON) and echo (ECHO)
-		termios.Lflag |= syscall.ICANON | syscall.ECHO | syscall.ECHOE | syscall.ECHOK | syscall.ECHOCTL | syscall.ECHOKE
-		// Enable ICRNL (translate CR to NL on input)
-		termios.Iflag |= syscall.ICRNL
-		// Enable ONLCR (translate NL to CR-NL on output)
-		termios.Oflag |= syscall.ONLCR
-		// Set the terminal attributes
-		syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), syscall.TIOCSETA, uintptr(unsafe.Pointer(&termios)))
 	}
 
 	// Print prompt
