@@ -80,6 +80,12 @@ type SetupOptions struct {
 
 	// Deployment type override (if user manually selected)
 	DeploymentType string // Override detected deployment type: "static", "single-image", "cloud-compose"
+
+	// Skip all confirmation prompts (useful for MCP/API usage)
+	SkipConfirmation bool
+
+	// Force overwrite existing files without prompting (useful for MCP/API usage)
+	ForceOverwrite bool
 }
 
 // AnalyzeOptions for developer analyze command
@@ -438,7 +444,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 
 	// Check if client.yaml already exists and prompt for confirmation
 	if _, err := os.Stat(clientPath); err == nil {
-		if !d.confirmOverwrite("client.yaml", opts.BackupExisting) {
+		if !d.confirmOverwrite("client.yaml", opts.BackupExisting, opts.ForceOverwrite) {
 			fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
 		} else {
 			clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
@@ -476,7 +482,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
 		} else {
 			// File exists, prompt for confirmation
-			if !d.confirmOverwrite("docker-compose.yaml", opts.BackupExisting) {
+			if !d.confirmOverwrite("docker-compose.yaml", opts.BackupExisting, opts.ForceOverwrite) {
 				fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
 			} else {
 				composeYaml, err := d.GenerateComposeYAMLWithLLM(analysis)
@@ -506,7 +512,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
 		} else {
 			// File exists, prompt for confirmation
-			if !d.confirmOverwrite("Dockerfile", opts.BackupExisting) {
+			if !d.confirmOverwrite("Dockerfile", opts.BackupExisting, opts.ForceOverwrite) {
 				fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
 			} else {
 				dockerfile, err := d.GenerateDockerfileWithLLM(analysis)
@@ -525,7 +531,12 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 }
 
 // confirmOverwrite prompts the user to confirm overwriting an existing file
-func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool) bool {
+func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool, forceOverwrite bool) bool {
+	// Skip confirmation if force overwrite is enabled (for MCP/API usage)
+	if forceOverwrite {
+		return true
+	}
+
 	fmt.Printf("\n   ⚠️  %s already exists. Overwrite? [y/N]: ", color.YellowString(filename))
 
 	var response string
@@ -540,6 +551,10 @@ func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool) bo
 
 // ConfirmDeploymentType confirms the detected deployment type with the user
 func (d *DeveloperMode) ConfirmDeploymentType(opts *SetupOptions, analysis *analysis.ProjectAnalysis) error {
+	// Skip confirmation if requested (useful for MCP/API usage)
+	if opts.SkipConfirmation {
+		return nil
+	}
 	detectedType := d.determineDeploymentTypeWithOptions(analysis, opts)
 
 	fmt.Printf("\n🔍 Detected deployment type: %s\n", color.CyanString(detectedType))
@@ -627,6 +642,7 @@ func (d *DeveloperMode) generateFilesCoordinated(ctx context.Context, projectPat
 		UseStreaming:      opts.UseStreaming,
 		ValidateGenerated: true, // Always validate coordinated generation
 		BackupExisting:    opts.BackupExisting,
+		ForceOverwrite:    opts.ForceOverwrite,
 	}
 
 	// Execute coordinated generation
@@ -901,7 +917,20 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 	// Determine deployment type for example
 	deploymentType := d.determineDeploymentTypeWithOptions(analysis, opts)
 	prompt.WriteString(fmt.Sprintf("    type: %s       # Valid types: cloud-compose, static, single-image\n", deploymentType))
-	prompt.WriteString("    parent: mycompany/" + opts.Parent + "     # Format: <parent-project>/<parent-stack-name>\n")
+
+	// Handle parent field properly - must be in format <parent-project>/<parent-stack-name>
+	if opts.Parent != "" {
+		// If parent contains a slash, use as-is. Otherwise, provide a proper example format.
+		if strings.Contains(opts.Parent, "/") {
+			prompt.WriteString("    parent: " + opts.Parent + "       # Format: <parent-project>/<parent-stack-name>\n")
+		} else {
+			prompt.WriteString("    parent: mycompany/" + opts.Parent + "     # Format: <parent-project>/<parent-stack-name>\n")
+		}
+	} else {
+		// If no parent specified, use example format
+		prompt.WriteString("    parent: mycompany/infrastructure     # Format: <parent-project>/<parent-stack-name>\n")
+	}
+
 	prompt.WriteString("    parentEnv: " + opts.Environment + "        # Environment in parent's server.yaml\n")
 	prompt.WriteString("    config:\n")
 
@@ -1183,7 +1212,18 @@ func (d *DeveloperMode) generateFallbackClientYAML(opts *SetupOptions, analysis 
 	template.WriteString("stacks:\n")
 	template.WriteString(fmt.Sprintf("  %s:\n", opts.Environment))
 	template.WriteString(fmt.Sprintf("    type: %s\n", deploymentType))
-	template.WriteString(fmt.Sprintf("    parent: mycompany/%s\n", opts.Parent))
+	// Handle parent field properly - must be in format <parent-project>/<parent-stack-name>
+	if opts.Parent != "" {
+		// If parent contains a slash, use as-is. Otherwise, provide a proper example format.
+		if strings.Contains(opts.Parent, "/") {
+			template.WriteString(fmt.Sprintf("    parent: %s\n", opts.Parent))
+		} else {
+			template.WriteString(fmt.Sprintf("    parent: mycompany/%s\n", opts.Parent))
+		}
+	} else {
+		// If no parent specified, use example format
+		template.WriteString("    parent: mycompany/infrastructure\n")
+	}
 	template.WriteString(fmt.Sprintf("    parentEnv: %s\n", opts.Environment))
 	template.WriteString("    config:\n")
 

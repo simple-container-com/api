@@ -131,6 +131,53 @@ func (c *ChatInterface) registerCommands() {
 			{Name: "action", Type: "string", Required: false, Description: "Action: clear to clear history"},
 		},
 	}
+
+	// Configuration modification commands (aligned with MCP tools)
+	c.commands["config"] = &ChatCommand{
+		Name:        "config",
+		Description: "Get current Simple Container configuration",
+		Usage:       "/config [client|server] [stack_name]",
+		Handler:     c.handleGetConfig,
+		Args: []CommandArg{
+			{Name: "type", Type: "string", Required: false, Description: "Configuration type: client or server", Default: "client"},
+			{Name: "stack", Type: "string", Required: false, Description: "Specific stack name (for client config)"},
+		},
+	}
+
+	c.commands["addenv"] = &ChatCommand{
+		Name:        "addenv",
+		Description: "Add new environment/stack to client.yaml",
+		Usage:       "/addenv <stack_name> <deployment_type> <parent> <parent_env>",
+		Handler:     c.handleAddEnvironment,
+		Args: []CommandArg{
+			{Name: "stack_name", Type: "string", Required: true, Description: "Name of the new stack/environment"},
+			{Name: "deployment_type", Type: "string", Required: true, Description: "Deployment type: static, single-image, or cloud-compose"},
+			{Name: "parent", Type: "string", Required: true, Description: "Parent stack reference (project/stack format)"},
+			{Name: "parent_env", Type: "string", Required: true, Description: "Parent environment to map to"},
+		},
+	}
+
+	c.commands["modifystack"] = &ChatCommand{
+		Name:        "modifystack",
+		Description: "Modify existing stack configuration",
+		Usage:       "/modifystack <stack_name> <key=value> [key=value...]",
+		Handler:     c.handleModifyStack,
+		Args: []CommandArg{
+			{Name: "stack_name", Type: "string", Required: true, Description: "Name of the stack to modify"},
+		},
+	}
+
+	c.commands["addresource"] = &ChatCommand{
+		Name:        "addresource",
+		Description: "Add new resource to server.yaml",
+		Usage:       "/addresource <resource_name> <resource_type> <environment>",
+		Handler:     c.handleAddResource,
+		Args: []CommandArg{
+			{Name: "resource_name", Type: "string", Required: true, Description: "Name of the resource"},
+			{Name: "resource_type", Type: "string", Required: true, Description: "Type of resource (e.g., mongodb-atlas, redis)"},
+			{Name: "environment", Type: "string", Required: true, Description: "Environment to add resource to"},
+		},
+	}
 }
 
 // handleHelp shows help information
@@ -1391,11 +1438,16 @@ func (c *ChatInterface) handleModel(ctx context.Context, args []string, context 
 
 		// Configure provider to enable API calls
 		providerCfg, _ := cfg.GetProviderConfig(provider)
-		providerInstance.Configure(llm.Config{
+		if err := providerInstance.Configure(llm.Config{
 			Provider: provider,
 			APIKey:   providerCfg.APIKey,
 			BaseURL:  providerCfg.BaseURL,
-		})
+		}); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to configure provider %s: %v", provider, err),
+			}, nil
+		}
 
 		// Get models from API
 		models, err := providerInstance.ListModels(ctx)
@@ -1506,7 +1558,7 @@ func (c *ChatInterface) handleModel(ctx context.Context, args []string, context 
 
 		capabilities := c.llm.GetCapabilities()
 
-		message := fmt.Sprintf("ℹ️  Current Model Information:\n\n")
+		message := "ℹ️  Current Model Information:\n\n"
 		message += fmt.Sprintf("Provider: %s\n", capabilities.Name)
 		message += fmt.Sprintf("Model: %s\n", currentModel)
 		message += fmt.Sprintf("Max Tokens: %d\n", capabilities.MaxTokens)
@@ -1535,11 +1587,13 @@ func (c *ChatInterface) selectModel(cfg *config.Config, provider string) (string
 
 	// Configure provider to enable API calls
 	providerCfg, _ := cfg.GetProviderConfig(provider)
-	providerInstance.Configure(llm.Config{
+	if err := providerInstance.Configure(llm.Config{
 		Provider: provider,
 		APIKey:   providerCfg.APIKey,
 		BaseURL:  providerCfg.BaseURL,
-	})
+	}); err != nil {
+		return "", fmt.Errorf("failed to configure provider %s: %w", provider, err)
+	}
 
 	// Get models from API
 	ctx := context.Background()
@@ -1599,4 +1653,220 @@ func (c *ChatInterface) selectModel(cfg *config.Config, provider string) (string
 	fmt.Println()
 
 	return selectedModel, nil
+}
+
+// handleGetConfig gets current Simple Container configuration using unified handler
+func (c *ChatInterface) handleGetConfig(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	configType := "client"
+	stackName := ""
+
+	if len(args) > 0 {
+		configType = args[0]
+	}
+	if len(args) > 1 {
+		stackName = args[1]
+	}
+
+	// Use unified command handler
+	result, err := c.commandHandler.GetCurrentConfig(ctx, configType, stackName)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to get configuration: %v", err),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+	}, nil
+}
+
+// handleAddEnvironment adds a new environment/stack using unified handler
+func (c *ChatInterface) handleAddEnvironment(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	if len(args) < 4 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Usage: /addenv <stack_name> <deployment_type> <parent> <parent_env>",
+		}, nil
+	}
+
+	stackName := args[0]
+	deploymentType := args[1]
+	parent := args[2]
+	parentEnv := args[3]
+
+	// Validate deployment type
+	validTypes := []string{"static", "single-image", "cloud-compose"}
+	isValid := false
+	for _, validType := range validTypes {
+		if deploymentType == validType {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Invalid deployment type '%s'. Valid types: %v", deploymentType, validTypes),
+		}, nil
+	}
+
+	// Use unified command handler
+	result, err := c.commandHandler.AddEnvironment(ctx, stackName, deploymentType, parent, parentEnv, nil)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to add environment: %v", err),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success:  result.Success,
+		Message:  result.Message,
+		NextStep: "Environment added successfully! You can now deploy to this stack.",
+	}, nil
+}
+
+// handleModifyStack modifies existing stack configuration using unified handler
+func (c *ChatInterface) handleModifyStack(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	if len(args) < 2 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Usage: /modifystack <stack_name> <key=value> [key=value...]\n" +
+				"Examples:\n" +
+				"  /modifystack prod type=single-image\n" +
+				"  /modifystack staging config.scale.max=10\n" +
+				"  /modifystack dev config.env.DEBUG=true",
+		}, nil
+	}
+
+	stackName := args[0]
+	changes := make(map[string]interface{})
+
+	// Parse key=value pairs
+	for _, arg := range args[1:] {
+		parts := strings.SplitN(arg, "=", 2)
+		if len(parts) != 2 {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Invalid format '%s'. Use key=value format.", arg),
+			}, nil
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Try to parse value as different types
+		if value == "true" {
+			changes[key] = true
+		} else if value == "false" {
+			changes[key] = false
+		} else if num, err := strconv.Atoi(value); err == nil {
+			changes[key] = num
+		} else {
+			changes[key] = value
+		}
+	}
+
+	// Use unified command handler
+	result, err := c.commandHandler.ModifyStackConfig(ctx, stackName, changes)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to modify stack: %v", err),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success:  result.Success,
+		Message:  result.Message,
+		NextStep: "Stack configuration updated successfully!",
+	}, nil
+}
+
+// handleAddResource adds a new resource to server.yaml using unified handler
+func (c *ChatInterface) handleAddResource(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	if len(args) < 3 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Usage: /addresource <resource_name> <resource_type> <environment> [key=value...]\n" +
+				"Examples:\n" +
+				"  /addresource mongodb-prod mongodb-atlas production tier=M10 region=us-east-1\n" +
+				"  /addresource redis-cache redis staging",
+		}, nil
+	}
+
+	resourceName := args[0]
+	resourceType := args[1]
+	environment := args[2]
+	config := make(map[string]interface{})
+
+	// Parse additional key=value pairs for resource configuration
+	for _, arg := range args[3:] {
+		parts := strings.SplitN(arg, "=", 2)
+		if len(parts) != 2 {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Invalid format '%s'. Use key=value format.", arg),
+			}, nil
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Try to parse value as different types
+		if value == "true" {
+			config[key] = true
+		} else if value == "false" {
+			config[key] = false
+		} else if num, err := strconv.Atoi(value); err == nil {
+			config[key] = num
+		} else {
+			config[key] = value
+		}
+	}
+
+	// Use unified command handler
+	result, err := c.commandHandler.AddResource(ctx, resourceName, resourceType, environment, config)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to add resource: %v", err),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success:  result.Success,
+		Message:  result.Message,
+		NextStep: "Resource added successfully! You can now reference it in your application stacks.",
+	}, nil
 }

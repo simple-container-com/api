@@ -155,6 +155,95 @@ type SupportedResourcesResult struct {
 	Total     int            `json:"total"`
 }
 
+type SetupSimpleContainerParams struct {
+	Path           string `json:"path"`
+	Environment    string `json:"environment,omitempty"`
+	Parent         string `json:"parent,omitempty"`
+	DeploymentType string `json:"deployment_type,omitempty"`
+	Interactive    bool   `json:"interactive,omitempty"`
+}
+
+type SetupSimpleContainerResult struct {
+	Message      string                 `json:"message"`
+	FilesCreated []string               `json:"files_created"`
+	Success      bool                   `json:"success"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// MCP Elicitation types
+type ElicitRequest struct {
+	Message         string                 `json:"message"`
+	RequestedSchema map[string]interface{} `json:"requestedSchema"`
+}
+
+type ElicitResult struct {
+	Action  string                 `json:"action"` // "accept", "decline", "cancel"
+	Content map[string]interface{} `json:"content,omitempty"`
+}
+
+// Configuration modification types
+
+type GetCurrentConfigParams struct {
+	ConfigType string `json:"config_type"`          // "client" or "server"
+	StackName  string `json:"stack_name,omitempty"` // For client.yaml, optional stack name
+}
+
+type GetCurrentConfigResult struct {
+	ConfigType string                 `json:"config_type"`
+	FilePath   string                 `json:"file_path"`
+	Content    map[string]interface{} `json:"content"`
+	Message    string                 `json:"message"`
+	Success    bool                   `json:"success"`
+}
+
+type AddEnvironmentParams struct {
+	StackName      string                 `json:"stack_name"`       // Name of new environment/stack
+	DeploymentType string                 `json:"deployment_type"`  // "static", "single-image", "cloud-compose"
+	Parent         string                 `json:"parent"`           // Parent stack reference (project/stack)
+	ParentEnv      string                 `json:"parent_env"`       // Parent environment to map to
+	Config         map[string]interface{} `json:"config,omitempty"` // Additional configuration
+}
+
+type AddEnvironmentResult struct {
+	StackName   string                 `json:"stack_name"`
+	FilePath    string                 `json:"file_path"`
+	Message     string                 `json:"message"`
+	Success     bool                   `json:"success"`
+	ConfigAdded map[string]interface{} `json:"config_added"`
+	BackupPath  string                 `json:"backup_path,omitempty"`
+}
+
+type ModifyStackConfigParams struct {
+	StackName string                 `json:"stack_name"` // Which stack to modify
+	Changes   map[string]interface{} `json:"changes"`    // What to change
+}
+
+type ModifyStackConfigResult struct {
+	StackName      string                 `json:"stack_name"`
+	FilePath       string                 `json:"file_path"`
+	Message        string                 `json:"message"`
+	Success        bool                   `json:"success"`
+	ChangesApplied map[string]interface{} `json:"changes_applied"`
+	BackupPath     string                 `json:"backup_path,omitempty"`
+}
+
+type AddResourceParams struct {
+	ResourceName string                 `json:"resource_name"` // Name of the resource
+	ResourceType string                 `json:"resource_type"` // "mongodb-atlas", "redis", "postgres", etc.
+	Environment  string                 `json:"environment"`   // Which environment to add it to
+	Config       map[string]interface{} `json:"config"`        // Resource configuration
+}
+
+type AddResourceResult struct {
+	ResourceName string                 `json:"resource_name"`
+	Environment  string                 `json:"environment"`
+	FilePath     string                 `json:"file_path"`
+	Message      string                 `json:"message"`
+	Success      bool                   `json:"success"`
+	ConfigAdded  map[string]interface{} `json:"config_added"`
+	BackupPath   string                 `json:"backup_path,omitempty"`
+}
+
 type ProviderInfo struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name"`
@@ -169,6 +258,14 @@ type MCPHandler interface {
 	GenerateConfiguration(ctx context.Context, params GenerateConfigurationParams) (*GeneratedConfiguration, error)
 	AnalyzeProject(ctx context.Context, params AnalyzeProjectParams) (*ProjectAnalysis, error)
 	GetSupportedResources(ctx context.Context) (*SupportedResourcesResult, error)
+	SetupSimpleContainer(ctx context.Context, params SetupSimpleContainerParams) (*SetupSimpleContainerResult, error)
+
+	// Configuration modification methods
+	GetCurrentConfig(ctx context.Context, params GetCurrentConfigParams) (*GetCurrentConfigResult, error)
+	AddEnvironment(ctx context.Context, params AddEnvironmentParams) (*AddEnvironmentResult, error)
+	ModifyStackConfig(ctx context.Context, params ModifyStackConfigParams) (*ModifyStackConfigResult, error)
+	AddResource(ctx context.Context, params AddResourceParams) (*AddResourceResult, error)
+
 	GetCapabilities(ctx context.Context) (map[string]interface{}, error)
 	Ping(ctx context.Context) (string, error)
 }
