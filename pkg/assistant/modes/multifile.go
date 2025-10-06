@@ -28,8 +28,8 @@ type MultiFileGenerationRequest struct {
 	// Generation options
 	UseStreaming      bool `json:"use_streaming"`
 	ValidateGenerated bool `json:"validate_generated"`
-	BackupExisting    bool `json:"backup_existing"`
-	ForceOverwrite    bool `json:"force_overwrite"`
+
+	ForceOverwrite bool `json:"force_overwrite"`
 }
 
 // MultiFileGenerationResult contains the results of multi-file generation

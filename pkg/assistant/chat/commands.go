@@ -548,7 +548,6 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 		OutputDir:      projectPath,
 		GenerateAll:    false,
 		UseStreaming:   false,
-		BackupExisting: false, // Chat interface handles file writing separately
 	}
 
 	// Capture the generated files by temporarily redirecting the DeveloperMode output

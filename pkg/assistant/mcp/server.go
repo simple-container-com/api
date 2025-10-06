@@ -1598,7 +1598,6 @@ func (h *DefaultMCPHandler) AddEnvironment(ctx context.Context, params AddEnviro
 		Message:     result.Message,
 		Success:     result.Success,
 		ConfigAdded: result.Data["config_added"].(map[string]interface{}),
-		BackupPath:  result.Data["backup_path"].(string),
 	}, nil
 }
 
@@ -1627,7 +1626,6 @@ func (h *DefaultMCPHandler) ModifyStackConfig(ctx context.Context, params Modify
 		Message:        result.Message,
 		Success:        result.Success,
 		ChangesApplied: result.Data["changes_applied"].(map[string]interface{}),
-		BackupPath:     result.Data["backup_path"].(string),
 	}, nil
 }
 
@@ -1658,7 +1656,6 @@ func (h *DefaultMCPHandler) AddResource(ctx context.Context, params AddResourceP
 		Message:      result.Message,
 		Success:      result.Success,
 		ConfigAdded:  result.Data["config_added"].(map[string]interface{}),
-		BackupPath:   result.Data["backup_path"].(string),
 	}, nil
 }
 

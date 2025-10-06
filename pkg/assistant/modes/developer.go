@@ -14,6 +14,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/validation"
@@ -30,11 +31,15 @@ type DeveloperMode struct {
 func NewDeveloperMode() *DeveloperMode {
 	// Initialize LLM provider (OpenAI by default)
 	provider := llm.NewOpenAIProvider()
+
+	// Get API key from config system first, then fallback to environment
+	apiKey := getConfiguredAPIKey()
+
 	_ = provider.Configure(llm.Config{
 		Provider:    "openai",
 		MaxTokens:   2048,
 		Temperature: 0.7,
-		APIKey:      os.Getenv("OPENAI_API_KEY"),
+		APIKey:      apiKey,
 	}) // Ignore configuration errors - fallback will be used
 
 	// Initialize embeddings database for documentation search
@@ -60,6 +65,11 @@ func NewDeveloperModeWithComponents(provider llm.Provider, embeddingsDB *embeddi
 	}
 }
 
+// GetLLMProvider returns the LLM provider for use by other components
+func (d *DeveloperMode) GetLLMProvider() llm.Provider {
+	return d.llm
+}
+
 // SetupOptions for developer setup command
 type SetupOptions struct {
 	Interactive    bool
@@ -74,9 +84,8 @@ type SetupOptions struct {
 	OutputDir      string
 
 	// Multi-file generation options
-	GenerateAll    bool // Generate all files in one coordinated operation
-	UseStreaming   bool // Use streaming LLM responses for better UX
-	BackupExisting bool // Backup existing files before overwriting
+	GenerateAll  bool // Generate all files in one coordinated operation
+	UseStreaming bool // Use streaming LLM responses for better UX
 
 	// Deployment type override (if user manually selected)
 	DeploymentType string // Override detected deployment type: "static", "single-image", "cloud-compose"
@@ -444,7 +453,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 
 	// Check if client.yaml already exists and prompt for confirmation
 	if _, err := os.Stat(clientPath); err == nil {
-		if !d.confirmOverwrite("client.yaml", opts.BackupExisting, opts.ForceOverwrite) {
+		if !d.confirmOverwrite("client.yaml", opts.ForceOverwrite) {
 			fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
 		} else {
 			clientYaml, err := d.GenerateClientYAMLWithLLM(opts, analysis)
@@ -482,7 +491,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
 		} else {
 			// File exists, prompt for confirmation
-			if !d.confirmOverwrite("docker-compose.yaml", opts.BackupExisting, opts.ForceOverwrite) {
+			if !d.confirmOverwrite("docker-compose.yaml", opts.ForceOverwrite) {
 				fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
 			} else {
 				composeYaml, err := d.GenerateComposeYAMLWithLLM(analysis)
@@ -512,7 +521,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 			fmt.Printf(" %s\n", color.GreenFmt("✓"))
 		} else {
 			// File exists, prompt for confirmation
-			if !d.confirmOverwrite("Dockerfile", opts.BackupExisting, opts.ForceOverwrite) {
+			if !d.confirmOverwrite("Dockerfile", opts.ForceOverwrite) {
 				fmt.Printf(" %s (skipped)\n", color.YellowFmt("⚠"))
 			} else {
 				dockerfile, err := d.GenerateDockerfileWithLLM(analysis)
@@ -531,7 +540,7 @@ func (d *DeveloperMode) generateFiles(projectPath string, opts *SetupOptions, an
 }
 
 // confirmOverwrite prompts the user to confirm overwriting an existing file
-func (d *DeveloperMode) confirmOverwrite(filename string, backupEnabled bool, forceOverwrite bool) bool {
+func (d *DeveloperMode) confirmOverwrite(filename string, forceOverwrite bool) bool {
 	// Skip confirmation if force overwrite is enabled (for MCP/API usage)
 	if forceOverwrite {
 		return true
@@ -641,8 +650,8 @@ func (d *DeveloperMode) generateFilesCoordinated(ctx context.Context, projectPat
 		// Use options from SetupOptions
 		UseStreaming:      opts.UseStreaming,
 		ValidateGenerated: true, // Always validate coordinated generation
-		BackupExisting:    opts.BackupExisting,
-		ForceOverwrite:    opts.ForceOverwrite,
+
+		ForceOverwrite: opts.ForceOverwrite,
 	}
 
 	// Execute coordinated generation
@@ -1889,4 +1898,18 @@ func (d *DeveloperMode) validateComposeContent(content string) bool {
 	// Pass validation if it has ingress label and basic security practices
 	// Volume labels are optional but recommended
 	return hasIngressLabel && hasSecurityPractices
+}
+
+// getConfiguredAPIKey retrieves the OpenAI API key from configuration system first, then environment
+func getConfiguredAPIKey() string {
+	// Try to load from configuration system first
+	cfg, err := config.Load()
+	if err == nil {
+		if providerCfg, exists := cfg.GetProviderConfig(config.ProviderOpenAI); exists && providerCfg.APIKey != "" {
+			return providerCfg.APIKey
+		}
+	}
+
+	// Fallback to environment variable
+	return os.Getenv("OPENAI_API_KEY")
 }

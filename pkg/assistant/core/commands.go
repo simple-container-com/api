@@ -12,6 +12,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
@@ -353,7 +354,7 @@ func (h *UnifiedCommandHandler) GetCurrentConfig(ctx context.Context, configType
 	}, nil
 }
 
-// AddEnvironment adds a new environment/stack to client.yaml
+// AddEnvironment adds a new environment/stack to client.yaml using LLM when available
 func (h *UnifiedCommandHandler) AddEnvironment(ctx context.Context, stackName, deploymentType, parent, parentEnv string, config map[string]interface{}) (*CommandResult, error) {
 	filePath := h.findClientYaml(".")
 	if filePath == "" {
@@ -362,16 +363,6 @@ func (h *UnifiedCommandHandler) AddEnvironment(ctx context.Context, stackName, d
 			Message: "❌ No client.yaml found. Use setup_simple_container to create initial configuration.",
 			Error:   "client_yaml_not_found",
 		}, fmt.Errorf("client.yaml not found")
-	}
-
-	// Create backup
-	backupPath, err := h.createBackup(filePath)
-	if err != nil {
-		return &CommandResult{
-			Success: false,
-			Message: fmt.Sprintf("❌ Failed to create backup: %v", err),
-			Error:   err.Error(),
-		}, err
 	}
 
 	// Read current configuration
@@ -397,25 +388,19 @@ func (h *UnifiedCommandHandler) AddEnvironment(ctx context.Context, stackName, d
 			Success: false,
 			Message: fmt.Sprintf("⚠️ Stack '%s' already exists. Use modify_stack_config to update it.", stackName),
 			Error:   "stack_already_exists",
-			Data: map[string]interface{}{
-				"backup_path": backupPath,
-			},
+			Data:    map[string]interface{}{},
 		}, nil
 	}
 
-	// Create new stack configuration
-	stackConfig := map[string]interface{}{
-		"type":      deploymentType,
-		"parent":    parent,
-		"parentEnv": parentEnv,
-		"config":    h.createDefaultStackConfig(deploymentType, config),
+	// Try LLM-enhanced environment addition first, fallback to raw manipulation
+	modifiedContent, stackConfig, err := h.addEnvironmentWithLLM(ctx, content, stackName, deploymentType, parent, parentEnv, config)
+	if err != nil {
+		// Fallback to raw YAML manipulation
+		return h.addEnvironmentRaw(ctx, content, stackName, deploymentType, parent, parentEnv, config, filePath)
 	}
 
-	// Add the new stack
-	stacks[stackName] = stackConfig
-
 	// Write back to file
-	err = h.writeYamlFile(filePath, content)
+	err = h.writeYamlFile(filePath, modifiedContent)
 	if err != nil {
 		return &CommandResult{
 			Success: false,
@@ -424,17 +409,16 @@ func (h *UnifiedCommandHandler) AddEnvironment(ctx context.Context, stackName, d
 		}, err
 	}
 
-	message := fmt.Sprintf("✅ Successfully added '%s' environment to client.yaml\n", stackName)
+	message := fmt.Sprintf("✅ Successfully added '%s' environment using LLM\n", stackName)
 	message += fmt.Sprintf("📁 File: %s\n", filePath)
 	message += fmt.Sprintf("🎯 Type: %s\n", deploymentType)
 	message += fmt.Sprintf("👨‍👩‍👧‍👦 Parent: %s -> %s\n", parent, parentEnv)
-	message += fmt.Sprintf("💾 Backup: %s", backupPath)
 
 	data := map[string]interface{}{
 		"stack_name":   stackName,
 		"file_path":    filePath,
 		"config_added": stackConfig,
-		"backup_path":  backupPath,
+		"method":       "llm_enhanced",
 	}
 
 	return &CommandResult{
@@ -444,7 +428,7 @@ func (h *UnifiedCommandHandler) AddEnvironment(ctx context.Context, stackName, d
 	}, nil
 }
 
-// ModifyStackConfig modifies existing stack configuration in client.yaml
+// ModifyStackConfig modifies existing stack configuration in client.yaml using LLM when available
 func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName string, changes map[string]interface{}) (*CommandResult, error) {
 	filePath := h.findClientYaml(".")
 	if filePath == "" {
@@ -453,16 +437,6 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 			Message: "❌ No client.yaml found. Use setup_simple_container to create initial configuration.",
 			Error:   "client_yaml_not_found",
 		}, fmt.Errorf("client.yaml not found")
-	}
-
-	// Create backup
-	backupPath, err := h.createBackup(filePath)
-	if err != nil {
-		return &CommandResult{
-			Success: false,
-			Message: fmt.Sprintf("❌ Failed to create backup: %v", err),
-			Error:   err.Error(),
-		}, err
 	}
 
 	// Read current configuration
@@ -485,7 +459,7 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		}, fmt.Errorf("no stacks section found")
 	}
 
-	stack, exists := stacks[stackName]
+	_, exists := stacks[stackName]
 	if !exists {
 		availableStacks := h.getStackNames(stacks)
 		return &CommandResult{
@@ -494,23 +468,99 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 			Error:   "stack_not_found",
 			Data: map[string]interface{}{
 				"available_stacks": availableStacks,
-				"backup_path":      backupPath,
 			},
 		}, fmt.Errorf("stack not found: %s", stackName)
 	}
 
-	stackConfig, ok := stack.(map[string]interface{})
-	if !ok {
-		return &CommandResult{
-			Success: false,
-			Message: fmt.Sprintf("❌ Invalid stack configuration for '%s'", stackName),
-			Error:   "invalid_stack_config",
-		}, fmt.Errorf("invalid stack config")
+	// Try LLM-enhanced modification first, fallback to raw YAML manipulation
+	modifiedContent, changesApplied, err := h.modifyStackWithLLM(ctx, content, stackName, changes)
+	if err != nil {
+		// Fallback to raw YAML manipulation
+		return h.modifyStackRaw(ctx, content, stackName, changes, filePath)
 	}
 
-	// Apply changes
+	// Write back to file
+	err = h.writeYamlFile(filePath, modifiedContent)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to write client.yaml: %v", err),
+			Error:   err.Error(),
+		}, err
+	}
+
+	message := fmt.Sprintf("✅ Successfully modified '%s' stack configuration using LLM\n", stackName)
+	message += fmt.Sprintf("📁 File: %s\n", filePath)
+	message += fmt.Sprintf("🔄 Changes applied: %+v\n", changesApplied)
+
+	data := map[string]interface{}{
+		"stack_name":      stackName,
+		"file_path":       filePath,
+		"changes_applied": changesApplied,
+		"method":          "llm_enhanced",
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+		Data:    data,
+	}, nil
+}
+
+// modifyStackWithLLM uses LLM with enriched context to modify stack configuration
+func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content map[string]interface{}, stackName string, changes map[string]interface{}) (map[string]interface{}, map[string]interface{}, error) {
+	// Check if DeveloperMode has LLM capability
+	if h.developerMode == nil {
+		return nil, nil, fmt.Errorf("no LLM available")
+	}
+
+	// Get project analysis for context
+	projectAnalysis, err := h.analyzer.AnalyzeProject(".")
+	if err != nil {
+		projectAnalysis = &analysis.ProjectAnalysis{Name: "unknown"}
+	}
+
+	// Build enriched prompt using existing functions (DRY principle)
+	prompt := h.buildStackModificationPrompt(content, stackName, changes, projectAnalysis)
+
+	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
+	llmProvider := h.developerMode.GetLLMProvider()
+	if llmProvider == nil {
+		return nil, nil, fmt.Errorf("no LLM provider available")
+	}
+
+	response, err := llmProvider.Chat(ctx, []llm.Message{
+		{Role: "system", Content: `You are an expert in Simple Container configuration modification. Generate ONLY valid YAML that EXACTLY follows the provided schemas.
+
+CRITICAL INSTRUCTIONS:
+✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
+✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
+✅ Return complete, valid client.yaml configuration
+✅ Maintain all existing configuration that doesn't conflict with requested changes`},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	// Parse the response and extract changes applied
+	modifiedContent, changesApplied, err := h.parseModifiedYAML(response.Content, content, stackName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	return modifiedContent, changesApplied, nil
+}
+
+// modifyStackRaw provides fallback raw YAML manipulation (original logic)
+func (h *UnifiedCommandHandler) modifyStackRaw(ctx context.Context, content map[string]interface{}, stackName string, changes map[string]interface{}, filePath string) (*CommandResult, error) {
+	stacks := content["stacks"].(map[string]interface{})
+	stack := stacks[stackName]
+	stackConfig := stack.(map[string]interface{})
+
+	// Apply changes using raw manipulation
 	changesApplied := make(map[string]interface{})
-	err = h.applyChangesToConfig(stackConfig, changes, "", changesApplied)
+	err := h.applyChangesToConfig(stackConfig, changes, "", changesApplied)
 	if err != nil {
 		return &CommandResult{
 			Success: false,
@@ -529,16 +579,15 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		}, err
 	}
 
-	message := fmt.Sprintf("✅ Successfully modified '%s' stack configuration\n", stackName)
+	message := fmt.Sprintf("✅ Successfully modified '%s' stack configuration (fallback mode)\n", stackName)
 	message += fmt.Sprintf("📁 File: %s\n", filePath)
 	message += fmt.Sprintf("🔄 Changes applied: %+v\n", changesApplied)
-	message += fmt.Sprintf("💾 Backup: %s", backupPath)
 
 	data := map[string]interface{}{
 		"stack_name":      stackName,
 		"file_path":       filePath,
 		"changes_applied": changesApplied,
-		"backup_path":     backupPath,
+		"method":          "raw_yaml",
 	}
 
 	return &CommandResult{
@@ -546,6 +595,314 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		Message: message,
 		Data:    data,
 	}, nil
+}
+
+// buildStackModificationPrompt creates an enriched prompt for stack modification using existing patterns
+func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]interface{}, stackName string, changes map[string]interface{}, analysis *analysis.ProjectAnalysis) string {
+	var prompt strings.Builder
+
+	// Enrich with documentation context using existing embeddings
+	embeddingContext := h.enrichContextWithDocumentation("client.yaml modification", analysis)
+
+	prompt.WriteString("You are an expert Simple Container configuration modifier. Modify the existing client.yaml stack configuration intelligently.\n\n")
+
+	if embeddingContext != "" {
+		prompt.WriteString("RELEVANT DOCUMENTATION CONTEXT:\n")
+		prompt.WriteString(embeddingContext)
+		prompt.WriteString("\n\n")
+	}
+
+	prompt.WriteString("CURRENT CONFIGURATION:\n")
+	currentYAML, _ := yaml.Marshal(content)
+	prompt.WriteString(string(currentYAML))
+	prompt.WriteString("\n")
+
+	prompt.WriteString(fmt.Sprintf("STACK TO MODIFY: %s\n\n", stackName))
+
+	prompt.WriteString("REQUESTED CHANGES:\n")
+	for key, value := range changes {
+		prompt.WriteString(fmt.Sprintf("- %s: %v\n", key, value))
+	}
+
+	prompt.WriteString("\nINSTRUCTIONS:\n")
+	prompt.WriteString("- Apply the requested changes intelligently to the specified stack\n")
+	prompt.WriteString("- Maintain all existing configuration that doesn't conflict\n")
+	prompt.WriteString("- Use ONLY valid Simple Container properties from the documentation context\n")
+	prompt.WriteString("- Handle dot notation (config.scale.max) by updating nested properties\n")
+	prompt.WriteString("- Return the complete modified client.yaml configuration\n")
+	prompt.WriteString("- Ensure proper YAML formatting and schema compliance\n\n")
+
+	return prompt.String()
+}
+
+// enrichContextWithDocumentation reuses existing enrichment logic from DeveloperMode
+func (h *UnifiedCommandHandler) enrichContextWithDocumentation(configType string, analysis *analysis.ProjectAnalysis) string {
+	if h.embeddingsDB == nil {
+		return ""
+	}
+
+	// Use embeddings to find relevant documentation
+	queries := []string{
+		fmt.Sprintf("%s modification examples", configType),
+		"Simple Container client.yaml configuration",
+		"stack configuration best practices",
+	}
+
+	if analysis != nil && analysis.PrimaryStack != nil {
+		queries = append(queries, fmt.Sprintf("%s Simple Container configuration", analysis.PrimaryStack.Language))
+	}
+
+	var contextBuilder strings.Builder
+	for _, query := range queries {
+		results, err := embeddings.SearchDocumentation(h.embeddingsDB, query, 2)
+		if err != nil {
+			continue
+		}
+
+		for _, result := range results {
+			if result.Score > 0.7 { // Only include highly relevant results
+				// Truncate to avoid overwhelming the LLM
+				content := result.Content
+				if len(content) > 300 {
+					content = content[:300] + "..."
+				}
+				contextBuilder.WriteString(fmt.Sprintf("• %s\n", content))
+			}
+		}
+	}
+
+	return contextBuilder.String()
+}
+
+// parseModifiedYAML extracts the modified configuration and determines what changed
+func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalContent map[string]interface{}, stackName string) (map[string]interface{}, map[string]interface{}, error) {
+	// Clean the response (remove code blocks if present)
+	yamlContent := strings.TrimSpace(response)
+	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	yamlContent = strings.TrimPrefix(yamlContent, "```")
+	yamlContent = strings.TrimSuffix(yamlContent, "```")
+
+	// Parse the modified YAML
+	var modifiedContent map[string]interface{}
+	err := yaml.Unmarshal([]byte(yamlContent), &modifiedContent)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid YAML in LLM response: %w", err)
+	}
+
+	// Compare and determine what changed
+	changesApplied := make(map[string]interface{})
+
+	// Get original and modified stack configurations for comparison
+	originalStacks, _ := originalContent["stacks"].(map[string]interface{})
+	modifiedStacks, _ := modifiedContent["stacks"].(map[string]interface{})
+
+	if originalStacks != nil && modifiedStacks != nil {
+		originalStack, _ := originalStacks[stackName].(map[string]interface{})
+		modifiedStack, _ := modifiedStacks[stackName].(map[string]interface{})
+
+		if originalStack != nil && modifiedStack != nil {
+			h.compareConfigs(originalStack, modifiedStack, "", changesApplied)
+		}
+	}
+
+	return modifiedContent, changesApplied, nil
+}
+
+// compareConfigs recursively compares configurations to determine what changed
+func (h *UnifiedCommandHandler) compareConfigs(original, modified map[string]interface{}, prefix string, changes map[string]interface{}) {
+	for key, modValue := range modified {
+		fullKey := key
+		if prefix != "" {
+			fullKey = prefix + "." + key
+		}
+
+		if origValue, exists := original[key]; exists {
+			// Key exists in both, check if values differ
+			if origMap, ok := origValue.(map[string]interface{}); ok {
+				if modMap, ok := modValue.(map[string]interface{}); ok {
+					// Both are maps, recurse
+					h.compareConfigs(origMap, modMap, fullKey, changes)
+					continue
+				}
+			}
+
+			// Compare values directly
+			if fmt.Sprintf("%v", origValue) != fmt.Sprintf("%v", modValue) {
+				changes[fullKey] = map[string]interface{}{
+					"old": origValue,
+					"new": modValue,
+				}
+			}
+		} else {
+			// New key added
+			changes[fullKey] = map[string]interface{}{
+				"old": nil,
+				"new": modValue,
+			}
+		}
+	}
+}
+
+// addEnvironmentWithLLM uses LLM with enriched context to add new environment/stack
+func (h *UnifiedCommandHandler) addEnvironmentWithLLM(ctx context.Context, content map[string]interface{}, stackName, deploymentType, parent, parentEnv string, config map[string]interface{}) (map[string]interface{}, map[string]interface{}, error) {
+	// Check if DeveloperMode has LLM capability
+	if h.developerMode == nil {
+		return nil, nil, fmt.Errorf("no LLM available")
+	}
+
+	// Get project analysis for context
+	projectAnalysis, err := h.analyzer.AnalyzeProject(".")
+	if err != nil {
+		projectAnalysis = &analysis.ProjectAnalysis{Name: "unknown"}
+	}
+
+	// Build enriched prompt using existing functions (DRY principle)
+	prompt := h.buildEnvironmentAdditionPrompt(content, stackName, deploymentType, parent, parentEnv, config, projectAnalysis)
+
+	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
+	llmProvider := h.developerMode.GetLLMProvider()
+	if llmProvider == nil {
+		return nil, nil, fmt.Errorf("no LLM provider available")
+	}
+
+	response, err := llmProvider.Chat(ctx, []llm.Message{
+		{Role: "system", Content: `You are an expert in Simple Container configuration. Generate ONLY valid YAML that EXACTLY follows the provided schemas.
+
+CRITICAL INSTRUCTIONS:
+✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
+✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
+✅ Return complete, valid client.yaml configuration with the new environment added
+✅ Maintain all existing configuration while adding the new stack intelligently`},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	// Parse the response and extract the added stack config
+	modifiedContent, stackConfig, err := h.parseAddedEnvironment(response.Content, content, stackName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	return modifiedContent, stackConfig, nil
+}
+
+// addEnvironmentRaw provides fallback raw YAML manipulation (original logic)
+func (h *UnifiedCommandHandler) addEnvironmentRaw(ctx context.Context, content map[string]interface{}, stackName, deploymentType, parent, parentEnv string, config map[string]interface{}, filePath string) (*CommandResult, error) {
+	stacks := content["stacks"].(map[string]interface{})
+
+	// Create new stack configuration using raw manipulation
+	stackConfig := map[string]interface{}{
+		"type":      deploymentType,
+		"parent":    parent,
+		"parentEnv": parentEnv,
+		"config":    h.createDefaultStackConfig(deploymentType, config),
+	}
+
+	// Add the new stack
+	stacks[stackName] = stackConfig
+
+	// Write back to file
+	err := h.writeYamlFile(filePath, content)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to write client.yaml: %v", err),
+			Error:   err.Error(),
+		}, err
+	}
+
+	message := fmt.Sprintf("✅ Successfully added '%s' environment (fallback mode)\n", stackName)
+	message += fmt.Sprintf("📁 File: %s\n", filePath)
+	message += fmt.Sprintf("🎯 Type: %s\n", deploymentType)
+	message += fmt.Sprintf("👨‍👩‍👧‍👦 Parent: %s -> %s\n", parent, parentEnv)
+
+	data := map[string]interface{}{
+		"stack_name":   stackName,
+		"file_path":    filePath,
+		"config_added": stackConfig,
+		"method":       "raw_yaml",
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+		Data:    data,
+	}, nil
+}
+
+// buildEnvironmentAdditionPrompt creates an enriched prompt for environment addition using existing patterns
+func (h *UnifiedCommandHandler) buildEnvironmentAdditionPrompt(content map[string]interface{}, stackName, deploymentType, parent, parentEnv string, config map[string]interface{}, analysis *analysis.ProjectAnalysis) string {
+	var prompt strings.Builder
+
+	// Enrich with documentation context using existing embeddings
+	embeddingContext := h.enrichContextWithDocumentation("client.yaml environment addition", analysis)
+
+	prompt.WriteString("You are an expert Simple Container configuration creator. Add a new environment/stack to the existing client.yaml configuration intelligently.\n\n")
+
+	if embeddingContext != "" {
+		prompt.WriteString("RELEVANT DOCUMENTATION CONTEXT:\n")
+		prompt.WriteString(embeddingContext)
+		prompt.WriteString("\n\n")
+	}
+
+	prompt.WriteString("CURRENT CONFIGURATION:\n")
+	currentYAML, _ := yaml.Marshal(content)
+	prompt.WriteString(string(currentYAML))
+	prompt.WriteString("\n")
+
+	prompt.WriteString("NEW ENVIRONMENT TO ADD:\n")
+	prompt.WriteString(fmt.Sprintf("- Stack Name: %s\n", stackName))
+	prompt.WriteString(fmt.Sprintf("- Deployment Type: %s\n", deploymentType))
+	prompt.WriteString(fmt.Sprintf("- Parent Stack: %s\n", parent))
+	prompt.WriteString(fmt.Sprintf("- Parent Environment: %s\n", parentEnv))
+
+	if len(config) > 0 {
+		prompt.WriteString("- Additional Config:\n")
+		for key, value := range config {
+			prompt.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		}
+	}
+
+	prompt.WriteString("\nINSTRUCTIONS:\n")
+	prompt.WriteString("- Add the new environment/stack to the existing configuration intelligently\n")
+	prompt.WriteString("- Use appropriate defaults for the deployment type based on documentation context\n")
+	prompt.WriteString("- Use ONLY valid Simple Container properties from the documentation context\n")
+	prompt.WriteString("- Maintain all existing stacks and configuration\n")
+	prompt.WriteString("- Ensure proper YAML formatting and schema compliance\n")
+	prompt.WriteString("- Return the complete modified client.yaml configuration\n\n")
+
+	return prompt.String()
+}
+
+// parseAddedEnvironment extracts the added environment configuration from LLM response
+func (h *UnifiedCommandHandler) parseAddedEnvironment(response string, originalContent map[string]interface{}, stackName string) (map[string]interface{}, map[string]interface{}, error) {
+	// Clean the response (remove code blocks if present)
+	yamlContent := strings.TrimSpace(response)
+	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
+	yamlContent = strings.TrimPrefix(yamlContent, "```")
+	yamlContent = strings.TrimSuffix(yamlContent, "```")
+
+	// Parse the modified YAML
+	var modifiedContent map[string]interface{}
+	err := yaml.Unmarshal([]byte(yamlContent), &modifiedContent)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid YAML in LLM response: %w", err)
+	}
+
+	// Extract the added stack configuration
+	modifiedStacks, ok := modifiedContent["stacks"].(map[string]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("no stacks section in LLM response")
+	}
+
+	stackConfig, ok := modifiedStacks[stackName].(map[string]interface{})
+	if !ok {
+		return nil, nil, fmt.Errorf("new stack '%s' not found in LLM response", stackName)
+	}
+
+	return modifiedContent, stackConfig, nil
 }
 
 // AddResource adds a new resource to server.yaml
@@ -557,16 +914,6 @@ func (h *UnifiedCommandHandler) AddResource(ctx context.Context, resourceName, r
 			Message: "❌ No server.yaml found. This appears to be a client project, not a DevOps infrastructure project.",
 			Error:   "server_yaml_not_found",
 		}, fmt.Errorf("server.yaml not found")
-	}
-
-	// Create backup
-	backupPath, err := h.createBackup(filePath)
-	if err != nil {
-		return &CommandResult{
-			Success: false,
-			Message: fmt.Sprintf("❌ Failed to create backup: %v", err),
-			Error:   err.Error(),
-		}, err
 	}
 
 	// Read current configuration
@@ -599,9 +946,7 @@ func (h *UnifiedCommandHandler) AddResource(ctx context.Context, resourceName, r
 			Success: false,
 			Message: fmt.Sprintf("⚠️ Resource '%s' already exists in '%s' environment", resourceName, environment),
 			Error:   "resource_already_exists",
-			Data: map[string]interface{}{
-				"backup_path": backupPath,
-			},
+			Data:    map[string]interface{}{},
 		}, nil
 	}
 
@@ -632,14 +977,12 @@ func (h *UnifiedCommandHandler) AddResource(ctx context.Context, resourceName, r
 	message += fmt.Sprintf("📁 File: %s\n", filePath)
 	message += fmt.Sprintf("🗄️ Type: %s\n", resourceType)
 	message += fmt.Sprintf("⚙️ Config: %+v\n", config)
-	message += fmt.Sprintf("💾 Backup: %s", backupPath)
 
 	data := map[string]interface{}{
 		"resource_name": resourceName,
 		"environment":   environment,
 		"file_path":     filePath,
 		"config_added":  resourceConfig,
-		"backup_path":   backupPath,
 	}
 
 	return &CommandResult{
@@ -702,23 +1045,6 @@ func (h *UnifiedCommandHandler) writeYamlFile(filePath string, content map[strin
 	}
 
 	return nil
-}
-
-func (h *UnifiedCommandHandler) createBackup(filePath string) (string, error) {
-	timestamp := time.Now().Format("20060102-150405")
-	backupPath := filePath + ".backup." + timestamp
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read original file: %w", err)
-	}
-
-	err = os.WriteFile(backupPath, data, 0o644)
-	if err != nil {
-		return "", fmt.Errorf("failed to create backup: %w", err)
-	}
-
-	return backupPath, nil
 }
 
 func (h *UnifiedCommandHandler) getStackNames(stacks map[string]interface{}) []string {

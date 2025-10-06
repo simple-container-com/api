@@ -213,7 +213,6 @@ func (a *AssistantCmd) newDevSetupCmd() *cobra.Command {
 	// Multi-file generation options
 	cmd.Flags().BoolVar(&opts.GenerateAll, "generate-all", false, "Generate all files using coordinated multi-file generation for better consistency")
 	cmd.Flags().BoolVar(&opts.UseStreaming, "streaming", false, "Use streaming LLM responses for real-time progress feedback")
-	cmd.Flags().BoolVar(&opts.BackupExisting, "backup-existing", true, "Backup existing files before overwriting")
 
 	return cmd
 }
@@ -531,10 +530,10 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 		if err == nil {
 			response = strings.ToLower(strings.TrimSpace(response))
 			if response == "" || response == "y" || response == "yes" {
-				// Save to config
+				// Save to config using modern provider-based configuration
 				cfg, err := config.Load()
 				if err == nil {
-					if err := cfg.SetOpenAIAPIKey(apiKey); err == nil {
+					if err := cfg.SetProviderConfig(config.ProviderOpenAI, config.ProviderConfig{APIKey: apiKey}); err == nil {
 						configPath, _ := config.ConfigPath()
 						fmt.Println(color.GreenFmt("✅ API key saved to " + configPath))
 					} else {

@@ -43,8 +43,11 @@ func NewChatInterface(config SessionConfig) (*ChatInterface, error) {
 		return nil, fmt.Errorf("unsupported LLM provider: %s", config.LLMProvider)
 	}
 
-	// Configure provider
-	apiKey := config.APIKey
+	// Configure provider - use configuration system first, then session config, then environment
+	apiKey := getConfiguredAPIKeyForProvider(config.LLMProvider)
+	if apiKey == "" {
+		apiKey = config.APIKey
+	}
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
@@ -405,4 +408,19 @@ func (c *ChatInterface) Close() error {
 		return c.llm.Close()
 	}
 	return nil
+}
+
+// getConfiguredAPIKeyForProvider retrieves the API key for a specific provider from configuration system
+func getConfiguredAPIKeyForProvider(provider string) string {
+	// Try to load from configuration system first
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+
+	if providerCfg, exists := cfg.GetProviderConfig(provider); exists && providerCfg.APIKey != "" {
+		return providerCfg.APIKey
+	}
+
+	return ""
 }

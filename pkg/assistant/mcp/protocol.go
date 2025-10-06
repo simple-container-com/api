@@ -210,7 +210,6 @@ type AddEnvironmentResult struct {
 	Message     string                 `json:"message"`
 	Success     bool                   `json:"success"`
 	ConfigAdded map[string]interface{} `json:"config_added"`
-	BackupPath  string                 `json:"backup_path,omitempty"`
 }
 
 type ModifyStackConfigParams struct {
@@ -224,7 +223,6 @@ type ModifyStackConfigResult struct {
 	Message        string                 `json:"message"`
 	Success        bool                   `json:"success"`
 	ChangesApplied map[string]interface{} `json:"changes_applied"`
-	BackupPath     string                 `json:"backup_path,omitempty"`
 }
 
 type AddResourceParams struct {
@@ -241,7 +239,6 @@ type AddResourceResult struct {
 	Message      string                 `json:"message"`
 	Success      bool                   `json:"success"`
 	ConfigAdded  map[string]interface{} `json:"config_added"`
-	BackupPath   string                 `json:"backup_path,omitempty"`
 }
 
 type ProviderInfo struct {
