@@ -366,9 +366,11 @@ func (c *ChatInterface) ReloadLLMProvider() error {
 	// Configure provider
 	llmConfig := llm.Config{
 		Provider:    provider,
+		Model:       providerCfg.Model, // Use model from provider config
 		MaxTokens:   c.config.MaxTokens,
 		Temperature: c.config.Temperature,
 		APIKey:      providerCfg.APIKey,
+		BaseURL:     providerCfg.BaseURL,
 	}
 
 	if err := newProvider.Configure(llmConfig); err != nil {

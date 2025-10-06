@@ -43,6 +43,9 @@ type Provider interface {
 	// GetModel returns the model name being used
 	GetModel() string
 
+	// ListModels returns available models from the provider (via API if possible)
+	ListModels(ctx context.Context) ([]string, error)
+
 	// IsAvailable checks if the provider is available and configured
 	IsAvailable() bool
 

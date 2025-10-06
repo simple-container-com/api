@@ -1,9 +1,14 @@
 package chat
 
 import (
+	"bufio"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"github.com/peterh/liner"
 )
@@ -32,9 +37,17 @@ func (h *InputHandler) ReadLine(promptText string) (string, error) {
 		h.liner = liner.NewLiner()
 		h.liner.SetCtrlCAborts(true)
 
+		// Set tab completion to circular mode (cycle through options)
+		h.liner.SetTabCompletionStyle(liner.TabCircular)
+
 		// Set completer function
 		h.liner.SetCompleter(func(line string) []string {
-			return h.getCommandSuggestions(line)
+			suggestions := h.getCommandSuggestions(line)
+			// Return nil if no suggestions to avoid showing empty menu
+			if len(suggestions) == 0 {
+				return nil
+			}
+			return suggestions
 		})
 
 		// Load history
@@ -152,6 +165,7 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 	subcommands := map[string][]string{
 		"apikey":   {"set", "delete", "status"},
 		"provider": {"list", "switch", "info"},
+		"model":    {"list", "switch", "info"},
 		"history":  {"clear"},
 		"search":   {}, // search takes a query
 		"help":     {}, // help can take command names
@@ -239,6 +253,49 @@ func (h *InputHandler) ClearHistory() {
 		// Clear liner history too
 		h.liner.ClearHistory()
 	}
+}
+
+// ReadSimple reads a simple line without autocomplete (for menus, prompts, etc)
+func (h *InputHandler) ReadSimple(promptText string) (string, error) {
+	// Temporarily close liner to release stdin
+	if h.liner != nil {
+		h.liner.Close()
+		h.liner = nil
+	}
+
+	// Reset terminal to sane state using syscall
+	// Get terminal fd
+	fd := int(syscall.Stdin)
+
+	// Get current terminal settings
+	var termios syscall.Termios
+	if _, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), syscall.TIOCGETA, uintptr(unsafe.Pointer(&termios))); err != 0 {
+		// Fallback: try using stty command
+		cmd := exec.Command("stty", "sane", "-F", "/dev/tty")
+		_ = cmd.Run()
+	} else {
+		// Enable canonical mode (ICANON) and echo (ECHO)
+		termios.Lflag |= syscall.ICANON | syscall.ECHO | syscall.ECHOE | syscall.ECHOK | syscall.ECHOCTL | syscall.ECHOKE
+		// Enable ICRNL (translate CR to NL on input)
+		termios.Iflag |= syscall.ICRNL
+		// Enable ONLCR (translate NL to CR-NL on output)
+		termios.Oflag |= syscall.ONLCR
+		// Set the terminal attributes
+		syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), syscall.TIOCSETA, uintptr(unsafe.Pointer(&termios)))
+	}
+
+	// Print prompt
+	fmt.Print(promptText)
+
+	// Now use normal buffered reading
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+
+	// Clean the input
+	return strings.TrimSpace(line), nil
 }
 
 // Close closes the liner instance
