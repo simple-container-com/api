@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/simple-container-com/api/docs"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/core"
@@ -1031,26 +1032,40 @@ func (h *DefaultMCPHandler) GetProjectContext(ctx context.Context, params GetPro
 		return nil, fmt.Errorf("invalid project context data")
 	}
 
+	// Cast to the correct type - it's actually *analysis.ProjectAnalysis
+	projAnalysis, ok := projectInfo.(*analysis.ProjectAnalysis)
+	if !ok {
+		return nil, fmt.Errorf("invalid project info type: expected *analysis.ProjectAnalysis")
+	}
+
 	context := &ProjectContext{
 		Path:           result.Data["absolute_path"].(string),
-		Name:           fmt.Sprintf("%v", projectInfo.(map[string]interface{})["name"]),
+		Name:           projAnalysis.Name,
 		SCConfigExists: result.Data["has_client_config"].(bool) || result.Data["has_server_config"].(bool),
 		SCConfigPath:   filepath.Join(params.Path, ".sc"),
 		Metadata:       make(map[string]interface{}),
 	}
 
 	// Add tech stack info if available
-	if projInfo, ok := projectInfo.(map[string]interface{}); ok {
-		if primaryStack, ok := projInfo["primary_stack"].(map[string]interface{}); ok && primaryStack != nil {
-			context.TechStack = &TechStackInfo{
-				Language:     fmt.Sprintf("%v", primaryStack["language"]),
-				Framework:    fmt.Sprintf("%v", primaryStack["framework"]),
-				Runtime:      fmt.Sprintf("%v", primaryStack["runtime"]),
-				Dependencies: []string{}, // TODO: Convert dependencies properly
-				Architecture: fmt.Sprintf("%v", projInfo["architecture"]),
-				Confidence:   0.8, // Default confidence
-				Metadata:     make(map[string]string),
+	if projAnalysis.PrimaryStack != nil {
+		// Convert dependencies from analysis format to MCP format
+		var dependencies []string
+		for _, dep := range projAnalysis.PrimaryStack.Dependencies {
+			if dep.Version != "" {
+				dependencies = append(dependencies, fmt.Sprintf("%s@%s", dep.Name, dep.Version))
+			} else {
+				dependencies = append(dependencies, dep.Name)
 			}
+		}
+
+		context.TechStack = &TechStackInfo{
+			Language:     projAnalysis.PrimaryStack.Language,
+			Framework:    projAnalysis.PrimaryStack.Framework,
+			Runtime:      projAnalysis.PrimaryStack.Runtime,
+			Dependencies: dependencies,
+			Architecture: projAnalysis.Architecture,
+			Confidence:   projAnalysis.PrimaryStack.Confidence,
+			Metadata:     projAnalysis.PrimaryStack.Metadata,
 		}
 	}
 
@@ -1058,37 +1073,131 @@ func (h *DefaultMCPHandler) GetProjectContext(ctx context.Context, params GetPro
 }
 
 func (h *DefaultMCPHandler) GetSupportedResources(ctx context.Context) (*SupportedResourcesResult, error) {
-	// Simplified implementation - return basic resource info
-	resources := []*ResourceInfo{
-		{Type: "s3-bucket", Name: "S3Bucket", Provider: "aws", Description: "AWS S3 bucket configuration"},
-		{Type: "gcp-bucket", Name: "GcpBucket", Provider: "gcp", Description: "Google Cloud Platform bucket configuration"},
-		{Type: "kubernetes", Name: "KubernetesConfig", Provider: "kubernetes", Description: "Kubernetes configuration"},
-		{Type: "mongodb-atlas", Name: "AtlasConfig", Provider: "mongodb", Description: "MongoDB Atlas configuration"},
+	// Load resources dynamically from embedded schemas
+	return h.loadResourcesFromEmbeddedSchemas()
+}
+
+// loadResourcesFromEmbeddedSchemas loads resources from the embedded schema files
+func (h *DefaultMCPHandler) loadResourcesFromEmbeddedSchemas() (*SupportedResourcesResult, error) {
+	var allResources []ResourceInfo
+	var allProviders []ProviderInfo
+
+	// First, read the main index to get provider information
+	indexData, err := docs.EmbeddedSchemas.ReadFile("schemas/index.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read schemas index: %w", err)
 	}
 
-	providers := []*ProviderInfo{
-		{Name: "aws", DisplayName: "Amazon Web Services", Resources: []string{"s3-bucket"}},
-		{Name: "gcp", DisplayName: "Google Cloud Platform", Resources: []string{"gcp-bucket"}},
-		{Name: "kubernetes", DisplayName: "Kubernetes", Resources: []string{"kubernetes"}},
-		{Name: "mongodb", DisplayName: "MongoDB Atlas", Resources: []string{"mongodb-atlas"}},
+	var mainIndex struct {
+		Providers map[string]struct {
+			Count       int    `json:"count"`
+			Description string `json:"description"`
+		} `json:"providers"`
 	}
 
-	// Convert to slices (not pointers)
-	resourceSlice := make([]ResourceInfo, len(resources))
-	for i, r := range resources {
-		resourceSlice[i] = *r
+	if err := json.Unmarshal(indexData, &mainIndex); err != nil {
+		return nil, fmt.Errorf("failed to parse schemas index: %w", err)
 	}
 
-	providerSlice := make([]ProviderInfo, len(providers))
-	for i, p := range providers {
-		providerSlice[i] = *p
+	// Load resources from each provider
+	for providerName, providerInfo := range mainIndex.Providers {
+		// Skip core schemas as they're not user-facing resources
+		if providerName == "core" || providerName == "fs" {
+			continue
+		}
+
+		providerResources, err := h.loadProviderResources(providerName)
+		if err != nil {
+			log.Printf("Warning: Failed to load resources for provider %s: %v", providerName, err)
+			continue
+		}
+
+		// Extract resource types for this provider
+		var resourceTypes []string
+		for _, resource := range providerResources {
+			resourceTypes = append(resourceTypes, resource.Type)
+			allResources = append(allResources, resource)
+		}
+
+		// Create provider info
+		if len(resourceTypes) > 0 {
+			allProviders = append(allProviders, ProviderInfo{
+				Name:        providerName,
+				DisplayName: h.getProviderDisplayName(providerName),
+				Resources:   resourceTypes,
+				Description: providerInfo.Description,
+			})
+		}
 	}
 
 	return &SupportedResourcesResult{
-		Resources: resourceSlice,
-		Providers: providerSlice,
-		Total:     len(resources),
+		Resources: allResources,
+		Providers: allProviders,
+		Total:     len(allResources),
 	}, nil
+}
+
+// loadProviderResources loads resources for a specific provider from embedded schemas
+func (h *DefaultMCPHandler) loadProviderResources(providerName string) ([]ResourceInfo, error) {
+	indexPath := fmt.Sprintf("schemas/%s/index.json", providerName)
+	indexData, err := docs.EmbeddedSchemas.ReadFile(indexPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read provider index %s: %w", indexPath, err)
+	}
+
+	var providerIndex struct {
+		Provider  string `json:"provider"`
+		Resources []struct {
+			Name         string `json:"name"`
+			Type         string `json:"type"`
+			Provider     string `json:"provider"`
+			Description  string `json:"description"`
+			ResourceType string `json:"resourceType"`
+		} `json:"resources"`
+	}
+
+	if err := json.Unmarshal(indexData, &providerIndex); err != nil {
+		return nil, fmt.Errorf("failed to parse provider index %s: %w", indexPath, err)
+	}
+
+	var resources []ResourceInfo
+	for _, res := range providerIndex.Resources {
+		// Only include actual resources (not auth, secrets, provisioners, or templates)
+		if res.Type == "resource" {
+			resources = append(resources, ResourceInfo{
+				Type:        res.ResourceType,
+				Name:        res.Name,
+				Provider:    res.Provider,
+				Description: res.Description,
+				Properties:  make(map[string]string), // Could be enhanced by reading actual schema files
+			})
+		}
+	}
+
+	return resources, nil
+}
+
+// getProviderDisplayName returns a human-readable display name for providers
+func (h *DefaultMCPHandler) getProviderDisplayName(providerName string) string {
+	displayNames := map[string]string{
+		"aws":        "Amazon Web Services",
+		"gcp":        "Google Cloud Platform",
+		"azure":      "Microsoft Azure",
+		"kubernetes": "Kubernetes",
+		"mongodb":    "MongoDB Atlas",
+		"cloudflare": "Cloudflare",
+		"github":     "GitHub",
+	}
+
+	if displayName, exists := displayNames[providerName]; exists {
+		return displayName
+	}
+
+	// Fallback: capitalize first letter
+	if len(providerName) > 0 {
+		return strings.ToUpper(providerName[:1]) + providerName[1:]
+	}
+	return providerName
 }
 
 // Simplified interface - remove methods we don't need
@@ -1345,12 +1454,16 @@ func (h *DefaultMCPHandler) elicitDeploymentType(ctx context.Context, params Set
 			},
 		}, nil
 
-		// TODO: Implement actual elicitation when MCP client architecture supports it
-		// This would require:
-		// 1. Sending elicitation/create request to client
-		// 2. Waiting for user response
-		// 3. Processing the selected deployment type
-		// 4. Continuing with setup
+		// FUTURE: Implement actual MCP elicitation when protocol extensions support it
+		// Current status: MCP protocol doesn't have standardized elicitation mechanism
+		// This would require MCP protocol extension for:
+		// 1. Client capability declaration for UI interactions
+		// 2. Server-initiated elicitation requests (not in current MCP spec)
+		// 3. Bidirectional communication for user input collection
+		// 4. Standardized UI component schemas (dropdowns, forms, etc.)
+		//
+		// For now, we provide intelligent defaults based on project analysis.
+		// IDEs can implement custom UI for deployment type selection if desired.
 	}
 
 	// If we reach here, analysis failed - use default and proceed with setup
