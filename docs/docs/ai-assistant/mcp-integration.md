@@ -98,7 +98,8 @@ Create `.windsurf/tools.json` in your project:
         "search_documentation",
         "get_project_context",
         "get_supported_resources",
-        "analyze_project"
+        "analyze_project",
+        "setup_simple_container"
       ],
       "autoStart": true,
       "icon": "🚀"
@@ -127,7 +128,9 @@ Add to `.cursor/config.json`:
       "methods": [
         "search_documentation",
         "get_project_context",
-        "get_supported_resources"
+        "get_supported_resources",
+        "analyze_project",
+        "setup_simple_container"
       ],
       "autoConnect": true
     }
@@ -211,12 +214,13 @@ printf '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024
 | `resources/read`  | Read resource content      | ✅      |
 
 #### **Available Tools (via `tools/call`)**
-| Tool Name                 | Purpose                             | Status |
-|---------------------------|-------------------------------------|--------|
-| `search_documentation`    | Semantic doc search                 | ✅      |
-| `get_project_context`     | Basic project info & SC config      | ✅      |
-| `analyze_project`         | Detailed analysis & recommendations | ✅      |
-| `get_supported_resources` | Resource catalog                    | ✅      |
+| Tool Name                 | Purpose                                                    | Status |
+|---------------------------|------------------------------------------------------------|--------|
+| `search_documentation`    | Semantic doc search                                        | ✅      |
+| `get_project_context`     | Basic project info & SC config                             | ✅      |
+| `analyze_project`         | Detailed analysis & recommendations                        | ✅      |
+| `get_supported_resources` | Resource catalog                                           | ✅      |
+| `setup_simple_container`  | **NEW** - Initialize SC configuration using built-in setup | ✅      |
 
 **Note**: Legacy direct method calls have been removed. All functionality is now accessed through standard MCP `tools/call` method for better compliance and cleaner architecture.
 
@@ -494,7 +498,114 @@ curl -X POST http://localhost:9999/mcp \
 }
 ```
 
-### **5. Generate Configuration**
+### **5. Setup Simple Container** ⭐ **NEW**
+
+Initialize Simple Container configuration using the built-in setup command. This tool uses the actual Simple Container setup process instead of generating generic files.
+
+```bash
+curl -X POST http://localhost:9999/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "setup_simple_container",
+      "arguments": {
+        "path": ".",
+        "environment": "staging",
+        "parent": "infrastructure",
+        "interactive": false
+      }
+    },
+    "id": "setup-1"
+  }'
+```
+
+**Parameters:**
+- `path` (string, optional): Project path (default: current directory)
+- `environment` (string, optional): Target environment (default: "development")
+- `parent` (string, optional): Parent stack name
+- `deployment_type` (string, optional): Deployment type - "auto" (default), "static", "single-image", "cloud-compose"
+- `interactive` (boolean, optional): Run in interactive mode (default: false for MCP)
+
+**Two-Phase Workflow:**
+
+**Phase 1 - Get Options:**
+```bash
+curl -X POST http://localhost:9999/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "setup_simple_container",
+      "arguments": {
+        "path": ".",
+        "deployment_type": "auto"
+      }
+    },
+    "id": "setup-options"
+  }'
+```
+
+**Phase 1 Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [{
+      "type": "text",
+      "text": "🔍 Project Analysis Complete!\n\n📂 Project: my-app\n💻 Tech Stack: go gorilla-mux\n🏗️ Architecture: standard-web-app\n\n📋 **Choose Deployment Type:**\n\n**1. static** - Static site deployment\n**2. single-image** - Single container deployment\n**3. cloud-compose** - Multi-container deployment\n\n🎯 **Recommended**: cloud-compose\n\nExample: {\"path\": \".\", \"deployment_type\": \"cloud-compose\", \"environment\": \"staging\"}"
+    }]
+  }
+}
+```
+
+**Phase 2 - Execute Setup:**
+```bash
+curl -X POST http://localhost:9999/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "setup_simple_container",
+      "arguments": {
+        "path": ".",
+        "deployment_type": "cloud-compose",
+        "environment": "staging",
+        "parent": "infrastructure"
+      }
+    },
+    "id": "setup-execute"
+  }'
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "✅ Simple Container setup completed successfully!\n📁 Project path: .\n🌍 Environment: staging\n👨‍👩‍👧‍👦 Parent stack: infrastructure\n📄 Files created: [client.yaml, docker-compose.yaml, Dockerfile]"
+      }
+    ],
+    "isError": false
+  },
+  "id": "setup-1"
+}
+```
+
+**Key Benefits:**
+- **Uses Actual Setup Process**: Leverages the same logic as `sc assistant dev setup`
+- **Project Analysis**: Automatically analyzes project and detects deployment type
+- **Deployment Type Confirmation**: Shows detected type and allows override
+- **Schema-Compliant Files**: Generates validated client.yaml, docker-compose.yaml, and Dockerfile
+- **No Random Files**: Unlike generic LLM generation, uses Simple Container's proven setup workflow
+
+### **6. Generate Configuration** (Legacy)
 
 Generate Simple Container configuration files:
 

@@ -29,6 +29,7 @@ type MultiFileGenerationRequest struct {
 	UseStreaming      bool `json:"use_streaming"`
 	ValidateGenerated bool `json:"validate_generated"`
 	BackupExisting    bool `json:"backup_existing"`
+	ForceOverwrite    bool `json:"force_overwrite"`
 }
 
 // MultiFileGenerationResult contains the results of multi-file generation
@@ -430,6 +431,10 @@ func (d *DeveloperMode) validateMultipleFiles(ctx context.Context, content *Coor
 
 // checkExistingFilesAndConfirm checks for existing files and prompts user for confirmation
 func (d *DeveloperMode) checkExistingFilesAndConfirm(req MultiFileGenerationRequest) bool {
+	// Skip confirmation if force overwrite is enabled (for MCP/API usage)
+	if req.ForceOverwrite {
+		return true
+	}
 	var existingFiles []string
 
 	// Check which files already exist

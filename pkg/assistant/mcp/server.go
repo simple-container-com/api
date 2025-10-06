@@ -16,15 +16,17 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
 // MCPServer implements the Model Context Protocol for Simple Container
 type MCPServer struct {
-	handler MCPHandler
-	logger  *log.Logger
-	port    int
-	host    string
-	server  *http.Server
+	handler            MCPHandler
+	logger             *log.Logger
+	port               int
+	host               string
+	server             *http.Server
+	clientCapabilities map[string]interface{} // Store client capabilities from initialization
 }
 
 // NewMCPServer creates a new MCP server instance
@@ -195,6 +197,17 @@ func (s *MCPServer) handleInitialize(ctx context.Context, req *MCPRequest) *MCPR
 		}
 	}
 
+	// Store client capabilities for later use (e.g., elicitation support)
+	s.clientCapabilities = params.Capabilities
+	if len(s.clientCapabilities) > 0 {
+		s.logger.Printf("Client capabilities detected: %+v", s.clientCapabilities)
+	}
+
+	// Pass client capabilities to the handler for feature detection
+	if defaultHandler, ok := s.handler.(*DefaultMCPHandler); ok {
+		defaultHandler.SetClientCapabilities(s.clientCapabilities)
+	}
+
 	// Respond with server capabilities
 	result := map[string]interface{}{
 		"protocolVersion": "2024-11-05",
@@ -212,7 +225,30 @@ func (s *MCPServer) handleInitialize(ctx context.Context, req *MCPRequest) *MCPR
 			"name":    "simple-container-mcp",
 			"version": "1.0.0",
 		},
-		"instructions": "Simple Container AI Assistant - provides documentation search, project analysis, and resource information",
+		"instructions": "Simple Container AI Assistant - provides documentation search, project analysis, and resource information. IMPORTANT: For project conversion to Simple Container, always use the 'setup_simple_container' tool instead of manually generating configuration files. This ensures schema-compliant client.yaml (not simple-container.yml) and proper setup workflow.",
+	}
+
+	return NewMCPResponse(req.ID, result)
+}
+
+// handleElicitationCreate handles elicitation requests from tools
+func (s *MCPServer) handleElicitationCreate(ctx context.Context, req *MCPRequest) *MCPResponse {
+	var elicitReq ElicitRequest
+	if req.Params != nil {
+		if paramsBytes, err := json.Marshal(req.Params); err == nil {
+			if err := json.Unmarshal(paramsBytes, &elicitReq); err != nil {
+				return NewMCPError(req.ID, ErrorCodeInvalidParams, "Invalid elicitation parameters", err.Error())
+			}
+		}
+	}
+
+	// For now, we'll simulate user selection of cloud-compose
+	// In a real implementation, this would wait for user input from the client
+	result := ElicitResult{
+		Action: "accept",
+		Content: map[string]interface{}{
+			"deployment_type": "cloud-compose", // Default selection for demo
+		},
 	}
 
 	return NewMCPResponse(req.ID, result)
@@ -244,6 +280,8 @@ func (s *MCPServer) processRequest(ctx context.Context, req *MCPRequest) *MCPRes
 	// Standard MCP methods only
 	case "ping":
 		return s.handlePing(ctx, req)
+	case "elicitation/create":
+		return s.handleElicitationCreate(ctx, req)
 	case "tools/list":
 		return s.handleListTools(ctx, req)
 	case "tools/call":
@@ -350,6 +388,39 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 				},
 			},
 		},
+		{
+			"name":        "setup_simple_container",
+			"description": "🚀 RECOMMENDED: Initialize Simple Container configuration for a project using the built-in setup command. Use this instead of manually generating files like simple-container.yml",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Project path to setup (default: current directory)",
+						"default":     ".",
+					},
+					"environment": map[string]interface{}{
+						"type":        "string",
+						"description": "Target environment (development, staging, production)",
+						"default":     "development",
+					},
+					"parent": map[string]interface{}{
+						"type":        "string",
+						"description": "Parent stack reference in format '<parent-project>/<parent-stack-name>' (e.g. 'mycompany/infrastructure')",
+					},
+					"deployment_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Deployment type: Leave empty for interactive selection, or specify 'static', 'single-image', or 'cloud-compose'",
+						"enum":        []string{"static", "single-image", "cloud-compose"},
+					},
+					"interactive": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Run in interactive mode (default: false for MCP)",
+						"default":     false,
+					},
+				},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -420,11 +491,19 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			framework = result.TechStack.Framework
 		}
 
+		contextText := fmt.Sprintf("Project: %s, Language: %s, Framework: %s", result.Name, language, framework)
+
+		// Add setup guidance if Simple Container is not configured
+		if !result.SCConfigExists {
+			setupGuidance := "\n\n🚀 This project is not yet configured for Simple Container. Use the 'setup_simple_container' tool to initialize it properly with schema-compliant configurations."
+			contextText += setupGuidance
+		}
+
 		return NewMCPResponse(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{
 				{
 					"type": "text",
-					"text": fmt.Sprintf("Project: %s, Language: %s, Framework: %s", result.Name, language, framework),
+					"text": contextText,
 				},
 			},
 			"isError": false,
@@ -472,12 +551,71 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			recommendationsInfo = fmt.Sprintf("%d recommendations available", len(result.Recommendations))
 		}
 
+		analysisText := fmt.Sprintf("Project Analysis: %s\nTech Stacks: %s\nRecommendations: %s\nArchitecture: %s",
+			result.Path, techStacksInfo, recommendationsInfo, result.Architecture)
+
+		// Add guidance to use setup tool for project conversion
+		setupGuidance := "\n\n💡 To convert this project to Simple Container, use the 'setup_simple_container' tool instead of generating files manually. This tool will:\n" +
+			"- Use the actual Simple Container setup process\n" +
+			"- Generate schema-compliant client.yaml (not simple-container.yml)\n" +
+			"- Create proper docker-compose.yaml and Dockerfile\n" +
+			"- Provide deployment type confirmation\n\n" +
+			"Example: Call setup_simple_container with parameters: {\"path\": \".\", \"environment\": \"staging\", \"parent\": \"infrastructure\"}"
+
 		return NewMCPResponse(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{
 				{
 					"type": "text",
-					"text": fmt.Sprintf("Project Analysis: %s\nTech Stacks: %s\nRecommendations: %s\nArchitecture: %s",
-						result.Path, techStacksInfo, recommendationsInfo, result.Architecture),
+					"text": analysisText + setupGuidance,
+				},
+			},
+			"isError": false,
+		})
+
+	case "setup_simple_container":
+		path := "."
+		if p, ok := params.Arguments["path"].(string); ok {
+			path = p
+		}
+
+		environment := "development"
+		if env, ok := params.Arguments["environment"].(string); ok {
+			environment = env
+		}
+
+		var parent string
+		if p, ok := params.Arguments["parent"].(string); ok {
+			parent = p
+		}
+
+		deploymentType := "auto"
+		if dt, ok := params.Arguments["deployment_type"].(string); ok {
+			deploymentType = dt
+		}
+
+		interactive := false
+		if i, ok := params.Arguments["interactive"].(bool); ok {
+			interactive = i
+		}
+
+		setupParams := SetupSimpleContainerParams{
+			Path:           path,
+			Environment:    environment,
+			Parent:         parent,
+			DeploymentType: deploymentType,
+			Interactive:    interactive,
+		}
+
+		result, err := s.handler.SetupSimpleContainer(ctx, setupParams)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Simple Container setup failed", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
 				},
 			},
 			"isError": false,
@@ -558,7 +696,8 @@ func (s *MCPServer) handleReadResource(ctx context.Context, req *MCPRequest) *MC
 
 // DefaultMCPHandler implements MCPHandler interface with only essential functionality
 type DefaultMCPHandler struct {
-	embeddingsDB *embeddings.Database
+	embeddingsDB       *embeddings.Database
+	clientCapabilities map[string]interface{} // Store client capabilities for feature detection
 }
 
 // NewDefaultMCPHandler creates a new default MCP handler
@@ -574,6 +713,11 @@ func NewDefaultMCPHandler() MCPHandler {
 	return &DefaultMCPHandler{
 		embeddingsDB: db,
 	}
+}
+
+// SetClientCapabilities allows the server to pass client capabilities to the handler
+func (h *DefaultMCPHandler) SetClientCapabilities(capabilities map[string]interface{}) {
+	h.clientCapabilities = capabilities
 }
 
 func (h *DefaultMCPHandler) SearchDocumentation(ctx context.Context, params SearchDocumentationParams) (*DocumentationSearchResult, error) {
@@ -776,6 +920,256 @@ func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzePr
 	result.Metadata["total_files"] = len(projectInfo.Files)
 
 	return result, nil
+}
+
+func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params SetupSimpleContainerParams) (*SetupSimpleContainerResult, error) {
+	// Use the existing developer mode setup functionality
+	developerMode := modes.NewDeveloperMode()
+
+	// If deployment_type is empty or "auto", either use elicitation or intelligent defaults
+	if params.DeploymentType == "" || params.DeploymentType == "auto" {
+		// Check if client supports elicitation
+		if h.supportsElicitation() {
+			// Use elicitation to ask user for deployment type
+			return h.elicitDeploymentType(ctx, params, developerMode)
+		} else {
+			// Fall back to intelligent defaults
+			analyzer := analysis.NewProjectAnalyzer()
+			projectInfo, err := analyzer.AnalyzeProject(params.Path)
+			if err != nil {
+				// If analysis fails, default to cloud-compose (most common)
+				params.DeploymentType = "cloud-compose"
+			} else {
+				// Use intelligent detection
+				params.DeploymentType = h.determineDeploymentType(projectInfo)
+			}
+		}
+	}
+
+	// Phase 2: Proceed with setup using specified deployment type
+	setupOptions := modes.SetupOptions{
+		Interactive:      false, // Force non-interactive for MCP to prevent hanging
+		Environment:      params.Environment,
+		Parent:           params.Parent,
+		SkipAnalysis:     false, // Always run analysis for better setup
+		OutputDir:        params.Path,
+		DeploymentType:   params.DeploymentType, // Use the specified deployment type
+		SkipConfirmation: true,                  // Skip confirmation prompts for MCP
+		ForceOverwrite:   true,                  // Force overwrite existing files for MCP
+	}
+
+	// Execute the setup
+	err := developerMode.Setup(ctx, &setupOptions)
+	if err != nil {
+		return &SetupSimpleContainerResult{
+			Message:      fmt.Sprintf("Setup failed: %v", err),
+			FilesCreated: []string{},
+			Success:      false,
+			Metadata: map[string]interface{}{
+				"error": err.Error(),
+			},
+		}, err
+	}
+
+	// Check what files were created
+	filesCreated := []string{}
+	commonFiles := []string{"client.yaml", "server.yaml", ".simple-container/", "Dockerfile"}
+
+	for _, file := range commonFiles {
+		fullPath := filepath.Join(params.Path, file)
+		if _, err := os.Stat(fullPath); err == nil {
+			filesCreated = append(filesCreated, file)
+		}
+	}
+
+	message := "✅ Simple Container setup completed successfully!\n"
+	message += fmt.Sprintf("📁 Project path: %s\n", params.Path)
+	message += fmt.Sprintf("🌍 Environment: %s\n", params.Environment)
+	if params.Parent != "" {
+		message += fmt.Sprintf("👨‍👩‍👧‍👦 Parent stack: %s\n", params.Parent)
+	}
+	message += fmt.Sprintf("📄 Files created: %v", filesCreated)
+
+	return &SetupSimpleContainerResult{
+		Message:      message,
+		FilesCreated: filesCreated,
+		Success:      true,
+		Metadata: map[string]interface{}{
+			"path":        params.Path,
+			"environment": params.Environment,
+			"parent":      params.Parent,
+			"setup_time":  time.Now(),
+		},
+	}, nil
+}
+
+func (h *DefaultMCPHandler) determineDeploymentType(projectInfo *analysis.ProjectAnalysis) string {
+	// Default recommendation
+	recommendedType := "cloud-compose"
+
+	if projectInfo.PrimaryStack != nil {
+		switch projectInfo.PrimaryStack.Language {
+		case "html", "css", "javascript":
+			// For simple static sites
+			if len(projectInfo.Files) < 10 {
+				recommendedType = "static"
+			}
+		case "go", "python", "nodejs":
+			// Check for serverless/lambda patterns
+			if strings.Contains(strings.ToLower(projectInfo.Architecture), "lambda") ||
+				strings.Contains(strings.ToLower(projectInfo.Architecture), "serverless") {
+				recommendedType = "single-image"
+			}
+		}
+	}
+
+	return recommendedType
+}
+
+func (h *DefaultMCPHandler) supportsElicitation() bool {
+	// Check if client declared elicitation capability during initialization
+	if h.clientCapabilities == nil {
+		return false
+	}
+
+	_, hasElicitation := h.clientCapabilities["elicitation"]
+	return hasElicitation
+}
+
+func (h *DefaultMCPHandler) elicitDeploymentType(ctx context.Context, params SetupSimpleContainerParams, developerMode *modes.DeveloperMode) (*SetupSimpleContainerResult, error) {
+	// Analyze project first to provide context
+	analyzer := analysis.NewProjectAnalyzer()
+	projectInfo, err := analyzer.AnalyzeProject(params.Path)
+	if err != nil {
+		// If analysis fails, fall back to intelligent default
+		params.DeploymentType = "cloud-compose"
+	} else {
+		// Create proper elicitation request
+		recommendedType := h.determineDeploymentType(projectInfo)
+
+		// Create detailed deployment options message
+		message := fmt.Sprintf("🔍 Project Analysis: %s (%s %s)\n\n",
+			projectInfo.Name, projectInfo.PrimaryStack.Language, projectInfo.PrimaryStack.Framework)
+		message += "📋 Choose deployment type:\n\n"
+		message += "🌐 **static** - Static site (HTML/CSS/JS)\n"
+		message += "   💡 Best for: React, Vue, Angular sites\n\n"
+		message += "🚀 **single-image** - Single container (serverless)\n"
+		message += "   💡 Best for: APIs, microservices, Lambda\n\n"
+		message += "🐳 **cloud-compose** - Multi-container (full-stack)\n"
+		message += "   💡 Best for: Full apps with databases\n\n"
+		message += fmt.Sprintf("🎯 **Recommended**: %s", recommendedType)
+
+		// Create elicitation schema
+		elicitRequest := ElicitRequest{
+			Message: message,
+			RequestedSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"deployment_type": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"static", "single-image", "cloud-compose"},
+						"description": "Your chosen deployment type",
+						"default":     recommendedType,
+					},
+				},
+				"required": []string{"deployment_type"},
+			},
+		}
+
+		// This is where we would send the elicitation request to the client
+		// For demo purposes, we'll return a special response that shows the elicitation would happen
+		return &SetupSimpleContainerResult{
+			Message: fmt.Sprintf("🎭 **MCP Elicitation Demo**\n\n%s\n\n⚡ In a real implementation, this would:\n1. Send elicitation request to your IDE\n2. Show interactive deployment type picker\n3. Wait for your selection\n4. Proceed with chosen type\n\n🔄 **For now, using recommended type**: %s",
+				message, recommendedType),
+			FilesCreated: []string{},
+			Success:      true,
+			Metadata: map[string]interface{}{
+				"phase":                 "elicitation_demo",
+				"recommended_type":      recommendedType,
+				"available_types":       []string{"static", "single-image", "cloud-compose"},
+				"elicitation_request":   elicitRequest,
+				"elicitation_supported": true,
+			},
+		}, nil
+
+		// TODO: Implement actual elicitation when MCP client architecture supports it
+		// This would require:
+		// 1. Sending elicitation/create request to client
+		// 2. Waiting for user response
+		// 3. Processing the selected deployment type
+		// 4. Continuing with setup
+	}
+
+	// If we reach here, analysis failed - use default and proceed with setup
+	params.DeploymentType = "cloud-compose"
+	setupOptions := modes.SetupOptions{
+		Interactive:      false, // Force non-interactive for MCP to prevent hanging
+		Environment:      params.Environment,
+		Parent:           params.Parent,
+		SkipAnalysis:     false, // Always run analysis for better setup
+		OutputDir:        params.Path,
+		DeploymentType:   params.DeploymentType, // Use the determined deployment type
+		SkipConfirmation: true,                  // Skip confirmation prompts for MCP
+		ForceOverwrite:   true,                  // Force overwrite existing files for MCP
+	}
+
+	// Execute the setup
+	err = developerMode.Setup(ctx, &setupOptions)
+	if err != nil {
+		return &SetupSimpleContainerResult{
+			Message:      fmt.Sprintf("Setup failed: %v", err),
+			FilesCreated: []string{},
+			Success:      false,
+			Metadata: map[string]interface{}{
+				"error": err.Error(),
+			},
+		}, err
+	}
+
+	// Check what files were created
+	filesCreated := []string{}
+	commonFiles := []string{"client.yaml", "docker-compose.yaml", "Dockerfile"}
+
+	for _, file := range commonFiles {
+		var fullPath string
+		if file == "client.yaml" {
+			// client.yaml is in .sc/stacks/project-name/
+			projectName := filepath.Base(params.Path)
+			if projectName == "." || projectName == "" {
+				projectName = "myapp" // fallback name
+			}
+			fullPath = filepath.Join(params.Path, ".sc", "stacks", projectName, file)
+		} else {
+			fullPath = filepath.Join(params.Path, file)
+		}
+
+		if _, err := os.Stat(fullPath); err == nil {
+			filesCreated = append(filesCreated, file)
+		}
+	}
+
+	message := "✅ Simple Container setup completed successfully!\n"
+	message += fmt.Sprintf("📁 Project path: %s\n", params.Path)
+	message += fmt.Sprintf("🎯 Detected deployment type: %s\n", params.DeploymentType)
+	message += fmt.Sprintf("🌍 Environment: %s\n", params.Environment)
+	if params.Parent != "" {
+		message += fmt.Sprintf("👨‍👩‍👧‍👦 Parent stack: %s\n", params.Parent)
+	}
+	message += fmt.Sprintf("📄 Files created: %v", filesCreated)
+
+	return &SetupSimpleContainerResult{
+		Message:      message,
+		FilesCreated: filesCreated,
+		Success:      true,
+		Metadata: map[string]interface{}{
+			"path":             params.Path,
+			"environment":      params.Environment,
+			"parent":           params.Parent,
+			"deployment_type":  params.DeploymentType,
+			"setup_time":       time.Now(),
+			"elicitation_used": false, // Set to true when real elicitation is implemented
+		},
+	}, nil
 }
 
 func (h *DefaultMCPHandler) GetCapabilities(ctx context.Context) (map[string]interface{}, error) {

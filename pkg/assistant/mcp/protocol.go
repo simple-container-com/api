@@ -155,6 +155,32 @@ type SupportedResourcesResult struct {
 	Total     int            `json:"total"`
 }
 
+type SetupSimpleContainerParams struct {
+	Path           string `json:"path"`
+	Environment    string `json:"environment,omitempty"`
+	Parent         string `json:"parent,omitempty"`
+	DeploymentType string `json:"deployment_type,omitempty"`
+	Interactive    bool   `json:"interactive,omitempty"`
+}
+
+type SetupSimpleContainerResult struct {
+	Message      string                 `json:"message"`
+	FilesCreated []string               `json:"files_created"`
+	Success      bool                   `json:"success"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// MCP Elicitation types
+type ElicitRequest struct {
+	Message         string                 `json:"message"`
+	RequestedSchema map[string]interface{} `json:"requestedSchema"`
+}
+
+type ElicitResult struct {
+	Action  string                 `json:"action"` // "accept", "decline", "cancel"
+	Content map[string]interface{} `json:"content,omitempty"`
+}
+
 type ProviderInfo struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name"`
@@ -169,6 +195,7 @@ type MCPHandler interface {
 	GenerateConfiguration(ctx context.Context, params GenerateConfigurationParams) (*GeneratedConfiguration, error)
 	AnalyzeProject(ctx context.Context, params AnalyzeProjectParams) (*ProjectAnalysis, error)
 	GetSupportedResources(ctx context.Context) (*SupportedResourcesResult, error)
+	SetupSimpleContainer(ctx context.Context, params SetupSimpleContainerParams) (*SetupSimpleContainerResult, error)
 	GetCapabilities(ctx context.Context) (map[string]interface{}, error)
 	Ping(ctx context.Context) (string, error)
 }
