@@ -338,9 +338,135 @@ CURRENT PROJECT CONTEXT:
 					projectInfo.PrimaryStack.Confidence*100))
 			}
 
+			// Add detected resources from analysis
+			if projectInfo.Resources != nil {
+				prompt.WriteString(`
+
+DETECTED PROJECT RESOURCES (from analysis):`)
+
+				if len(projectInfo.Resources.Databases) > 0 {
+					prompt.WriteString(`
+- Databases:`)
+					for _, db := range projectInfo.Resources.Databases {
+						prompt.WriteString(fmt.Sprintf(`
+  • %s (%.0f%% confidence, found in %d files)`,
+							db.Type, db.Confidence*100, len(db.Sources)))
+					}
+				}
+
+				if len(projectInfo.Resources.Storage) > 0 {
+					prompt.WriteString(`
+- Storage Systems:`)
+					for _, storage := range projectInfo.Resources.Storage {
+						prompt.WriteString(fmt.Sprintf(`
+  • %s (%.0f%% confidence, purpose: %s)`,
+							storage.Type, storage.Confidence*100, storage.Purpose))
+					}
+				}
+
+				if len(projectInfo.Resources.Queues) > 0 {
+					prompt.WriteString(`
+- Queue Systems:`)
+					for _, queue := range projectInfo.Resources.Queues {
+						prompt.WriteString(fmt.Sprintf(`
+  • %s (%.0f%% confidence)`,
+							queue.Type, queue.Confidence*100))
+					}
+				}
+
+				if len(projectInfo.Resources.ExternalAPIs) > 0 {
+					prompt.WriteString(`
+- External APIs:`)
+					for _, api := range projectInfo.Resources.ExternalAPIs {
+						prompt.WriteString(fmt.Sprintf(`
+  • %s (%.0f%% confidence, purpose: %s)`,
+							api.Name, api.Confidence*100, api.Purpose))
+					}
+				}
+
+				if len(projectInfo.Resources.EnvironmentVars) > 0 {
+					prompt.WriteString(fmt.Sprintf(`
+- Environment Variables: %d detected`, len(projectInfo.Resources.EnvironmentVars)))
+					if len(projectInfo.Resources.EnvironmentVars) <= 5 {
+						for _, env := range projectInfo.Resources.EnvironmentVars {
+							prompt.WriteString(fmt.Sprintf(`
+  • %s (%s)`, env.Name, env.UsageType))
+						}
+					} else {
+						// Show first 5 and count
+						for i, env := range projectInfo.Resources.EnvironmentVars[:5] {
+							prompt.WriteString(fmt.Sprintf(`
+  • %s (%s)`, env.Name, env.UsageType))
+							if i == 4 {
+								prompt.WriteString(fmt.Sprintf(`
+  • ... and %d more`, len(projectInfo.Resources.EnvironmentVars)-5))
+							}
+						}
+					}
+				}
+
+				if len(projectInfo.Resources.Secrets) > 0 {
+					prompt.WriteString(fmt.Sprintf(`
+- Secrets: %d detected (API keys, tokens, credentials)`, len(projectInfo.Resources.Secrets)))
+				}
+
+				// Add architecture insight
+				if projectInfo.Architecture != "" {
+					prompt.WriteString(fmt.Sprintf(`
+- Architecture Pattern: %s`, projectInfo.Architecture))
+				}
+
+				// Add Smart Context
+				prompt.WriteString(`
+
+INTELLIGENT SETUP RECOMMENDATIONS:
+The comprehensive project analysis above provides everything needed to give specific, actionable guidance. 
+
+CRITICAL BEHAVIOR CHANGES:
+❌ DO NOT ask "What type of application are you developing?" - It's already detected from the language/framework above
+❌ DO NOT ask "What resources does your application need?" - They're already listed in DETECTED PROJECT RESOURCES
+❌ DO NOT ask generic setup questions - The analysis provides specific context
+❌ DO NOT ask about databases/storage if already detected - Configure what was found
+
+✅ DO provide immediate, specific recommendations like:
+- "I see you're working on a Go microservice with Redis and MongoDB. Let me help you configure these in your client.yaml..."
+- "Based on your detected environment variables, here's how to set up secrets management..."
+- "Your S3 usage suggests you'll need storage configuration. Here's the recommended approach..."
+
+✅ DO acknowledge what was detected: "I can see from the analysis that your project uses [specific findings]..."
+✅ DO focus on configuration specifics for the detected stack
+✅ DO provide next steps based on the exact resources found
+
+CONTEXT AWARENESS:
+You have comprehensive project analysis results. Use them to provide intelligent, context-aware guidance instead of generic questionnaires. The user expects you to understand their project from the analysis, not ask them to repeat information that was already detected.
+
+TOOL CALLING CAPABILITIES:
+✅ You CAN execute actions directly using available tools/functions
+✅ When users ask for setup, analysis, or other actions, USE the appropriate tool instead of asking them to run commands
+✅ You have access to the following tools:
+- setup: Generate Simple Container configuration files based on detected resources
+- analyze: Run comprehensive project analysis (use with "full": true for detailed analysis)
+- search: Search Simple Container documentation
+- switch: Change between dev/devops modes
+
+✅ PREFERRED APPROACH - Execute actions directly:
+- "Let me set up Simple Container for your project now..." (then call setup tool)
+- "I'll run a comprehensive analysis to get more details..." (then call analyze tool)
+- "Let me generate the configuration files for your detected resources..." (then call setup tool)
+
+✅ DO explain what you're doing:
+- "I'm generating a client.yaml that includes your Redis and MongoDB configuration..."
+- "Setting up files optimized for your Go microservice architecture..."
+
+❌ DO NOT ask users to run commands manually when you can execute tools directly
+❌ DO NOT say "Please run the /setup command" - just call the setup tool`)
+			}
+
 			if len(resources) > 0 {
 				prompt.WriteString(fmt.Sprintf(`
-- Available Resources: %s`, strings.Join(resources, ", ")))
+
+AVAILABLE SIMPLE CONTAINER RESOURCES:
+%s`, strings.Join(resources, ", ")))
 			}
 		}
 

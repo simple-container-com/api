@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -21,22 +22,23 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
-	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
+	"github.com/simple-container-com/api/pkg/assistant/resources"
 )
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm            llm.Provider
-	context        *ConversationContext
-	embeddings     *embeddings.Database
-	analyzer       *analysis.ProjectAnalyzer
-	generator      *generation.FileGenerator
-	developerMode  *modes.DeveloperMode
-	commandHandler *core.UnifiedCommandHandler // New unified command handler
-	commands       map[string]*ChatCommand
-	config         SessionConfig
-	inputHandler   *InputHandler
+	llm             llm.Provider
+	context         *ConversationContext
+	embeddings      *embeddings.Database
+	analyzer        *analysis.ProjectAnalyzer
+	generator       *generation.FileGenerator
+	developerMode   *modes.DeveloperMode
+	commandHandler  *core.UnifiedCommandHandler // New unified command handler
+	commands        map[string]*ChatCommand
+	config          SessionConfig
+	inputHandler    *InputHandler
+	toolCallHandler *ToolCallHandler
 }
 
 // NewChatInterface creates a new chat interface
@@ -140,6 +142,9 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 	// Register commands
 	chat.registerCommands()
 
+	// Initialize tool call handler
+	chat.toolCallHandler = NewToolCallHandler(chat.commands)
+
 	// Initialize input handler with commands
 	chat.inputHandler = NewInputHandler(chat.commands)
 
@@ -167,6 +172,16 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 		} else {
 			projectInfo = c.context.ProjectInfo
 		}
+	}
+
+	// Smart mode inference based on analysis results
+	intelligentMode := c.inferMode(projectInfo, c.config.Mode)
+	if intelligentMode != c.config.Mode {
+		c.config.Mode = intelligentMode
+		c.context.Mode = intelligentMode
+		fmt.Printf("%s Auto-detected %s mode based on project analysis\n",
+			color.CyanString("🧠"),
+			color.BlueBold(intelligentMode))
 	}
 
 	// Add system prompt with project context (if available)
@@ -291,15 +306,33 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 	// Show thinking indicator
 	fmt.Print(color.YellowString("🤔 Thinking..."))
 
-	// Get response from LLM
-	response, err := c.llm.Chat(ctx, c.context.History)
+	// Get available tools for the LLM
+	tools := c.toolCallHandler.GetAvailableTools()
+
+	// Get response from LLM with tools if the provider supports function calling
+	var response *llm.ChatResponse
+	var err error
+
+	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
+		response, err = c.llm.ChatWithTools(ctx, c.context.History, tools)
+	} else {
+		response, err = c.llm.Chat(ctx, c.context.History)
+	}
+
 	if err != nil {
 		fmt.Print("\r") // Clear thinking indicator
 		return fmt.Errorf("LLM error: %w", err)
 	}
 
-	// Clear thinking indicator and show response
+	// Clear thinking indicator
 	fmt.Print("\r")
+
+	// Handle tool calls if present
+	if len(response.ToolCalls) > 0 {
+		return c.handleToolCalls(ctx, response)
+	}
+
+	// Regular text response
 	fmt.Printf("%s %s\n", color.BlueString("🤖"), response.Content)
 
 	// Add assistant response to context
@@ -309,6 +342,105 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 	c.context.UpdatedAt = time.Now()
 
 	return nil
+}
+
+// handleToolCalls processes tool calls from the LLM
+func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatResponse) error {
+	fmt.Printf("%s Executing requested actions...\n", color.CyanString("🔧"))
+
+	// Execute each tool call
+	var executedActions []string
+	for _, toolCall := range response.ToolCalls {
+		fmt.Printf("  • Running %s...\n", color.YellowString(toolCall.Function.Name))
+
+		// Execute the tool call
+		result, err := c.toolCallHandler.ExecuteToolCall(ctx, toolCall, c.context)
+		if err != nil {
+			fmt.Printf("    ❌ Error: %v\n", err)
+			continue
+		}
+
+		// Display result
+		if result.Success {
+			fmt.Printf("    ✅ %s\n", result.Message)
+		} else {
+			fmt.Printf("    ❌ %s\n", result.Message)
+		}
+
+		// Handle generated files - actually write them to disk
+		if len(result.Files) > 0 {
+			c.handleGeneratedFiles(result)
+		}
+
+		// Format action for conversation summary
+		actionDescription := c.toolCallHandler.FormatToolCallForConversation(toolCall, result)
+		executedActions = append(executedActions, actionDescription)
+	}
+
+	// Create a natural language summary of what was executed
+	var summary strings.Builder
+	if len(executedActions) == 1 {
+		summary.WriteString(executedActions[0])
+	} else {
+		summary.WriteString("I've completed the following actions:\n")
+		for i, action := range executedActions {
+			summary.WriteString(fmt.Sprintf("%d. %s\n", i+1, action))
+		}
+	}
+
+	// Add the summary to conversation as assistant response
+	c.addMessage("assistant", summary.String())
+
+	// Display the summary to user
+	fmt.Printf("\n%s %s\n", color.BlueString("🤖"), summary.String())
+
+	// Update context
+	c.context.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// handleGeneratedFiles processes generated files from command results
+func (c *ChatInterface) handleGeneratedFiles(result *CommandResult) {
+	// Check for existing files and get confirmation
+	existingFiles := []string{}
+	for _, file := range result.Files {
+		if _, err := os.Stat(file.Path); err == nil {
+			existingFiles = append(existingFiles, filepath.Base(file.Path))
+		}
+	}
+
+	// Ask for confirmation if files exist
+	if len(existingFiles) > 0 {
+		fmt.Printf("The following files already exist: %s\n", strings.Join(existingFiles, ", "))
+		fmt.Print("Overwrite? (y/n): ")
+
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+
+		if input != "y" && input != "yes" {
+			fmt.Println("Files not written.")
+			return
+		}
+	}
+
+	// Write files to disk
+	for _, file := range result.Files {
+		// Create directory if it doesn't exist
+		dir := filepath.Dir(file.Path)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Printf("Error creating directory %s: %v\n", dir, err)
+			continue
+		}
+
+		// Write file
+		if err := os.WriteFile(file.Path, []byte(file.Content), 0o644); err != nil {
+			fmt.Printf("Error writing file %s: %v\n", file.Path, err)
+		} else {
+			fmt.Printf("  📄 Created: %s\n", file.Path)
+		}
+	}
 }
 
 // handleCommand processes chat commands
@@ -444,6 +576,103 @@ func (c *ChatInterface) analyzeProject(ctx context.Context) error {
 	return nil
 }
 
+// inferMode intelligently determines the appropriate mode based on project analysis
+func (c *ChatInterface) inferMode(projectInfo *analysis.ProjectAnalysis, currentMode string) string {
+	// If mode is explicitly set, respect it
+	if currentMode != "" && currentMode != "general" {
+		return currentMode
+	}
+
+	// If no project info available, stay in general mode
+	if projectInfo == nil {
+		return "general"
+	}
+
+	// Check for development indicators
+	developerIndicators := 0
+	devopsIndicators := 0
+
+	// Language/framework detection suggests developer work
+	if projectInfo.PrimaryStack != nil {
+		switch projectInfo.PrimaryStack.Language {
+		case "go", "javascript", "python", "java", "ruby", "php", "rust", "swift", "kotlin":
+			developerIndicators += 3
+		case "dockerfile", "yaml", "terraform", "kubernetes":
+			devopsIndicators += 2
+		}
+
+		// Framework detection
+		switch projectInfo.PrimaryStack.Framework {
+		case "express", "react", "vue", "angular", "django", "flask", "gin", "echo", "fastapi", "spring", "rails":
+			developerIndicators += 2
+		case "terraform", "ansible", "kubernetes", "helm":
+			devopsIndicators += 3
+		}
+	}
+
+	// Resource detection patterns
+	if projectInfo.Resources != nil {
+		// Applications typically have databases, APIs, env vars
+		if len(projectInfo.Resources.Databases) > 0 {
+			developerIndicators += 1
+		}
+		if len(projectInfo.Resources.ExternalAPIs) > 0 {
+			developerIndicators += 1
+		}
+		if len(projectInfo.Resources.EnvironmentVars) > 5 {
+			developerIndicators += 1
+		}
+
+		// Infrastructure projects might have more complex storage/queue setups
+		if len(projectInfo.Resources.Storage) > 1 {
+			devopsIndicators += 1
+		}
+		if len(projectInfo.Resources.Queues) > 0 {
+			devopsIndicators += 1
+		}
+	}
+
+	// Architecture patterns
+	switch projectInfo.Architecture {
+	case "microservice", "api", "web-app", "standard-web-app", "single-page-app":
+		developerIndicators += 2
+	case "infrastructure", "platform", "multi-service":
+		devopsIndicators += 2
+	}
+
+	// File patterns (check project name/path for clues)
+	projectName := strings.ToLower(projectInfo.Name)
+	if strings.Contains(projectName, "service") ||
+		strings.Contains(projectName, "app") ||
+		strings.Contains(projectName, "api") ||
+		strings.Contains(projectName, "frontend") ||
+		strings.Contains(projectName, "backend") {
+		developerIndicators += 1
+	}
+
+	if strings.Contains(projectName, "infra") ||
+		strings.Contains(projectName, "deploy") ||
+		strings.Contains(projectName, "ops") ||
+		strings.Contains(projectName, "platform") ||
+		strings.Contains(projectName, "terraform") {
+		devopsIndicators += 2
+	}
+
+	// Make decision based on indicators
+	if developerIndicators > devopsIndicators {
+		return "dev"
+	} else if devopsIndicators > developerIndicators {
+		return "devops"
+	}
+
+	// Default to dev mode if working on a codebase with a detected language
+	if projectInfo.PrimaryStack != nil && projectInfo.PrimaryStack.Language != "" {
+		return "dev"
+	}
+
+	return "general"
+}
+
 // addMessage adds a message to the conversation history
 func (c *ChatInterface) addMessage(role, content string) {
 	message := Message{
@@ -516,28 +745,8 @@ func (c *ChatInterface) ReloadLLMProvider() error {
 
 // getAvailableResources retrieves list of available Simple Container resources
 func (c *ChatInterface) getAvailableResources() []string {
-	// Use MCP handler to get supported resources
-	handler := &mcp.DefaultMCPHandler{}
-	ctx := context.Background()
-
-	supportedResources, err := handler.GetSupportedResources(ctx)
-	if err != nil {
-		// Return basic resource types as fallback
-		return []string{"aws-rds-postgres", "s3-bucket", "ecr-repository", "gcp-bucket", "gcp-cloudsql-postgres", "kubernetes-helm-postgres-operator"}
-	}
-
-	// Extract resource types from the result
-	var resources []string
-	for _, provider := range supportedResources.Providers {
-		resources = append(resources, provider.Resources...)
-	}
-
-	// If no resources found, provide fallback
-	if len(resources) == 0 {
-		return []string{"aws-rds-postgres", "s3-bucket", "ecr-repository", "gcp-bucket", "gcp-cloudsql-postgres", "kubernetes-helm-postgres-operator"}
-	}
-
-	return resources
+	// Use the resources package to get available resource types
+	return resources.GetAvailableResourceTypes()
 }
 
 // cleanup performs graceful cleanup of terminal state and resources

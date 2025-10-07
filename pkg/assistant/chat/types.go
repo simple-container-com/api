@@ -24,6 +24,7 @@ type ConversationContext struct {
 	SessionID    string                    `json:"session_id"`    // Unique session identifier
 	CreatedAt    time.Time                 `json:"created_at"`    // Session creation time
 	UpdatedAt    time.Time                 `json:"updated_at"`    // Last update time
+	Metadata     map[string]interface{}    `json:"metadata"`      // Additional context data
 }
 
 // ChatCommand represents a command that can be executed during chat

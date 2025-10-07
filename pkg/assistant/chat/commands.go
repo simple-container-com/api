@@ -11,6 +11,8 @@ import (
 	"syscall"
 
 	"golang.org/x/term"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/fatih/color"
 
@@ -19,8 +21,8 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
-	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
+	"github.com/simple-container-com/api/pkg/assistant/resources"
 )
 
 // registerCommands registers all available chat commands
@@ -48,9 +50,12 @@ func (c *ChatInterface) registerCommands() {
 	c.commands["analyze"] = &ChatCommand{
 		Name:        "analyze",
 		Description: "Analyze current project tech stack",
-		Usage:       "/analyze",
+		Usage:       "/analyze [--full]",
 		Handler:     c.handleAnalyze,
 		Aliases:     []string{"a"},
+		Args: []CommandArg{
+			{Name: "full", Type: "flag", Required: false, Description: "Run full analysis (slower but comprehensive)"},
+		},
 	}
 
 	c.commands["setup"] = &ChatCommand{
@@ -328,6 +333,28 @@ func (c *ChatInterface) handleAnalyze(ctx context.Context, args []string, contex
 		}, nil
 	}
 
+	// Check for --full flag
+	fullAnalysis := false
+	for _, arg := range args {
+		if arg == "--full" || arg == "-f" {
+			fullAnalysis = true
+			break
+		}
+	}
+
+	// Configure analyzer based on mode
+	if fullAnalysis {
+		fmt.Printf("🔍 Running comprehensive analysis (this may take longer)...\n")
+		c.analyzer.EnableFullAnalysis()
+		// Set up progress reporter for full analysis
+		progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
+		c.analyzer.SetProgressReporter(progressReporter)
+	} else {
+		fmt.Printf("🔍 Running quick analysis...\n")
+		// Ensure we're in QuickMode
+		c.analyzer.SetAnalysisMode(analysis.QuickMode)
+	}
+
 	// Re-analyze project
 	projectInfo, err := c.analyzer.AnalyzeProject(context.ProjectPath)
 	if err != nil {
@@ -555,6 +582,19 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 		projectPath = context.ProjectPath
 	}
 
+	// Initialize metadata if it doesn't exist
+	if context.Metadata == nil {
+		context.Metadata = make(map[string]interface{})
+	}
+
+	// Get confirmed deployment type from context (if available)
+	var deploymentType string
+	if confirmedType, exists := context.Metadata["confirmed_deployment_type"]; exists {
+		if typeStr, ok := confirmedType.(string); ok {
+			deploymentType = typeStr
+		}
+	}
+
 	// Create SetupOptions for DeveloperMode
 	opts := &modes.SetupOptions{
 		Interactive:    false, // Chat interface handles interactivity differently
@@ -565,7 +605,8 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 		SkipCompose:    false,
 		OutputDir:      projectPath,
 		GenerateAll:    false,
-		UseStreaming:   true, // Enable streaming for better UX in chat mode
+		UseStreaming:   true,           // Enable streaming for better UX in chat mode
+		DeploymentType: deploymentType, // Use the confirmed deployment type
 	}
 
 	// Capture the generated files by temporarily redirecting the DeveloperMode output
@@ -579,6 +620,11 @@ func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationCon
 	if context.ProjectInfo != nil {
 		projectAnalysis = context.ProjectInfo
 	} else {
+		// Add progress reporting for better UX during analysis
+		fmt.Printf("🔄 Analyzing project for configuration generation...\n")
+		progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
+		c.analyzer.SetProgressReporter(progressReporter)
+
 		var err error
 		projectAnalysis, err = c.analyzer.AnalyzeProject(opts.OutputDir)
 		if err != nil {
@@ -605,8 +651,10 @@ func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationCon
 	files := []GeneratedFile{}
 
 	// Generate client.yaml using DeveloperMode logic
+	fmt.Printf("📄 Generating client.yaml configuration...\n")
 	clientYaml, err := c.developerMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
 	if err == nil {
+		fmt.Printf("   ✅ Client configuration generated\n")
 		files = append(files, GeneratedFile{
 			Path:        ".sc/stacks/" + projectName + "/client.yaml",
 			Type:        "yaml",
@@ -614,12 +662,16 @@ func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationCon
 			Generated:   true,
 			Content:     clientYaml,
 		})
+	} else {
+		fmt.Printf("   ⚠️ Failed to generate client.yaml: %v\n", err)
 	}
 
 	// Generate docker-compose.yaml using DeveloperMode logic
 	if !opts.SkipCompose {
+		fmt.Printf("🐳 Generating docker-compose.yaml...\n")
 		composeYaml, err := c.developerMode.GenerateComposeYAMLWithLLM(projectAnalysis)
 		if err == nil {
+			fmt.Printf("   ✅ Docker Compose configuration generated\n")
 			files = append(files, GeneratedFile{
 				Path:        "docker-compose.yaml",
 				Type:        "yaml",
@@ -627,13 +679,17 @@ func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationCon
 				Generated:   true,
 				Content:     composeYaml,
 			})
+		} else {
+			fmt.Printf("   ⚠️ Failed to generate docker-compose.yaml: %v\n", err)
 		}
 	}
 
 	// Generate Dockerfile using DeveloperMode logic
 	if !opts.SkipDockerfile {
+		fmt.Printf("🐳 Generating Dockerfile...\n")
 		dockerfile, err := c.developerMode.GenerateDockerfileWithLLM(projectAnalysis)
 		if err == nil {
+			fmt.Printf("   ✅ Dockerfile generated\n")
 			files = append(files, GeneratedFile{
 				Path:        "Dockerfile",
 				Type:        "dockerfile",
@@ -641,6 +697,8 @@ func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationCon
 				Generated:   true,
 				Content:     dockerfile,
 			})
+		} else {
+			fmt.Printf("   ⚠️ Failed to generate Dockerfile: %v\n", err)
 		}
 	}
 
@@ -1384,6 +1442,10 @@ func (c *ChatInterface) selectConfiguredProvider(cfg *config.Config) (string, er
 
 // confirmDeploymentTypeForChat handles deployment type confirmation in chat interface
 func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContext) error {
+	// Initialize metadata if it doesn't exist
+	if context.Metadata == nil {
+		context.Metadata = make(map[string]interface{})
+	}
 	// Determine deployment type using simple heuristic (since internal method is private)
 	detectedType := "cloud-compose" // Default fallback
 	if context.ProjectInfo != nil {
@@ -1417,7 +1479,8 @@ func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContex
 	// Use chat interface's ReadSimple for input (fixes Y/N prompt issue)
 	response, err := c.inputHandler.ReadSimple("\n   Is this correct? [Y/n]: ")
 	if err != nil {
-		// If there's an error reading input, default to "yes"
+		// If there's an error reading input, default to "yes" and store the detected type
+		context.Metadata["confirmed_deployment_type"] = detectedType
 		return nil
 	}
 
@@ -1427,11 +1490,17 @@ func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContex
 		return c.selectDeploymentTypeForChat(context)
 	}
 
+	// Store the confirmed deployment type in context for use during generation
+	context.Metadata["confirmed_deployment_type"] = detectedType
 	return nil
 }
 
 // selectDeploymentTypeForChat handles manual deployment type selection in chat interface
 func (c *ChatInterface) selectDeploymentTypeForChat(context *ConversationContext) error {
+	// Initialize metadata if it doesn't exist
+	if context.Metadata == nil {
+		context.Metadata = make(map[string]interface{})
+	}
 	fmt.Printf("\n📋 Available deployment types:\n")
 	fmt.Printf("   1. static - Static site (HTML/CSS/JS files)\n")
 	fmt.Printf("   2. single-image - Single container (serverless/lambda style)\n")
@@ -1445,22 +1514,24 @@ func (c *ChatInterface) selectDeploymentTypeForChat(context *ConversationContext
 
 	response = strings.TrimSpace(response)
 
+	var selectedType string
 	switch response {
 	case "1":
+		selectedType = "static"
 		fmt.Printf("✅ Selected: static\n")
 	case "2":
+		selectedType = "single-image"
 		fmt.Printf("✅ Selected: single-image\n")
 	case "3", "":
+		selectedType = "cloud-compose"
 		fmt.Printf("✅ Selected: cloud-compose\n")
 	default:
+		selectedType = "cloud-compose"
 		fmt.Printf("Invalid selection. Using cloud-compose as default.\n")
 	}
 
-	// Store the selected deployment type in context for later use
-	if context.ProjectInfo == nil {
-		// Create minimal project info if none exists
-		context.ProjectInfo = &analysis.ProjectAnalysis{}
-	}
+	// Store the selected deployment type in context for use during generation
+	context.Metadata["confirmed_deployment_type"] = selectedType
 
 	return nil
 }
@@ -1965,9 +2036,8 @@ func (c *ChatInterface) handleGetProjectContext(ctx context.Context, args []stri
 
 // handleGetSupportedResources lists all supported Simple Container resources
 func (c *ChatInterface) handleGetSupportedResources(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
-	// Use the MCP handler implementation for consistency
-	handler := &mcp.DefaultMCPHandler{}
-	resources, err := handler.GetSupportedResources(ctx)
+	// Use the resources package for consistency
+	supportedResources, err := resources.GetSupportedResourcesFromSchemas(ctx)
 	if err != nil {
 		return &CommandResult{
 			Success: false,
@@ -1977,26 +2047,25 @@ func (c *ChatInterface) handleGetSupportedResources(ctx context.Context, args []
 
 	// Format the response for chat interface
 	message := fmt.Sprintf("📦 **Simple Container Supported Resources** (%d providers, %d resources)\n\n",
-		len(resources.Providers), len(resources.Resources))
+		len(supportedResources.Providers), len(supportedResources.Resources))
 
-	// Group resources by provider for better display
-	providerResources := make(map[string][]mcp.ResourceInfo)
-	for _, resource := range resources.Resources {
-		providerResources[resource.Provider] = append(providerResources[resource.Provider], resource)
-	}
+	// Create a title caser for proper capitalization
+	caser := cases.Title(language.English)
 
-	for _, provider := range resources.Providers {
-		resourcesForProvider := providerResources[provider.Name]
-		message += fmt.Sprintf("**%s** (%d resources)\n", provider.DisplayName, len(resourcesForProvider))
-		for _, resource := range resourcesForProvider {
-			description := resource.Description
-			if description == "" {
-				description = resource.Name
-			}
-			message += fmt.Sprintf("  • %s - %s\n", resource.Type, description)
+	for _, provider := range supportedResources.Providers {
+		message += fmt.Sprintf("### %s (%d resources)\n", caser.String(provider.Name), len(provider.Resources))
+		for _, resource := range provider.Resources {
+			message += fmt.Sprintf("- `%s`\n", resource)
 		}
 		message += "\n"
 	}
+
+	// Add usage information
+	message += "**Usage:**\n"
+	message += "- These resources can be referenced in `client.yaml` under the `uses` section\n"
+	message += "- Format: `uses: [resource-type, another-resource]`\n"
+	message += "- Resources are managed by parent stacks in `server.yaml`\n"
+	message += "- Use `/setup` to generate configuration with detected resources"
 
 	return &CommandResult{
 		Success: true,

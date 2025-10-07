@@ -26,7 +26,7 @@ func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*Resour
 	// Limit concurrent resource detectors to avoid overwhelming the file system
 	g.SetLimit(3)
 
-	// In QuickMode, use faster, more targeted detectors
+	// In QuickMode, use faster, more targeted detectors but include all important resources for Simple Container
 	if pa.analysisMode == QuickMode {
 		// Use fast environment variable detector only
 		fastEnvDetector := &FastEnvironmentVariableDetector{analyzer: pa}
@@ -39,22 +39,34 @@ func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*Resour
 			return nil
 		})
 
-		// Only run essential detectors in QuickMode
-		essentialDetectors := []ResourceDetector{}
+		// Run most resource detectors in QuickMode since they're essential for Simple Container configs
+		// Only skip complex detectors that have heavy performance impact
+		simpleContainerDetectors := []ResourceDetector{}
 		for _, detector := range pa.resourceDetectors {
 			switch detector.Name() {
-			case "database", "secret": // Only run database and secret detection
-				essentialDetectors = append(essentialDetectors, detector)
+			case "database", "secret", "queue", "storage", "external_api":
+				// Include all important resources for Simple Container configuration
+				simpleContainerDetectors = append(simpleContainerDetectors, detector)
+			case "environment_variable":
+				// Skip regular env detector since we use FastEnvironmentVariableDetector
+				continue
+			default:
+				// Include other detectors by default unless they prove to be performance bottlenecks
+				simpleContainerDetectors = append(simpleContainerDetectors, detector)
 			}
 		}
 
-		for _, detector := range essentialDetectors {
+		for _, detector := range simpleContainerDetectors {
 			detector := detector
 			g.Go(func() error {
 				if analysis, err := detector.Detect(projectPath); err == nil && analysis != nil {
 					mu.Lock()
+					// Merge all resource types
 					combined.Secrets = append(combined.Secrets, analysis.Secrets...)
 					combined.Databases = append(combined.Databases, analysis.Databases...)
+					combined.Queues = append(combined.Queues, analysis.Queues...)
+					combined.Storage = append(combined.Storage, analysis.Storage...)
+					combined.ExternalAPIs = append(combined.ExternalAPIs, analysis.ExternalAPIs...)
 					mu.Unlock()
 				}
 				return nil

@@ -31,6 +31,9 @@ type Provider interface {
 	// Chat sends messages to the LLM and returns a response
 	Chat(ctx context.Context, messages []Message) (*ChatResponse, error)
 
+	// ChatWithTools sends messages to the LLM with available tools and returns a response
+	ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error)
+
 	// StreamChat sends messages to the LLM and streams the response via callback
 	StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error)
 
@@ -61,6 +64,33 @@ type ChatResponse struct {
 	FinishReason string            `json:"finish_reason"` // Why the response ended
 	Metadata     map[string]string `json:"metadata"`      // Additional metadata
 	GeneratedAt  time.Time         `json:"generated_at"`  // When response was generated
+	ToolCalls    []ToolCall        `json:"tool_calls"`    // Tool/function calls requested by LLM
+}
+
+// ToolCall represents a function/tool call requested by the LLM
+type ToolCall struct {
+	ID       string       `json:"id"`       // Unique ID for this tool call
+	Type     string       `json:"type"`     // Type of call (usually "function")
+	Function FunctionCall `json:"function"` // Function call details
+}
+
+// FunctionCall represents the function details in a tool call
+type FunctionCall struct {
+	Name      string                 `json:"name"`      // Function name
+	Arguments map[string]interface{} `json:"arguments"` // Function arguments
+}
+
+// Tool defines a tool/function that can be called by the LLM
+type Tool struct {
+	Type     string      `json:"type"`     // Tool type (usually "function")
+	Function FunctionDef `json:"function"` // Function definition
+}
+
+// FunctionDef defines a function that can be called by the LLM
+type FunctionDef struct {
+	Name        string                 `json:"name"`        // Function name
+	Description string                 `json:"description"` // Function description
+	Parameters  map[string]interface{} `json:"parameters"`  // JSON schema for parameters
 }
 
 // TokenUsage tracks token consumption

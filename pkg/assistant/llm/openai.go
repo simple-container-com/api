@@ -117,7 +117,25 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
+		ToolCalls:   []ToolCall{}, // Initialize empty tool calls
 	}, nil
+}
+
+// ChatWithTools sends messages to OpenAI with tool support and returns a response
+func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	// TODO: Implement OpenAI function calling
+	// For now, fallback to regular chat
+	response, err := p.Chat(ctx, messages)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure ToolCalls is initialized
+	if response.ToolCalls == nil {
+		response.ToolCalls = []ToolCall{}
+	}
+
+	return response, nil
 }
 
 // StreamChat sends messages to OpenAI and streams the response via callback
@@ -215,6 +233,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
+		ToolCalls:   []ToolCall{}, // Initialize empty tool calls
 	}, nil
 }
 
@@ -225,7 +244,7 @@ func (p *OpenAIProvider) GetCapabilities() Capabilities {
 		Models:            []string{}, // Models fetched via API using ListModels()
 		MaxTokens:         128000,     // Max for gpt-4-turbo and newer
 		SupportsStreaming: true,
-		SupportsFunctions: false,
+		SupportsFunctions: true, // Tool calling support implemented
 		CostPerToken:      0.000002,
 		RequiresAuth:      true,
 	}

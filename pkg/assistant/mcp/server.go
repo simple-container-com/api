@@ -1500,8 +1500,13 @@ func (h *DefaultMCPHandler) GenerateConfiguration(ctx context.Context, params Ge
 }
 
 func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzeProjectParams) (*ProjectAnalysis, error) {
-	// Use existing project analysis (LLM enhancement can be added via SetLLMProvider)
+	// Use existing project analysis with progress reporting for MCP clients
 	analyzer := analysis.NewProjectAnalyzer()
+
+	// Set up JSON progress reporter for structured MCP output
+	progressReporter := analysis.NewJSONProgressReporter(os.Stderr)
+	analyzer.SetProgressReporter(progressReporter)
+
 	projectInfo, err := analyzer.AnalyzeProject(params.Path)
 	if err != nil {
 		return nil, fmt.Errorf("project analysis failed: %w", err)
@@ -1574,6 +1579,13 @@ func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzePr
 	result.Metadata["analyzed_at"] = time.Now()
 	result.Metadata["analyzer_version"] = "1.0"
 	result.Metadata["total_files"] = len(projectInfo.Files)
+
+	// Inform the LLM about the generated analysis report
+	analysisReportPath := filepath.Join(params.Path, ".sc", "analysis-report.md")
+	if _, err := os.Stat(analysisReportPath); err == nil {
+		result.Metadata["analysis_report"] = analysisReportPath
+		result.Metadata["analysis_report_suggestion"] = "A comprehensive analysis report was generated at .sc/analysis-report.md. Consider reading this file for detailed project insights, tech stack evidence, Git analysis, resource detection results, and actionable recommendations."
+	}
 
 	return result, nil
 }

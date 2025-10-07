@@ -2,10 +2,14 @@ package analysis
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // ResourceDetector interface for implementing different resource detection strategies
@@ -40,6 +44,8 @@ func (d *EnvironmentVariableDetector) Detect(projectPath string) (*ResourceAnaly
 	// .env file patterns
 	envFilePattern := regexp.MustCompile(`^([A-Z][A-Z0-9_]+)=(.*)$`)
 
+	// Collect all files first for parallel processing
+	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Continue on errors
@@ -53,79 +59,9 @@ func (d *EnvironmentVariableDetector) Detect(projectPath string) (*ResourceAnaly
 			return nil
 		}
 
-		// Only scan relevant files
-		if !shouldScanForEnvVars(entry.Name()) {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(projectPath, path)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		contentStr := string(content)
-
-		// Handle .env files specially
-		if strings.Contains(entry.Name(), ".env") {
-			scanner := bufio.NewScanner(strings.NewReader(contentStr))
-			lineNum := 0
-			for scanner.Scan() {
-				lineNum++
-				line := strings.TrimSpace(scanner.Text())
-				if matches := envFilePattern.FindStringSubmatch(line); matches != nil {
-					envName := matches[1]
-					defaultVal := matches[2]
-
-					if existingVar, exists := envVarMap[envName]; exists {
-						existingVar.Sources = append(existingVar.Sources, relPath)
-						if existingVar.DefaultVal == "" {
-							existingVar.DefaultVal = defaultVal
-						}
-					} else {
-						envVar := &EnvironmentVariable{
-							Name:       envName,
-							Sources:    []string{relPath},
-							UsageType:  d.determineUsageType(envName),
-							Required:   true,
-							DefaultVal: defaultVal,
-						}
-						envVarMap[envName] = envVar
-					}
-				}
-			}
-		} else {
-			// Scan for environment variable usage in code files
-			for _, pattern := range patterns {
-				matches := pattern.FindAllStringSubmatch(contentStr, -1)
-				for _, match := range matches {
-					if len(match) > 1 {
-						envName := match[1]
-
-						if existingVar, exists := envVarMap[envName]; exists {
-							// Add source if not already present
-							found := false
-							for _, source := range existingVar.Sources {
-								if source == relPath {
-									found = true
-									break
-								}
-							}
-							if !found {
-								existingVar.Sources = append(existingVar.Sources, relPath)
-							}
-						} else {
-							envVar := &EnvironmentVariable{
-								Name:      envName,
-								Sources:   []string{relPath},
-								UsageType: d.determineUsageType(envName),
-								Required:  true, // Assume required if used in code
-							}
-							envVarMap[envName] = envVar
-						}
-					}
-				}
-			}
+		// Only collect relevant files
+		if shouldScanForEnvVars(entry.Name()) {
+			filesToScan = append(filesToScan, path)
 		}
 
 		return nil
@@ -133,6 +69,95 @@ func (d *EnvironmentVariableDetector) Detect(projectPath string) (*ResourceAnaly
 	if err != nil {
 		return nil, err
 	}
+
+	// Process files in parallel using errgroup
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(4) // Limit concurrent file processing
+
+	for _, filePath := range filesToScan {
+		filePath := filePath // capture loop variable
+		g.Go(func() error {
+			relPath, _ := filepath.Rel(projectPath, filePath)
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil // Continue on errors
+			}
+
+			contentStr := string(content)
+			fileName := filepath.Base(filePath)
+			localEnvVars := make(map[string]*EnvironmentVariable)
+
+			// Handle .env files specially
+			if strings.Contains(fileName, ".env") {
+				scanner := bufio.NewScanner(strings.NewReader(contentStr))
+				for scanner.Scan() {
+					line := strings.TrimSpace(scanner.Text())
+					if matches := envFilePattern.FindStringSubmatch(line); matches != nil {
+						envName := matches[1]
+						defaultVal := matches[2]
+
+						localEnvVars[envName] = &EnvironmentVariable{
+							Name:       envName,
+							Sources:    []string{relPath},
+							UsageType:  d.determineUsageType(envName),
+							Required:   true,
+							DefaultVal: defaultVal,
+						}
+					}
+				}
+			} else {
+				// Scan for environment variable usage in code files
+				for _, pattern := range patterns {
+					matches := pattern.FindAllStringSubmatch(contentStr, -1)
+					for _, match := range matches {
+						if len(match) > 1 {
+							envName := match[1]
+							if _, exists := localEnvVars[envName]; !exists {
+								localEnvVars[envName] = &EnvironmentVariable{
+									Name:      envName,
+									Sources:   []string{relPath},
+									UsageType: d.determineUsageType(envName),
+									Required:  true, // Assume required if used in code
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Merge local results with global map (thread-safe)
+			mu.Lock()
+			for envName, envVar := range localEnvVars {
+				if existingVar, exists := envVarMap[envName]; exists {
+					// Merge sources
+					for _, source := range envVar.Sources {
+						found := false
+						for _, existingSource := range existingVar.Sources {
+							if existingSource == source {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingVar.Sources = append(existingVar.Sources, source)
+						}
+					}
+					if existingVar.DefaultVal == "" && envVar.DefaultVal != "" {
+						existingVar.DefaultVal = envVar.DefaultVal
+					}
+				} else {
+					envVarMap[envName] = envVar
+				}
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	// Wait for all file processing to complete
+	_ = g.Wait() // Ignore errors
 
 	// Convert map to slice
 	for _, envVar := range envVarMap {
@@ -238,6 +263,8 @@ func (d *SecretDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 		{regexp.MustCompile(`mysql://[^:]+:[^@]+@`), "MySQL URL with credentials", "database_url", 0.85},
 	}
 
+	// Collect all files first for parallel processing
+	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -250,38 +277,9 @@ func (d *SecretDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 			return nil
 		}
 
-		// Skip binary files, images, etc.
-		if !shouldScanForSecrets(entry.Name()) {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(projectPath, path)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		contentStr := string(content)
-
-		// Skip if file contains template placeholder patterns (Simple Container specific)
-		if strings.Contains(contentStr, "${resource:") || strings.Contains(contentStr, "${secret:") ||
-			strings.Contains(contentStr, "${auth:") || strings.Contains(contentStr, "${dependency:") {
-			return nil
-		}
-
-		for _, secretPattern := range secretPatterns {
-			matches := secretPattern.pattern.FindAllString(contentStr, -1)
-			for range matches {
-				secret := Secret{
-					Type:        secretPattern.secretType,
-					Name:        secretPattern.name,
-					Sources:     []string{relPath},
-					Pattern:     secretPattern.pattern.String(),
-					Confidence:  secretPattern.confidence,
-					Recommended: d.getRecommendedResource(secretPattern.secretType),
-				}
-				secrets = append(secrets, secret)
-			}
+		// Only collect relevant files
+		if shouldScanForSecrets(entry.Name()) {
+			filesToScan = append(filesToScan, path)
 		}
 
 		return nil
@@ -289,6 +287,60 @@ func (d *SecretDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Process files in parallel using errgroup
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(4) // Limit concurrent file processing
+
+	for _, filePath := range filesToScan {
+		filePath := filePath // capture loop variable
+		g.Go(func() error {
+			relPath, _ := filepath.Rel(projectPath, filePath)
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil // Continue on errors
+			}
+
+			contentStr := string(content)
+
+			// Skip if file contains template placeholder patterns (Simple Container specific)
+			if strings.Contains(contentStr, "${resource:") || strings.Contains(contentStr, "${secret:") ||
+				strings.Contains(contentStr, "${auth:") || strings.Contains(contentStr, "${dependency:") {
+				return nil
+			}
+
+			var localSecrets []Secret
+
+			// Scan for secret patterns
+			for _, secretPattern := range secretPatterns {
+				matches := secretPattern.pattern.FindAllString(contentStr, -1)
+				for range matches {
+					secret := Secret{
+						Type:        secretPattern.secretType,
+						Name:        secretPattern.name,
+						Sources:     []string{relPath},
+						Pattern:     secretPattern.pattern.String(),
+						Confidence:  secretPattern.confidence,
+						Recommended: d.getRecommendedResource(secretPattern.secretType),
+					}
+					localSecrets = append(localSecrets, secret)
+				}
+			}
+
+			// Merge local results with global slice (thread-safe)
+			if len(localSecrets) > 0 {
+				mu.Lock()
+				secrets = append(secrets, localSecrets...)
+				mu.Unlock()
+			}
+
+			return nil
+		})
+	}
+
+	// Wait for all file processing to complete
+	_ = g.Wait() // Ignore errors
 
 	return &ResourceAnalysis{
 		Secrets: secrets,
@@ -351,6 +403,8 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 		{regexp.MustCompile(`port\s*:\s*9200`), "elasticsearch", 0.7},
 	}
 
+	// Collect all files first for parallel processing
+	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -363,56 +417,9 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 			return nil
 		}
 
-		if !shouldScanForDatabases(entry.Name()) {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(projectPath, path)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		contentStr := string(content)
-
-		for _, dbPattern := range configPatterns {
-			if dbPattern.pattern.MatchString(contentStr) {
-				dbType := dbPattern.dbType
-
-				if existingDB, exists := dbMap[dbType]; exists {
-					// Add source if not already present
-					found := false
-					for _, source := range existingDB.Sources {
-						if source == relPath {
-							found = true
-							break
-						}
-					}
-					if !found {
-						existingDB.Sources = append(existingDB.Sources, relPath)
-					}
-					// Increase confidence if found in multiple places
-					existingDB.Confidence = minFloat32(existingDB.Confidence+0.1, 1.0)
-				} else {
-					connection := d.detectConnection(contentStr, dbType)
-					version := d.detectVersion(contentStr, dbType)
-
-					db := &Database{
-						Type:        dbType,
-						Sources:     []string{relPath},
-						Connection:  connection,
-						Version:     version,
-						Config:      make(map[string]string),
-						Confidence:  dbPattern.confidence,
-						Recommended: d.getRecommendedResource(dbType),
-					}
-
-					// Extract additional config
-					d.extractConfig(contentStr, db)
-
-					dbMap[dbType] = db
-				}
-			}
+		// Only collect relevant files
+		if shouldScanForDatabases(entry.Name()) {
+			filesToScan = append(filesToScan, path)
 		}
 
 		return nil
@@ -420,6 +427,102 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 	if err != nil {
 		return nil, err
 	}
+
+	// Process files in parallel using errgroup
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(4) // Limit concurrent file processing
+
+	for _, filePath := range filesToScan {
+		filePath := filePath // capture loop variable
+		g.Go(func() error {
+			relPath, _ := filepath.Rel(projectPath, filePath)
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil // Continue on errors
+			}
+
+			contentStr := string(content)
+			localDBMap := make(map[string]*Database)
+
+			// Scan for database patterns
+			for _, dbPattern := range configPatterns {
+				if dbPattern.pattern.MatchString(contentStr) {
+					dbType := dbPattern.dbType
+
+					if existingDB, exists := localDBMap[dbType]; exists {
+						// Add source if not already present in local map
+						found := false
+						for _, source := range existingDB.Sources {
+							if source == relPath {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingDB.Sources = append(existingDB.Sources, relPath)
+						}
+						// Increase confidence if found in multiple places
+						existingDB.Confidence = minFloat32(existingDB.Confidence+0.1, 1.0)
+					} else {
+						connection := d.detectConnection(contentStr, dbType)
+						version := d.detectVersion(contentStr, dbType)
+
+						db := &Database{
+							Type:        dbType,
+							Sources:     []string{relPath},
+							Connection:  connection,
+							Version:     version,
+							Config:      make(map[string]string),
+							Confidence:  dbPattern.confidence,
+							Recommended: d.getRecommendedResource(dbType),
+						}
+
+						// Extract additional config
+						d.extractConfig(contentStr, db)
+
+						localDBMap[dbType] = db
+					}
+				}
+			}
+
+			// Merge local results with global map (thread-safe)
+			mu.Lock()
+			for dbType, db := range localDBMap {
+				if existingDB, exists := dbMap[dbType]; exists {
+					// Merge sources
+					for _, source := range db.Sources {
+						found := false
+						for _, existingSource := range existingDB.Sources {
+							if existingSource == source {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingDB.Sources = append(existingDB.Sources, source)
+						}
+					}
+					// Update confidence (take higher value)
+					if db.Confidence > existingDB.Confidence {
+						existingDB.Confidence = db.Confidence
+					}
+					// Merge config
+					for key, value := range db.Config {
+						existingDB.Config[key] = value
+					}
+				} else {
+					dbMap[dbType] = db
+				}
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	// Wait for all file processing to complete
+	_ = g.Wait() // Ignore errors
 
 	// Convert map to slice
 	for _, db := range dbMap {
@@ -654,6 +757,8 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 		regexp.MustCompile(`exchange[:\s]*['"]([a-zA-Z0-9_.-]+)['"]`),
 	}
 
+	// Collect all files first for parallel processing
+	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -666,67 +771,9 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 			return nil
 		}
 
-		if !shouldScanForQueues(entry.Name()) {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(projectPath, path)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		contentStr := string(content)
-
-		// Detect queue systems
-		for _, queuePattern := range queuePatterns {
-			if queuePattern.pattern.MatchString(contentStr) {
-				queueType := queuePattern.queueType
-
-				if existingQueue, exists := queueMap[queueType]; exists {
-					found := false
-					for _, source := range existingQueue.Sources {
-						if source == relPath {
-							found = true
-							break
-						}
-					}
-					if !found {
-						existingQueue.Sources = append(existingQueue.Sources, relPath)
-					}
-					existingQueue.Confidence = minFloat32(existingQueue.Confidence+0.1, 1.0)
-				} else {
-					queue := &Queue{
-						Type:        queueType,
-						Sources:     []string{relPath},
-						Topics:      []string{},
-						Confidence:  queuePattern.confidence,
-						Recommended: d.getRecommendedResource(queueType),
-					}
-
-					// Extract topics/queues
-					for _, topicPattern := range topicPatterns {
-						matches := topicPattern.FindAllStringSubmatch(contentStr, -1)
-						for _, match := range matches {
-							if len(match) > 1 {
-								topic := match[1]
-								found := false
-								for _, existing := range queue.Topics {
-									if existing == topic {
-										found = true
-										break
-									}
-								}
-								if !found {
-									queue.Topics = append(queue.Topics, topic)
-								}
-							}
-						}
-					}
-
-					queueMap[queueType] = queue
-				}
-			}
+		// Only collect relevant files
+		if shouldScanForQueues(entry.Name()) {
+			filesToScan = append(filesToScan, path)
 		}
 
 		return nil
@@ -734,6 +781,122 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Process files in parallel using errgroup
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(4) // Limit concurrent file processing
+
+	for _, filePath := range filesToScan {
+		filePath := filePath // capture loop variable
+		g.Go(func() error {
+			relPath, _ := filepath.Rel(projectPath, filePath)
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil // Continue on errors
+			}
+
+			contentStr := string(content)
+			localQueueMap := make(map[string]*Queue)
+
+			// Detect queue systems
+			for _, queuePattern := range queuePatterns {
+				if queuePattern.pattern.MatchString(contentStr) {
+					queueType := queuePattern.queueType
+
+					if existingQueue, exists := localQueueMap[queueType]; exists {
+						// Add source if not already present in local map
+						found := false
+						for _, source := range existingQueue.Sources {
+							if source == relPath {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingQueue.Sources = append(existingQueue.Sources, relPath)
+						}
+						existingQueue.Confidence = minFloat32(existingQueue.Confidence+0.1, 1.0)
+					} else {
+						queue := &Queue{
+							Type:        queueType,
+							Sources:     []string{relPath},
+							Topics:      []string{},
+							Confidence:  queuePattern.confidence,
+							Recommended: d.getRecommendedResource(queueType),
+						}
+
+						// Extract topics/queues
+						for _, topicPattern := range topicPatterns {
+							matches := topicPattern.FindAllStringSubmatch(contentStr, -1)
+							for _, match := range matches {
+								if len(match) > 1 {
+									topic := match[1]
+									found := false
+									for _, existing := range queue.Topics {
+										if existing == topic {
+											found = true
+											break
+										}
+									}
+									if !found {
+										queue.Topics = append(queue.Topics, topic)
+									}
+								}
+							}
+						}
+
+						localQueueMap[queueType] = queue
+					}
+				}
+			}
+
+			// Merge local results with global map (thread-safe)
+			mu.Lock()
+			for queueType, queue := range localQueueMap {
+				if existingQueue, exists := queueMap[queueType]; exists {
+					// Merge sources
+					for _, source := range queue.Sources {
+						found := false
+						for _, existingSource := range existingQueue.Sources {
+							if existingSource == source {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingQueue.Sources = append(existingQueue.Sources, source)
+						}
+					}
+					// Merge topics
+					for _, topic := range queue.Topics {
+						found := false
+						for _, existingTopic := range existingQueue.Topics {
+							if existingTopic == topic {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingQueue.Topics = append(existingQueue.Topics, topic)
+						}
+					}
+					// Update confidence (take higher value)
+					if queue.Confidence > existingQueue.Confidence {
+						existingQueue.Confidence = queue.Confidence
+					}
+				} else {
+					queueMap[queueType] = queue
+				}
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	// Wait for all file processing to complete
+	_ = g.Wait() // Ignore errors
 
 	// Convert map to slice
 	for _, queue := range queueMap {
@@ -809,6 +972,8 @@ func (d *StorageDetector) Detect(projectPath string) (*ResourceAnalysis, error) 
 		regexp.MustCompile(`container[:\s]*['"]([a-zA-Z0-9_.-]+)['"]`),
 	}
 
+	// Collect all files first for parallel processing
+	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -821,67 +986,9 @@ func (d *StorageDetector) Detect(projectPath string) (*ResourceAnalysis, error) 
 			return nil
 		}
 
-		if !shouldScanForStorage(entry.Name()) {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(projectPath, path)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		contentStr := string(content)
-
-		for _, storagePattern := range storagePatterns {
-			if storagePattern.pattern.MatchString(contentStr) {
-				storageType := storagePattern.storageType
-
-				if existingStorage, exists := storageMap[storageType]; exists {
-					found := false
-					for _, source := range existingStorage.Sources {
-						if source == relPath {
-							found = true
-							break
-						}
-					}
-					if !found {
-						existingStorage.Sources = append(existingStorage.Sources, relPath)
-					}
-					existingStorage.Confidence = minFloat32(existingStorage.Confidence+0.1, 1.0)
-				} else {
-					storage := &Storage{
-						Type:        storageType,
-						Sources:     []string{relPath},
-						Buckets:     []string{},
-						Purpose:     storagePattern.purpose,
-						Confidence:  storagePattern.confidence,
-						Recommended: d.getRecommendedResource(storageType),
-					}
-
-					// Extract bucket names
-					for _, bucketPattern := range bucketPatterns {
-						matches := bucketPattern.FindAllStringSubmatch(contentStr, -1)
-						for _, match := range matches {
-							if len(match) > 1 {
-								bucket := match[1]
-								found := false
-								for _, existing := range storage.Buckets {
-									if existing == bucket {
-										found = true
-										break
-									}
-								}
-								if !found {
-									storage.Buckets = append(storage.Buckets, bucket)
-								}
-							}
-						}
-					}
-
-					storageMap[storageType] = storage
-				}
-			}
+		// Only collect relevant files
+		if shouldScanForStorage(entry.Name()) {
+			filesToScan = append(filesToScan, path)
 		}
 
 		return nil
@@ -889,6 +996,123 @@ func (d *StorageDetector) Detect(projectPath string) (*ResourceAnalysis, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	// Process files in parallel using errgroup
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(4) // Limit concurrent file processing
+
+	for _, filePath := range filesToScan {
+		filePath := filePath // capture loop variable
+		g.Go(func() error {
+			relPath, _ := filepath.Rel(projectPath, filePath)
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil // Continue on errors
+			}
+
+			contentStr := string(content)
+			localStorageMap := make(map[string]*Storage)
+
+			// Scan for storage patterns
+			for _, storagePattern := range storagePatterns {
+				if storagePattern.pattern.MatchString(contentStr) {
+					storageType := storagePattern.storageType
+
+					if existingStorage, exists := localStorageMap[storageType]; exists {
+						// Add source if not already present in local map
+						found := false
+						for _, source := range existingStorage.Sources {
+							if source == relPath {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingStorage.Sources = append(existingStorage.Sources, relPath)
+						}
+						existingStorage.Confidence = minFloat32(existingStorage.Confidence+0.1, 1.0)
+					} else {
+						storage := &Storage{
+							Type:        storageType,
+							Sources:     []string{relPath},
+							Buckets:     []string{},
+							Purpose:     storagePattern.purpose,
+							Confidence:  storagePattern.confidence,
+							Recommended: d.getRecommendedResource(storageType),
+						}
+
+						// Extract bucket names
+						for _, bucketPattern := range bucketPatterns {
+							matches := bucketPattern.FindAllStringSubmatch(contentStr, -1)
+							for _, match := range matches {
+								if len(match) > 1 {
+									bucket := match[1]
+									found := false
+									for _, existing := range storage.Buckets {
+										if existing == bucket {
+											found = true
+											break
+										}
+									}
+									if !found {
+										storage.Buckets = append(storage.Buckets, bucket)
+									}
+								}
+							}
+						}
+
+						localStorageMap[storageType] = storage
+					}
+				}
+			}
+
+			// Merge local results with global map (thread-safe)
+			mu.Lock()
+			for storageType, storage := range localStorageMap {
+				if existingStorage, exists := storageMap[storageType]; exists {
+					// Merge sources
+					for _, source := range storage.Sources {
+						found := false
+						for _, existingSource := range existingStorage.Sources {
+							if existingSource == source {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingStorage.Sources = append(existingStorage.Sources, source)
+						}
+					}
+					// Merge buckets
+					for _, bucket := range storage.Buckets {
+						found := false
+						for _, existingBucket := range existingStorage.Buckets {
+							if existingBucket == bucket {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingStorage.Buckets = append(existingStorage.Buckets, bucket)
+						}
+					}
+					// Update confidence (take higher value)
+					if storage.Confidence > existingStorage.Confidence {
+						existingStorage.Confidence = storage.Confidence
+					}
+				} else {
+					storageMap[storageType] = storage
+				}
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	// Wait for all file processing to complete
+	_ = g.Wait() // Ignore errors
 
 	// Convert map to slice
 	for _, storage := range storageMap {
@@ -980,6 +1204,8 @@ func (d *ExternalAPIDetector) Detect(projectPath string) (*ResourceAnalysis, err
 		regexp.MustCompile(`base[_-]?url[:\s]*['"]([^'"]+)['"]`),
 	}
 
+	// Collect all files first for parallel processing
+	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -992,66 +1218,9 @@ func (d *ExternalAPIDetector) Detect(projectPath string) (*ResourceAnalysis, err
 			return nil
 		}
 
-		if !shouldScanForAPIs(entry.Name()) {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(projectPath, path)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-
-		contentStr := string(content)
-
-		for _, apiPattern := range apiPatterns {
-			if apiPattern.pattern.MatchString(contentStr) {
-				apiName := apiPattern.name
-
-				if existingAPI, exists := apiMap[apiName]; exists {
-					found := false
-					for _, source := range existingAPI.Sources {
-						if source == relPath {
-							found = true
-							break
-						}
-					}
-					if !found {
-						existingAPI.Sources = append(existingAPI.Sources, relPath)
-					}
-					existingAPI.Confidence = minFloat32(existingAPI.Confidence+0.1, 1.0)
-				} else {
-					api := &ExternalAPI{
-						Name:       apiName,
-						Sources:    []string{relPath},
-						Endpoints:  []string{},
-						Purpose:    apiPattern.purpose,
-						Confidence: apiPattern.confidence,
-					}
-
-					// Extract endpoints
-					for _, endpointPattern := range endpointPatterns {
-						matches := endpointPattern.FindAllString(contentStr, -1)
-						for _, match := range matches {
-							// Filter to only relevant endpoints
-							if strings.Contains(strings.ToLower(match), strings.ToLower(apiName)) {
-								found := false
-								for _, existing := range api.Endpoints {
-									if existing == match {
-										found = true
-										break
-									}
-								}
-								if !found {
-									api.Endpoints = append(api.Endpoints, match)
-								}
-							}
-						}
-					}
-
-					apiMap[apiName] = api
-				}
-			}
+		// Only collect relevant files
+		if shouldScanForAPIs(entry.Name()) {
+			filesToScan = append(filesToScan, path)
 		}
 
 		return nil
@@ -1059,6 +1228,122 @@ func (d *ExternalAPIDetector) Detect(projectPath string) (*ResourceAnalysis, err
 	if err != nil {
 		return nil, err
 	}
+
+	// Process files in parallel using errgroup
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(4) // Limit concurrent file processing
+
+	for _, filePath := range filesToScan {
+		filePath := filePath // capture loop variable
+		g.Go(func() error {
+			relPath, _ := filepath.Rel(projectPath, filePath)
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return nil // Continue on errors
+			}
+
+			contentStr := string(content)
+			localAPIMap := make(map[string]*ExternalAPI)
+
+			// Scan for API patterns
+			for _, apiPattern := range apiPatterns {
+				if apiPattern.pattern.MatchString(contentStr) {
+					apiName := apiPattern.name
+
+					if existingAPI, exists := localAPIMap[apiName]; exists {
+						// Add source if not already present in local map
+						found := false
+						for _, source := range existingAPI.Sources {
+							if source == relPath {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingAPI.Sources = append(existingAPI.Sources, relPath)
+						}
+						existingAPI.Confidence = minFloat32(existingAPI.Confidence+0.1, 1.0)
+					} else {
+						api := &ExternalAPI{
+							Name:       apiName,
+							Sources:    []string{relPath},
+							Endpoints:  []string{},
+							Purpose:    apiPattern.purpose,
+							Confidence: apiPattern.confidence,
+						}
+
+						// Extract endpoints
+						for _, endpointPattern := range endpointPatterns {
+							matches := endpointPattern.FindAllString(contentStr, -1)
+							for _, match := range matches {
+								// Filter to only relevant endpoints
+								if strings.Contains(strings.ToLower(match), strings.ToLower(apiName)) {
+									found := false
+									for _, existing := range api.Endpoints {
+										if existing == match {
+											found = true
+											break
+										}
+									}
+									if !found {
+										api.Endpoints = append(api.Endpoints, match)
+									}
+								}
+							}
+						}
+
+						localAPIMap[apiName] = api
+					}
+				}
+			}
+
+			// Merge local results with global map (thread-safe)
+			mu.Lock()
+			for apiName, api := range localAPIMap {
+				if existingAPI, exists := apiMap[apiName]; exists {
+					// Merge sources
+					for _, source := range api.Sources {
+						found := false
+						for _, existingSource := range existingAPI.Sources {
+							if existingSource == source {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingAPI.Sources = append(existingAPI.Sources, source)
+						}
+					}
+					// Merge endpoints
+					for _, endpoint := range api.Endpoints {
+						found := false
+						for _, existingEndpoint := range existingAPI.Endpoints {
+							if existingEndpoint == endpoint {
+								found = true
+								break
+							}
+						}
+						if !found {
+							existingAPI.Endpoints = append(existingAPI.Endpoints, endpoint)
+						}
+					}
+					// Update confidence (take higher value)
+					if api.Confidence > existingAPI.Confidence {
+						existingAPI.Confidence = api.Confidence
+					}
+				} else {
+					apiMap[apiName] = api
+				}
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	// Wait for all file processing to complete
+	_ = g.Wait() // Ignore errors
 
 	// Convert map to slice
 	for _, api := range apiMap {

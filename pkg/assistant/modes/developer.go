@@ -17,6 +17,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/config"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
+	"github.com/simple-container-com/api/pkg/assistant/resources"
 	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
@@ -898,6 +899,66 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		}
 	}
 
+	// Add detected resources from comprehensive analysis
+	if analysis != nil && analysis.Resources != nil {
+		prompt.WriteString("\n🎯 DETECTED PROJECT RESOURCES (MUST include in configuration):\n")
+
+		// Databases
+		if len(analysis.Resources.Databases) > 0 {
+			prompt.WriteString("Databases found:\n")
+			for _, db := range analysis.Resources.Databases {
+				prompt.WriteString(fmt.Sprintf("  • %s (%.0f%% confidence)\n", strings.ToUpper(db.Type), db.Confidence*100))
+			}
+		}
+
+		// Storage systems
+		if len(analysis.Resources.Storage) > 0 {
+			prompt.WriteString("Storage systems found:\n")
+			for _, storage := range analysis.Resources.Storage {
+				prompt.WriteString(fmt.Sprintf("  • %s (%.0f%% confidence, purpose: %s)\n",
+					strings.ToUpper(storage.Type), storage.Confidence*100, storage.Purpose))
+			}
+		}
+
+		// Queue systems
+		if len(analysis.Resources.Queues) > 0 {
+			prompt.WriteString("Queue systems found:\n")
+			for _, queue := range analysis.Resources.Queues {
+				prompt.WriteString(fmt.Sprintf("  • %s (%.0f%% confidence)\n", strings.ToUpper(queue.Type), queue.Confidence*100))
+			}
+		}
+
+		// External APIs
+		if len(analysis.Resources.ExternalAPIs) > 0 {
+			prompt.WriteString("External APIs found:\n")
+			for _, api := range analysis.Resources.ExternalAPIs {
+				prompt.WriteString(fmt.Sprintf("  • %s (%.0f%% confidence, purpose: %s)\n",
+					api.Name, api.Confidence*100, api.Purpose))
+			}
+		}
+
+		// Environment variables (show key ones)
+		if len(analysis.Resources.EnvironmentVars) > 0 {
+			prompt.WriteString(fmt.Sprintf("Environment variables: %d detected\n", len(analysis.Resources.EnvironmentVars)))
+			// Show first few important ones
+			count := 0
+			for _, env := range analysis.Resources.EnvironmentVars {
+				if count >= 5 { // Limit to avoid too much text
+					break
+				}
+				if env.UsageType != "system" && env.UsageType != "development" {
+					prompt.WriteString(fmt.Sprintf("  • %s (%s)\n", env.Name, env.UsageType))
+					count++
+				}
+			}
+		}
+
+		// Secrets found
+		if len(analysis.Resources.Secrets) > 0 {
+			prompt.WriteString(fmt.Sprintf("Secrets: %d detected (API keys, tokens, etc.)\n", len(analysis.Resources.Secrets)))
+		}
+	}
+
 	// Add JSON schema context for better generation
 	validator := validation.NewValidator()
 	if clientSchema, err := validator.GetClientYAMLSchema(context.Background()); err == nil {
@@ -956,10 +1017,84 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		prompt.WriteString("        dockerfile: ${git:root}/Dockerfile  # Path to Dockerfile\n")
 		prompt.WriteString("      timeout: 120                 # Function timeout in seconds\n")
 		prompt.WriteString("      maxMemory: 512               # Memory allocation in MB\n")
+
+		// Add detected resources to uses section for single-image
+		if analysis != nil && analysis.Resources != nil {
+			resourceMatcher := resources.NewResourceMatcher()
+			uses := []string{}
+
+			// Add detected databases
+			for _, db := range analysis.Resources.Databases {
+				resourceType := resourceMatcher.GetBestResourceType(db.Type)
+				uses = append(uses, resourceType)
+			}
+
+			// Add detected storage
+			for _, storage := range analysis.Resources.Storage {
+				resourceType := resourceMatcher.GetBestResourceType(storage.Type)
+				uses = append(uses, resourceType)
+			}
+
+			// Add detected queues
+			for _, queue := range analysis.Resources.Queues {
+				resourceType := resourceMatcher.GetBestResourceType(queue.Type)
+				// Avoid duplicates if Redis is used for both cache and pubsub
+				if !contains(uses, resourceType) {
+					uses = append(uses, resourceType)
+				}
+			}
+
+			if len(uses) > 0 {
+				prompt.WriteString(fmt.Sprintf("      uses: %s  # Based on detected resources\n", formatYAMLArray(uses)))
+			}
+		}
+
 		prompt.WriteString("      env:\n")
 		prompt.WriteString("        ENVIRONMENT: production\n")
+
+		// Add environment variables from analysis
+		if analysis != nil && analysis.Resources != nil && len(analysis.Resources.EnvironmentVars) > 0 {
+			prompt.WriteString("        # Detected environment variables:\n")
+			for _, env := range analysis.Resources.EnvironmentVars {
+				if env.UsageType == "service_config" || env.UsageType == "api_config" {
+					prompt.WriteString(fmt.Sprintf("        %s: \"${resource:service.%s}\"  # From analysis\n",
+						env.Name, strings.ToLower(env.Name)))
+				}
+			}
+		}
+
 		prompt.WriteString("      secrets:\n")
-		prompt.WriteString("        API_KEY: \"${secret:api-key}\"\n")
+
+		// Add secrets based on detected resources
+		if analysis != nil && analysis.Resources != nil {
+			resourceMatcher := resources.NewResourceMatcher()
+
+			// Database connection secrets
+			for _, db := range analysis.Resources.Databases {
+				resourceType := resourceMatcher.GetBestResourceType(db.Type)
+				switch strings.ToLower(db.Type) {
+				case "mongodb", "mongo":
+					prompt.WriteString(fmt.Sprintf("        MONGO_URI: \"${resource:%s.uri}\"  # MongoDB connection\n", resourceType))
+				case "redis":
+					prompt.WriteString(fmt.Sprintf("        REDIS_URL: \"${resource:%s.url}\"  # Redis connection\n", resourceType))
+				case "postgresql", "postgres":
+					prompt.WriteString(fmt.Sprintf("        DATABASE_URL: \"${resource:%s.url}\"  # PostgreSQL connection\n", resourceType))
+				case "mysql":
+					prompt.WriteString(fmt.Sprintf("        MYSQL_URL: \"${resource:%s.url}\"  # MySQL connection\n", resourceType))
+				}
+			}
+
+			// Storage secrets
+			for _, storage := range analysis.Resources.Storage {
+				resourceType := resourceMatcher.GetBestResourceType(storage.Type)
+				if strings.ToLower(storage.Type) == "s3" {
+					prompt.WriteString(fmt.Sprintf("        S3_ACCESS_KEY: \"${resource:%s.accessKey}\"  # S3 credentials\n", resourceType))
+					prompt.WriteString(fmt.Sprintf("        S3_SECRET_KEY: \"${resource:%s.secretKey}\"  # S3 credentials\n", resourceType))
+				}
+			}
+		}
+
+		prompt.WriteString("        API_KEY: \"${secret:api-key}\"  # Manual secrets\n")
 	default: // cloud-compose
 		prompt.WriteString("      dockerComposeFile: docker-compose.yaml  # REQUIRED: Reference to ${project:root}/docker-compose.yaml\n")
 		prompt.WriteString("      runs: [app]            # Container names from ${project:root}/docker-compose.yaml\n")
@@ -967,17 +1102,142 @@ func (d *DeveloperMode) buildClientYAMLPrompt(opts *SetupOptions, analysis *anal
 		prompt.WriteString("      scale:\n")
 		prompt.WriteString("        min: 1              # Must be in config section, NOT separate scaling block\n")
 		prompt.WriteString("        max: 3\n")
-		prompt.WriteString("      uses: [postgres-db, redis-cache]  # Consume shared resources from parent\n")
+
+		// Add detected resources to uses section for cloud-compose
+		if analysis != nil && analysis.Resources != nil {
+			resourceMatcher := resources.NewResourceMatcher()
+			uses := []string{}
+
+			// Add detected databases
+			for _, db := range analysis.Resources.Databases {
+				resourceType := resourceMatcher.GetBestResourceType(db.Type)
+				uses = append(uses, resourceType)
+			}
+
+			// Add detected storage
+			for _, storage := range analysis.Resources.Storage {
+				resourceType := resourceMatcher.GetBestResourceType(storage.Type)
+				uses = append(uses, resourceType)
+			}
+
+			// Add detected queues
+			for _, queue := range analysis.Resources.Queues {
+				resourceType := resourceMatcher.GetBestResourceType(queue.Type)
+				// Avoid duplicates if Redis is used for both cache and pubsub
+				if !contains(uses, resourceType) {
+					uses = append(uses, resourceType)
+				}
+			}
+
+			if len(uses) > 0 {
+				prompt.WriteString(fmt.Sprintf("      uses: %s  # Based on detected resources\n", formatYAMLArray(uses)))
+			} else {
+				prompt.WriteString("      uses: []  # No shared resources detected - add parent resources as needed\n")
+			}
+		} else {
+			prompt.WriteString("      uses: []  # No resources detected - add parent resources as needed\n")
+		}
+
 		prompt.WriteString("      env:                  # Non-sensitive environment variables only\n")
-		prompt.WriteString("        PORT: 3000\n")
-		prompt.WriteString("        NODE_ENV: production\n")
+
+		// Add detected tech stack port
+		if analysis != nil && analysis.PrimaryStack != nil {
+			switch analysis.PrimaryStack.Language {
+			case "python":
+				prompt.WriteString("        PORT: 8000\n")
+			case "go":
+				prompt.WriteString("        PORT: 8080\n")
+			case "javascript":
+				prompt.WriteString("        PORT: 3000\n")
+			default:
+				prompt.WriteString("        PORT: 3000\n")
+			}
+		} else {
+			prompt.WriteString("        PORT: 3000\n")
+		}
+
+		if analysis != nil && analysis.PrimaryStack != nil {
+			switch analysis.PrimaryStack.Language {
+			case "javascript":
+				prompt.WriteString("        NODE_ENV: production\n")
+			case "python":
+				prompt.WriteString("        PYTHON_ENV: production\n")
+			case "go":
+				prompt.WriteString("        GO_ENV: production\n")
+			default:
+				prompt.WriteString("        ENVIRONMENT: production\n")
+			}
+		} else {
+			prompt.WriteString("        NODE_ENV: production\n")
+		}
+
+		// Add environment variables from analysis
+		if analysis != nil && analysis.Resources != nil && len(analysis.Resources.EnvironmentVars) > 0 {
+			prompt.WriteString("        # Detected environment variables:\n")
+			for _, env := range analysis.Resources.EnvironmentVars {
+				if env.UsageType == "service_config" || env.UsageType == "api_config" {
+					prompt.WriteString(fmt.Sprintf("        %s: \"${resource:service.%s}\"  # From analysis\n",
+						env.Name, strings.ToLower(env.Name)))
+				}
+			}
+		}
+
 		prompt.WriteString("        # Database connections use auto-injected environment variables:\n")
-		prompt.WriteString("        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD\n")
-		prompt.WriteString("        # Redis: REDIS_HOST, REDIS_PORT\n")
-		prompt.WriteString("        # MongoDB Atlas: MONGO_USER, MONGO_DATABASE, MONGO_PASSWORD, MONGO_URI\n")
+
+		// Show relevant connection info based on detected resources
+		if analysis != nil && analysis.Resources != nil {
+			for _, db := range analysis.Resources.Databases {
+				switch strings.ToLower(db.Type) {
+				case "postgresql", "postgres":
+					prompt.WriteString("        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD\n")
+				case "redis":
+					prompt.WriteString("        # Redis: REDIS_HOST, REDIS_PORT\n")
+				case "mongodb":
+					prompt.WriteString("        # MongoDB Atlas: MONGO_USER, MONGO_DATABASE, MONGO_PASSWORD, MONGO_URI\n")
+				case "mysql":
+					prompt.WriteString("        # MySQL: MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_DATABASE, MYSQL_PASSWORD\n")
+				}
+			}
+		} else {
+			prompt.WriteString("        # PostgreSQL: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD\n")
+			prompt.WriteString("        # Redis: REDIS_HOST, REDIS_PORT\n")
+			prompt.WriteString("        # MongoDB Atlas: MONGO_USER, MONGO_DATABASE, MONGO_PASSWORD, MONGO_URI\n")
+		}
+
 		prompt.WriteString("      secrets:              # Sensitive data: secrets vs resource consumption\n")
-		prompt.WriteString("        DATABASE_URL: \"${resource:postgres-db.url}\"  # From consumed resource\n")
-		prompt.WriteString("        REDIS_URL: \"${resource:redis-cache.url}\"    # From consumed resource\n")
+
+		// Add secrets based on detected resources
+		if analysis != nil && analysis.Resources != nil {
+			resourceMatcher := resources.NewResourceMatcher()
+
+			// Database connection secrets
+			for _, db := range analysis.Resources.Databases {
+				resourceType := resourceMatcher.GetBestResourceType(db.Type)
+				switch strings.ToLower(db.Type) {
+				case "mongodb", "mongo":
+					prompt.WriteString(fmt.Sprintf("        MONGO_URI: \"${resource:%s.uri}\"  # MongoDB connection\n", resourceType))
+				case "redis":
+					prompt.WriteString(fmt.Sprintf("        REDIS_URL: \"${resource:%s.url}\"  # Redis connection\n", resourceType))
+				case "postgresql", "postgres":
+					prompt.WriteString(fmt.Sprintf("        DATABASE_URL: \"${resource:%s.url}\"  # PostgreSQL connection\n", resourceType))
+				case "mysql":
+					prompt.WriteString(fmt.Sprintf("        MYSQL_URL: \"${resource:%s.url}\"  # MySQL connection\n", resourceType))
+				}
+			}
+
+			// Storage secrets
+			for _, storage := range analysis.Resources.Storage {
+				resourceType := resourceMatcher.GetBestResourceType(storage.Type)
+				if strings.ToLower(storage.Type) == "s3" {
+					prompt.WriteString(fmt.Sprintf("        S3_ACCESS_KEY: \"${resource:%s.accessKey}\"  # S3 credentials\n", resourceType))
+					prompt.WriteString(fmt.Sprintf("        S3_SECRET_KEY: \"${resource:%s.secretKey}\"  # S3 credentials\n", resourceType))
+				}
+			}
+		} else {
+			prompt.WriteString("        DATABASE_URL: \"${resource:aws-rds-postgres.url}\"  # From consumed resource\n")
+			prompt.WriteString("        REDIS_URL: \"${resource:aws-elasticache.url}\"    # From consumed resource\n")
+		}
+
 		prompt.WriteString("        JWT_SECRET: \"${secret:jwt-secret}\"                    # Manual secrets from parent\n")
 	}
 
@@ -1443,7 +1703,7 @@ func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAna
 	prompt := d.buildComposeYAMLPrompt(analysis)
 
 	response, err := d.llm.Chat(context.Background(), []llm.Message{
-		{Role: "system", Content: "You are an expert in Docker Compose configuration. Generate production-ready docker-compose.yaml files for local development."},
+		{Role: "system", Content: "You are an expert in Docker Compose configuration. You MUST respond with ONLY valid YAML content - no explanations, no markdown blocks, no additional text. Return only the raw docker-compose.yaml file content that can be directly written to a file."},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
@@ -1451,12 +1711,46 @@ func (d *DeveloperMode) GenerateComposeYAMLWithLLM(analysis *analysis.ProjectAna
 		return d.generateFallbackComposeYAML(analysis)
 	}
 
-	// Extract YAML from response
+	// Extract YAML from response with more robust parsing
 	yamlContent := strings.TrimSpace(response.Content)
+
+	// Remove any markdown code blocks
 	yamlContent = strings.TrimPrefix(yamlContent, "```yaml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```yml")
 	yamlContent = strings.TrimPrefix(yamlContent, "```")
 	yamlContent = strings.TrimSuffix(yamlContent, "```")
+
+	// If LLM still includes explanations, try to extract just the YAML part
+	lines := strings.Split(yamlContent, "\n")
+	var yamlLines []string
+	foundVersion := false
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Start collecting from the line that starts with "version:"
+		if strings.HasPrefix(trimmedLine, "version:") {
+			foundVersion = true
+		}
+
+		// If we found the version line, collect all lines until we hit explanatory text
+		if foundVersion {
+			// Stop if we encounter typical explanatory text patterns
+			if strings.Contains(strings.ToLower(trimmedLine), "this file") ||
+				strings.Contains(strings.ToLower(trimmedLine), "defines") ||
+				strings.Contains(strings.ToLower(trimmedLine), "service named") ||
+				(strings.Contains(trimmedLine, "```") && len(strings.TrimSpace(strings.ReplaceAll(trimmedLine, "`", ""))) == 0) {
+				break
+			}
+			yamlLines = append(yamlLines, line)
+		}
+	}
+
+	// If we found version-based content, use that; otherwise use the original
+	if foundVersion && len(yamlLines) > 0 {
+		yamlContent = strings.Join(yamlLines, "\n")
+	}
+
 	yamlContent = strings.TrimSpace(yamlContent)
 
 	// Validate docker-compose content for best practices
@@ -1497,6 +1791,69 @@ func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysi
 		}
 	}
 
+	// Add detected resources for docker-compose generation
+	if analysis != nil && analysis.Resources != nil {
+		prompt.WriteString("\n🎯 DETECTED PROJECT RESOURCES (MUST include as services):\n")
+
+		// Databases - add as services
+		if len(analysis.Resources.Databases) > 0 {
+			prompt.WriteString("Databases to add as services:\n")
+			for _, db := range analysis.Resources.Databases {
+				switch strings.ToLower(db.Type) {
+				case "mongodb":
+					prompt.WriteString("  • MongoDB service (use mongo:latest image)\n")
+				case "redis":
+					prompt.WriteString("  • Redis service (use redis:latest image)\n")
+				case "postgresql", "postgres":
+					prompt.WriteString("  • PostgreSQL service (use postgres:latest image)\n")
+				case "mysql":
+					prompt.WriteString("  • MySQL service (use mysql:latest image)\n")
+				default:
+					prompt.WriteString(fmt.Sprintf("  • %s service (find appropriate Docker image)\n", strings.ToUpper(db.Type)))
+				}
+			}
+		}
+
+		// Storage systems - add volumes or services if needed
+		if len(analysis.Resources.Storage) > 0 {
+			prompt.WriteString("Storage systems detected:\n")
+			for _, storage := range analysis.Resources.Storage {
+				switch strings.ToLower(storage.Type) {
+				case "s3":
+					prompt.WriteString("  • S3 storage (use environment variables for AWS credentials)\n")
+				case "gcs":
+					prompt.WriteString("  • Google Cloud Storage (use environment variables for GCS credentials)\n")
+				case "azure":
+					prompt.WriteString("  • Azure Blob Storage (use environment variables for Azure credentials)\n")
+				default:
+					prompt.WriteString(fmt.Sprintf("  • %s storage (configure via environment variables)\n", strings.ToUpper(storage.Type)))
+				}
+			}
+		}
+
+		// Queue systems - add as services
+		if len(analysis.Resources.Queues) > 0 {
+			prompt.WriteString("Queue systems to add as services:\n")
+			for _, queue := range analysis.Resources.Queues {
+				switch strings.ToLower(queue.Type) {
+				case "rabbitmq":
+					prompt.WriteString("  • RabbitMQ service (use rabbitmq:management image)\n")
+				case "kafka":
+					prompt.WriteString("  • Apache Kafka service (use confluentinc/cp-kafka image)\n")
+				case "redis":
+					prompt.WriteString("  • Redis Pub/Sub (same as Redis database service)\n")
+				default:
+					prompt.WriteString(fmt.Sprintf("  • %s queue service\n", strings.ToUpper(queue.Type)))
+				}
+			}
+		}
+
+		// Environment variables
+		if len(analysis.Resources.EnvironmentVars) > 0 {
+			prompt.WriteString(fmt.Sprintf("Environment variables: %d detected - configure these in your app service\n", len(analysis.Resources.EnvironmentVars)))
+		}
+	}
+
 	// Enrich context with relevant documentation
 	contextEnrichment := d.enrichContextWithDocumentation("docker-compose", analysis)
 	if contextEnrichment != "" {
@@ -1529,9 +1886,46 @@ func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysi
 	prompt.WriteString("- Restart policies (restart: unless-stopped recommended)\n")
 	prompt.WriteString("- Include networks block if multiple services need communication\n")
 
-	prompt.WriteString("\n⚡ Generate ONLY the valid docker-compose.yaml content (no explanations, no markdown blocks):")
+	prompt.WriteString("\n🚨 CRITICAL: Return ONLY the docker-compose.yaml file content below.\n")
+	prompt.WriteString("❌ DO NOT include any explanations, descriptions, or comments about the file\n")
+	prompt.WriteString("❌ DO NOT wrap the content in markdown code blocks (```yaml```)\n")
+	prompt.WriteString("❌ DO NOT add any text before or after the YAML content\n")
+	prompt.WriteString("✅ Return ONLY the raw YAML that starts with 'version:' and can be directly written to docker-compose.yaml\n\n")
 
 	return prompt.String()
+}
+
+// Helper functions for resource detection
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// formatYAMLArray formats a string slice as a YAML array
+func formatYAMLArray(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	if len(items) == 1 {
+		return "[" + items[0] + "]"
+	}
+
+	var result strings.Builder
+	result.WriteString("[")
+	for i, item := range items {
+		if i > 0 {
+			result.WriteString(", ")
+		}
+		result.WriteString(item)
+	}
+	result.WriteString("]")
+	return result.String()
 }
 
 func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAnalysis) (string, error) {
@@ -1592,7 +1986,7 @@ func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnal
 	prompt := d.buildDockerfilePrompt(analysis)
 
 	response, err := d.llm.Chat(context.Background(), []llm.Message{
-		{Role: "system", Content: "You are an expert in Docker containerization. Generate production-ready, multi-stage Dockerfiles optimized for security and performance."},
+		{Role: "system", Content: "You are an expert in Docker containerization. You MUST respond with ONLY valid Dockerfile content - no explanations, no markdown blocks, no additional text. Return only the raw Dockerfile content that can be directly written to a Dockerfile."},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
@@ -1600,11 +1994,45 @@ func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnal
 		return d.generateFallbackDockerfile(analysis)
 	}
 
-	// Extract Dockerfile content from response
+	// Extract Dockerfile content from response with more robust parsing
 	dockerfileContent := strings.TrimSpace(response.Content)
+
+	// Remove any markdown code blocks
 	dockerfileContent = strings.TrimPrefix(dockerfileContent, "```dockerfile")
 	dockerfileContent = strings.TrimPrefix(dockerfileContent, "```")
 	dockerfileContent = strings.TrimSuffix(dockerfileContent, "```")
+
+	// If LLM still includes explanations, try to extract just the Dockerfile part
+	lines := strings.Split(dockerfileContent, "\n")
+	var dockerfileLines []string
+	foundFrom := false
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Start collecting from the line that starts with "FROM"
+		if strings.HasPrefix(strings.ToUpper(trimmedLine), "FROM ") {
+			foundFrom = true
+		}
+
+		// If we found the FROM line, collect all lines until we hit explanatory text
+		if foundFrom {
+			// Stop if we encounter typical explanatory text patterns
+			if strings.Contains(strings.ToLower(trimmedLine), "this dockerfile") ||
+				strings.Contains(strings.ToLower(trimmedLine), "creates") ||
+				strings.Contains(strings.ToLower(trimmedLine), "builds") ||
+				(strings.Contains(trimmedLine, "```") && len(strings.TrimSpace(strings.ReplaceAll(trimmedLine, "`", ""))) == 0) {
+				break
+			}
+			dockerfileLines = append(dockerfileLines, line)
+		}
+	}
+
+	// If we found FROM-based content, use that; otherwise use the original
+	if foundFrom && len(dockerfileLines) > 0 {
+		dockerfileContent = strings.Join(dockerfileLines, "\n")
+	}
+
 	dockerfileContent = strings.TrimSpace(dockerfileContent)
 
 	// Validate Dockerfile content for best practices
@@ -1662,7 +2090,11 @@ func (d *DeveloperMode) buildDockerfilePrompt(analysis *analysis.ProjectAnalysis
 	prompt.WriteString("- Appropriate EXPOSE directive\n")
 	prompt.WriteString("- Optimized for container registry\n")
 
-	prompt.WriteString("\nGenerate only the Dockerfile content without explanations:")
+	prompt.WriteString("\n🚨 CRITICAL: Return ONLY the Dockerfile content below.\n")
+	prompt.WriteString("❌ DO NOT include any explanations, descriptions, or comments about the file\n")
+	prompt.WriteString("❌ DO NOT wrap the content in markdown code blocks (```dockerfile```)\n")
+	prompt.WriteString("❌ DO NOT add any text before or after the Dockerfile content\n")
+	prompt.WriteString("✅ Return ONLY the raw Dockerfile that starts with 'FROM' and can be directly written to Dockerfile\n\n")
 
 	return prompt.String()
 }
