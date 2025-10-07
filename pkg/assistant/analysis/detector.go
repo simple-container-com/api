@@ -637,3 +637,310 @@ func (d *DockerDetector) Detect(projectPath string) (*TechStackInfo, error) {
 
 	return stack, nil
 }
+
+// SimpleContainerDetector detects existing Simple Container usage
+type SimpleContainerDetector struct{}
+
+func (d *SimpleContainerDetector) Name() string  { return "simple-container" }
+func (d *SimpleContainerDetector) Priority() int { return 95 }
+
+func (d *SimpleContainerDetector) Detect(projectPath string) (*TechStackInfo, error) {
+	stack := &TechStackInfo{
+		Language:   "yaml",
+		Framework:  "simple-container",
+		Runtime:    "simple-container",
+		Confidence: 0.0,
+		Evidence:   []string{},
+		Metadata:   make(map[string]string),
+	}
+
+	// Check for .sc directory
+	scDir := filepath.Join(projectPath, ".sc")
+	if _, err := os.Stat(scDir); err == nil {
+		stack.Confidence += 0.4
+		stack.Evidence = append(stack.Evidence, ".sc directory found")
+		stack.Metadata["has_sc_directory"] = "true"
+	}
+
+	// Check for client.yaml
+	clientYaml := filepath.Join(projectPath, ".sc", "client.yaml")
+	if _, err := os.Stat(clientYaml); err == nil {
+		stack.Confidence += 0.3
+		stack.Evidence = append(stack.Evidence, "client.yaml found")
+		stack.Metadata["has_client_config"] = "true"
+	}
+
+	// Check for server.yaml
+	serverYaml := filepath.Join(projectPath, ".sc", "server.yaml")
+	if _, err := os.Stat(serverYaml); err == nil {
+		stack.Confidence += 0.3
+		stack.Evidence = append(stack.Evidence, "server.yaml found")
+		stack.Metadata["has_server_config"] = "true"
+	}
+
+	// Check for welder.yaml
+	welderYaml := filepath.Join(projectPath, "welder.yaml")
+	if _, err := os.Stat(welderYaml); err == nil {
+		stack.Confidence += 0.2
+		stack.Evidence = append(stack.Evidence, "welder.yaml found")
+		stack.Metadata["has_welder_config"] = "true"
+	}
+
+	// Check for simple-container references in package files
+	packageFiles := []string{"package.json", "requirements.txt", "go.mod", "Cargo.toml", "composer.json"}
+	for _, file := range packageFiles {
+		filePath := filepath.Join(projectPath, file)
+		if content, err := os.ReadFile(filePath); err == nil {
+			contentStr := string(content)
+			if strings.Contains(contentStr, "simple-container") {
+				stack.Confidence += 0.1
+				stack.Evidence = append(stack.Evidence, fmt.Sprintf("simple-container reference in %s", file))
+			}
+		}
+	}
+
+	// Check for SC CLI usage in scripts
+	scriptFiles := []string{".github/workflows", "scripts", "Makefile", "makefile"}
+	for _, dir := range scriptFiles {
+		dirPath := filepath.Join(projectPath, dir)
+		if err := filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !d.IsDir() && (strings.HasSuffix(path, ".yml") || strings.HasSuffix(path, ".yaml") ||
+				strings.HasSuffix(path, ".sh") || strings.HasSuffix(path, "Makefile")) {
+				if content, err := os.ReadFile(path); err == nil {
+					contentStr := string(content)
+					if strings.Contains(contentStr, " sc ") || strings.Contains(contentStr, "simple-container") {
+						stack.Confidence += 0.1
+						stack.Evidence = append(stack.Evidence, fmt.Sprintf("SC CLI usage in %s", filepath.Base(path)))
+					}
+				}
+			}
+			return nil
+		}); err == nil && stack.Confidence > 0 {
+			break
+		}
+	}
+
+	if stack.Confidence == 0 {
+		return nil, fmt.Errorf("simple container not detected")
+	}
+
+	// Determine version/maturity level
+	if stack.Confidence >= 0.7 {
+		stack.Version = "configured"
+		stack.Metadata["maturity"] = "full"
+	} else if stack.Confidence >= 0.4 {
+		stack.Version = "partial"
+		stack.Metadata["maturity"] = "partial"
+	} else {
+		stack.Version = "minimal"
+		stack.Metadata["maturity"] = "minimal"
+	}
+
+	return stack, nil
+}
+
+// PulumiDetector detects Pulumi infrastructure as code usage
+type PulumiDetector struct{}
+
+func (d *PulumiDetector) Name() string  { return "pulumi" }
+func (d *PulumiDetector) Priority() int { return 75 }
+
+func (d *PulumiDetector) Detect(projectPath string) (*TechStackInfo, error) {
+	stack := &TechStackInfo{
+		Language:   "yaml",
+		Framework:  "pulumi",
+		Runtime:    "pulumi",
+		Confidence: 0.0,
+		Evidence:   []string{},
+		Metadata:   make(map[string]string),
+	}
+
+	// Check for Pulumi.yaml
+	pulumiYaml := filepath.Join(projectPath, "Pulumi.yaml")
+	if _, err := os.Stat(pulumiYaml); err == nil {
+		stack.Confidence += 0.6
+		stack.Evidence = append(stack.Evidence, "Pulumi.yaml found")
+
+		// Try to read Pulumi.yaml to get more details
+		if content, err := os.ReadFile(pulumiYaml); err == nil {
+			contentStr := string(content)
+			if strings.Contains(contentStr, "runtime:") {
+				if strings.Contains(contentStr, "nodejs") {
+					stack.Metadata["runtime"] = "nodejs"
+				} else if strings.Contains(contentStr, "python") {
+					stack.Metadata["runtime"] = "python"
+				} else if strings.Contains(contentStr, "go") {
+					stack.Metadata["runtime"] = "go"
+				}
+			}
+		}
+	}
+
+	// Check for Pulumi stack files (Pulumi.dev.yaml, Pulumi.prod.yaml, etc.)
+	entries, err := os.ReadDir(projectPath)
+	if err == nil {
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "Pulumi.") && strings.HasSuffix(entry.Name(), ".yaml") &&
+				entry.Name() != "Pulumi.yaml" {
+				stack.Confidence += 0.2
+				stack.Evidence = append(stack.Evidence, fmt.Sprintf("stack config %s found", entry.Name()))
+			}
+		}
+	}
+
+	// Check for Pulumi dependencies in package.json
+	packageJson := filepath.Join(projectPath, "package.json")
+	if content, err := os.ReadFile(packageJson); err == nil {
+		contentStr := string(content)
+		pulumiPackages := []string{"@pulumi/", "pulumi"}
+		for _, pkg := range pulumiPackages {
+			if strings.Contains(contentStr, pkg) {
+				stack.Confidence += 0.2
+				stack.Evidence = append(stack.Evidence, "Pulumi packages in package.json")
+				break
+			}
+		}
+	}
+
+	// Check for requirements.txt (Python)
+	requirementsTxt := filepath.Join(projectPath, "requirements.txt")
+	if content, err := os.ReadFile(requirementsTxt); err == nil {
+		contentStr := string(content)
+		if strings.Contains(contentStr, "pulumi") {
+			stack.Confidence += 0.2
+			stack.Evidence = append(stack.Evidence, "pulumi in requirements.txt")
+		}
+	}
+
+	// Check for go.mod (Go)
+	goMod := filepath.Join(projectPath, "go.mod")
+	if content, err := os.ReadFile(goMod); err == nil {
+		contentStr := string(content)
+		if strings.Contains(contentStr, "github.com/pulumi/pulumi") {
+			stack.Confidence += 0.2
+			stack.Evidence = append(stack.Evidence, "Pulumi SDK in go.mod")
+		}
+	}
+
+	if stack.Confidence == 0 {
+		return nil, fmt.Errorf("pulumi not detected")
+	}
+
+	stack.Version = "detected"
+	return stack, nil
+}
+
+// TerraformDetector detects Terraform infrastructure as code usage
+type TerraformDetector struct{}
+
+func (d *TerraformDetector) Name() string  { return "terraform" }
+func (d *TerraformDetector) Priority() int { return 75 }
+
+func (d *TerraformDetector) Detect(projectPath string) (*TechStackInfo, error) {
+	stack := &TechStackInfo{
+		Language:     "hcl",
+		Framework:    "terraform",
+		Runtime:      "terraform",
+		Confidence:   0.0,
+		Evidence:     []string{},
+		Metadata:     make(map[string]string),
+		Dependencies: []Dependency{},
+	}
+
+	// Check for .tf files
+	tfFiles := 0
+	err := filepath.WalkDir(projectPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".tf") {
+			tfFiles++
+			if tfFiles == 1 {
+				stack.Evidence = append(stack.Evidence, "Terraform .tf files found")
+			}
+		}
+		return nil
+	})
+
+	if err == nil && tfFiles > 0 {
+		stack.Confidence += float32(tfFiles) * 0.1
+		if stack.Confidence > 0.6 {
+			stack.Confidence = 0.6 // Cap at 0.6 for tf files
+		}
+		stack.Metadata["tf_files_count"] = fmt.Sprintf("%d", tfFiles)
+	}
+
+	// Check for terraform.tfvars
+	tfvars := filepath.Join(projectPath, "terraform.tfvars")
+	if _, err := os.Stat(tfvars); err == nil {
+		stack.Confidence += 0.2
+		stack.Evidence = append(stack.Evidence, "terraform.tfvars found")
+	}
+
+	// Check for .terraform directory (indicates initialized project)
+	terraformDir := filepath.Join(projectPath, ".terraform")
+	if _, err := os.Stat(terraformDir); err == nil {
+		stack.Confidence += 0.3
+		stack.Evidence = append(stack.Evidence, ".terraform directory found")
+		stack.Metadata["initialized"] = "true"
+	}
+
+	// Check for terraform.tfstate or terraform.tfstate.backup
+	tfstateFiles := []string{"terraform.tfstate", "terraform.tfstate.backup"}
+	for _, file := range tfstateFiles {
+		if _, err := os.Stat(filepath.Join(projectPath, file)); err == nil {
+			stack.Confidence += 0.1
+			stack.Evidence = append(stack.Evidence, fmt.Sprintf("%s found", file))
+		}
+	}
+
+	// Check for provider configurations in .tf files
+	if tfFiles > 0 {
+		providers := make(map[string]bool)
+		_ = filepath.WalkDir(projectPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !d.IsDir() && strings.HasSuffix(d.Name(), ".tf") {
+				if content, err := os.ReadFile(path); err == nil {
+					contentStr := string(content)
+					commonProviders := []string{"aws", "azure", "google", "kubernetes", "helm", "random", "local"}
+					for _, provider := range commonProviders {
+						if strings.Contains(contentStr, fmt.Sprintf("provider \"%s\"", provider)) ||
+							strings.Contains(contentStr, fmt.Sprintf(`provider "%s"`, provider)) {
+							if !providers[provider] {
+								providers[provider] = true
+								stack.Dependencies = append(stack.Dependencies, Dependency{
+									Name: provider,
+									Type: "terraform-provider",
+								})
+							}
+						}
+					}
+				}
+			}
+			return nil
+		})
+	}
+
+	if stack.Confidence == 0 {
+		return nil, fmt.Errorf("terraform not detected")
+	}
+
+	// Determine version/usage level
+	if stack.Confidence >= 0.7 {
+		stack.Version = "active"
+		stack.Metadata["usage"] = "active"
+	} else if stack.Confidence >= 0.4 {
+		stack.Version = "configured"
+		stack.Metadata["usage"] = "configured"
+	} else {
+		stack.Version = "minimal"
+		stack.Metadata["usage"] = "minimal"
+	}
+
+	return stack, nil
+}

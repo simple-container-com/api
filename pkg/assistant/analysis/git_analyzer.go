@@ -78,6 +78,36 @@ func (ga *GitAnalyzer) AnalyzeGitRepository() (*GitAnalysis, error) {
 	return analysis, nil
 }
 
+// GetBasicGitInfo provides minimal git information for quick analysis
+func (ga *GitAnalyzer) GetBasicGitInfo() (*GitAnalysis, error) {
+	analysis := &GitAnalysis{
+		IsGitRepo:  false,
+		Branch:     "",
+		RemoteURL:  "",
+		ProjectAge: 0,
+	}
+
+	// Check if it's a git repository
+	if !ga.isGitRepository() {
+		return analysis, nil
+	}
+
+	analysis.IsGitRepo = true
+
+	// Get basic repository info (fast operations only)
+	_ = ga.getBasicRepoInfo(analysis) // Ignore error, analysis will still work without git info
+
+	// Get current branch (fast operation)
+	if branch, err := ga.runGitCommand("branch", "--show-current"); err == nil {
+		analysis.Branch = strings.TrimSpace(branch)
+	}
+
+	// Skip expensive operations like commit analysis, contributors, etc.
+	// This makes startup much faster for chat mode
+
+	return analysis, nil
+}
+
 // isGitRepository checks if the project is a Git repository
 func (ga *GitAnalyzer) isGitRepository() bool {
 	gitDir := filepath.Join(ga.projectPath, ".git")

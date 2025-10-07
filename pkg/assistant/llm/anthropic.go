@@ -56,18 +56,18 @@ type anthropicUsage struct {
 
 // Stream event types
 type anthropicStreamEvent struct {
-	Type         string                    `json:"type"`
-	Message      *anthropicResponse        `json:"message,omitempty"`
-	Index        int                       `json:"index,omitempty"`
-	ContentBlock *anthropicContent         `json:"content_block,omitempty"`
-	Delta        *anthropicStreamDelta     `json:"delta,omitempty"`
-	Usage        *anthropicUsage           `json:"usage,omitempty"`
+	Type         string                `json:"type"`
+	Message      *anthropicResponse    `json:"message,omitempty"`
+	Index        int                   `json:"index,omitempty"`
+	ContentBlock *anthropicContent     `json:"content_block,omitempty"`
+	Delta        *anthropicStreamDelta `json:"delta,omitempty"`
+	Usage        *anthropicUsage       `json:"usage,omitempty"`
 }
 
 type anthropicStreamDelta struct {
-	Type         string `json:"type"`
-	Text         string `json:"text,omitempty"`
-	StopReason   string `json:"stop_reason,omitempty"`
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	StopReason string `json:"stop_reason,omitempty"`
 }
 
 // NewAnthropicProvider creates a new Anthropic provider
