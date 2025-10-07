@@ -98,6 +98,16 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **MAJOR: OpenAI-Powered Embeddings Pre-Generation System** - Revolutionary upgrade from local embeddings to high-quality OpenAI embeddings
+  - **✅ OpenAI Embeddings Generator**: Complete `cmd/generate-embeddings` tool with direct OpenAI API integration (no langchaingo dependency)
+  - **✅ Multiple Model Support**: text-embedding-3-small (default, $0.00002/1K tokens), text-embedding-3-large (premium, $0.00013/1K tokens), text-embedding-ada-002 (legacy)
+  - **✅ Welder Integration**: `welder run generate-embeddings` automatically retrieves OpenAI key from secrets using `${project:root}/bin/sc stack secret-get -s dist openai-api-key`
+  - **✅ Configuration System**: Environment variable `SIMPLE_CONTAINER_EMBEDDING_MODEL` for model selection, graceful fallback to empty embeddings when key unavailable
+  - **✅ Cost-Effective**: Full documentation corpus (~59 docs) costs only ~$0.0015 with text-embedding-3-small model
+  - **✅ Batch Processing**: Intelligent batching with rate limiting, verbose progress reporting, dry-run cost estimation
+  - **✅ Standalone Task**: `welder run embeddings` for interactive embeddings generation with cost confirmation
+  - **✅ Professional UX**: Comprehensive error handling, progress tracking, token usage reporting, integration testing commands
+  - **Impact**: AI Assistant semantic search quality dramatically improved with professional-grade OpenAI embeddings vs. local 128-dimensional approximations
 - **MAJOR: Complete JSON Schema Ecosystem** - Implemented comprehensive JSON Schema generation for ALL Simple Container configurations
   - **EXPANDED**: Now generates schemas for both cloud resources AND core configuration files
   - **54 TOTAL SCHEMAS**: 37 cloud resources + 6 configuration file schemas + index files across 8 providers

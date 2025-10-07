@@ -122,12 +122,39 @@ tasks:
   generate-embeddings:
     runOn: host
     script:
-      - echo "Generating embeddings for AI Assistant..."
-      - mkdir -p ${project:root}/pkg/assistant/embeddings/docs
+      - echo "🚀 Generating OpenAI embeddings for AI Assistant..."
       - mkdir -p ${project:root}/pkg/assistant/embeddings/vectors
-      - cp -r ${project:root}/docs/docs/* ${project:root}/pkg/assistant/embeddings/docs/ 2>/dev/null || true
-      - echo '{"documents":[]}' > ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings.json
-      - echo "Successfully prepared embeddings structure"
+      - |
+        # Build the embeddings generator tool
+        echo "🔨 Building embeddings generator..."
+        cd ${project:root}
+        go build -o bin/generate-embeddings ./cmd/generate-embeddings
+        
+        # Get OpenAI API key from secrets or environment (build-time)
+        echo "🔑 Retrieving OpenAI API key..."
+        OPENAI_KEY=$(${project:root}/bin/sc stack secret-get -s dist openai-api-key 2>/dev/null || echo "")
+        if [ -z "$OPENAI_KEY" ]; then
+          OPENAI_KEY=$OPENAI_API_KEY
+        fi
+        
+        # Set embedding model from environment variable or use default
+        EMBEDDING_MODEL=${SIMPLE_CONTAINER_EMBEDDING_MODEL:-text-embedding-3-small}
+        
+        if [ -n "$OPENAI_KEY" ]; then
+          echo "✨ Generating embeddings using OpenAI model: $EMBEDDING_MODEL"
+          ./bin/generate-embeddings \
+            -openai-key "$OPENAI_KEY" \
+            -model "$EMBEDDING_MODEL" \
+            -output ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json \
+            -verbose
+        else
+          echo "⚠️  OpenAI API key not found in secrets or environment, generating local embeddings instead"
+          echo "💡 To generate OpenAI embeddings, add key with: sc secrets add openai-api-key or export OPENAI_API_KEY=your-key"
+          echo "💡 Set embedding model with: export SIMPLE_CONTAINER_EMBEDDING_MODEL=text-embedding-3-large"
+          ./bin/generate-embeddings -local -verbose
+        fi
+        
+        echo "✅ Embeddings generation completed"
   build:
     runOn: host
     env:
