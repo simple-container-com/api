@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -51,6 +52,22 @@ type anthropicContent struct {
 type anthropicUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+}
+
+// Stream event types
+type anthropicStreamEvent struct {
+	Type         string                    `json:"type"`
+	Message      *anthropicResponse        `json:"message,omitempty"`
+	Index        int                       `json:"index,omitempty"`
+	ContentBlock *anthropicContent         `json:"content_block,omitempty"`
+	Delta        *anthropicStreamDelta     `json:"delta,omitempty"`
+	Usage        *anthropicUsage           `json:"usage,omitempty"`
+}
+
+type anthropicStreamDelta struct {
+	Type         string `json:"type"`
+	Text         string `json:"text,omitempty"`
+	StopReason   string `json:"stop_reason,omitempty"`
 }
 
 // NewAnthropicProvider creates a new Anthropic provider
@@ -158,6 +175,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (*Chat
 			PromptTokens:     anthropicResp.Usage.InputTokens,
 			CompletionTokens: anthropicResp.Usage.OutputTokens,
 			TotalTokens:      anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
+			Cost:             calculateAnthropicCost(anthropicResp.Model, anthropicResp.Usage.InputTokens, anthropicResp.Usage.OutputTokens),
 		},
 		Model:        anthropicResp.Model,
 		FinishReason: anthropicResp.StopReason,
@@ -167,8 +185,177 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (*Chat
 
 // StreamChat streams a chat response from Anthropic
 func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
-	// For now, fall back to non-streaming
-	return p.Chat(ctx, messages)
+	// Convert messages to Anthropic format
+	anthropicMessages := make([]anthropicMessage, 0, len(messages))
+	for _, msg := range messages {
+		// Anthropic only supports "user" and "assistant" roles
+		role := msg.Role
+		if role == "system" {
+			// System messages should be added as user messages with system prefix
+			continue
+		}
+		anthropicMessages = append(anthropicMessages, anthropicMessage{
+			Role:    role,
+			Content: msg.Content,
+		})
+	}
+
+	// Create request with streaming enabled
+	reqBody := anthropicRequest{
+		Model:       p.model,
+		Messages:    anthropicMessages,
+		MaxTokens:   p.config.MaxTokens,
+		Temperature: p.config.Temperature,
+		Stream:      true,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/messages", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", p.config.APIKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	// Send request
+	startTime := time.Now()
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Process SSE stream
+	var fullContent strings.Builder
+	var usage anthropicUsage
+	var model string
+	var stopReason string
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// SSE format: "data: {...}"
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+
+		// Skip ping events
+		if data == "[DONE]" || strings.TrimSpace(data) == "" {
+			continue
+		}
+
+		var event anthropicStreamEvent
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			// Skip malformed events
+			continue
+		}
+
+		// Handle different event types
+		switch event.Type {
+		case "message_start":
+			if event.Message != nil {
+				model = event.Message.Model
+				if event.Message.Usage.InputTokens > 0 {
+					usage.InputTokens = event.Message.Usage.InputTokens
+				}
+			}
+
+		case "content_block_delta":
+			if event.Delta != nil && event.Delta.Text != "" {
+				fullContent.WriteString(event.Delta.Text)
+
+				// Send chunk to callback
+				streamChunk := StreamChunk{
+					Content:    fullContent.String(),
+					Delta:      event.Delta.Text,
+					IsComplete: false,
+					Metadata: map[string]string{
+						"provider": "anthropic",
+					},
+					GeneratedAt: time.Now(),
+				}
+
+				if err := callback(streamChunk); err != nil {
+					return nil, fmt.Errorf("callback error: %w", err)
+				}
+			}
+
+		case "message_delta":
+			if event.Delta != nil && event.Delta.StopReason != "" {
+				stopReason = event.Delta.StopReason
+			}
+			if event.Usage != nil && event.Usage.OutputTokens > 0 {
+				usage.OutputTokens = event.Usage.OutputTokens
+			}
+
+		case "message_stop":
+			// Stream complete
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading stream: %w", err)
+	}
+
+	// Calculate final token usage
+	totalUsage := TokenUsage{
+		PromptTokens:     usage.InputTokens,
+		CompletionTokens: usage.OutputTokens,
+		TotalTokens:      usage.InputTokens + usage.OutputTokens,
+		Cost:             calculateAnthropicCost(p.model, usage.InputTokens, usage.OutputTokens),
+	}
+
+	// Send final chunk
+	finalChunk := StreamChunk{
+		Content:    fullContent.String(),
+		Delta:      "",
+		IsComplete: true,
+		Usage:      &totalUsage,
+		Metadata: map[string]string{
+			"provider":   "anthropic",
+			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+		},
+		GeneratedAt: time.Now(),
+	}
+
+	if err := callback(finalChunk); err != nil {
+		return nil, fmt.Errorf("callback error: %w", err)
+	}
+
+	if model == "" {
+		model = p.model
+	}
+	if stopReason == "" {
+		stopReason = "end_turn"
+	}
+
+	return &ChatResponse{
+		Content:      fullContent.String(),
+		Usage:        totalUsage,
+		Model:        model,
+		FinishReason: stopReason,
+		Metadata: map[string]string{
+			"provider":   "anthropic",
+			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+		},
+		GeneratedAt: time.Now(),
+	}, nil
 }
 
 // GetCapabilities returns the provider's capabilities
@@ -177,7 +364,7 @@ func (p *AnthropicProvider) GetCapabilities() Capabilities {
 		Name:              "Anthropic Claude",
 		Models:            []string{}, // Models fetched via API
 		MaxTokens:         200000,
-		SupportsStreaming: false,
+		SupportsStreaming: true,
 		SupportsFunctions: false,
 		RequiresAuth:      true,
 	}
@@ -292,6 +479,35 @@ func extractModelNamesFromText(text string) []string {
 // Close cleans up resources
 func (p *AnthropicProvider) Close() error {
 	return nil
+}
+
+// calculateAnthropicCost calculates the cost for Anthropic models
+func calculateAnthropicCost(model string, inputTokens, outputTokens int) float64 {
+	var inputCostPer1M, outputCostPer1M float64
+
+	switch {
+	case strings.Contains(model, "claude-3-5-sonnet"):
+		inputCostPer1M = 3.0
+		outputCostPer1M = 15.0
+	case strings.Contains(model, "claude-3-opus"):
+		inputCostPer1M = 15.0
+		outputCostPer1M = 75.0
+	case strings.Contains(model, "claude-3-sonnet"):
+		inputCostPer1M = 3.0
+		outputCostPer1M = 15.0
+	case strings.Contains(model, "claude-3-haiku"):
+		inputCostPer1M = 0.25
+		outputCostPer1M = 1.25
+	default:
+		// Default to Claude 3.5 Sonnet pricing
+		inputCostPer1M = 3.0
+		outputCostPer1M = 15.0
+	}
+
+	inputCost := (float64(inputTokens) / 1000000.0) * inputCostPer1M
+	outputCost := (float64(outputTokens) / 1000000.0) * outputCostPer1M
+
+	return inputCost + outputCost
 }
 
 // Register Anthropic provider with global registry
