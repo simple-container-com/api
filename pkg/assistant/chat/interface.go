@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +21,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/generation"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/llm/prompts"
+	"github.com/simple-container-com/api/pkg/assistant/mcp"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
@@ -119,11 +123,15 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		config:         sessionConfig,
 	}
 
+	// Get available resources for context
+	availableResources := chat.getAvailableResources()
+
 	// Initialize conversation context
 	chat.context = &ConversationContext{
 		ProjectPath: sessionConfig.ProjectPath,
 		Mode:        sessionConfig.Mode,
 		History:     []Message{},
+		Resources:   availableResources,
 		SessionID:   uuid.New().String(),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -135,32 +143,52 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 	// Initialize input handler with commands
 	chat.inputHandler = NewInputHandler(chat.commands)
 
-	// Add system prompt
-	systemPrompt := prompts.GenerateContextualPrompt(sessionConfig.Mode, nil, []string{})
-	chat.addMessage("system", systemPrompt)
+	// Note: System prompt will be added in StartSession after project analysis
 
 	return chat, nil
 }
 
 // StartSession starts an interactive chat session
 func (c *ChatInterface) StartSession(ctx context.Context) error {
+	// Set up signal handling for graceful terminal cleanup
+	signalCtx, signalCancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer signalCancel()
+
+	// Ensure cleanup on exit
+	defer c.cleanup()
+
 	c.printWelcome()
 
 	// Analyze project if path is provided
+	var projectInfo *analysis.ProjectAnalysis
 	if c.config.ProjectPath != "" {
 		fmt.Printf("🔍 Analyzing project at %s...\n", c.config.ProjectPath)
-		if err := c.analyzeProject(ctx); err != nil {
+		if err := c.analyzeProject(signalCtx); err != nil {
 			fmt.Printf("%s Failed to analyze project: %v\n", color.YellowString("⚠️"), err)
+		} else {
+			projectInfo = c.context.ProjectInfo
 		}
 	}
 
-	// Start chat loop
-	return c.chatLoop(ctx)
+	// Add system prompt with project context (if available)
+	systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
+	c.addMessage("system", systemPrompt)
+
+	// Start chat loop with signal-aware context
+	return c.chatLoop(signalCtx)
 }
 
 // chatLoop handles the main conversation loop
 func (c *ChatInterface) chatLoop(ctx context.Context) error {
 	for {
+		// Check if context was cancelled (e.g., by signal)
+		select {
+		case <-ctx.Done():
+			fmt.Println(color.GreenString("\n👋 Goodbye! Happy coding with Simple Container!"))
+			return ctx.Err()
+		default:
+		}
+
 		// Read user input with autocomplete and history
 		input, err := c.inputHandler.ReadLine(color.CyanString("\n💬 "))
 		if err != nil {
@@ -202,6 +230,65 @@ func (c *ChatInterface) handleChat(ctx context.Context, input string) error {
 	// Add user message to context
 	c.addMessage("user", input)
 
+	// Check if provider supports streaming
+	caps := c.llm.GetCapabilities()
+
+	if caps.SupportsStreaming {
+		return c.handleStreamingChat(ctx)
+	} else {
+		return c.handleNonStreamingChat(ctx)
+	}
+}
+
+// handleStreamingChat processes chat with streaming responses
+func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
+	fmt.Print(color.YellowString("🤔 Thinking..."))
+
+	var fullResponse string
+	var firstChunk bool = true
+
+	// Create streaming callback
+	callback := func(chunk llm.StreamChunk) error {
+		if firstChunk {
+			// Clear thinking indicator and show bot prefix on first chunk
+			fmt.Print("\r")
+			fmt.Printf("%s ", color.BlueString("🤖"))
+			firstChunk = false
+		}
+
+		// Print the new content (delta)
+		fmt.Print(chunk.Delta)
+		fullResponse += chunk.Delta
+
+		if chunk.IsComplete {
+			fmt.Print("\n") // New line after complete response
+		}
+
+		return nil
+	}
+
+	// Get streaming response from LLM
+	response, err := c.llm.StreamChat(ctx, c.context.History, callback)
+	if err != nil {
+		fmt.Print("\r") // Clear thinking indicator
+		return fmt.Errorf("LLM error: %w", err)
+	}
+
+	// Add assistant response to context (use full response or response content)
+	responseContent := fullResponse
+	if responseContent == "" && response != nil {
+		responseContent = response.Content
+	}
+	c.addMessage("assistant", responseContent)
+
+	// Update context
+	c.context.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// handleNonStreamingChat processes chat without streaming (fallback)
+func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 	// Show thinking indicator
 	fmt.Print(color.YellowString("🤔 Thinking..."))
 
@@ -351,9 +438,7 @@ func (c *ChatInterface) analyzeProject(ctx context.Context) error {
 			projectInfo.PrimaryStack.Confidence*100)
 	}
 
-	// Update system prompt with project context
-	contextualPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
-	c.context.History[0].Content = contextualPrompt
+	// Note: System prompt is now added in StartSession with this project context
 
 	return nil
 }
@@ -428,8 +513,52 @@ func (c *ChatInterface) ReloadLLMProvider() error {
 	return nil
 }
 
+// getAvailableResources retrieves list of available Simple Container resources
+func (c *ChatInterface) getAvailableResources() []string {
+	// Use MCP handler to get supported resources
+	handler := &mcp.DefaultMCPHandler{}
+	ctx := context.Background()
+
+	supportedResources, err := handler.GetSupportedResources(ctx)
+	if err != nil {
+		// Return basic resource types as fallback
+		return []string{"aws-rds-postgres", "s3-bucket", "ecr-repository", "gcp-bucket", "gcp-cloudsql-postgres", "kubernetes-helm-postgres-operator"}
+	}
+
+	// Extract resource types from the result
+	var resources []string
+	for _, provider := range supportedResources.Providers {
+		resources = append(resources, provider.Resources...)
+	}
+
+	// If no resources found, provide fallback
+	if len(resources) == 0 {
+		return []string{"aws-rds-postgres", "s3-bucket", "ecr-repository", "gcp-bucket", "gcp-cloudsql-postgres", "kubernetes-helm-postgres-operator"}
+	}
+
+	return resources
+}
+
+// cleanup performs graceful cleanup of terminal state and resources
+func (c *ChatInterface) cleanup() {
+	// Close input handler to restore terminal state
+	if c.inputHandler != nil {
+		if err := c.inputHandler.Close(); err != nil {
+			// If regular close fails, try to restore terminal with stty
+			if cmd := exec.Command("stty", "sane"); cmd != nil {
+				// Ignore error - this is emergency cleanup
+				_ = cmd.Run()
+			}
+		}
+	}
+}
+
 // Close cleans up resources
 func (c *ChatInterface) Close() error {
+	// Perform cleanup first
+	c.cleanup()
+
+	// Close LLM provider
 	if c.llm != nil {
 		return c.llm.Close()
 	}

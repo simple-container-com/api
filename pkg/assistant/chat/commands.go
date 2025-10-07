@@ -565,7 +565,7 @@ func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]
 		SkipCompose:    false,
 		OutputDir:      projectPath,
 		GenerateAll:    false,
-		UseStreaming:   false,
+		UseStreaming:   true, // Enable streaming for better UX in chat mode
 	}
 
 	// Capture the generated files by temporarily redirecting the DeveloperMode output

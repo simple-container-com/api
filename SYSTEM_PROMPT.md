@@ -311,6 +311,142 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
     - **Graceful Degradation**: Works with or without pre-built vectors, falls back to basic templates
   - **Status**: ENTERPRISE-READY AI Assistant with complete functionality, ready for production deployment and Windsurf IDE integration
 
+## AI Assistant Streaming Fix - COMPLETED ✅
+- **CRITICAL: Chat Interface Streaming Enhancement** - Resolved issue where streaming was not working in chat mode by implementing proper streaming support for both regular conversations and setup commands
+  - **✅ Problem Resolved**: Chat interface was using non-streaming `Chat()` method instead of `StreamChat()` for regular conversations, missing real-time response display
+  - **✅ Regular Conversation Streaming**: Enhanced `handleChat()` method to detect streaming capabilities and use `StreamChat()` with real-time callback
+  - **✅ Streaming Callback Implementation**: Created intelligent streaming callback that:
+    - Shows "🤔 Thinking..." indicator until first chunk arrives
+    - Displays "🤖" bot prefix on first chunk
+    - Streams response content in real-time using `chunk.Delta`
+    - Gracefully handles completion with proper line breaks
+    - Accumulates full response for conversation history
+  - **✅ Setup Command Streaming**: Fixed `/setup` command to enable streaming by changing `UseStreaming: false` to `UseStreaming: true` in SetupOptions
+  - **✅ Provider Compatibility**: Added automatic fallback to non-streaming mode for providers that don't support streaming
+  - **✅ Graceful Degradation**: Maintains backward compatibility with `handleNonStreamingChat()` fallback method
+  - **Technical Implementation**: Enhanced `pkg/assistant/chat/interface.go` with `handleStreamingChat()` and `handleNonStreamingChat()` methods, fixed `pkg/assistant/chat/commands.go` streaming flag
+  - **User Experience Transformation**:
+    - **Before**: Static "🤔 Thinking..." followed by complete response dump
+    - **After**: Real-time streaming with "🤖" prefix and live text generation for both conversations and file generation
+  - **Impact**: Users now see real-time AI responses in chat mode, providing immediate feedback and better engagement during both conversations and setup operations
+
+## Chat Interface Terminal Cleanup Fix - COMPLETED ✅
+- **CRITICAL: Terminal State Restoration on Exit** - Resolved issue where chat mode left terminal in unusable state when exited via SIGTERM
+  - **✅ Problem Resolved**: Chat interface uses liner library which puts terminal in raw mode but wasn't properly restored on signal exit
+  - **✅ Signal Handling**: Added proper signal handling for SIGINT and SIGTERM with graceful cleanup
+  - **✅ Terminal State Management**: Implemented cleanup() method that ensures liner state is properly closed
+  - **✅ Context-Aware Loop**: Enhanced chat loop to check for context cancellation from signals
+  - **✅ Fallback Recovery**: Added stty sane fallback if liner cleanup fails
+  - **Technical Implementation**:
+    - Added signal.NotifyContext() for SIGINT/SIGTERM handling  
+    - defer c.cleanup() ensures terminal restoration on any exit path
+    - Enhanced chatLoop with context.Done() checks for immediate signal response
+    - InputHandler.Close() properly releases liner raw mode
+    - Fallback `stty sane` command for emergency terminal restoration
+  - **User Experience Transformation**:
+    - **Before**: Terminal left in raw mode after SIGTERM - no echo, broken input
+    - **After**: Clean terminal restoration on any exit method (Ctrl+C, SIGTERM, normal exit)
+  - **Impact**: Terminal remains fully functional after exiting chat mode via any method, eliminating need for manual terminal reset
+
+## AI Assistant Kubernetes Support Fix - COMPLETED ✅
+- **CRITICAL: Corrected Incorrect Kubernetes Support Information** - Resolved issue where chat interface was incorrectly stating that Simple Container doesn't support Kubernetes
+  - **✅ Problem Resolved**: Chat was providing completely false information claiming SC "doesn't support Kubernetes directly in server.yaml"
+  - **✅ Added Kubernetes Resource Examples**: Enhanced system prompt with comprehensive Kubernetes resource examples:
+    - `kubernetes-helm-postgres-operator`: PostgreSQL operator via Helm
+    - `kubernetes-helm-redis-operator`: Redis operator via Helm
+    - `kubernetes-helm-rabbitmq-operator`: RabbitMQ operator via Helm
+    - `kubernetes-helm-mongodb-operator`: MongoDB operator via Helm
+    - `kubernetes-caddy`: Caddy reverse proxy resource
+    - `kubernetes`: Base Kubernetes resource
+  - **✅ Proper Authentication Context**: Added Kubernetes authentication guidance with `${auth:kubernetes}` for kubeconfig
+  - **✅ Complete Resource Coverage**: System prompt now includes all 3 major providers (AWS, GCP, Kubernetes) with proper examples
+  - **✅ Corrected Server.yaml Structure**: Added proper Kubernetes resource examples within correct nested structure
+  - **Technical Implementation**: Enhanced `pkg/assistant/llm/prompts/system.go` with comprehensive Kubernetes resource catalog and proper authentication patterns
+  - **User Experience Transformation**:
+    - **Before**: `🤖 Simple Container doesn't support Kubernetes directly in server.yaml... However, it does support AWS resources`
+    - **After**: `🤖 Here's an example server.yaml for Kubernetes and PostgreSQL: resources: postgres-operator: type: kubernetes-helm-postgres-operator config: kubeconfig: "${auth:kubernetes}"`
+  - **Impact**: Chat interface now provides accurate information about Simple Container's extensive Kubernetes support, enabling users to deploy to Kubernetes clusters with PostgreSQL and other operators
+
+## Chat Interface System Prompt Optimization - COMPLETED ✅
+- **MINOR: Improved System Prompt Context Timing** - Optimized when project context is added to system prompt for better chat initialization
+  - **✅ Problem Resolved**: System prompt was being created without project context, then updated later, resulting in duplicate work and suboptimal context
+  - **✅ Architectural Improvement**: Moved system prompt generation to StartSession after project analysis
+  - **✅ Context Optimization**: System prompt now gets project information on first creation instead of being updated later
+  - **✅ Cleaner Flow**: Eliminated redundant prompt generation and update cycle
+  - **Technical Implementation**:
+    - Removed initial generic system prompt from NewChatInterface()
+    - Added contextual system prompt generation in StartSession after analyzeProject()
+    - Removed system prompt update logic from analyzeProject() method
+    - System prompt now created once with proper context (if available)
+  - **User Experience Enhancement**:
+    - **Before**: Generic system prompt → Project analysis → System prompt update
+    - **After**: Project analysis → Contextual system prompt (single creation)
+  - **Impact**: More efficient initialization and better context utilization from the start of chat sessions
+
+## Chat Interface Resource Context Population - COMPLETED ✅
+- **CRITICAL: Fixed Missing Resource Context** - Resolved issue where Resources field in ConversationContext was never populated, causing LLM to miss important resource availability context
+  - **✅ Problem Resolved**: Resources field was defined and used in multiple places but never actually set, resulting in empty resource context
+  - **✅ Context Usage Identified**: Resources field is used in:
+    - System prompt generation via `GenerateContextualPrompt()` for dev/devops modes
+    - Chat status command showing available resources
+    - Mode switching updates with resource context
+  - **✅ Resource Population Added**: Implemented `getAvailableResources()` method that:
+    - Uses MCP `GetSupportedResources()` to fetch current resource catalog
+    - Extracts resource types from all providers (AWS, GCP, Kubernetes, etc.)
+    - Provides fallback list if MCP call fails
+    - Returns comprehensive resource list for context
+  - **✅ Integration Points**: 
+    - Resources populated during ChatInterface initialization in `NewChatInterface()`
+    - System prompt now includes "Available Resources" context for dev mode
+    - System prompt now includes "CURRENT INFRASTRUCTURE" context for devops mode
+  - **Technical Implementation**:
+    - Added MCP import to chat interface
+    - Implemented `getAvailableResources()` with error handling and fallbacks
+    - Resources field now populated with actual Simple Container resource types
+    - Fallback includes key resources: aws-rds-postgres, s3-bucket, ecr-repository, gcp-bucket, gcp-cloudsql-postgres, kubernetes-helm-postgres-operator
+  - **User Experience Enhancement**:
+    - **Before**: LLM had no knowledge of available Simple Container resources
+    - **After**: LLM receives comprehensive context about supported resource types for better recommendations
+  - **Impact**: LLM now has proper context about available Simple Container resources, enabling better guidance and more accurate deployment recommendations
+
+## AI Assistant System Prompt Corrections - COMPLETED ✅
+- **CRITICAL: Static Deployment and Placeholder Syntax Fix** - Resolved issues where chat interface was providing incorrect examples for static deployments and using wrong template placeholder syntax
+  - **✅ Problem Resolved**: Chat AI was suggesting inappropriate properties (`runs`, `uses`, `env`, `secrets`) for static websites and using double dollar sign syntax (`$${secret:name}`) instead of correct single dollar (`${secret:name}`)
+  - **✅ Static Deployment Guidance**: Added comprehensive static deployment examples showing correct configuration requirements:
+    - **Correct Static Config**: `bundleDir` (required), `indexDocument`, `errorDocument`, `domain` (all optional)
+    - **Forbidden for Static**: Explicitly excluded `runs`, `uses`, `env`, `secrets`, and `scale` sections
+    - **Clear Documentation**: "NO runs, uses, env, secrets, or scale sections needed" for static type
+  - **✅ Template Placeholder Syntax Fix**: Corrected all placeholder examples from `$${secret:name}` to `${secret:name}` and `$${resource:name}` to `${resource:name}`
+  - **✅ Deployment Type Specific Guidance**: Added comprehensive property matrix for all deployment types:
+    - **cloud-compose**: REQUIRES `dockerComposeFile`, `runs`; MAY use `env`, `secrets`, `uses`, `scale`
+    - **single-image**: REQUIRES `image.dockerfile`; MAY use `timeout`, `maxMemory`, `env`, `secrets`  
+    - **static**: REQUIRES `bundleDir`; MAY use `indexDocument`, `errorDocument`, `domain`; NO container-related properties
+  - **✅ Schema-Compliant Examples**: All template placeholders now use correct Simple Container syntax without Go string escaping artifacts
+  - **Technical Implementation**: Enhanced `pkg/assistant/llm/prompts/system.go` with deployment-type-specific property guidance and corrected placeholder syntax throughout
+  - **User Experience Transformation**:
+    - **Before**: `🤖 For static websites: runs: [website], uses: [cdn], env: {...}, secrets: {"CDN_SECRET": "$${secret:cdn-secret}"}`
+    - **After**: `🤖 For static websites: type: static, parent: mycompany/infrastructure, config: {bundleDir: "${git:root}/build"}`
+  - **Impact**: Chat interface now provides accurate, schema-compliant examples for static deployments with correct template placeholder syntax, eliminating user confusion and deployment errors
+- **EXTENDED: Server.yaml Schema Corrections** - Fixed critical issues with invalid server.yaml examples being generated by chat interface
+  - **✅ Problem Resolved**: Chat was generating completely invalid server.yaml with fictional properties and wrong structure
+  - **✅ Fixed Structural Issues**: 
+    - Corrected `provisioner: aws-pulumi` to proper `provisioner: { type: pulumi, config: {...} }`
+    - Eliminated fictional `environments:` section (should use `resources:` with environment keys)
+    - Fixed template structure (templates are top-level, not nested in environments)
+    - Removed fictional template properties (`cpu`, `memory`, `desiredCount`, `public`)
+    - Removed fictional resource properties in templates (`engine`, `version`, `username`, `password`)
+  - **✅ Enhanced Schema Guidance**: Added comprehensive server.yaml forbidden patterns and correct alternatives
+  - **✅ Complete Structure Example**: System prompt now includes full working server.yaml with AWS ECS Fargate and RDS PostgreSQL
+  - **User Experience**: Chat now generates valid server.yaml configurations instead of completely fictional examples
+  - **✅ Schema Validation Against Real Resources**: Fixed system prompt to use only actual AWS resource types from schemas:
+    - **Eliminated Fictional Resources**: Removed `aws-ecs-cluster`, `aws-elasticache-redis` (don't exist in schemas)
+    - **Added Real Resources**: `ecr-repository`, `s3-bucket`, `aws-rds-postgres` with actual schema properties
+    - **Fixed Template Types**: `ecs-fargate` (not `aws-ecs-fargate`) with correct resource references
+    - **Complete Properties**: PostgreSQL resources now include all required schema properties (`allocateStorage`, `databaseName`, `engineVersion`, `username`, `password`)
+    - **Validated Structure**: All resource types and properties verified against actual JSON schemas in `/pkg/assistant/mcp/schemas/aws/`
+    - **Fixed Nested Resource Structure**: Corrected to proper `resources.resources.<env>.resources.<resource-name>` format instead of flat `resources.<env>.<resource-name>` structure
+    - **Complete Hierarchy**: Now includes proper registrar configuration at `resources.registrar` level with environment-specific resources nested under `resources.resources.<env>.resources`
+
 ## MCP Server Enhancements - COMPLETED ✅
 - **CRITICAL: MCP Analyze Project Enhancement** - Resolved issue where `analyze_project` tool was providing limited information by transforming response from generic counts to comprehensive detailed analysis
   - **✅ Problem Resolved**: MCP tool was only returning high-level summary counts like "Detected 1 tech stacks" instead of detailed analysis data

@@ -49,26 +49,186 @@ CORRECT ALTERNATIVES for monitoring/debugging:
 - File system operations: ls .sc/stacks/, grep -A 10 "resources:"
 
 SIMPLE CONTAINER PROPERTIES (only use these):
-✅ client.yaml valid properties:
-- schemaVersion: 1.0
-- stacks: (main section)
-  - parent: infrastructure-name
-  - parentEnv: staging/production
-  - type: cloud-compose/static/single-image
-  - config:
-    - uses: [resource-name]
-    - runs: [container-name]
-    - env: (environment variables)
-    - secrets: (secret references)
-    - scale: {min: 1, max: 5}
-    - dependencies: [{name: service, owner: org/service, resource: resource-name}]
+✅ client.yaml CORRECT structure (stacks as MAP, not array):
 
-✅ server.yaml valid properties:
-- schemaVersion: 1.0
-- provisioner: (Pulumi configuration)
-- templates: (deployment templates)
-- resources: (shared infrastructure)
-- registrar: (domain management)
+schemaVersion: 1.0
+stacks:
+  staging:                          # Environment name (MAP key, not array)
+    type: cloud-compose             # Valid: cloud-compose, static, single-image
+    parent: mycompany/infrastructure # REQUIRED FORMAT: project/stack-name
+    parentEnv: staging              # Single environment (not staging/production)
+    config:
+      dockerComposeFile: docker-compose.yaml  # REQUIRED for cloud-compose
+      runs: [app]                   # REQUIRED: containers from docker-compose
+      uses: [postgres-db, redis]    # Consume shared resources
+      env:                          # Non-sensitive variables
+        PORT: 3000
+      secrets:                      # Sensitive values
+        JWT_SECRET: "${secret:jwt-secret}"
+        DATABASE_URL: "${resource:postgres-db.url}"
+      scale:                        # NOT 'scaling' section
+        min: 1
+        max: 5
+  prod:                             # Additional environments as MAP keys
+    type: cloud-compose
+    parent: mycompany/infrastructure
+    parentEnv: prod                 # Maps to server.yaml environment
+    config: { ... }
+
+✅ server.yaml CORRECT structure:
+
+schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      bucketName: company-state
+    secrets-provider:
+      type: aws-kms
+
+templates:
+  web-app:
+    type: ecs-fargate
+    ecrRepositoryResource: app-registry
+
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      zoneName: example.com
+  resources:
+    staging:
+      template: web-app
+      resources:
+        # AWS Example
+        app-registry:
+          type: ecr-repository
+          name: company-staging-registry
+        postgres-db:
+          type: aws-rds-postgres
+          name: company-staging-db
+          instanceClass: db.t3.micro
+          allocateStorage: 20
+          databaseName: myapp
+          engineVersion: "15.4"
+          username: dbadmin
+          password: "${secret:staging-db-password}"
+        # Kubernetes Example  
+        postgres-operator:
+          type: kubernetes-helm-postgres-operator
+          config:
+            kubeconfig: "${auth:kubernetes}"
+        redis-operator:
+          type: kubernetes-helm-redis-operator
+          config:
+            kubeconfig: "${auth:kubernetes}"
+    production:
+      template: web-app
+      resources:
+        postgres-db:
+          type: aws-rds-postgres
+          name: company-prod-db
+          instanceClass: db.r5.large
+          allocateStorage: 100
+          databaseName: myapp
+          engineVersion: "15.4"
+          username: dbadmin
+          password: "${secret:prod-db-password}"
+        uploads-bucket:
+          type: s3-bucket
+          name: company-prod-uploads
+          allowOnlyHttps: true
+
+🚫 FORBIDDEN PROPERTIES (never use these):
+❌ client.yaml WRONG patterns:
+- stacks: - name: (stacks is MAP, not array)
+- parent: infrastructure-name (missing project/ prefix)
+- parentEnv: staging/production (must be single value)
+- scaling: section (use scale: in config)
+- environment: section (use env: in config)
+- version: property (use schemaVersion:)
+- minCapacity/maxCapacity (use min/max in scale)
+- config.compose.file (use dockerComposeFile)
+- connectionString (use .url property)
+
+❌ server.yaml WRONG patterns:
+- provisioner: aws-pulumi (use provisioner.type: pulumi)
+- environments: section (use resources.resources with env keys)
+- flat resources.staging structure (use resources.resources.staging.resources)
+- templates nested in environments (templates is top-level)
+- fictional resource types: aws-ecs-cluster, aws-elasticache-redis (use real types)
+- fictional template properties: cpu, memory, desiredCount, public
+- fictional resource properties: engine, version, username, password in templates
+- registrar: domain: value (use resources.registrar.type and .config)
+- template type: aws-ecs-fargate (use ecs-fargate)
+
+✅ client.yaml CORRECT patterns:
+- stacks: { env-name: {...} } (MAP structure)
+- parent: project/stack-name (required format)
+- parentEnv: staging (single environment)
+- scale: { min: 1, max: 5 } (in config section)
+
+✅ For cloud-compose type:
+- dockerComposeFile: docker-compose.yaml (REQUIRED)
+- runs: [app] (REQUIRED - containers from compose)
+
+✅ For single-image type:
+- image.dockerfile: ${git:root}/Dockerfile (REQUIRED)
+- timeout: 120 (function timeout seconds)
+- maxMemory: 512 (memory allocation MB)
+
+✅ For static type:
+- bundleDir: ${git:root}/build (REQUIRED - directory with static files)
+- indexDocument: index.html (OPTIONAL - default page)
+- errorDocument: error.html (OPTIONAL - error page)
+- domain: mysite.com (OPTIONAL - custom domain)
+- NO runs, uses, env, secrets, or scale sections needed
+
+✅ Resource references:
+- ${resource:postgres-db.url} (not connectionString)
+- ${secret:api-key} (sensitive values)
+- ${auth:kubernetes} (Kubernetes kubeconfig for Kubernetes resources)
+- ${auth:aws} (AWS credentials for AWS resources)
+- ${auth:gcloud} (GCP credentials for GCP resources)
+
+✅ server.yaml CORRECT patterns:
+- provisioner.type: pulumi (NOT provisioner: aws-pulumi)
+- resources.registrar.type: cloudflare (top-level registrar)
+- resources.resources.staging.template: web-app (environment with template reference)
+- resources.resources.staging.resources.postgres-db.type: aws-rds-postgres (AWS resources)
+- resources.resources.staging.resources.postgres-operator.type: kubernetes-helm-postgres-operator (Kubernetes resources)
+- resources.resources.staging.resources.app-registry.type: ecr-repository (nested resources)
+- templates.web-app.type: ecs-fargate (real template type)
+- registrar config in resources.registrar.config (NOT registrar.domain: value)
+
+✅ SUPPORTED RESOURCE TYPES:
+#### AWS Resources:
+- aws-rds-postgres: PostgreSQL database
+- aws-rds-mysql: MySQL database
+- ecr-repository: Container registry
+- s3-bucket: S3 storage bucket
+
+#### Kubernetes Resources:
+- kubernetes-helm-postgres-operator: PostgreSQL operator via Helm
+- kubernetes-helm-redis-operator: Redis operator via Helm
+- kubernetes-helm-rabbitmq-operator: RabbitMQ operator via Helm
+- kubernetes-helm-mongodb-operator: MongoDB operator via Helm
+- kubernetes-caddy: Caddy reverse proxy
+- kubernetes: Base Kubernetes resource
+
+#### GCP Resources:
+- gcp-cloudsql-postgres: Cloud SQL PostgreSQL
+- gcp-bucket: Cloud Storage bucket
+- gcp-redis: Memorystore Redis
+
+✅ DEPLOYMENT TYPE SPECIFIC PROPERTIES:
+- cloud-compose: REQUIRES dockerComposeFile, runs; MAY use env, secrets, uses, scale
+- single-image: REQUIRES image.dockerfile; MAY use timeout, maxMemory, env, secrets
+- static: REQUIRES bundleDir; MAY use indexDocument, errorDocument, domain; NO runs, uses, env, secrets, scale
+
+🚫 NEVER use double dollar signs in placeholders: Use ${secret:name} NOT $${secret:name}
 
 RESPONSE GUIDELINES:
 1. **Be Concise**: Provide direct, actionable answers without verbose explanations
