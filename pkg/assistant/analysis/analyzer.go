@@ -20,9 +20,10 @@ type LLMProvider interface {
 
 // ProjectAnalyzer orchestrates tech stack detection and generates recommendations
 type ProjectAnalyzer struct {
-	detectors    []TechStackDetector
-	llmProvider  LLMProvider
-	embeddingsDB *embeddings.Database
+	detectors         []TechStackDetector
+	resourceDetectors []ResourceDetector
+	llmProvider       LLMProvider
+	embeddingsDB      *embeddings.Database
 }
 
 // NewProjectAnalyzer creates a new analyzer with default detectors
@@ -37,6 +38,14 @@ func NewProjectAnalyzer() *ProjectAnalyzer {
 			&GoDetector{},
 			&DockerDetector{},
 		},
+		resourceDetectors: []ResourceDetector{
+			&EnvironmentVariableDetector{},
+			&SecretDetector{},
+			&DatabaseDetector{},
+			&QueueDetector{},
+			&StorageDetector{},
+			&ExternalAPIDetector{},
+		},
 		llmProvider:  nil, // Can be set later with SetLLMProvider
 		embeddingsDB: embeddingsDB,
 	}
@@ -50,6 +59,14 @@ func NewProjectAnalyzerWithEmbeddings(embeddingsDB *embeddings.Database) *Projec
 			&PythonDetector{},
 			&GoDetector{},
 			&DockerDetector{},
+		},
+		resourceDetectors: []ResourceDetector{
+			&EnvironmentVariableDetector{},
+			&SecretDetector{},
+			&DatabaseDetector{},
+			&QueueDetector{},
+			&StorageDetector{},
+			&ExternalAPIDetector{},
 		},
 		llmProvider:  nil,
 		embeddingsDB: embeddingsDB,
@@ -68,6 +85,16 @@ func (pa *ProjectAnalyzer) AddDetector(detector TechStackDetector) {
 	// Re-sort by priority
 	sort.Slice(pa.detectors, func(i, j int) bool {
 		return pa.detectors[i].Priority() > pa.detectors[j].Priority()
+	})
+}
+
+// AddResourceDetector adds a custom resource detector
+func (pa *ProjectAnalyzer) AddResourceDetector(detector ResourceDetector) {
+	pa.resourceDetectors = append(pa.resourceDetectors, detector)
+
+	// Re-sort by priority
+	sort.Slice(pa.resourceDetectors, func(i, j int) bool {
+		return pa.resourceDetectors[i].Priority() > pa.resourceDetectors[j].Priority()
 	})
 }
 
@@ -128,6 +155,15 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 	if err == nil {
 		analysis.Files = files
 	}
+
+	// Run resource detectors
+	resources, err := pa.analyzeResources(projectPath)
+	if err == nil {
+		analysis.Resources = resources
+	}
+
+	// Generate enhanced recommendations based on detected resources
+	analysis.Recommendations = pa.generateEnhancedRecommendations(analysis)
 
 	// Enhance analysis with LLM insights
 	if pa.llmProvider != nil {
@@ -995,4 +1031,246 @@ func (pa *ProjectAnalyzer) parseAndEnhanceAnalysis(original *ProjectAnalysis, ll
 	enhanced.Metadata["scaling_strategy"] = llmInsights.DeploymentRecommendations.ScalingStrategy
 
 	return &enhanced
+}
+
+// analyzeResources runs all resource detectors and merges results
+func (pa *ProjectAnalyzer) analyzeResources(projectPath string) (*ResourceAnalysis, error) {
+	// Initialize combined resource analysis
+	combined := &ResourceAnalysis{
+		EnvironmentVars: []EnvironmentVariable{},
+		Secrets:         []Secret{},
+		Databases:       []Database{},
+		Queues:          []Queue{},
+		Storage:         []Storage{},
+		ExternalAPIs:    []ExternalAPI{},
+	}
+
+	// Run all resource detectors
+	for _, detector := range pa.resourceDetectors {
+		result, err := detector.Detect(projectPath)
+		if err != nil {
+			continue // Skip failed detectors, continue with others
+		}
+
+		// Merge results
+		combined.EnvironmentVars = append(combined.EnvironmentVars, result.EnvironmentVars...)
+		combined.Secrets = append(combined.Secrets, result.Secrets...)
+		combined.Databases = append(combined.Databases, result.Databases...)
+		combined.Queues = append(combined.Queues, result.Queues...)
+		combined.Storage = append(combined.Storage, result.Storage...)
+		combined.ExternalAPIs = append(combined.ExternalAPIs, result.ExternalAPIs...)
+	}
+
+	return combined, nil
+}
+
+// generateEnhancedRecommendations generates recommendations based on all analysis including resources
+func (pa *ProjectAnalyzer) generateEnhancedRecommendations(analysis *ProjectAnalysis) []Recommendation {
+	var recommendations []Recommendation
+
+	// Start with existing tech stack recommendations
+	recommendations = pa.generateRecommendations(analysis)
+
+	// Add resource-based recommendations if resources were detected
+	if analysis.Resources != nil {
+		recommendations = append(recommendations, pa.generateResourceRecommendations(analysis.Resources)...)
+	}
+
+	return recommendations
+}
+
+// generateResourceRecommendations creates recommendations based on detected resources
+func (pa *ProjectAnalyzer) generateResourceRecommendations(resources *ResourceAnalysis) []Recommendation {
+	var recs []Recommendation
+
+	// Environment variable recommendations
+	if len(resources.EnvironmentVars) > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "secrets",
+			Priority:    "high",
+			Title:       "Environment Variables Management",
+			Description: fmt.Sprintf("Detected %d environment variables. Consider using Simple Container secrets.yaml for sensitive values", len(resources.EnvironmentVars)),
+			Action:      "setup_secrets",
+		})
+
+		// Check for database-related env vars
+		dbEnvVars := 0
+		for _, envVar := range resources.EnvironmentVars {
+			if envVar.UsageType == "database_config" || envVar.UsageType == "secret" {
+				dbEnvVars++
+			}
+		}
+
+		if dbEnvVars > 0 {
+			recs = append(recs, Recommendation{
+				Type:        "configuration",
+				Category:    "security",
+				Priority:    "high",
+				Title:       "Database Credentials Security",
+				Description: fmt.Sprintf("Found %d database-related environment variables. Use Simple Container template placeholders like ${resource:db.url}", dbEnvVars),
+				Action:      "secure_database_config",
+			})
+		}
+	}
+
+	// Secret recommendations
+	if len(resources.Secrets) > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "security",
+			Priority:    "critical",
+			Title:       "Hardcoded Secrets Detected",
+			Description: fmt.Sprintf("Found %d potential hardcoded secrets. Move these to Simple Container secrets.yaml immediately", len(resources.Secrets)),
+			Action:      "move_secrets_to_vault",
+		})
+	}
+
+	// Database recommendations
+	for _, db := range resources.Databases {
+		switch db.Type {
+		case "postgresql":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "database",
+				Priority:    "high",
+				Title:       "PostgreSQL Database Resource",
+				Description: "Add PostgreSQL database resource for detected usage",
+				Resource:    "aws-rds-postgres",
+				Action:      "add_resource",
+			})
+		case "mongodb":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "database",
+				Priority:    "high",
+				Title:       "MongoDB Database Resource",
+				Description: "Add MongoDB Atlas database resource for detected usage",
+				Resource:    "mongodb-atlas",
+				Action:      "add_resource",
+			})
+		case "redis":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "cache",
+				Priority:    "medium",
+				Title:       "Redis Cache Resource",
+				Description: "Add Redis cache resource for detected usage",
+				Resource:    "gcp-redis",
+				Action:      "add_resource",
+			})
+		}
+	}
+
+	// Queue recommendations
+	for _, queue := range resources.Queues {
+		switch queue.Type {
+		case "rabbitmq":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "messaging",
+				Priority:    "medium",
+				Title:       "RabbitMQ Messaging Resource",
+				Description: "Add RabbitMQ operator resource for detected messaging usage",
+				Resource:    "kubernetes-helm-rabbitmq-operator",
+				Action:      "add_resource",
+			})
+		case "aws_sqs":
+			recs = append(recs, Recommendation{
+				Type:        "configuration",
+				Category:    "messaging",
+				Priority:    "medium",
+				Title:       "AWS SQS Configuration",
+				Description: "Configure AWS SQS authentication with ${auth:aws}",
+				Action:      "configure_aws_sqs",
+			})
+		}
+	}
+
+	// Storage recommendations
+	for _, storage := range resources.Storage {
+		switch storage.Type {
+		case "s3":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "storage",
+				Priority:    "high",
+				Title:       "S3 Bucket Resource",
+				Description: "Add S3 bucket resource for detected storage usage",
+				Resource:    "s3-bucket",
+				Action:      "add_resource",
+			})
+		case "gcs":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "storage",
+				Priority:    "high",
+				Title:       "Google Cloud Storage Resource",
+				Description: "Add GCP bucket resource for detected storage usage",
+				Resource:    "gcp-bucket",
+				Action:      "add_resource",
+			})
+		case "file_upload":
+			recs = append(recs, Recommendation{
+				Type:        "resource",
+				Category:    "storage",
+				Priority:    "medium",
+				Title:       "File Upload Storage",
+				Description: "Consider adding S3 or GCP bucket for scalable file uploads",
+				Resource:    "s3-bucket",
+				Action:      "add_resource",
+			})
+		}
+	}
+
+	// External API recommendations
+	paymentAPIs := 0
+	emailAPIs := 0
+	aiAPIs := 0
+
+	for _, api := range resources.ExternalAPIs {
+		switch api.Purpose {
+		case "payment":
+			paymentAPIs++
+		case "email":
+			emailAPIs++
+		case "ai":
+			aiAPIs++
+		}
+	}
+
+	if paymentAPIs > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "integration",
+			Priority:    "medium",
+			Title:       "Payment Service Integration",
+			Description: fmt.Sprintf("Detected %d payment service integrations. Ensure API keys are in secrets.yaml", paymentAPIs),
+			Action:      "secure_payment_config",
+		})
+	}
+
+	if emailAPIs > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "integration",
+			Priority:    "medium",
+			Title:       "Email Service Integration",
+			Description: fmt.Sprintf("Detected %d email service integrations. Configure with Simple Container secrets", emailAPIs),
+			Action:      "configure_email_service",
+		})
+	}
+
+	if aiAPIs > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "integration",
+			Priority:    "medium",
+			Title:       "AI Service Integration",
+			Description: fmt.Sprintf("Detected %d AI service integrations. Manage API keys securely", aiAPIs),
+			Action:      "secure_ai_config",
+		})
+	}
+
+	return recs
 }

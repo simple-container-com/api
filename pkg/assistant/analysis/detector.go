@@ -47,6 +47,7 @@ type ProjectAnalysis struct {
 	Architecture    string                 `json:"architecture,omitempty"`
 	Recommendations []Recommendation       `json:"recommendations"`
 	Files           []FileInfo             `json:"files,omitempty"`
+	Resources       *ResourceAnalysis      `json:"resources,omitempty"` // NEW: Detected resources
 	Confidence      float32                `json:"overall_confidence"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -72,6 +73,78 @@ type FileInfo struct {
 	Purpose  string            `json:"purpose,omitempty"`
 	Size     int64             `json:"size"`
 	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+// ResourceAnalysis contains detected project resources
+type ResourceAnalysis struct {
+	EnvironmentVars []EnvironmentVariable `json:"environment_variables,omitempty"`
+	Secrets         []Secret              `json:"secrets,omitempty"`
+	Databases       []Database            `json:"databases,omitempty"`
+	Queues          []Queue               `json:"queues,omitempty"`
+	Storage         []Storage             `json:"storage,omitempty"`
+	ExternalAPIs    []ExternalAPI         `json:"external_apis,omitempty"`
+}
+
+// EnvironmentVariable represents a detected environment variable
+type EnvironmentVariable struct {
+	Name        string   `json:"name"`
+	Sources     []string `json:"sources"`    // Files where found
+	UsageType   string   `json:"usage_type"` // "config", "secret", "url", "feature_flag", etc.
+	Description string   `json:"description,omitempty"`
+	Required    bool     `json:"required"`
+	DefaultVal  string   `json:"default_value,omitempty"`
+}
+
+// Secret represents detected sensitive data patterns
+type Secret struct {
+	Type        string   `json:"type"` // "api_key", "database_url", "jwt_secret", etc.
+	Name        string   `json:"name,omitempty"`
+	Sources     []string `json:"sources"`               // Files where patterns found
+	Pattern     string   `json:"pattern,omitempty"`     // Regex pattern that matched
+	Confidence  float32  `json:"confidence"`            // How confident we are this is a secret
+	Recommended string   `json:"recommended,omitempty"` // Recommended Simple Container resource
+}
+
+// Database represents detected database usage
+type Database struct {
+	Type        string            `json:"type"` // "postgresql", "mysql", "mongodb", "redis", etc.
+	Name        string            `json:"name,omitempty"`
+	Sources     []string          `json:"sources"`              // Files where detected
+	Connection  string            `json:"connection,omitempty"` // Connection method/library
+	Version     string            `json:"version,omitempty"`
+	Config      map[string]string `json:"config,omitempty"` // Database-specific config
+	Confidence  float32           `json:"confidence"`
+	Recommended string            `json:"recommended,omitempty"` // Recommended Simple Container resource
+}
+
+// Queue represents detected queue/messaging system
+type Queue struct {
+	Type        string   `json:"type"` // "rabbitmq", "sqs", "kafka", "redis_pubsub", etc.
+	Name        string   `json:"name,omitempty"`
+	Sources     []string `json:"sources"`          // Files where detected
+	Topics      []string `json:"topics,omitempty"` // Detected topics/queues
+	Confidence  float32  `json:"confidence"`
+	Recommended string   `json:"recommended,omitempty"` // Recommended Simple Container resource
+}
+
+// Storage represents detected storage services
+type Storage struct {
+	Type        string   `json:"type"` // "s3", "gcs", "azure_blob", "file_upload", etc.
+	Name        string   `json:"name,omitempty"`
+	Sources     []string `json:"sources"`           // Files where detected
+	Buckets     []string `json:"buckets,omitempty"` // Detected bucket names
+	Purpose     string   `json:"purpose,omitempty"` // "uploads", "static", "backup", etc.
+	Confidence  float32  `json:"confidence"`
+	Recommended string   `json:"recommended,omitempty"` // Recommended Simple Container resource
+}
+
+// ExternalAPI represents detected external API usage
+type ExternalAPI struct {
+	Name       string   `json:"name"`                // "stripe", "sendgrid", "openai", etc.
+	Sources    []string `json:"sources"`             // Files where detected
+	Endpoints  []string `json:"endpoints,omitempty"` // API endpoints found
+	Purpose    string   `json:"purpose,omitempty"`   // "payment", "email", "ai", etc.
+	Confidence float32  `json:"confidence"`
 }
 
 // NodeJSDetector detects Node.js projects
