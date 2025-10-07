@@ -154,7 +154,8 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (*Chat
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, enhanceAnthropicError(err)
 	}
 
 	// Parse response
@@ -234,7 +235,8 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, enhanceAnthropicError(err)
 	}
 
 	// Process SSE stream
@@ -508,6 +510,30 @@ func calculateAnthropicCost(model string, inputTokens, outputTokens int) float64
 	outputCost := (float64(outputTokens) / 1000000.0) * outputCostPer1M
 
 	return inputCost + outputCost
+}
+
+// enhanceAnthropicError adds more context to Anthropic API errors
+func enhanceAnthropicError(err error) error {
+	errStr := err.Error()
+
+	// Check for common error patterns
+	if strings.Contains(errStr, "401") || strings.Contains(errStr, "authentication") {
+		return fmt.Errorf("Anthropic API error: Invalid API key. Please check your API key at https://console.anthropic.com/")
+	}
+	if strings.Contains(errStr, "402") || strings.Contains(errStr, "credits") || strings.Contains(errStr, "billing") {
+		return fmt.Errorf("Anthropic API error: Insufficient credits. Please add credits to your account at https://console.anthropic.com/")
+	}
+	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
+		return fmt.Errorf("Anthropic API error: Rate limit exceeded. Please wait a moment and try again")
+	}
+	if strings.Contains(errStr, "529") || strings.Contains(errStr, "overloaded") {
+		return fmt.Errorf("Anthropic API error: Service is overloaded. Please try again in a few moments")
+	}
+	if strings.Contains(errStr, "500") || strings.Contains(errStr, "503") {
+		return fmt.Errorf("Anthropic API error: Service temporarily unavailable. Please try again later")
+	}
+
+	return fmt.Errorf("Anthropic API error: %w", err)
 }
 
 // Register Anthropic provider with global registry

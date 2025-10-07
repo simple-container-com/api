@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -12,8 +13,8 @@ import (
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
-// OpenAIProvider implements Provider for OpenAI's GPT models
-type OpenAIProvider struct {
+// YandexProvider implements Provider for Yandex ChatGPT (OpenAI-compatible API)
+type YandexProvider struct {
 	client     *openai.LLM
 	config     Config
 	model      string
@@ -22,30 +23,36 @@ type OpenAIProvider struct {
 	configured bool
 }
 
-// NewOpenAIProvider creates a new OpenAI provider
-func NewOpenAIProvider() Provider {
-	return &OpenAIProvider{}
+// NewYandexProvider creates a new Yandex provider
+func NewYandexProvider() Provider {
+	return &YandexProvider{}
 }
 
-// Configure configures the OpenAI provider
-func (p *OpenAIProvider) Configure(config Config) error {
+// Configure configures the Yandex provider
+func (p *YandexProvider) Configure(config Config) error {
 	// Validate required configuration
 	if config.APIKey == "" {
-		return fmt.Errorf("OpenAI API key is required")
+		return fmt.Errorf("Yandex API key is required")
+	}
+
+	// Set default base URL if not specified
+	if config.BaseURL == "" {
+		config.BaseURL = "https://llm.api.cloud.yandex.net/foundationModels/v1"
 	}
 
 	// Set default model if not specified
 	if config.Model == "" {
-		config.Model = "gpt-3.5-turbo"
+		config.Model = "yandexgpt/latest"
 	}
 
-	// Create OpenAI client
+	// Create Yandex client (using OpenAI client with custom base URL)
 	llm, err := openai.New(
 		openai.WithToken(config.APIKey),
 		openai.WithModel(config.Model),
+		openai.WithBaseURL(config.BaseURL),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create OpenAI client: %w", err)
+		return fmt.Errorf("failed to create Yandex client: %w", err)
 	}
 
 	p.client = llm
@@ -58,10 +65,10 @@ func (p *OpenAIProvider) Configure(config Config) error {
 	return nil
 }
 
-// Chat sends messages to OpenAI and returns a response
-func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
+// Chat sends messages to Yandex and returns a response
+func (p *YandexProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
 	if !p.configured {
-		return nil, fmt.Errorf("OpenAI provider not configured")
+		return nil, fmt.Errorf("Yandex provider not configured")
 	}
 
 	// Convert messages to langchaingo format
@@ -83,14 +90,14 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
 	}
 
-	// Call OpenAI
+	// Call Yandex
 	startTime := time.Now()
 	response, err := p.client.GenerateContent(ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 	)
 	if err != nil {
-		return nil, enhanceOpenAIError(err)
+		return nil, fmt.Errorf("Yandex API error: %w", err)
 	}
 
 	// Extract response content
@@ -99,31 +106,31 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		content = response.Choices[0].Content
 	}
 
-	// Calculate token usage (approximate if not provided)
+	// Calculate token usage
 	usage := TokenUsage{
 		PromptTokens:     estimateTokens(messagesToString(messages)),
 		CompletionTokens: estimateTokens(content),
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+	usage.Cost = calculateYandexCost(p.model, usage.TotalTokens)
 
 	return &ChatResponse{
 		Content:      content,
 		Usage:        usage,
 		Model:        p.model,
-		FinishReason: "stop", // Default finish reason
+		FinishReason: "stop",
 		Metadata: map[string]string{
-			"provider":   "openai",
+			"provider":   "yandex",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
 	}, nil
 }
 
-// StreamChat sends messages to OpenAI and streams the response via callback
-func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
+// StreamChat sends messages to Yandex and streams the response via callback
+func (p *YandexProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
 	if !p.configured {
-		return nil, fmt.Errorf("OpenAI provider not configured")
+		return nil, fmt.Errorf("Yandex provider not configured")
 	}
 
 	// Convert messages to langchaingo format
@@ -168,7 +175,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 				Delta:      chunkStr,
 				IsComplete: false,
 				Metadata: map[string]string{
-					"provider": "openai",
+					"provider": "yandex",
 				},
 				GeneratedAt: time.Now(),
 			}
@@ -177,7 +184,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		}),
 	)
 	if err != nil {
-		return nil, enhanceOpenAIError(err)
+		return nil, fmt.Errorf("Yandex streaming API error: %w", err)
 	}
 
 	// Calculate final token usage
@@ -186,7 +193,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		CompletionTokens: completionTokens,
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+	usage.Cost = calculateYandexCost(p.model, usage.TotalTokens)
 
 	// Send final chunk
 	finalChunk := StreamChunk{
@@ -195,7 +202,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		IsComplete: true,
 		Usage:      &usage,
 		Metadata: map[string]string{
-			"provider":   "openai",
+			"provider":   "yandex",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
@@ -211,48 +218,49 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		Model:        p.model,
 		FinishReason: "stop",
 		Metadata: map[string]string{
-			"provider":   "openai",
+			"provider":   "yandex",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
 	}, nil
 }
 
-// GetCapabilities returns OpenAI capabilities
-func (p *OpenAIProvider) GetCapabilities() Capabilities {
+// GetCapabilities returns Yandex capabilities
+func (p *YandexProvider) GetCapabilities() Capabilities {
 	return Capabilities{
-		Name:              "OpenAI",
-		Models:            []string{}, // Models fetched via API using ListModels()
-		MaxTokens:         128000,     // Max for gpt-4-turbo and newer
+		Name:              "Yandex ChatGPT",
+		Models:            []string{},
+		MaxTokens:         8000,
 		SupportsStreaming: true,
 		SupportsFunctions: false,
-		CostPerToken:      0.000002,
+		CostPerToken:      0.0000012, // Approximate pricing
 		RequiresAuth:      true,
 	}
 }
 
 // GetModel returns the current model
-func (p *OpenAIProvider) GetModel() string {
+func (p *YandexProvider) GetModel() string {
 	return p.model
 }
 
 // IsAvailable checks if the provider is available
-func (p *OpenAIProvider) IsAvailable() bool {
+func (p *YandexProvider) IsAvailable() bool {
 	return p.configured && p.client != nil
 }
 
-// ListModels returns available models from OpenAI API
-func (p *OpenAIProvider) ListModels(ctx context.Context) ([]string, error) {
-	if p.client == nil {
+// ListModels returns available models from Yandex API
+func (p *YandexProvider) ListModels(ctx context.Context) ([]string, error) {
+	if !p.configured {
 		return nil, fmt.Errorf("provider not configured")
 	}
 
-	// Create HTTP request to list models
-	baseURL := "https://api.openai.com/v1"
-	if p.baseURL != "" {
-		baseURL = p.baseURL
+	// Try to fetch from Yandex Foundation Models API
+	baseURL := p.baseURL
+	if baseURL == "" {
+		baseURL = "https://llm.api.cloud.yandex.net/foundationModels/v1"
 	}
 
+	// Yandex uses /models endpoint
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -269,103 +277,62 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	// Parse response
 	var modelsResp struct {
-		Data []struct {
-			ID      string `json:"id"`
-			Object  string `json:"object"`
-			Created int64  `json:"created"`
-		} `json:"data"`
+		Models []struct {
+			Name        string `json:"name"`
+			URI         string `json:"uri"`
+			Description string `json:"description"`
+		} `json:"models"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Filter to chat models only
-	var chatModels []string
-	for _, model := range modelsResp.Data {
-		id := model.ID
-		// Include GPT models and O1 models
-		if strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "o1") {
-			// Exclude fine-tuned models (contain ':')
-			if !strings.Contains(id, ":") {
-				chatModels = append(chatModels, id)
-			}
+	// Extract model names/URIs
+	var models []string
+	for _, model := range modelsResp.Models {
+		if model.URI != "" {
+			models = append(models, model.URI)
+		} else if model.Name != "" {
+			models = append(models, model.Name)
 		}
 	}
 
-	return chatModels, nil
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models found in Yandex API response")
+	}
+
+	return models, nil
 }
 
 // Close cleans up resources
-func (p *OpenAIProvider) Close() error {
-	// Nothing to clean up for OpenAI client
+func (p *YandexProvider) Close() error {
 	return nil
 }
 
-// Helper functions
+// calculateYandexCost calculates approximate cost for Yandex models
+func calculateYandexCost(model string, tokens int) float64 {
+	// Yandex pricing varies by model
+	// YandexGPT: ~$1.20 per 1M tokens
+	// YandexGPT Lite: ~$0.60 per 1M tokens
+	var costPer1MTokens float64
 
-func messagesToString(messages []Message) string {
-	var parts []string
-	for _, msg := range messages {
-		parts = append(parts, msg.Content)
+	if strings.Contains(model, "lite") {
+		costPer1MTokens = 0.60
+	} else {
+		costPer1MTokens = 1.20
 	}
-	return strings.Join(parts, " ")
+
+	return (float64(tokens) / 1000000.0) * costPer1MTokens
 }
 
-// estimateTokens provides a rough estimate of token count
-// In a production system, you'd want to use tiktoken or similar
-func estimateTokens(text string) int {
-	// Rough approximation: 1 token ≈ 4 characters for English text
-	return len(text) / 4
-}
-
-// calculateOpenAICost calculates approximate cost for OpenAI models
-func calculateOpenAICost(model string, tokens int) float64 {
-	var costPer1KTokens float64
-
-	switch model {
-	case "gpt-4":
-		costPer1KTokens = 0.03
-	case "gpt-4-turbo-preview":
-		costPer1KTokens = 0.01
-	case "gpt-3.5-turbo":
-		costPer1KTokens = 0.002
-	case "gpt-3.5-turbo-16k":
-		costPer1KTokens = 0.004
-	default:
-		costPer1KTokens = 0.002 // Default to gpt-3.5-turbo pricing
-	}
-
-	return (float64(tokens) / 1000.0) * costPer1KTokens
-}
-
-// enhanceOpenAIError adds more context to OpenAI API errors
-func enhanceOpenAIError(err error) error {
-	errStr := err.Error()
-
-	// Check for common error patterns
-	if strings.Contains(errStr, "401") || strings.Contains(errStr, "Incorrect API key") {
-		return fmt.Errorf("OpenAI API error: Invalid API key. Please check your API key at https://platform.openai.com/")
-	}
-	if strings.Contains(errStr, "402") || strings.Contains(errStr, "billing") {
-		return fmt.Errorf("OpenAI API error: Payment required. Please add payment method at https://platform.openai.com/account/billing")
-	}
-	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "quota") {
-		return fmt.Errorf("OpenAI API error: Rate limit or quota exceeded. Please check your usage at https://platform.openai.com/account/usage")
-	}
-	if strings.Contains(errStr, "500") || strings.Contains(errStr, "503") {
-		return fmt.Errorf("OpenAI API error: Service temporarily unavailable. Please try again later")
-	}
-
-	return fmt.Errorf("OpenAI API error: %w", err)
-}
-
-// Register OpenAI provider with global registry
+// Register Yandex provider with global registry
 func init() {
-	GlobalRegistry.Register("openai", NewOpenAIProvider)
+	GlobalRegistry.Register("yandex", NewYandexProvider)
 }

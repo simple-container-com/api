@@ -12,8 +12,8 @@ import (
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
-// OpenAIProvider implements Provider for OpenAI's GPT models
-type OpenAIProvider struct {
+// DeepSeekProvider implements Provider for DeepSeek (OpenAI-compatible API)
+type DeepSeekProvider struct {
 	client     *openai.LLM
 	config     Config
 	model      string
@@ -22,30 +22,36 @@ type OpenAIProvider struct {
 	configured bool
 }
 
-// NewOpenAIProvider creates a new OpenAI provider
-func NewOpenAIProvider() Provider {
-	return &OpenAIProvider{}
+// NewDeepSeekProvider creates a new DeepSeek provider
+func NewDeepSeekProvider() Provider {
+	return &DeepSeekProvider{}
 }
 
-// Configure configures the OpenAI provider
-func (p *OpenAIProvider) Configure(config Config) error {
+// Configure configures the DeepSeek provider
+func (p *DeepSeekProvider) Configure(config Config) error {
 	// Validate required configuration
 	if config.APIKey == "" {
-		return fmt.Errorf("OpenAI API key is required")
+		return fmt.Errorf("DeepSeek API key is required")
+	}
+
+	// Set default base URL if not specified
+	if config.BaseURL == "" {
+		config.BaseURL = "https://api.deepseek.com/v1"
 	}
 
 	// Set default model if not specified
 	if config.Model == "" {
-		config.Model = "gpt-3.5-turbo"
+		config.Model = "deepseek-chat"
 	}
 
-	// Create OpenAI client
+	// Create DeepSeek client (using OpenAI client with custom base URL)
 	llm, err := openai.New(
 		openai.WithToken(config.APIKey),
 		openai.WithModel(config.Model),
+		openai.WithBaseURL(config.BaseURL),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create OpenAI client: %w", err)
+		return fmt.Errorf("failed to create DeepSeek client: %w", err)
 	}
 
 	p.client = llm
@@ -58,10 +64,10 @@ func (p *OpenAIProvider) Configure(config Config) error {
 	return nil
 }
 
-// Chat sends messages to OpenAI and returns a response
-func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
+// Chat sends messages to DeepSeek and returns a response
+func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
 	if !p.configured {
-		return nil, fmt.Errorf("OpenAI provider not configured")
+		return nil, fmt.Errorf("DeepSeek provider not configured")
 	}
 
 	// Convert messages to langchaingo format
@@ -83,14 +89,14 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
 	}
 
-	// Call OpenAI
+	// Call DeepSeek
 	startTime := time.Now()
 	response, err := p.client.GenerateContent(ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 	)
 	if err != nil {
-		return nil, enhanceOpenAIError(err)
+		return nil, enhanceDeepSeekError(err)
 	}
 
 	// Extract response content
@@ -99,31 +105,31 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		content = response.Choices[0].Content
 	}
 
-	// Calculate token usage (approximate if not provided)
+	// Calculate token usage
 	usage := TokenUsage{
 		PromptTokens:     estimateTokens(messagesToString(messages)),
 		CompletionTokens: estimateTokens(content),
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+	usage.Cost = calculateDeepSeekCost(p.model, usage.TotalTokens)
 
 	return &ChatResponse{
 		Content:      content,
 		Usage:        usage,
 		Model:        p.model,
-		FinishReason: "stop", // Default finish reason
+		FinishReason: "stop",
 		Metadata: map[string]string{
-			"provider":   "openai",
+			"provider":   "deepseek",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
 	}, nil
 }
 
-// StreamChat sends messages to OpenAI and streams the response via callback
-func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
+// StreamChat sends messages to DeepSeek and streams the response via callback
+func (p *DeepSeekProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
 	if !p.configured {
-		return nil, fmt.Errorf("OpenAI provider not configured")
+		return nil, fmt.Errorf("DeepSeek provider not configured")
 	}
 
 	// Convert messages to langchaingo format
@@ -168,7 +174,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 				Delta:      chunkStr,
 				IsComplete: false,
 				Metadata: map[string]string{
-					"provider": "openai",
+					"provider": "deepseek",
 				},
 				GeneratedAt: time.Now(),
 			}
@@ -177,7 +183,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		}),
 	)
 	if err != nil {
-		return nil, enhanceOpenAIError(err)
+		return nil, enhanceDeepSeekError(err)
 	}
 
 	// Calculate final token usage
@@ -186,7 +192,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		CompletionTokens: completionTokens,
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+	usage.Cost = calculateDeepSeekCost(p.model, usage.TotalTokens)
 
 	// Send final chunk
 	finalChunk := StreamChunk{
@@ -195,7 +201,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		IsComplete: true,
 		Usage:      &usage,
 		Metadata: map[string]string{
-			"provider":   "openai",
+			"provider":   "deepseek",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
@@ -211,46 +217,46 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 		Model:        p.model,
 		FinishReason: "stop",
 		Metadata: map[string]string{
-			"provider":   "openai",
+			"provider":   "deepseek",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
 	}, nil
 }
 
-// GetCapabilities returns OpenAI capabilities
-func (p *OpenAIProvider) GetCapabilities() Capabilities {
+// GetCapabilities returns DeepSeek capabilities
+func (p *DeepSeekProvider) GetCapabilities() Capabilities {
 	return Capabilities{
-		Name:              "OpenAI",
-		Models:            []string{}, // Models fetched via API using ListModels()
-		MaxTokens:         128000,     // Max for gpt-4-turbo and newer
+		Name:              "DeepSeek",
+		Models:            []string{},
+		MaxTokens:         4096,
 		SupportsStreaming: true,
 		SupportsFunctions: false,
-		CostPerToken:      0.000002,
+		CostPerToken:      0.0000014, // $0.14 per 1M tokens
 		RequiresAuth:      true,
 	}
 }
 
 // GetModel returns the current model
-func (p *OpenAIProvider) GetModel() string {
+func (p *DeepSeekProvider) GetModel() string {
 	return p.model
 }
 
 // IsAvailable checks if the provider is available
-func (p *OpenAIProvider) IsAvailable() bool {
+func (p *DeepSeekProvider) IsAvailable() bool {
 	return p.configured && p.client != nil
 }
 
-// ListModels returns available models from OpenAI API
-func (p *OpenAIProvider) ListModels(ctx context.Context) ([]string, error) {
+// ListModels returns available models from DeepSeek API
+func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]string, error) {
 	if p.client == nil {
 		return nil, fmt.Errorf("provider not configured")
 	}
 
 	// Create HTTP request to list models
-	baseURL := "https://api.openai.com/v1"
-	if p.baseURL != "" {
-		baseURL = p.baseURL
+	baseURL := p.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.deepseek.com/v1"
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
@@ -285,87 +291,57 @@ func (p *OpenAIProvider) ListModels(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Filter to chat models only
-	var chatModels []string
+	// Extract model IDs
+	var models []string
 	for _, model := range modelsResp.Data {
-		id := model.ID
-		// Include GPT models and O1 models
-		if strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "o1") {
-			// Exclude fine-tuned models (contain ':')
-			if !strings.Contains(id, ":") {
-				chatModels = append(chatModels, id)
-			}
-		}
+		models = append(models, model.ID)
 	}
 
-	return chatModels, nil
+	return models, nil
 }
 
 // Close cleans up resources
-func (p *OpenAIProvider) Close() error {
-	// Nothing to clean up for OpenAI client
+func (p *DeepSeekProvider) Close() error {
 	return nil
 }
 
-// Helper functions
+// calculateDeepSeekCost calculates approximate cost for DeepSeek models
+func calculateDeepSeekCost(model string, tokens int) float64 {
+	// DeepSeek pricing: $0.14 per 1M tokens for deepseek-chat
+	// $0.28 per 1M tokens for deepseek-coder
+	var costPer1MTokens float64
 
-func messagesToString(messages []Message) string {
-	var parts []string
-	for _, msg := range messages {
-		parts = append(parts, msg.Content)
-	}
-	return strings.Join(parts, " ")
-}
-
-// estimateTokens provides a rough estimate of token count
-// In a production system, you'd want to use tiktoken or similar
-func estimateTokens(text string) int {
-	// Rough approximation: 1 token ≈ 4 characters for English text
-	return len(text) / 4
-}
-
-// calculateOpenAICost calculates approximate cost for OpenAI models
-func calculateOpenAICost(model string, tokens int) float64 {
-	var costPer1KTokens float64
-
-	switch model {
-	case "gpt-4":
-		costPer1KTokens = 0.03
-	case "gpt-4-turbo-preview":
-		costPer1KTokens = 0.01
-	case "gpt-3.5-turbo":
-		costPer1KTokens = 0.002
-	case "gpt-3.5-turbo-16k":
-		costPer1KTokens = 0.004
-	default:
-		costPer1KTokens = 0.002 // Default to gpt-3.5-turbo pricing
+	if strings.Contains(model, "coder") {
+		costPer1MTokens = 0.28
+	} else {
+		costPer1MTokens = 0.14
 	}
 
-	return (float64(tokens) / 1000.0) * costPer1KTokens
+	return (float64(tokens) / 1000000.0) * costPer1MTokens
 }
 
-// enhanceOpenAIError adds more context to OpenAI API errors
-func enhanceOpenAIError(err error) error {
+// enhanceDeepSeekError adds more context to DeepSeek API errors
+func enhanceDeepSeekError(err error) error {
 	errStr := err.Error()
 
 	// Check for common error patterns
-	if strings.Contains(errStr, "401") || strings.Contains(errStr, "Incorrect API key") {
-		return fmt.Errorf("OpenAI API error: Invalid API key. Please check your API key at https://platform.openai.com/")
+	if strings.Contains(errStr, "402") || strings.Contains(errStr, "Insufficient Balance") {
+		return fmt.Errorf("DeepSeek API error: Insufficient balance. Please add credits to your DeepSeek account at https://platform.deepseek.com/")
 	}
-	if strings.Contains(errStr, "402") || strings.Contains(errStr, "billing") {
-		return fmt.Errorf("OpenAI API error: Payment required. Please add payment method at https://platform.openai.com/account/billing")
+	if strings.Contains(errStr, "401") || strings.Contains(errStr, "Unauthorized") {
+		return fmt.Errorf("DeepSeek API error: Invalid API key. Please check your API key")
 	}
-	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "quota") {
-		return fmt.Errorf("OpenAI API error: Rate limit or quota exceeded. Please check your usage at https://platform.openai.com/account/usage")
+	if strings.Contains(errStr, "429") || strings.Contains(errStr, "rate limit") {
+		return fmt.Errorf("DeepSeek API error: Rate limit exceeded. Please wait a moment and try again")
 	}
 	if strings.Contains(errStr, "500") || strings.Contains(errStr, "503") {
-		return fmt.Errorf("OpenAI API error: Service temporarily unavailable. Please try again later")
+		return fmt.Errorf("DeepSeek API error: Service temporarily unavailable. Please try again later")
 	}
 
-	return fmt.Errorf("OpenAI API error: %w", err)
+	return fmt.Errorf("DeepSeek API error: %w", err)
 }
 
-// Register OpenAI provider with global registry
+// Register DeepSeek provider with global registry
 func init() {
-	GlobalRegistry.Register("openai", NewOpenAIProvider)
+	GlobalRegistry.Register("deepseek", NewDeepSeekProvider)
 }
