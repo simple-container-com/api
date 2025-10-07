@@ -47,7 +47,8 @@ type ProjectAnalysis struct {
 	Architecture    string                 `json:"architecture,omitempty"`
 	Recommendations []Recommendation       `json:"recommendations"`
 	Files           []FileInfo             `json:"files,omitempty"`
-	Resources       *ResourceAnalysis      `json:"resources,omitempty"` // NEW: Detected resources
+	Resources       *ResourceAnalysis      `json:"resources,omitempty"` // Detected resources
+	Git             *GitAnalysis           `json:"git,omitempty"`       // Git repository analysis
 	Confidence      float32                `json:"overall_confidence"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -67,12 +68,24 @@ type Recommendation struct {
 
 // FileInfo represents analyzed file information
 type FileInfo struct {
-	Path     string            `json:"path"`
-	Type     string            `json:"type"` // "config", "source", "build", "docs"
-	Language string            `json:"language,omitempty"`
-	Purpose  string            `json:"purpose,omitempty"`
-	Size     int64             `json:"size"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Path       string            `json:"path"`
+	Type       string            `json:"type"` // "config", "source", "build", "docs"
+	Language   string            `json:"language,omitempty"`
+	Purpose    string            `json:"purpose,omitempty"`
+	Size       int64             `json:"size"`
+	Complexity *CodeComplexity   `json:"complexity,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}
+
+// CodeComplexity represents code complexity metrics
+type CodeComplexity struct {
+	LinesOfCode     int     `json:"lines_of_code"`
+	CyclomaticScore int     `json:"cyclomatic_score,omitempty"`
+	FunctionCount   int     `json:"function_count,omitempty"`
+	ClassCount      int     `json:"class_count,omitempty"`
+	ImportCount     int     `json:"import_count,omitempty"`
+	CommentRatio    float32 `json:"comment_ratio,omitempty"`
+	ComplexityLevel string  `json:"complexity_level"` // "low", "medium", "high", "very_high"
 }
 
 // ResourceAnalysis contains detected project resources
@@ -83,6 +96,62 @@ type ResourceAnalysis struct {
 	Queues          []Queue               `json:"queues,omitempty"`
 	Storage         []Storage             `json:"storage,omitempty"`
 	ExternalAPIs    []ExternalAPI         `json:"external_apis,omitempty"`
+}
+
+// GitAnalysis contains Git repository analysis
+type GitAnalysis struct {
+	IsGitRepo      bool              `json:"is_git_repo"`
+	RemoteURL      string            `json:"remote_url,omitempty"`
+	Branch         string            `json:"current_branch,omitempty"`
+	LastCommit     *GitCommit        `json:"last_commit,omitempty"`
+	Contributors   []GitContributor  `json:"contributors,omitempty"`
+	CommitActivity *CommitActivity   `json:"commit_activity,omitempty"`
+	FileChanges    *FileChangeStats  `json:"file_changes,omitempty"`
+	HasCI          bool              `json:"has_ci"`
+	CIPlatforms    []string          `json:"ci_platforms,omitempty"`
+	Tags           []string          `json:"tags,omitempty"`
+	ProjectAge     int               `json:"project_age_days,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
+// GitCommit represents a Git commit
+type GitCommit struct {
+	Hash         string `json:"hash"`
+	Author       string `json:"author"`
+	Email        string `json:"email"`
+	Date         string `json:"date"`
+	Message      string `json:"message"`
+	FilesChanged int    `json:"files_changed"`
+}
+
+// GitContributor represents a contributor
+type GitContributor struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Commits int    `json:"commits"`
+}
+
+// CommitActivity represents commit patterns
+type CommitActivity struct {
+	TotalCommits   int     `json:"total_commits"`
+	RecentCommits  int     `json:"recent_commits_30d"`
+	AveragePerWeek float32 `json:"average_per_week"`
+	MostActiveDay  string  `json:"most_active_day,omitempty"`
+	MostActiveHour int     `json:"most_active_hour,omitempty"`
+}
+
+// FileChangeStats represents file change patterns
+type FileChangeStats struct {
+	MostChangedFiles []FileChangeInfo `json:"most_changed_files,omitempty"`
+	LanguageChanges  map[string]int   `json:"language_changes,omitempty"`
+	LargestFiles     []FileInfo       `json:"largest_files,omitempty"`
+}
+
+// FileChangeInfo represents file change information
+type FileChangeInfo struct {
+	Path    string `json:"path"`
+	Changes int    `json:"changes"`
+	Type    string `json:"type"`
 }
 
 // EnvironmentVariable represents a detected environment variable

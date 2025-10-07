@@ -25,6 +25,9 @@ import (
 const (
 	DefaultEmbeddingModel = "text-embedding-3-small"
 	DefaultBatchSize      = 100
+	MaxRetries            = 3
+	InitialRetryDelay     = 1 * time.Second
+	MaxRetryDelay         = 30 * time.Second
 )
 
 // Configuration for embeddings generation
@@ -508,9 +511,9 @@ func generateOpenAIEmbeddings(ctx context.Context, config Config, documents []Do
 			fmt.Printf("   ✅ Generated %d embeddings (%d tokens)\n", len(batchEmbeddings), tokens)
 		}
 
-		// Rate limiting: wait between batches to be respectful
+		// Rate limiting: wait between batches to be respectful to OpenAI API
 		if end < len(documents) {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 		}
 	}
 
@@ -581,8 +584,8 @@ func generateBatchEmbeddings(ctx context.Context, config Config, documents []Doc
 		texts[i] = doc.Content
 	}
 
-	// Generate embeddings using langchain-go
-	vectors, err := embedder.EmbedDocuments(ctx, texts)
+	// Generate embeddings with retry logic
+	vectors, err := generateEmbeddingsWithRetry(ctx, embedder, texts, config.Verbose)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to generate embeddings: %w", err)
 	}
@@ -870,4 +873,64 @@ func normalizeVectorLocal(embedding []float32) []float32 {
 	}
 
 	return embedding
+}
+
+// generateEmbeddingsWithRetry implements retry logic with exponential backoff for OpenAI API calls
+func generateEmbeddingsWithRetry(ctx context.Context, embedder *langchainembeddings.EmbedderImpl, texts []string, verbose bool) ([][]float32, error) {
+	var lastErr error
+	retryDelay := InitialRetryDelay
+
+	for attempt := 0; attempt <= MaxRetries; attempt++ {
+		if attempt > 0 {
+			if verbose {
+				fmt.Printf("   ⚠️  Retry attempt %d/%d after %v (previous error: %v)\n", attempt, MaxRetries, retryDelay, lastErr)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(retryDelay):
+				// Continue with retry
+			}
+			// Exponential backoff with jitter
+			retryDelay = time.Duration(float64(retryDelay) * 1.5)
+			if retryDelay > MaxRetryDelay {
+				retryDelay = MaxRetryDelay
+			}
+		}
+
+		vectors, err := embedder.EmbedDocuments(ctx, texts)
+		if err == nil {
+			if attempt > 0 && verbose {
+				fmt.Printf("   ✅ Successfully generated embeddings after %d retries\n", attempt)
+			}
+			return vectors, nil
+		}
+
+		lastErr = err
+		// Check if this is a retryable error
+		if !isRetryableError(err) {
+			return nil, fmt.Errorf("non-retryable error: %w", err)
+		}
+
+		if attempt == MaxRetries {
+			break
+		}
+	}
+
+	return nil, fmt.Errorf("failed after %d retries, last error: %w", MaxRetries, lastErr)
+}
+
+// isRetryableError determines if an error should trigger a retry
+func isRetryableError(err error) bool {
+	errorStr := strings.ToLower(err.Error())
+	// Common retryable errors
+	return strings.Contains(errorStr, "eof") ||
+		strings.Contains(errorStr, "timeout") ||
+		strings.Contains(errorStr, "connection reset") ||
+		strings.Contains(errorStr, "rate limit") ||
+		strings.Contains(errorStr, "too many requests") ||
+		strings.Contains(errorStr, "internal server error") ||
+		strings.Contains(errorStr, "bad gateway") ||
+		strings.Contains(errorStr, "service unavailable") ||
+		strings.Contains(errorStr, "gateway timeout")
 }

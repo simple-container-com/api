@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
@@ -114,13 +115,8 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 		},
 	}
 
-	// Run all detectors
-	var detectedStacks []TechStackInfo
-	for _, detector := range pa.detectors {
-		if stack, err := detector.Detect(projectPath); err == nil {
-			detectedStacks = append(detectedStacks, *stack)
-		}
-	}
+	// Run all detectors in parallel
+	detectedStacks := pa.runTechStackDetectorsParallel(projectPath)
 
 	if len(detectedStacks) == 0 {
 		return nil, fmt.Errorf("no technology stacks detected in project")
@@ -156,10 +152,16 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 		analysis.Files = files
 	}
 
-	// Run resource detectors
-	resources, err := pa.analyzeResources(projectPath)
+	// Run resource detectors in parallel
+	resources, err := pa.analyzeResourcesParallel(projectPath)
 	if err == nil {
 		analysis.Resources = resources
+	}
+
+	// Analyze Git repository
+	gitAnalyzer := NewGitAnalyzer(projectPath)
+	if gitAnalysis, err := gitAnalyzer.AnalyzeGitRepository(); err == nil {
+		analysis.Git = gitAnalysis
 	}
 
 	// Generate enhanced recommendations based on detected resources
@@ -741,6 +743,14 @@ func (pa *ProjectAnalyzer) analyzeFiles(projectPath string) ([]FileInfo, error) 
 			file.Language = "csharp"
 		}
 
+		// Analyze complexity for source files
+		if file.Type == "source" && file.Language != "" {
+			complexityAnalyzer := NewComplexityAnalyzer()
+			if complexity, err := complexityAnalyzer.AnalyzeFile(path, file.Language); err == nil {
+				file.Complexity = complexity
+			}
+		}
+
 		files = append(files, file)
 		return nil
 	})
@@ -867,7 +877,66 @@ func (pa *ProjectAnalyzer) buildProjectSummary(analysis *ProjectAnalysis) string
 
 	summary.WriteString(fmt.Sprintf("Files: %d analyzed\n", len(analysis.Files)))
 
+	// Add Git repository context
+	if analysis.Git != nil && analysis.Git.IsGitRepo {
+		summary.WriteString("\nGit Repository Context:\n")
+		summary.WriteString(fmt.Sprintf("- Current Branch: %s\n", analysis.Git.Branch))
+
+		if analysis.Git.CommitActivity != nil {
+			summary.WriteString(fmt.Sprintf("- Total Commits: %d\n", analysis.Git.CommitActivity.TotalCommits))
+			summary.WriteString(fmt.Sprintf("- Recent Activity: %d commits in last 30 days\n", analysis.Git.CommitActivity.RecentCommits))
+			summary.WriteString(fmt.Sprintf("- Average: %.1f commits/week\n", analysis.Git.CommitActivity.AveragePerWeek))
+		}
+
+		if len(analysis.Git.Contributors) > 0 {
+			summary.WriteString(fmt.Sprintf("- Contributors: %d (top: %s with %d commits)\n",
+				len(analysis.Git.Contributors), analysis.Git.Contributors[0].Name, analysis.Git.Contributors[0].Commits))
+		}
+
+		if analysis.Git.ProjectAge > 0 {
+			summary.WriteString(fmt.Sprintf("- Project Age: %d days\n", analysis.Git.ProjectAge))
+		}
+
+		if analysis.Git.HasCI {
+			summary.WriteString(fmt.Sprintf("- CI/CD: %s\n", strings.Join(analysis.Git.CIPlatforms, ", ")))
+		}
+
+		if len(analysis.Git.Tags) > 0 {
+			summary.WriteString(fmt.Sprintf("- Latest Tags: %s\n", strings.Join(analysis.Git.Tags[:min(3, len(analysis.Git.Tags))], ", ")))
+		}
+	}
+
+	// Add resource context
+	if analysis.Resources != nil {
+		summary.WriteString("\nDetected Resources:\n")
+		if len(analysis.Resources.Databases) > 0 {
+			summary.WriteString(fmt.Sprintf("- Databases: %d detected\n", len(analysis.Resources.Databases)))
+		}
+		if len(analysis.Resources.ExternalAPIs) > 0 {
+			summary.WriteString(fmt.Sprintf("- External APIs: %d detected\n", len(analysis.Resources.ExternalAPIs)))
+		}
+		if len(analysis.Resources.Secrets) > 0 {
+			summary.WriteString(fmt.Sprintf("- Potential Secrets: %d detected\n", len(analysis.Resources.Secrets)))
+		}
+	}
+
 	return summary.String()
+}
+
+// min helper function for integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// minFloat32 helper function for float32
+func minFloat32(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // buildAnalysisPrompt creates the LLM prompt for enhanced analysis
@@ -1033,37 +1102,6 @@ func (pa *ProjectAnalyzer) parseAndEnhanceAnalysis(original *ProjectAnalysis, ll
 	return &enhanced
 }
 
-// analyzeResources runs all resource detectors and merges results
-func (pa *ProjectAnalyzer) analyzeResources(projectPath string) (*ResourceAnalysis, error) {
-	// Initialize combined resource analysis
-	combined := &ResourceAnalysis{
-		EnvironmentVars: []EnvironmentVariable{},
-		Secrets:         []Secret{},
-		Databases:       []Database{},
-		Queues:          []Queue{},
-		Storage:         []Storage{},
-		ExternalAPIs:    []ExternalAPI{},
-	}
-
-	// Run all resource detectors
-	for _, detector := range pa.resourceDetectors {
-		result, err := detector.Detect(projectPath)
-		if err != nil {
-			continue // Skip failed detectors, continue with others
-		}
-
-		// Merge results
-		combined.EnvironmentVars = append(combined.EnvironmentVars, result.EnvironmentVars...)
-		combined.Secrets = append(combined.Secrets, result.Secrets...)
-		combined.Databases = append(combined.Databases, result.Databases...)
-		combined.Queues = append(combined.Queues, result.Queues...)
-		combined.Storage = append(combined.Storage, result.Storage...)
-		combined.ExternalAPIs = append(combined.ExternalAPIs, result.ExternalAPIs...)
-	}
-
-	return combined, nil
-}
-
 // generateEnhancedRecommendations generates recommendations based on all analysis including resources
 func (pa *ProjectAnalyzer) generateEnhancedRecommendations(analysis *ProjectAnalysis) []Recommendation {
 	var recommendations []Recommendation
@@ -1074,6 +1112,16 @@ func (pa *ProjectAnalyzer) generateEnhancedRecommendations(analysis *ProjectAnal
 	// Add resource-based recommendations if resources were detected
 	if analysis.Resources != nil {
 		recommendations = append(recommendations, pa.generateResourceRecommendations(analysis.Resources)...)
+	}
+
+	// Add Git-based recommendations
+	if analysis.Git != nil {
+		recommendations = append(recommendations, pa.generateGitRecommendations(analysis.Git)...)
+	}
+
+	// Add complexity-based recommendations
+	if len(analysis.Files) > 0 {
+		recommendations = append(recommendations, pa.generateComplexityRecommendations(analysis.Files)...)
 	}
 
 	return recommendations
@@ -1273,4 +1321,317 @@ func (pa *ProjectAnalyzer) generateResourceRecommendations(resources *ResourceAn
 	}
 
 	return recs
+}
+
+// generateGitRecommendations creates recommendations based on Git analysis
+func (pa *ProjectAnalyzer) generateGitRecommendations(git *GitAnalysis) []Recommendation {
+	var recs []Recommendation
+
+	if !git.IsGitRepo {
+		return recs
+	}
+
+	// CI/CD recommendations
+	if !git.HasCI {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "ci_cd",
+			Priority:    "medium",
+			Title:       "Add CI/CD Pipeline",
+			Description: "No CI/CD detected. Consider adding GitHub Actions or similar for automated builds and deployments",
+			Action:      "setup_ci_cd",
+		})
+	} else {
+		recs = append(recs, Recommendation{
+			Type:        "optimization",
+			Category:    "ci_cd",
+			Priority:    "low",
+			Title:       "CI/CD Integration",
+			Description: fmt.Sprintf("Detected %s. Consider integrating Simple Container deployment into your CI/CD pipeline", strings.Join(git.CIPlatforms, ", ")),
+			Action:      "integrate_sc_ci",
+		})
+	}
+
+	// Activity-based recommendations
+	if git.CommitActivity != nil {
+		if git.CommitActivity.RecentCommits == 0 && git.ProjectAge > 30 {
+			recs = append(recs, Recommendation{
+				Type:        "maintenance",
+				Category:    "project_health",
+				Priority:    "medium",
+				Title:       "Project Activity",
+				Description: "No recent commits detected. Consider project maintenance or archival",
+				Action:      "review_project_status",
+			})
+		} else if git.CommitActivity.AveragePerWeek > 20 {
+			recs = append(recs, Recommendation{
+				Type:        "optimization",
+				Category:    "development",
+				Priority:    "medium",
+				Title:       "High Development Activity",
+				Description: fmt.Sprintf("High commit frequency (%.1f/week). Consider automated testing and deployment strategies", git.CommitActivity.AveragePerWeek),
+				Action:      "optimize_development_workflow",
+			})
+		}
+	}
+
+	// Versioning recommendations
+	if len(git.Tags) == 0 && git.ProjectAge > 30 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "versioning",
+			Priority:    "medium",
+			Title:       "Version Tagging",
+			Description: "No version tags found. Consider implementing semantic versioning for better release management",
+			Action:      "setup_versioning",
+		})
+	}
+
+	// Collaboration recommendations
+	if len(git.Contributors) == 1 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "collaboration",
+			Priority:    "low",
+			Title:       "Single Contributor",
+			Description: "Single contributor detected. Consider adding documentation and contribution guidelines for future collaborators",
+			Action:      "improve_documentation",
+		})
+	} else if len(git.Contributors) > 5 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "collaboration",
+			Priority:    "medium",
+			Title:       "Multi-Contributor Project",
+			Description: fmt.Sprintf("%d contributors detected. Ensure proper access controls and deployment permissions in Simple Container", len(git.Contributors)),
+			Action:      "setup_team_access",
+		})
+	}
+
+	// File change pattern recommendations
+	if git.FileChanges != nil {
+		// Check for frequently changed config files
+		for _, file := range git.FileChanges.MostChangedFiles {
+			if file.Type == "config" && file.Changes > 10 {
+				recs = append(recs, Recommendation{
+					Type:        "configuration",
+					Category:    "stability",
+					Priority:    "medium",
+					Title:       "Frequently Changed Configuration",
+					Description: fmt.Sprintf("Configuration file '%s' changes frequently (%d times). Consider using Simple Container environment-specific configs", file.Path, file.Changes),
+					Action:      "stabilize_config",
+				})
+				break // Only add one recommendation for this pattern
+			}
+		}
+	}
+
+	return recs
+}
+
+// generateComplexityRecommendations creates recommendations based on code complexity analysis
+func (pa *ProjectAnalyzer) generateComplexityRecommendations(files []FileInfo) []Recommendation {
+	var recs []Recommendation
+
+	highComplexityFiles := 0
+	veryHighComplexityFiles := 0
+	totalSourceFiles := 0
+	totalLOC := 0
+	lowCommentFiles := 0
+
+	// Analyze complexity patterns
+	for _, file := range files {
+		if file.Complexity == nil {
+			continue
+		}
+
+		totalSourceFiles++
+		totalLOC += file.Complexity.LinesOfCode
+
+		switch file.Complexity.ComplexityLevel {
+		case "high":
+			highComplexityFiles++
+		case "very_high":
+			veryHighComplexityFiles++
+		}
+
+		if file.Complexity.CommentRatio < 0.1 {
+			lowCommentFiles++
+		}
+	}
+
+	if totalSourceFiles == 0 {
+		return recs
+	}
+
+	// Very high complexity files recommendation
+	if veryHighComplexityFiles > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "optimization",
+			Category:    "code_quality",
+			Priority:    "high",
+			Title:       "High Complexity Files Detected",
+			Description: fmt.Sprintf("Found %d files with very high complexity. Consider refactoring for better maintainability and deployment reliability", veryHighComplexityFiles),
+			Action:      "refactor_complex_code",
+		})
+	}
+
+	// High complexity ratio recommendation
+	complexityRatio := float32(highComplexityFiles+veryHighComplexityFiles) / float32(totalSourceFiles)
+	if complexityRatio > 0.3 {
+		recs = append(recs, Recommendation{
+			Type:        "optimization",
+			Category:    "architecture",
+			Priority:    "medium",
+			Title:       "Code Complexity Management",
+			Description: fmt.Sprintf("%.1f%% of source files have high complexity. Consider microservice architecture or modular design patterns", complexityRatio*100),
+			Action:      "consider_microservices",
+		})
+	}
+
+	// Large codebase recommendation
+	if totalLOC > 50000 {
+		recs = append(recs, Recommendation{
+			Type:        "optimization",
+			Category:    "deployment",
+			Priority:    "medium",
+			Title:       "Large Codebase Optimization",
+			Description: fmt.Sprintf("Large codebase detected (%d LOC). Consider multi-stage Docker builds and build caching for faster deployments", totalLOC),
+			Action:      "optimize_build_process",
+		})
+	}
+
+	// Low documentation recommendation
+	lowCommentRatio := float32(lowCommentFiles) / float32(totalSourceFiles)
+	if lowCommentRatio > 0.5 {
+		recs = append(recs, Recommendation{
+			Type:        "maintenance",
+			Category:    "documentation",
+			Priority:    "medium",
+			Title:       "Improve Code Documentation",
+			Description: fmt.Sprintf("%.1f%% of files have low comment coverage. Better documentation improves maintainability and team collaboration", lowCommentRatio*100),
+			Action:      "improve_code_documentation",
+		})
+	}
+
+	// Monolith vs microservice recommendation based on complexity
+	if totalSourceFiles > 100 && complexityRatio > 0.4 {
+		recs = append(recs, Recommendation{
+			Type:        "architecture",
+			Category:    "scalability",
+			Priority:    "high",
+			Title:       "Consider Microservice Architecture",
+			Description: fmt.Sprintf("Large codebase (%d files) with high complexity suggests microservice architecture. This can improve deployment flexibility and team autonomy", totalSourceFiles),
+			Action:      "evaluate_microservices",
+		})
+	}
+
+	// Testing recommendation based on complexity
+	if veryHighComplexityFiles > 0 {
+		recs = append(recs, Recommendation{
+			Type:        "configuration",
+			Category:    "testing",
+			Priority:    "high",
+			Title:       "Automated Testing Strategy",
+			Description: "High complexity files require comprehensive testing. Implement automated testing in your CI/CD pipeline before deployment",
+			Action:      "implement_testing_strategy",
+		})
+	}
+
+	return recs
+}
+
+// runTechStackDetectorsParallel runs tech stack detectors in parallel for better performance
+func (pa *ProjectAnalyzer) runTechStackDetectorsParallel(projectPath string) []TechStackInfo {
+	type result struct {
+		stack *TechStackInfo
+		err   error
+	}
+
+	resultChan := make(chan result, len(pa.detectors))
+	var wg sync.WaitGroup
+
+	// Start all detectors in parallel
+	for _, detector := range pa.detectors {
+		wg.Add(1)
+		go func(d TechStackDetector) {
+			defer wg.Done()
+			stack, err := d.Detect(projectPath)
+			resultChan <- result{stack: stack, err: err}
+		}(detector)
+	}
+
+	// Wait for all detectors to complete
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results
+	var detectedStacks []TechStackInfo
+	for res := range resultChan {
+		if res.err == nil && res.stack != nil {
+			detectedStacks = append(detectedStacks, *res.stack)
+		}
+	}
+
+	// Sort by confidence (highest first)
+	sort.Slice(detectedStacks, func(i, j int) bool {
+		return detectedStacks[i].Confidence > detectedStacks[j].Confidence
+	})
+
+	return detectedStacks
+}
+
+// analyzeResourcesParallel runs resource detectors in parallel for better performance
+func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*ResourceAnalysis, error) {
+	type result struct {
+		analysis *ResourceAnalysis
+		err      error
+	}
+
+	resultChan := make(chan result, len(pa.resourceDetectors))
+	var wg sync.WaitGroup
+
+	// Start all resource detectors in parallel
+	for _, detector := range pa.resourceDetectors {
+		wg.Add(1)
+		go func(d ResourceDetector) {
+			defer wg.Done()
+			analysis, err := d.Detect(projectPath)
+			resultChan <- result{analysis: analysis, err: err}
+		}(detector)
+	}
+
+	// Wait for all detectors to complete
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect and merge results
+	combined := &ResourceAnalysis{
+		EnvironmentVars: []EnvironmentVariable{},
+		Secrets:         []Secret{},
+		Databases:       []Database{},
+		Queues:          []Queue{},
+		Storage:         []Storage{},
+		ExternalAPIs:    []ExternalAPI{},
+	}
+
+	for res := range resultChan {
+		if res.err != nil {
+			continue // Skip failed detectors, continue with others
+		}
+
+		// Merge results
+		combined.EnvironmentVars = append(combined.EnvironmentVars, res.analysis.EnvironmentVars...)
+		combined.Secrets = append(combined.Secrets, res.analysis.Secrets...)
+		combined.Databases = append(combined.Databases, res.analysis.Databases...)
+		combined.Queues = append(combined.Queues, res.analysis.Queues...)
+		combined.Storage = append(combined.Storage, res.analysis.Storage...)
+		combined.ExternalAPIs = append(combined.ExternalAPIs, res.analysis.ExternalAPIs...)
+	}
+
+	return combined, nil
 }
