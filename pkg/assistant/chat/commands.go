@@ -938,9 +938,16 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 	case "set":
 		providerName := config.GetProviderDisplayName(provider)
 
-		// Prompt for API key
-		fmt.Print(color.CyanString(fmt.Sprintf("🔑 Enter your %s API key: ", providerName)))
-		apiKey, err := readSecureInput()
+		// For Ollama, API key is optional
+		var apiKey string
+		var err error
+		if provider == config.ProviderOllama {
+			fmt.Print(color.CyanString(fmt.Sprintf("🔑 Enter your %s API key (press Enter to skip for local instance): ", providerName)))
+		} else {
+			fmt.Print(color.CyanString(fmt.Sprintf("🔑 Enter your %s API key: ", providerName)))
+		}
+
+		apiKey, err = readSecureInput()
 		if err != nil {
 			return &CommandResult{
 				Success: false,
@@ -948,7 +955,8 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 			}, nil
 		}
 
-		if apiKey == "" {
+		// API key is required for all providers except Ollama
+		if apiKey == "" && provider != config.ProviderOllama {
 			return &CommandResult{
 				Success: false,
 				Message: "API key cannot be empty",

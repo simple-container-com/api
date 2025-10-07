@@ -155,7 +155,15 @@ func (c *Config) HasProviderConfig(provider string) bool {
 		return false
 	}
 	config, exists := c.Providers[provider]
-	return exists && config.APIKey != ""
+	if !exists {
+		return false
+	}
+	// Ollama doesn't require an API key, just needs to exist in config
+	if provider == ProviderOllama {
+		return true
+	}
+	// Other providers require an API key
+	return config.APIKey != ""
 }
 
 // GetDefaultProvider returns the default provider

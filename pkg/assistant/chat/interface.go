@@ -707,8 +707,12 @@ func (c *ChatInterface) ReloadLLMProvider() error {
 
 	// Get provider config
 	providerCfg, exists := cfg.GetProviderConfig(provider)
-	if !exists || providerCfg.APIKey == "" {
+	if !exists {
 		return fmt.Errorf("provider %s not configured", provider)
+	}
+	// Check API key requirement (Ollama doesn't need one)
+	if provider != config.ProviderOllama && providerCfg.APIKey == "" {
+		return fmt.Errorf("provider %s not configured (API key missing)", provider)
 	}
 
 	// Close old provider
