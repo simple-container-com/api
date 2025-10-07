@@ -362,6 +362,7 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 			host, _ := cmd.Flags().GetString("host")
 			port, _ := cmd.Flags().GetInt("port")
 			stdio, _ := cmd.Flags().GetBool("stdio")
+			verbose, _ := cmd.Flags().GetBool("verbose")
 
 			// Setup signal handling for graceful shutdown
 			ctx, cancel := context.WithCancel(context.Background())
@@ -375,8 +376,8 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-				// Initialize MCP server
-				server := mcp.NewMCPServer(host, port)
+				// Initialize MCP server with stdio mode (JSON logs only, no console output)
+				server := mcp.NewMCPServer(host, port, mcp.MCPModeStdio, verbose)
 
 				// Start MCP server in goroutine
 				errCh := make(chan error, 1)
@@ -405,8 +406,8 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-				// Initialize MCP server
-				server := mcp.NewMCPServer(host, port)
+				// Initialize MCP server with HTTP mode (console output when verbose enabled)
+				server := mcp.NewMCPServer(host, port, mcp.MCPModeHTTP, verbose)
 
 				fmt.Printf("📡 MCP Server ready for Windsurf integration\n")
 				fmt.Printf("   Health: http://%s:%d/health\n", host, port)
@@ -439,6 +440,7 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 9999, "Port to listen on")
 	cmd.Flags().StringVar(&host, "host", "localhost", "Host to bind to")
 	cmd.Flags().Bool("stdio", false, "Use stdin/stdout for JSON-RPC communication (for IDE integration)")
+	cmd.Flags().Bool("verbose", false, "Enable verbose logging (HTTP mode only - stdio mode always logs to file)")
 
 	return cmd
 }

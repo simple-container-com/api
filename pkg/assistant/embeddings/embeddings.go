@@ -21,7 +21,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/config"
 )
 
-//go:embed vectors/*.json
+//go:embed vectors
 var embeddedVectors embed.FS
 
 // EmbeddingType represents the type of embeddings used

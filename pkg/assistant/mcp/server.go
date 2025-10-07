@@ -20,23 +20,48 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
+// Context key types to avoid collisions
+type contextKey string
+
+const (
+	contextKeyRequestID  contextKey = "request_id"
+	contextKeyUserAgent  contextKey = "user_agent"
+	contextKeyRemoteAddr contextKey = "remote_addr"
+	contextKeyMCPMethod  contextKey = "mcp_method"
+	contextKeyClientID   contextKey = "client_id"
+)
+
 // MCPServer implements the Model Context Protocol for Simple Container
 type MCPServer struct {
 	handler            MCPHandler
-	logger             *log.Logger
+	logger             *MCPLogger
+	fallbackLogger     *log.Logger
 	port               int
 	host               string
 	server             *http.Server
 	clientCapabilities map[string]interface{} // Store client capabilities from initialization
 }
 
-// NewMCPServer creates a new MCP server instance
-func NewMCPServer(host string, port int) *MCPServer {
+// NewMCPServer creates a new MCP server instance with mode-aware logging
+func NewMCPServer(host string, port int, mode MCPMode, verboseMode bool) *MCPServer {
+	// Try to create enhanced JSON logger with mode awareness
+	mcpLogger, err := NewMCPLogger("mcp-server", mode, verboseMode)
+	fallbackLogger := log.New(os.Stderr, "MCP: ", log.LstdFlags)
+
+	if err != nil {
+		fallbackLogger.Printf("Warning: Failed to initialize MCP JSON logger: %v - falling back to standard logger", err)
+	} else {
+		ctx := context.Background()
+		mcpLogger.Info(ctx, "MCP Server initializing - host: %s, port: %d, mode: %s, verbose: %v, log file: %s",
+			host, port, string(mode), verboseMode, mcpLogger.GetLogFilePath())
+	}
+
 	return &MCPServer{
-		handler: NewDefaultMCPHandler(),
-		logger:  log.New(os.Stderr, "MCP: ", log.LstdFlags),
-		host:    host,
-		port:    port,
+		handler:        NewDefaultMCPHandler(),
+		logger:         mcpLogger,
+		fallbackLogger: fallbackLogger,
+		host:           host,
+		port:           port,
 	}
 }
 
@@ -74,12 +99,24 @@ func (s *MCPServer) Start(ctx context.Context) error {
 	fmt.Printf("🌐 MCP Server starting on %s\n", color.CyanFmt(s.server.Addr))
 	fmt.Printf("📖 Documentation search available at: http://%s/mcp\n", s.server.Addr)
 	fmt.Printf("🔍 Capabilities endpoint: http://%s/capabilities\n", s.server.Addr)
-	fmt.Printf("💚 Health check: http://%s/health\n\n", s.server.Addr)
+	fmt.Printf("💚 Health check: http://%s/health\n", s.server.Addr)
+
+	// Log server startup
+	if s.logger != nil {
+		s.logger.Info(ctx, "MCP Server started successfully on %s", s.server.Addr)
+		fmt.Printf("📝 Logs: %s\n\n", s.logger.GetLogFilePath())
+	} else {
+		fmt.Println()
+	}
 
 	// Start server in goroutine
 	go func() {
 		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			s.logger.Printf("MCP Server error: %v", err)
+			if s.logger != nil {
+				s.logger.Error(ctx, "MCP Server error: %v", err)
+			} else {
+				s.fallbackLogger.Printf("MCP Server error: %v", err)
+			}
 		}
 	}()
 
@@ -88,10 +125,24 @@ func (s *MCPServer) Start(ctx context.Context) error {
 
 	// Graceful shutdown
 	fmt.Println("\n🛑 Shutting down MCP server...")
+	if s.logger != nil {
+		s.logger.Info(ctx, "MCP Server shutdown initiated")
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	return s.server.Shutdown(shutdownCtx)
+	err = s.server.Shutdown(shutdownCtx)
+	if s.logger != nil {
+		if err != nil {
+			s.logger.Error(ctx, "MCP Server shutdown error: %v", err)
+		} else {
+			s.logger.Info(ctx, "MCP Server shutdown completed successfully")
+		}
+		s.logger.Close()
+	}
+
+	return err
 }
 
 // StartStdio starts the MCP server in stdio mode for IDE integration
@@ -201,7 +252,11 @@ func (s *MCPServer) handleInitialize(ctx context.Context, req *MCPRequest) *MCPR
 	// Store client capabilities for later use (e.g., elicitation support)
 	s.clientCapabilities = params.Capabilities
 	if len(s.clientCapabilities) > 0 {
-		s.logger.Printf("Client capabilities detected: %+v", s.clientCapabilities)
+		if s.logger != nil {
+			s.logger.Info(ctx, "Client capabilities detected: %+v", s.clientCapabilities)
+		} else {
+			s.fallbackLogger.Printf("Client capabilities detected: %+v", s.clientCapabilities)
+		}
 	}
 
 	// Pass client capabilities to the handler for feature detection
@@ -268,32 +323,73 @@ func (s *MCPServer) handleMCPRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enrich context with HTTP request information for enhanced logging
 	ctx := r.Context()
+
+	// Extract request ID as string for context
+	requestID := ""
+	if id, ok := req.ID.(string); ok {
+		requestID = id
+	}
+
+	ctx = context.WithValue(ctx, contextKeyRequestID, requestID)
+	ctx = context.WithValue(ctx, contextKeyUserAgent, r.UserAgent())
+	ctx = context.WithValue(ctx, contextKeyRemoteAddr, r.RemoteAddr)
+	ctx = context.WithValue(ctx, contextKeyMCPMethod, req.Method)
+
 	response := s.processRequest(ctx, &req)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// processRequest routes MCP requests to appropriate handlers
+// processRequest routes MCP requests to appropriate handlers with enhanced logging
 func (s *MCPServer) processRequest(ctx context.Context, req *MCPRequest) *MCPResponse {
+	startTime := time.Now()
+
+	// Log incoming request
+	if s.logger != nil {
+		s.logger.Debug(ctx, "Processing MCP request: %s", req.Method)
+	}
+
+	var response *MCPResponse
+
 	switch req.Method {
 	// Standard MCP methods only
 	case "ping":
-		return s.handlePing(ctx, req)
+		response = s.handlePing(ctx, req)
 	case "elicitation/create":
-		return s.handleElicitationCreate(ctx, req)
+		response = s.handleElicitationCreate(ctx, req)
 	case "tools/list":
-		return s.handleListTools(ctx, req)
+		response = s.handleListTools(ctx, req)
 	case "tools/call":
-		return s.handleCallTool(ctx, req)
+		response = s.handleCallTool(ctx, req)
 	case "resources/list":
-		return s.handleListResources(ctx, req)
+		response = s.handleListResources(ctx, req)
 	case "resources/read":
-		return s.handleReadResource(ctx, req)
+		response = s.handleReadResource(ctx, req)
 	default:
-		return NewMCPError(req.ID, ErrorCodeMethodNotFound, fmt.Sprintf("Method '%s' not found", req.Method), nil)
+		response = NewMCPError(req.ID, ErrorCodeMethodNotFound, fmt.Sprintf("Method '%s' not found", req.Method), nil)
 	}
+
+	// Log request completion with timing and enhanced context
+	duration := time.Since(startTime)
+	if s.logger != nil {
+		if response.Error != nil {
+			s.logger.LogMCPError(req.Method, fmt.Errorf("MCP error: %v", response.Error), map[string]interface{}{
+				"request_id": req.ID,
+				"duration":   duration.String(),
+			})
+		} else {
+			requestID := ""
+			if id, ok := req.ID.(string); ok {
+				requestID = id
+			}
+			s.logger.LogMCPRequest(req.Method, req.Params, duration, requestID)
+		}
+	}
+
+	return response
 }
 
 func (s *MCPServer) handlePing(ctx context.Context, req *MCPRequest) *MCPResponse {
@@ -645,36 +741,130 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Project analysis failed", err.Error())
 		}
 
-		// Format the analysis results
-		techStacksInfo := "No tech stacks detected"
-		if len(result.TechStacks) > 0 {
-			techStacksInfo = fmt.Sprintf("Detected %d tech stacks", len(result.TechStacks))
+		// Build detailed analysis text with comprehensive information
+		var analysisText strings.Builder
+
+		// Project Overview
+		analysisText.WriteString(fmt.Sprintf("# 📊 Project Analysis: %s\n", filepath.Base(result.Path)))
+		analysisText.WriteString(fmt.Sprintf("**Path:** `%s`\n", result.Path))
+		analysisText.WriteString(fmt.Sprintf("**Architecture:** %s\n\n", result.Architecture))
+
+		// Tech Stack Details
+		analysisText.WriteString("## 🔧 Technology Stacks\n")
+		if len(result.TechStacks) == 0 {
+			analysisText.WriteString("❌ No technology stacks detected\n\n")
+		} else {
+			for i, stack := range result.TechStacks {
+				analysisText.WriteString(fmt.Sprintf("### Stack %d\n", i+1))
+				analysisText.WriteString(fmt.Sprintf("- **Language:** %s\n", stack.Language))
+				analysisText.WriteString(fmt.Sprintf("- **Framework:** %s\n", stack.Framework))
+				if stack.Runtime != "" {
+					analysisText.WriteString(fmt.Sprintf("- **Runtime:** %s\n", stack.Runtime))
+				}
+				analysisText.WriteString(fmt.Sprintf("- **Confidence:** %.1f%%\n", stack.Confidence*100))
+
+				if len(stack.Dependencies) > 0 {
+					analysisText.WriteString("- **Dependencies:** ")
+					for j, dep := range stack.Dependencies {
+						if j > 0 {
+							analysisText.WriteString(", ")
+						}
+						analysisText.WriteString(fmt.Sprintf("`%s`", dep))
+					}
+					analysisText.WriteString("\n")
+				}
+				analysisText.WriteString("\n")
+			}
 		}
 
-		recommendationsInfo := "No recommendations"
-		if len(result.Recommendations) > 0 {
-			recommendationsInfo = fmt.Sprintf("%d recommendations available", len(result.Recommendations))
+		// Recommendations
+		analysisText.WriteString("## 💡 Recommendations\n")
+		if len(result.Recommendations) == 0 {
+			analysisText.WriteString("✅ No specific recommendations at this time\n\n")
+		} else {
+			for i, rec := range result.Recommendations {
+				analysisText.WriteString(fmt.Sprintf("### %d. %s\n", i+1, rec.Title))
+				analysisText.WriteString(fmt.Sprintf("**Priority:** %s | **Category:** %s\n", rec.Priority, rec.Category))
+				analysisText.WriteString(fmt.Sprintf("**Description:** %s\n", rec.Description))
+				if rec.Action != "" {
+					analysisText.WriteString(fmt.Sprintf("**Action:** %s\n", rec.Action))
+				}
+				analysisText.WriteString("\n")
+			}
 		}
 
-		analysisText := fmt.Sprintf("Project Analysis: %s\nTech Stacks: %s\nRecommendations: %s\nArchitecture: %s",
-			result.Path, techStacksInfo, recommendationsInfo, result.Architecture)
+		// Files Information
+		if len(result.Files) > 0 {
+			analysisText.WriteString("## 📁 Project Files\n")
+			analysisText.WriteString(fmt.Sprintf("**Total Files:** %d\n", len(result.Files)))
 
-		// Add guidance to use setup tool for project conversion
-		setupGuidance := "\n\n💡 To convert this project to Simple Container, use the 'setup_simple_container' tool instead of generating files manually. This tool will:\n" +
-			"- Use the actual Simple Container setup process\n" +
-			"- Generate schema-compliant client.yaml (not simple-container.yml)\n" +
-			"- Create proper docker-compose.yaml and Dockerfile\n" +
-			"- Provide deployment type confirmation\n\n" +
-			"Example: Call setup_simple_container with parameters: {\"path\": \".\", \"environment\": \"staging\", \"parent\": \"infrastructure\"}"
+			// Group files by type
+			fileTypes := make(map[string]int)
+			for _, file := range result.Files {
+				ext := filepath.Ext(file.Path)
+				if ext == "" {
+					ext = "no extension"
+				}
+				fileTypes[ext]++
+			}
+
+			analysisText.WriteString("**File Types:** ")
+			first := true
+			for ext, count := range fileTypes {
+				if !first {
+					analysisText.WriteString(", ")
+				}
+				analysisText.WriteString(fmt.Sprintf("%s (%d)", ext, count))
+				first = false
+			}
+			analysisText.WriteString("\n\n")
+		}
+
+		// Metadata
+		if len(result.Metadata) > 0 {
+			analysisText.WriteString("## 🔍 Analysis Details\n")
+			if analyzedAt, ok := result.Metadata["analyzed_at"]; ok {
+				analysisText.WriteString(fmt.Sprintf("**Analyzed:** %v\n", analyzedAt))
+			}
+			if totalFiles, ok := result.Metadata["total_files"]; ok {
+				analysisText.WriteString(fmt.Sprintf("**Total Files Scanned:** %v\n", totalFiles))
+			}
+			if version, ok := result.Metadata["analyzer_version"]; ok {
+				analysisText.WriteString(fmt.Sprintf("**Analyzer Version:** %v\n", version))
+			}
+			analysisText.WriteString("\n")
+		}
+
+		// Setup guidance
+		analysisText.WriteString("## 🚀 Next Steps\n")
+		analysisText.WriteString("To convert this project to Simple Container, use the **setup_simple_container** tool:\n\n")
+		analysisText.WriteString("```json\n")
+		analysisText.WriteString("{\n")
+		analysisText.WriteString("  \"path\": \".\",\n")
+		analysisText.WriteString("  \"environment\": \"staging\",\n")
+		analysisText.WriteString("  \"parent\": \"infrastructure\"\n")
+		analysisText.WriteString("}\n")
+		analysisText.WriteString("```\n\n")
+		analysisText.WriteString("This will:\n")
+		analysisText.WriteString("- ✅ Use the actual Simple Container setup process\n")
+		analysisText.WriteString("- ✅ Generate schema-compliant client.yaml\n")
+		analysisText.WriteString("- ✅ Create proper docker-compose.yaml and Dockerfile\n")
+		analysisText.WriteString("- ✅ Provide deployment type recommendations\n")
 
 		return NewMCPResponse(req.ID, map[string]interface{}{
 			"content": []map[string]interface{}{
 				{
 					"type": "text",
-					"text": analysisText + setupGuidance,
+					"text": analysisText.String(),
 				},
 			},
-			"isError": false,
+			"isError":         false,
+			"analysis_data":   result, // Include full structured data for programmatic access
+			"tech_stacks":     result.TechStacks,
+			"recommendations": result.Recommendations,
+			"architecture":    result.Architecture,
+			"files":           result.Files,
+			"metadata":        result.Metadata,
 		})
 
 	case "setup_simple_container":
@@ -1097,12 +1287,26 @@ func (h *DefaultMCPHandler) GetProjectContext(ctx context.Context, params GetPro
 }
 
 func (h *DefaultMCPHandler) GetSupportedResources(ctx context.Context) (*SupportedResourcesResult, error) {
-	// Load resources dynamically from embedded schemas
-	return h.loadResourcesFromEmbeddedSchemas()
+	// Try to load resources dynamically from embedded schemas first
+	result, err := h.loadResourcesFromEmbeddedSchemas(ctx)
+	if err != nil {
+		// If schema loading fails, fall back to hardcoded resource list to prevent server crash
+		fmt.Fprintf(os.Stderr, "MCP Warning: Failed to load embedded schemas, using fallback: %v\n", err)
+		return h.getFallbackSupportedResources(), nil
+	}
+	return result, nil
 }
 
 // loadResourcesFromEmbeddedSchemas loads resources from the embedded schema files
-func (h *DefaultMCPHandler) loadResourcesFromEmbeddedSchemas() (*SupportedResourcesResult, error) {
+func (h *DefaultMCPHandler) loadResourcesFromEmbeddedSchemas(ctx context.Context) (result *SupportedResourcesResult, err error) {
+	// Add panic recovery to prevent MCP server crashes
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in loadResourcesFromEmbeddedSchemas: %v", r)
+			result = nil
+		}
+	}()
+
 	var allResources []ResourceInfo
 	var allProviders []ProviderInfo
 
@@ -1130,7 +1334,7 @@ func (h *DefaultMCPHandler) loadResourcesFromEmbeddedSchemas() (*SupportedResour
 			continue
 		}
 
-		providerResources, err := h.loadProviderResources(providerName)
+		providerResources, err := h.loadProviderResources(ctx, providerName)
 		if err != nil {
 			// Log warning but continue - partial resource loading is acceptable
 			fmt.Fprintf(os.Stderr, "MCP Warning: Failed to load resources for provider %s: %v\n", providerName, err)
@@ -1163,7 +1367,15 @@ func (h *DefaultMCPHandler) loadResourcesFromEmbeddedSchemas() (*SupportedResour
 }
 
 // loadProviderResources loads resources for a specific provider from embedded schemas
-func (h *DefaultMCPHandler) loadProviderResources(providerName string) ([]ResourceInfo, error) {
+func (h *DefaultMCPHandler) loadProviderResources(ctx context.Context, providerName string) (resources []ResourceInfo, err error) {
+	// Add panic recovery to prevent MCP server crashes
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in loadProviderResources for %s: %v", providerName, r)
+			resources = nil
+		}
+	}()
+
 	indexPath := fmt.Sprintf("schemas/%s/index.json", providerName)
 	indexData, err := docs.EmbeddedSchemas.ReadFile(indexPath)
 	if err != nil {
@@ -1185,11 +1397,11 @@ func (h *DefaultMCPHandler) loadProviderResources(providerName string) ([]Resour
 		return nil, fmt.Errorf("failed to parse provider index %s: %w", indexPath, err)
 	}
 
-	var resources []ResourceInfo
+	var resourceList []ResourceInfo
 	for _, res := range providerIndex.Resources {
 		// Only include actual resources (not auth, secrets, provisioners, or templates)
 		if res.Type == "resource" {
-			resources = append(resources, ResourceInfo{
+			resourceList = append(resourceList, ResourceInfo{
 				Type:        res.ResourceType,
 				Name:        res.Name,
 				Provider:    res.Provider,
@@ -1199,7 +1411,7 @@ func (h *DefaultMCPHandler) loadProviderResources(providerName string) ([]Resour
 		}
 	}
 
-	return resources, nil
+	return resourceList, nil
 }
 
 // getProviderDisplayName returns a human-readable display name for providers
@@ -1223,6 +1435,49 @@ func (h *DefaultMCPHandler) getProviderDisplayName(providerName string) string {
 		return strings.ToUpper(providerName[:1]) + providerName[1:]
 	}
 	return providerName
+}
+
+// getFallbackSupportedResources provides hardcoded resource list when schema loading fails
+func (h *DefaultMCPHandler) getFallbackSupportedResources() *SupportedResourcesResult {
+	// Hardcoded resource list to prevent MCP server crashes
+	fallbackResources := []ResourceInfo{
+		// AWS Resources
+		{Type: "s3-bucket", Name: "S3 Bucket", Provider: "aws", Description: "Amazon S3 storage bucket", Properties: map[string]string{}},
+		{Type: "ecr-repository", Name: "ECR Repository", Provider: "aws", Description: "Amazon ECR container registry", Properties: map[string]string{}},
+		{Type: "aws-rds-postgres", Name: "RDS PostgreSQL", Provider: "aws", Description: "Amazon RDS PostgreSQL database", Properties: map[string]string{}},
+		{Type: "aws-rds-mysql", Name: "RDS MySQL", Provider: "aws", Description: "Amazon RDS MySQL database", Properties: map[string]string{}},
+
+		// GCP Resources
+		{Type: "gcp-bucket", Name: "Cloud Storage Bucket", Provider: "gcp", Description: "Google Cloud Storage bucket", Properties: map[string]string{}},
+		{Type: "gcp-redis", Name: "Memorystore Redis", Provider: "gcp", Description: "Google Cloud Memorystore Redis", Properties: map[string]string{}},
+		{Type: "gcp-cloudsql-postgres", Name: "Cloud SQL PostgreSQL", Provider: "gcp", Description: "Google Cloud SQL PostgreSQL", Properties: map[string]string{}},
+		{Type: "gcp-artifact-registry", Name: "Artifact Registry", Provider: "gcp", Description: "Google Artifact Registry", Properties: map[string]string{}},
+
+		// MongoDB Atlas
+		{Type: "mongodb-atlas", Name: "MongoDB Atlas", Provider: "mongodb", Description: "MongoDB Atlas managed cluster", Properties: map[string]string{}},
+
+		// Kubernetes Resources
+		{Type: "helm-postgres", Name: "Helm PostgreSQL", Provider: "kubernetes", Description: "PostgreSQL via Helm chart", Properties: map[string]string{}},
+		{Type: "helm-redis", Name: "Helm Redis", Provider: "kubernetes", Description: "Redis via Helm chart", Properties: map[string]string{}},
+		{Type: "helm-rabbitmq", Name: "Helm RabbitMQ", Provider: "kubernetes", Description: "RabbitMQ via Helm chart", Properties: map[string]string{}},
+
+		// Cloudflare
+		{Type: "cloudflare-registrar", Name: "Domain Registrar", Provider: "cloudflare", Description: "Cloudflare domain management", Properties: map[string]string{}},
+	}
+
+	fallbackProviders := []ProviderInfo{
+		{Name: "aws", DisplayName: "Amazon Web Services", Resources: []string{"s3-bucket", "ecr-repository", "aws-rds-postgres", "aws-rds-mysql"}, Description: "AWS cloud services"},
+		{Name: "gcp", DisplayName: "Google Cloud Platform", Resources: []string{"gcp-bucket", "gcp-redis", "gcp-cloudsql-postgres", "gcp-artifact-registry"}, Description: "Google Cloud services"},
+		{Name: "mongodb", DisplayName: "MongoDB Atlas", Resources: []string{"mongodb-atlas"}, Description: "MongoDB Atlas managed database"},
+		{Name: "kubernetes", DisplayName: "Kubernetes", Resources: []string{"helm-postgres", "helm-redis", "helm-rabbitmq"}, Description: "Kubernetes resources"},
+		{Name: "cloudflare", DisplayName: "Cloudflare", Resources: []string{"cloudflare-registrar"}, Description: "Cloudflare services"},
+	}
+
+	return &SupportedResourcesResult{
+		Resources: fallbackResources,
+		Providers: fallbackProviders,
+		Total:     len(fallbackResources),
+	}
 }
 
 // Simplified interface - remove methods we don't need
@@ -1452,6 +1707,9 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 		message += "└── Dockerfile (container image)\n"
 	}
 
+	// Add schema context for LLM guidance on future modifications
+	message += "\n\n" + h.getStackConfigSchemaContext()
+
 	return &SetupSimpleContainerResult{
 		Message:      message,
 		FilesCreated: filesCreated,
@@ -1650,20 +1908,32 @@ func (h *DefaultMCPHandler) GetCurrentConfig(ctx context.Context, params GetCurr
 
 	// Use unified command handler
 	result, err := h.commandHandler.GetCurrentConfig(ctx, params.ConfigType, params.StackName)
+
+	// Choose appropriate schema context based on config type
+	var schemaContext string
+	if params.ConfigType == "server" {
+		schemaContext = h.getResourceSchemaContext()
+	} else {
+		schemaContext = h.getStackConfigSchemaContext()
+	}
+
 	if err != nil {
+		errorMessage := result.Message + "\n\n" + schemaContext
 		return &GetCurrentConfigResult{
 			ConfigType: params.ConfigType,
 			Success:    false,
-			Message:    result.Message,
+			Message:    errorMessage,
 		}, err
 	}
 
 	// Convert unified result to MCP format
+	successMessage := result.Message + "\n\n" + schemaContext
+
 	return &GetCurrentConfigResult{
 		ConfigType: params.ConfigType,
 		FilePath:   result.Data["file_path"].(string),
 		Content:    result.Data["content"].(map[string]interface{}),
-		Message:    result.Message,
+		Message:    successMessage,
 		Success:    result.Success,
 	}, nil
 }
@@ -1678,19 +1948,26 @@ func (h *DefaultMCPHandler) AddEnvironment(ctx context.Context, params AddEnviro
 
 	// Use unified command handler
 	result, err := h.commandHandler.AddEnvironment(ctx, params.StackName, params.DeploymentType, params.Parent, params.ParentEnv, params.Config)
+
+	// Always include schema context in response for LLM guidance
+	stackContext := h.getStackConfigSchemaContext()
+
 	if err != nil {
+		errorMessage := result.Message + "\n\n" + stackContext
 		return &AddEnvironmentResult{
 			StackName: params.StackName,
 			Success:   false,
-			Message:   result.Message,
+			Message:   errorMessage,
 		}, err
 	}
 
 	// Convert unified result to MCP format
+	successMessage := result.Message + "\n\n" + stackContext
+
 	return &AddEnvironmentResult{
 		StackName:   result.Data["stack_name"].(string),
 		FilePath:    result.Data["file_path"].(string),
-		Message:     result.Message,
+		Message:     successMessage,
 		Success:     result.Success,
 		ConfigAdded: result.Data["config_added"].(map[string]interface{}),
 	}, nil
@@ -1706,11 +1983,19 @@ func (h *DefaultMCPHandler) ModifyStackConfig(ctx context.Context, params Modify
 
 	// Use unified command handler
 	result, err := h.commandHandler.ModifyStackConfig(ctx, params.StackName, params.Changes)
+
+	// Always include schema context in response for LLM guidance
+	schemaContext := h.getStackConfigSchemaContext()
+
 	if err != nil {
 		errorMessage := fmt.Sprintf("❌ Failed to modify stack configuration: %v", err)
 		if result != nil {
 			errorMessage = result.Message
 		}
+
+		// Include schema guidance in error message
+		errorMessage += "\n\n" + schemaContext
+
 		return &ModifyStackConfigResult{
 			StackName: params.StackName,
 			Success:   false,
@@ -1734,10 +2019,13 @@ func (h *DefaultMCPHandler) ModifyStackConfig(ctx context.Context, params Modify
 		changesApplied = ca
 	}
 
+	// Include schema context in success message
+	successMessage := result.Message + "\n\n" + schemaContext
+
 	return &ModifyStackConfigResult{
 		StackName:      stackName,
 		FilePath:       filePath,
-		Message:        result.Message,
+		Message:        successMessage,
 		Success:        result.Success,
 		ChangesApplied: changesApplied,
 	}, nil
@@ -1753,21 +2041,28 @@ func (h *DefaultMCPHandler) AddResource(ctx context.Context, params AddResourceP
 
 	// Use unified command handler
 	result, err := h.commandHandler.AddResource(ctx, params.ResourceName, params.ResourceType, params.Environment, params.Config)
+
+	// Always include schema context in response for LLM guidance
+	resourceContext := h.getResourceSchemaContext()
+
 	if err != nil {
+		errorMessage := result.Message + "\n\n" + resourceContext
 		return &AddResourceResult{
 			ResourceName: params.ResourceName,
 			Environment:  params.Environment,
 			Success:      false,
-			Message:      result.Message,
+			Message:      errorMessage,
 		}, err
 	}
 
 	// Convert unified result to MCP format
+	successMessage := result.Message + "\n\n" + resourceContext
+
 	return &AddResourceResult{
 		ResourceName: result.Data["resource_name"].(string),
 		Environment:  result.Data["environment"].(string),
 		FilePath:     result.Data["file_path"].(string),
-		Message:      result.Message,
+		Message:      successMessage,
 		Success:      result.Success,
 		ConfigAdded:  result.Data["config_added"].(map[string]interface{}),
 	}, nil
@@ -1795,4 +2090,114 @@ func (h *DefaultMCPHandler) GetCapabilities(ctx context.Context) (map[string]int
 
 func (h *DefaultMCPHandler) Ping(ctx context.Context) (string, error) {
 	return "pong", nil
+}
+
+// getStackConfigSchemaContext provides schema guidance for stack configuration modifications
+func (h *DefaultMCPHandler) getStackConfigSchemaContext() string {
+	return `## 📋 Simple Container Stack Configuration Schema
+
+**IMPORTANT**: Use only these validated properties. Do NOT invent new properties.
+
+### ✅ Valid Stack Properties:
+- **type**: "cloud-compose", "single-image", "static"
+- **parent**: Parent stack reference (e.g., "infrastructure")  
+- **parentEnv**: Environment in parent (e.g., "staging", "production")
+- **config**: Configuration section (see below)
+
+### ✅ Valid Config Properties:
+#### For cloud-compose type:
+- **dockerComposeFile**: "docker-compose.yaml" (REQUIRED)
+- **runs**: ["service-name"] (REQUIRED - containers from docker-compose)
+- **env**: {"KEY": "value"} (environment variables)
+- **secrets**: {"KEY": "${secret:name}"} (sensitive values)
+- **scale**: {"min": 1, "max": 5} (scaling configuration)
+- **uses**: ["resource-name"] (consume parent resources)
+- **dependencies**: ["other-stack"] (stack dependencies)
+
+#### For single-image type:
+- **image**: {"dockerfile": "${git:root}/Dockerfile"} (REQUIRED)
+- **env**: Environment variables
+- **secrets**: Sensitive values
+- **scale**: Scaling configuration
+
+#### For static type:
+- **bundleDir**: "build/" or "dist/" (static files directory)
+- **indexDocument**: "index.html" (default page)
+- **errorDocument**: "error.html" (error page)
+
+### ❌ FORBIDDEN Properties (will cause errors):
+- ~~compose.file~~ → Use **dockerComposeFile**
+- ~~scaling~~ → Use **scale**  
+- ~~minCapacity/maxCapacity~~ → Use **scale.min/scale.max**
+- ~~environment~~ → Use **env**
+- ~~version~~ → Use **schemaVersion** (top-level only)
+- ~~connectionString~~ → Auto-injected by resources
+
+### 💡 Example Valid Configuration:
+` + "```yaml" + `
+schemaVersion: 1.0
+stacks:
+  myapp:
+    type: cloud-compose
+    parent: infrastructure
+    parentEnv: staging
+    config:
+      dockerComposeFile: docker-compose.yaml
+      runs: [app, worker]
+      scale:
+        min: 1
+        max: 3
+      env:
+        NODE_ENV: production
+        PORT: 3000
+      secrets:
+        JWT_SECRET: "${secret:jwt-secret}"
+      uses: [postgres-db, redis-cache]
+` + "```" + `
+
+**🔍 For complete schema details, search documentation with: "client.yaml schema" or "stack configuration"**`
+}
+
+// getResourceSchemaContext provides schema guidance for resource configurations
+func (h *DefaultMCPHandler) getResourceSchemaContext() string {
+	return `## 🗄️ Simple Container Resource Schema
+
+**IMPORTANT**: Use only validated resource types and properties from schemas.
+
+### ✅ Valid Resource Types:
+#### AWS Resources:
+- **s3-bucket**: S3 storage bucket
+- **ecr-repository**: Container registry  
+- **aws-rds-postgres**: PostgreSQL database
+- **aws-rds-mysql**: MySQL database
+
+#### GCP Resources:
+- **gcp-bucket**: Cloud Storage bucket
+- **gcp-redis**: Memorystore Redis
+- **gcp-cloudsql-postgres**: Cloud SQL PostgreSQL
+- **gcp-artifact-registry**: Container registry
+
+#### MongoDB Atlas:
+- **mongodb-atlas**: Managed MongoDB cluster
+
+#### Kubernetes:
+- **helm-postgres**: PostgreSQL via Helm
+- **helm-redis**: Redis via Helm
+- **helm-rabbitmq**: RabbitMQ via Helm
+
+### 💡 Example Valid Resource:
+` + "```yaml" + `
+resources:
+  staging:
+    postgres-db:
+      type: aws-rds-postgres
+      name: myapp-staging-db
+      instanceClass: db.t3.micro
+      allocatedStorage: 20
+      username: postgres
+      password: "${secret:postgres-password}"
+      databaseName: myapp
+` + "```" + `
+
+**🔍 Search documentation for specific resource schemas: "aws s3 schema", "mongodb atlas configuration", etc.**`
 }
