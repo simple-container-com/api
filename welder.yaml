@@ -129,10 +129,11 @@ tasks:
         echo "🔨 Building embeddings generator..."
         cd ${project:root}
         mkdir -p bin
-        go build -o bin/generate-embeddings ./cmd/generate-embeddings
+        go mod download
+        go build -o ${project:root}/bin/generate-embeddings ${project:root}/cmd/generate-embeddings
         
         # Check if build succeeded
-        if [ ! -f "bin/generate-embeddings" ]; then
+        if [ ! -f "${project:root}/bin/generate-embeddings" ]; then
           echo "❌ Failed to build embeddings generator binary"
           exit 1
         fi
@@ -162,7 +163,7 @@ tasks:
         
         if [ -n "$OPENAI_KEY" ]; then
           echo "✨ Generating embeddings using OpenAI model: $EMBEDDING_MODEL"
-          if ! ./bin/generate-embeddings \
+          if ! ${project:root}/bin/generate-embeddings \
             -openai-key "$OPENAI_KEY" \
             -model "$EMBEDDING_MODEL" \
             -output ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json \

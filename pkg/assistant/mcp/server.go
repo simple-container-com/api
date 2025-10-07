@@ -672,6 +672,13 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			path = p
 		}
 
+		// Resolve path to absolute path to ensure we work in the correct directory
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeProjectNotFound, "Invalid path", fmt.Sprintf("Failed to resolve path '%s': %v", path, err))
+		}
+		path = absPath
+
 		contextParams := GetProjectContextParams{
 			Path: path,
 		}
@@ -731,6 +738,13 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		if p, ok := params.Arguments["path"].(string); ok {
 			path = p
 		}
+
+		// Resolve path to absolute path to ensure we work in the correct directory
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Invalid path", fmt.Sprintf("Failed to resolve path '%s': %v", path, err))
+		}
+		path = absPath
 
 		analyzeParams := AnalyzeProjectParams{
 			Path: path,
