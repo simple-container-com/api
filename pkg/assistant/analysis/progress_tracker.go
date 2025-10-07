@@ -33,7 +33,7 @@ func NewProgressTracker(reporter ProgressReporter, totalDetectors, totalResource
 		Name:        "initialization",
 		Weight:      0.05, // 5% - very fast
 		TotalTasks:  1,
-		Description: "Starting analysis...",
+		Description: "Initializing project analysis...",
 	}
 
 	tracker.phases["tech_stack"] = &ProgressPhase{

@@ -222,9 +222,8 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 		)
 	}
 
-	// Start initialization phase
-	pa.progressTracker.StartPhase("initialization")
-	pa.progressTracker.CompletePhase("initialization", fmt.Sprintf("Starting analysis of %s", absPath))
+	// Complete initialization phase immediately
+	pa.progressTracker.CompletePhase("initialization", fmt.Sprintf("Analyzing project at %s", absPath))
 
 	analysis := &ProjectAnalysis{
 		Path: projectPath,

@@ -162,7 +162,6 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 	// Analyze project if path is provided
 	var projectInfo *analysis.ProjectAnalysis
 	if c.config.ProjectPath != "" {
-		fmt.Printf("🔍 Analyzing project at %s...\n", c.config.ProjectPath)
 		if err := c.analyzeProject(signalCtx); err != nil {
 			fmt.Printf("%s Failed to analyze project: %v\n", color.YellowString("⚠️"), err)
 		} else {
@@ -421,7 +420,9 @@ func (c *ChatInterface) printWelcome() {
 
 // analyzeProject analyzes the current project
 func (c *ChatInterface) analyzeProject(ctx context.Context) error {
-	fmt.Printf("%s Analyzing project at %s...\n", color.YellowString("🔍"), c.config.ProjectPath)
+	// Set up progress reporter for nice analysis feedback
+	progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
+	c.analyzer.SetProgressReporter(progressReporter)
 
 	projectInfo, err := c.analyzer.AnalyzeProject(c.config.ProjectPath)
 	if err != nil {
