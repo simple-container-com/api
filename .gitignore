@@ -7,8 +7,12 @@ bin
 
 # AI Assistant build artifacts
 pkg/assistant/embeddings/docs/
-pkg/assistant/embeddings/vectors/
 pkg/assistant/modes/schemas/
+
+# AI Assistant vectors - ignore large generated files but keep directory structure
+pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json
+# Keep .gitkeep and small fallback files
 
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml
