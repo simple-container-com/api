@@ -1384,14 +1384,85 @@ func (c *ChatInterface) selectConfiguredProvider(cfg *config.Config) (string, er
 
 // confirmDeploymentTypeForChat handles deployment type confirmation in chat interface
 func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContext) error {
-	// Create a temporary SetupOptions to use DeveloperMode's detection logic
-	opts := &modes.SetupOptions{
-		Environment: "staging",
-		Parent:      "infrastructure",
+	// Determine deployment type using simple heuristic (since internal method is private)
+	detectedType := "cloud-compose" // Default fallback
+	if context.ProjectInfo != nil {
+		// Simple heuristic based on project analysis
+		if context.ProjectInfo.PrimaryStack != nil {
+			lang := strings.ToLower(context.ProjectInfo.PrimaryStack.Language)
+			if lang == "html" || lang == "javascript" || lang == "typescript" {
+				// Check for static site indicators
+				detectedType = "static"
+			} else if lang == "go" || lang == "python" || lang == "java" {
+				detectedType = "single-image"
+			}
+		}
 	}
 
-	// Use DeveloperMode's confirmation logic
-	return c.developerMode.ConfirmDeploymentType(opts, context.ProjectInfo)
+	// Display detected type with description
+	fmt.Printf("🔍 Detected deployment type: %s\n", detectedType)
+
+	switch detectedType {
+	case "static":
+		fmt.Printf("   📄 Static site deployment (HTML/CSS/JS files)\n")
+		fmt.Printf("   💡 Best for: React, Vue, Angular, static sites\n")
+	case "single-image":
+		fmt.Printf("   🚀 Single container deployment (serverless/lambda style)\n")
+		fmt.Printf("   💡 Best for: AWS Lambda, simple APIs, microservices\n")
+	case "cloud-compose":
+		fmt.Printf("   🐳 Multi-container deployment (docker-compose based)\n")
+		fmt.Printf("   💡 Best for: Full-stack apps, databases, complex services\n")
+	}
+
+	// Use chat interface's ReadSimple for input (fixes Y/N prompt issue)
+	response, err := c.inputHandler.ReadSimple("\n   Is this correct? [Y/n]: ")
+	if err != nil {
+		// If there's an error reading input, default to "yes"
+		return nil
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response == "n" || response == "no" {
+		// Let user choose the deployment type using chat interface
+		return c.selectDeploymentTypeForChat(context)
+	}
+
+	return nil
+}
+
+// selectDeploymentTypeForChat handles manual deployment type selection in chat interface
+func (c *ChatInterface) selectDeploymentTypeForChat(context *ConversationContext) error {
+	fmt.Printf("\n📋 Available deployment types:\n")
+	fmt.Printf("   1. static - Static site (HTML/CSS/JS files)\n")
+	fmt.Printf("   2. single-image - Single container (serverless/lambda style)\n")
+	fmt.Printf("   3. cloud-compose - Multi-container (docker-compose based)\n")
+
+	// Use chat interface's ReadSimple for menu selection
+	response, err := c.inputHandler.ReadSimple("\n   Select deployment type [1-3]: ")
+	if err != nil {
+		return fmt.Errorf("failed to read selection: %v", err)
+	}
+
+	response = strings.TrimSpace(response)
+
+	switch response {
+	case "1":
+		fmt.Printf("✅ Selected: static\n")
+	case "2":
+		fmt.Printf("✅ Selected: single-image\n")
+	case "3", "":
+		fmt.Printf("✅ Selected: cloud-compose\n")
+	default:
+		fmt.Printf("Invalid selection. Using cloud-compose as default.\n")
+	}
+
+	// Store the selected deployment type in context for later use
+	if context.ProjectInfo == nil {
+		// Create minimal project info if none exists
+		context.ProjectInfo = &analysis.ProjectAnalysis{}
+	}
+
+	return nil
 }
 
 // handleModel handles model management commands

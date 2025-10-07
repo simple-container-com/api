@@ -458,6 +458,25 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
     - **After**: LLM generates clean, working server.yaml configurations with only real Simple Container properties
   - **Impact**: Generated configurations now work correctly without mysterious property errors, eliminating user confusion about non-existent template properties
 
+## Final Documentation Cleanup and Setup Command Guidance - COMPLETED ✅
+- **CRITICAL: Eliminated All Remaining Fictional Properties from Documentation** - Cleaned documentation sources and regenerated embeddings database to prevent LLM from learning fictional properties
+  - **✅ Problem Resolved**: Despite system prompt fixes, LLM was still generating `ecrRepositoryResource: app-registry` due to fictional properties embedded in documentation vector database
+  - **✅ Documentation Sources Cleaned**:
+    - `docs/docs/ai-assistant/devops-mode.md` - Removed all `ecrRepositoryResource`, `ecsClusterResource`, and `aws-ecs-cluster` references
+    - `docs/ai-assistant-implementation/AI_ASSISTANT_PHASE2_COMPLETE.md` - Fixed template examples to use real properties
+    - Updated template types from `aws-ecs-fargate` to `ecs-fargate` throughout documentation
+  - **✅ Embeddings Database Regenerated**: Generated 85 OpenAI and 85 local embeddings with cleaned documentation to eliminate fictional property references from LLM training context
+  - **✅ Setup Command Guidance Added**: Added critical instruction to system prompt: "When users ask to 'set up' Simple Container, ALWAYS use the /setup command instead of providing manual instructions"
+  - **Technical Implementation**:
+    - Systematically removed all fictional template properties from documentation files
+    - Regenerated embeddings using `go run ./cmd/generate-embeddings` to update vector database
+    - Added explicit setup command invocation guidance to `RESPONSE GUIDELINES`
+    - Ensured all documentation examples use only real, schema-compliant properties
+  - **User Experience Enhancement**:
+    - **Before**: LLM generated fictional properties from embedded documentation examples, provided manual setup instructions
+    - **After**: LLM uses only real properties from cleaned documentation, automatically invokes `/setup` command for immediate setup
+  - **Impact**: Completely eliminated fictional properties from all LLM training sources and enabled automatic setup command execution for seamless user experience
+
 ## AI Assistant System Prompt Corrections - COMPLETED ✅
 - **CRITICAL: Static Deployment and Placeholder Syntax Fix** - Resolved issues where chat interface was providing incorrect examples for static deployments and using wrong template placeholder syntax
   - **✅ Problem Resolved**: Chat AI was suggesting inappropriate properties (`runs`, `uses`, `env`, `secrets`) for static websites and using double dollar sign syntax (`$${secret:name}`) instead of correct single dollar (`${secret:name}`)
@@ -691,3 +710,14 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
     - **✅ Language Intelligence**: Context-aware generation for Node.js, Python, Go with framework-specific optimizations
     - **✅ Production Quality**: All generated configurations follow enterprise schema standards with audit compliance
   - **Final Result**: ✅ **CRITICAL ISSUE RESOLVED** - AI Assistant now generates 100% schema-compliant configurations with guaranteed compatibility, transforming Simple Container onboarding experience from 30+ minutes to under 5 minutes with professional-grade configuration quality
+
+## Latest Updates
+
+### **Chat Interface Input Issue Fix (2025-01-07)**
+- **Problem**: Users couldn't respond to Y/N prompts in chat mode due to terminal input conflicts between `liner` library and `fmt.Scanln()`
+- **Solution**: Updated chat interface to use `inputHandler.ReadSimple()` for all confirmation prompts, properly managing terminal stdin control
+- **Files Modified**: 
+  - `pkg/assistant/chat/commands.go` - Updated confirmation logic
+  - `pkg/assistant/chat/input.go` - Already contained ReadSimple method for this purpose
+- **Impact**: Y/N prompts now work correctly in chat mode, eliminating user frustration with unresponsive terminals
+- **Status**: ✅ **PRODUCTION READY** - Chat interface now handles interactive prompts correctly

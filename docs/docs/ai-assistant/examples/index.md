@@ -151,24 +151,23 @@ resources:
     catalog-db:
       type: aws-rds-postgres  
       instanceClass: db.r5.large
-      readReplicas: 2
+      allocateStorage: 100
+      databaseName: catalog
+      engineVersion: "15.4"
+      username: dbadmin
+      password: "${secret:catalog-db-password}"
       
     # Session storage
     session-store:
-      type: aws-elasticache-redis
-      nodeType: cache.r5.large
-      replicationGroups: true
+      type: s3-bucket
+      name: session-storage
+      allowOnlyHttps: true
       
     # File uploads
     uploads-bucket:
       type: s3-bucket
-      versioningEnabled: true
-      lifecyclePolicies: true
-      
-    # CDN
-    assets-cdn:
-      type: aws-cloudfront-distribution
-      originS3Bucket: uploads-bucket
+      name: uploads-storage
+      allowOnlyHttps: true
 ```
 
 ### **SaaS Application**
@@ -198,20 +197,20 @@ stacks:
 ```bash
 # Day 1: DevOps team sets up foundation
 sc assistant devops setup --cloud aws --interactive
-# Configures: VPC, ECS cluster, RDS, ElastiCache, S3
+# Configures: ECS Fargate, RDS, ECR, S3
 
 # Day 2: Security and secrets configuration  
 sc assistant devops secrets --init --cloud aws
 sc assistant devops resources --add monitoring,alerting
 
 # Day 3: Deploy and validate infrastructure
-sc provision -s infrastructure -e staging
+sc provision -s infrastructure
 
 # Verify infrastructure is working
 curl -f https://staging-db.yourcompany.com/health || echo "Infrastructure deployed successfully"
 
-# Day 4-5: Production deployment and documentation
-sc provision -s infrastructure -e production
+# Day 4-5: Production deployment and documentation  
+sc provision -s infrastructure
 # Create team documentation and onboarding guides
 ```
 
@@ -221,19 +220,19 @@ sc provision -s infrastructure -e production
 cd user-service
 sc assistant dev analyze  # Detects: Go + Gin + PostgreSQL
 sc assistant dev setup    # Generates: client.yaml, Dockerfile, compose
-sc deploy -e staging      # Deploy to shared staging infrastructure
+sc deploy -s user-service -e staging      # Deploy to shared staging infrastructure
 
 # Team B: Frontend Development  
 cd admin-dashboard
 sc assistant dev analyze  # Detects: React + TypeScript
 sc assistant dev setup    # Generates: Static site config
-sc deploy -e staging      # Deploy to S3 + CloudFront
+sc deploy -s admin-dashboard -e staging      # Deploy static site
 
 # Team C: Background Jobs
 cd notification-worker
 sc assistant dev analyze  # Detects: Python + Celery + Redis
 sc assistant dev setup    # Generates: Worker configuration
-sc deploy -e staging      # Deploy to ECS with queue integration
+sc deploy -s notification-worker -e staging      # Deploy worker service
 ```
 
 ### **Scaling Workflow Example**
@@ -245,10 +244,17 @@ resources:
   production:
     app-db:
       type: aws-rds-postgres
+      name: app-database
       instanceClass: db.t3.micro
+      allocateStorage: 20
+      databaseName: myapp
+      engineVersion: "15.4"
+      username: dbadmin
+      password: "${secret:db-password}"
     app-cache:
-      type: aws-elasticache-redis  
-      nodeType: cache.t3.micro
+      type: s3-bucket
+      name: app-cache-bucket
+      allowOnlyHttps: true
 ```
 
 #### **Phase 2: Growth (Month 6)**
@@ -262,11 +268,17 @@ resources:
   production:
     app-db:
       type: aws-rds-postgres
+      name: production-database
       instanceClass: db.r5.large
-      readReplicas: 1
+      allocateStorage: 100
+      databaseName: myapp
+      engineVersion: "15.4"
+      username: dbadmin
+      password: "${secret:prod-db-password}"
     monitoring:
-      type: aws-cloudwatch-dashboard
-      metrics: ["DatabaseConnections", "CPUUtilization"]
+      type: s3-bucket
+      name: monitoring-logs
+      allowOnlyHttps: true
 ```
 
 #### **Phase 3: Scale (Year 1)**

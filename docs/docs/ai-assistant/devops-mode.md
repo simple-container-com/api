@@ -49,7 +49,7 @@ DevOps Mode uses an interactive wizard approach instead of project analysis:
 🌐 Select your primary cloud provider:
 
 1. AWS (Amazon Web Services)
-   ✅ ECS Fargate, RDS, S3, ElastiCache, Lambda
+   ✅ ECS Fargate, RDS, S3, ECR, Lambda
    
 2. GCP (Google Cloud Platform)  
    ✅ GKE Autopilot, Cloud SQL, Cloud Storage, Cloud Run
@@ -143,114 +143,95 @@ provisioner:
 # Reusable templates for application teams
 templates:
   web-app:
-    type: aws-ecs-fargate
-    ecsClusterResource: ecs-cluster
-    ecrRepositoryResource: app-registry
+    type: ecs-fargate
     
   api-service:
-    type: aws-ecs-fargate  
-    ecsClusterResource: ecs-cluster
-    ecrRepositoryResource: api-registry
+    type: ecs-fargate
 
 # Shared infrastructure resources
 resources:
-  # Staging environment
-  staging:
-    # Compute cluster
-    ecs-cluster:
-      type: aws-ecs-cluster
-      name: mycompany-staging-cluster
-      
-    # Container registries
-    app-registry:
-      type: aws-ecr-repository
-      name: mycompany-apps-staging
-      
-    api-registry:
-      type: aws-ecr-repository  
-      name: mycompany-apis-staging
-      
-    # Database
-    postgres-db:
-      type: aws-rds-postgres
-      name: mycompany-staging-db
-      instanceClass: db.t3.micro
-      allocatedStorage: 20
-      engineVersion: "15.4"
-      username: dbadmin
-      password: "${secret:staging-db-password}"
-      databaseName: applications
-      
-    # Cache
-    redis-cache:
-      type: aws-elasticache-redis
-      name: mycompany-staging-cache
-      nodeType: cache.t3.micro
-      numCacheNodes: 1
-      
-    # Storage
-    uploads-bucket:
-      type: s3-bucket
-      name: mycompany-staging-uploads
-      allowOnlyHttps: true
+  # DNS and domain management
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${auth:cloudflare}"
+      accountId: "${secret:cloudflare-account-id}"
+      zoneName: "mycompany.com"
+      dnsRecords:
+        - name: "api"
+          type: "CNAME"
+          value: "staging-api.mycompany.com"
+        - name: "app"
+          type: "CNAME" 
+          value: "staging-app.mycompany.com"
+  
+  # Environment-specific resources
+  resources:
+    # Staging environment
+    staging:
+      resources:
+        # Container registries
+        app-registry:
+          type: ecr-repository
+          name: mycompany-apps-staging
+          
+        api-registry:
+          type: ecr-repository  
+          name: mycompany-apis-staging
+          
+        # Database
+        postgres-db:
+          type: aws-rds-postgres
+          name: mycompany-staging-db
+          instanceClass: db.t3.micro
+          allocateStorage: 20
+          engineVersion: "15.4"
+          username: dbadmin
+          password: "${secret:staging-db-password}"
+          databaseName: applications
+          
+        # Additional storage
+        cache-bucket:
+          type: s3-bucket
+          name: mycompany-staging-cache
+          allowOnlyHttps: true
+          
+        # Storage
+        uploads-bucket:
+          type: s3-bucket
+          name: mycompany-staging-uploads
+          allowOnlyHttps: true
 
-  # Production environment
-  production:
-    # Compute cluster
-    ecs-cluster:
-      type: aws-ecs-cluster
-      name: mycompany-prod-cluster
-      
-    # Container registries (shared with staging)
-    app-registry:
-      type: aws-ecr-repository
-      name: mycompany-apps-prod
-      
-    # Database with high availability
-    postgres-db:
-      type: aws-rds-postgres
-      name: mycompany-prod-db
-      instanceClass: db.r5.large
-      allocatedStorage: 100
-      multiAZ: true
-      backupRetentionPeriod: 7
-      engineVersion: "15.4"
-      username: dbadmin
-      password: "${secret:prod-db-password}"
-      databaseName: applications
-      
-    # Cache cluster
-    redis-cache:
-      type: aws-elasticache-redis
-      name: mycompany-prod-cache
-      nodeType: cache.r5.large
-      numCacheNodes: 3
-      replicationGroups: true
-      
-    # Storage with CDN
-    uploads-bucket:
-      type: s3-bucket
-      name: mycompany-prod-uploads
-      allowOnlyHttps: true
-      
-    uploads-cdn:
-      type: aws-cloudfront-distribution
-      originS3Bucket: uploads-bucket
-      priceClass: PriceClass_100
-
-# DNS and domain management
-registrar:
-  cloudflare:
-    credentials: "${auth:cloudflare}"
-    accountId: "${secret:cloudflare-account-id}"
-    zoneName: "mycompany.com"
-    dnsRecords:
-      - name: "api"
-        type: "CNAME"
-        value: "${resource:ecs-cluster.dnsName}"
-      - name: "staging-api"
-        type: "CNAME" 
-        value: "${resource:ecs-cluster.dnsName}"
+    # Production environment
+    production:
+      resources:
+        # Container registries
+        app-registry:
+          type: ecr-repository
+          name: mycompany-apps-prod
+          
+        # Database with high availability
+        postgres-db:
+          type: aws-rds-postgres
+          name: mycompany-prod-db
+          instanceClass: db.r5.large
+          allocatedStorage: 100
+          engineVersion: "15.4"
+          username: dbadmin
+          password: "${secret:prod-db-password}"
+          databaseName: applications
+          
+        # Production storage
+        prod-cache-bucket:
+          type: s3-bucket
+          name: mycompany-prod-cache
+          allowOnlyHttps: true
+          
+        # Production uploads
+        uploads-bucket:
+          type: s3-bucket
+          name: mycompany-prod-uploads
+          allowOnlyHttps: true
 ```
 
 ### 2. **secrets.yaml** - Authentication & Secrets
@@ -369,17 +350,10 @@ provisioner:
 
 templates:
   aws-web-app:
-    type: aws-ecs-fargate
-    ecsClusterResource: ecs-cluster
-    ecrRepositoryResource: web-registry
-    vpcResource: main-vpc
-    loadBalancerResource: main-alb
+    type: ecs-fargate
     
   aws-api-service:
-    type: aws-ecs-fargate
-    ecsClusterResource: ecs-cluster
-    ecrRepositoryResource: api-registry
-    targetGroupResource: api-targets
+    type: ecs-fargate
 ```
 
 ### **GCP Configuration**
@@ -450,7 +424,7 @@ templates:
 | **PostgreSQL** | RDS PostgreSQL | Cloud SQL PostgreSQL | Helm PostgreSQL |
 | **MongoDB** | DocumentDB | MongoDB Atlas | Helm MongoDB |
 | **MySQL** | RDS MySQL | Cloud SQL MySQL | Helm MySQL |
-| **Redis** | ElastiCache | Memorystore | Helm Redis |
+| **Redis** | S3 + Apps | GCP Redis | Helm Redis |
 
 ### **Storage Resources**
 | Resource Type | AWS | GCP | Kubernetes |
@@ -490,48 +464,42 @@ templates:
 
 ### **Multi-Region Setup**
 ```yaml
-# Global resources with regional failover
+# Multiple environments across regions
 resources:
-  production:
-    primary-cluster:
-      type: aws-ecs-cluster
-      name: mycompany-prod-primary
-      region: us-east-1
-      
-    replica-cluster:
-      type: aws-ecs-cluster
-      name: mycompany-prod-replica  
-      region: us-west-2
-      
-    global-db:
-      type: aws-rds-postgres
-      name: mycompany-prod-db
-      region: us-east-1
-      readReplicas:
-        - region: us-west-2
+  resources:
+    production:
+      resources:
+        primary-registry:
+          type: ecr-repository
+          name: mycompany-prod-primary
+          
+        global-db:
+          type: aws-rds-postgres
+          name: mycompany-prod-db
           instanceClass: db.r5.large
+          allocateStorage: 100
+          databaseName: myapp
+          engineVersion: "15.4"
+          username: dbadmin
+          password: "${secret:prod-db-password}"
 ```
 
-### **Custom Resource Types**
+### **Multiple Resource Examples**
 ```yaml
-# Define custom composite resources
-customResources:
-  database-cluster:
-    description: "PostgreSQL with Redis cache"
-    resources:
-      - type: aws-rds-postgres
-        name: "${var:name}-db"
-      - type: aws-elasticache-redis
-        name: "${var:name}-cache"
-        
-  web-tier:
-    description: "Load balancer with auto-scaling"
-    resources:
-      - type: aws-application-load-balancer
-        name: "${var:name}-alb"
-      - type: aws-ecs-service
-        name: "${var:name}-service"
-        targetGroup: "${resource:alb.defaultTarget}"
+# Additional resource types
+resources:
+  resources:
+    production:
+      resources:
+        storage-bucket:
+          type: s3-bucket
+          name: mycompany-prod-storage
+          allowOnlyHttps: true
+          
+        backup-bucket:
+          type: s3-bucket  
+          name: mycompany-prod-backups
+          allowOnlyHttps: true
 ```
 
 ## 📋 Team Workflows

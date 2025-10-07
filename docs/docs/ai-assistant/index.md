@@ -94,7 +94,7 @@ sc assistant dev setup
 - **Architecture Patterns**: Microservice, monolith, serverless detection
 
 ### **Cloud Provider Integration** (DevOps Mode)
-- **AWS**: ECS Fargate, RDS, S3, ElastiCache, Lambda
+- **AWS**: ECS Fargate, RDS, S3, ECR, Lambda
 - **GCP**: GKE Autopilot, Cloud SQL, Cloud Storage, Cloud Run
 - **Azure**: Container Apps, PostgreSQL, Blob Storage (Phase 2)
 - **Kubernetes**: Native deployments, Helm operators

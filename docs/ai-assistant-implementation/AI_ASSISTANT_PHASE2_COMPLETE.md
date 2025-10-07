@@ -121,9 +121,7 @@ pkg/assistant/
 # AWS Configuration
 templates:
   web-app:
-    type: aws-ecs-fargate
-    ecsClusterResource: ecs-cluster
-    ecrRepositoryResource: app-registry
+    type: ecs-fargate
     
 resources:
   staging:
