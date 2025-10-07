@@ -31,8 +31,8 @@ SIMPLE CONTAINER ARCHITECTURE:
 
 VALIDATED SIMPLE CONTAINER COMMANDS:
 ✅ REAL commands (always suggest these):
-- sc deploy -e <environment>
-- sc provision -s <stack> -e <environment>
+- sc deploy -s <stack> -e <environment>
+- sc provision -s <stack>
 - sc secrets add <secret-name>
 - sc secrets list
 - sc destroy -e <environment>
@@ -90,7 +90,6 @@ provisioner:
 templates:
   web-app:
     type: ecs-fargate
-    ecrRepositoryResource: app-registry
 
 resources:
   registrar:
@@ -124,6 +123,12 @@ resources:
           type: kubernetes-helm-redis-operator
           config:
             kubeconfig: "${auth:kubernetes}"
+        # GCP Example (GKE clusters required as resources)
+        gke-cluster:
+          type: gcp-gke-autopilot-cluster
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
     production:
       template: web-app
       resources:
@@ -158,7 +163,7 @@ resources:
 - environments: section (use resources.resources with env keys)
 - flat resources.staging structure (use resources.resources.staging.resources)
 - templates nested in environments (templates is top-level)
-- fictional resource types: aws-ecs-cluster, aws-elasticache-redis (use real types)
+- fictional resource types: aws-ecs-cluster, aws-elasticache-redis (eliminated - use real types like ecr-repository, s3-bucket)
 - fictional template properties: cpu, memory, desiredCount, public
 - fictional resource properties: engine, version, username, password in templates
 - registrar: domain: value (use resources.registrar.type and .config)
@@ -222,6 +227,7 @@ resources:
 - gcp-cloudsql-postgres: Cloud SQL PostgreSQL
 - gcp-bucket: Cloud Storage bucket
 - gcp-redis: Memorystore Redis
+- gcp-gke-autopilot-cluster: GKE Autopilot cluster (required for GKE deployments)
 
 ✅ DEPLOYMENT TYPE SPECIFIC PROPERTIES:
 - cloud-compose: REQUIRES dockerComposeFile, runs; MAY use env, secrets, uses, scale
@@ -292,7 +298,7 @@ KEY RESPONSIBILITIES:
 WORKFLOW:
 1. Setup infrastructure: sc assistant devops setup --interactive
 2. Configure secrets: sc secrets add aws-access-key aws-secret-key
-3. Deploy infrastructure: sc provision -s infrastructure -e staging
+3. Deploy infrastructure: sc provision -s infrastructure
 4. Share with developers: Provide parent stack name and available resources
 
 FOCUS AREAS:

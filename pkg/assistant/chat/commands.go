@@ -671,16 +671,10 @@ provisioner:
 # Reusable templates for application teams
 templates:
   web-app:
-    type: aws-ecs-fargate
-    config:
-      ecsClusterResource: ecs-cluster
-      ecrRepositoryResource: app-registry
+    type: ecs-fargate
     
   api-service:
-    type: aws-ecs-fargate
-    config:
-      ecsClusterResource: ecs-cluster
-      ecrRepositoryResource: api-registry
+    type: ecs-fargate
 
 # Secrets management configuration
 secrets:
@@ -710,17 +704,10 @@ resources:
     staging:
       template: web-app
       resources:
-        # Compute cluster
-        ecs-cluster:
-          type: aws-ecs-cluster
-          config:
-            name: myapp-staging-cluster
-            
         # Container registry
         app-registry:
-          type: aws-ecr-repository
-          config:
-            name: myapp-apps-staging
+          type: ecr-repository
+          name: myapp-apps-staging
             
         # Database
         postgres-db:
@@ -753,17 +740,10 @@ resources:
     production:
       template: web-app
       resources:
-        # Compute cluster
-        ecs-cluster:
-          type: aws-ecs-cluster
-          config:
-            name: myapp-prod-cluster
-            
         # Container registry
         app-registry:
-          type: aws-ecr-repository
-          config:
-            name: myapp-apps-prod
+          type: ecr-repository
+          name: myapp-apps-prod
             
         # Database with high availability
         postgres-db:

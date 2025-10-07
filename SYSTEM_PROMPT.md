@@ -409,6 +409,55 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
     - **After**: LLM receives comprehensive context about supported resource types for better recommendations
   - **Impact**: LLM now has proper context about available Simple Container resources, enabling better guidance and more accurate deployment recommendations
 
+## CLI Command Examples Correction - COMPLETED ✅
+- **CRITICAL: Fixed Incorrect CLI Usage Examples** - Corrected misleading command examples in system prompts and code that provided wrong parameter usage
+  - **✅ Problem Resolved**: System prompts and code were showing incorrect CLI command patterns:
+    - `sc deploy -e <environment>` (missing required stack parameter)
+    - `sc provision -s <stack> -e <environment>` (provision doesn't support environment parameter)
+  - **✅ Command Corrections Applied**:
+    - **Deploy Command**: Fixed from `sc deploy -e <environment>` to `sc deploy -s <stack> -e <environment>` (requires both parameters)
+    - **Provision Command**: Fixed from `sc provision -s <stack> -e <environment>` to `sc provision -s <stack>` (environment not supported)
+  - **✅ Files Updated**:
+    - `pkg/assistant/llm/prompts/system.go` - Fixed VALIDATED SIMPLE CONTAINER COMMANDS section
+    - `pkg/assistant/modes/devops.go` - Fixed infrastructure deployment next steps example
+    - DevOps workflow in system prompts corrected
+  - **Technical Implementation**:
+    - Updated all system prompt examples to use correct CLI syntax
+    - Ensured consistency across developer and devops mode guidance
+    - Maintained accurate command documentation for LLM reference
+  - **User Experience Enhancement**:
+    - **Before**: LLM suggested incorrect commands that would fail when users tried them
+    - **After**: LLM provides accurate, working CLI command examples
+  - **Impact**: Users now receive correct CLI guidance that actually works, preventing frustration and failed deployment attempts
+
+## Fictional Resource Properties Cleanup - COMPLETED ✅
+- **CRITICAL: Eliminated Fictional Template Properties** - Removed `ecrRepositoryResource` and `ecsClusterResource` properties that don't exist in actual ECS Fargate template schema
+  - **✅ Problem Resolved**: AI Assistant was generating server.yaml examples with fictional template properties:
+    - `ecrRepositoryResource: app-registry` (doesn't exist in ecs-fargate template schema)
+    - `ecsClusterResource: ecs-cluster` (doesn't exist in ecs-fargate template schema)
+    - `aws-ecs-cluster` resource type (doesn't exist in JSON schemas)
+    - `aws-ecr-repository` resource type (should be `ecr-repository`)
+  - **✅ Comprehensive Cleanup Applied**:
+    - **Template Properties**: Removed all fictional `ecrRepositoryResource` and `ecsClusterResource` references
+    - **Resource Types**: Fixed `aws-ecr-repository` → `ecr-repository` throughout codebase
+    - **Template Types**: Fixed `aws-ecs-fargate` → `ecs-fargate` in template definitions
+    - **Fictional Resources**: Removed `aws-ecs-cluster` and `aws-elasticache-redis` from examples and resource lists
+  - **✅ Files Updated**:
+    - `pkg/assistant/llm/prompts/system.go` - Removed fictional properties from template examples
+    - `pkg/assistant/modes/devops.go` - Fixed template generation, resource types, and resource listings
+    - `pkg/assistant/chat/commands.go` - Removed fictional cluster resources and corrected ECR resource type
+  - **✅ Schema Compliance**: All template and resource examples now use only properties that exist in actual JSON schemas
+  - **Technical Implementation**:
+    - ECS Fargate templates simplified to contain only `type: ecs-fargate` (ECS clusters managed automatically)
+    - GKE templates require explicit cluster resources (`gcp-gke-autopilot-cluster`) referenced via `gkeClusterResource`
+    - Resource examples use real resource types: `ecr-repository`, `s3-bucket`, `aws-rds-postgres`, `gcp-gke-autopilot-cluster`
+    - Updated system prompt forbidden patterns to reflect eliminated fictional properties
+    - Resource type helper functions corrected to return actual schema-compliant types
+  - **User Experience Enhancement**:
+    - **Before**: LLM generated server.yaml with fictional properties that would cause deployment errors
+    - **After**: LLM generates clean, working server.yaml configurations with only real Simple Container properties
+  - **Impact**: Generated configurations now work correctly without mysterious property errors, eliminating user confusion about non-existent template properties
+
 ## AI Assistant System Prompt Corrections - COMPLETED ✅
 - **CRITICAL: Static Deployment and Placeholder Syntax Fix** - Resolved issues where chat interface was providing incorrect examples for static deployments and using wrong template placeholder syntax
   - **✅ Problem Resolved**: Chat AI was suggesting inappropriate properties (`runs`, `uses`, `env`, `secrets`) for static websites and using double dollar sign syntax (`$${secret:name}`) instead of correct single dollar (`${secret:name}`)

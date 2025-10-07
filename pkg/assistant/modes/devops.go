@@ -519,11 +519,11 @@ func (d *DevOpsMode) buildServerYAMLPrompt(opts DevOpsSetupOptions) string {
 	prompt.WriteString("        keyId: \"alias/simple-container\"\n")
 	prompt.WriteString("templates:\n")
 	prompt.WriteString("  web-app:\n")
-	prompt.WriteString("    type: aws-ecs-fargate\n")
+	prompt.WriteString("    type: ecs-fargate\n")
 	prompt.WriteString("resources:\n")
 	prompt.WriteString("  infrastructure:\n")
-	prompt.WriteString("    ecs-cluster:\n")
-	prompt.WriteString("      type: aws-ecs-cluster\n")
+	prompt.WriteString("    app-registry:\n")
+	prompt.WriteString("      type: ecr-repository\n")
 
 	prompt.WriteString("\n🚫 NEVER USE THESE (fictional properties eliminated in validation):\n")
 	prompt.WriteString("- stacks: section (use 'resources:' only)\n")
@@ -566,17 +566,11 @@ templates:`, prefix, d.getDefaultRegion(opts.CloudProvider))
 		case "web-app":
 			yaml += fmt.Sprintf(`
   web-app:
-    type: %s
-    config:
-      ecsClusterResource: ecs-cluster
-      ecrRepositoryResource: web-registry`, d.getComputeTemplate(opts.CloudProvider))
+    type: %s`, d.getComputeTemplate(opts.CloudProvider))
 		case "api-service":
 			yaml += fmt.Sprintf(`
   api-service:
-    type: %s
-    config:
-      ecsClusterResource: ecs-cluster
-      ecrRepositoryResource: api-registry`, d.getComputeTemplate(opts.CloudProvider))
+    type: %s`, d.getComputeTemplate(opts.CloudProvider))
 		}
 	}
 
@@ -767,39 +761,42 @@ func (d *DevOpsMode) getDefaultRegion(provider string) string {
 func (d *DevOpsMode) getComputeTemplate(provider string) string {
 	switch provider {
 	case "aws":
-		return "aws-ecs-fargate"
+		return "ecs-fargate"
 	case "gcp":
 		return "gcp-cloud-run"
 	case "kubernetes":
 		return "kubernetes-deployment"
 	default:
-		return "aws-ecs-fargate"
+		return "ecs-fargate"
 	}
 }
 
 func (d *DevOpsMode) getClusterType(provider string) string {
+	// Note: ECS clusters are managed automatically by ecs-fargate template
+	// GKE clusters MUST be defined as resources (gcp-gke-autopilot-cluster) and referenced by templates
+	// Kubernetes clusters depend on the deployment target
 	switch provider {
 	case "aws":
-		return "aws-ecs-cluster"
+		return "s3-bucket" // ECS clusters managed automatically, return other resource
 	case "gcp":
-		return "gcp-gke-autopilot-cluster"
+		return "gcp-gke-autopilot-cluster" // GKE clusters required in server.yaml
 	case "kubernetes":
-		return "kubernetes-cluster"
+		return "kubernetes-helm-postgres-operator" // Return a real Kubernetes resource type
 	default:
-		return "aws-ecs-cluster"
+		return "s3-bucket"
 	}
 }
 
 func (d *DevOpsMode) getRegistryType(provider string) string {
 	switch provider {
 	case "aws":
-		return "aws-ecr-repository"
+		return "ecr-repository"
 	case "gcp":
 		return "gcp-artifact-registry"
 	case "kubernetes":
 		return "docker-registry"
 	default:
-		return "aws-ecr-repository"
+		return "ecr-repository"
 	}
 }
 
@@ -839,9 +836,7 @@ func (d *DevOpsMode) listResources(opts ResourceOptions) error {
 			"s3-bucket - Amazon S3 storage bucket",
 			"aws-rds-postgres - Amazon RDS PostgreSQL database",
 			"aws-rds-mysql - Amazon RDS MySQL database",
-			"aws-elasticache-redis - Amazon ElastiCache Redis",
-			"aws-ecs-cluster - Amazon ECS cluster",
-			"aws-ecr-repository - Amazon ECR container registry",
+			"ecr-repository - Amazon ECR container registry",
 		},
 		"gcp": {
 			"gcp-bucket - Google Cloud Storage bucket",
@@ -1628,7 +1623,7 @@ func (d *DevOpsMode) printSetupSummary(opts DevOpsSetupOptions) {
 	fmt.Println("\n🔐 Next steps:")
 	fmt.Printf("   1. Configure secrets:       %s\n", color.CyanFmt("sc secrets add aws-access-key aws-secret-key"))
 	fmt.Printf("   2. Set database passwords:  %s\n", color.CyanFmt("sc secrets add staging-db-password prod-db-password"))
-	fmt.Printf("   3. Deploy infrastructure:   %s\n", color.CyanFmt("sc provision -s infrastructure -e staging"))
+	fmt.Printf("   3. Deploy infrastructure:   %s\n", color.CyanFmt("sc provision -s infrastructure"))
 	fmt.Printf("   4. Verify deployment:       %s\n", color.CyanFmt("sc stack status infrastructure -e staging"))
 
 	fmt.Println("\n👥 Share with development teams:")
