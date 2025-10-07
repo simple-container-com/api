@@ -102,8 +102,8 @@ func main() {
 		}
 
 		hasOpenAI := config.OpenAIAPIKey != ""
-		generateOpenAI := hasOpenAI && !config.GenerateLocal
-		generateLocal := config.GenerateLocal || !hasOpenAI
+		generateOpenAI := hasOpenAI                        // Generate OpenAI if key is available
+		generateLocal := config.GenerateLocal || hasOpenAI // Generate local as fallback (always when OpenAI available) or when explicitly requested
 
 		if generateOpenAI {
 			cost := estimateEmbeddingCost(config.EmbeddingModel, documents)
@@ -117,8 +117,8 @@ func main() {
 
 	// Determine what to generate
 	hasOpenAI := config.OpenAIAPIKey != ""
-	generateOpenAI := hasOpenAI && !config.GenerateLocal
-	generateLocal := config.GenerateLocal || !hasOpenAI
+	generateOpenAI := hasOpenAI                        // Generate OpenAI if key is available
+	generateLocal := config.GenerateLocal || hasOpenAI // Generate local as fallback (always when OpenAI available) or when explicitly requested
 
 	// Generate OpenAI embeddings if requested
 	if generateOpenAI {
@@ -183,8 +183,8 @@ func parseFlags() Config {
 
 	// Check if we can generate embeddings
 	hasOpenAI := config.OpenAIAPIKey != ""
-	generateOpenAI := hasOpenAI && !config.GenerateLocal // Generate OpenAI by default if key is available and -local not specified
-	generateLocal := config.GenerateLocal || !hasOpenAI  // Generate local if requested or if no OpenAI key
+	generateOpenAI := hasOpenAI                        // Generate OpenAI if key is available
+	generateLocal := config.GenerateLocal || hasOpenAI // Generate local as fallback (always when OpenAI available) or when explicitly requested
 
 	if !generateOpenAI && !generateLocal && !config.DryRun {
 		fmt.Fprintf(os.Stderr, "❌ Error: No embedding generation method available\n")
