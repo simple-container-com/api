@@ -128,12 +128,32 @@ tasks:
         # Build the embeddings generator tool
         echo "🔨 Building embeddings generator..."
         cd ${project:root}
+        mkdir -p bin
         go build -o bin/generate-embeddings ./cmd/generate-embeddings
         
-        # Get OpenAI API key from secrets or environment (build-time)
+        # Check if build succeeded
+        if [ ! -f "bin/generate-embeddings" ]; then
+          echo "❌ Failed to build embeddings generator binary"
+          exit 1
+        fi
+        echo "✅ Successfully built embeddings generator"
+        
+        # Get OpenAI API key from secrets or environment (build-time)  
         echo "🔑 Retrieving OpenAI API key..."
-        OPENAI_KEY=$(${project:root}/bin/sc stack secret-get -s dist openai-api-key 2>/dev/null || echo "")
+        OPENAI_KEY=""
+        
+        # Try to get from Simple Container secrets - use pre-installed sc first, then local build
+        if command -v sc >/dev/null 2>&1; then
+          echo "🔍 Using pre-installed sc command to retrieve OpenAI key..."
+          OPENAI_KEY=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo "")
+        elif [ -f "${project:root}/bin/sc" ]; then
+          echo "🔍 Using locally built sc binary to retrieve OpenAI key..."
+          OPENAI_KEY=$(${project:root}/bin/sc stack secret-get -s dist openai-api-key 2>/dev/null || echo "")
+        fi
+        
+        # Fall back to environment variable
         if [ -z "$OPENAI_KEY" ]; then
+          echo "🔍 No OpenAI key found in secrets, checking environment variable..."
           OPENAI_KEY=$OPENAI_API_KEY
         fi
         
@@ -142,16 +162,19 @@ tasks:
         
         if [ -n "$OPENAI_KEY" ]; then
           echo "✨ Generating embeddings using OpenAI model: $EMBEDDING_MODEL"
-          ./bin/generate-embeddings \
+          if ! ./bin/generate-embeddings \
             -openai-key "$OPENAI_KEY" \
             -model "$EMBEDDING_MODEL" \
             -output ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json \
-            -verbose
+            -verbose; then
+            echo "❌ Failed to generate OpenAI embeddings"
+            exit 1
+          fi
         else
-          echo "⚠️  OpenAI API key not found in secrets or environment, generating local embeddings instead"
+          echo "⚠️  OpenAI API key not found in secrets or environment, skipping embeddings generation"
           echo "💡 To generate OpenAI embeddings, add key with: sc secrets add openai-api-key or export OPENAI_API_KEY=your-key"
           echo "💡 Set embedding model with: export SIMPLE_CONTAINER_EMBEDDING_MODEL=text-embedding-3-large"
-          ./bin/generate-embeddings -local -verbose
+          echo "ℹ️  Build will continue without prebuilt embeddings (runtime generation will be used)"
         fi
         
         echo "✅ Embeddings generation completed"
