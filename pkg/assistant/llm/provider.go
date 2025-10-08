@@ -334,6 +334,11 @@ func (b *BaseProvider) ConvertMessagesToLangChainGo(messages []Message) []llms.M
 	llmMessages := make([]llms.MessageContent, 0, len(messages))
 
 	for _, msg := range messages {
+		// Skip messages with empty content
+		if strings.TrimSpace(msg.Content) == "" {
+			continue
+		}
+
 		var msgType llms.ChatMessageType
 		switch strings.ToLower(msg.Role) {
 		case "user":
@@ -342,6 +347,9 @@ func (b *BaseProvider) ConvertMessagesToLangChainGo(messages []Message) []llms.M
 			msgType = llms.ChatMessageTypeAI
 		case "system":
 			msgType = llms.ChatMessageTypeSystem
+		case "tool":
+			// Skip tool messages for now - they may cause issues with some providers
+			continue
 		default:
 			msgType = llms.ChatMessageTypeHuman
 		}

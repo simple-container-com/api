@@ -216,8 +216,32 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 	}
 
 	// Add system prompt with project context (if available)
-	systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
-	c.addMessage("system", systemPrompt)
+	// Check if we need to add system message (only if not already present or if it's empty)
+	needsSystemMessage := true
+	if len(c.context.History) > 0 && c.context.History[0].Role == "system" {
+		// System message already exists, check if it's not empty
+		if strings.TrimSpace(c.context.History[0].Content) != "" {
+			needsSystemMessage = false
+		} else {
+			// Remove empty system message
+			c.context.History = c.context.History[1:]
+		}
+	}
+
+	if needsSystemMessage {
+		systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
+		// Insert at the beginning instead of appending
+		if len(c.context.History) > 0 {
+			c.context.History = append([]Message{{
+				Role:      "system",
+				Content:   systemPrompt,
+				Timestamp: time.Now(),
+				Metadata:  make(map[string]interface{}),
+			}}, c.context.History...)
+		} else {
+			c.addMessage("system", systemPrompt)
+		}
+	}
 
 	// Start chat loop with signal-aware context
 	return c.chatLoop(signalCtx)
@@ -288,6 +312,19 @@ func (c *ChatInterface) chatLoop(ctx context.Context) error {
 func (c *ChatInterface) handleChat(ctx context.Context, input string) error {
 	// Add user message to context
 	c.addMessage("user", input)
+
+	// Ensure we have at least a system message if history was empty
+	if len(c.context.History) == 1 && c.context.History[0].Role == "user" {
+		// No system message exists, add one
+		systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, c.context.ProjectInfo, c.context.Resources)
+		// Insert at the beginning
+		c.context.History = append([]Message{{
+			Role:      "system",
+			Content:   systemPrompt,
+			Timestamp: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		}}, c.context.History...)
+	}
 
 	// Enrich context with relevant documentation examples (RAG)
 	if err := c.enrichContextWithDocumentation(input); err != nil {
@@ -377,6 +414,13 @@ func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
 
 	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
 		response, err = c.llm.StreamChatWithTools(ctx, trimmedHistory, tools, callback)
+		// If tools are not supported by this specific model, fallback to regular chat
+		if err != nil && strings.Contains(err.Error(), "does not support tools") {
+			if c.config.LogLevel == "debug" {
+				fmt.Printf("\n⚠️  Model does not support tools, falling back to regular chat\n")
+			}
+			response, err = c.llm.StreamChat(ctx, trimmedHistory, callback)
+		}
 	} else {
 		response, err = c.llm.StreamChat(ctx, trimmedHistory, callback)
 	}
@@ -445,6 +489,13 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 
 	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
 		response, err = c.llm.ChatWithTools(ctx, trimmedHistory, tools)
+		// If tools are not supported by this specific model, fallback to regular chat
+		if err != nil && strings.Contains(err.Error(), "does not support tools") {
+			if c.config.LogLevel == "debug" {
+				fmt.Printf("\n⚠️  Model does not support tools, falling back to regular chat\n")
+			}
+			response, err = c.llm.Chat(ctx, trimmedHistory)
+		}
 	} else {
 		response, err = c.llm.Chat(ctx, trimmedHistory)
 	}
@@ -858,6 +909,25 @@ func (c *ChatInterface) printWelcome() {
 	fmt.Println()
 	fmt.Println(color.BlueBold("🚀 Simple Container AI Assistant"))
 	fmt.Println(color.WhiteString("I'll help you set up your project with Simple Container."))
+	fmt.Println()
+
+	// Display provider and model information
+	providerName := c.config.LLMProvider
+	modelName := c.llm.GetModel()
+	capabilities := c.llm.GetCapabilities()
+
+	// Get display name for provider
+	displayName := providerName
+	if capabilities.Name != "" {
+		displayName = capabilities.Name
+	}
+
+	fmt.Printf("%s %s", color.GrayString("🤖 Provider:"), color.CyanString(displayName))
+	if modelName != "" {
+		fmt.Printf(" | %s %s\n", color.GrayString("Model:"), color.YellowString(modelName))
+	} else {
+		fmt.Println()
+	}
 	fmt.Println()
 
 	if c.config.Mode == "dev" {
