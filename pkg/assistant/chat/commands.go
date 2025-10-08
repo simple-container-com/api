@@ -2397,6 +2397,16 @@ func (c *ChatInterface) handleSessions(ctx context.Context, args []string, conte
 		// Create new session
 		newSession := c.sessionManager.CreateNewSession(c.config.ProjectPath, c.config.Mode)
 
+		// Save the new session first
+		if err := c.sessionManager.SaveSession(newSession); err != nil {
+			fmt.Printf("%s Failed to save new session: %v\n", color.YellowString("⚠️"), err)
+		}
+
+		// Cleanup old sessions if limit exceeded
+		if err := c.sessionManager.CleanupOldSessions(); err != nil {
+			fmt.Printf("%s Failed to cleanup old sessions: %v\n", color.YellowString("⚠️"), err)
+		}
+
 		// Clear conversation history for new session
 		c.context.History = make([]Message, 0)
 		c.context.SessionID = newSession.ID
@@ -2724,6 +2734,11 @@ func (c *ChatInterface) handleSessionDeleteAll() (*CommandResult, error) {
 
 	// Create a new session after deleting all
 	newSession := c.sessionManager.CreateNewSession(c.config.ProjectPath, c.config.Mode)
+
+	// Save the new session
+	if err := c.sessionManager.SaveSession(newSession); err != nil {
+		fmt.Printf("%s Failed to save new session: %v\n", color.YellowString("⚠️"), err)
+	}
 
 	// Clear conversation history
 	c.context.History = make([]Message, 0)
