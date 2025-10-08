@@ -117,6 +117,41 @@ templates:
       credentials: "${auth:aws}"        # REQUIRED
       account: "${auth:aws.projectId}"  # REQUIRED
 
+🚨 CRITICAL: PORT & HEALTH CHECK CONFIGURATION ARCHITECTURE (ANTI-MISINFORMATION)
+NEVER include port or health check configuration in client.yaml - these belong in docker-compose.yaml or Dockerfile!
+
+UNIVERSAL RULE FOR PORTS & HEALTH CHECKS:
+❌ WRONG (never show these in client.yaml):
+  stacks:
+    staging:
+      config:
+        ports: ["3000:3000"]         # WRONG! Ports don't belong in Simple Container stack config
+        healthCheck: "/health"       # WRONG! Health checks don't belong in stack config
+
+✅ CORRECT (ports and health checks go in docker-compose.yaml or Dockerfile):
+  # docker-compose.yaml (for cloud-compose deployments)
+  services:
+    app:
+      build: .
+      ports:
+        - "3000:3000"          # ✅ CORRECT - Ports belong here
+      labels:
+        "simple-container.com/ingress": "true"
+        "simple-container.com/ingress/port": "3000"
+        "simple-container.com/healthcheck/path": "/health"    # ✅ CORRECT - Health check here
+        "simple-container.com/healthcheck/port": "3000"
+      healthcheck:             # ✅ CORRECT - Health check config here
+        test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+        interval: 30s
+
+  # OR in Dockerfile:
+  # HEALTHCHECK --interval=30s CMD curl -f http://localhost:3000/health || exit 1
+
+DEPLOYMENT TYPE SPECIFIC HANDLING:
+- cloud-compose: Ports and health checks in docker-compose.yaml with Simple Container labels
+- single-image: Lambda-style deployments (no traditional port/health mappings)
+- static: Static sites (no port/health configuration needed)
+
 SIMPLE CONTAINER PROPERTIES (only use these):
 ✅ client.yaml CORRECT structure (stacks as MAP, not array):
 
@@ -138,6 +173,7 @@ stacks:
       scale:                        # NOT 'scaling' section
         min: 1
         max: 5
+      # NOTE: NO ports or healthCheck configuration - these go in docker-compose.yaml or Dockerfile!
   prod:                             # Additional environments as MAP keys
     type: cloud-compose
     parent: mycompany/infrastructure

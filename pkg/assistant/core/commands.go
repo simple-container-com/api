@@ -493,9 +493,9 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		return h.modifyStackRaw(ctx, content, environmentName, changes, filePath)
 	}
 
-	// Debug file writes to see what's being written
-	debugYAML, _ := yaml.Marshal(modifiedContent)
-	fmt.Printf("DEBUG: Writing to file %s:\n%s\n", filePath, string(debugYAML))
+	// Optional: Debug file writes for troubleshooting
+	// debugYAML, _ := yaml.Marshal(modifiedContent)
+	// fmt.Printf("DEBUG: Writing to file %s\n", filePath)
 
 	// Write back to file
 	err = h.writeYamlFile(filePath, modifiedContent)
@@ -541,11 +541,8 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	// Build enriched prompt using existing functions (DRY principle)
 	prompt := h.buildStackModificationPrompt(content, stackName, changes, projectAnalysis)
 
-	// Debug output to diagnose change detection issue
-	fmt.Printf("DEBUG: ModifyStack - stackName: %s\n", stackName)
-	fmt.Printf("DEBUG: ModifyStack - changes requested: %+v\n", changes)
-	currentYAML, _ := yaml.Marshal(content)
-	fmt.Printf("DEBUG: ModifyStack - current content:\n%s\n", string(currentYAML))
+	// Optional: Debug output for troubleshooting
+	// fmt.Printf("DEBUG: ModifyStack - stackName: %s, changes: %+v\n", stackName, changes)
 
 	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
 	llmProvider := h.developerMode.GetLLMProvider()
@@ -571,13 +568,8 @@ CRITICAL INSTRUCTIONS:
 		return nil, nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
-	// Debug LLM response to see what it generated
-	fmt.Printf("DEBUG: LLM Response length: %d chars\n", len(response.Content))
-	if len(response.Content) > 1000 {
-		fmt.Printf("DEBUG: LLM Response (first 800 chars): %.800s...\n", response.Content)
-	} else {
-		fmt.Printf("DEBUG: LLM Response: %s\n", response.Content)
-	}
+	// Optional: Debug LLM response for troubleshooting
+	// fmt.Printf("DEBUG: LLM Response (%d chars)\n", len(response.Content))
 
 	// Parse the response and extract changes applied
 	modifiedContent, changesApplied, err := h.parseModifiedYAML(response.Content, content, stackName)
@@ -585,11 +577,8 @@ CRITICAL INSTRUCTIONS:
 		return nil, nil, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
 
-	// Debug changes detection to see why it's returning empty
-	fmt.Printf("DEBUG: Changes detected by comparison: %+v\n", changesApplied)
-	if len(changesApplied) == 0 {
-		fmt.Printf("DEBUG: No changes detected - this means LLM generated identical content!\n")
-	}
+	// Optional: Debug changes detection for troubleshooting
+	// fmt.Printf("DEBUG: Changes detected: %+v\n", changesApplied)
 
 	return modifiedContent, changesApplied, nil
 }
@@ -659,7 +648,21 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 	prompt.WriteString(string(currentYAML))
 	prompt.WriteString("\n")
 
-	prompt.WriteString(fmt.Sprintf("STACK TO MODIFY: %s\n\n", stackName))
+	// Analyze available environments
+	if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+		environments := make([]string, 0, len(stacks))
+		for envName := range stacks {
+			environments = append(environments, envName)
+		}
+
+		prompt.WriteString(fmt.Sprintf("AVAILABLE ENVIRONMENTS: %v\n", environments))
+		if len(environments) > 1 {
+			prompt.WriteString("⚠️ MULTIPLE ENVIRONMENTS DETECTED - Make sure you're modifying the correct environment!\n")
+		}
+		prompt.WriteString("\n")
+	}
+
+	prompt.WriteString(fmt.Sprintf("ENVIRONMENT TO MODIFY: %s\n\n", stackName))
 
 	prompt.WriteString("REQUESTED CHANGES:\n")
 	for key, value := range changes {
@@ -675,6 +678,16 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 	prompt.WriteString("- Maintain all existing configuration that doesn't conflict\n")
 	prompt.WriteString("- Use ONLY valid Simple Container properties from the documentation context\n")
 	prompt.WriteString("- Handle dot notation (config.scale.max) by updating nested properties\n")
+
+	prompt.WriteString("\nCRITICAL MULTIPLE ENVIRONMENTS HANDLING:\n")
+	if stacks, ok := content["stacks"].(map[string]interface{}); ok && len(stacks) > 1 {
+		prompt.WriteString("- ⚠️ MULTIPLE ENVIRONMENTS EXIST - User must specify which environment to modify\n")
+		prompt.WriteString("- If user request doesn't specify environment, STOP and ask: 'Which environment would you like to modify?'\n")
+		prompt.WriteString("- List available environments and ask user to choose before proceeding\n")
+		prompt.WriteString("- DO NOT assume or guess which environment the user wants to modify\n")
+	} else {
+		prompt.WriteString("- Single environment detected - proceed with modifications\n")
+	}
 
 	prompt.WriteString("\nCRITICAL ENVIRONMENT VARIABLES SEMANTIC UNDERSTANDING:\n")
 	prompt.WriteString("- BOTH 'env:' and 'secrets:' sections contain ENVIRONMENT VARIABLES\n")
@@ -736,18 +749,6 @@ func (h *UnifiedCommandHandler) enrichContextWithDocumentation(configType string
 	return contextBuilder.String()
 }
 
-// Helper function to get map keys for debugging
-func getMapKeys(m map[string]interface{}) []string {
-	if m == nil {
-		return []string{}
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 // parseModifiedYAML extracts the modified configuration and determines what changed
 func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalContent map[string]interface{}, stackName string) (map[string]interface{}, map[string]interface{}, error) {
 	// Clean the response (remove code blocks if present)
@@ -774,20 +775,8 @@ func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalConte
 		originalStack, _ := originalStacks[stackName].(map[string]interface{})
 		modifiedStack, _ := modifiedStacks[stackName].(map[string]interface{})
 
-		// Debug stack comparison to see what's being compared
-		fmt.Printf("DEBUG: Comparing stacks for %s\n", stackName)
-		fmt.Printf("DEBUG: Original stack has keys: %v\n", getMapKeys(originalStack))
-		fmt.Printf("DEBUG: Modified stack has keys: %v\n", getMapKeys(modifiedStack))
-
-		// Show specific comparison for problematic areas
-		if origConfig, ok := originalStack["config"].(map[string]interface{}); ok {
-			if modConfig, ok := modifiedStack["config"].(map[string]interface{}); ok {
-				fmt.Printf("DEBUG: Original config uses: %v\n", origConfig["uses"])
-				fmt.Printf("DEBUG: Modified config uses: %v\n", modConfig["uses"])
-				fmt.Printf("DEBUG: Original config secrets: %v\n", origConfig["secrets"])
-				fmt.Printf("DEBUG: Modified config secrets: %v\n", modConfig["secrets"])
-			}
-		}
+		// Optional: Debug stack comparison for troubleshooting
+		// fmt.Printf("DEBUG: Comparing stacks for %s\n", stackName)
 
 		if originalStack != nil && modifiedStack != nil {
 			h.compareConfigs(originalStack, modifiedStack, "", changesApplied)

@@ -1,5 +1,8 @@
 # Simple Container API - System Prompt
 
+## ⚠️ CRITICAL DEVELOPMENT WORKFLOW
+**ALWAYS run `welder run fmt` after completing any code modifications to ensure proper formatting and linting compliance!**
+
 ## Project Overview
 This is the Simple Container API project with MkDocs documentation. The project provides infrastructure-as-code capabilities for deploying applications across multiple cloud providers including AWS, GCP, and others.
 
@@ -128,6 +131,17 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **FIXED: Removed Incorrect Port & Health Check Configuration from Stack Config** - Eliminated fictional `config.ports` and `config.healthCheck` parameters from modifystack command
+  - **✅ Root Cause**: Stack configuration schemas (client.yaml) do not include port or health check configuration - these belong in docker-compose.yaml files or Dockerfile for cloud-compose deployments
+  - **✅ JSON Schema Verification**: Confirmed across all stack config schemas (stackconfigcompose.json, stackconfigsingleimage.json, stackconfigstatic.json) that ports and healthCheck are NOT supported properties
+  - **✅ Architecture Clarification**: 
+    - **cloud-compose**: Ports and health checks defined in docker-compose.yaml with Simple Container labels or in Dockerfile HEALTHCHECK instructions
+    - **single-image**: Lambda-style deployments don't use traditional port/health mappings  
+    - **static**: Static sites don't need port/health configuration
+  - **✅ Fix Applied**: Removed `{Name: "config.ports", ...}` and `{Name: "config.healthCheck", ...}` from modifystack command arguments in `pkg/assistant/chat/commands.go`
+  - **✅ Enhanced System Prompt**: Added comprehensive guidance showing correct placement of ports and health checks in docker-compose.yaml vs Dockerfile with Simple Container labels
+  - **✅ Documentation Verified**: All existing port/health check references in documentation are correctly placed in docker-compose.yaml files, no incorrect client.yaml examples found
+  - **Impact**: ModifyStack command no longer suggests fictional port or health check configuration, ensuring users follow correct Simple Container architecture patterns
 - **FIXED: ECS Fargate ECR Auto-Creation Issue** - Resolved AI assistant incorrectly including ECR repository resources in ECS Fargate examples
   - **✅ Problem Identified**: AI was adding unnecessary `ecr-repository` resources in server.yaml examples for `ecs-fargate` templates
   - **✅ Root Cause**: Simple Container automatically creates ECR repositories for each stack when deploying to ECS Fargate - manual definition is unnecessary

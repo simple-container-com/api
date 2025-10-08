@@ -180,12 +180,12 @@ func (c *ChatInterface) registerCommands() {
 
 	c.commands["modifystack"] = &ChatCommand{
 		Name:        "modifystack",
-		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, scaling, etc. The stack_name refers to the directory in .sc/stacks/<stack-name>, and environment_name is the key in the stacks section (staging, prod, etc).",
+		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, scaling, etc. IMPORTANT: Auto-detects multiple environments and prompts user for selection if needed.",
 		Usage:       "/modifystack <stack_name> <environment_name> <key=value> [key=value...]",
 		Handler:     c.handleModifyStack,
 		Args: []CommandArg{
 			{Name: "stack_name", Type: "string", Required: true, Description: "Name of the stack directory in .sc/stacks/<stack-name>"},
-			{Name: "environment_name", Type: "string", Required: true, Description: "Environment name (staging, prod, dev, etc.) - the key in client.yaml stacks section"},
+			{Name: "environment_name", Type: "string", Required: true, Description: "Environment key from client.yaml stacks section - if multiple environments exist, user will be prompted to choose"},
 			{Name: "parent", Type: "string", Required: false, Description: "Parent stack reference (e.g. 'infrastructure', 'mycompany/shared')"},
 			{Name: "parentEnv", Type: "string", Required: false, Description: "Parent environment to map to (e.g. 'staging', 'prod', 'shared')"},
 			{Name: "type", Type: "string", Required: false, Description: "Deployment type (cloud-compose, static, single-image)"},
@@ -194,8 +194,6 @@ func (c *ChatInterface) registerCommands() {
 			{Name: "config.scale.max", Type: "string", Required: false, Description: "Maximum number of instances"},
 			{Name: "config.env", Type: "string", Required: false, Description: "Environment variables in key=value format"},
 			{Name: "config.secrets", Type: "string", Required: false, Description: "Secret references in key=value format"},
-			{Name: "config.ports", Type: "string", Required: false, Description: "Port mappings (e.g. '8080:80,9000:9000')"},
-			{Name: "config.healthCheck", Type: "string", Required: false, Description: "Health check endpoint path"},
 		},
 	}
 
