@@ -29,18 +29,18 @@ import (
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm             llm.Provider
-	context         *ConversationContext
-	embeddings      *embeddings.Database
-	analyzer        *analysis.ProjectAnalyzer
-	generator       *generation.FileGenerator
-	developerMode   *modes.DeveloperMode
-	commandHandler  *core.UnifiedCommandHandler // New unified command handler
-	commands        map[string]*ChatCommand
-	config          SessionConfig
-	inputHandler    *InputHandler
-	toolCallHandler *ToolCallHandler
-	docCache        map[string][]embeddings.SearchResult // Cache for documentation search results
+	llm              llm.Provider
+	context          *ConversationContext
+	embeddings       *embeddings.Database
+	analyzer         *analysis.ProjectAnalyzer
+	generator        *generation.FileGenerator
+	developerMode    *modes.DeveloperMode
+	commandHandler   *core.UnifiedCommandHandler // New unified command handler
+	commands         map[string]*ChatCommand
+	config           SessionConfig
+	inputHandler     *InputHandler
+	toolCallHandler  *ToolCallHandler
+	docCache         map[string][]embeddings.SearchResult // Cache for documentation search results
 	markdownRenderer *MarkdownRenderer
 	streamRenderer   *StreamRenderer
 	sessionManager   *SessionManager
@@ -131,15 +131,15 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 
 	// Create chat interface
 	chat := &ChatInterface{
-		llm:            provider,
-		embeddings:     embeddingsDB,
-		analyzer:       analyzer,
-		generator:      generator,
-		developerMode:  developerMode,
-		commandHandler: commandHandler,
-		commands:       make(map[string]*ChatCommand),
-		config:         sessionConfig,
-		docCache:       make(map[string][]embeddings.SearchResult),
+		llm:              provider,
+		embeddings:       embeddingsDB,
+		analyzer:         analyzer,
+		generator:        generator,
+		developerMode:    developerMode,
+		commandHandler:   commandHandler,
+		commands:         make(map[string]*ChatCommand),
+		config:           sessionConfig,
+		docCache:         make(map[string][]embeddings.SearchResult),
 		markdownRenderer: NewMarkdownRenderer(),
 		streamRenderer:   NewStreamRenderer(),
 		sessionManager:   sessionManager,
