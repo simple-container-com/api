@@ -145,27 +145,8 @@ func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, 
 		p.model,
 	)
 
-	// Extract tool calls from response if any
-	var toolCalls []ToolCall
-	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
-		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
-		for i, tc := range response.Choices[0].ToolCalls {
-			// Parse function arguments
-			var args map[string]interface{}
-			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
-				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
-			}
-
-			toolCalls[i] = ToolCall{
-				ID:   tc.FunctionCall.Name, // Use function name as ID for now
-				Type: "function",
-				Function: FunctionCall{
-					Name:      tc.FunctionCall.Name,
-					Arguments: args,
-				},
-			}
-		}
-	}
+	// Extract tool calls using base provider helper (eliminates 20+ lines of duplication)
+	toolCalls := p.ExtractToolCallsFromLangChainResponse(response)
 
 	// Build response using base provider helper
 	metadata := map[string]string{
@@ -188,18 +169,29 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 		return nil, err
 	}
 
+	// Convert tools using base provider helper (eliminates duplication)
+	langchainTools := p.ConvertToolsToLangChainGo(tools)
+
+	// If tools are provided, fall back to non-streaming approach for reliable tool call handling
+	// This is because streaming with tools in langchaingo can be unreliable for tool call extraction
+	if len(langchainTools) > 0 {
+		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
+	}
+
+	// No tools, use regular streaming
+	return p.streamChatWithoutTools(ctx, messages, callback)
+}
+
+// streamChatWithoutTools handles streaming when no tools are present
+func (p *OpenAIProvider) streamChatWithoutTools(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
 	// Convert messages using base provider helper (eliminates 15+ lines of duplication)
 	llmMessages := p.ConvertMessagesToLangChainGo(messages)
 
 	startTime := time.Now()
 	var fullContent strings.Builder
 	var completionTokens int
-	toolFilter := NewToolCallFilter() // Provider-agnostic tool call filtering
 
-	// Convert tools using base provider helper (eliminates duplication)
-	langchainTools := p.ConvertToolsToLangChainGo(tools)
-
-	// Build options
+	// Build options for streaming without tools
 	options := []llms.CallOption{
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
@@ -209,17 +201,11 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 				return nil
 			}
 
-			// Use provider-agnostic tool call filtering
-			if toolFilter.ShouldFilterChunk(chunkStr) {
-				// Don't add tool call content to fullContent or send to user
-				return nil
-			}
-
-			// Only process actual text content (not tool calls)
+			// Process text content
 			fullContent.WriteString(chunkStr)
 			completionTokens += estimateTokens(chunkStr)
 
-			// Send chunk to callback only if it's actual text content
+			// Send chunk to callback
 			streamChunk := StreamChunk{
 				Content:    fullContent.String(),
 				Delta:      chunkStr,
@@ -234,13 +220,8 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 		}),
 	}
 
-	// Add tools if provided
-	if len(langchainTools) > 0 {
-		options = append(options, llms.WithTools(langchainTools))
-	}
-
 	// Use streaming generation
-	response, err := p.client.GenerateContent(ctx, llmMessages, options...)
+	_, err := p.client.GenerateContent(ctx, llmMessages, options...)
 	if err != nil {
 		return nil, enhanceOpenAIError(err)
 	}
@@ -252,28 +233,6 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
-
-	// Extract tool calls from response if any
-	var toolCalls []ToolCall
-	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
-		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
-		for i, tc := range response.Choices[0].ToolCalls {
-			// Parse function arguments
-			var args map[string]interface{}
-			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
-				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
-			}
-
-			toolCalls[i] = ToolCall{
-				ID:   tc.ID,
-				Type: tc.Type,
-				Function: FunctionCall{
-					Name:      tc.FunctionCall.Name,
-					Arguments: args,
-				},
-			}
-		}
-	}
 
 	// Send final chunk
 	finalChunk := StreamChunk{
@@ -301,7 +260,7 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 			"provider":   "openai",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
-		ToolCalls: toolCalls,
+		ToolCalls: []ToolCall{}, // No tools in streaming mode
 	}, nil
 }
 

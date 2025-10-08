@@ -64,14 +64,60 @@ func (p *OllamaProvider) Configure(config Config) error {
 	return nil
 }
 
-// ChatWithTools sends messages to Ollama with tools (not supported)
+// ChatWithTools sends messages to Ollama with tool support and returns a response
 func (p *OllamaProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
 	// Use base validation
 	if err := p.ValidateConfiguration(); err != nil {
 		return nil, err
 	}
 
-	return nil, fmt.Errorf("Ollama provider does not support function/tool calling")
+	// Convert messages using base provider helper
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+
+	// Convert tools using base provider helper
+	langchainTools := p.ConvertToolsToLangChainGo(tools)
+
+	// Build options
+	options := []llms.CallOption{
+		llms.WithMaxTokens(p.config.MaxTokens),
+		llms.WithTemperature(float64(p.config.Temperature)),
+	}
+
+	// Add tools if provided
+	if len(langchainTools) > 0 {
+		options = append(options, llms.WithTools(langchainTools))
+	}
+
+	// Call Ollama with tools
+	startTime := time.Now()
+	response, err := p.client.GenerateContent(ctx, llmMessages, options...)
+	if err != nil {
+		return nil, fmt.Errorf("Ollama API error: %w", err)
+	}
+
+	// Extract response content
+	var content string
+	if len(response.Choices) > 0 {
+		content = response.Choices[0].Content
+	}
+
+	// Calculate token usage using base provider helper
+	usage := p.CalculateUsageWithCost(
+		estimateTokens(messagesToString(messages)),
+		estimateTokens(content),
+		nil, // Ollama is free, so no cost calculator
+		p.model,
+	)
+
+	// Extract tool calls using base provider helper (eliminates 20+ lines of duplication)
+	toolCalls := p.ExtractToolCallsFromLangChainResponse(response)
+
+	// Build response using base provider helper
+	metadata := map[string]string{
+		"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+	}
+
+	return p.BuildChatResponse(content, p.model, "stop", usage, toolCalls, metadata), nil
 }
 
 // Chat sends messages to Ollama and returns a response
@@ -212,7 +258,7 @@ func (p *OllamaProvider) GetCapabilities() Capabilities {
 		Models:            []string{},
 		MaxTokens:         4096,
 		SupportsStreaming: true,
-		SupportsFunctions: false,
+		SupportsFunctions: true, // Tool calling now fully supported (model-dependent) ⭐
 		CostPerToken:      0.0,
 		RequiresAuth:      false,
 	}

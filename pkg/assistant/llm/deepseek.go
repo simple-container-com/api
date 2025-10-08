@@ -109,27 +109,8 @@ func (p *DeepSeekProvider) ChatWithTools(ctx context.Context, messages []Message
 		p.model,
 	)
 
-	// Extract tool calls from response if any
-	var toolCalls []ToolCall
-	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
-		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
-		for i, tc := range response.Choices[0].ToolCalls {
-			// Parse function arguments
-			var args map[string]interface{}
-			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
-				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
-			}
-
-			toolCalls[i] = ToolCall{
-				ID:   tc.FunctionCall.Name, // Use function name as ID for DeepSeek
-				Type: "function",
-				Function: FunctionCall{
-					Name:      tc.FunctionCall.Name,
-					Arguments: args,
-				},
-			}
-		}
-	}
+	// Extract tool calls using base provider helper (eliminates 20+ lines of duplication)
+	toolCalls := p.ExtractToolCallsFromLangChainResponse(response)
 
 	// Build response using base provider helper
 	metadata := map[string]string{
