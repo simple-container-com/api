@@ -516,6 +516,133 @@ type Capabilities struct {
 	RequiresAuth      bool     `json:"requires_auth"`      // Whether authentication is required
 }
 
+// ModelContextSize maps model names to their context window sizes
+var ModelContextSizes = map[string]int{
+	// OpenAI models
+	"gpt-3.5-turbo":       16385,
+	"gpt-3.5-turbo-16k":   16385,
+	"gpt-4":               8192,
+	"gpt-4-32k":           32768,
+	"gpt-4-turbo":         128000,
+	"gpt-4-turbo-preview": 128000,
+	"gpt-4o":              128000,
+	"gpt-4o-mini":         128000,
+	"o1":                  200000,
+	"o1-mini":             128000,
+	"o1-preview":          128000,
+
+	// Anthropic Claude models
+	"claude-3-5-sonnet-20241022": 200000,
+	"claude-3-5-sonnet":          200000,
+	"claude-3-opus":              200000,
+	"claude-3-sonnet":            200000,
+	"claude-3-haiku":             200000,
+	"claude-2.1":                 200000,
+	"claude-2":                   100000,
+	"claude-instant":             100000,
+
+	// DeepSeek models
+	"deepseek-chat":  64000,
+	"deepseek-coder": 16000,
+
+	// Ollama models (common defaults)
+	"llama2":    4096,
+	"llama3":    8192,
+	"mistral":   8192,
+	"mixtral":   32768,
+	"codellama": 16384,
+
+	// Yandex models
+	"yandexgpt":      8000,
+	"yandexgpt-lite": 8000,
+}
+
+// GetModelContextSize returns the context window size for a given model
+// If the model is not found, it tries to match by prefix, otherwise returns a conservative default
+func GetModelContextSize(model string) int {
+	// Direct match
+	if size, ok := ModelContextSizes[model]; ok {
+		return size
+	}
+
+	// Try prefix matching (e.g., "gpt-4-turbo-2024-04-09" matches "gpt-4-turbo")
+	// Sort by length descending to match longest prefix first
+	var bestMatch string
+	var bestSize int
+	for knownModel, size := range ModelContextSizes {
+		if len(model) >= len(knownModel) &&
+			len(knownModel) > len(bestMatch) &&
+			model[:len(knownModel)] == knownModel {
+			bestMatch = knownModel
+			bestSize = size
+		}
+	}
+
+	if bestMatch != "" {
+		return bestSize
+	}
+
+	// Conservative default for unknown models
+	return 4096
+}
+
+// TrimMessagesToContextSize trims message history to fit within the model's context window
+// It preserves the system message (first) and keeps the most recent messages
+func TrimMessagesToContextSize(messages []Message, model string, reserveTokens int) []Message {
+	contextSize := GetModelContextSize(model)
+	maxTokens := contextSize - reserveTokens // Reserve tokens for response
+
+	if len(messages) == 0 {
+		return messages
+	}
+
+	// Always keep system message if present
+	var systemMsg *Message
+	startIdx := 0
+	if len(messages) > 0 && messages[0].Role == "system" {
+		systemMsg = &messages[0]
+		startIdx = 1
+	}
+
+	// Estimate tokens for all messages
+	totalTokens := 0
+	if systemMsg != nil {
+		totalTokens += estimateMessageTokens(*systemMsg)
+	}
+
+	// Start from the end and work backwards to keep most recent messages
+	var keptMessages []Message
+	for i := len(messages) - 1; i >= startIdx; i-- {
+		msgTokens := estimateMessageTokens(messages[i])
+		if totalTokens+msgTokens > maxTokens {
+			break
+		}
+		totalTokens += msgTokens
+		keptMessages = append([]Message{messages[i]}, keptMessages...)
+	}
+
+	// Reconstruct final message list
+	var result []Message
+	if systemMsg != nil {
+		result = append(result, *systemMsg)
+	}
+	result = append(result, keptMessages...)
+
+	return result
+}
+
+// estimateMessageTokens estimates the number of tokens in a message
+// Uses a rough approximation of 4 characters per token
+func estimateMessageTokens(msg Message) int {
+	// Count content length
+	contentLen := len(msg.Content)
+
+	// Add overhead for role and structure (JSON formatting)
+	overhead := 10
+
+	return (contentLen / 4) + overhead
+}
+
 // Config holds configuration for LLM providers
 type Config struct {
 	Provider    string            `json:"provider"`    // Provider name (openai, local, etc.)
