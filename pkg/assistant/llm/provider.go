@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -240,26 +241,74 @@ func (b *BaseProvider) CreateStreamingCallback(callback StreamCallback, fullCont
 }
 
 // FallbackToNonStreaming provides a standard fallback for providers that don't support streaming with tools
+// It simulates streaming by breaking the response into chunks and sending them with realistic timing
 func (b *BaseProvider) FallbackToNonStreaming(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback, chatWithTools func(context.Context, []Message, []Tool) (*ChatResponse, error)) (*ChatResponse, error) {
 	response, err := chatWithTools(ctx, messages, tools)
 	if err != nil {
 		return nil, err
 	}
 
-	// Simulate streaming by sending the full response as one chunk
-	finalChunk := StreamChunk{
-		Content:    response.Content,
-		Delta:      response.Content,
-		IsComplete: true,
-		Usage:      &response.Usage,
-		Metadata: map[string]string{
-			"provider": b.name,
-		},
-		GeneratedAt: time.Now(),
+	// Simulate realistic streaming by breaking content into chunks
+	content := response.Content
+	if content == "" {
+		// Send empty completion chunk
+		finalChunk := StreamChunk{
+			Content:    "",
+			Delta:      "",
+			IsComplete: true,
+			Usage:      &response.Usage,
+			Metadata: map[string]string{
+				"provider": b.name,
+			},
+			GeneratedAt: time.Now(),
+		}
+		return response, callback(finalChunk)
 	}
 
-	if err := callback(finalChunk); err != nil {
-		return nil, fmt.Errorf("callback error: %w", err)
+	// Break content into words for reliable streaming with natural timing
+	words := strings.Fields(content)
+	if len(words) == 0 {
+		// Handle empty content
+		return response, nil
+	}
+
+	var currentContent strings.Builder
+
+	for i, word := range words {
+		// Add word to current content
+		if i > 0 {
+			currentContent.WriteString(" ") // Add space before word (except first)
+		}
+		currentContent.WriteString(word)
+
+		// Create streaming chunk
+		chunk := StreamChunk{
+			Content: currentContent.String(),
+			Delta: word + (func() string {
+				if i < len(words)-1 {
+					return " "
+				} else {
+					return ""
+				}
+			})(),
+			IsComplete: i == len(words)-1,
+			Usage:      nil, // Usage only in final chunk
+			Metadata: map[string]string{
+				"provider": b.name,
+			},
+			GeneratedAt: time.Now(),
+		}
+
+		// Add usage to final chunk
+		if chunk.IsComplete {
+			chunk.Usage = &response.Usage
+		}
+
+		if err := callback(chunk); err != nil {
+			return nil, fmt.Errorf("callback error: %w", err)
+		}
+
+		// No delays - let the frontend handle the streaming display timing
 	}
 
 	return response, nil
@@ -301,6 +350,52 @@ func (b *BaseProvider) ConvertMessagesToLangChainGo(messages []Message) []llms.M
 	}
 
 	return llmMessages
+}
+
+// ConvertToolsToLangChainGo converts our Tool format to langchaingo Tool format
+// This eliminates tool conversion duplication across providers
+func (b *BaseProvider) ConvertToolsToLangChainGo(tools []Tool) []llms.Tool {
+	if len(tools) == 0 {
+		return nil
+	}
+
+	langchainTools := make([]llms.Tool, len(tools))
+	for i, tool := range tools {
+		langchainTools[i] = llms.Tool{
+			Type: "function",
+			Function: &llms.FunctionDefinition{
+				Name:        tool.Function.Name,
+				Description: tool.Function.Description,
+				Parameters:  tool.Function.Parameters,
+			},
+		}
+	}
+
+	return langchainTools
+}
+
+// DefaultStreamChatWithTools provides a standard implementation for providers that don't have native streaming+tools
+// This eliminates the duplicate fallback pattern across Anthropic, DeepSeek, Ollama, and Yandex providers
+func (b *BaseProvider) DefaultStreamChatWithTools(
+	ctx context.Context,
+	messages []Message,
+	tools []Tool,
+	callback StreamCallback,
+	chatWithToolsFunc func(context.Context, []Message, []Tool) (*ChatResponse, error),
+	streamChatFunc func(context.Context, []Message, StreamCallback) (*ChatResponse, error),
+) (*ChatResponse, error) {
+	// Use base validation
+	if err := b.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
+	// Standard fallback pattern: if tools are provided, use non-streaming with tools
+	if len(tools) > 0 {
+		return b.FallbackToNonStreaming(ctx, messages, tools, callback, chatWithToolsFunc)
+	}
+
+	// No tools, use regular streaming
+	return streamChatFunc(ctx, messages, callback)
 }
 
 // CreateOpenAICompatibleClient creates an OpenAI-compatible client with standard options
@@ -374,6 +469,40 @@ func (b *BaseProvider) CalculateUsageWithCost(promptTokens, completionTokens int
 		TotalTokens:      totalTokens,
 		Cost:             cost,
 	}
+}
+
+// ExtractToolCallsFromLangChainResponse extracts tool calls from langchaingo response
+// This eliminates the duplicate tool call extraction logic across OpenAI, Anthropic, DeepSeek, and Ollama
+func (b *BaseProvider) ExtractToolCallsFromLangChainResponse(response *llms.ContentResponse) []ToolCall {
+	var toolCalls []ToolCall
+
+	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
+		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
+		for i, tc := range response.Choices[0].ToolCalls {
+			// Parse function arguments
+			var args map[string]interface{}
+			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
+				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
+			}
+
+			// Extract ID, handling different provider patterns
+			id := tc.ID
+			if id == "" && tc.FunctionCall != nil {
+				id = tc.FunctionCall.Name // Fallback to function name as ID
+			}
+
+			toolCalls[i] = ToolCall{
+				ID:   id,
+				Type: "function",
+				Function: FunctionCall{
+					Name:      tc.FunctionCall.Name,
+					Arguments: args,
+				},
+			}
+		}
+	}
+
+	return toolCalls
 }
 
 // Capabilities describes what a provider can do
