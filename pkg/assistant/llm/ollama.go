@@ -81,24 +81,8 @@ func (p *OllamaProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		return nil, err
 	}
 
-	// Convert messages to langchaingo format
-	llmMessages := make([]llms.MessageContent, 0, len(messages))
-
-	for _, msg := range messages {
-		var msgType llms.ChatMessageType
-		switch strings.ToLower(msg.Role) {
-		case "user":
-			msgType = llms.ChatMessageTypeHuman
-		case "assistant":
-			msgType = llms.ChatMessageTypeAI
-		case "system":
-			msgType = llms.ChatMessageTypeSystem
-		default:
-			msgType = llms.ChatMessageTypeHuman
-		}
-
-		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
-	}
+	// Convert messages using base provider helper (eliminates 15+ lines of duplication)
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
 
 	// Call Ollama
 	startTime := time.Now()
@@ -116,51 +100,31 @@ func (p *OllamaProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		content = response.Choices[0].Content
 	}
 
-	// Ollama doesn't provide token counts, so estimate
-	usage := TokenUsage{
-		PromptTokens:     estimateTokens(messagesToString(messages)),
-		CompletionTokens: estimateTokens(content),
-	}
-	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	usage.Cost = 0.0 // Ollama is free
+	// Calculate token usage using base provider helper (eliminates calculation duplication)
+	usage := p.CalculateUsageWithCost(
+		estimateTokens(messagesToString(messages)),
+		estimateTokens(content),
+		nil, // Ollama is free, so no cost calculator
+		p.model,
+	)
 
-	return &ChatResponse{
-		Content:      content,
-		Usage:        usage,
-		Model:        p.model,
-		FinishReason: "stop",
-		Metadata: map[string]string{
-			"provider":   "ollama",
-			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
-		},
-		GeneratedAt: time.Now(),
-	}, nil
+	// Build response using base provider helper (eliminates construction duplication)
+	metadata := map[string]string{
+		"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+	}
+
+	return p.BuildChatResponse(content, p.model, "stop", usage, []ToolCall{}, metadata), nil
 }
 
 // StreamChat sends messages to Ollama and streams the response via callback
 func (p *OllamaProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("Ollama provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
-	// Convert messages to langchaingo format
-	llmMessages := make([]llms.MessageContent, 0, len(messages))
-
-	for _, msg := range messages {
-		var msgType llms.ChatMessageType
-		switch strings.ToLower(msg.Role) {
-		case "user":
-			msgType = llms.ChatMessageTypeHuman
-		case "assistant":
-			msgType = llms.ChatMessageTypeAI
-		case "system":
-			msgType = llms.ChatMessageTypeSystem
-		default:
-			msgType = llms.ChatMessageTypeHuman
-		}
-
-		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
-	}
+	// Convert messages using base provider helper (eliminates 15+ lines of duplication)
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
 
 	startTime := time.Now()
 	var fullContent strings.Builder

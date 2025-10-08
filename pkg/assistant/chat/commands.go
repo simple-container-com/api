@@ -2562,7 +2562,7 @@ func (c *ChatInterface) handleSessionDeleteAll() (*CommandResult, error) {
 			mark = " ⭐ (current)"
 		}
 
-		fmt.Printf("  %d. %s%s - %d messages\n", i+1, session.Title, mark, len(session.ConversationHistory))
+		fmt.Printf("  %d. %s (%s)%s - %d messages\n", i+1, session.Title, projectName, mark, len(session.ConversationHistory))
 	}
 	fmt.Println()
 

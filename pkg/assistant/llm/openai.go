@@ -14,17 +14,20 @@ import (
 
 // OpenAIProvider implements Provider for OpenAI's GPT models
 type OpenAIProvider struct {
-	client     *openai.LLM
-	config     Config
-	model      string
-	apiKey     string
-	baseURL    string
-	configured bool
+	*BaseProvider // Embed base functionality
+	client        *openai.LLM
+	config        Config
+	model         string
+	apiKey        string
+	baseURL       string
 }
 
 // NewOpenAIProvider creates a new OpenAI provider
 func NewOpenAIProvider() Provider {
-	return &OpenAIProvider{}
+	return &OpenAIProvider{
+		BaseProvider: NewBaseProvider("openai"), // Use base provider
+		model:        "gpt-3.5-turbo",
+	}
 }
 
 // Configure configures the OpenAI provider
@@ -39,11 +42,8 @@ func (p *OpenAIProvider) Configure(config Config) error {
 		config.Model = "gpt-3.5-turbo"
 	}
 
-	// Create OpenAI client
-	llm, err := openai.New(
-		openai.WithToken(config.APIKey),
-		openai.WithModel(config.Model),
-	)
+	// Create OpenAI client using base provider helper (maintains consistency)
+	llm, err := p.CreateOpenAICompatibleClient(config, "", true) // No custom baseURL for OpenAI
 	if err != nil {
 		return fmt.Errorf("failed to create OpenAI client: %w", err)
 	}
@@ -53,35 +53,20 @@ func (p *OpenAIProvider) Configure(config Config) error {
 	p.model = config.Model
 	p.apiKey = config.APIKey
 	p.baseURL = config.BaseURL
-	p.configured = true
+	p.SetConfigured(true) // Use base provider method
 
 	return nil
 }
 
 // Chat sends messages to OpenAI and returns a response
 func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("OpenAI provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
-	// Convert messages to langchaingo format
-	llmMessages := make([]llms.MessageContent, 0, len(messages))
-
-	for _, msg := range messages {
-		var msgType llms.ChatMessageType
-		switch strings.ToLower(msg.Role) {
-		case "user":
-			msgType = llms.ChatMessageTypeHuman
-		case "assistant":
-			msgType = llms.ChatMessageTypeAI
-		case "system":
-			msgType = llms.ChatMessageTypeSystem
-		default:
-			msgType = llms.ChatMessageTypeHuman
-		}
-
-		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
-	}
+	// Convert messages using base provider helper (eliminates 15+ lines of duplication)
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
 
 	// Call OpenAI
 	startTime := time.Now()
@@ -99,32 +84,31 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 		content = response.Choices[0].Content
 	}
 
-	// Calculate token usage (approximate if not provided)
-	usage := TokenUsage{
-		PromptTokens:     estimateTokens(messagesToString(messages)),
-		CompletionTokens: estimateTokens(content),
-	}
-	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+	// Calculate token usage using base provider helper (eliminates calculation duplication)
+	usage := p.CalculateUsageWithCost(
+		estimateTokens(messagesToString(messages)),
+		estimateTokens(content),
+		calculateOpenAICost,
+		p.model,
+	)
 
-	return &ChatResponse{
-		Content:      content,
-		Usage:        usage,
-		Model:        p.model,
-		FinishReason: "stop", // Default finish reason
-		Metadata: map[string]string{
-			"provider":   "openai",
-			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
-		},
-		GeneratedAt: time.Now(),
-		ToolCalls:   []ToolCall{}, // Initialize empty tool calls
-	}, nil
+	// Build response using base provider helper (eliminates construction duplication)
+	metadata := map[string]string{
+		"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+	}
+
+	return p.BuildChatResponse(content, p.model, "stop", usage, []ToolCall{}, metadata), nil
 }
 
 // ChatWithTools sends messages to OpenAI with tool support and returns a response
 func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
-	// TODO: Implement OpenAI function calling
-	// For now, fallback to regular chat
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
+	// TODO: Implement OpenAI function calling with tools
+	// For now, fallback to regular chat (tools ignored)
 	response, err := p.Chat(ctx, messages)
 	if err != nil {
 		return nil, err
@@ -146,28 +130,13 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 
 // StreamChatWithTools sends messages to OpenAI with tool support and streams the response via callback
 func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("OpenAI provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
-	// Convert messages to langchaingo format
-	llmMessages := make([]llms.MessageContent, 0, len(messages))
-
-	for _, msg := range messages {
-		var msgType llms.ChatMessageType
-		switch strings.ToLower(msg.Role) {
-		case "user":
-			msgType = llms.ChatMessageTypeHuman
-		case "assistant":
-			msgType = llms.ChatMessageTypeAI
-		case "system":
-			msgType = llms.ChatMessageTypeSystem
-		default:
-			msgType = llms.ChatMessageTypeHuman
-		}
-
-		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
-	}
+	// Convert messages using base provider helper (eliminates 15+ lines of duplication)
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
 
 	startTime := time.Now()
 	var fullContent strings.Builder
