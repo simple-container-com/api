@@ -184,6 +184,9 @@ Keep recommendations practical and actionable.`
 
 // parseAndEnhanceAnalysis parses LLM response and enhances the analysis
 func (pa *ProjectAnalyzer) parseAndEnhanceAnalysis(analysis *ProjectAnalysis, llmResponse string) *ProjectAnalysis {
+	// Create enhanced copy
+	enhanced := *analysis
+
 	// Try to parse JSON response
 	var enhancedData struct {
 		Insights                []string         `json:"insights"`
@@ -193,12 +196,11 @@ func (pa *ProjectAnalyzer) parseAndEnhanceAnalysis(analysis *ProjectAnalysis, ll
 	}
 
 	if err := json.Unmarshal([]byte(llmResponse), &enhancedData); err != nil {
-		// If JSON parsing fails, return original analysis
-		return analysis
+		// If JSON parsing fails, store the raw response in metadata
+		enhanced.Metadata["llm_insights"] = llmResponse
+		enhanced.Metadata["llm_enhanced"] = true
+		return &enhanced
 	}
-
-	// Create enhanced copy
-	enhanced := *analysis
 
 	// Add LLM recommendations to existing ones
 	enhanced.Recommendations = append(enhanced.Recommendations, enhancedData.Recommendations...)

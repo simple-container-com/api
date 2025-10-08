@@ -91,6 +91,11 @@ func NewProjectAnalyzer() *ProjectAnalyzer {
 	}
 }
 
+// SetLLMProvider sets the LLM provider for enhanced analysis
+func (pa *ProjectAnalyzer) SetLLMProvider(provider LLMProvider) {
+	pa.llmProvider = provider
+}
+
 // NewProjectAnalyzerWithEmbeddings creates an analyzer with existing embeddings DB (for reuse)
 func NewProjectAnalyzerWithEmbeddings(embeddingsDB *embeddings.Database) *ProjectAnalyzer {
 	return &ProjectAnalyzer{
@@ -122,11 +127,6 @@ func NewProjectAnalyzerWithEmbeddings(embeddingsDB *embeddings.Database) *Projec
 		skipTestFiles:      true,      // Skip test files for faster analysis
 		skipExamples:       true,      // Skip example/doc files for faster analysis
 	}
-}
-
-// SetLLMProvider sets the LLM provider for enhanced analysis
-func (pa *ProjectAnalyzer) SetLLMProvider(provider LLMProvider) {
-	pa.llmProvider = provider
 }
 
 // SetProgressReporter sets the progress reporter for analysis feedback

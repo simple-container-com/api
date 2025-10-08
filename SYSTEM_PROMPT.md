@@ -721,3 +721,29 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
   - `pkg/assistant/chat/input.go` - Already contained ReadSimple method for this purpose
 - **Impact**: Y/N prompts now work correctly in chat mode, eliminating user frustration with unresponsive terminals
 - **Status**: ✅ **PRODUCTION READY** - Chat interface now handles interactive prompts correctly
+
+### **Project Analyzer Integration Test Fixes (2025-01-08)**
+- **Problem**: Two critical test failures in project analyzer test suite causing CI/CD issues
+  1. `TestProjectAnalyzerIntegration` failing due to incorrect resource names, file categorization, and missing architecture recommendations
+  2. `TestLLMEnhancement` failing due to missing LLM provider interface and non-JSON response handling
+- **Root Cause Analysis**: 
+  1. Database recommendations using wrong resource names (`mongodb`/`redis` instead of `mongodb-atlas`/`redis-cache`)
+  2. File analysis incorrectly categorizing documentation files (`README.md` as "config" instead of "docs")
+  3. Missing architecture-specific recommendation functions for microservice and static-site patterns
+  4. LLM integration not handling non-JSON responses properly (storing raw responses in metadata)
+- **Solutions Implemented**:
+  1. **Database Recommendations Fix**: Updated resource names in `getDatabaseRecommendations()` to match expected schema
+  2. **File Analysis Enhancement**: Added documentation file detection logic to properly categorize README files
+  3. **Architecture Recommendations**: Updated template recommendations to use correct deployment types (kubernetes-native, static-site)
+  4. **LLM Integration Enhancement**: Fixed `parseAndEnhanceAnalysis()` to store non-JSON responses in metadata correctly
+  5. **Test Configuration**: Added `EnableFullAnalysis()` to integration tests for comprehensive file analysis
+- **Files Modified**:
+  - `pkg/assistant/analysis/recommendations.go` - Database resource names and architecture template recommendations
+  - `pkg/assistant/analysis/file_analysis.go` - Documentation file categorization logic
+  - `pkg/assistant/analysis/llm_integration.go` - Non-JSON response handling
+  - `pkg/assistant/analysis/analyzer_test.go` - Test configuration for full analysis mode
+- **Testing Results**:
+  - ✅ `TestProjectAnalyzerIntegration`: All 4 sub-tests passing (nodejs analysis, microservice detection, static-site detection, file analysis)
+  - ✅ `TestLLMEnhancement`: Both LLM tests passing (without LLM provider, with mock LLM provider interface)
+- **Impact**: CI/CD pipeline now passes consistently, analyzer provides correct resource recommendations, and LLM integration handles all response formats properly
+- **Status**: ✅ **PRODUCTION READY** - All analyzer integration tests passing with enhanced functionality
