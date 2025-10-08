@@ -241,26 +241,74 @@ func (b *BaseProvider) CreateStreamingCallback(callback StreamCallback, fullCont
 }
 
 // FallbackToNonStreaming provides a standard fallback for providers that don't support streaming with tools
+// It simulates streaming by breaking the response into chunks and sending them with realistic timing
 func (b *BaseProvider) FallbackToNonStreaming(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback, chatWithTools func(context.Context, []Message, []Tool) (*ChatResponse, error)) (*ChatResponse, error) {
 	response, err := chatWithTools(ctx, messages, tools)
 	if err != nil {
 		return nil, err
 	}
 
-	// Simulate streaming by sending the full response as one chunk
-	finalChunk := StreamChunk{
-		Content:    response.Content,
-		Delta:      response.Content,
-		IsComplete: true,
-		Usage:      &response.Usage,
-		Metadata: map[string]string{
-			"provider": b.name,
-		},
-		GeneratedAt: time.Now(),
+	// Simulate realistic streaming by breaking content into chunks
+	content := response.Content
+	if content == "" {
+		// Send empty completion chunk
+		finalChunk := StreamChunk{
+			Content:    "",
+			Delta:      "",
+			IsComplete: true,
+			Usage:      &response.Usage,
+			Metadata: map[string]string{
+				"provider": b.name,
+			},
+			GeneratedAt: time.Now(),
+		}
+		return response, callback(finalChunk)
 	}
 
-	if err := callback(finalChunk); err != nil {
-		return nil, fmt.Errorf("callback error: %w", err)
+	// Break content into words for reliable streaming with natural timing
+	words := strings.Fields(content)
+	if len(words) == 0 {
+		// Handle empty content
+		return response, nil
+	}
+
+	var currentContent strings.Builder
+
+	for i, word := range words {
+		// Add word to current content
+		if i > 0 {
+			currentContent.WriteString(" ") // Add space before word (except first)
+		}
+		currentContent.WriteString(word)
+
+		// Create streaming chunk
+		chunk := StreamChunk{
+			Content: currentContent.String(),
+			Delta: word + (func() string {
+				if i < len(words)-1 {
+					return " "
+				} else {
+					return ""
+				}
+			})(),
+			IsComplete: i == len(words)-1,
+			Usage:      nil, // Usage only in final chunk
+			Metadata: map[string]string{
+				"provider": b.name,
+			},
+			GeneratedAt: time.Now(),
+		}
+
+		// Add usage to final chunk
+		if chunk.IsComplete {
+			chunk.Usage = &response.Usage
+		}
+
+		if err := callback(chunk); err != nil {
+			return nil, fmt.Errorf("callback error: %w", err)
+		}
+
+		// No delays - let the frontend handle the streaming display timing
 	}
 
 	return response, nil

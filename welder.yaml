@@ -9,6 +9,10 @@ default:
       ld-flags: "-s -w -X=${arg:package}/internal/build.Version=${project:version}"
 profiles:
   skip-tools:
+  skip-embeddings:
+    build:
+      env:
+        SKIP_EMBEDDINGS: "true"
   skip-test:
     activation:
       skip-tests: true
@@ -239,5 +243,5 @@ tasks:
     runOn: host
     script:
       - welder run generate-schemas
-      - welder run generate-embeddings
+      - if [ "${SKIP_EMBEDDINGS}" != 'true' ]; then welder run generate-embeddings; else echo "Skipping embeddings"; fi
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc

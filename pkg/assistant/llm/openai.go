@@ -26,7 +26,7 @@ type OpenAIProvider struct {
 func NewOpenAIProvider() Provider {
 	return &OpenAIProvider{
 		BaseProvider: NewBaseProvider("openai"), // Use base provider
-		model:        "gpt-3.5-turbo",
+		model:        "gpt-4o-mini",             // Better default with higher token limits
 	}
 }
 
@@ -39,7 +39,7 @@ func (p *OpenAIProvider) Configure(config Config) error {
 
 	// Set default model if not specified
 	if config.Model == "" {
-		config.Model = "gpt-3.5-turbo"
+		config.Model = "gpt-4o-mini"
 	}
 
 	// Create OpenAI client using base provider helper (maintains consistency)
@@ -72,7 +72,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 	startTime := time.Now()
 	response, err := p.client.GenerateContent(ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
-		llms.WithTemperature(float64(p.config.Temperature)),
+		llms.WithTemperature(getModelTemperature(p.model, p.config.Temperature)),
 	)
 	if err != nil {
 		return nil, enhanceOpenAIError(err)
@@ -116,7 +116,7 @@ func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, 
 	// Build options
 	options := []llms.CallOption{
 		llms.WithMaxTokens(p.config.MaxTokens),
-		llms.WithTemperature(float64(p.config.Temperature)),
+		llms.WithTemperature(getModelTemperature(p.model, p.config.Temperature)),
 	}
 
 	// Add tools if provided
@@ -169,64 +169,61 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 		return nil, err
 	}
 
-	// Convert tools using base provider helper (eliminates duplication)
-	langchainTools := p.ConvertToolsToLangChainGo(tools)
-
-	// If tools are provided, fall back to non-streaming approach for reliable tool call handling
-	// This is because streaming with tools in langchaingo can be unreliable for tool call extraction
-	if len(langchainTools) > 0 {
-		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
-	}
-
-	// No tools, use regular streaming
-	return p.streamChatWithoutTools(ctx, messages, callback)
-}
-
-// streamChatWithoutTools handles streaming when no tools are present
-func (p *OpenAIProvider) streamChatWithoutTools(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
-	// Convert messages using base provider helper (eliminates 15+ lines of duplication)
+	// Convert messages and tools using base provider helpers
 	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+	langchainTools := p.ConvertToolsToLangChainGo(tools)
 
 	startTime := time.Now()
 	var fullContent strings.Builder
 	var completionTokens int
+	var streamingErr error
 
-	// Build options for streaming without tools
+	// Create streaming callback with tool call JSON filtering
+	streamCallback := p.CreateStreamingCallback(callback, &fullContent)
+
+	// Build options for streaming (with or without tools - langchaingo supports both!)
 	options := []llms.CallOption{
 		llms.WithMaxTokens(p.config.MaxTokens),
-		llms.WithTemperature(float64(p.config.Temperature)),
-		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+		llms.WithTemperature(getModelTemperature(p.model, p.config.Temperature)),
+		llms.WithStreamingFunc(func(_ context.Context, chunk []byte) error {
 			chunkStr := string(chunk)
 			if chunkStr == "" {
 				return nil
 			}
 
-			// Process text content
-			fullContent.WriteString(chunkStr)
+			// Update token count
 			completionTokens += estimateTokens(chunkStr)
 
-			// Send chunk to callback
-			streamChunk := StreamChunk{
-				Content:    fullContent.String(),
-				Delta:      chunkStr,
-				IsComplete: false,
-				Metadata: map[string]string{
-					"provider": "openai",
-				},
-				GeneratedAt: time.Now(),
+			// Use BaseProvider's streaming callback with JSON filtering
+			if err := streamCallback(chunkStr); err != nil {
+				streamingErr = err
+				return err
 			}
 
-			return callback(streamChunk)
+			return nil
 		}),
 	}
 
-	// Use streaming generation
-	_, err := p.client.GenerateContent(ctx, llmMessages, options...)
+	// Add tools if provided (langchaingo example shows this works with streaming)
+	if len(langchainTools) > 0 {
+		options = append(options, llms.WithTools(langchainTools))
+	}
+
+	// Start streaming generation (works with or without tools!)
+	response, err := p.client.GenerateContent(ctx, llmMessages, options...)
 	if err != nil {
 		return nil, enhanceOpenAIError(err)
 	}
 
-	// Calculate final token usage
+	// Check for streaming errors
+	if streamingErr != nil {
+		return nil, fmt.Errorf("streaming error: %w", streamingErr)
+	}
+
+	// Extract tool calls using base provider helper (eliminates duplication)
+	toolCalls := p.ExtractToolCallsFromLangChainResponse(response)
+
+	// Calculate final usage
 	usage := TokenUsage{
 		PromptTokens:     estimateTokens(messagesToString(messages)),
 		CompletionTokens: completionTokens,
@@ -234,7 +231,7 @@ func (p *OpenAIProvider) streamChatWithoutTools(ctx context.Context, messages []
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
 
-	// Send final chunk
+	// Send final completion chunk
 	finalChunk := StreamChunk{
 		Content:    fullContent.String(),
 		Delta:      "",
@@ -247,12 +244,18 @@ func (p *OpenAIProvider) streamChatWithoutTools(ctx context.Context, messages []
 		GeneratedAt: time.Now(),
 	}
 
-	if callbackErr := callback(finalChunk); callbackErr != nil {
-		return nil, fmt.Errorf("callback error: %w", callbackErr)
+	if err := callback(finalChunk); err != nil {
+		return nil, fmt.Errorf("final callback error: %w", err)
+	}
+
+	// Use final content from streaming or response
+	finalResponseContent := fullContent.String()
+	if response != nil && len(response.Choices) > 0 && response.Choices[0].Content != "" {
+		finalResponseContent = response.Choices[0].Content
 	}
 
 	return &ChatResponse{
-		Content:      fullContent.String(),
+		Content:      finalResponseContent,
 		Usage:        usage,
 		Model:        p.model,
 		FinishReason: "stop",
@@ -260,16 +263,59 @@ func (p *OpenAIProvider) streamChatWithoutTools(ctx context.Context, messages []
 			"provider":   "openai",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
-		ToolCalls: []ToolCall{}, // No tools in streaming mode
+		ToolCalls: toolCalls, // Now we support both streaming AND tools!
 	}, nil
+}
+
+// getModelMaxTokens returns the maximum context length for different OpenAI models
+func getModelMaxTokens(model string) int {
+	switch {
+	case strings.Contains(model, "gpt-5"):
+		return 200000 // GPT-5 (estimated, adjust based on actual limits)
+	case strings.Contains(model, "gpt-4o"):
+		return 128000 // GPT-4o and GPT-4o-mini
+	case strings.Contains(model, "gpt-4-turbo"):
+		return 128000 // GPT-4 Turbo
+	case strings.Contains(model, "gpt-4-32k"):
+		return 32768 // GPT-4 32k
+	case strings.Contains(model, "gpt-4") && !strings.Contains(model, "turbo"):
+		return 8192 // Standard GPT-4
+	case strings.Contains(model, "gpt-3.5-turbo-16k"):
+		return 16385 // GPT-3.5 Turbo 16k
+	case strings.Contains(model, "gpt-3.5-turbo-1106"):
+		return 16385 // GPT-3.5 Turbo November 2023
+	case strings.Contains(model, "gpt-3.5-turbo-0613"):
+		return 4096 // GPT-3.5 Turbo June 2023
+	case strings.Contains(model, "gpt-3.5-turbo"):
+		return 16385 // Default GPT-3.5 Turbo (newer versions have 16k)
+	case strings.Contains(model, "text-davinci"):
+		return 4097 // Legacy models
+	default:
+		return 4096 // Conservative default
+	}
+}
+
+// getModelTemperature returns the appropriate temperature for different OpenAI models
+// Some models have restrictions on temperature values
+func getModelTemperature(model string, requestedTemperature float32) float64 {
+	switch {
+	case strings.Contains(model, "gpt-5"),
+		strings.Contains(model, "o1-preview"),
+		strings.Contains(model, "o1-mini"):
+		// O1 models only support temperature of 1.0
+		return 1.0
+	default:
+		// Most models support flexible temperature
+		return float64(requestedTemperature)
+	}
 }
 
 // GetCapabilities returns OpenAI capabilities
 func (p *OpenAIProvider) GetCapabilities() Capabilities {
 	return Capabilities{
 		Name:              "OpenAI",
-		Models:            []string{}, // Models fetched via API using ListModels()
-		MaxTokens:         128000,     // Max for gpt-4-turbo and newer
+		Models:            []string{},                 // Models fetched via API using ListModels()
+		MaxTokens:         getModelMaxTokens(p.model), // Dynamic based on actual model
 		SupportsStreaming: true,
 		SupportsFunctions: true, // Tool calling support implemented
 		CostPerToken:      0.000002,

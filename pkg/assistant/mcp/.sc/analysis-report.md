@@ -1,6 +1,6 @@
 # Simple Container Project Analysis Report
 
-**Generated:** 2025-10-08 16:07:55 +03
+**Generated:** 2025-10-08 16:39:05 +03
 **Analyzer Version:** 1.0
 **Overall Confidence:** 55.0%
 
@@ -31,8 +31,8 @@
 - **Evidence:**
   - .sc directory found
 - **Additional Information:**
-  - maturity: partial
   - has_sc_directory: true
+  - maturity: partial
 
 ## Git Repository Analysis
 
@@ -46,25 +46,25 @@
 ### Databases
 
 - **postgresql** (90.0% confidence)
-  - Sources: schemas/aws/index.json, schemas/aws/postgresconfig.json, protocol.go, schemas/gcp/postgresgcpcloudsqlconfig.json, schemas/gcp/index.json, schemas/kubernetes/index.json, schemas/kubernetes/helmpostgresoperator.json, server.go
+  - Sources: schemas/aws/index.json, schemas/aws/postgresconfig.json, schemas/gcp/postgresgcpcloudsqlconfig.json, schemas/gcp/index.json, schemas/kubernetes/helmpostgresoperator.json, protocol.go, schemas/kubernetes/index.json, server.go
   - Recommended Resource: aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator
 - **mysql** (80.0% confidence)
   - Sources: schemas/aws/index.json, schemas/aws/mysqlconfig.json, server.go
   - Connection: mysql
   - Recommended Resource: aws-rds-mysql
-- **mongodb** (80.0% confidence)
-  - Sources: protocol.go, schemas/index.json, schemas/kubernetes/index.json, schemas/mongodb/index.json, schemas/mongodb/atlasconfig.json, schemas/kubernetes/helmmongodboperator.json, server.go
-  - Connection: mongodb
-  - Recommended Resource: mongodb-atlas
 - **redis** (80.0% confidence)
-  - Sources: protocol.go, schemas/gcp/redisconfig.json, schemas/gcp/index.json, schemas/kubernetes/helmredisoperator.json, schemas/kubernetes/index.json, server.go
+  - Sources: schemas/gcp/index.json, schemas/gcp/redisconfig.json, protocol.go, schemas/kubernetes/helmredisoperator.json, schemas/kubernetes/index.json, server.go
   - Connection: redis
   - Recommended Resource: gcp-redis or kubernetes-helm-redis-operator
+- **mongodb** (80.0% confidence)
+  - Sources: schemas/index.json, schemas/kubernetes/helmmongodboperator.json, protocol.go, schemas/mongodb/index.json, schemas/kubernetes/index.json, schemas/mongodb/atlasconfig.json, server.go
+  - Connection: mongodb
+  - Recommended Resource: mongodb-atlas
 
 ### Storage
 
 - **s3** (100.0% confidence)
-  - Sources: schemas/aws/index.json, mcp_test.go, schemas/aws/s3bucket.json, schemas/aws/statestorageconfig.json, server.go
+  - Sources: mcp_test.go, schemas/aws/s3bucket.json, schemas/aws/index.json, schemas/aws/statestorageconfig.json, server.go
   - Purpose: cloud_storage
 - **gcs** (90.0% confidence)
   - Sources: schemas/gcp/index.json, schemas/gcp/statestorageconfig.json, server.go
@@ -78,7 +78,7 @@
 - **gcp_pubsub** (70.0% confidence)
   - Sources: schemas/gcp/index.json, schemas/gcp/pubsubconfig.json
 - **rabbitmq** (85.0% confidence)
-  - Sources: schemas/kubernetes/helmrabbitmqoperator.json, schemas/kubernetes/index.json, server.go
+  - Sources: schemas/kubernetes/index.json, schemas/kubernetes/helmrabbitmqoperator.json, server.go
 
 ## Recommendations
 

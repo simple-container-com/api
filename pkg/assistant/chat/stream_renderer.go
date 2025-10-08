@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -22,145 +21,54 @@ func NewStreamRenderer() *StreamRenderer {
 
 // ProcessChunk processes a chunk of streaming text and returns colored output
 func (sr *StreamRenderer) ProcessChunk(chunk string) string {
+	// For real-time streaming, we need to track state properly
+	// Add chunk to buffer for robust ``` detection
 	sr.buffer += chunk
 
-	// Check if we have complete lines to process
-	if !strings.Contains(sr.buffer, "\n") {
-		// No complete line yet - don't output anything, keep buffering
-		return ""
+	// Manage buffer size to prevent memory issues (keep last 200 chars)
+	const maxBufferSize = 200
+	if len(sr.buffer) > maxBufferSize {
+		sr.buffer = sr.buffer[len(sr.buffer)-maxBufferSize:]
 	}
 
-	// Process complete lines
-	lines := strings.Split(sr.buffer, "\n")
-	var output strings.Builder
+	// Check for ``` patterns in the buffer
+	codeBlockCount := strings.Count(sr.buffer, "```")
+	newCodeBlockState := (codeBlockCount%2 == 1) // Odd count = inside code block
 
-	// Keep the last incomplete line in buffer
-	lastLine := lines[len(lines)-1]
-	lines = lines[:len(lines)-1]
-	sr.buffer = lastLine
-
-	for _, line := range lines {
-		// Check for code block markers
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			if !sr.inCodeBlock {
-				// Start of code block
-				sr.inCodeBlock = true
-				sr.codeBlockLang = strings.TrimPrefix(strings.TrimSpace(line), "```")
-				if sr.codeBlockLang != "" {
-					output.WriteString(sr.theme.ApplyHeader("┌─ " + sr.codeBlockLang + " ─"))
-				} else {
-					output.WriteString(sr.theme.ApplyHeader("┌─ code ─"))
-				}
-			} else {
-				// End of code block
-				sr.inCodeBlock = false
-				output.WriteString(sr.theme.ApplyHeader("└─────────"))
-			}
-			output.WriteString("\n")
-			continue
-		}
-
-		// Render line based on context
+	// Update state if it changed
+	if newCodeBlockState != sr.inCodeBlock {
+		sr.inCodeBlock = newCodeBlockState
 		if sr.inCodeBlock {
-			output.WriteString(sr.theme.ApplyCode("│ " + line))
-		} else {
-			output.WriteString(sr.renderInlineLine(line))
-		}
-
-		// Always add newline after each processed line
-		output.WriteString("\n")
-	}
-
-	return output.String()
-}
-
-// renderInlineLine renders a line with inline markdown
-func (sr *StreamRenderer) renderInlineLine(line string) string {
-	// For streaming, we'll use a simple approach - just color the text
-	// Full markdown parsing happens on complete responses
-
-	// Check for inline code
-	if strings.Contains(line, "`") {
-		var result strings.Builder
-		inCode := false
-		lastIdx := 0
-
-		for i, ch := range line {
-			if ch == '`' {
-				if inCode {
-					// End of code
-					result.WriteString(sr.theme.ApplyCode(line[lastIdx : i+1]))
-					inCode = false
-					lastIdx = i + 1
-				} else {
-					// Start of code - output text before
-					if lastIdx < i {
-						result.WriteString(sr.theme.ApplyText(line[lastIdx:i]))
-					}
-					inCode = true
-					lastIdx = i
+			// Extract language if we just entered a code block
+			if strings.Contains(chunk, "```") {
+				parts := strings.Split(chunk, "```")
+				if len(parts) > 1 {
+					sr.codeBlockLang = strings.TrimSpace(parts[1])
 				}
 			}
+		} else {
+			// Clear language when exiting code block
+			sr.codeBlockLang = ""
 		}
-
-		// Output remaining text
-		if lastIdx < len(line) {
-			if inCode {
-				result.WriteString(sr.theme.ApplyCode(line[lastIdx:]))
-			} else {
-				result.WriteString(sr.theme.ApplyText(line[lastIdx:]))
-			}
-		}
-
-		return result.String()
 	}
 
-	// Check for bold text
-	if strings.Contains(line, "**") {
-		parts := strings.Split(line, "**")
-		var result strings.Builder
-		for i, part := range parts {
-			if i%2 == 1 {
-				// Odd index = bold text
-				result.WriteString(sr.theme.ApplyEmphasis(part))
-			} else {
-				result.WriteString(sr.theme.ApplyText(part))
-			}
-		}
-		return result.String()
+	// Apply styling based on current state
+	if sr.inCodeBlock {
+		return sr.theme.ApplyCode(chunk)
 	}
 
-	// Check for headers
-	if strings.HasPrefix(line, "#") {
-		return sr.theme.ApplyHeader(line)
-	}
-
-	// Check for list items
-	trimmed := strings.TrimSpace(line)
-	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
-		indent := line[:len(line)-len(trimmed)]
-		content := trimmed[2:]
-		return indent + sr.theme.ApplyEmphasis("• ") + sr.theme.ApplyText(content)
-	}
-
-	// Default text color
-	return sr.theme.ApplyText(line)
+	// For regular text, apply basic text styling
+	return sr.theme.ApplyText(chunk)
 }
 
 // Flush returns any remaining buffered content
 func (sr *StreamRenderer) Flush() string {
-	if sr.buffer == "" {
-		return ""
-	}
-
-	remaining := sr.buffer
-	sr.buffer = ""
-
-	if sr.inCodeBlock {
-		return sr.theme.ApplyCode("│ " + remaining)
-	}
-
-	return sr.renderInlineLine(remaining)
+	// For real-time streaming, everything has already been output immediately
+	// in ProcessChunk, so there's nothing to flush to avoid duplication
+	sr.buffer = ""         // Clear state tracking buffer
+	sr.inCodeBlock = false // Reset state
+	sr.codeBlockLang = ""
+	return ""
 }
 
 // Reset resets the renderer state
@@ -174,31 +82,4 @@ func (sr *StreamRenderer) Reset() {
 // SetTheme updates the theme
 func (sr *StreamRenderer) SetTheme(theme *Theme) {
 	sr.theme = theme
-}
-
-// Example usage in streaming context:
-func ExampleStreamUsage() {
-	renderer := NewStreamRenderer()
-
-	// Simulate streaming chunks
-	chunks := []string{
-		"Hello, this is ",
-		"some text with `code` ",
-		"and more text\n",
-		"```go\n",
-		"func main() {\n",
-		"    fmt.Println",
-		"(\"Hello\")\n",
-		"}\n",
-		"```\n",
-		"Done!\n",
-	}
-
-	for _, chunk := range chunks {
-		output := renderer.ProcessChunk(chunk)
-		fmt.Print(output)
-	}
-
-	// Flush any remaining content
-	fmt.Print(renderer.Flush())
 }
