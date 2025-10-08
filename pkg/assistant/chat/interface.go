@@ -129,6 +129,12 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		sessionManager.SetMaxSessions(cfg.MaxSavedSessions)
 	}
 
+	// Cleanup old sessions on startup
+	if err := sessionManager.CleanupOldSessions(); err != nil {
+		// Log warning but don't fail initialization
+		fmt.Printf("Warning: failed to cleanup old sessions: %v\n", err)
+	}
+
 	// Create chat interface
 	chat := &ChatInterface{
 		llm:              provider,
