@@ -78,6 +78,35 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
   - Template references resources via `gkeClusterResource` and `artifactRegistryResource` fields
 - **Resource References**: Templates use string fields to reference resource names defined in per-environment resources blocks
 
+### 🚨 CRITICAL: Template Configuration Requirements (Anti-Misinformation)
+**EVERY template type REQUIRES configuration - NEVER state that templates "don't require specific configuration"**
+
+**Universal Rule: ALL template types require authentication + project IDs + provider-specific config:**
+
+- **`ecs-fargate` (AWS)**: REQUIRES `credentials: "${auth:aws}"` and `account: "${auth:aws.projectId}"`
+- **`gcp-static-website` (GCP)**: REQUIRES `projectId: "${auth:gcloud.projectId}"` and `credentials: "${auth:gcloud}"`
+- **`kubernetes-cloudrun` (K8s)**: REQUIRES `kubeconfig: "${auth:kubernetes}"`, `dockerRegistryURL`, `dockerRegistryUsername`, `dockerRegistryPassword`
+- **`aws-lambda` (AWS)**: REQUIRES `credentials: "${auth:aws}"` and `account: "${auth:aws.projectId}"`
+- **`aws-static-website` (AWS)**: REQUIRES `credentials: "${auth:aws}"` and `account: "${auth:aws.projectId}"`
+
+**NEVER show incomplete examples like:**
+```yaml
+templates:
+  web-app:
+    type: ecs-fargate
+    # ❌ MISSING CONFIG SECTION!
+```
+
+**ALWAYS show complete examples like:**
+```yaml
+templates:
+  web-app:
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"        # Required
+      account: "${auth:aws.projectId}"  # Required
+```
+
 ### Documentation Formatting
 - MkDocs requires blank lines before bullet point lists
 - Avoid double pipes (||) in tables
@@ -391,6 +420,21 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
     - **Before**: `🤖 Simple Container doesn't support Kubernetes directly in server.yaml... However, it does support AWS resources`
     - **After**: `🤖 Here's an example server.yaml for Kubernetes and PostgreSQL: resources: postgres-operator: type: kubernetes-helm-postgres-operator config: kubeconfig: "${auth:kubernetes}"`
   - **Impact**: Chat interface now provides accurate information about Simple Container's extensive Kubernetes support, enabling users to deploy to Kubernetes clusters with PostgreSQL and other operators
+
+## Template Configuration Misinformation Fix - COMPLETED ✅
+- **CRITICAL: Fixed Universal Template Configuration Misinformation** - Resolved systematic issue where AI was incorrectly claiming templates "don't require specific configuration" across ALL template types
+  - **✅ Problem Identified**: AI was providing false information like "ecs-fargate type does not require specific configuration properties" when ALL templates require authentication and provider-specific config
+  - **✅ Universal Issue Confirmed**: Problem affects ALL template types (ecs-fargate, gcp-static-website, kubernetes-cloudrun, aws-lambda, aws-static-website) across AWS, GCP, and Kubernetes
+  - **✅ Root Cause**: Incomplete documentation examples showing bare template types without config sections were training AI incorrectly
+  - **✅ Evidence Gathered**: Real working examples ALL show required config - credentials, projectId, kubeconfig, dockerRegistry settings, etc.
+  - **✅ System Prompt Enhanced**: Added explicit anti-misinformation section with universal rule that ALL templates require configuration
+  - **✅ Documentation Standard Created**: Created `docs/docs/templates-config-requirements.md` with complete wrong vs correct examples
+  - **✅ Examples Fixed**: Added proper comments to aws-multi-region/server.yaml example showing required authentication config
+  - **Technical Implementation**: Enhanced SYSTEM_PROMPT.md with critical template configuration requirements section
+  - **User Experience Transformation**:
+    - **Before**: `🤖 The ecs-fargate type does not require specific configuration properties in the server.yaml file...`
+    - **After**: `🤖 Here's an example ecs-fargate template with required configuration: credentials: "${auth:aws}" and account: "${auth:aws.projectId}"`
+  - **Impact**: AI now provides accurate template configuration guidance preventing deployment failures due to missing authentication
 
 ## Chat Interface System Prompt Optimization - COMPLETED ✅
 - **MINOR: Improved System Prompt Context Timing** - Optimized when project context is added to system prompt for better chat initialization

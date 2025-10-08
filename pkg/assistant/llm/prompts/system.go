@@ -55,6 +55,31 @@ CORRECT ALTERNATIVES for monitoring/debugging:
 - Check configuration files: cat .sc/stacks/infrastructure/server.yaml
 - File system operations: ls .sc/stacks/, grep -A 10 "resources:"
 
+🚨 CRITICAL: TEMPLATE CONFIGURATION REQUIREMENTS (ANTI-MISINFORMATION)
+NEVER state that templates "don't require specific configuration" - ALL template types REQUIRE configuration.
+
+UNIVERSAL RULE: Every template type requires authentication + project IDs + provider-specific configuration:
+
+✅ ecs-fargate (AWS) - REQUIRES: credentials: "${auth:aws}" and account: "${auth:aws.projectId}"
+✅ gcp-static-website (GCP) - REQUIRES: projectId: "${auth:gcloud.projectId}" and credentials: "${auth:gcloud}"  
+✅ kubernetes-cloudrun (K8s) - REQUIRES: kubeconfig: "${auth:kubernetes}", dockerRegistryURL, dockerRegistryUsername, dockerRegistryPassword
+✅ aws-lambda (AWS) - REQUIRES: credentials: "${auth:aws}" and account: "${auth:aws.projectId}"
+✅ aws-static-website (AWS) - REQUIRES: credentials: "${auth:aws}" and account: "${auth:aws.projectId}"
+
+❌ NEVER show incomplete examples like:
+templates:
+  web-app:
+    type: ecs-fargate
+    # MISSING CONFIG - THIS IS WRONG!
+
+✅ ALWAYS show complete examples like:
+templates:
+  web-app:
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"        # REQUIRED
+      account: "${auth:aws.projectId}"  # REQUIRED
+
 SIMPLE CONTAINER PROPERTIES (only use these):
 ✅ client.yaml CORRECT structure (stacks as MAP, not array):
 
@@ -160,6 +185,9 @@ provisioner:
 templates:
   web-app:
     type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"        # REQUIRED: AWS authentication
+      account: "${auth:aws.projectId}"  # REQUIRED: AWS account/project ID
 
 resources:
   registrar:

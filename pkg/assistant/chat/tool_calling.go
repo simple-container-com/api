@@ -100,7 +100,7 @@ func (h *ToolCallHandler) ExecuteToolCall(ctx context.Context, toolCall llm.Tool
 	}
 
 	// Convert arguments to string array format expected by commands
-	args := h.convertArgumentsToArgs(toolCall.Function.Arguments)
+	args := h.convertArgumentsToArgs(functionName, toolCall.Function.Arguments)
 
 	// Execute the command
 	result, err := command.Handler(ctx, args, chatContext)
@@ -115,9 +115,20 @@ func (h *ToolCallHandler) ExecuteToolCall(ctx context.Context, toolCall llm.Tool
 }
 
 // convertArgumentsToArgs converts JSON arguments to string array format expected by commands
-func (h *ToolCallHandler) convertArgumentsToArgs(arguments map[string]interface{}) []string {
+func (h *ToolCallHandler) convertArgumentsToArgs(functionName string, arguments map[string]interface{}) []string {
 	args := []string{}
 
+	// Special handling for switch command - it expects mode as positional argument
+	if functionName == "switch" {
+		if modeVal, exists := arguments["mode"]; exists {
+			if strVal, ok := modeVal.(string); ok {
+				args = append(args, strVal)
+			}
+		}
+		return args
+	}
+
+	// Default handling for other commands
 	for key, value := range arguments {
 		switch key {
 		case "full":
@@ -126,7 +137,7 @@ func (h *ToolCallHandler) convertArgumentsToArgs(arguments map[string]interface{
 				args = append(args, "--full")
 			}
 		case "mode":
-			// Mode argument
+			// Mode argument for non-switch commands
 			if strVal, ok := value.(string); ok {
 				args = append(args, "--mode", strVal)
 			}
