@@ -39,6 +39,7 @@ type ChatInterface struct {
 	config          SessionConfig
 	inputHandler    *InputHandler
 	toolCallHandler *ToolCallHandler
+	docCache        map[string][]embeddings.SearchResult // Cache for documentation search results
 }
 
 // NewChatInterface creates a new chat interface
@@ -123,6 +124,7 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		commandHandler: commandHandler,
 		commands:       make(map[string]*ChatCommand),
 		config:         sessionConfig,
+		docCache:       make(map[string][]embeddings.SearchResult),
 	}
 
 	// Get available resources for context
@@ -244,6 +246,15 @@ func (c *ChatInterface) handleChat(ctx context.Context, input string) error {
 	// Add user message to context
 	c.addMessage("user", input)
 
+	// Enrich context with relevant documentation examples (RAG)
+	if err := c.enrichContextWithDocumentation(input); err != nil {
+		// Log error but don't fail - continue with regular chat
+		// Only show warning in debug mode to avoid cluttering output
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("📚 RAG Warning: Failed to retrieve relevant documentation: %v\n", err)
+		}
+	}
+
 	// Check if provider supports streaming
 	caps := c.llm.GetCapabilities()
 
@@ -281,11 +292,27 @@ func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
 		return nil
 	}
 
-	// Get streaming response from LLM
-	response, err := c.llm.StreamChat(ctx, c.context.History, callback)
+	// Get available tools for the LLM
+	tools := c.toolCallHandler.GetAvailableTools()
+
+	// Get streaming response from LLM with tools if the provider supports function calling
+	var response *llm.ChatResponse
+	var err error
+
+	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
+		response, err = c.llm.StreamChatWithTools(ctx, c.context.History, tools, callback)
+	} else {
+		response, err = c.llm.StreamChat(ctx, c.context.History, callback)
+	}
+
 	if err != nil {
 		fmt.Print("\r") // Clear thinking indicator
 		return fmt.Errorf("LLM error: %w", err)
+	}
+
+	// Handle tool calls if present
+	if len(response.ToolCalls) > 0 {
+		return c.handleToolCalls(ctx, response)
 	}
 
 	// Add assistant response to context (use full response or response content)
@@ -684,6 +711,216 @@ func (c *ChatInterface) addMessage(role, content string) {
 
 	c.context.History = append(c.context.History, message)
 	c.context.UpdatedAt = time.Now()
+}
+
+// enrichContextWithDocumentation searches for relevant documentation based on user message
+// and adds it to the conversation context using RAG (Retrieval-Augmented Generation).
+//
+// This function implements a comprehensive RAG system that:
+// 1. Analyzes user messages for question indicators and relevant keywords
+// 2. Performs semantic search against the embeddings database
+// 3. Caches results to avoid redundant searches
+// 4. Enriches the system prompt with relevant documentation examples
+//
+// Debug logging: Set LogLevel to "debug" (c.config.LogLevel = "debug") to see detailed
+// RAG operation logs prefixed with "📚 RAG:" showing query extraction, search results,
+// cache usage, and documentation enhancement details.
+func (c *ChatInterface) enrichContextWithDocumentation(userMessage string) error {
+	if c.embeddings == nil {
+		return fmt.Errorf("embeddings database not available")
+	}
+
+	// Extract search query from user message
+	searchQuery := c.extractSearchQuery(userMessage)
+	if searchQuery == "" {
+		// No relevant keywords found, skip documentation search
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("📚 RAG: No relevant keywords found in message, skipping documentation search\n")
+		}
+		return nil
+	}
+
+	if c.config.LogLevel == "debug" {
+		fmt.Printf("📚 RAG: Extracted search query: '%s'\n", searchQuery)
+	}
+
+	// Check cache first (with normalized query key)
+	cacheKey := strings.ToLower(strings.TrimSpace(searchQuery))
+	var results []embeddings.SearchResult
+	if cachedResults, exists := c.docCache[cacheKey]; exists {
+		results = cachedResults
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("📚 RAG: Using cached results for query (found %d results)\n", len(results))
+		}
+	} else {
+		// Search for relevant documentation (limit to top 3 most relevant results)
+		var err error
+		results, err = embeddings.SearchDocumentation(c.embeddings, searchQuery, 3)
+		if err != nil {
+			return fmt.Errorf("failed to search documentation: %w", err)
+		}
+
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("📚 RAG: Found %d documentation results from embeddings search\n", len(results))
+		}
+
+		// Cache the results (limit cache size to prevent memory bloat)
+		if len(c.docCache) < 50 {
+			c.docCache[cacheKey] = results
+			if c.config.LogLevel == "debug" {
+				fmt.Printf("📚 RAG: Cached results (cache size: %d/50)\n", len(c.docCache))
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		// No relevant documentation found
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("📚 RAG: No relevant documentation found for query\n")
+		}
+		return nil
+	}
+
+	// Format documentation examples for LLM context
+	docContext := c.formatDocumentationForLLM(results, userMessage)
+
+	if c.config.LogLevel == "debug" {
+		fmt.Printf("📚 RAG: Enhanced system prompt with %d documentation examples\n", len(results))
+		// Show brief summary of retrieved docs
+		for i, result := range results {
+			title, ok := result.Metadata["title"].(string)
+			if !ok || title == "" {
+				title = result.ID
+			}
+			score := int(result.Score * 100)
+			fmt.Printf("📚 RAG:   %d. %s (%d%% relevance)\n", i+1, title, score)
+		}
+	}
+
+	// Update the system message with relevant documentation
+	c.updateSystemMessageWithDocumentation(docContext)
+
+	return nil
+}
+
+// extractSearchQuery extracts relevant keywords from user message for documentation search
+func (c *ChatInterface) extractSearchQuery(message string) string {
+	originalMessage := message
+	message = strings.ToLower(message)
+
+	// First check if this looks like a question that would benefit from documentation
+	questionIndicators := []string{
+		"how", "what", "where", "when", "why", "can you", "could you", "would you",
+		"show me", "example", "help", "configure", "setup", "create", "generate",
+		"explain", "tell me", "i need", "i want", "looking for", "?",
+	}
+
+	hasQuestionIndicator := false
+	matchedIndicator := ""
+	for _, indicator := range questionIndicators {
+		if strings.Contains(message, indicator) {
+			hasQuestionIndicator = true
+			matchedIndicator = indicator
+			break
+		}
+	}
+
+	// If it doesn't look like a question needing examples, skip documentation search
+	if !hasQuestionIndicator {
+		return ""
+	}
+
+	// Keywords that indicate user needs documentation examples
+	relevantKeywords := []string{
+		"client.yaml", "server.yaml", "secrets.yaml", "docker-compose",
+		"configuration", "config", "setup", "deploy", "example", "how to",
+		"template", "resource", "stack", "environment", "secret",
+		"mongodb", "redis", "postgres", "s3", "aws", "gcp", "kubernetes",
+		"dockerfile", "compose", "helm", "terraform", "pulumi",
+		"yaml", "file", "syntax", "format", "structure",
+	}
+
+	var foundKeywords []string
+	for _, keyword := range relevantKeywords {
+		if strings.Contains(message, keyword) {
+			foundKeywords = append(foundKeywords, keyword)
+		}
+	}
+
+	if len(foundKeywords) == 0 {
+		// If no specific keywords but it's a question, use the original message for search
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("📚 RAG: Question detected ('%s') but no specific keywords, using full message for search\n", matchedIndicator)
+		}
+		return originalMessage
+	}
+
+	// Return the most relevant keywords for search
+	searchQuery := strings.Join(foundKeywords, " ")
+	if c.config.LogLevel == "debug" {
+		fmt.Printf("📚 RAG: Question detected ('%s'), found keywords: %v -> search query: '%s'\n", matchedIndicator, foundKeywords, searchQuery)
+	}
+	return searchQuery
+}
+
+// formatDocumentationForLLM formats search results for inclusion in LLM context
+func (c *ChatInterface) formatDocumentationForLLM(results []embeddings.SearchResult, userMessage string) string {
+	var docBuilder strings.Builder
+
+	docBuilder.WriteString("\n\nRELEVANT DOCUMENTATION EXAMPLES (based on user question):\n")
+	docBuilder.WriteString("Use these examples to provide accurate, specific guidance:\n\n")
+
+	for i, result := range results {
+		score := int(result.Score * 100)
+		title, ok := result.Metadata["title"].(string)
+		if !ok || title == "" {
+			title = result.ID
+		}
+
+		docBuilder.WriteString(fmt.Sprintf("%d. **%s** (%d%% relevance)\n", i+1, title, score))
+
+		// Include relevant content snippet
+		content := result.Content
+		if len(content) > 800 {
+			content = content[:800] + "..."
+		}
+
+		docBuilder.WriteString(fmt.Sprintf("```\n%s\n```\n\n", content))
+	}
+
+	docBuilder.WriteString("END OF DOCUMENTATION EXAMPLES\n")
+	docBuilder.WriteString("Use the above examples to provide specific, accurate guidance based on actual Simple Container patterns.\n")
+
+	return docBuilder.String()
+}
+
+// updateSystemMessageWithDocumentation updates or creates system message with documentation context
+func (c *ChatInterface) updateSystemMessageWithDocumentation(docContext string) {
+	// Find existing system message (should be first message)
+	if len(c.context.History) > 0 && c.context.History[0].Role == "system" {
+		// Update existing system message
+		originalContent := c.context.History[0].Content
+
+		// Remove any previous documentation section
+		if idx := strings.Index(originalContent, "\n\nRELEVANT DOCUMENTATION EXAMPLES"); idx != -1 {
+			originalContent = originalContent[:idx]
+		}
+
+		// Add new documentation context
+		c.context.History[0].Content = originalContent + docContext
+		c.context.History[0].Timestamp = time.Now()
+	} else {
+		// Create new system message with documentation context
+		systemMessage := Message{
+			Role:      "system",
+			Content:   "You are the Simple Container AI Assistant. " + docContext,
+			Timestamp: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		}
+
+		// Insert at the beginning
+		c.context.History = append([]Message{systemMessage}, c.context.History...)
+	}
 }
 
 // GetContext returns the current conversation context

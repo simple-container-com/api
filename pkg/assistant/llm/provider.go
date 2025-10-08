@@ -37,6 +37,9 @@ type Provider interface {
 	// StreamChat sends messages to the LLM and streams the response via callback
 	StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error)
 
+	// StreamChatWithTools sends messages to the LLM with available tools and streams the response via callback
+	StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error)
+
 	// GetCapabilities returns the provider's capabilities
 	GetCapabilities() Capabilities
 

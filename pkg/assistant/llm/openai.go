@@ -140,6 +140,12 @@ func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, 
 
 // StreamChat sends messages to OpenAI and streams the response via callback
 func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
+	// Call StreamChatWithTools with empty tools
+	return p.StreamChatWithTools(ctx, messages, []Tool{}, callback)
+}
+
+// StreamChatWithTools sends messages to OpenAI with tool support and streams the response via callback
+func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
 	if !p.configured {
 		return nil, fmt.Errorf("OpenAI provider not configured")
 	}
@@ -167,8 +173,24 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 	var fullContent strings.Builder
 	var completionTokens int
 
-	// Use streaming generation
-	_, err := p.client.GenerateContent(ctx, llmMessages,
+	// Convert tools to langchaingo format if provided
+	var langchainTools []llms.Tool
+	if len(tools) > 0 {
+		langchainTools = make([]llms.Tool, len(tools))
+		for i, tool := range tools {
+			langchainTools[i] = llms.Tool{
+				Type: "function",
+				Function: &llms.FunctionDefinition{
+					Name:        tool.Function.Name,
+					Description: tool.Function.Description,
+					Parameters:  tool.Function.Parameters,
+				},
+			}
+		}
+	}
+
+	// Build options
+	options := []llms.CallOption{
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
@@ -193,7 +215,15 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 
 			return callback(streamChunk)
 		}),
-	)
+	}
+
+	// Add tools if provided
+	if len(langchainTools) > 0 {
+		options = append(options, llms.WithTools(langchainTools))
+	}
+
+	// Use streaming generation
+	response, err := p.client.GenerateContent(ctx, llmMessages, options...)
 	if err != nil {
 		return nil, enhanceOpenAIError(err)
 	}
@@ -205,6 +235,28 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	usage.Cost = calculateOpenAICost(p.model, usage.TotalTokens)
+
+	// Extract tool calls from response if any
+	var toolCalls []ToolCall
+	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
+		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
+		for i, tc := range response.Choices[0].ToolCalls {
+			// Parse function arguments
+			var args map[string]interface{}
+			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
+				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
+			}
+
+			toolCalls[i] = ToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: FunctionCall{
+					Name:      tc.FunctionCall.Name,
+					Arguments: args,
+				},
+			}
+		}
+	}
 
 	// Send final chunk
 	finalChunk := StreamChunk{
@@ -233,7 +285,7 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
 		GeneratedAt: time.Now(),
-		ToolCalls:   []ToolCall{}, // Initialize empty tool calls
+		ToolCalls:   toolCalls, // Include actual tool calls
 	}, nil
 }
 

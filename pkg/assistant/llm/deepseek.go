@@ -229,6 +229,40 @@ func (p *DeepSeekProvider) StreamChat(ctx context.Context, messages []Message, c
 	}, nil
 }
 
+// StreamChatWithTools sends messages to DeepSeek with tool support and streams the response via callback
+func (p *DeepSeekProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
+	// TODO: Implement proper tool support for DeepSeek
+	// For now, fallback to regular streaming (DeepSeek may not support tools yet)
+	if len(tools) > 0 {
+		// Use non-streaming with tools as fallback
+		response, err := p.ChatWithTools(ctx, messages, tools)
+		if err != nil {
+			return nil, err
+		}
+
+		// Simulate streaming by sending the full response as one chunk
+		finalChunk := StreamChunk{
+			Content:    response.Content,
+			Delta:      response.Content,
+			IsComplete: true,
+			Usage:      &response.Usage,
+			Metadata: map[string]string{
+				"provider": "deepseek",
+			},
+			GeneratedAt: time.Now(),
+		}
+
+		if err := callback(finalChunk); err != nil {
+			return nil, fmt.Errorf("callback error: %w", err)
+		}
+
+		return response, nil
+	}
+
+	// No tools, use regular streaming
+	return p.StreamChat(ctx, messages, callback)
+}
+
 // GetCapabilities returns DeepSeek capabilities
 func (p *DeepSeekProvider) GetCapabilities() Capabilities {
 	return Capabilities{

@@ -98,6 +98,31 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **MAJOR: Dynamic Documentation Retrieval (RAG) for Chat** - Implemented intelligent documentation search to enhance LLM responses
+  - **✅ Smart Query Extraction**: Analyzes user messages for question indicators and relevant keywords (client.yaml, secrets, AWS, MongoDB, etc.)
+  - **✅ Semantic Search Integration**: Uses embeddings database to find top 3 most relevant documentation examples
+  - **✅ Context-Aware Filtering**: Only triggers documentation search for questions that would benefit from examples
+  - **✅ Dynamic System Prompt Enhancement**: Updates LLM context with relevant documentation snippets before each response
+  - **✅ Performance Optimization**: Caches search results (up to 50 queries) to avoid redundant embeddings searches
+  - **✅ Graceful Fallback**: Continues normal chat if documentation search fails
+  - **Impact**: LLM now provides accurate, example-based responses using actual Simple Container patterns instead of generic guidance
+  - **Technical Details**: 
+    - Triggers on question words: "how", "what", "show me", "example", "configure", etc.
+    - Searches documentation for: configuration files, resource types, deployment patterns, secrets management
+    - Updates system message with formatted examples including relevance scores and content snippets
+    - Cache prevents repeated searches for similar queries within same session
+- **CRITICAL: Fixed Chat Command Tool Calling in Streaming Mode** - Resolved issue where LLM commands/tools weren't working in chat mode
+  - **✅ Root Cause Identified**: Streaming mode (`handleStreamingChat`) wasn't providing tools to the LLM, only non-streaming mode had tool support
+  - **✅ Added StreamChatWithTools Method**: Extended LLM Provider interface with `StreamChatWithTools(ctx, messages, tools, callback)` method
+  - **✅ Implemented Across All Providers**: OpenAI (full support), Anthropic/DeepSeek/Ollama/Yandex (fallback to non-streaming with tools)
+  - **✅ Fixed Chat Interface Integration**: Updated `handleStreamingChat()` to use tools when provider supports functions
+  - **✅ Preserved Streaming UX**: Tools work while maintaining real-time streaming experience
+  - **Impact**: Users can now use chat commands (like `/analyze`, `/setup`, etc.) while getting streaming responses from the LLM
+  - **Technical Details**: 
+    - Added tool detection: `tools := c.toolCallHandler.GetAvailableTools()`
+    - Provider capability check: `c.llm.GetCapabilities().SupportsFunctions`
+    - Smart fallback: Uses `StreamChatWithTools()` when tools available, otherwise `StreamChat()`
+    - Tool call handling: Properly processes and executes tool calls from streaming responses
 - **MAJOR: OpenAI-Powered Embeddings Pre-Generation System** - Revolutionary upgrade from local embeddings to high-quality OpenAI embeddings
   - **✅ OpenAI Embeddings Generator**: Complete `cmd/generate-embeddings` tool with direct OpenAI API integration (no langchaingo dependency)
   - **✅ Multiple Model Support**: text-embedding-3-small (default, $0.00002/1K tokens), text-embedding-3-large (premium, $0.00013/1K tokens), text-embedding-ada-002 (legacy)

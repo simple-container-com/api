@@ -379,6 +379,39 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 	}, nil
 }
 
+// StreamChatWithTools sends messages to Anthropic with tool support and streams the response via callback
+func (p *AnthropicProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
+	// TODO: Implement true streaming with tools for Anthropic
+	// For now, use non-streaming as fallback when tools are provided
+	if len(tools) > 0 {
+		response, err := p.ChatWithTools(ctx, messages, tools)
+		if err != nil {
+			return nil, err
+		}
+
+		// Simulate streaming by sending the full response as one chunk
+		finalChunk := StreamChunk{
+			Content:    response.Content,
+			Delta:      response.Content,
+			IsComplete: true,
+			Usage:      &response.Usage,
+			Metadata: map[string]string{
+				"provider": "anthropic",
+			},
+			GeneratedAt: time.Now(),
+		}
+
+		if err := callback(finalChunk); err != nil {
+			return nil, fmt.Errorf("callback error: %w", err)
+		}
+
+		return response, nil
+	}
+
+	// No tools, use regular streaming
+	return p.StreamChat(ctx, messages, callback)
+}
+
 // GetCapabilities returns the provider's capabilities
 func (p *AnthropicProvider) GetCapabilities() Capabilities {
 	return Capabilities{
