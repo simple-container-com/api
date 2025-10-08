@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/term"
+	"gopkg.in/yaml.v2"
 
 	"github.com/spf13/cobra"
 
@@ -98,6 +99,12 @@ func NewAssistantCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
   sc assistant devops setup
   sc assistant devops resources --add postgres
   
+  # Configuration Management
+  sc assistant config                    # Show client.yaml
+  sc assistant config --type server     # Show server.yaml
+  sc assistant config --stack staging   # Show specific stack
+  sc assistant config --explain         # Guide to AI analysis
+  
   # Shared Features
   sc assistant search "postgres configuration"
   sc assistant mcp --port 9999`,
@@ -110,6 +117,7 @@ func NewAssistantCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		assistantCmd.newSearchCmd(),
 		assistantCmd.newChatCmd(),
 		assistantCmd.newMCPCmd(),
+		assistantCmd.newConfigCmd(),
 		assistantCmd.newTestCmd(),
 		assistantCmd.newHealthCmd(),
 		assistantCmd.newStatsCmd(),
@@ -445,6 +453,41 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 	return cmd
 }
 
+func (a *AssistantCmd) newConfigCmd() *cobra.Command {
+	var configType string
+	var stackName string
+	var explainFlag bool
+
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Display current Simple Container configuration with AI analysis",
+		Long: `Display the current Simple Container configuration files with a summary and optional AI analysis.
+		
+Shows the content and structure of client.yaml or server.yaml files
+along with a helpful summary of the configuration including:
+- Stack environments
+- Template usage
+- Resource dependencies
+- Configuration health
+- AI-powered analysis and recommendations (with --explain)
+
+Examples:
+  sc assistant config                    # Show client.yaml for current project
+  sc assistant config --type server     # Show server.yaml (infrastructure config)
+  sc assistant config --stack staging   # Show specific stack configuration
+  sc assistant config --explain         # Include AI-powered configuration analysis`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return a.runConfig(cmd, configType, stackName, explainFlag)
+		},
+	}
+
+	cmd.Flags().StringVarP(&configType, "type", "t", "client", "Configuration type: client or server")
+	cmd.Flags().StringVarP(&stackName, "stack", "s", "", "Specific stack name (for client.yaml)")
+	cmd.Flags().BoolVarP(&explainFlag, "explain", "e", false, "Include AI-powered configuration analysis")
+
+	return cmd
+}
+
 // Implementation of command handlers
 
 func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
@@ -676,6 +719,208 @@ func (a *AssistantCmd) runSearch(cmd *cobra.Command, query string, limit int, do
 	}
 
 	return nil
+}
+
+func (a *AssistantCmd) runConfig(cmd *cobra.Command, configType, stackName string, explainFlag bool) error {
+	fmt.Printf("📋 Simple Container Configuration\n")
+	fmt.Printf("   Type: %s\n", color.CyanFmt(configType))
+	if stackName != "" {
+		fmt.Printf("   Stack: %s\n", color.CyanFmt(stackName))
+	}
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println()
+
+	// Initialize core manager to access MCP handler
+	a.initCoreManager()
+	ctx := context.Background()
+	if err := a.coreManager.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize core manager: %w", err)
+	}
+	defer func() { _ = a.coreManager.Shutdown(ctx) }()
+
+	// Get current configuration using existing MCP handler functionality
+	handler := mcp.NewDefaultMCPHandler()
+	configParams := mcp.GetCurrentConfigParams{
+		ConfigType: configType,
+		StackName:  stackName,
+	}
+
+	result, err := handler.GetCurrentConfig(ctx, configParams)
+	if err != nil {
+		fmt.Printf("%s Failed to read configuration: %v\n", color.RedFmt("❌"), err)
+		return err
+	}
+
+	if !result.Success {
+		fmt.Printf("%s %s\n", color.RedFmt("❌"), result.Message)
+		return fmt.Errorf("failed to read configuration")
+	}
+
+	// Display the configuration file path
+	fmt.Printf("📁 **Configuration File**: %s\n\n", color.GreenFmt(result.FilePath))
+
+	// Display the configuration content
+	content := result.Content
+	if content != nil {
+		// Generate and display summary
+		summary := a.generateConfigSummary(configType, content)
+		fmt.Printf("📊 **Configuration Summary**\n%s\n", summary)
+
+		// Display the raw configuration
+		fmt.Printf("📄 **Configuration Content**\n")
+		if err := a.displayConfigContent(content); err != nil {
+			return fmt.Errorf("failed to display configuration: %w", err)
+		}
+
+		// Show AI analysis option
+		if explainFlag {
+			fmt.Printf("\n💡 **AI Analysis**\n")
+			fmt.Printf("For detailed AI-powered configuration analysis, use:\n")
+			fmt.Printf("   %s\n", color.CyanFmt("sc assistant chat"))
+			fmt.Printf("Then run: %s\n", color.GreenFmt("/config --explain"))
+			fmt.Printf("\nThe AI can provide insights about:\n")
+			fmt.Printf("   • Configuration best practices and recommendations\n")
+			fmt.Printf("   • Potential issues and security considerations\n")
+			fmt.Printf("   • Resource dependencies and architecture analysis\n")
+			fmt.Printf("   • Deployment pattern explanations\n")
+		}
+	} else {
+		fmt.Printf("⚠️  Unable to parse configuration content\n")
+	}
+
+	return nil
+}
+
+func (a *AssistantCmd) generateConfigSummary(configType string, content map[string]interface{}) string {
+	var summary strings.Builder
+
+	if configType == "client" {
+		// Client configuration summary
+		if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+			summary.WriteString(fmt.Sprintf("   • **Environments**: %d configured (%s)\n",
+				len(stacks), color.CyanFmt(strings.Join(getMapKeys(stacks), ", "))))
+
+			// Analyze stack details
+			templates := make(map[string]bool)
+			resources := make(map[string]bool)
+
+			for stackName, stackConfig := range stacks {
+				if stack, ok := stackConfig.(map[string]interface{}); ok {
+					// Check parent template
+					if parent, ok := stack["parent"].(string); ok {
+						summary.WriteString(fmt.Sprintf("   • **%s** → Parent: %s\n", stackName, color.YellowFmt(parent)))
+					}
+
+					// Check template type
+					if stackType, ok := stack["type"].(string); ok {
+						templates[stackType] = true
+					}
+
+					// Check resource usage
+					if config, ok := stack["config"].(map[string]interface{}); ok {
+						if uses, ok := config["uses"].([]interface{}); ok {
+							for _, resource := range uses {
+								if resourceStr, ok := resource.(string); ok {
+									resources[resourceStr] = true
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if len(templates) > 0 {
+				summary.WriteString(fmt.Sprintf("   • **Deployment Types**: %s\n",
+					color.GreenFmt(strings.Join(getMapStringKeys(templates), ", "))))
+			}
+
+			if len(resources) > 0 {
+				summary.WriteString(fmt.Sprintf("   • **Resources Used**: %s\n",
+					color.MagentaFmt(strings.Join(getMapStringKeys(resources), ", "))))
+			}
+		}
+	} else if configType == "server" {
+		// Server configuration summary
+		if templates, ok := content["templates"].(map[string]interface{}); ok {
+			summary.WriteString(fmt.Sprintf("   • **Templates**: %d defined (%s)\n",
+				len(templates), color.CyanFmt(strings.Join(getMapKeys(templates), ", "))))
+		}
+
+		if resources, ok := content["resources"].(map[string]interface{}); ok {
+			if resourcesSection, ok := resources["resources"].(map[string]interface{}); ok {
+				summary.WriteString(fmt.Sprintf("   • **Resource Environments**: %d configured (%s)\n",
+					len(resourcesSection), color.CyanFmt(strings.Join(getMapKeys(resourcesSection), ", "))))
+			}
+		}
+
+		if provisioner, ok := content["provisioner"].(map[string]interface{}); ok {
+			if provType, ok := provisioner["type"].(string); ok {
+				summary.WriteString(fmt.Sprintf("   • **Provisioner**: %s\n", color.YellowFmt(provType)))
+			}
+		}
+	}
+
+	return summary.String()
+}
+
+func (a *AssistantCmd) displayConfigContent(content map[string]interface{}) error {
+	yamlData, err := yaml.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration: %w", err)
+	}
+
+	// Display with syntax highlighting (simplified)
+	lines := strings.Split(string(yamlData), "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		lineNumber := color.GrayFmt(fmt.Sprintf("%3d", i+1))
+
+		// Simple syntax coloring
+		if strings.HasSuffix(strings.TrimSpace(line), ":") && !strings.Contains(line, " ") {
+			// Section headers
+			fmt.Printf("%s  %s\n", lineNumber, color.BoldFmt("%s", line))
+		} else if strings.Contains(line, ":") {
+			// Key-value pairs
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				key := color.CyanFmt(parts[0] + ":")
+				value := strings.TrimSpace(parts[1])
+				if strings.HasPrefix(value, "${") {
+					value = color.YellowFmt(value) // Highlight placeholders
+				} else {
+					value = color.GreenFmt(value)
+				}
+				fmt.Printf("%s  %s %s\n", lineNumber, key, value)
+			} else {
+				fmt.Printf("%s  %s\n", lineNumber, line)
+			}
+		} else {
+			// Regular lines
+			fmt.Printf("%s  %s\n", lineNumber, line)
+		}
+	}
+
+	return nil
+}
+
+// Helper functions
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func getMapStringKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // promptForOpenAIKey prompts the user to enter their OpenAI API key securely

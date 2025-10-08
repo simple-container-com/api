@@ -2007,8 +2007,14 @@ func (h *DefaultMCPHandler) ModifyStackConfig(ctx context.Context, params Modify
 		}, fmt.Errorf("command handler not initialized")
 	}
 
-	// Use unified command handler
-	result, err := h.commandHandler.ModifyStackConfig(ctx, params.StackName, params.Changes)
+	// For backward compatibility, use current directory as stack and StackName as environment
+	// This maintains existing MCP API behavior where StackName was the environment name
+	currentDir, _ := os.Getwd()
+	inferredStackName := filepath.Base(currentDir)
+	if inferredStackName == "." || inferredStackName == "" {
+		inferredStackName = "myapp" // fallback default
+	}
+	result, err := h.commandHandler.ModifyStackConfig(ctx, inferredStackName, params.StackName, params.Changes)
 
 	// Always include schema context in response for LLM guidance
 	schemaContext := h.getStackConfigSchemaContext()

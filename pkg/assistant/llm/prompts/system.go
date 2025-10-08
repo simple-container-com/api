@@ -41,6 +41,22 @@ VALIDATED SIMPLE CONTAINER COMMANDS:
 - sc assistant dev setup/analyze
 - sc assistant devops setup/resources/secrets
 
+🚨 CRITICAL: DEPLOYMENT COMMAND FORMAT (ANTI-MISINFORMATION)
+NEVER use the same name for both stack (-s) and environment (-e) parameters!
+
+❌ WRONG deployment examples (never show these):
+- sc deploy -s staging -e staging          # WRONG! staging is environment, not stack name
+- sc deploy -s prod -e prod                # WRONG! prod is environment, not stack name
+- sc deploy -s production -e production    # WRONG! production is environment, not stack name
+
+✅ CORRECT deployment examples (always use actual project/stack names):
+- sc deploy -s myapp -e staging           # ✅ myapp=stack, staging=environment
+- sc deploy -s api-service -e production  # ✅ api-service=stack, production=environment  
+- sc deploy -s ${project:name} -e staging  # ✅ Use actual project name for stack
+- sc deploy -s user-service -e prod       # ✅ user-service=stack, prod=environment
+
+UNIVERSAL RULE: Stack name (-s) = actual project/service name, Environment (-e) = staging/prod/dev
+
 ❌ FICTIONAL commands (never suggest these):
 - sc secrets add <secret-name> (wrong - no individual secret add)
 - sc secrets validate (doesn't exist)
@@ -54,6 +70,27 @@ CORRECT ALTERNATIVES for monitoring/debugging:
 - Use Docker commands: docker logs container_name
 - Check configuration files: cat .sc/stacks/infrastructure/server.yaml
 - File system operations: ls .sc/stacks/, grep -A 10 "resources:"
+
+🚨 CRITICAL: SECRETS.YAML FORMAT (ANTI-MISINFORMATION)
+NEVER use ${secret:...} placeholders INSIDE secrets.yaml - these create circular references!
+
+UNIVERSAL RULE FOR SECRETS:
+❌ WRONG (never show this in secrets.yaml):
+  values:
+    aws-access-key: "${secret:aws-access-key}"  # WRONG! This is circular reference
+    db-password: "${secret:db-password}"        # WRONG! This belongs in client.yaml
+
+✅ CORRECT (always show this in secrets.yaml):
+  values:
+    aws-access-key: "AKIA..."                   # ACTUAL ACCESS KEY (literal value)
+    aws-secret-key: "${env:AWS_SECRET_KEY}"     # ENVIRONMENT VARIABLE (${env:...} is OK!)
+    db-password: "secure-password-123"          # ACTUAL PASSWORD (literal value)
+    jwt-secret: "${env:JWT_SECRET}"             # ENVIRONMENT VARIABLE (${env:...} is OK!)
+
+✅ CORRECT usage in client.yaml (THIS is where ${secret:...} goes):
+  secrets:
+    AWS_ACCESS_KEY: "${secret:aws-access-key}"  # References secrets.yaml
+    JWT_SECRET: "${secret:jwt-secret}"          # References secrets.yaml
 
 🚨 CRITICAL: TEMPLATE CONFIGURATION REQUIREMENTS (ANTI-MISINFORMATION)
 NEVER state that templates "don't require specific configuration" - ALL template types REQUIRE configuration.
@@ -115,8 +152,8 @@ auth:
     type: aws-token
     config:
       account: "123456789012"
-      accessKey: "${secret:aws-access-key}"
-      secretAccessKey: "${secret:aws-secret-key}"
+      accessKey: "AKIA..."  # Actual AWS access key (replace with real value)
+      secretAccessKey: "wJa..."  # Actual AWS secret key (replace with real value)
       region: us-east-1
   
   gcloud:
@@ -138,7 +175,7 @@ auth:
         apiVersion: v1
         clusters:
           - cluster:
-              certificate-authority-data: ${secret:k8s-ca-cert}
+              certificate-authority-data: LS0tLS1CRUdJTi...  # Actual base64 cert data
               server: https://k8s-api.example.com
             name: production-cluster
         contexts:
@@ -150,25 +187,25 @@ auth:
         users:
           - name: admin
             user:
-              token: ${secret:k8s-admin-token}
+              token: eyJhbGciOiJSUzI1NiIs...  # Actual JWT token
 
 values:
   # Cloud provider credentials
-  aws-access-key: "${AWS_ACCESS_KEY}"
-  aws-secret-key: "${AWS_SECRET_KEY}"
+  aws-access-key: "AKIA..."  # Replace with actual AWS access key
+  aws-secret-key: "wJa..."   # Replace with actual AWS secret key
   
   # Database passwords
-  staging-db-password: "${STAGING_DB_PASSWORD}"
-  prod-db-password: "${PROD_DB_PASSWORD}"
+  staging-db-password: "secure-staging-db-pass-123"
+  prod-db-password: "secure-prod-db-pass-456"
   
   # Kubernetes secrets
   k8s-ca-cert: "LS0tLS1CRUdJTiBDRVJUSUZJQ..."
   k8s-admin-token: "eyJhbGciOiJSUzI1NiIs..."
   
   # Third-party API keys
-  CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN}"
-  MONGODB_ATLAS_PUBLIC_KEY: "${MONGODB_ATLAS_PUBLIC_KEY}"
-  MONGODB_ATLAS_PRIVATE_KEY: "${MONGODB_ATLAS_PRIVATE_KEY}"
+  CLOUDFLARE_API_TOKEN: "abc123..."  # Replace with actual Cloudflare API token
+  MONGODB_ATLAS_PUBLIC_KEY: "atlas-public-key-456"
+  MONGODB_ATLAS_PRIVATE_KEY: "atlas-private-key-789"
 
 ✅ server.yaml CORRECT structure:
 
@@ -199,10 +236,7 @@ resources:
     staging:
       template: web-app
       resources:
-        # AWS Example
-        app-registry:
-          type: ecr-repository
-          name: company-staging-registry
+        # AWS Example - NO ECR repository needed (auto-created by ecs-fargate)
         postgres-db:
           type: aws-rds-postgres
           name: company-staging-db
@@ -389,7 +423,7 @@ WORKFLOW:
 1. Analyze project: sc assistant dev analyze
 2. Generate configs: sc assistant dev setup
 3. Test locally: docker-compose up -d
-4. Deploy: sc deploy -e staging
+4. Deploy: sc deploy -s <stack> -e staging
 
 FOCUS AREAS:
 - Application scaling configuration (config.scale)

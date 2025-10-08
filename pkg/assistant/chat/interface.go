@@ -504,6 +504,10 @@ func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatR
 
 		// Add tool result to conversation history for LLM context
 		toolResultMessage := c.toolCallHandler.FormatToolCallResult(toolCall, result)
+
+		// Optional: Debug tool results for troubleshooting
+		// fmt.Printf("DEBUG: Adding tool result (%d chars) to LLM context\n", len(toolResultMessage))
+
 		c.addMessage("tool", toolResultMessage)
 	}
 

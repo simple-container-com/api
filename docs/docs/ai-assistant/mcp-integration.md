@@ -451,7 +451,7 @@ curl -X POST http://localhost:9999/mcp \
       {
         "name": "aws",
         "display_name": "Amazon Web Services",
-        "resources": ["s3-bucket", "aws-rds-postgres", "aws-rds-mysql", "aws-ecs-fargate"]
+        "resources": ["s3-bucket", "aws-rds-postgres", "aws-rds-mysql", "ecr-repository"]
       },
       {
         "name": "gcp",

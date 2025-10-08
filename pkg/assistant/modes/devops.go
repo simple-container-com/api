@@ -520,10 +520,14 @@ func (d *DevOpsMode) buildServerYAMLPrompt(opts DevOpsSetupOptions) string {
 	prompt.WriteString("templates:\n")
 	prompt.WriteString("  web-app:\n")
 	prompt.WriteString("    type: ecs-fargate\n")
+	prompt.WriteString("    config:\n")
+	prompt.WriteString("      credentials: \"${auth:aws}\"\n")
+	prompt.WriteString("      account: \"${auth:aws.projectId}\"\n")
 	prompt.WriteString("resources:\n")
+	prompt.WriteString("  # NOTE: ECR repositories are automatically created by ecs-fargate - no need to define them\n")
 	prompt.WriteString("  infrastructure:\n")
-	prompt.WriteString("    app-registry:\n")
-	prompt.WriteString("      type: ecr-repository\n")
+	prompt.WriteString("    postgres-db:\n")
+	prompt.WriteString("      type: aws-rds-postgres\n")
 
 	prompt.WriteString("\n🚫 NEVER USE THESE (fictional properties eliminated in validation):\n")
 	prompt.WriteString("- stacks: section (use 'resources:' only)\n")
@@ -615,14 +619,20 @@ resources:
           config:
             name: %s-%s-cluster`, d.getClusterType(opts.CloudProvider), prefix, env)
 
-		// Add container registries
-		for _, template := range opts.Templates {
-			registryName := strings.Replace(template, "-", "", -1)
-			yaml += fmt.Sprintf(`
+		// Add container registries (skip for AWS ECS Fargate - auto-created)
+		if opts.CloudProvider != "aws" {
+			for _, template := range opts.Templates {
+				registryName := strings.Replace(template, "-", "", -1)
+				yaml += fmt.Sprintf(`
         %s-registry:
           type: %s
           config:
             name: %s-%s-%s`, registryName, d.getRegistryType(opts.CloudProvider), prefix, env, registryName)
+			}
+		} else {
+			// Add comment explaining ECR auto-creation for AWS ECS
+			yaml += `
+        # ECR repositories automatically created by ecs-fargate template - no manual definition needed`
 		}
 
 		// Add selected resources
@@ -699,28 +709,28 @@ auth:`
     type: aws-token
     config:
       account: "123456789012"
-      accessKey: "${secret:aws-access-key}"
-      secretAccessKey: "${secret:aws-secret-key}"
+      accessKey: "AKIA..."  # Replace with actual AWS access key
+      secretAccessKey: "wJa..."  # Replace with actual AWS secret key
       region: us-east-1`
 	} else if opts.CloudProvider == "gcp" {
 		yaml += `
   gcloud:
     type: gcp-service-account
     config:
-      projectId: "${secret:gcp-project-id}"
+      projectId: "my-project-123"  # Replace with actual GCP project ID
       credentials: |
         {
           "type": "service_account",
-          "project_id": "${secret:gcp-project-id}",
-          "private_key": "${secret:gcp-private-key}",
-          "client_email": "${secret:gcp-client-email}"
+          "project_id": "my-project-123",
+          "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+          "client_email": "service-account@my-project-123.iam.gserviceaccount.com"
         }`
 	} else {
 		yaml += fmt.Sprintf(`
   %s:
     type: %s-token
     config:
-      credentials: "${secret:%s-credentials}"`, opts.CloudProvider, opts.CloudProvider, opts.CloudProvider)
+      credentials: "actual-credentials-here"  # Replace with actual credentials`, opts.CloudProvider, opts.CloudProvider)
 	}
 
 	yaml += "\n\n# Secret values (managed with sc secrets add)\nvalues:"

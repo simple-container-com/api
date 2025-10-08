@@ -14,13 +14,14 @@ This guide covers best practices for using Simple Container effectively in produ
 templates:
   # Good: Clear, descriptive names
   api-backend-service:
-    type: aws-ecs-fargate
-  user-database:
-    type: aws-rds-postgres
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
   
   # Avoid: Generic or unclear names
   service1:
-    type: aws-ecs-fargate
+    type: ecs-fargate
 ```
 
 ### Environment Management

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"gopkg.in/yaml.v2"
+
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 )
 
@@ -74,6 +76,37 @@ func (h *ToolCallHandler) generateParameterSchema(command *ChatCommand) map[stri
 		case "full":
 			argSchema["type"] = "boolean"
 			argSchema["description"] = "Run comprehensive analysis (slower but thorough)"
+		case "config.uses":
+			argSchema["description"] = "Comma-separated list of resources (e.g. 'postgres,redis') or empty string '' to remove all resources"
+			argSchema["examples"] = []string{"postgres,redis", "postgres", ""}
+		case "type":
+			if command.Name == "modifystack" {
+				argSchema["enum"] = []string{"cloud-compose", "static", "single-image"}
+			} else if command.Name == "config" {
+				argSchema["description"] = "Configuration type to display: 'client' for application config, 'server' for infrastructure config"
+				argSchema["enum"] = []string{"client", "server"}
+				argSchema["default"] = "client"
+			}
+		case "parent":
+			if command.Name == "modifystack" {
+				argSchema["description"] = "Parent stack reference (e.g. 'infrastructure', 'mycompany/shared')"
+				argSchema["examples"] = []string{"infrastructure", "mycompany/shared", "parent-project/infrastructure"}
+			}
+		case "parentEnv":
+			if command.Name == "modifystack" {
+				argSchema["description"] = "Parent environment to map to (e.g. 'staging', 'prod', 'shared')"
+				argSchema["enum"] = []string{"staging", "production", "prod", "dev", "development", "shared"}
+			}
+		case "stack":
+			if command.Name == "config" {
+				argSchema["description"] = "Stack name to display configuration for (e.g. 'myapp', 'service-name'). Leave empty for current project."
+				argSchema["examples"] = []string{"myapp", "service-name", "api-service", "web-app"}
+			}
+		case "explain":
+			if command.Name == "config" {
+				argSchema["type"] = "boolean"
+				argSchema["description"] = "Include AI-powered analysis of the configuration"
+			}
 		}
 
 		properties[arg.Name] = argSchema
@@ -148,6 +181,81 @@ func (h *ToolCallHandler) convertArgumentsToArgs(functionName string, arguments 
 		return args
 	}
 
+	// Special handling for modifystack command - it expects stack_name, environment_name, followed by key=value pairs
+	if functionName == "modifystack" {
+		// First add the stack name
+		if stackNameVal, exists := arguments["stack_name"]; exists {
+			if strVal, ok := stackNameVal.(string); ok {
+				args = append(args, strVal)
+			}
+		}
+
+		// Then add the environment name
+		if envNameVal, exists := arguments["environment_name"]; exists {
+			if strVal, ok := envNameVal.(string); ok {
+				args = append(args, strVal)
+			}
+		}
+
+		// Then add all other arguments as key=value pairs
+		for key, value := range arguments {
+			if key == "stack_name" || key == "environment_name" {
+				continue // Skip these as we already handled them
+			}
+
+			// Convert value to string and create key=value format
+			if strVal, ok := value.(string); ok {
+				args = append(args, fmt.Sprintf("%s=%s", key, strVal))
+			} else if boolVal, ok := value.(bool); ok {
+				args = append(args, fmt.Sprintf("%s=%v", key, boolVal))
+			} else if numVal, ok := value.(float64); ok {
+				// JSON numbers are float64
+				args = append(args, fmt.Sprintf("%s=%.0f", key, numVal))
+			} else {
+				// Fallback to string representation
+				args = append(args, fmt.Sprintf("%s=%v", key, value))
+			}
+		}
+		return args
+	}
+
+	// Special handling for config command - it expects flag-based arguments
+	if functionName == "config" {
+		// Handle type parameter with validation
+		if typeVal, exists := arguments["type"]; exists {
+			if strVal, ok := typeVal.(string); ok && strVal != "" {
+				// Validate and clean the type value
+				switch strVal {
+				case "client", "server":
+					args = append(args, "--type", strVal)
+				case "--type": // LLM sometimes provides the flag name instead of value
+					args = append(args, "--type", "client") // Default to client
+				default:
+					args = append(args, "--type", "client") // Default to client for invalid values
+				}
+			}
+		} else {
+			// No type specified, default to client
+			args = append(args, "--type", "client")
+		}
+
+		// Handle stack parameter
+		if stackVal, exists := arguments["stack"]; exists {
+			if strVal, ok := stackVal.(string); ok && strVal != "" {
+				args = append(args, "--stack", strVal)
+			}
+		}
+
+		// Handle explain flag
+		if explainVal, exists := arguments["explain"]; exists {
+			if boolVal, ok := explainVal.(bool); ok && boolVal {
+				args = append(args, "--explain")
+			}
+		}
+
+		return args
+	}
+
 	// Default handling for other commands
 	for key, value := range arguments {
 		switch key {
@@ -160,6 +268,20 @@ func (h *ToolCallHandler) convertArgumentsToArgs(functionName string, arguments 
 			// Mode argument for non-switch commands
 			if strVal, ok := value.(string); ok {
 				args = append(args, "--mode", strVal)
+			}
+		case "type":
+			// Handle type parameter for commands not specifically handled above
+			if strVal, ok := value.(string); ok && strVal != "" {
+				// Validate common types to prevent invalid values
+				switch strVal {
+				case "client", "server", "cloud-compose", "static", "single-image":
+					args = append(args, strVal)
+				case "--type", "--server", "--client":
+					// LLM sometimes provides flag names instead of values
+					args = append(args, "client") // Safe default
+				default:
+					args = append(args, strVal) // Pass through unknown types
+				}
 			}
 		default:
 			// Generic string argument
@@ -180,6 +302,19 @@ func (h *ToolCallHandler) FormatToolCallResult(toolCall llm.ToolCall, result *Co
 
 	if result.Success {
 		response.WriteString(fmt.Sprintf("✅ %s\n", result.Message))
+
+		// Include actual configuration data for config command
+		if toolCall.Function.Name == "config" && result.Data != nil {
+			if content, exists := result.Data["content"].(map[string]interface{}); exists {
+				// Convert to YAML and include in tool result so LLM can see actual data
+				if yamlBytes, err := yaml.Marshal(content); err == nil {
+					response.WriteString("\n**Actual Configuration Content:**\n")
+					response.WriteString("```yaml\n")
+					response.WriteString(string(yamlBytes))
+					response.WriteString("```\n")
+				}
+			}
+		}
 
 		// Include file information if files were generated
 		if len(result.Files) > 0 {

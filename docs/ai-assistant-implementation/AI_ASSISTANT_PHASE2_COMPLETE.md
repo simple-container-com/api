@@ -173,8 +173,10 @@ provisioner:
       
 templates:
   web-app:
-    type: aws-ecs-fargate
-    ecsClusterResource: ecs-cluster
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
     
 resources:
   staging:

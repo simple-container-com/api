@@ -83,7 +83,8 @@ For comprehensive patterns research, refer to `REAL_WORLD_EXAMPLES_MAP.md` which
 
 **Universal Rule: ALL template types require authentication + project IDs + provider-specific config:**
 
-- **`ecs-fargate` (AWS)**: REQUIRES `credentials: "${auth:aws}"` and `account: "${auth:aws.projectId}"`
+- **`ecs-fargate` (AWS)**: REQUIRES `credentials: "${auth:aws}"` and `account: "${auth:aws.projectId}"` 
+  - **IMPORTANT**: ECR repositories are automatically created by ECS Fargate - DO NOT include `ecr-repository` resources in examples
 - **`gcp-static-website` (GCP)**: REQUIRES `projectId: "${auth:gcloud.projectId}"` and `credentials: "${auth:gcloud}"`
 - **`kubernetes-cloudrun` (K8s)**: REQUIRES `kubeconfig: "${auth:kubernetes}"`, `dockerRegistryURL`, `dockerRegistryUsername`, `dockerRegistryPassword`
 - **`aws-lambda` (AWS)**: REQUIRES `credentials: "${auth:aws}"` and `account: "${auth:aws.projectId}"`
@@ -127,6 +128,16 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **FIXED: ECS Fargate ECR Auto-Creation Issue** - Resolved AI assistant incorrectly including ECR repository resources in ECS Fargate examples
+  - **✅ Problem Identified**: AI was adding unnecessary `ecr-repository` resources in server.yaml examples for `ecs-fargate` templates
+  - **✅ Root Cause**: Simple Container automatically creates ECR repositories for each stack when deploying to ECS Fargate - manual definition is unnecessary
+  - **✅ Comprehensive Fix Applied**:
+    - **System Prompt**: Removed ECR repository from ECS Fargate staging environment example in `pkg/assistant/llm/prompts/system.go`
+    - **DevOps Mode**: Modified container registry generation in `pkg/assistant/modes/devops.go` to skip ECR for AWS ECS Fargate
+    - **Documentation**: Removed ECR repository examples from `docs/docs/ai-assistant/devops-mode.md` and added explanatory notes
+    - **System Prompt Documentation**: Added important note about ECR auto-creation under ecs-fargate configuration requirements
+  - **✅ Technical Benefits**: Cleaner examples, reduced user confusion, cost efficiency, alignment with Simple Container best practices
+  - **Impact**: AI assistant now provides accurate, simplified guidance for ECS Fargate deployments without unnecessary ECR repository definitions
 - **MAJOR: Dynamic Documentation Retrieval (RAG) for Chat** - Implemented intelligent documentation search to enhance LLM responses
   - **✅ Smart Query Extraction**: Analyzes user messages for question indicators and relevant keywords (client.yaml, secrets, AWS, MongoDB, etc.)
   - **✅ Semantic Search Integration**: Uses embeddings database to find top 3 most relevant documentation examples

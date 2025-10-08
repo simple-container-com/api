@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"gopkg.in/yaml.v2"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
@@ -96,6 +97,19 @@ func (c *ChatInterface) registerCommands() {
 		Aliases:     []string{"info"},
 	}
 
+	c.commands["config"] = &ChatCommand{
+		Name:        "config",
+		Description: "Display current Simple Container configuration with AI analysis",
+		Usage:       "/config [--type client|server] [--stack <name>] [--explain]",
+		Handler:     c.handleConfig,
+		Aliases:     []string{"cfg"},
+		Args: []CommandArg{
+			{Name: "type", Type: "string", Required: false, Description: "Configuration type: 'client' or 'server'", Default: "client"},
+			{Name: "stack", Type: "string", Required: false, Description: "Specific stack name (e.g. 'myapp', 'service-name')"},
+			{Name: "explain", Type: "boolean", Required: false, Description: "Include AI-powered configuration analysis"},
+		},
+	}
+
 	c.commands["apikey"] = &ChatCommand{
 		Name:        "apikey",
 		Description: "Manage LLM provider API keys",
@@ -166,11 +180,22 @@ func (c *ChatInterface) registerCommands() {
 
 	c.commands["modifystack"] = &ChatCommand{
 		Name:        "modifystack",
-		Description: "Modify existing stack configuration in client.yaml files (not for changing deployment preferences - use /switch for that)",
-		Usage:       "/modifystack <stack_name> <key=value> [key=value...]",
+		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, scaling, etc. The stack_name refers to the directory in .sc/stacks/<stack-name>, and environment_name is the key in the stacks section (staging, prod, etc).",
+		Usage:       "/modifystack <stack_name> <environment_name> <key=value> [key=value...]",
 		Handler:     c.handleModifyStack,
 		Args: []CommandArg{
-			{Name: "stack_name", Type: "string", Required: true, Description: "Name of the stack to modify"},
+			{Name: "stack_name", Type: "string", Required: true, Description: "Name of the stack directory in .sc/stacks/<stack-name>"},
+			{Name: "environment_name", Type: "string", Required: true, Description: "Environment name (staging, prod, dev, etc.) - the key in client.yaml stacks section"},
+			{Name: "parent", Type: "string", Required: false, Description: "Parent stack reference (e.g. 'infrastructure', 'mycompany/shared')"},
+			{Name: "parentEnv", Type: "string", Required: false, Description: "Parent environment to map to (e.g. 'staging', 'prod', 'shared')"},
+			{Name: "type", Type: "string", Required: false, Description: "Deployment type (cloud-compose, static, single-image)"},
+			{Name: "config.uses", Type: "string", Required: false, Description: "Comma-separated list of resources the stack should use (e.g. 'postgres,redis' or empty '' to remove all)"},
+			{Name: "config.scale.min", Type: "string", Required: false, Description: "Minimum number of instances"},
+			{Name: "config.scale.max", Type: "string", Required: false, Description: "Maximum number of instances"},
+			{Name: "config.env", Type: "string", Required: false, Description: "Environment variables in key=value format"},
+			{Name: "config.secrets", Type: "string", Required: false, Description: "Secret references in key=value format"},
+			{Name: "config.ports", Type: "string", Required: false, Description: "Port mappings (e.g. '8080:80,9000:9000')"},
+			{Name: "config.healthCheck", Type: "string", Required: false, Description: "Health check endpoint path"},
 		},
 	}
 
@@ -511,7 +536,7 @@ func (c *ChatInterface) handleSetup(ctx context.Context, args []string, context 
 		Success:  true,
 		Message:  message,
 		Files:    files,
-		NextStep: "Review the generated files and run 'docker-compose up -d' from ${project:root} to test locally, then 'sc deploy -e staging' to deploy",
+		NextStep: "Review the generated files and run 'docker-compose up -d' from ${project:root} to test locally, then 'sc deploy -s ${project:name} -e staging' to deploy",
 	}, nil
 }
 
@@ -649,6 +674,274 @@ func (c *ChatInterface) handleStatus(ctx context.Context, args []string, context
 		Success: true,
 		Message: message,
 	}, nil
+}
+
+// handleConfig displays current Simple Container configuration
+func (c *ChatInterface) handleConfig(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	// Parse arguments
+	configType := "client"
+	stackName := ""
+	explainFlag := false
+
+	for i, arg := range args {
+		if arg == "--type" && i+1 < len(args) {
+			configType = args[i+1]
+		} else if arg == "--stack" && i+1 < len(args) {
+			stackName = args[i+1]
+		} else if arg == "--explain" {
+			explainFlag = true
+		}
+	}
+
+	// Additional validation and sanitization for common LLM errors
+	switch configType {
+	case "client", "server":
+		// Valid types, keep as-is
+	case "--type":
+		// LLM sometimes provides the flag name instead of value
+		configType = "client"
+	default:
+		// Invalid type, default to client
+		configType = "client"
+	}
+
+	// Get configuration content directly from filesystem
+	result, configContent, err := c.getConfigurationContentWithRaw(configType, stackName)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to read configuration: %v", err),
+		}, nil
+	}
+
+	// If --explain flag is provided and LLM is available, add AI analysis
+	if explainFlag && c.llm != nil {
+		fmt.Printf("🤔 Analyzing configuration with AI...\n")
+
+		explanation, err := c.generateConfigurationExplanation(ctx, configType, stackName, string(configContent), context)
+		if err != nil {
+			// Don't fail the command, just show a warning
+			fmt.Printf("⚠️ AI analysis failed: %v\n", err)
+		} else if explanation != "" {
+			result += "\n\n🤖 **AI Configuration Analysis**\n" + explanation
+		}
+	} else if explainFlag && c.llm == nil {
+		result += "\n\n💡 **AI Analysis Unavailable**: Connect an LLM provider to get intelligent configuration analysis"
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: result,
+	}, nil
+}
+
+// Helper function to get configuration content with raw data
+func (c *ChatInterface) getConfigurationContentWithRaw(configType, stackName string) (string, []byte, error) {
+	var message strings.Builder
+
+	// Determine configuration file path based on type
+	var configPath string
+	if configType == "client" {
+		if stackName != "" {
+			configPath = filepath.Join(".sc", "stacks", stackName, "client.yaml")
+		} else {
+			// Try to find any client.yaml file
+			projectName := "myapp"
+			if c.context.ProjectPath != "" {
+				projectName = filepath.Base(c.context.ProjectPath)
+			}
+			configPath = filepath.Join(".sc", "stacks", projectName, "client.yaml")
+		}
+	} else {
+		configPath = filepath.Join(".sc", "stacks", "infrastructure", "server.yaml")
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return fmt.Sprintf("❌ Configuration file not found: %s\n\n💡 Use `/setup` to generate configuration files", configPath), nil, nil
+	}
+
+	// Read configuration file
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read configuration file: %w", err)
+	}
+
+	// Build result message
+	message.WriteString(fmt.Sprintf("📋 **%s Configuration**\n", cases.Title(language.English).String(configType)))
+	message.WriteString(fmt.Sprintf("📁 **File**: %s\n\n", color.CyanFmt(configPath)))
+
+	// Generate summary
+	summary, err := c.generateSimpleConfigSummary(configType, content)
+	if err == nil && summary != "" {
+		message.WriteString(fmt.Sprintf("📊 **Summary**\n%s\n", summary))
+	}
+
+	// Display configuration content with line numbers
+	message.WriteString("📄 **Configuration Content**\n")
+	message.WriteString("```yaml\n")
+
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			message.WriteString(fmt.Sprintf("%3d: %s\n", i+1, line))
+		}
+	}
+	message.WriteString("```")
+
+	return message.String(), content, nil
+}
+
+// Generate a simple summary of the configuration
+func (c *ChatInterface) generateSimpleConfigSummary(configType string, content []byte) (string, error) {
+	// Parse YAML content
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(content, &config); err != nil {
+		return "", err
+	}
+
+	var summary strings.Builder
+
+	if configType == "client" {
+		// Client configuration summary
+		if stacks, ok := config["stacks"].(map[string]interface{}); ok {
+			var stackNames []string
+			templates := make(map[string]bool)
+			resources := make(map[string]bool)
+
+			for stackName, stackConfig := range stacks {
+				stackNames = append(stackNames, stackName)
+
+				if stack, ok := stackConfig.(map[string]interface{}); ok {
+					// Check template type
+					if stackType, ok := stack["type"].(string); ok {
+						templates[stackType] = true
+					}
+
+					// Check resource usage
+					if stackConfig, ok := stack["config"].(map[string]interface{}); ok {
+						if uses, ok := stackConfig["uses"].([]interface{}); ok {
+							for _, resource := range uses {
+								if resourceStr, ok := resource.(string); ok {
+									resources[resourceStr] = true
+								}
+							}
+						}
+					}
+				}
+			}
+
+			summary.WriteString(fmt.Sprintf("• **Environments**: %d (%s)\n",
+				len(stackNames), strings.Join(stackNames, ", ")))
+
+			if len(templates) > 0 {
+				var templateList []string
+				for template := range templates {
+					templateList = append(templateList, template)
+				}
+				summary.WriteString(fmt.Sprintf("• **Deployment Types**: %s\n",
+					strings.Join(templateList, ", ")))
+			}
+
+			if len(resources) > 0 {
+				var resourceList []string
+				for resource := range resources {
+					resourceList = append(resourceList, resource)
+				}
+				summary.WriteString(fmt.Sprintf("• **Resources Used**: %s\n",
+					strings.Join(resourceList, ", ")))
+			}
+		}
+	} else if configType == "server" {
+		// Server configuration summary
+		if templates, ok := config["templates"].(map[string]interface{}); ok {
+			var templateNames []string
+			for name := range templates {
+				templateNames = append(templateNames, name)
+			}
+			summary.WriteString(fmt.Sprintf("• **Templates**: %d (%s)\n",
+				len(templateNames), strings.Join(templateNames, ", ")))
+		}
+
+		if resources, ok := config["resources"].(map[string]interface{}); ok {
+			if resourcesSection, ok := resources["resources"].(map[string]interface{}); ok {
+				var envNames []string
+				for env := range resourcesSection {
+					envNames = append(envNames, env)
+				}
+				summary.WriteString(fmt.Sprintf("• **Resource Environments**: %d (%s)\n",
+					len(envNames), strings.Join(envNames, ", ")))
+			}
+		}
+
+		if provisioner, ok := config["provisioner"].(map[string]interface{}); ok {
+			if provType, ok := provisioner["type"].(string); ok {
+				summary.WriteString(fmt.Sprintf("• **Provisioner**: %s\n", provType))
+			}
+		}
+	}
+
+	return summary.String(), nil
+}
+
+// generateConfigurationExplanation uses LLM to analyze and explain the configuration
+func (c *ChatInterface) generateConfigurationExplanation(ctx context.Context, configType, stackName, configContent string, context *ConversationContext) (string, error) {
+	// Create a specialized prompt for configuration analysis
+	prompt := c.buildConfigAnalysisPrompt(configType, stackName, configContent, context)
+
+	// Create a temporary conversation history for this analysis
+	analysisHistory := []llm.Message{
+		{Role: "system", Content: prompt},
+		{Role: "user", Content: "Please analyze this Simple Container configuration and provide insights."},
+	}
+
+	// Call LLM for analysis
+	response, err := c.llm.Chat(ctx, analysisHistory)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate configuration analysis: %w", err)
+	}
+
+	return response.Content, nil
+}
+
+// buildConfigAnalysisPrompt creates a specialized prompt for configuration analysis
+func (c *ChatInterface) buildConfigAnalysisPrompt(configType, stackName, configContent string, context *ConversationContext) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("You are a Simple Container expert analyzing configuration files. ")
+	prompt.WriteString("Provide a comprehensive but concise analysis of this configuration. ")
+	prompt.WriteString("Focus on practical insights, potential issues, and recommendations.\n\n")
+
+	prompt.WriteString("**Analysis Guidelines:**\n")
+	prompt.WriteString("- Explain what this configuration does in plain language\n")
+	prompt.WriteString("- Identify the deployment pattern and architecture\n")
+	prompt.WriteString("- Point out any potential issues or missing components\n")
+	prompt.WriteString("- Suggest improvements or best practices\n")
+	prompt.WriteString("- Explain resource dependencies and relationships\n")
+	prompt.WriteString("- Note any security considerations\n\n")
+
+	// Add context about the configuration
+	prompt.WriteString(fmt.Sprintf("**Configuration Type:** %s\n", configType))
+	if stackName != "" {
+		prompt.WriteString(fmt.Sprintf("**Stack Name:** %s\n", stackName))
+	}
+
+	// Add project context if available
+	if context.ProjectInfo != nil && context.ProjectInfo.PrimaryStack != nil {
+		prompt.WriteString(fmt.Sprintf("**Detected Project:** %s (%s)\n",
+			context.ProjectInfo.PrimaryStack.Language,
+			context.ProjectInfo.PrimaryStack.Framework))
+	}
+
+	prompt.WriteString("\n**Configuration Content:**\n")
+	prompt.WriteString("```yaml\n")
+	prompt.WriteString(configContent)
+	prompt.WriteString("\n```\n\n")
+
+	prompt.WriteString("Provide your analysis in a clear, structured format using markdown. ")
+	prompt.WriteString("Use appropriate emojis for visual clarity but don't overuse them.")
+
+	return prompt.String()
 }
 
 // Helper functions
@@ -978,8 +1271,8 @@ auth:
     type: aws-token
     config:
       account: "123456789012"
-      accessKey: "${secret:aws-access-key}"
-      secretAccessKey: "${secret:aws-secret-key}"
+      accessKey: "AKIA..."  # Replace with actual AWS access key
+      secretAccessKey: "wJa..."  # Replace with actual AWS secret key
       region: us-east-1
 
 # Secret values (managed with sc secrets add)
@@ -1941,11 +2234,25 @@ func (c *ChatInterface) handleGetConfig(ctx context.Context, args []string, cont
 	configType := "client"
 	stackName := ""
 
-	if len(args) > 0 {
-		configType = args[0]
+	// Parse flag-based arguments (same logic as handleConfig)
+	for i, arg := range args {
+		if arg == "--type" && i+1 < len(args) {
+			configType = args[i+1]
+		} else if arg == "--stack" && i+1 < len(args) {
+			stackName = args[i+1]
+		}
 	}
-	if len(args) > 1 {
-		stackName = args[1]
+
+	// Additional validation and sanitization
+	switch configType {
+	case "client", "server":
+		// Valid types, keep as-is
+	case "--type":
+		// LLM sometimes provides the flag name instead of value
+		configType = "client"
+	default:
+		// Invalid type, default to client
+		configType = "client"
 	}
 
 	// Use unified command handler
@@ -1960,6 +2267,7 @@ func (c *ChatInterface) handleGetConfig(ctx context.Context, args []string, cont
 	return &CommandResult{
 		Success: result.Success,
 		Message: result.Message,
+		Data:    result.Data, // CRITICAL: Include the actual configuration data
 	}, nil
 }
 
@@ -2025,22 +2333,24 @@ func (c *ChatInterface) handleModifyStack(ctx context.Context, args []string, co
 		}, nil
 	}
 
-	if len(args) < 2 {
+	if len(args) < 3 {
 		return &CommandResult{
 			Success: false,
-			Message: "❌ Usage: /modifystack <stack_name> <key=value> [key=value...]\n" +
+			Message: "❌ Usage: /modifystack <stack_name> <environment_name> <key=value> [key=value...]\n" +
 				"Examples:\n" +
-				"  /modifystack prod type=single-image\n" +
-				"  /modifystack staging config.scale.max=10\n" +
-				"  /modifystack dev config.env.DEBUG=true",
+				"  /modifystack myapp staging parent=infrastructure\n" +
+				"  /modifystack myapp prod parentEnv=production\n" +
+				"  /modifystack myapp staging config.uses=postgres,redis\n" +
+				"  /modifystack myapp prod config.scale.max=10",
 		}, nil
 	}
 
 	stackName := args[0]
+	environmentName := args[1]
 	changes := make(map[string]interface{})
 
 	// Parse key=value pairs
-	for _, arg := range args[1:] {
+	for _, arg := range args[2:] {
 		parts := strings.SplitN(arg, "=", 2)
 		if len(parts) != 2 {
 			return &CommandResult{
@@ -2065,7 +2375,7 @@ func (c *ChatInterface) handleModifyStack(ctx context.Context, args []string, co
 	}
 
 	// Use unified command handler
-	result, err := c.commandHandler.ModifyStackConfig(ctx, stackName, changes)
+	result, err := c.commandHandler.ModifyStackConfig(ctx, stackName, environmentName, changes)
 	if err != nil {
 		return &CommandResult{
 			Success: false,

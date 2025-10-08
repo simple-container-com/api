@@ -438,15 +438,19 @@ func (h *UnifiedCommandHandler) AddEnvironment(ctx context.Context, stackName, d
 	}, nil
 }
 
-// ModifyStackConfig modifies existing stack configuration in client.yaml using LLM when available
-func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName string, changes map[string]interface{}) (*CommandResult, error) {
-	filePath := h.findClientYaml(".")
-	if filePath == "" {
+// ModifyStackConfig modifies existing stack environment configuration in client.yaml using LLM when available
+func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName, environmentName string, changes map[string]interface{}) (*CommandResult, error) {
+	// Find the client.yaml file in the specific stack directory
+	stackDir := filepath.Join(".sc", "stacks", stackName)
+	filePath := filepath.Join(stackDir, "client.yaml")
+
+	// Check if the file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return &CommandResult{
 			Success: false,
-			Message: "❌ No client.yaml found. Use setup_simple_container to create initial configuration.",
+			Message: fmt.Sprintf("❌ Stack directory '%s' or client.yaml not found at %s. Use setup_simple_container to create initial configuration.", stackName, filePath),
 			Error:   "client_yaml_not_found",
-		}, fmt.Errorf("client.yaml not found")
+		}, fmt.Errorf("client.yaml not found at %s", filePath)
 	}
 
 	// Read current configuration
@@ -469,25 +473,29 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		}, fmt.Errorf("no stacks section found")
 	}
 
-	_, exists := stacks[stackName]
+	_, exists := stacks[environmentName]
 	if !exists {
-		availableStacks := h.getStackNames(stacks)
+		availableEnvironments := h.getStackNames(stacks)
 		return &CommandResult{
 			Success: false,
-			Message: fmt.Sprintf("❌ Stack '%s' not found. Available: %v", stackName, availableStacks),
-			Error:   "stack_not_found",
+			Message: fmt.Sprintf("❌ Environment '%s' not found in stack '%s'. Available environments: %v", environmentName, stackName, availableEnvironments),
+			Error:   "environment_not_found",
 			Data: map[string]interface{}{
-				"available_stacks": availableStacks,
+				"available_environments": availableEnvironments,
 			},
-		}, fmt.Errorf("stack not found: %s", stackName)
+		}, fmt.Errorf("environment not found: %s", environmentName)
 	}
 
 	// Try LLM-enhanced modification first, fallback to raw YAML manipulation
-	modifiedContent, changesApplied, err := h.modifyStackWithLLM(ctx, content, stackName, changes)
+	modifiedContent, changesApplied, err := h.modifyStackWithLLM(ctx, content, environmentName, changes)
 	if err != nil {
 		// Fallback to raw YAML manipulation
-		return h.modifyStackRaw(ctx, content, stackName, changes, filePath)
+		return h.modifyStackRaw(ctx, content, environmentName, changes, filePath)
 	}
+
+	// Debug file writes to see what's being written
+	debugYAML, _ := yaml.Marshal(modifiedContent)
+	fmt.Printf("DEBUG: Writing to file %s:\n%s\n", filePath, string(debugYAML))
 
 	// Write back to file
 	err = h.writeYamlFile(filePath, modifiedContent)
@@ -533,6 +541,12 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	// Build enriched prompt using existing functions (DRY principle)
 	prompt := h.buildStackModificationPrompt(content, stackName, changes, projectAnalysis)
 
+	// Debug output to diagnose change detection issue
+	fmt.Printf("DEBUG: ModifyStack - stackName: %s\n", stackName)
+	fmt.Printf("DEBUG: ModifyStack - changes requested: %+v\n", changes)
+	currentYAML, _ := yaml.Marshal(content)
+	fmt.Printf("DEBUG: ModifyStack - current content:\n%s\n", string(currentYAML))
+
 	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
 	llmProvider := h.developerMode.GetLLMProvider()
 	if llmProvider == nil {
@@ -546,17 +560,35 @@ CRITICAL INSTRUCTIONS:
 ✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
 ✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
 ✅ Return complete, valid client.yaml configuration
-✅ Maintain all existing configuration that doesn't conflict with requested changes`},
+✅ When you see "REMOVE ENTIRE SECTION", DELETE that section completely from the YAML
+✅ When you see "SET X TO: Y (remove any keys not listed here)", include ONLY the keys listed in Y
+✅ DO NOT add fictional keys, services, or environment variables
+✅ DO NOT keep keys that were explicitly meant to be removed
+✅ EXACTLY follow removal instructions - if something should be deleted, DELETE IT`},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
+	// Debug LLM response to see what it generated
+	fmt.Printf("DEBUG: LLM Response length: %d chars\n", len(response.Content))
+	if len(response.Content) > 1000 {
+		fmt.Printf("DEBUG: LLM Response (first 800 chars): %.800s...\n", response.Content)
+	} else {
+		fmt.Printf("DEBUG: LLM Response: %s\n", response.Content)
+	}
+
 	// Parse the response and extract changes applied
 	modifiedContent, changesApplied, err := h.parseModifiedYAML(response.Content, content, stackName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	// Debug changes detection to see why it's returning empty
+	fmt.Printf("DEBUG: Changes detected by comparison: %+v\n", changesApplied)
+	if len(changesApplied) == 0 {
+		fmt.Printf("DEBUG: No changes detected - this means LLM generated identical content!\n")
 	}
 
 	return modifiedContent, changesApplied, nil
@@ -631,7 +663,11 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 
 	prompt.WriteString("REQUESTED CHANGES:\n")
 	for key, value := range changes {
-		prompt.WriteString(fmt.Sprintf("- %s: %v\n", key, value))
+		if value == nil || fmt.Sprintf("%v", value) == "" {
+			prompt.WriteString(fmt.Sprintf("- REMOVE ENTIRE SECTION: %s (delete this section completely)\n", key))
+		} else {
+			prompt.WriteString(fmt.Sprintf("- SET %s TO: %v (remove any keys not listed here)\n", key, value))
+		}
 	}
 
 	prompt.WriteString("\nINSTRUCTIONS:\n")
@@ -639,7 +675,23 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 	prompt.WriteString("- Maintain all existing configuration that doesn't conflict\n")
 	prompt.WriteString("- Use ONLY valid Simple Container properties from the documentation context\n")
 	prompt.WriteString("- Handle dot notation (config.scale.max) by updating nested properties\n")
-	prompt.WriteString("- Return the complete modified client.yaml configuration\n")
+
+	prompt.WriteString("\nCRITICAL ENVIRONMENT VARIABLES SEMANTIC UNDERSTANDING:\n")
+	prompt.WriteString("- BOTH 'env:' and 'secrets:' sections contain ENVIRONMENT VARIABLES\n")
+	prompt.WriteString("- 'env:' = non-sensitive environment variables (plain text)\n")
+	prompt.WriteString("- 'secrets:' = sensitive environment variables (handled securely at deploy)\n")
+	prompt.WriteString("- When user asks to 'remove environment variables for X', remove from BOTH env: AND secrets: sections\n")
+	prompt.WriteString("- When user asks to 'remove database env vars', remove database-related entries from BOTH sections\n")
+
+	prompt.WriteString("\nCRITICAL REMOVAL/DELETION INSTRUCTIONS:\n")
+	prompt.WriteString("- When a change shows empty value (e.g., 'config.uses:' or 'config.env:'), REMOVE that entire section\n")
+	prompt.WriteString("- When asked to 'remove resources', DELETE the uses: section entirely\n")
+	prompt.WriteString("- When asked to 'remove environment variables', consider BOTH env: and secrets: sections\n")
+	prompt.WriteString("- DO NOT add fictional resources or environment variables that weren't in the original\n")
+	prompt.WriteString("- DO NOT hallucinate new services like 'additional-service-1' or fake env vars like 'DATABASE_URL'\n")
+	prompt.WriteString("- ONLY modify what exists in the CURRENT CONFIGURATION provided above\n")
+
+	prompt.WriteString("\n- Return the complete modified client.yaml configuration\n")
 	prompt.WriteString("- Ensure proper YAML formatting and schema compliance\n\n")
 
 	return prompt.String()
@@ -684,6 +736,18 @@ func (h *UnifiedCommandHandler) enrichContextWithDocumentation(configType string
 	return contextBuilder.String()
 }
 
+// Helper function to get map keys for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	if m == nil {
+		return []string{}
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // parseModifiedYAML extracts the modified configuration and determines what changed
 func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalContent map[string]interface{}, stackName string) (map[string]interface{}, map[string]interface{}, error) {
 	// Clean the response (remove code blocks if present)
@@ -709,6 +773,21 @@ func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalConte
 	if originalStacks != nil && modifiedStacks != nil {
 		originalStack, _ := originalStacks[stackName].(map[string]interface{})
 		modifiedStack, _ := modifiedStacks[stackName].(map[string]interface{})
+
+		// Debug stack comparison to see what's being compared
+		fmt.Printf("DEBUG: Comparing stacks for %s\n", stackName)
+		fmt.Printf("DEBUG: Original stack has keys: %v\n", getMapKeys(originalStack))
+		fmt.Printf("DEBUG: Modified stack has keys: %v\n", getMapKeys(modifiedStack))
+
+		// Show specific comparison for problematic areas
+		if origConfig, ok := originalStack["config"].(map[string]interface{}); ok {
+			if modConfig, ok := modifiedStack["config"].(map[string]interface{}); ok {
+				fmt.Printf("DEBUG: Original config uses: %v\n", origConfig["uses"])
+				fmt.Printf("DEBUG: Modified config uses: %v\n", modConfig["uses"])
+				fmt.Printf("DEBUG: Original config secrets: %v\n", origConfig["secrets"])
+				fmt.Printf("DEBUG: Modified config secrets: %v\n", modConfig["secrets"])
+			}
+		}
 
 		if originalStack != nil && modifiedStack != nil {
 			h.compareConfigs(originalStack, modifiedStack, "", changesApplied)

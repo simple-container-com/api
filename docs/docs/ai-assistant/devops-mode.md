@@ -170,15 +170,8 @@ resources:
     # Staging environment
     staging:
       resources:
-        # Container registries
-        app-registry:
-          type: ecr-repository
-          name: mycompany-apps-staging
-          
-        api-registry:
-          type: ecr-repository  
-          name: mycompany-apis-staging
-          
+        # NOTE: ECR repositories are automatically created by ecs-fargate - no manual definition needed
+        
         # Database
         postgres-db:
           type: aws-rds-postgres
@@ -205,11 +198,8 @@ resources:
     # Production environment
     production:
       resources:
-        # Container registries
-        app-registry:
-          type: ecr-repository
-          name: mycompany-apps-prod
-          
+        # NOTE: ECR repositories are automatically created by ecs-fargate - no manual definition needed
+        
         # Database with high availability
         postgres-db:
           type: aws-rds-postgres
