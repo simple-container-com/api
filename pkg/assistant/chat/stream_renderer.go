@@ -9,6 +9,7 @@ type StreamRenderer struct {
 	inCodeBlock   bool
 	codeBlockLang string
 	theme         *Theme
+	buffer        string // Small buffer for ``` detection across chunks
 }
 
 // NewStreamRenderer creates a new stream renderer
@@ -20,45 +21,49 @@ func NewStreamRenderer() *StreamRenderer {
 
 // ProcessChunk processes a chunk of streaming text and returns colored output
 func (sr *StreamRenderer) ProcessChunk(chunk string) string {
-	// Handle code block state transitions when ``` markers are found
-	if strings.Contains(chunk, "```") {
-		// Process each line to handle ``` markers properly
-		lines := strings.Split(chunk, "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "```") {
-				// Count ``` occurrences in this line
-				codeBlockMarkers := strings.Count(line, "```")
+	// Add chunk to small buffer for ``` detection across chunks
+	sr.buffer += chunk
 
-				// Toggle state for each ``` marker found
-				for i := 0; i < codeBlockMarkers; i++ {
-					if !sr.inCodeBlock {
-						// Entering code block
-						sr.inCodeBlock = true
-						// Extract language from the opening ``` line
-						parts := strings.Split(line, "```")
-						if len(parts) > 1 {
-							lang := strings.TrimSpace(parts[1])
-							if lang != "" {
-								sr.codeBlockLang = lang
-							}
+	// Keep only last 10 characters to detect split ``` markers
+	if len(sr.buffer) > 10 {
+		sr.buffer = sr.buffer[len(sr.buffer)-10:]
+	}
+
+	// Check for ``` in buffer (handles split markers)
+	if strings.Contains(sr.buffer, "```") {
+		// Toggle state when ``` completion is detected
+		sr.inCodeBlock = !sr.inCodeBlock
+
+		if sr.inCodeBlock {
+			// Try to extract language from buffer
+			lines := strings.Split(sr.buffer, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "```") {
+					parts := strings.Split(line, "```")
+					if len(parts) > 1 {
+						lang := strings.TrimSpace(parts[1])
+						if lang != "" {
+							sr.codeBlockLang = lang
 						}
-					} else {
-						// Exiting code block
-						sr.inCodeBlock = false
-						sr.codeBlockLang = ""
 					}
+					break
 				}
 			}
+		} else {
+			// Exiting code block
+			sr.codeBlockLang = ""
 		}
+
+		// Clear buffer after processing ``` to avoid re-triggering
+		sr.buffer = ""
 	}
 
 	// Apply styling based on current state
 	if sr.inCodeBlock {
 		return sr.theme.ApplyCode(chunk)
+	} else {
+		return sr.theme.ApplyText(chunk)
 	}
-
-	// For regular text, apply basic text styling
-	return sr.theme.ApplyText(chunk)
 }
 
 // Flush returns any remaining buffered content
@@ -67,6 +72,7 @@ func (sr *StreamRenderer) Flush() string {
 	// in ProcessChunk, so there's nothing to flush to avoid duplication
 	sr.inCodeBlock = false // Reset state for next response
 	sr.codeBlockLang = ""
+	sr.buffer = "" // Clear detection buffer
 	return ""
 }
 
@@ -74,6 +80,7 @@ func (sr *StreamRenderer) Flush() string {
 func (sr *StreamRenderer) Reset() {
 	sr.inCodeBlock = false
 	sr.codeBlockLang = ""
+	sr.buffer = ""
 	sr.theme = GetCurrentTheme()
 }
 
