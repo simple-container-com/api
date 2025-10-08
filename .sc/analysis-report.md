@@ -1,6 +1,6 @@
 # Simple Container Project Analysis Report
 
-**Generated:** 2025-10-08 00:07:28 +03
+**Generated:** 2025-10-08 15:06:37 +03
 **Analyzer Version:** 1.0
 **Overall Confidence:** 68.3%
 
@@ -53,7 +53,7 @@
 ## Git Repository Analysis
 
 - **Branch:** feature/ai-setup
-- **Remote URL:** github-universe:simple-container-com/api.git
+- **Remote URL:** git@github.com:simple-container-com/api.git
 - **Contributors:** 0
 - **Has CI/CD:** false
 
@@ -61,133 +61,132 @@
 
 ### Databases
 
-- **mysql** (100.0% confidence)
-  - Sources: cmd/generate-embeddings/main.go, docs/docs/examples/ecs-deployments/blog-platform/client.yaml, docs/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml, docs/schemas/aws/index.json, docs/schemas/aws/mysqlconfig.json, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/aws/index.json, pkg/assistant/mcp/schemas/aws/mysqlconfig.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/clouds/aws/init.go, pkg/clouds/aws/rds_mysql.go, pkg/clouds/pulumi/aws/compute_proc.go, pkg/clouds/pulumi/aws/init.go, pkg/clouds/pulumi/aws/rds_mysql.go, pkg/clouds/pulumi/gcp/init_pg_user_job.go
-  - Connection: mysql
-  - Recommended Resource: aws-rds-mysql
-- **redis** (100.0% confidence)
-  - Sources: cmd/generate-embeddings/main.go, docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml, docs/schemas/gcp/index.json, docs/schemas/gcp/redisconfig.json, docs/schemas/kubernetes/helmredisoperator.json, docs/schemas/kubernetes/index.json, pkg/assistant/analysis/analyzer_test.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/protocol.go, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/redisconfig.json, pkg/assistant/mcp/schemas/kubernetes/helmredisoperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/devops.go, pkg/clouds/gcloud/init.go, pkg/clouds/gcloud/redis.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/clouds/pulumi/gcp/init.go, pkg/clouds/pulumi/gcp/redis.go, pkg/clouds/pulumi/kubernetes/compute_proc_redis.go, pkg/clouds/pulumi/kubernetes/helm_operator_redis.go, pkg/clouds/pulumi/kubernetes/init.go
+- **redis** (80.0% confidence)
+  - Sources: docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml, cmd/generate-embeddings/main.go, docs/schemas/gcp/index.json, docs/schemas/kubernetes/helmredisoperator.json, docs/schemas/kubernetes/index.json, docs/schemas/gcp/redisconfig.json, pkg/assistant/analysis/analyzer_test.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/docs/examples/gke-autopilot/comprehensive-setup/server.yaml, pkg/assistant/embeddings/embeddings.go, pkg/assistant/mcp/protocol.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/redisconfig.json, pkg/assistant/mcp/schemas/kubernetes/helmredisoperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/modes/developer.go, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/gcp/index.json, pkg/assistant/modes/schemas/gcp/redisconfig.json, pkg/assistant/modes/schemas/kubernetes/index.json, pkg/assistant/modes/schemas/kubernetes/helmredisoperator.json, pkg/assistant/resources/matcher.go, pkg/clouds/gcloud/redis.go, pkg/clouds/gcloud/init.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/gcp/init.go, pkg/clouds/pulumi/gcp/redis.go, pkg/clouds/pulumi/kubernetes/compute_proc_redis.go, pkg/clouds/pulumi/kubernetes/helm_operator_redis.go, pkg/clouds/pulumi/kubernetes/init.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Connection: redis
   - Recommended Resource: gcp-redis or kubernetes-helm-redis-operator
-- **elasticsearch** (100.0% confidence)
-  - Sources: cmd/generate-embeddings/main.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/modes/devops.go, pkg/clouds/pulumi/aws/ecs_fargate.go, pkg/clouds/pulumi/aws/exec_ecs_task.go, pkg/clouds/pulumi/aws/static_egress.go
+- **postgresql** (90.0% confidence)
+  - Sources: docs/docs/examples/kubernetes-native/streaming-platform/client.yaml, cmd/generate-embeddings/main.go, docs/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml, docs/schemas/aws/index.json, docs/schemas/aws/postgresconfig.json, docs/schemas/gcp/postgresgcpcloudsqlconfig.json, docs/schemas/gcp/index.json, docs/schemas/kubernetes/index.json, docs/schemas/kubernetes/helmpostgresoperator.json, pkg/api/tests/testdata/stacks/refapp/server.yaml, pkg/assistant/analysis/analyzer_test.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/api/tests/refapp.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/docs/examples/kubernetes-native/streaming-platform/client.yaml, pkg/assistant/embeddings/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml, pkg/assistant/embeddings/embeddings.go, pkg/assistant/mcp/protocol.go, pkg/assistant/mcp/schemas/aws/index.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/aws/postgresconfig.json, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/postgresgcpcloudsqlconfig.json, pkg/assistant/mcp/schemas/kubernetes/helmpostgresoperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/modes/developer.go, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/aws/index.json, pkg/assistant/modes/schemas/aws/postgresconfig.json, pkg/assistant/modes/schemas/gcp/index.json, pkg/assistant/modes/schemas/gcp/postgresgcpcloudsqlconfig.json, pkg/assistant/modes/schemas/kubernetes/helmpostgresoperator.json, pkg/assistant/modes/schemas/kubernetes/index.json, pkg/assistant/resources/matcher.go, pkg/clouds/aws/init.go, pkg/clouds/aws/rds_postgres.go, pkg/clouds/gcloud/postgres.go, pkg/clouds/gcloud/init.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/aws/compute_proc.go, pkg/clouds/pulumi/aws/init.go, pkg/clouds/pulumi/aws/rds_mysql.go, pkg/clouds/pulumi/aws/rds_postgres.go, pkg/clouds/pulumi/db/constants.go, pkg/clouds/pulumi/gcp/cloudsql_proxy.go, pkg/clouds/pulumi/gcp/init.go, pkg/clouds/pulumi/gcp/init_pg_user_job.go, pkg/clouds/pulumi/gcp/postgres.go, pkg/clouds/pulumi/gcp/compute_proc.go, pkg/clouds/pulumi/kubernetes/compute_proc_postgres.go, pkg/clouds/pulumi/kubernetes/helm_operator_postgres.go, pkg/clouds/pulumi/kubernetes/helpers.go, pkg/clouds/pulumi/kubernetes/init.go, pkg/clouds/pulumi/kubernetes/init_pg_user_job.go, pkg/cmd/cmd_assistant/assistant.go, pkg/provisioner/placeholders/tests/placeholders_test.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Recommended Resource: aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator
+- **elasticsearch** (80.0% confidence)
+  - Sources: cmd/generate-embeddings/main.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/devops.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/aws/exec_ecs_task.go, pkg/clouds/pulumi/aws/static_egress.go, pkg/clouds/pulumi/aws/ecs_fargate.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Recommended Resource: Consider managed Elasticsearch service
-- **sqlite** (100.0% confidence)
+- **sqlite** (80.0% confidence)
   - Sources: pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Connection: sqlite
   - Recommended Resource: Consider upgrading to managed database for production
-- **mongodb** (100.0% confidence)
-  - Sources: .sc/secrets.yaml, cmd/generate-embeddings/main.go, cmd/schema-gen/main.go, docs/docs/examples/ecs-deployments/backend-service/client.yaml, docs/docs/examples/ecs-deployments/blockchain-service/client.yaml, docs/docs/examples/ecs-deployments/meteor-app/client.yaml, docs/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml, docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml, docs/docs/examples/lambda-functions/billing-system/client.yaml, docs/docs/examples/lambda-functions/cost-analytics/client.yaml, docs/docs/examples/lambda-functions/scheduler/client.yaml, docs/docs/examples/lambda-functions/storage-service/client.yaml, docs/docs/examples/parent-stacks/aws-multi-region/server.yaml, docs/schemas/index.json, docs/schemas/kubernetes/helmmongodboperator.json, docs/schemas/kubernetes/index.json, docs/schemas/mongodb/atlasconfig.json, docs/schemas/mongodb/index.json, pkg/api/git/testdata/repo/stacks/common/secrets.yaml, pkg/api/git/testdata/repo/stacks/refapp/secrets.yaml, pkg/api/secrets/testdata/repo/stacks/common/secrets.yaml, pkg/api/secrets/testdata/repo/stacks/refapp/secrets.yaml, pkg/api/tests/refapp.go, pkg/api/tests/testdata/stacks/common/secrets.yaml, pkg/api/tests/testdata/stacks/refapp/client.yaml, pkg/api/tests/testdata/stacks/refapp/docker-compose.yaml, pkg/api/tests/testdata/stacks/refapp/server.yaml, pkg/api/tests/testdata/stacks/refapp-ansible-k3s/secrets.yaml, pkg/api/tests/testdata/stacks/refapp-aws/client.yaml, pkg/api/tests/testdata/stacks/refapp-aws/docker-compose.yaml, pkg/api/tests/testdata/stacks/refapp-gke-autopilot/client.yaml, pkg/api/tests/testdata/stacks/refapp-gke-autopilot/docker-compose.yaml, pkg/api/tests/testdata/stacks/refapp-kubernetes/client.yaml, pkg/api/tests/testdata/stacks/refapp-kubernetes/docker-compose.yaml, pkg/assistant/analysis/analyzer_test.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/protocol.go, pkg/assistant/mcp/schemas/index.json, pkg/assistant/mcp/schemas/kubernetes/helmmongodboperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/mcp/schemas/mongodb/atlasconfig.json, pkg/assistant/mcp/schemas/mongodb/index.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/devops.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/clouds/mongodb/init.go, pkg/clouds/mongodb/mongodb.go, pkg/clouds/pulumi/e2e_compose_test.go, pkg/clouds/pulumi/init.go, pkg/clouds/pulumi/kubernetes/compute_proc_mongodb.go, pkg/clouds/pulumi/kubernetes/helm_operator_mongodb.go, pkg/clouds/pulumi/kubernetes/init.go, pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go, pkg/clouds/pulumi/mongodb/cluster.go, pkg/clouds/pulumi/mongodb/compute_proc.go, pkg/clouds/pulumi/mongodb/init.go, pkg/clouds/pulumi/mongodb/provider.go, pkg/clouds/pulumi/mongodb/util.go, pkg/clouds/pulumi/mongodb/util_test.go, pkg/clouds/pulumi/testutil/secrets_test_util.go, pkg/provisioner/init.go, pkg/provisioner/placeholders/tests/placeholders_test.go
+- **mongodb** (80.0% confidence)
+  - Sources: cmd/schema-gen/main.go, docs/docs/examples/ecs-deployments/backend-service/client.yaml, docs/docs/examples/ecs-deployments/blockchain-service/client.yaml, .sc/secrets.yaml, docs/docs/examples/ecs-deployments/meteor-app/client.yaml, docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml, docs/docs/examples/lambda-functions/billing-system/client.yaml, cmd/generate-embeddings/main.go, docs/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml, docs/docs/examples/lambda-functions/scheduler/client.yaml, docs/docs/examples/lambda-functions/storage-service/client.yaml, docs/docs/examples/secrets/aws-mongodb-atlas/secrets.yaml, docs/docs/examples/lambda-functions/cost-analytics/client.yaml, docs/docs/examples/secrets/gcp-auth-cloudflare-mongodb-discord-telegram/secrets.yaml, docs/docs/examples/parent-stacks/aws-multi-region/server.yaml, docs/schemas/index.json, docs/schemas/kubernetes/helmmongodboperator.json, docs/schemas/kubernetes/index.json, docs/schemas/mongodb/index.json, docs/schemas/mongodb/atlasconfig.json, pkg/api/git/testdata/repo/stacks/common/secrets.yaml, pkg/api/git/testdata/repo/stacks/refapp/secrets.yaml, pkg/api/secrets/testdata/repo/stacks/refapp/secrets.yaml, pkg/api/tests/testdata/stacks/common/secrets.yaml, pkg/api/tests/testdata/stacks/refapp/client.yaml, pkg/api/tests/testdata/stacks/refapp/docker-compose.yaml, pkg/api/tests/testdata/stacks/refapp-ansible-k3s/secrets.yaml, pkg/api/tests/testdata/stacks/refapp/server.yaml, pkg/api/tests/testdata/stacks/refapp-aws/client.yaml, pkg/api/secrets/testdata/repo/stacks/common/secrets.yaml, pkg/api/tests/testdata/stacks/refapp-aws/docker-compose.yaml, pkg/api/tests/testdata/stacks/refapp-gke-autopilot/client.yaml, pkg/api/tests/testdata/stacks/refapp-gke-autopilot/docker-compose.yaml, pkg/api/tests/testdata/stacks/refapp-kubernetes/client.yaml, pkg/api/tests/testdata/stacks/refapp-kubernetes/docker-compose.yaml, pkg/assistant/analysis/analyzer_test.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/api/tests/refapp.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/docs/examples/ecs-deployments/backend-service/client.yaml, pkg/assistant/embeddings/docs/examples/ecs-deployments/blockchain-service/client.yaml, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml, pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/client.yaml, pkg/assistant/embeddings/docs/examples/gke-autopilot/comprehensive-setup/server.yaml, pkg/assistant/embeddings/docs/examples/lambda-functions/billing-system/client.yaml, pkg/assistant/embeddings/docs/examples/lambda-functions/scheduler/client.yaml, pkg/assistant/embeddings/docs/examples/lambda-functions/cost-analytics/client.yaml, pkg/assistant/embeddings/docs/examples/lambda-functions/storage-service/client.yaml, pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml, pkg/assistant/embeddings/embeddings.go, pkg/assistant/mcp/protocol.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/index.json, pkg/assistant/mcp/schemas/kubernetes/helmmongodboperator.json, pkg/assistant/mcp/schemas/mongodb/atlasconfig.json, pkg/assistant/mcp/schemas/mongodb/index.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/modes/developer.go, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/index.json, pkg/assistant/modes/schemas/kubernetes/helmmongodboperator.json, pkg/assistant/modes/schemas/kubernetes/index.json, pkg/assistant/modes/schemas/mongodb/atlasconfig.json, pkg/assistant/modes/schemas/mongodb/index.json, pkg/assistant/resources/matcher.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/clouds/mongodb/init.go, pkg/clouds/mongodb/mongodb.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/e2e_compose_test.go, pkg/clouds/pulumi/init.go, pkg/clouds/pulumi/kubernetes/compute_proc_mongodb.go, pkg/clouds/pulumi/kubernetes/helm_operator_mongodb.go, pkg/clouds/pulumi/kubernetes/init.go, pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go, pkg/clouds/pulumi/mongodb/cluster.go, pkg/clouds/pulumi/mongodb/init.go, pkg/clouds/pulumi/mongodb/provider.go, pkg/clouds/pulumi/mongodb/util.go, pkg/clouds/pulumi/mongodb/util_test.go, pkg/clouds/pulumi/mongodb/compute_proc.go, pkg/clouds/pulumi/testutil/secrets_test_util.go, pkg/provisioner/init.go, pkg/provisioner/placeholders/tests/placeholders_test.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Connection: mongodb
   - Recommended Resource: mongodb-atlas
-- **postgresql** (100.0% confidence)
-  - Sources: cmd/generate-embeddings/main.go, docs/docs/examples/kubernetes-native/streaming-platform/client.yaml, docs/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml, docs/schemas/aws/index.json, docs/schemas/aws/postgresconfig.json, docs/schemas/gcp/index.json, docs/schemas/gcp/postgresgcpcloudsqlconfig.json, docs/schemas/kubernetes/helmpostgresoperator.json, docs/schemas/kubernetes/index.json, pkg/api/tests/refapp.go, pkg/api/tests/testdata/stacks/refapp/server.yaml, pkg/assistant/analysis/analyzer_test.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/chat/interface.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/protocol.go, pkg/assistant/mcp/schemas/aws/index.json, pkg/assistant/mcp/schemas/aws/postgresconfig.json, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/postgresgcpcloudsqlconfig.json, pkg/assistant/mcp/schemas/kubernetes/helmpostgresoperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/devops.go, pkg/clouds/aws/init.go, pkg/clouds/aws/rds_postgres.go, pkg/clouds/gcloud/init.go, pkg/clouds/gcloud/postgres.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/clouds/pulumi/aws/compute_proc.go, pkg/clouds/pulumi/aws/init.go, pkg/clouds/pulumi/aws/rds_mysql.go, pkg/clouds/pulumi/aws/rds_postgres.go, pkg/clouds/pulumi/db/constants.go, pkg/clouds/pulumi/gcp/cloudsql_proxy.go, pkg/clouds/pulumi/gcp/compute_proc.go, pkg/clouds/pulumi/gcp/init.go, pkg/clouds/pulumi/gcp/init_pg_user_job.go, pkg/clouds/pulumi/gcp/postgres.go, pkg/clouds/pulumi/kubernetes/compute_proc_postgres.go, pkg/clouds/pulumi/kubernetes/helm_operator_postgres.go, pkg/clouds/pulumi/kubernetes/helpers.go, pkg/clouds/pulumi/kubernetes/init.go, pkg/clouds/pulumi/kubernetes/init_pg_user_job.go, pkg/cmd/cmd_assistant/assistant.go, pkg/provisioner/placeholders/tests/placeholders_test.go
-  - Connection: gorm
-  - Recommended Resource: aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator
+- **mysql** (80.0% confidence)
+  - Sources: docs/docs/examples/ecs-deployments/blog-platform/client.yaml, docs/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml, cmd/generate-embeddings/main.go, docs/schemas/aws/index.json, docs/schemas/aws/mysqlconfig.json, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/docs/examples/ecs-deployments/blog-platform/client.yaml, pkg/assistant/embeddings/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml, pkg/assistant/embeddings/embeddings.go, pkg/assistant/mcp/schemas/aws/index.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/aws/mysqlconfig.json, pkg/assistant/modes/developer.go, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/aws/index.json, pkg/assistant/modes/schemas/aws/mysqlconfig.json, pkg/assistant/resources/matcher.go, pkg/clouds/aws/init.go, pkg/clouds/aws/rds_mysql.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/aws/compute_proc.go, pkg/clouds/pulumi/aws/init.go, pkg/clouds/pulumi/aws/rds_mysql.go, pkg/clouds/pulumi/gcp/init_pg_user_job.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Connection: mysql
+  - Recommended Resource: aws-rds-mysql
 
 ### External APIs
 
-- **anthropic** (100.0% confidence)
-  - Sources: docs/docs/examples/advanced-configs/high-resource/client.yaml, docs/docs/examples/advanced-configs/high-resource/docker-compose.yaml, docs/docs/examples/lambda-functions/ai-gateway/client.yaml, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/anthropic.go
-  - Purpose: ai
-- **sendgrid** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go
-  - Purpose: email
-- **auth0** (90.0% confidence)
+- **firebase** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: authentication
+  - Purpose: backend_service
+- **algolia** (90.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Purpose: search
+- **discord** (80.0% confidence)
+  - Sources: docs/docs/examples/secrets/aws-mongodb-atlas/secrets.yaml, docs/docs/examples/secrets/gcp-auth-cloudflare-mongodb-discord-telegram/secrets.yaml, pkg/assistant/analysis/resource_detectors.go, pkg/clouds/aws/helpers/ch_cloudwatch_alert.go, pkg/clouds/pulumi/aws/alerts.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: communication
+- **stripe** (90.0% confidence)
+  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: payment
+- **google_analytics** (90.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Purpose: analytics
 - **supabase** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
   - Purpose: backend_service
 - **google_maps** (90.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Sources: pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Purpose: maps
-- **stripe** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
-  - Purpose: payment
-- **square** (80.0% confidence)
+- **twilio** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: payment
+  - Purpose: communication
 - **mailgun** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
   - Purpose: email
-- **aws_ses** (100.0% confidence)
+- **aws_ses** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Purpose: email
-- **huggingface** (80.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: ai
-- **discord** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/clouds/aws/helpers/ch_cloudwatch_alert.go, pkg/clouds/pulumi/aws/alerts.go
-  - Purpose: communication
-- **mixpanel** (90.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: analytics
-- **openai** (100.0% confidence)
-  - Sources: .env.example, .github/workflows/branch.yaml, .github/workflows/push.yaml, cmd/generate-embeddings/main.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/chat/interface.go, pkg/assistant/chat/types.go, pkg/assistant/config/config.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/openai.go, pkg/assistant/llm/provider.go, pkg/assistant/modes/developer.go, pkg/cmd/cmd_assistant/assistant.go, welder.yaml
+- **anthropic** (90.0% confidence)
+  - Sources: docs/docs/examples/advanced-configs/high-resource/docker-compose.yaml, docs/docs/examples/advanced-configs/high-resource/client.yaml, docs/docs/examples/lambda-functions/ai-gateway/client.yaml, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/docs/examples/advanced-configs/high-resource/client.yaml, pkg/assistant/embeddings/docs/examples/advanced-configs/high-resource/docker-compose.yaml, pkg/assistant/embeddings/docs/examples/lambda-functions/ai-gateway/client.yaml, pkg/assistant/llm/anthropic.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Purpose: ai
 - **paypal** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
   - Purpose: payment
-- **slack** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/clouds/aws/helpers/ch_cloudwatch_alert.go, pkg/clouds/pulumi/aws/alerts.go
-  - Purpose: communication
-- **google_analytics** (90.0% confidence)
+- **square** (80.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Purpose: payment
+- **auth0** (90.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Purpose: authentication
+- **mixpanel** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
   - Purpose: analytics
-- **amplitude** (80.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: analytics
-- **algolia** (90.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: search
-- **twilio** (90.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: communication
-- **firebase** (90.0% confidence)
-  - Sources: pkg/assistant/analysis/resource_detectors.go
-  - Purpose: backend_service
+- **openai** (90.0% confidence)
+  - Sources: .env.example, .github/workflows/push.yaml, .github/workflows/branch.yaml, cmd/generate-embeddings/main.go, pkg/assistant/analysis/detector.go, pkg/assistant/chat/interface.go, pkg/assistant/chat/types.go, pkg/assistant/config/config.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/llm/deepseek.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/llm/ollama.go, pkg/assistant/llm/openai.go, pkg/assistant/llm/provider.go, pkg/assistant/llm/yandex.go, pkg/assistant/modes/developer.go, pkg/cmd/cmd_assistant/assistant.go, welder.yaml, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: ai
+- **sendgrid** (90.0% confidence)
+  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go
+  - Purpose: email
 - **mapbox** (90.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
   - Purpose: maps
+- **huggingface** (80.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Purpose: ai
+- **slack** (80.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go, pkg/clouds/aws/helpers/ch_cloudwatch_alert.go, pkg/clouds/pulumi/aws/alerts.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: communication
+- **amplitude** (80.0% confidence)
+  - Sources: pkg/assistant/analysis/resource_detectors.go
+  - Purpose: analytics
 
 ### Storage
 
-- **azure_blob** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+- **gcs** (100.0% confidence)
+  - Sources: .sc/secrets.yaml, caddy.Dockerfile, docs/docs/examples/parent-stacks/aws-multi-region/server.yaml, docs/schemas/gcp/index.json, docs/schemas/gcp/statestorageconfig.json, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/statestorageconfig.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/gcp/index.json, pkg/assistant/modes/schemas/gcp/statestorageconfig.json, pkg/assistant/resources/matcher.go, pkg/clouds/gcloud/auth.go, pkg/clouds/pulumi/gcp/bucket_uploader.go, pkg/clouds/pulumi/gcp/provider.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/gcp/static_website.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Purpose: cloud_storage
-- **file_upload** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/modes/devops.go, pkg/clouds/pulumi/aws/bucket.go, pkg/clouds/pulumi/aws/static_website.go, pkg/clouds/pulumi/gcp/bucket_uploader.go, pkg/clouds/pulumi/gcp/static_website.go
+- **cdn** (80.0% confidence)
+  - Sources: cmd/generate-embeddings/main.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: static
+- **static_assets** (50.0% confidence)
+  - Sources: pkg/assistant/analysis/architecture_analysis.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/chat/commands.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: static
+- **azure_blob** (100.0% confidence)
+  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/modes/developer.go, pkg/assistant/resources/matcher.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+  - Purpose: cloud_storage
+- **file_upload** (70.0% confidence)
+  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/modes/devops.go, pkg/clouds/pulumi/aws/bucket.go, pkg/clouds/pulumi/aws/static_website.go, pkg/clouds/pulumi/gcp/bucket_uploader.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/gcp/static_website.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Purpose: uploads
 - **s3** (100.0% confidence)
-  - Sources: .sc/cfg.github.yaml, .sc/cfg.test.yaml, .sc/secrets.yaml, cmd/generate-embeddings/main.go, cmd/schema-gen/main.go, docs/docs/examples/parent-stacks/aws-multi-region/server.yaml, docs/schemas/aws/index.json, docs/schemas/aws/s3bucket.json, docs/schemas/aws/statestorageconfig.json, pkg/api/secrets/alias_deduplication_test.go, pkg/api/secrets/testdata/repo/.sc/cfg.local-key-inline.yaml, pkg/api/secrets/util_test.go, pkg/api/tests/testdata/stacks/common/server.yaml, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/chat/interface.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/mcp_test.go, pkg/assistant/mcp/schemas/aws/index.json, pkg/assistant/mcp/schemas/aws/s3bucket.json, pkg/assistant/mcp/schemas/aws/statestorageconfig.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/clouds/aws/auth.go, pkg/clouds/aws/bucket.go, pkg/clouds/aws/init.go, pkg/clouds/pulumi/aws/bucket.go, pkg/clouds/pulumi/aws/compute_proc.go, pkg/clouds/pulumi/aws/init.go, pkg/clouds/pulumi/aws/static_website.go, pkg/clouds/pulumi/e2e_compose_test.go, pkg/clouds/pulumi/e2e_helpers_test.go, pkg/clouds/pulumi/pulumi.go, pkg/provisioner/testdata/.sc/cfg.default.yaml
+  - Sources: .sc/secrets.yaml, cmd/schema-gen/main.go, docs/docs/examples/parent-stacks/aws-multi-region/server.yaml, docs/schemas/aws/index.json, docs/schemas/aws/s3bucket.json, docs/schemas/aws/statestorageconfig.json, cmd/generate-embeddings/main.go, pkg/api/secrets/alias_deduplication_test.go, pkg/api/secrets/testdata/repo/.sc/cfg.local-key-inline.yaml, pkg/api/secrets/util_test.go, pkg/api/tests/testdata/stacks/common/server.yaml, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml, pkg/assistant/embeddings/embeddings.go, pkg/assistant/chat/commands.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/mcp_test.go, pkg/assistant/mcp/schemas/aws/index.json, pkg/assistant/mcp/schemas/aws/s3bucket.json, pkg/assistant/mcp/schemas/aws/statestorageconfig.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/schemas/aws/index.json, pkg/assistant/modes/schemas/aws/s3bucket.json, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/aws/statestorageconfig.json, pkg/assistant/resources/matcher.go, pkg/clouds/aws/auth.go, pkg/clouds/aws/bucket.go, pkg/clouds/aws/init.go, pkg/clouds/pulumi/aws/bucket.go, pkg/clouds/pulumi/aws/compute_proc.go, pkg/clouds/pulumi/aws/init.go, pkg/clouds/pulumi/aws/static_website.go, pkg/clouds/pulumi/e2e_compose_test.go, pkg/clouds/pulumi/e2e_helpers_test.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/clouds/pulumi/pulumi.go, pkg/provisioner/testdata/.sc/cfg.default.yaml, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
   - Purpose: cloud_storage
-- **gcs** (100.0% confidence)
-  - Sources: .sc/secrets.yaml, caddy.Dockerfile, docs/docs/examples/parent-stacks/aws-multi-region/server.yaml, docs/schemas/gcp/index.json, docs/schemas/gcp/statestorageconfig.json, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/statestorageconfig.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/clouds/gcloud/auth.go, pkg/clouds/pulumi/gcp/bucket_uploader.go, pkg/clouds/pulumi/gcp/provider.go, pkg/clouds/pulumi/gcp/static_website.go
-  - Purpose: cloud_storage
-- **cdn** (100.0% confidence)
-  - Sources: cmd/generate-embeddings/main.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
-  - Purpose: static
-- **static_assets** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/architecture_analysis.go, pkg/assistant/analysis/recommendations.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/chat/commands.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go
-  - Purpose: static
 
 ### Message Queues
 
-- **aws_sqs** (100.0% confidence)
-  - Sources: .sc/secrets.yaml, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go
-- **kafka** (100.0% confidence)
-  - Sources: cmd/generate-embeddings/main.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/embeddings.go
-- **gcp_pubsub** (100.0% confidence)
-  - Sources: cmd/schema-gen/main.go, docs/schemas/gcp/index.json, docs/schemas/gcp/pubsubconfig.json, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/pubsubconfig.json, pkg/clouds/pulumi/gcp/init.go, pkg/clouds/pulumi/gcp/pubsub.go
-- **rabbitmq** (100.0% confidence)
-  - Sources: docs/schemas/kubernetes/helmrabbitmqoperator.json, docs/schemas/kubernetes/index.json, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/kubernetes/helmrabbitmqoperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/devops.go, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/clouds/pulumi/kubernetes/compute_proc_rabbitmq.go, pkg/clouds/pulumi/kubernetes/helm_operator_rabbitmq.go, pkg/clouds/pulumi/kubernetes/init.go
-- **redis_pubsub** (100.0% confidence)
-  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+- **rabbitmq** (85.0% confidence)
+  - Sources: docs/schemas/kubernetes/helmrabbitmqoperator.json, docs/schemas/kubernetes/index.json, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/llm/prompts/system.go, pkg/assistant/mcp/schemas/kubernetes/helmrabbitmqoperator.json, pkg/assistant/mcp/schemas/kubernetes/index.json, pkg/assistant/mcp/server.go, pkg/assistant/modes/developer.go, pkg/assistant/modes/devops.go, pkg/assistant/modes/schemas/kubernetes/helmrabbitmqoperator.json, pkg/assistant/modes/schemas/kubernetes/index.json, pkg/clouds/k8s/init.go, pkg/clouds/k8s/postgres.go, pkg/clouds/pulumi/kubernetes/compute_proc_rabbitmq.go, pkg/clouds/pulumi/kubernetes/helm_operator_rabbitmq.go, pkg/clouds/pulumi/kubernetes/init.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+- **redis_pubsub** (80.0% confidence)
+  - Sources: pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/modes/developer.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
 - **azure_servicebus** (100.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
 - **nats** (80.0% confidence)
   - Sources: pkg/assistant/analysis/resource_detectors.go
+- **gcp_pubsub** (100.0% confidence)
+  - Sources: cmd/schema-gen/main.go, docs/schemas/gcp/index.json, docs/schemas/gcp/pubsubconfig.json, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/mcp/schemas/gcp/index.json, pkg/assistant/mcp/schemas/gcp/pubsubconfig.json, pkg/assistant/modes/schemas/gcp/index.json, pkg/assistant/modes/schemas/gcp/pubsubconfig.json, pkg/clouds/pulumi/gcp/init.go, pkg/clouds/pulumi/gcp/pubsub.go, pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json, pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+- **kafka** (85.0% confidence)
+  - Sources: cmd/generate-embeddings/main.go, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go, pkg/assistant/embeddings/embeddings.go, pkg/assistant/modes/developer.go
+- **aws_sqs** (100.0% confidence)
+  - Sources: .sc/secrets.yaml, pkg/assistant/analysis/detector.go, pkg/assistant/analysis/resource_detectors.go
 
 ### Environment Variables
 
@@ -197,10 +196,10 @@
 
 ### Detected Secrets
 
-- **Total:** 8 potential secrets detected
+- **Total:** 7 potential secrets detected
 - **Types:**
-  - aws_key: 1 instances
-  - database_url: 5 instances
+  - aws_key: 2 instances
+  - database_url: 3 instances
   - api_key: 2 instances
 
 ## Recommendations
