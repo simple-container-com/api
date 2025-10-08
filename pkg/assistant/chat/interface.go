@@ -553,11 +553,13 @@ func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
 		return nil
 	}
 
-	// Trim context if needed before streaming continuation (use 6000 tokens to leave room for response)
-	c.trimContextIfNeeded(6000)
+	// Trim context before continuation to fit model's context window
+	modelName := c.llm.GetModel()
+	reserveTokens := c.config.MaxTokens
+	trimmedHistory := llm.TrimMessagesToContextSize(c.context.History, modelName, reserveTokens)
 
-	// Stream the continuation response
-	response, err := c.llm.StreamChat(ctx, c.context.History, callback)
+	// Stream the continuation response with trimmed history
+	response, err := c.llm.StreamChat(ctx, trimmedHistory, callback)
 	if err != nil {
 		return fmt.Errorf("LLM streaming continuation failed: %w", err)
 	}
@@ -578,11 +580,13 @@ func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
 
 // handleNonStreamingContinuation continues LLM generation in non-streaming mode after tool execution
 func (c *ChatInterface) handleNonStreamingContinuation(ctx context.Context) error {
-	// Trim context if needed before non-streaming continuation (use 6000 tokens to leave room for response)
-	c.trimContextIfNeeded(6000)
+	// Trim context before continuation to fit model's context window
+	modelName := c.llm.GetModel()
+	reserveTokens := c.config.MaxTokens
+	trimmedHistory := llm.TrimMessagesToContextSize(c.context.History, modelName, reserveTokens)
 
-	// Get the continuation response
-	response, err := c.llm.Chat(ctx, c.context.History)
+	// Get the continuation response with trimmed history
+	response, err := c.llm.Chat(ctx, trimmedHistory)
 	if err != nil {
 		return fmt.Errorf("LLM continuation failed: %w", err)
 	}
