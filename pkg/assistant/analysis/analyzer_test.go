@@ -357,6 +357,7 @@ services:
 
 func TestProjectAnalyzerIntegration(t *testing.T) {
 	analyzer := NewProjectAnalyzer()
+	analyzer.EnableFullAnalysis() // Enable full analysis for integration tests
 
 	t.Run("test nodejs project analysis", func(t *testing.T) {
 		tmpDir := createTempProject(t, map[string]string{

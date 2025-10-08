@@ -198,17 +198,17 @@ func (pa *ProjectAnalyzer) getMicroserviceRecommendations() []Recommendation {
 		{
 			Type:        "template",
 			Priority:    "high",
-			Title:       "Microservice Architecture Template",
-			Description: "Generate docker-compose.yml and service discovery configuration for microservice architecture",
-			Action:      "generate_microservice_config",
-			Template:    "microservice-compose",
+			Title:       "Kubernetes Native Template",
+			Description: "Use kubernetes-native template for microservice deployment with container orchestration",
+			Action:      "setup_template",
+			Template:    "kubernetes-native",
 		},
 		{
-			Type:        "deployment",
+			Type:        "infrastructure",
 			Priority:    "medium",
-			Title:       "API Gateway Configuration",
-			Description: "Set up API gateway for microservice communication and load balancing",
-			Action:      "configure_api_gateway",
+			Title:       "Service Mesh Setup",
+			Description: "Consider implementing service mesh for inter-service communication and observability",
+			Action:      "setup_service_mesh",
 		},
 	}
 }
@@ -228,18 +228,19 @@ func (pa *ProjectAnalyzer) getServerlessRecommendations() []Recommendation {
 func (pa *ProjectAnalyzer) getStaticSiteRecommendations() []Recommendation {
 	return []Recommendation{
 		{
-			Type:        "deployment",
+			Type:        "template",
 			Priority:    "high",
-			Title:       "Static Site Deployment",
-			Description: "Configure static site deployment with CDN and proper caching headers",
-			Action:      "configure_static_site",
+			Title:       "Static Site Template",
+			Description: "Use static-site template for optimal static content deployment",
+			Action:      "setup_template",
+			Template:    "static-site",
 		},
 		{
 			Type:        "optimization",
 			Priority:    "medium",
-			Title:       "Build Process Optimization",
-			Description: "Optimize build process for faster deployments and smaller bundle sizes",
-			Action:      "optimize_static_build",
+			Title:       "CDN Setup",
+			Description: "Configure Content Delivery Network for faster global content distribution",
+			Action:      "setup_cdn",
 		},
 	}
 }
@@ -295,7 +296,7 @@ func (pa *ProjectAnalyzer) getDatabaseRecommendations(stack *TechStackInfo) []Re
 				Title:       "MongoDB Database Setup",
 				Description: "Configure MongoDB with proper indexing and replica set configuration",
 				Action:      "setup_database",
-				Resource:    "mongodb",
+				Resource:    "mongodb-atlas",
 			})
 		case "redis":
 			recs = append(recs, Recommendation{
@@ -304,7 +305,7 @@ func (pa *ProjectAnalyzer) getDatabaseRecommendations(stack *TechStackInfo) []Re
 				Title:       "Redis Cache Setup",
 				Description: "Configure Redis for caching and session management",
 				Action:      "setup_cache",
-				Resource:    "redis",
+				Resource:    "redis-cache",
 			})
 		case "sqlite":
 			recs = append(recs, Recommendation{

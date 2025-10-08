@@ -120,10 +120,26 @@ func (pa *ProjectAnalyzer) getFileType(filename string) string {
 		"jest.config.js":      true,
 		"vitest.config.js":    true,
 		".github":             true,
-		"README.md":           true,
-		"readme.md":           true,
 		"LICENSE":             true,
 		"license":             true,
+	}
+
+	// Documentation files should be categorized as 'docs'
+	docsFiles := map[string]bool{
+		"README.md":       true,
+		"readme.md":       true,
+		"README":          true,
+		"readme":          true,
+		"CHANGELOG.md":    true,
+		"changelog.md":    true,
+		"CONTRIBUTING.md": true,
+		"contributing.md": true,
+		"docs.md":         true,
+		"DOCS.md":         true,
+	}
+
+	if docsFiles[filename] {
+		return "docs"
 	}
 
 	if configFiles[filename] {
