@@ -22,17 +22,27 @@ func NewStreamRenderer() *StreamRenderer {
 
 // ProcessChunk processes a chunk of streaming text and returns colored output
 func (sr *StreamRenderer) ProcessChunk(chunk string) string {
-	sr.buffer += chunk
+	var output strings.Builder
 
 	// Check if we have complete lines to process
-	if !strings.Contains(sr.buffer, "\n") {
-		// No complete line yet - don't output anything, keep buffering
+	if !strings.Contains(chunk, "\n") {
+		// No complete line in this chunk - output immediately for smooth streaming
+		if !sr.inCodeBlock {
+			// For regular text, output immediately with color
+			sr.buffer += chunk
+			result := sr.theme.ApplyText(chunk)
+			return result
+		}
+		// In code block, buffer until we have complete line
+		sr.buffer += chunk
 		return ""
 	}
 
+	// Add chunk to buffer
+	sr.buffer += chunk
+
 	// Process complete lines
 	lines := strings.Split(sr.buffer, "\n")
-	var output strings.Builder
 
 	// Keep the last incomplete line in buffer
 	lastLine := lines[len(lines)-1]

@@ -338,14 +338,41 @@ func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
 	// Get available tools for the LLM
 	tools := c.toolCallHandler.GetAvailableTools()
 
+	// Estimate tokens used by tools/functions
+	toolsTokens := 0
+	if len(tools) > 0 {
+		for _, tool := range tools {
+			// Rough estimate: function name + description + parameters JSON
+			toolsTokens += len(tool.Function.Name) / 4
+			toolsTokens += len(tool.Function.Description) / 4
+			// Parameters are map[string]interface{}, estimate size
+			toolsTokens += 50 // Conservative estimate for parameters structure
+		}
+	}
+
+	// Trim conversation history to fit model's context window
+	// Reserve space for: response tokens + tools tokens
+	modelName := c.llm.GetModel()
+	reserveTokens := c.config.MaxTokens + toolsTokens
+	trimmedHistory := llm.TrimMessagesToContextSize(c.context.History, modelName, reserveTokens)
+
+	// Log if messages were trimmed
+	if len(trimmedHistory) < len(c.context.History) {
+		trimmedCount := len(c.context.History) - len(trimmedHistory)
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("\n📊 Trimmed %d old messages to fit context window (model: %s, context: %d tokens, tools: %d tokens)\n",
+				trimmedCount, modelName, llm.GetModelContextSize(modelName), toolsTokens)
+		}
+	}
+
 	// Get streaming response from LLM with tools if the provider supports function calling
 	var response *llm.ChatResponse
 	var err error
 
 	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
-		response, err = c.llm.StreamChatWithTools(ctx, c.context.History, tools, callback)
+		response, err = c.llm.StreamChatWithTools(ctx, trimmedHistory, tools, callback)
 	} else {
-		response, err = c.llm.StreamChat(ctx, c.context.History, callback)
+		response, err = c.llm.StreamChat(ctx, trimmedHistory, callback)
 	}
 
 	if err != nil {
@@ -379,14 +406,41 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 	// Get available tools for the LLM
 	tools := c.toolCallHandler.GetAvailableTools()
 
+	// Estimate tokens used by tools/functions
+	toolsTokens := 0
+	if len(tools) > 0 {
+		for _, tool := range tools {
+			// Rough estimate: function name + description + parameters JSON
+			toolsTokens += len(tool.Function.Name) / 4
+			toolsTokens += len(tool.Function.Description) / 4
+			// Parameters are map[string]interface{}, estimate size
+			toolsTokens += 50 // Conservative estimate for parameters structure
+		}
+	}
+
+	// Trim conversation history to fit model's context window
+	// Reserve space for: response tokens + tools tokens
+	modelName := c.llm.GetModel()
+	reserveTokens := c.config.MaxTokens + toolsTokens
+	trimmedHistory := llm.TrimMessagesToContextSize(c.context.History, modelName, reserveTokens)
+
+	// Log if messages were trimmed
+	if len(trimmedHistory) < len(c.context.History) {
+		trimmedCount := len(c.context.History) - len(trimmedHistory)
+		if c.config.LogLevel == "debug" {
+			fmt.Printf("\n📊 Trimmed %d old messages to fit context window (model: %s, context: %d tokens, tools: %d tokens)\n",
+				trimmedCount, modelName, llm.GetModelContextSize(modelName), toolsTokens)
+		}
+	}
+
 	// Get response from LLM with tools if the provider supports function calling
 	var response *llm.ChatResponse
 	var err error
 
 	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
-		response, err = c.llm.ChatWithTools(ctx, c.context.History, tools)
+		response, err = c.llm.ChatWithTools(ctx, trimmedHistory, tools)
 	} else {
-		response, err = c.llm.Chat(ctx, c.context.History)
+		response, err = c.llm.Chat(ctx, trimmedHistory)
 	}
 
 	if err != nil {
