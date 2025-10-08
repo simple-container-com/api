@@ -93,3 +93,20 @@ func WhiteString(str string) string {
 func BoldFmt(format string, args ...any) string {
 	return color.New(color.Bold).Sprintf(format, args...)
 }
+
+// Assistant chat colors for better readability
+func AssistantText(str string) string {
+	return color.New(color.FgHiCyan).Sprint(str)
+}
+
+func AssistantCode(str string) string {
+	return color.New(color.FgHiYellow).Sprint(str)
+}
+
+func AssistantHeader(str string) string {
+	return color.New(color.FgHiMagenta, color.Bold).Sprint(str)
+}
+
+func AssistantEmphasis(str string) string {
+	return color.New(color.FgHiGreen).Sprint(str)
+}

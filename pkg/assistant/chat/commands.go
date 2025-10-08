@@ -201,6 +201,18 @@ func (c *ChatInterface) registerCommands() {
 		Handler:     c.handleGetSupportedResources,
 		Args:        []CommandArg{},
 	}
+
+	// Theme command
+	c.commands["theme"] = &ChatCommand{
+		Name:        "theme",
+		Description: "Change chat color theme",
+		Usage:       "/theme [list|set <name>]",
+		Handler:     c.handleTheme,
+		Args: []CommandArg{
+			{Name: "action", Type: "string", Required: false, Description: "Action: list or set"},
+			{Name: "name", Type: "string", Required: false, Description: "Theme name for set action"},
+		},
+	}
 }
 
 // handleHelp shows help information
@@ -2084,4 +2096,88 @@ func (c *ChatInterface) handleGetSupportedResources(ctx context.Context, args []
 		Success: true,
 		Message: message,
 	}, nil
+}
+
+// handleTheme handles theme management commands
+func (c *ChatInterface) handleTheme(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) == 0 {
+		// Show current theme
+		theme := GetCurrentTheme()
+		return &CommandResult{
+			Success: true,
+			Message: fmt.Sprintf("Current theme: %s - %s\nUse '/theme list' to see all themes or '/theme set <name>' to change theme", theme.Name, theme.Description),
+		}, nil
+	}
+
+	action := strings.ToLower(args[0])
+
+	switch action {
+	case "list":
+		// List all available themes
+		themes := ListThemes()
+		currentTheme := GetCurrentTheme()
+
+		message := "📋 Available Themes:\n"
+		for _, theme := range themes {
+			mark := ""
+			if theme.Name == currentTheme.Name {
+				mark = " ⭐ (current)"
+			}
+			// Show theme with example colors
+			message += fmt.Sprintf("\n  • %s%s - %s",
+				theme.ApplyText(theme.Name),
+				mark,
+				theme.Description)
+			message += fmt.Sprintf("\n    Example: %s %s %s",
+				theme.ApplyText("text"),
+				theme.ApplyCode("code"),
+				theme.ApplyHeader("header"))
+		}
+		message += "\n\nUse '/theme set <name>' to change theme"
+
+		return &CommandResult{
+			Success: true,
+			Message: message,
+		}, nil
+
+	case "set":
+		if len(args) < 2 {
+			return &CommandResult{
+				Success: false,
+				Message: "Please specify a theme name. Use '/theme list' to see available themes",
+			}, nil
+		}
+
+		themeName := strings.ToLower(args[1])
+		theme, err := GetTheme(themeName)
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Theme '%s' not found. Use '/theme list' to see available themes", themeName),
+			}, nil
+		}
+
+		if err := SetCurrentTheme(themeName); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to set theme: %v", err),
+			}, nil
+		}
+
+		return &CommandResult{
+			Success: true,
+			Message: fmt.Sprintf("✅ Theme changed to '%s' - %s\n\nExample: %s %s %s",
+				theme.Name,
+				theme.Description,
+				theme.ApplyText("text"),
+				theme.ApplyCode("code"),
+				theme.ApplyHeader("header")),
+		}, nil
+
+	default:
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Unknown action '%s'. Use 'list' or 'set'", action),
+		}, nil
+	}
 }

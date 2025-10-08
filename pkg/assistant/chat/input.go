@@ -171,6 +171,7 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 		"search":   {}, // search takes a query
 		"help":     {}, // help can take command names
 		"switch":   {"dev", "devops", "general"},
+		"theme":    {"list", "set"},
 	}
 
 	// Get subcommands for this command

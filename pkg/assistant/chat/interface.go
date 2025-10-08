@@ -28,17 +28,19 @@ import (
 
 // ChatInterface implements the interactive chat experience
 type ChatInterface struct {
-	llm             llm.Provider
-	context         *ConversationContext
-	embeddings      *embeddings.Database
-	analyzer        *analysis.ProjectAnalyzer
-	generator       *generation.FileGenerator
-	developerMode   *modes.DeveloperMode
-	commandHandler  *core.UnifiedCommandHandler // New unified command handler
-	commands        map[string]*ChatCommand
-	config          SessionConfig
-	inputHandler    *InputHandler
-	toolCallHandler *ToolCallHandler
+	llm              llm.Provider
+	context          *ConversationContext
+	embeddings       *embeddings.Database
+	analyzer         *analysis.ProjectAnalyzer
+	generator        *generation.FileGenerator
+	developerMode    *modes.DeveloperMode
+	commandHandler   *core.UnifiedCommandHandler // New unified command handler
+	commands         map[string]*ChatCommand
+	config           SessionConfig
+	inputHandler     *InputHandler
+	toolCallHandler  *ToolCallHandler
+	markdownRenderer *MarkdownRenderer
+	streamRenderer   *StreamRenderer
 }
 
 // NewChatInterface creates a new chat interface
@@ -115,14 +117,16 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 
 	// Create chat interface
 	chat := &ChatInterface{
-		llm:            provider,
-		embeddings:     embeddingsDB,
-		analyzer:       analyzer,
-		generator:      generator,
-		developerMode:  developerMode,
-		commandHandler: commandHandler,
-		commands:       make(map[string]*ChatCommand),
-		config:         sessionConfig,
+		llm:              provider,
+		embeddings:       embeddingsDB,
+		analyzer:         analyzer,
+		generator:        generator,
+		developerMode:    developerMode,
+		commandHandler:   commandHandler,
+		commands:         make(map[string]*ChatCommand),
+		config:           sessionConfig,
+		markdownRenderer: NewMarkdownRenderer(),
+		streamRenderer:   NewStreamRenderer(),
 	}
 
 	// Get available resources for context
@@ -261,6 +265,9 @@ func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
 	var fullResponse string
 	var firstChunk bool = true
 
+	// Reset stream renderer for new response
+	c.streamRenderer.Reset()
+
 	// Create streaming callback
 	callback := func(chunk llm.StreamChunk) error {
 		if firstChunk {
@@ -270,11 +277,14 @@ func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
 			firstChunk = false
 		}
 
-		// Print the new content (delta)
-		fmt.Print(chunk.Delta)
+		// Process chunk with stream renderer for colored output
+		colored := c.streamRenderer.ProcessChunk(chunk.Delta)
+		fmt.Print(colored)
 		fullResponse += chunk.Delta
 
 		if chunk.IsComplete {
+			// Flush any remaining buffered content
+			fmt.Print(c.streamRenderer.Flush())
 			fmt.Print("\n") // New line after complete response
 		}
 
@@ -332,8 +342,9 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 		return c.handleToolCalls(ctx, response)
 	}
 
-	// Regular text response
-	fmt.Printf("%s %s\n", color.BlueString("🤖"), response.Content)
+	// Regular text response with markdown rendering
+	rendered := c.markdownRenderer.Render(response.Content)
+	fmt.Printf("%s %s\n", color.BlueString("🤖"), rendered)
 
 	// Add assistant response to context
 	c.addMessage("assistant", response.Content)
@@ -391,8 +402,9 @@ func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatR
 	// Add the summary to conversation as assistant response
 	c.addMessage("assistant", summary.String())
 
-	// Display the summary to user
-	fmt.Printf("\n%s %s\n", color.BlueString("🤖"), summary.String())
+	// Display the summary to user with markdown rendering
+	rendered := c.markdownRenderer.Render(summary.String())
+	fmt.Printf("\n%s %s\n", color.BlueString("🤖"), rendered)
 
 	// Update context
 	c.context.UpdatedAt = time.Now()
