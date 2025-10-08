@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/term"
@@ -650,55 +651,92 @@ func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationCon
 
 	files := []GeneratedFile{}
 
-	// Generate client.yaml using DeveloperMode logic
-	fmt.Printf("📄 Generating client.yaml configuration...\n")
-	clientYaml, err := c.developerMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
-	if err == nil {
-		fmt.Printf("   ✅ Client configuration generated\n")
-		files = append(files, GeneratedFile{
-			Path:        ".sc/stacks/" + projectName + "/client.yaml",
-			Type:        "yaml",
-			Description: "Simple Container client configuration",
-			Generated:   true,
-			Content:     clientYaml,
-		})
-	} else {
-		fmt.Printf("   ⚠️ Failed to generate client.yaml: %v\n", err)
+	// Start all file generations in parallel
+	fmt.Printf("📄 Generating configuration files in parallel...\n")
+
+	type fileGenResult struct {
+		file GeneratedFile
+		err  error
+		name string
 	}
 
-	// Generate docker-compose.yaml using DeveloperMode logic
-	if !opts.SkipCompose {
-		fmt.Printf("🐳 Generating docker-compose.yaml...\n")
-		composeYaml, err := c.developerMode.GenerateComposeYAMLWithLLM(projectAnalysis)
+	var wg sync.WaitGroup
+	resultChan := make(chan fileGenResult, 3)
+
+	// Generate client.yaml
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		fmt.Printf("   📄 Generating client.yaml...\n")
+		clientYaml, err := c.developerMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
+		result := fileGenResult{name: "client.yaml", err: err}
 		if err == nil {
-			fmt.Printf("   ✅ Docker Compose configuration generated\n")
-			files = append(files, GeneratedFile{
-				Path:        "docker-compose.yaml",
+			result.file = GeneratedFile{
+				Path:        ".sc/stacks/" + projectName + "/client.yaml",
 				Type:        "yaml",
-				Description: "Local development environment",
+				Description: "Simple Container client configuration",
 				Generated:   true,
-				Content:     composeYaml,
-			})
-		} else {
-			fmt.Printf("   ⚠️ Failed to generate docker-compose.yaml: %v\n", err)
+				Content:     clientYaml,
+			}
 		}
+		resultChan <- result
+	}()
+
+	// Generate docker-compose.yaml
+	if !opts.SkipCompose {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fmt.Printf("   🐳 Generating docker-compose.yaml...\n")
+			composeYaml, err := c.developerMode.GenerateComposeYAMLWithLLM(projectAnalysis)
+			result := fileGenResult{name: "docker-compose.yaml", err: err}
+			if err == nil {
+				result.file = GeneratedFile{
+					Path:        "docker-compose.yaml",
+					Type:        "yaml",
+					Description: "Local development environment",
+					Generated:   true,
+					Content:     composeYaml,
+				}
+			}
+			resultChan <- result
+		}()
 	}
 
-	// Generate Dockerfile using DeveloperMode logic
+	// Generate Dockerfile
 	if !opts.SkipDockerfile {
-		fmt.Printf("🐳 Generating Dockerfile...\n")
-		dockerfile, err := c.developerMode.GenerateDockerfileWithLLM(projectAnalysis)
-		if err == nil {
-			fmt.Printf("   ✅ Dockerfile generated\n")
-			files = append(files, GeneratedFile{
-				Path:        "Dockerfile",
-				Type:        "dockerfile",
-				Description: "Container image definition",
-				Generated:   true,
-				Content:     dockerfile,
-			})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fmt.Printf("   🐳 Generating Dockerfile...\n")
+			dockerfile, err := c.developerMode.GenerateDockerfileWithLLM(projectAnalysis)
+			result := fileGenResult{name: "Dockerfile", err: err}
+			if err == nil {
+				result.file = GeneratedFile{
+					Path:        "Dockerfile",
+					Type:        "dockerfile",
+					Description: "Container image definition",
+					Generated:   true,
+					Content:     dockerfile,
+				}
+			}
+			resultChan <- result
+		}()
+	}
+
+	// Wait for all generations to complete and collect results
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results as they complete
+	for result := range resultChan {
+		if result.err == nil {
+			fmt.Printf("   ✅ %s generated\n", result.name)
+			files = append(files, result.file)
 		} else {
-			fmt.Printf("   ⚠️ Failed to generate Dockerfile: %v\n", err)
+			fmt.Printf("   ⚠️ Failed to generate %s: %v\n", result.name, result.err)
 		}
 	}
 

@@ -14,17 +14,21 @@ import (
 
 // DeepSeekProvider implements Provider for DeepSeek (OpenAI-compatible API)
 type DeepSeekProvider struct {
-	client     *openai.LLM
-	config     Config
-	model      string
-	apiKey     string
-	baseURL    string
-	configured bool
+	*BaseProvider // Embed base functionality
+	client        *openai.LLM
+	config        Config
+	model         string
+	apiKey        string
+	baseURL       string
 }
 
 // NewDeepSeekProvider creates a new DeepSeek provider
 func NewDeepSeekProvider() Provider {
-	return &DeepSeekProvider{}
+	return &DeepSeekProvider{
+		BaseProvider: NewBaseProvider("deepseek"), // Use base provider
+		model:        "deepseek-chat",
+		baseURL:      "https://api.deepseek.com/v1",
+	}
 }
 
 // Configure configures the DeepSeek provider
@@ -59,20 +63,26 @@ func (p *DeepSeekProvider) Configure(config Config) error {
 	p.model = config.Model
 	p.apiKey = config.APIKey
 	p.baseURL = config.BaseURL
-	p.configured = true
+	p.SetConfigured(true) // Use base provider method
 
 	return nil
 }
 
 // ChatWithTools sends messages to DeepSeek with tools (not supported)
 func (p *DeepSeekProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	return nil, fmt.Errorf("DeepSeek provider does not support function/tool calling")
 }
 
 // Chat sends messages to DeepSeek and returns a response
 func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("DeepSeek provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
 	// Convert messages to langchaingo format
@@ -231,32 +241,21 @@ func (p *DeepSeekProvider) StreamChat(ctx context.Context, messages []Message, c
 
 // StreamChatWithTools sends messages to DeepSeek with tool support and streams the response via callback
 func (p *DeepSeekProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	// TODO: Implement proper tool support for DeepSeek
-	// For now, fallback to regular streaming (DeepSeek may not support tools yet)
+	// When implementing, use p.CreateStreamingCallback() to handle JSON filtering:
+	//
+	// var fullContent strings.Builder
+	// streamCallback := p.CreateStreamingCallback(callback, &fullContent)
+	// ... in streaming API call use streamCallback ...
+	//
+	// For now, use base provider's standardized fallback
 	if len(tools) > 0 {
-		// Use non-streaming with tools as fallback
-		response, err := p.ChatWithTools(ctx, messages, tools)
-		if err != nil {
-			return nil, err
-		}
-
-		// Simulate streaming by sending the full response as one chunk
-		finalChunk := StreamChunk{
-			Content:    response.Content,
-			Delta:      response.Content,
-			IsComplete: true,
-			Usage:      &response.Usage,
-			Metadata: map[string]string{
-				"provider": "deepseek",
-			},
-			GeneratedAt: time.Now(),
-		}
-
-		if err := callback(finalChunk); err != nil {
-			return nil, fmt.Errorf("callback error: %w", err)
-		}
-
-		return response, nil
+		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
 	}
 
 	// No tools, use regular streaming
@@ -283,13 +282,15 @@ func (p *DeepSeekProvider) GetModel() string {
 
 // IsAvailable checks if the provider is available
 func (p *DeepSeekProvider) IsAvailable() bool {
-	return p.configured && p.client != nil
+	// Use base provider's configuration validation
+	return p.ValidateConfiguration() == nil && p.client != nil
 }
 
 // ListModels returns available models from DeepSeek API
 func (p *DeepSeekProvider) ListModels(ctx context.Context) ([]string, error) {
-	if p.client == nil {
-		return nil, fmt.Errorf("provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
 	// Create HTTP request to list models

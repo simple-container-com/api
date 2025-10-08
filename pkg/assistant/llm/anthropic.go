@@ -14,10 +14,11 @@ import (
 
 // AnthropicProvider implements the Provider interface for Anthropic's Claude API
 type AnthropicProvider struct {
-	config     Config
-	httpClient *http.Client
-	baseURL    string
-	model      string
+	*BaseProvider // Embed base functionality
+	config        Config
+	httpClient    *http.Client
+	baseURL       string
+	model         string
 }
 
 // Anthropic API request/response structures
@@ -73,6 +74,7 @@ type anthropicStreamDelta struct {
 // NewAnthropicProvider creates a new Anthropic provider
 func NewAnthropicProvider() Provider {
 	return &AnthropicProvider{
+		BaseProvider: NewBaseProvider("anthropic"), // Use base provider
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -101,11 +103,17 @@ func (p *AnthropicProvider) Configure(config Config) error {
 		p.httpClient.Timeout = config.Timeout
 	}
 
+	p.SetConfigured(true) // Use base provider method
 	return nil
 }
 
 // Chat sends a chat request to Anthropic
 func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	// Convert messages to Anthropic format
 	anthropicMessages := make([]anthropicMessage, 0, len(messages))
 	for _, msg := range messages {
@@ -187,8 +195,13 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (*Chat
 
 // ChatWithTools sends a chat request to Anthropic with tool support
 func (p *AnthropicProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
-	// TODO: Implement Anthropic function calling
-	// For now, fallback to regular chat
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
+	// TODO: Implement Anthropic function calling with tools
+	// For now, fallback to regular chat (tools ignored)
 	response, err := p.Chat(ctx, messages)
 	if err != nil {
 		return nil, err
@@ -204,6 +217,14 @@ func (p *AnthropicProvider) ChatWithTools(ctx context.Context, messages []Messag
 
 // StreamChat streams a chat response from Anthropic
 func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
+	// TODO: This could be simplified using p.ConvertMessages() for generic format
+	// and p.CreateStreamingCallback() for consistent streaming behavior
+
 	// Convert messages to Anthropic format
 	anthropicMessages := make([]anthropicMessage, 0, len(messages))
 	for _, msg := range messages {
@@ -381,31 +402,21 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 
 // StreamChatWithTools sends messages to Anthropic with tool support and streams the response via callback
 func (p *AnthropicProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	// TODO: Implement true streaming with tools for Anthropic
-	// For now, use non-streaming as fallback when tools are provided
+	// When implementing, use p.CreateStreamingCallback() to handle JSON filtering:
+	//
+	// var fullContent strings.Builder
+	// streamCallback := p.CreateStreamingCallback(callback, &fullContent)
+	// ... in streaming API call use streamCallback ...
+	//
+	// For now, use base provider's standardized fallback
 	if len(tools) > 0 {
-		response, err := p.ChatWithTools(ctx, messages, tools)
-		if err != nil {
-			return nil, err
-		}
-
-		// Simulate streaming by sending the full response as one chunk
-		finalChunk := StreamChunk{
-			Content:    response.Content,
-			Delta:      response.Content,
-			IsComplete: true,
-			Usage:      &response.Usage,
-			Metadata: map[string]string{
-				"provider": "anthropic",
-			},
-			GeneratedAt: time.Now(),
-		}
-
-		if err := callback(finalChunk); err != nil {
-			return nil, fmt.Errorf("callback error: %w", err)
-		}
-
-		return response, nil
+		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
 	}
 
 	// No tools, use regular streaming
@@ -431,7 +442,8 @@ func (p *AnthropicProvider) GetModel() string {
 
 // IsAvailable checks if the provider is configured and available
 func (p *AnthropicProvider) IsAvailable() bool {
-	return p.config.APIKey != ""
+	// Use base provider's configuration validation
+	return p.ValidateConfiguration() == nil
 }
 
 // ListModels returns available models by fetching from Anthropic documentation

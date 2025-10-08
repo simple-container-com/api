@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -102,6 +104,173 @@ type TokenUsage struct {
 	CompletionTokens int     `json:"completion_tokens"` // Tokens in the completion
 	TotalTokens      int     `json:"total_tokens"`      // Total tokens used
 	Cost             float64 `json:"cost"`              // Estimated cost (if available)
+}
+
+// ToolCallFilter helps providers filter out tool call JSON from streaming content
+// This provides a provider-agnostic way to handle the common issue where LLMs
+// stream raw tool call JSON that should not be displayed to users.
+type ToolCallFilter struct {
+	inToolCall bool // Track if we're currently inside a tool call JSON
+}
+
+// NewToolCallFilter creates a new tool call filter for streaming content
+func NewToolCallFilter() *ToolCallFilter {
+	return &ToolCallFilter{inToolCall: false}
+}
+
+// ShouldFilterChunk determines if a streaming chunk should be filtered out
+// because it's part of tool call JSON that shouldn't be shown to users.
+// Returns true if the chunk should be filtered (not shown), false otherwise.
+func (f *ToolCallFilter) ShouldFilterChunk(chunkStr string) bool {
+	// Check for tool call start markers
+	if strings.Contains(chunkStr, `[{"`) || strings.Contains(chunkStr, `"tool_calls"`) {
+		f.inToolCall = true
+	}
+
+	// If we're in a tool call, check for end markers
+	if f.inToolCall {
+		if strings.Contains(chunkStr, `}]`) || strings.Contains(chunkStr, `"finish_reason"`) {
+			f.inToolCall = false
+			// Still filter this closing chunk
+			return true
+		}
+		return true // Filter all chunks while in tool call
+	}
+
+	return false // Don't filter regular content
+}
+
+// Reset resets the filter state (useful when starting a new request)
+func (f *ToolCallFilter) Reset() {
+	f.inToolCall = false
+}
+
+// BaseProvider provides common functionality for all LLM providers
+// This reduces code duplication and provides consistent behavior
+type BaseProvider struct {
+	name       string
+	configured bool
+	toolFilter *ToolCallFilter
+}
+
+// NewBaseProvider creates a new base provider
+func NewBaseProvider(name string) *BaseProvider {
+	return &BaseProvider{
+		name:       name,
+		configured: false,
+		toolFilter: NewToolCallFilter(),
+	}
+}
+
+// ValidateConfiguration checks if the provider is properly configured
+func (b *BaseProvider) ValidateConfiguration() error {
+	if !b.configured {
+		return fmt.Errorf("%s provider not configured", b.name)
+	}
+	return nil
+}
+
+// ConvertMessages converts our Message format to a generic format
+// Providers can override this if they need specific conversion logic
+func (b *BaseProvider) ConvertMessages(messages []Message) []map[string]interface{} {
+	converted := make([]map[string]interface{}, len(messages))
+	for i, msg := range messages {
+		converted[i] = map[string]interface{}{
+			"role":    msg.Role,
+			"content": msg.Content,
+		}
+	}
+	return converted
+}
+
+// ConvertTools converts our Tool format to a generic format
+// Providers can override this if they need specific conversion logic
+func (b *BaseProvider) ConvertTools(tools []Tool) []map[string]interface{} {
+	if len(tools) == 0 {
+		return nil
+	}
+
+	converted := make([]map[string]interface{}, len(tools))
+	for i, tool := range tools {
+		converted[i] = map[string]interface{}{
+			"type": tool.Type,
+			"function": map[string]interface{}{
+				"name":        tool.Function.Name,
+				"description": tool.Function.Description,
+				"parameters":  tool.Function.Parameters,
+			},
+		}
+	}
+	return converted
+}
+
+// CreateStreamingCallback creates a streaming callback with tool call filtering
+func (b *BaseProvider) CreateStreamingCallback(callback StreamCallback, fullContent *strings.Builder) func(string) error {
+	return func(chunkStr string) error {
+		if chunkStr == "" {
+			return nil
+		}
+
+		// Use provider-agnostic tool call filtering
+		if b.toolFilter.ShouldFilterChunk(chunkStr) {
+			// Don't add tool call content to fullContent or send to user
+			return nil
+		}
+
+		// Only process actual text content (not tool calls)
+		fullContent.WriteString(chunkStr)
+
+		// Send chunk to callback only if it's actual text content
+		streamChunk := StreamChunk{
+			Content:    fullContent.String(),
+			Delta:      chunkStr,
+			IsComplete: false,
+			Metadata: map[string]string{
+				"provider": b.name,
+			},
+			GeneratedAt: time.Now(),
+		}
+
+		return callback(streamChunk)
+	}
+}
+
+// FallbackToNonStreaming provides a standard fallback for providers that don't support streaming with tools
+func (b *BaseProvider) FallbackToNonStreaming(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback, chatWithTools func(context.Context, []Message, []Tool) (*ChatResponse, error)) (*ChatResponse, error) {
+	response, err := chatWithTools(ctx, messages, tools)
+	if err != nil {
+		return nil, err
+	}
+
+	// Simulate streaming by sending the full response as one chunk
+	finalChunk := StreamChunk{
+		Content:    response.Content,
+		Delta:      response.Content,
+		IsComplete: true,
+		Usage:      &response.Usage,
+		Metadata: map[string]string{
+			"provider": b.name,
+		},
+		GeneratedAt: time.Now(),
+	}
+
+	if err := callback(finalChunk); err != nil {
+		return nil, fmt.Errorf("callback error: %w", err)
+	}
+
+	return response, nil
+}
+
+// EstimateTokens provides a basic token estimation
+// Providers can override with more accurate estimation
+func (b *BaseProvider) EstimateTokens(text string) int {
+	// Rough estimation: ~4 characters per token for most models
+	return len(text) / 4
+}
+
+// SetConfigured marks the provider as configured
+func (b *BaseProvider) SetConfigured(configured bool) {
+	b.configured = configured
 }
 
 // Capabilities describes what a provider can do

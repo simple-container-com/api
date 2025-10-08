@@ -172,6 +172,7 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 	startTime := time.Now()
 	var fullContent strings.Builder
 	var completionTokens int
+	toolFilter := NewToolCallFilter() // Provider-agnostic tool call filtering
 
 	// Convert tools to langchaingo format if provided
 	var langchainTools []llms.Tool
@@ -199,10 +200,17 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 				return nil
 			}
 
+			// Use provider-agnostic tool call filtering
+			if toolFilter.ShouldFilterChunk(chunkStr) {
+				// Don't add tool call content to fullContent or send to user
+				return nil
+			}
+
+			// Only process actual text content (not tool calls)
 			fullContent.WriteString(chunkStr)
 			completionTokens += estimateTokens(chunkStr)
 
-			// Send chunk to callback
+			// Send chunk to callback only if it's actual text content
 			streamChunk := StreamChunk{
 				Content:    fullContent.String(),
 				Delta:      chunkStr,
@@ -284,8 +292,7 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 			"provider":   "openai",
 			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
 		},
-		GeneratedAt: time.Now(),
-		ToolCalls:   toolCalls, // Include actual tool calls
+		ToolCalls: toolCalls,
 	}, nil
 }
 

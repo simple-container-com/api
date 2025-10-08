@@ -15,16 +15,20 @@ import (
 
 // OllamaProvider implements Provider for Ollama (OpenAI-compatible API)
 type OllamaProvider struct {
-	client     *openai.LLM
-	config     Config
-	model      string
-	baseURL    string
-	configured bool
+	*BaseProvider // Embed base functionality
+	client        *openai.LLM
+	config        Config
+	model         string
+	baseURL       string
 }
 
 // NewOllamaProvider creates a new Ollama provider
 func NewOllamaProvider() Provider {
-	return &OllamaProvider{}
+	return &OllamaProvider{
+		BaseProvider: NewBaseProvider("ollama"), // Use base provider
+		model:        "llama2",
+		baseURL:      "http://localhost:11434",
+	}
 }
 
 // Configure configures the Ollama provider
@@ -68,20 +72,26 @@ func (p *OllamaProvider) Configure(config Config) error {
 	p.config = config
 	p.model = config.Model
 	p.baseURL = baseURL
-	p.configured = true
+	p.SetConfigured(true) // Use base provider method
 
 	return nil
 }
 
 // ChatWithTools sends messages to Ollama with tools (not supported)
 func (p *OllamaProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	return nil, fmt.Errorf("Ollama provider does not support function/tool calling")
 }
 
 // Chat sends messages to Ollama and returns a response
 func (p *OllamaProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("Ollama provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
 	// Convert messages to langchaingo format
@@ -240,32 +250,21 @@ func (p *OllamaProvider) StreamChat(ctx context.Context, messages []Message, cal
 
 // StreamChatWithTools sends messages to Ollama with tool support and streams the response via callback
 func (p *OllamaProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	// TODO: Implement proper tool support for Ollama
-	// For now, fallback to regular streaming (Ollama may not support tools yet)
+	// When implementing, use p.CreateStreamingCallback() to handle JSON filtering:
+	//
+	// var fullContent strings.Builder
+	// streamCallback := p.CreateStreamingCallback(callback, &fullContent)
+	// ... in streaming API call use streamCallback ...
+	//
+	// For now, use base provider's standardized fallback
 	if len(tools) > 0 {
-		// Use non-streaming with tools as fallback
-		response, err := p.ChatWithTools(ctx, messages, tools)
-		if err != nil {
-			return nil, err
-		}
-
-		// Simulate streaming by sending the full response as one chunk
-		finalChunk := StreamChunk{
-			Content:    response.Content,
-			Delta:      response.Content,
-			IsComplete: true,
-			Usage:      &response.Usage,
-			Metadata: map[string]string{
-				"provider": "ollama",
-			},
-			GeneratedAt: time.Now(),
-		}
-
-		if err := callback(finalChunk); err != nil {
-			return nil, fmt.Errorf("callback error: %w", err)
-		}
-
-		return response, nil
+		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
 	}
 
 	// No tools, use regular streaming
@@ -292,13 +291,15 @@ func (p *OllamaProvider) GetModel() string {
 
 // IsAvailable checks if the provider is available
 func (p *OllamaProvider) IsAvailable() bool {
-	return p.configured && p.client != nil
+	// Use base provider's configuration validation
+	return p.ValidateConfiguration() == nil && p.client != nil
 }
 
 // ListModels returns available models from Ollama API
 func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
 	// Ollama has /api/tags endpoint for listing models

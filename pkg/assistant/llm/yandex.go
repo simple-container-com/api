@@ -15,17 +15,21 @@ import (
 
 // YandexProvider implements Provider for Yandex ChatGPT (OpenAI-compatible API)
 type YandexProvider struct {
-	client     *openai.LLM
-	config     Config
-	model      string
-	apiKey     string
-	baseURL    string
-	configured bool
+	*BaseProvider // Embed base functionality
+	client        *openai.LLM
+	config        Config
+	model         string
+	apiKey        string
+	baseURL       string
 }
 
 // NewYandexProvider creates a new Yandex provider
 func NewYandexProvider() Provider {
-	return &YandexProvider{}
+	return &YandexProvider{
+		BaseProvider: NewBaseProvider("yandex"), // Use base provider
+		model:        "yandexgpt",
+		baseURL:      "https://llm.api.cloud.yandex.net/foundationModels/v1",
+	}
 }
 
 // Configure configures the Yandex provider
@@ -60,20 +64,26 @@ func (p *YandexProvider) Configure(config Config) error {
 	p.model = config.Model
 	p.apiKey = config.APIKey
 	p.baseURL = config.BaseURL
-	p.configured = true
+	p.SetConfigured(true) // Use base provider method
 
 	return nil
 }
 
 // ChatWithTools sends messages to Yandex with tools (not supported)
 func (p *YandexProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	return nil, fmt.Errorf("Yandex provider does not support function/tool calling")
 }
 
 // Chat sends messages to Yandex and returns a response
 func (p *YandexProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("Yandex provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
 	// Convert messages to langchaingo format
@@ -232,32 +242,21 @@ func (p *YandexProvider) StreamChat(ctx context.Context, messages []Message, cal
 
 // StreamChatWithTools sends messages to Yandex with tool support and streams the response via callback
 func (p *YandexProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
 	// TODO: Implement proper tool support for Yandex
-	// For now, fallback to regular streaming (Yandex may not support tools yet)
+	// When implementing, use p.CreateStreamingCallback() to handle JSON filtering:
+	//
+	// var fullContent strings.Builder
+	// streamCallback := p.CreateStreamingCallback(callback, &fullContent)
+	// ... in streaming API call use streamCallback ...
+	//
+	// For now, use base provider's standardized fallback
 	if len(tools) > 0 {
-		// Use non-streaming with tools as fallback
-		response, err := p.ChatWithTools(ctx, messages, tools)
-		if err != nil {
-			return nil, err
-		}
-
-		// Simulate streaming by sending the full response as one chunk
-		finalChunk := StreamChunk{
-			Content:    response.Content,
-			Delta:      response.Content,
-			IsComplete: true,
-			Usage:      &response.Usage,
-			Metadata: map[string]string{
-				"provider": "yandex",
-			},
-			GeneratedAt: time.Now(),
-		}
-
-		if err := callback(finalChunk); err != nil {
-			return nil, fmt.Errorf("callback error: %w", err)
-		}
-
-		return response, nil
+		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
 	}
 
 	// No tools, use regular streaming
@@ -284,13 +283,15 @@ func (p *YandexProvider) GetModel() string {
 
 // IsAvailable checks if the provider is available
 func (p *YandexProvider) IsAvailable() bool {
-	return p.configured && p.client != nil
+	// Use base provider's configuration validation
+	return p.ValidateConfiguration() == nil && p.client != nil
 }
 
 // ListModels returns available models from Yandex API
 func (p *YandexProvider) ListModels(ctx context.Context) ([]string, error) {
-	if !p.configured {
-		return nil, fmt.Errorf("provider not configured")
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
 	}
 
 	// Try to fetch from Yandex Foundation Models API
