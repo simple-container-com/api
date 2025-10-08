@@ -110,3 +110,7 @@ func AssistantHeader(str string) string {
 func AssistantEmphasis(str string) string {
 	return color.New(color.FgHiGreen).Sprint(str)
 }
+
+func YellowBold(str string) string {
+	return color.New(color.FgYellow, color.Bold).Sprint(str)
+}

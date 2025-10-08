@@ -7,11 +7,11 @@ import (
 
 // MarkdownRenderer renders markdown text with colors for terminal
 type MarkdownRenderer struct {
-	codeBlockRegex   *regexp.Regexp
-	inlineCodeRegex  *regexp.Regexp
-	boldRegex        *regexp.Regexp
-	headerRegex      *regexp.Regexp
-	listItemRegex    *regexp.Regexp
+	codeBlockRegex  *regexp.Regexp
+	inlineCodeRegex *regexp.Regexp
+	boldRegex       *regexp.Regexp
+	headerRegex     *regexp.Regexp
+	listItemRegex   *regexp.Regexp
 }
 
 // NewMarkdownRenderer creates a new markdown renderer
@@ -102,10 +102,10 @@ func (mr *MarkdownRenderer) renderInline(text string) string {
 
 	// Track all special segments (code and bold)
 	type segment struct {
-		start int
-		end   int
-		isCode bool
-		isBold bool
+		start   int
+		end     int
+		isCode  bool
+		isBold  bool
 		content string
 	}
 	var segments []segment
@@ -113,9 +113,9 @@ func (mr *MarkdownRenderer) renderInline(text string) string {
 	// Find inline code segments
 	for _, match := range mr.inlineCodeRegex.FindAllStringSubmatchIndex(text, -1) {
 		segments = append(segments, segment{
-			start: match[0],
-			end: match[1],
-			isCode: true,
+			start:   match[0],
+			end:     match[1],
+			isCode:  true,
 			content: text[match[2]:match[3]], // captured group
 		})
 	}
@@ -123,9 +123,9 @@ func (mr *MarkdownRenderer) renderInline(text string) string {
 	// Find bold segments
 	for _, match := range mr.boldRegex.FindAllStringSubmatchIndex(text, -1) {
 		segments = append(segments, segment{
-			start: match[0],
-			end: match[1],
-			isBold: true,
+			start:   match[0],
+			end:     match[1],
+			isBold:  true,
 			content: text[match[2]:match[3]], // captured group
 		})
 	}

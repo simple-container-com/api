@@ -172,11 +172,31 @@ func (h *InputHandler) getSubcommandSuggestions(cmdName, subCmd string) []string
 		"help":     {}, // help can take command names
 		"switch":   {"dev", "devops", "general"},
 		"theme":    {"list", "set"},
+		"sessions": {"list", "new", "delete", "config"},
 	}
 
 	// Get subcommands for this command
 	subs, exists := subcommands[cmdName]
 	if !exists {
+		return suggestions
+	}
+
+	// Check for nested subcommands (e.g., "/sessions delete all")
+	// Split subCmd by space to detect nested commands
+	subParts := strings.Fields(subCmd)
+
+	// Special handling for "/sessions delete [all]"
+	if cmdName == "sessions" && len(subParts) > 0 && subParts[0] == "delete" {
+		if len(subParts) == 1 {
+			// Just typed "/sessions delete", suggest "all"
+			suggestions = append(suggestions, "/sessions delete all")
+			return suggestions
+		}
+		// If typing after "delete", filter "all" by prefix
+		if len(subParts) == 2 && strings.HasPrefix("all", subParts[1]) {
+			suggestions = append(suggestions, "/sessions delete all")
+			return suggestions
+		}
 		return suggestions
 	}
 

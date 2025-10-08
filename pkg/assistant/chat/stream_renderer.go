@@ -7,10 +7,10 @@ import (
 
 // StreamRenderer handles real-time markdown rendering for streaming text
 type StreamRenderer struct {
-	inCodeBlock bool
+	inCodeBlock   bool
 	codeBlockLang string
-	buffer string
-	theme *Theme
+	buffer        string
+	theme         *Theme
 }
 
 // NewStreamRenderer creates a new stream renderer
@@ -89,7 +89,7 @@ func (sr *StreamRenderer) renderInlineLine(line string) string {
 			if ch == '`' {
 				if inCode {
 					// End of code
-					result.WriteString(sr.theme.ApplyCode(line[lastIdx:i+1]))
+					result.WriteString(sr.theme.ApplyCode(line[lastIdx : i+1]))
 					inCode = false
 					lastIdx = i + 1
 				} else {

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,6 +42,7 @@ type ChatInterface struct {
 	toolCallHandler  *ToolCallHandler
 	markdownRenderer *MarkdownRenderer
 	streamRenderer   *StreamRenderer
+	sessionManager   *SessionManager
 }
 
 // NewChatInterface creates a new chat interface
@@ -115,6 +117,17 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		return nil, fmt.Errorf("failed to initialize unified command handler: %w", err)
 	}
 
+	// Initialize session manager
+	sessionManager, err := NewSessionManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize session manager: %w", err)
+	}
+
+	// Load config to get max sessions setting
+	if cfg, err := config.Load(); err == nil && cfg.MaxSavedSessions > 0 {
+		sessionManager.SetMaxSessions(cfg.MaxSavedSessions)
+	}
+
 	// Create chat interface
 	chat := &ChatInterface{
 		llm:              provider,
@@ -127,6 +140,7 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		config:           sessionConfig,
 		markdownRenderer: NewMarkdownRenderer(),
 		streamRenderer:   NewStreamRenderer(),
+		sessionManager:   sessionManager,
 	}
 
 	// Get available resources for context
@@ -165,6 +179,11 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 
 	// Ensure cleanup on exit
 	defer c.cleanup()
+
+	// Prompt for session selection or creation
+	if err := c.selectOrCreateSession(); err != nil {
+		return fmt.Errorf("failed to setup session: %w", err)
+	}
 
 	c.printWelcome()
 
@@ -222,8 +241,22 @@ func (c *ChatInterface) chatLoop(ctx context.Context) error {
 			continue
 		}
 
+		// Save message to session history
+		if err := c.sessionManager.AddMessage(input); err != nil {
+			// Log but don't fail on history save errors
+			fmt.Printf("%s Failed to save to history: %v\n", color.YellowString("⚠️"), err)
+		}
+
 		// Check for exit commands
 		if input == "exit" || input == "quit" || input == "/exit" {
+			// Save session before exiting
+			if err := c.sessionManager.SaveSession(c.sessionManager.GetCurrentSession()); err != nil {
+				fmt.Printf("%s Failed to save session: %v\n", color.YellowString("⚠️"), err)
+			}
+			// Cleanup old sessions
+			if err := c.sessionManager.CleanupOldSessions(); err != nil {
+				fmt.Printf("%s Failed to cleanup old sessions: %v\n", color.YellowString("⚠️"), err)
+			}
 			fmt.Println(color.GreenString("👋 Goodbye! Happy coding with Simple Container!"))
 			break
 		}
@@ -541,6 +574,117 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 	return nil
 }
 
+// selectOrCreateSession prompts user to select or create a session
+func (c *ChatInterface) selectOrCreateSession() error {
+	sessions, err := c.sessionManager.ListSessions()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println(color.BlueBold("📚 Session History"))
+	fmt.Println()
+
+	if len(sessions) == 0 {
+		fmt.Println(color.GrayString("No previous sessions found. Starting a new session..."))
+		session := c.sessionManager.CreateNewSession(c.config.ProjectPath, c.config.Mode)
+
+		// Initialize input handler with session history
+		if c.inputHandler == nil {
+			c.inputHandler = NewInputHandler(c.commands)
+		}
+		c.inputHandler.history = session.CommandHistory
+
+		return nil
+	}
+
+	// Show available sessions
+	fmt.Println(color.CyanString("Available sessions:"))
+	fmt.Println()
+	for i, session := range sessions {
+		age := time.Since(session.LastUsedAt)
+		ageStr := formatDuration(age)
+
+		projectName := filepath.Base(session.ProjectPath)
+		if projectName == "" || projectName == "." {
+			projectName = "no project"
+		}
+
+		fmt.Printf("  %d. %s\n", i+1, color.GreenString(session.Title))
+		fmt.Printf("     %s | %s | %d messages | %s ago\n",
+			color.YellowString(session.Mode),
+			color.CyanString(projectName),
+			len(session.ConversationHistory),
+			ageStr)
+	}
+	fmt.Println()
+	fmt.Printf("  %d. %s\n", len(sessions)+1, color.GreenString("Start a new session"))
+	fmt.Println()
+
+	// Read user choice
+	input, err := c.inputHandler.ReadSimple(color.CyanString(fmt.Sprintf("Select session [1-%d]: ", len(sessions)+1)))
+	if err != nil {
+		return err
+	}
+
+	choice, err := strconv.Atoi(strings.TrimSpace(input))
+	if err != nil || choice < 1 || choice > len(sessions)+1 {
+		fmt.Println(color.YellowString("Invalid choice, starting new session..."))
+		session := c.sessionManager.CreateNewSession(c.config.ProjectPath, c.config.Mode)
+		c.inputHandler.history = session.CommandHistory
+		return nil
+	}
+
+	if choice == len(sessions)+1 {
+		// Create new session
+		session := c.sessionManager.CreateNewSession(c.config.ProjectPath, c.config.Mode)
+		c.inputHandler.history = session.CommandHistory
+		fmt.Println(color.GreenString("✨ Started new session"))
+	} else {
+		// Load existing session
+		session, err := c.sessionManager.LoadSession(sessions[choice-1].ID)
+		if err != nil {
+			return fmt.Errorf("failed to load session: %w", err)
+		}
+		c.inputHandler.history = session.CommandHistory
+
+		// Restore conversation context from session
+		c.restoreConversationContext(session)
+
+		fmt.Printf("%s Resumed session: %s (%d messages in context)\n",
+			color.GreenString("✅"), session.Title, len(session.ConversationHistory))
+	}
+
+	fmt.Println()
+	return nil
+}
+
+// formatDuration formats a duration in human-readable form
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return "just now"
+	}
+	if d < time.Hour {
+		mins := int(d.Minutes())
+		if mins == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", mins)
+	}
+	if d < 24*time.Hour {
+		hours := int(d.Hours())
+		if hours == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", hours)
+	}
+	days := int(d.Hours() / 24)
+	if days == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", days)
+}
+
 // printWelcome displays the welcome message
 func (c *ChatInterface) printWelcome() {
 	fmt.Println()
@@ -696,6 +840,32 @@ func (c *ChatInterface) addMessage(role, content string) {
 
 	c.context.History = append(c.context.History, message)
 	c.context.UpdatedAt = time.Now()
+
+	// Save to session history
+	if err := c.sessionManager.AddConversationMessage(role, content, message.Metadata); err != nil {
+		// Log but don't fail on save errors
+		fmt.Printf("%s Failed to save message to session: %v\n", color.YellowString("⚠️"), err)
+	}
+}
+
+// restoreConversationContext restores conversation history from session
+func (c *ChatInterface) restoreConversationContext(session *SessionHistory) {
+	// Clear current history
+	c.context.History = make([]Message, 0, len(session.ConversationHistory))
+
+	// Convert SavedMessage to Message
+	for _, savedMsg := range session.ConversationHistory {
+		message := Message{
+			Role:      savedMsg.Role,
+			Content:   savedMsg.Content,
+			Timestamp: savedMsg.Timestamp,
+			Metadata:  savedMsg.Metadata,
+		}
+		if message.Metadata == nil {
+			message.Metadata = make(map[string]interface{})
+		}
+		c.context.History = append(c.context.History, message)
+	}
 }
 
 // GetContext returns the current conversation context

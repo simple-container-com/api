@@ -8,12 +8,12 @@ import (
 
 // Theme represents a color theme for the chat interface
 type Theme struct {
-	Name           string
-	Description    string
-	TextColor      *color.Color
-	CodeColor      *color.Color
-	HeaderColor    *color.Color
-	EmphasisColor  *color.Color
+	Name          string
+	Description   string
+	TextColor     *color.Color
+	CodeColor     *color.Color
+	HeaderColor   *color.Color
+	EmphasisColor *color.Color
 }
 
 var (

@@ -26,9 +26,10 @@ type ProviderConfig struct {
 
 // Config represents the assistant configuration
 type Config struct {
-	DefaultProvider string                    `json:"default_provider,omitempty"` // Last used or preferred provider
-	Providers       map[string]ProviderConfig `json:"providers,omitempty"`        // Provider-specific configs
-	Preferences     map[string]string         `json:"preferences,omitempty"`      // General preferences
+	DefaultProvider  string                    `json:"default_provider,omitempty"`   // Last used or preferred provider
+	Providers        map[string]ProviderConfig `json:"providers,omitempty"`          // Provider-specific configs
+	Preferences      map[string]string         `json:"preferences,omitempty"`        // General preferences
+	MaxSavedSessions int                       `json:"max_saved_sessions,omitempty"` // Maximum number of sessions to keep (default: 5)
 
 	// Deprecated fields (kept for backward compatibility)
 	OpenAIAPIKey string `json:"openai_api_key,omitempty"`
