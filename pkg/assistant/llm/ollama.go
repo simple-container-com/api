@@ -49,21 +49,8 @@ func (p *OllamaProvider) Configure(config Config) error {
 		config.Model = "llama2"
 	}
 
-	// Create Ollama client (using OpenAI client with custom base URL)
-	opts := []openai.Option{
-		openai.WithBaseURL(baseURL),
-		openai.WithModel(config.Model),
-	}
-
-	// Ollama doesn't require an API key, but langchaingo requires one
-	// Use a dummy key if not provided
-	if config.APIKey == "" {
-		opts = append(opts, openai.WithToken("ollama"))
-	} else {
-		opts = append(opts, openai.WithToken(config.APIKey))
-	}
-
-	llm, err := openai.New(opts...)
+	// Create Ollama client using base provider helper (eliminates 15+ lines of duplication)
+	llm, err := p.CreateOpenAICompatibleClient(config, baseURL, false) // Ollama doesn't require API key
 	if err != nil {
 		return fmt.Errorf("failed to create Ollama client: %w", err)
 	}

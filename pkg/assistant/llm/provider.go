@@ -3,8 +3,12 @@ package llm
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/openai"
 )
 
 // Message represents a single message in a conversation
@@ -271,6 +275,105 @@ func (b *BaseProvider) EstimateTokens(text string) int {
 // SetConfigured marks the provider as configured
 func (b *BaseProvider) SetConfigured(configured bool) {
 	b.configured = configured
+}
+
+// LangChainGo Helper Methods - Eliminates duplication across OpenAI-compatible providers
+
+// ConvertMessagesToLangChainGo converts our Message format to langchaingo MessageContent
+// This eliminates the 15+ line duplication across OpenAI, DeepSeek, Ollama, Yandex
+func (b *BaseProvider) ConvertMessagesToLangChainGo(messages []Message) []llms.MessageContent {
+	llmMessages := make([]llms.MessageContent, 0, len(messages))
+
+	for _, msg := range messages {
+		var msgType llms.ChatMessageType
+		switch strings.ToLower(msg.Role) {
+		case "user":
+			msgType = llms.ChatMessageTypeHuman
+		case "assistant":
+			msgType = llms.ChatMessageTypeAI
+		case "system":
+			msgType = llms.ChatMessageTypeSystem
+		default:
+			msgType = llms.ChatMessageTypeHuman
+		}
+
+		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
+	}
+
+	return llmMessages
+}
+
+// CreateOpenAICompatibleClient creates an OpenAI-compatible client with standard options
+// This eliminates duplication across DeepSeek, Ollama, Yandex providers
+func (b *BaseProvider) CreateOpenAICompatibleClient(config Config, baseURL string, requiresAPIKey bool) (*openai.LLM, error) {
+	opts := []openai.Option{
+		openai.WithModel(config.Model),
+	}
+
+	// Add base URL if specified (for providers like DeepSeek, Yandex)
+	if baseURL != "" {
+		opts = append(opts, openai.WithBaseURL(baseURL))
+	}
+
+	// Handle API key requirements (Ollama doesn't require real keys)
+	if requiresAPIKey {
+		if config.APIKey == "" {
+			return nil, fmt.Errorf("API key is required for %s", b.name)
+		}
+		opts = append(opts, openai.WithToken(config.APIKey))
+	} else {
+		// Use dummy key for providers like Ollama
+		apiKey := config.APIKey
+		if apiKey == "" {
+			apiKey = "dummy-key"
+		}
+		opts = append(opts, openai.WithToken(apiKey))
+	}
+
+	return openai.New(opts...)
+}
+
+// CreateStandardHTTPClient creates an HTTP client with standard timeout
+// This eliminates duplication across all providers that make HTTP calls
+func (b *BaseProvider) CreateStandardHTTPClient() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
+// BuildChatResponse creates a standardized ChatResponse
+// This eliminates response construction duplication
+func (b *BaseProvider) BuildChatResponse(content, model, finishReason string, usage TokenUsage, toolCalls []ToolCall, metadata map[string]string) *ChatResponse {
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+
+	// Ensure provider is set
+	metadata["provider"] = b.name
+
+	return &ChatResponse{
+		Content:      content,
+		Usage:        usage,
+		Model:        model,
+		FinishReason: finishReason,
+		Metadata:     metadata,
+		GeneratedAt:  time.Now(),
+		ToolCalls:    toolCalls,
+	}
+}
+
+// CalculateUsageWithCost calculates token usage with cost
+func (b *BaseProvider) CalculateUsageWithCost(promptTokens, completionTokens int, costCalculator func(string, int) float64, model string) TokenUsage {
+	totalTokens := promptTokens + completionTokens
+	cost := 0.0
+	if costCalculator != nil {
+		cost = costCalculator(model, totalTokens)
+	}
+
+	return TokenUsage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		Cost:             cost,
+	}
 }
 
 // Capabilities describes what a provider can do
