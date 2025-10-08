@@ -553,6 +553,9 @@ func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
 		return nil
 	}
 
+	// Trim context if needed before streaming continuation (use 6000 tokens to leave room for response)
+	c.trimContextIfNeeded(6000)
+
 	// Stream the continuation response
 	response, err := c.llm.StreamChat(ctx, c.context.History, callback)
 	if err != nil {
@@ -575,6 +578,9 @@ func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
 
 // handleNonStreamingContinuation continues LLM generation in non-streaming mode after tool execution
 func (c *ChatInterface) handleNonStreamingContinuation(ctx context.Context) error {
+	// Trim context if needed before non-streaming continuation (use 6000 tokens to leave room for response)
+	c.trimContextIfNeeded(6000)
+
 	// Get the continuation response
 	response, err := c.llm.Chat(ctx, c.context.History)
 	if err != nil {
@@ -1003,6 +1009,62 @@ func (c *ChatInterface) addMessage(role, content string) {
 	if err := c.sessionManager.AddConversationMessage(role, content, message.Metadata); err != nil {
 		// Log but don't fail on save errors
 		fmt.Printf("%s Failed to save message to session: %v\n", color.YellowString("⚠️"), err)
+	}
+}
+
+// trimContextIfNeeded trims old messages from history if context is too large
+// Keeps system messages and recent messages within token limit
+func (c *ChatInterface) trimContextIfNeeded(maxTokens int) {
+	if len(c.context.History) <= 2 {
+		return // Keep at least system message and one exchange
+	}
+
+	// Estimate tokens (rough estimate: ~4 chars per token)
+	estimatedTokens := 0
+	for _, msg := range c.context.History {
+		estimatedTokens += len(msg.Content) / 4
+	}
+
+	if estimatedTokens <= maxTokens {
+		return // Within limit
+	}
+
+	// Keep system message(s) at the beginning
+	systemMessages := []Message{}
+	otherMessages := []Message{}
+
+	for _, msg := range c.context.History {
+		if msg.Role == "system" {
+			systemMessages = append(systemMessages, msg)
+		} else {
+			otherMessages = append(otherMessages, msg)
+		}
+	}
+
+	// Calculate how many recent messages we can keep
+	// Reserve 50% for system messages
+	maxOtherTokens := maxTokens / 2
+
+	// Keep recent messages that fit in the limit
+	keptMessages := []Message{}
+	currentTokens := 0
+
+	// Start from the end (most recent messages)
+	for i := len(otherMessages) - 1; i >= 0; i-- {
+		msgTokens := len(otherMessages[i].Content) / 4
+		if currentTokens+msgTokens > maxOtherTokens {
+			break
+		}
+		keptMessages = append([]Message{otherMessages[i]}, keptMessages...)
+		currentTokens += msgTokens
+	}
+
+	// Rebuild history: system messages + recent messages
+	c.context.History = append(systemMessages, keptMessages...)
+
+	if len(keptMessages) < len(otherMessages) {
+		fmt.Printf("%s Trimmed context: kept %d of %d messages (estimated %d tokens)\n",
+			color.YellowString("⚠️"), len(keptMessages), len(otherMessages), currentTokens)
 	}
 }
 
