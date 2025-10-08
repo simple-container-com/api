@@ -203,6 +203,17 @@ func (c *ChatInterface) registerCommands() {
 		Args:        []CommandArg{},
 	}
 
+	// Search docs command
+	c.commands["search_docs"] = &ChatCommand{
+		Name:        "search_docs",
+		Description: "Search Simple Container documentation for specific information",
+		Usage:       "/search_docs <query>",
+		Handler:     c.handleSearchDocs,
+		Args: []CommandArg{
+			{Name: "query", Type: "string", Required: true, Description: "Search query for documentation"},
+		},
+	}
+
 	// Theme command
 	c.commands["theme"] = &ChatCommand{
 		Name:        "theme",
@@ -2188,12 +2199,77 @@ func (c *ChatInterface) handleGetSupportedResources(ctx context.Context, args []
 	message += "**Usage:**\n"
 	message += "- These resources can be referenced in `client.yaml` under the `uses` section\n"
 	message += "- Format: `uses: [resource-type, another-resource]`\n"
-	message += "- Resources are managed by parent stacks in `server.yaml`\n"
-	message += "- Use `/setup` to generate configuration with detected resources"
 
 	return &CommandResult{
 		Success: true,
 		Message: message,
+	}, nil
+}
+
+// handleSearchDocs searches Simple Container documentation
+func (c *ChatInterface) handleSearchDocs(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) == 0 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Usage: /search_docs <query>\nExample: /search_docs mongodb configuration",
+		}, nil
+	}
+
+	query := strings.Join(args, " ")
+
+	// Check if embeddings are available
+	if c.embeddings == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Documentation search is not available - embeddings database not loaded",
+		}, nil
+	}
+
+	// Search for relevant documentation (limit to top 5 results for tool calls)
+	results, err := embeddings.SearchDocumentation(c.embeddings, query, 5)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to search documentation: %v", err),
+		}, nil
+	}
+
+	if len(results) == 0 {
+		return &CommandResult{
+			Success: true,
+			Message: fmt.Sprintf("🔍 No documentation found for query: \"%s\"", query),
+		}, nil
+	}
+
+	// Format results for LLM consumption
+	var response strings.Builder
+	response.WriteString(fmt.Sprintf("📚 **Found %d documentation results for \"%s\"**\n\n", len(results), query))
+
+	for i, result := range results {
+		score := int(result.Score * 100)
+		title := "Unknown"
+		if titleInterface, exists := result.Metadata["title"]; exists {
+			if titleStr, ok := titleInterface.(string); ok {
+				title = titleStr
+			}
+		}
+
+		response.WriteString(fmt.Sprintf("**%d. %s** (%d%% relevance)\n", i+1, title, score))
+
+		// Include relevant content snippet (truncated to 600 chars for tool response)
+		content := result.Content
+		if len(content) > 600 {
+			content = content[:600] + "..."
+		}
+
+		response.WriteString(fmt.Sprintf("```\n%s\n```\n\n", content))
+	}
+
+	response.WriteString("💡 **Use this information to provide accurate, specific guidance based on Simple Container documentation.**")
+
+	return &CommandResult{
+		Success: true,
+		Message: response.String(),
 	}, nil
 }
 

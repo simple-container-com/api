@@ -473,8 +473,11 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatResponse) error {
 	fmt.Printf("%s Executing requested actions...\n", color.CyanString("🔧"))
 
-	// Execute each tool call
-	var executedActions []string
+	// Add the assistant message with tool calls to conversation history
+	// This is needed for the LLM to see what tools it called
+	c.addMessage("assistant", response.Content)
+
+	// Execute each tool call and add results to conversation
 	for _, toolCall := range response.ToolCalls {
 		fmt.Printf("  • Running %s...\n", color.YellowString(toolCall.Function.Name))
 
@@ -482,6 +485,8 @@ func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatR
 		result, err := c.toolCallHandler.ExecuteToolCall(ctx, toolCall, c.context)
 		if err != nil {
 			fmt.Printf("    ❌ Error: %v\n", err)
+			// Add error result to conversation for LLM context
+			c.addMessage("tool", fmt.Sprintf("Tool call %s failed: %v", toolCall.Function.Name, err))
 			continue
 		}
 
@@ -497,27 +502,89 @@ func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatR
 			c.handleGeneratedFiles(result)
 		}
 
-		// Format action for conversation summary
-		actionDescription := c.toolCallHandler.FormatToolCallForConversation(toolCall, result)
-		executedActions = append(executedActions, actionDescription)
+		// Add tool result to conversation history for LLM context
+		toolResultMessage := c.toolCallHandler.FormatToolCallResult(toolCall, result)
+		c.addMessage("tool", toolResultMessage)
 	}
 
-	// Create a natural language summary of what was executed
-	var summary strings.Builder
-	if len(executedActions) == 1 {
-		summary.WriteString(executedActions[0])
+	// Now continue LLM generation with the tool results in context
+	fmt.Printf("\n%s Continuing response with tool results...\n", color.CyanString("🤖"))
+
+	// Make another LLM call to continue generation with tool results
+	if c.llm.GetCapabilities().SupportsStreaming {
+		return c.handleStreamingContinuation(ctx)
 	} else {
-		summary.WriteString("I've completed the following actions:\n")
-		for i, action := range executedActions {
-			summary.WriteString(fmt.Sprintf("%d. %s\n", i+1, action))
+		return c.handleNonStreamingContinuation(ctx)
+	}
+}
+
+// handleStreamingContinuation continues LLM generation in streaming mode after tool execution
+func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
+	var firstChunk bool = true
+	var fullResponse string
+
+	// Create streaming callback (following the same pattern as original)
+	callback := func(chunk llm.StreamChunk) error {
+		if firstChunk {
+			firstChunk = false
 		}
+
+		// Process chunk with stream renderer for colored output (use Delta, not Content!)
+		colored := c.streamRenderer.ProcessChunk(chunk.Delta)
+		fmt.Print(colored)
+		fullResponse += chunk.Delta
+
+		if chunk.IsComplete {
+			// Flush any remaining buffered content
+			fmt.Print(c.streamRenderer.Flush())
+			fmt.Print("\n") // New line after complete response
+		}
+
+		return nil
 	}
 
-	// Add the summary to conversation as assistant response
-	c.addMessage("assistant", summary.String())
+	// Stream the continuation response
+	response, err := c.llm.StreamChat(ctx, c.context.History, callback)
+	if err != nil {
+		return fmt.Errorf("LLM streaming continuation failed: %w", err)
+	}
 
-	// Display the summary to user with markdown rendering
-	rendered := c.markdownRenderer.Render(summary.String())
+	// Handle tool calls if present in continuation response
+	if len(response.ToolCalls) > 0 {
+		return c.handleToolCalls(ctx, response)
+	}
+
+	// Add continuation response to context (use accumulated fullResponse, not response.Content)
+	c.addMessage("assistant", fullResponse)
+
+	// Update context
+	c.context.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// handleNonStreamingContinuation continues LLM generation in non-streaming mode after tool execution
+func (c *ChatInterface) handleNonStreamingContinuation(ctx context.Context) error {
+	// Get the continuation response
+	response, err := c.llm.Chat(ctx, c.context.History)
+	if err != nil {
+		return fmt.Errorf("LLM continuation failed: %w", err)
+	}
+
+	// Handle tool calls if present in continuation response
+	if len(response.ToolCalls) > 0 {
+		return c.handleToolCalls(ctx, response)
+	}
+
+	// Add continuation response to context (use full response or response content)
+	responseContent := response.Content
+	if responseContent == "" && len(response.ToolCalls) == 0 {
+		responseContent = "I've completed the requested actions."
+	}
+	c.addMessage("assistant", responseContent)
+
+	// Display continuation response with markdown rendering
+	rendered := c.markdownRenderer.Render(responseContent)
 	fmt.Printf("\n%s %s\n", color.BlueString("🤖"), rendered)
 
 	// Update context

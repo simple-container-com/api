@@ -69,6 +69,8 @@ func (h *ToolCallHandler) generateParameterSchema(command *ChatCommand) map[stri
 			argSchema["enum"] = []string{"dev", "devops"}
 		case "target":
 			argSchema["enum"] = []string{"dev", "devops", "cloud-compose", "static", "single-image"}
+		case "query":
+			argSchema["description"] = "Search query for documentation or analysis"
 		case "full":
 			argSchema["type"] = "boolean"
 			argSchema["description"] = "Run comprehensive analysis (slower but thorough)"
@@ -130,6 +132,16 @@ func (h *ToolCallHandler) convertArgumentsToArgs(functionName string, arguments 
 		// Also check legacy "mode" parameter for backward compatibility
 		if targetVal, exists := arguments["mode"]; exists {
 			if strVal, ok := targetVal.(string); ok {
+				args = append(args, strVal)
+			}
+		}
+		return args
+	}
+
+	// Special handling for search_docs command - it expects query as positional argument
+	if functionName == "search_docs" {
+		if queryVal, exists := arguments["query"]; exists {
+			if strVal, ok := queryVal.(string); ok {
 				args = append(args, strVal)
 			}
 		}
@@ -206,6 +218,18 @@ func (h *ToolCallHandler) FormatToolCallForConversation(toolCall llm.ToolCall, r
 			return "I've completed a comprehensive analysis of your project and updated the context with the latest findings."
 		}
 		return fmt.Sprintf("I tried to analyze your project but ran into a problem: %s", result.Message)
+
+	case "switch":
+		if result.Success {
+			return "I've successfully updated your preferences as requested."
+		}
+		return fmt.Sprintf("I tried to switch settings but encountered an error: %s", result.Message)
+
+	case "search_docs":
+		if result.Success {
+			return "I've retrieved relevant documentation to help answer your question. Let me use this information to provide specific guidance."
+		}
+		return fmt.Sprintf("I tried to search the documentation but encountered an issue: %s", result.Message)
 
 	default:
 		if result.Success {
