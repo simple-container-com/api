@@ -303,6 +303,52 @@ func (b *BaseProvider) ConvertMessagesToLangChainGo(messages []Message) []llms.M
 	return llmMessages
 }
 
+// ConvertToolsToLangChainGo converts our Tool format to langchaingo Tool format
+// This eliminates tool conversion duplication across providers
+func (b *BaseProvider) ConvertToolsToLangChainGo(tools []Tool) []llms.Tool {
+	if len(tools) == 0 {
+		return nil
+	}
+
+	langchainTools := make([]llms.Tool, len(tools))
+	for i, tool := range tools {
+		langchainTools[i] = llms.Tool{
+			Type: "function",
+			Function: &llms.FunctionDefinition{
+				Name:        tool.Function.Name,
+				Description: tool.Function.Description,
+				Parameters:  tool.Function.Parameters,
+			},
+		}
+	}
+
+	return langchainTools
+}
+
+// DefaultStreamChatWithTools provides a standard implementation for providers that don't have native streaming+tools
+// This eliminates the duplicate fallback pattern across Anthropic, DeepSeek, Ollama, and Yandex providers
+func (b *BaseProvider) DefaultStreamChatWithTools(
+	ctx context.Context,
+	messages []Message,
+	tools []Tool,
+	callback StreamCallback,
+	chatWithToolsFunc func(context.Context, []Message, []Tool) (*ChatResponse, error),
+	streamChatFunc func(context.Context, []Message, StreamCallback) (*ChatResponse, error),
+) (*ChatResponse, error) {
+	// Use base validation
+	if err := b.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
+	// Standard fallback pattern: if tools are provided, use non-streaming with tools
+	if len(tools) > 0 {
+		return b.FallbackToNonStreaming(ctx, messages, tools, callback, chatWithToolsFunc)
+	}
+
+	// No tools, use regular streaming
+	return streamChatFunc(ctx, messages, callback)
+}
+
 // CreateOpenAICompatibleClient creates an OpenAI-compatible client with standard options
 // This eliminates duplication across DeepSeek, Ollama, Yandex providers
 func (b *BaseProvider) CreateOpenAICompatibleClient(config Config, baseURL string, requiresAPIKey bool) (*openai.LLM, error) {

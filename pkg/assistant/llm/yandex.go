@@ -202,25 +202,8 @@ func (p *YandexProvider) StreamChat(ctx context.Context, messages []Message, cal
 
 // StreamChatWithTools sends messages to Yandex with tool support and streams the response via callback
 func (p *YandexProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
-	// Use base validation
-	if err := p.ValidateConfiguration(); err != nil {
-		return nil, err
-	}
-
-	// TODO: Implement proper tool support for Yandex
-	// When implementing, use p.CreateStreamingCallback() to handle JSON filtering:
-	//
-	// var fullContent strings.Builder
-	// streamCallback := p.CreateStreamingCallback(callback, &fullContent)
-	// ... in streaming API call use streamCallback ...
-	//
-	// For now, use base provider's standardized fallback
-	if len(tools) > 0 {
-		return p.FallbackToNonStreaming(ctx, messages, tools, callback, p.ChatWithTools)
-	}
-
-	// No tools, use regular streaming
-	return p.StreamChat(ctx, messages, callback)
+	// Use base provider's standardized implementation (eliminates duplicate pattern)
+	return p.DefaultStreamChatWithTools(ctx, messages, tools, callback, p.ChatWithTools, p.StreamChat)
 }
 
 // GetCapabilities returns Yandex capabilities

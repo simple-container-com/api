@@ -107,19 +107,72 @@ func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, 
 		return nil, err
 	}
 
-	// TODO: Implement OpenAI function calling with tools
-	// For now, fallback to regular chat (tools ignored)
-	response, err := p.Chat(ctx, messages)
+	// Convert messages using base provider helper
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+
+	// Convert tools using base provider helper (eliminates duplication)
+	langchainTools := p.ConvertToolsToLangChainGo(tools)
+
+	// Build options
+	options := []llms.CallOption{
+		llms.WithMaxTokens(p.config.MaxTokens),
+		llms.WithTemperature(float64(p.config.Temperature)),
+	}
+
+	// Add tools if provided
+	if len(langchainTools) > 0 {
+		options = append(options, llms.WithTools(langchainTools))
+	}
+
+	// Call OpenAI with tools
+	startTime := time.Now()
+	response, err := p.client.GenerateContent(ctx, llmMessages, options...)
 	if err != nil {
-		return nil, err
+		return nil, enhanceOpenAIError(err)
 	}
 
-	// Ensure ToolCalls is initialized
-	if response.ToolCalls == nil {
-		response.ToolCalls = []ToolCall{}
+	// Extract response content
+	var content string
+	if len(response.Choices) > 0 {
+		content = response.Choices[0].Content
 	}
 
-	return response, nil
+	// Calculate token usage using base provider helper
+	usage := p.CalculateUsageWithCost(
+		estimateTokens(messagesToString(messages)),
+		estimateTokens(content),
+		calculateOpenAICost,
+		p.model,
+	)
+
+	// Extract tool calls from response if any
+	var toolCalls []ToolCall
+	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
+		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
+		for i, tc := range response.Choices[0].ToolCalls {
+			// Parse function arguments
+			var args map[string]interface{}
+			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
+				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
+			}
+
+			toolCalls[i] = ToolCall{
+				ID:   tc.FunctionCall.Name, // Use function name as ID for now
+				Type: "function",
+				Function: FunctionCall{
+					Name:      tc.FunctionCall.Name,
+					Arguments: args,
+				},
+			}
+		}
+	}
+
+	// Build response using base provider helper
+	metadata := map[string]string{
+		"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+	}
+
+	return p.BuildChatResponse(content, p.model, "stop", usage, toolCalls, metadata), nil
 }
 
 // StreamChat sends messages to OpenAI and streams the response via callback
@@ -143,21 +196,8 @@ func (p *OpenAIProvider) StreamChatWithTools(ctx context.Context, messages []Mes
 	var completionTokens int
 	toolFilter := NewToolCallFilter() // Provider-agnostic tool call filtering
 
-	// Convert tools to langchaingo format if provided
-	var langchainTools []llms.Tool
-	if len(tools) > 0 {
-		langchainTools = make([]llms.Tool, len(tools))
-		for i, tool := range tools {
-			langchainTools[i] = llms.Tool{
-				Type: "function",
-				Function: &llms.FunctionDefinition{
-					Name:        tool.Function.Name,
-					Description: tool.Function.Description,
-					Parameters:  tool.Function.Parameters,
-				},
-			}
-		}
-	}
+	// Convert tools using base provider helper (eliminates duplication)
+	langchainTools := p.ConvertToolsToLangChainGo(tools)
 
 	// Build options
 	options := []llms.CallOption{
