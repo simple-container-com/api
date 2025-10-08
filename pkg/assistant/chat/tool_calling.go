@@ -67,6 +67,8 @@ func (h *ToolCallHandler) generateParameterSchema(command *ChatCommand) map[stri
 		switch arg.Name {
 		case "mode":
 			argSchema["enum"] = []string{"dev", "devops"}
+		case "target":
+			argSchema["enum"] = []string{"dev", "devops", "cloud-compose", "static", "single-image"}
 		case "full":
 			argSchema["type"] = "boolean"
 			argSchema["description"] = "Run comprehensive analysis (slower but thorough)"
@@ -118,10 +120,16 @@ func (h *ToolCallHandler) ExecuteToolCall(ctx context.Context, toolCall llm.Tool
 func (h *ToolCallHandler) convertArgumentsToArgs(functionName string, arguments map[string]interface{}) []string {
 	args := []string{}
 
-	// Special handling for switch command - it expects mode as positional argument
+	// Special handling for switch command - it expects target as positional argument
 	if functionName == "switch" {
-		if modeVal, exists := arguments["mode"]; exists {
-			if strVal, ok := modeVal.(string); ok {
+		if targetVal, exists := arguments["target"]; exists {
+			if strVal, ok := targetVal.(string); ok {
+				args = append(args, strVal)
+			}
+		}
+		// Also check legacy "mode" parameter for backward compatibility
+		if targetVal, exists := arguments["mode"]; exists {
+			if strVal, ok := targetVal.(string); ok {
 				args = append(args, strVal)
 			}
 		}

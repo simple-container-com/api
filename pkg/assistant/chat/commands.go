@@ -72,11 +72,11 @@ func (c *ChatInterface) registerCommands() {
 
 	c.commands["switch"] = &ChatCommand{
 		Name:        "switch",
-		Description: "Switch between dev and devops modes",
-		Usage:       "/switch <mode>",
+		Description: "Switch conversation mode (dev/devops) or change deployment type preference for new setups (cloud-compose/static/single-image)",
+		Usage:       "/switch <mode_or_deployment_type>",
 		Handler:     c.handleSwitch,
 		Args: []CommandArg{
-			{Name: "mode", Type: "string", Required: true, Description: "Mode to switch to (dev|devops)"},
+			{Name: "target", Type: "string", Required: true, Description: "Mode (dev|devops) or deployment type preference (cloud-compose|static|single-image)"},
 		},
 	}
 
@@ -166,7 +166,7 @@ func (c *ChatInterface) registerCommands() {
 
 	c.commands["modifystack"] = &ChatCommand{
 		Name:        "modifystack",
-		Description: "Modify existing stack configuration",
+		Description: "Modify existing stack configuration in client.yaml files (not for changing deployment preferences - use /switch for that)",
 		Usage:       "/modifystack <stack_name> <key=value> [key=value...]",
 		Handler:     c.handleModifyStack,
 		Args: []CommandArg{
@@ -504,47 +504,96 @@ func (c *ChatInterface) handleSetup(ctx context.Context, args []string, context 
 	}, nil
 }
 
-// handleSwitch switches between modes
+// handleSwitch switches between modes or deployment types
 func (c *ChatInterface) handleSwitch(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
 	if len(args) == 0 {
 		return &CommandResult{
 			Success: false,
-			Message: "Please specify a mode: dev or devops",
+			Message: "Please specify a mode (dev|devops) or deployment type (cloud-compose|static|single-image)",
 		}, nil
 	}
 
-	newMode := strings.ToLower(args[0])
-	if newMode != "dev" && newMode != "devops" && newMode != "developer" {
+	target := strings.ToLower(args[0])
+
+	// Check if it's a mode switch
+	validModes := []string{"dev", "devops", "developer"}
+	isMode := false
+	for _, mode := range validModes {
+		if target == mode {
+			isMode = true
+			break
+		}
+	}
+
+	// Check if it's a deployment type switch
+	validDeploymentTypes := []string{"cloud-compose", "static", "single-image"}
+	isDeploymentType := false
+	for _, deployType := range validDeploymentTypes {
+		if target == deployType {
+			isDeploymentType = true
+			break
+		}
+	}
+
+	if !isMode && !isDeploymentType {
 		return &CommandResult{
 			Success: false,
-			Message: "Invalid mode. Use 'dev' or 'devops'",
+			Message: "Invalid target. Use mode (dev|devops) or deployment type (cloud-compose|static|single-image)",
 		}, nil
 	}
 
-	if newMode == "developer" {
-		newMode = "dev"
-	}
+	if isMode {
+		// Handle mode switching
+		newMode := target
+		if newMode == "developer" {
+			newMode = "dev"
+		}
 
-	oldMode := context.Mode
-	context.Mode = newMode
+		oldMode := context.Mode
+		context.Mode = newMode
 
-	// Update system prompt
-	contextualPrompt := prompts.GenerateContextualPrompt(newMode, context.ProjectInfo, context.Resources)
-	if len(c.context.History) > 0 {
-		c.context.History[0].Content = contextualPrompt
-	}
+		// Update system prompt
+		contextualPrompt := prompts.GenerateContextualPrompt(newMode, context.ProjectInfo, context.Resources)
+		if len(c.context.History) > 0 {
+			c.context.History[0].Content = contextualPrompt
+		}
 
-	message := fmt.Sprintf("Switched from %s mode to %s mode", oldMode, newMode)
-	if newMode == "dev" {
-		message += "\n\n🚀 Developer Mode: I'll help you set up your application with client.yaml, ${project:root}/docker-compose.yaml, and ${project:root}/Dockerfile"
+		return &CommandResult{
+			Success: true,
+			Message: fmt.Sprintf("✅ Switched from %s mode to %s mode", oldMode, newMode),
+		}, nil
 	} else {
-		message += "\n\n🛠️  DevOps Mode: I'll help you set up infrastructure with server.yaml, secrets.yaml, and shared resources"
-	}
+		// Handle deployment type switching
+		if context.Metadata == nil {
+			context.Metadata = make(map[string]interface{})
+		}
 
-	return &CommandResult{
-		Success: true,
-		Message: message,
-	}, nil
+		oldDeploymentType := "unknown"
+		if confirmedType, exists := context.Metadata["confirmed_deployment_type"]; exists {
+			if typeStr, ok := confirmedType.(string); ok {
+				oldDeploymentType = typeStr
+			}
+		}
+
+		// Update deployment type in context
+		context.Metadata["confirmed_deployment_type"] = target
+
+		// Provide description of the new deployment type
+		var description string
+		switch target {
+		case "cloud-compose":
+			description = "🐳 Multi-container deployment (docker-compose based) - Best for: Full-stack apps, databases, complex services"
+		case "static":
+			description = "📄 Static site deployment (HTML/CSS/JS files) - Best for: React, Vue, Angular, static sites"
+		case "single-image":
+			description = "🚀 Single container deployment (serverless/lambda style) - Best for: AWS Lambda, simple APIs, microservices"
+		}
+
+		return &CommandResult{
+			Success: true,
+			Message: fmt.Sprintf("✅ Switched deployment type from %s to %s\n%s\n\n💡 Use `/setup` to regenerate configuration with the new deployment type", oldDeploymentType, target, description),
+		}, nil
+	}
 }
 
 // handleClear clears conversation history
