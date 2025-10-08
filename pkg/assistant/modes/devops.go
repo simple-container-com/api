@@ -688,19 +688,39 @@ variables:
 }
 
 func (d *DevOpsMode) generateSecretsYAML(opts DevOpsSetupOptions) string {
-	yaml := fmt.Sprintf(`# Authentication for cloud providers
-auth:
-  %s:
-    credentials: "${secret:%s-credentials}"`, opts.CloudProvider, opts.CloudProvider)
+	yaml := `schemaVersion: 1.0
+
+# Authentication for cloud providers
+auth:`
 
 	if opts.CloudProvider == "aws" {
-		yaml = `# Authentication for cloud providers
-auth:
+		yaml += `
   aws:
-    account: "123456789012"
-    accessKey: "${secret:aws-access-key}"
-    secretAccessKey: "${secret:aws-secret-key}"
-    region: us-east-1`
+    type: aws-token
+    config:
+      account: "123456789012"
+      accessKey: "${secret:aws-access-key}"
+      secretAccessKey: "${secret:aws-secret-key}"
+      region: us-east-1`
+	} else if opts.CloudProvider == "gcp" {
+		yaml += `
+  gcloud:
+    type: gcp-service-account
+    config:
+      projectId: "${secret:gcp-project-id}"
+      credentials: |
+        {
+          "type": "service_account",
+          "project_id": "${secret:gcp-project-id}",
+          "private_key": "${secret:gcp-private-key}",
+          "client_email": "${secret:gcp-client-email}"
+        }`
+	} else {
+		yaml += fmt.Sprintf(`
+  %s:
+    type: %s-token
+    config:
+      credentials: "${secret:%s-credentials}"`, opts.CloudProvider, opts.CloudProvider, opts.CloudProvider)
 	}
 
 	yaml += "\n\n# Secret values (managed with sc secrets add)\nvalues:"
@@ -1304,17 +1324,44 @@ func (d *DevOpsMode) initSecrets(opts SecretsOptions) error {
 	}
 
 	// Create basic secrets template
-	secretsConfig := map[string]interface{}{
-		"schemaVersion": 1.0,
-		"auth": map[string]interface{}{
-			opts.Provider: map[string]string{
-				"account":         "${AUTH_" + strings.ToUpper(opts.Provider) + "_ACCOUNT}",
-				"accessKey":       "${AUTH_" + strings.ToUpper(opts.Provider) + "_ACCESS_KEY}",
-				"secretAccessKey": "${AUTH_" + strings.ToUpper(opts.Provider) + "_SECRET_ACCESS_KEY}",
-				"region":          "us-east-1",
+	var authConfig map[string]interface{}
+	if opts.Provider == "aws" {
+		authConfig = map[string]interface{}{
+			"aws": map[string]interface{}{
+				"type": "aws-token",
+				"config": map[string]string{
+					"account":         "${secret:aws-account}",
+					"accessKey":       "${secret:aws-access-key}",
+					"secretAccessKey": "${secret:aws-secret-key}",
+					"region":          "us-east-1",
+				},
 			},
-		},
-		"values": make(map[string]string),
+		}
+	} else if opts.Provider == "gcp" {
+		authConfig = map[string]interface{}{
+			"gcloud": map[string]interface{}{
+				"type": "gcp-service-account",
+				"config": map[string]interface{}{
+					"projectId":   "${secret:gcp-project-id}",
+					"credentials": "${secret:gcp-service-account-json}",
+				},
+			},
+		}
+	} else {
+		authConfig = map[string]interface{}{
+			opts.Provider: map[string]interface{}{
+				"type": opts.Provider + "-token",
+				"config": map[string]string{
+					"credentials": "${secret:" + opts.Provider + "-credentials}",
+				},
+			},
+		}
+	}
+
+	secretsConfig := map[string]interface{}{
+		"schemaVersion": "1.0",
+		"auth":          authConfig,
+		"values":        make(map[string]string),
 	}
 
 	// Create directory

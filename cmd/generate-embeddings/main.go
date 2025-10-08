@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	langchainembeddings "github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/llms/openai"
 
@@ -262,6 +265,15 @@ func loadDocuments(ctx context.Context, log logger.Logger, verbose bool) ([]Docu
 				}
 				return nil
 			}
+
+			// Extract YAML code blocks from markdown and create separate embeddings
+			yamlDocs := extractYAMLCodeBlocks(path, id, content, verbose)
+			documents = append(documents, yamlDocs...)
+
+			// Show extracted YAML blocks in verbose mode
+			if verbose && len(yamlDocs) > 0 {
+				fmt.Printf("   🔧 Extracted %d YAML configuration blocks from this document\n", len(yamlDocs))
+			}
 		}
 
 		documents = append(documents, doc)
@@ -478,6 +490,243 @@ func processYAMLDocument(path, id string, content []byte) (Document, error) {
 		Content:  finalContent,
 		Metadata: metadata,
 	}, nil
+}
+
+// extractYAMLCodeBlocks extracts YAML code blocks from markdown with surrounding context
+func extractYAMLCodeBlocks(path, parentID string, content []byte, verbose bool) []Document {
+	var documents []Document
+	contentStr := string(content)
+
+	// Regular expression to find YAML code blocks
+	yamlBlockRegex := regexp.MustCompile("(?s)```(?:yaml|yml)(?:\n|\r\n)(.*?)(?:\n|\r\n)```")
+	matches := yamlBlockRegex.FindAllStringSubmatch(contentStr, -1)
+
+	if len(matches) == 0 {
+		return documents
+	}
+
+	// Split content into lines for context extraction
+	lines := strings.Split(contentStr, "\n")
+
+	for i, match := range matches {
+		yamlContent := strings.TrimSpace(match[1])
+
+		// Check if this YAML block is relevant (contains server.yaml, secrets.yaml, or client.yaml patterns)
+		if !isRelevantYAMLBlock(yamlContent) {
+			continue
+		}
+
+		// Find the position of this YAML block in the content
+		blockStartIndex := strings.Index(contentStr, match[0])
+		if blockStartIndex == -1 {
+			continue
+		}
+
+		// Extract surrounding context
+		context := extractSurroundingContext(lines, match[0], blockStartIndex, contentStr)
+
+		// Determine the YAML type based on content patterns
+		yamlType := determineYAMLType(yamlContent)
+
+		// Create enhanced document with context
+		doc := createYAMLEmbeddingDocument(parentID, yamlContent, context, yamlType, i+1)
+		documents = append(documents, doc)
+
+		if verbose {
+			fmt.Printf("     📋 %s block (%d chars)\n", yamlType, len(doc.Content))
+		}
+	}
+
+	return documents
+}
+
+// isRelevantYAMLBlock checks if a YAML block contains Simple Container configuration patterns
+func isRelevantYAMLBlock(yamlContent string) bool {
+	yamlLower := strings.ToLower(yamlContent)
+
+	// Check for Simple Container configuration patterns
+	relevantPatterns := []string{
+		// Server.yaml patterns
+		"provisioner:", "resources:", "templates:", "environments:",
+
+		// Client.yaml patterns
+		"name:", "type:", "uses:", "secrets:", "environment:", "deployment:",
+
+		// Secrets.yaml patterns
+		"mongodb_atlas", "redis", "aws_", "gcp_", "discord", "telegram",
+		"api_key", "secret_key", "private_key", "webhook", "token",
+
+		// General Simple Container patterns
+		"simple-container", "${resource:", "${secret:", "mongodb-atlas", "redis-cache",
+	}
+
+	// Must contain at least 2 relevant patterns to be considered relevant
+	patternCount := 0
+	for _, pattern := range relevantPatterns {
+		if strings.Contains(yamlLower, pattern) {
+			patternCount++
+			if patternCount >= 2 {
+				return true
+			}
+		}
+	}
+
+	// Also check if it's a substantial YAML block (more than just a few lines)
+	lines := strings.Split(strings.TrimSpace(yamlContent), "\n")
+	return len(lines) >= 5 && patternCount >= 1
+}
+
+// determineYAMLType determines the type of YAML configuration based on content
+func determineYAMLType(yamlContent string) string {
+	yamlLower := strings.ToLower(yamlContent)
+
+	// Server.yaml indicators
+	if strings.Contains(yamlLower, "provisioner:") ||
+		strings.Contains(yamlLower, "resources:") ||
+		strings.Contains(yamlLower, "templates:") {
+		return "server.yaml"
+	}
+
+	// Secrets.yaml indicators
+	if strings.Contains(yamlLower, "mongodb_atlas") ||
+		strings.Contains(yamlLower, "api_key") ||
+		strings.Contains(yamlLower, "secret_key") ||
+		strings.Contains(yamlLower, "private_key") ||
+		strings.Contains(yamlLower, "webhook") {
+		return "secrets.yaml"
+	}
+
+	// Client.yaml indicators
+	if strings.Contains(yamlLower, "uses:") ||
+		strings.Contains(yamlLower, "deployment:") ||
+		(strings.Contains(yamlLower, "name:") && strings.Contains(yamlLower, "type:")) {
+		return "client.yaml"
+	}
+
+	// Docker compose indicators
+	if strings.Contains(yamlLower, "version:") && strings.Contains(yamlLower, "services:") {
+		return "docker-compose.yaml"
+	}
+
+	return "configuration.yaml"
+}
+
+// extractSurroundingContext extracts context around a YAML block
+func extractSurroundingContext(lines []string, yamlBlock string, blockStartIndex int, fullContent string) string {
+	// Find which line the YAML block starts on
+	beforeBlock := fullContent[:blockStartIndex]
+	blockStartLine := strings.Count(beforeBlock, "\n")
+
+	// Extract context: 10 lines before and 5 lines after the YAML block
+	contextStart := blockStartLine - 10
+	if contextStart < 0 {
+		contextStart = 0
+	}
+
+	// Find where the YAML block ends
+	yamlEndIndex := blockStartIndex + len(yamlBlock)
+	afterBlock := fullContent[:yamlEndIndex]
+	blockEndLine := strings.Count(afterBlock, "\n")
+
+	contextEnd := blockEndLine + 5
+	if contextEnd >= len(lines) {
+		contextEnd = len(lines) - 1
+	}
+
+	// Build context content
+	var contextBuilder strings.Builder
+
+	// Add preceding context
+	if contextStart < blockStartLine {
+		contextBuilder.WriteString("## Context\n\n")
+		for i := contextStart; i < blockStartLine; i++ {
+			line := strings.TrimSpace(lines[i])
+			if line != "" {
+				contextBuilder.WriteString(lines[i] + "\n")
+			}
+		}
+		contextBuilder.WriteString("\n")
+	}
+
+	// Add following context
+	if blockEndLine < contextEnd {
+		contextBuilder.WriteString("\n## Additional Context\n\n")
+		for i := blockEndLine + 1; i <= contextEnd && i < len(lines); i++ {
+			line := strings.TrimSpace(lines[i])
+			if line != "" {
+				contextBuilder.WriteString(lines[i] + "\n")
+			}
+		}
+	}
+
+	return contextBuilder.String()
+}
+
+// createYAMLEmbeddingDocument creates a specialized embedding document for YAML blocks
+func createYAMLEmbeddingDocument(parentID, yamlContent, context, yamlType string, blockNumber int) Document {
+	// Create unique ID for this YAML block
+	id := fmt.Sprintf("%s#yaml-block-%d-%s", parentID, blockNumber, yamlType)
+
+	// Create enhanced content with context and YAML
+	var contentBuilder strings.Builder
+
+	// Create title caser for proper capitalization
+	titleCaser := cases.Title(language.English)
+
+	// Add title based on YAML type
+	configTypeName := titleCaser.String(strings.TrimSuffix(yamlType, ".yaml"))
+	title := fmt.Sprintf("Simple Container %s Example", configTypeName)
+	contentBuilder.WriteString(fmt.Sprintf("# %s\n\n", title))
+
+	// Add description based on type
+	description := getYAMLTypeDescription(yamlType)
+	if description != "" {
+		contentBuilder.WriteString(description + "\n\n")
+	}
+
+	// Add surrounding context
+	if context != "" {
+		contentBuilder.WriteString(context)
+		contentBuilder.WriteString("\n")
+	}
+
+	// Add the YAML configuration with proper formatting
+	contentBuilder.WriteString(fmt.Sprintf("## %s Configuration\n\n", configTypeName))
+	contentBuilder.WriteString("```yaml\n")
+	contentBuilder.WriteString(yamlContent)
+	contentBuilder.WriteString("\n```\n")
+
+	// Create metadata
+	metadata := map[string]interface{}{
+		"title":       title,
+		"path":        parentID,
+		"type":        "yaml_example",
+		"yaml_type":   yamlType,
+		"block_index": blockNumber,
+		"parent_doc":  parentID,
+	}
+
+	return Document{
+		ID:       id,
+		Content:  contentBuilder.String(),
+		Metadata: metadata,
+	}
+}
+
+// getYAMLTypeDescription returns a description for the YAML type
+func getYAMLTypeDescription(yamlType string) string {
+	switch yamlType {
+	case "server.yaml":
+		return "Server configuration defines infrastructure resources, provisioners, and deployment templates for Simple Container stacks."
+	case "client.yaml":
+		return "Client configuration defines application deployment settings, resource usage, and environment-specific configurations."
+	case "secrets.yaml":
+		return "Secrets configuration manages sensitive data like API keys, database credentials, and authentication tokens."
+	case "docker-compose.yaml":
+		return "Docker Compose configuration for container orchestration and service definitions."
+	default:
+		return "Simple Container YAML configuration example with deployment and infrastructure settings."
+	}
 }
 
 func generateOpenAIEmbeddings(ctx context.Context, config Config, documents []Document, log logger.Logger) ([]embeddings.EmbeddedDocument, error) {

@@ -847,13 +847,18 @@ variables:
 	})
 
 	// Generate secrets.yaml
-	secretsContent := `# Authentication for cloud providers
+	secretsContent := `# Simple Container secrets configuration
+schemaVersion: 1.0
+
+# Authentication for cloud providers
 auth:
   aws:
-    account: "123456789012"
-    accessKey: "${secret:aws-access-key}"
-    secretAccessKey: "${secret:aws-secret-key}"
-    region: us-east-1
+    type: aws-token
+    config:
+      account: "123456789012"
+      accessKey: "${secret:aws-access-key}"
+      secretAccessKey: "${secret:aws-secret-key}"
+      region: us-east-1
 
 # Secret values (managed with sc secrets add)
 values:
