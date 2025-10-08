@@ -65,6 +65,11 @@ func (p *YandexProvider) Configure(config Config) error {
 	return nil
 }
 
+// ChatWithTools sends messages to Yandex with tools (not supported)
+func (p *YandexProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	return nil, fmt.Errorf("Yandex provider does not support function/tool calling")
+}
+
 // Chat sends messages to Yandex and returns a response
 func (p *YandexProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
 	if !p.configured {

@@ -64,6 +64,11 @@ func (p *DeepSeekProvider) Configure(config Config) error {
 	return nil
 }
 
+// ChatWithTools sends messages to DeepSeek with tools (not supported)
+func (p *DeepSeekProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	return nil, fmt.Errorf("DeepSeek provider does not support function/tool calling")
+}
+
 // Chat sends messages to DeepSeek and returns a response
 func (p *DeepSeekProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
 	if !p.configured {

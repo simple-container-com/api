@@ -73,6 +73,11 @@ func (p *OllamaProvider) Configure(config Config) error {
 	return nil
 }
 
+// ChatWithTools sends messages to Ollama with tools (not supported)
+func (p *OllamaProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	return nil, fmt.Errorf("Ollama provider does not support function/tool calling")
+}
+
 // Chat sends messages to Ollama and returns a response
 func (p *OllamaProvider) Chat(ctx context.Context, messages []Message) (*ChatResponse, error) {
 	if !p.configured {
