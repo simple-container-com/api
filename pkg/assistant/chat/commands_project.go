@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/assistant/resources"
 )
 
@@ -143,34 +145,70 @@ func (c *ChatInterface) handleSetup(ctx context.Context, args []string, context 
 	if context.ProjectInfo == nil {
 		return &CommandResult{
 			Success: false,
-			Message: "❌ Project not analyzed. Please run '/analyze' first.",
+			Message: "Project not analyzed yet. Run /analyze first.",
 		}, nil
 	}
 
-	// Parse mode argument
-	mode := "auto"
+	// Determine setup mode
+	mode := context.Mode
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--mode=") {
-			mode = strings.TrimPrefix(arg, "--mode=")
-		} else if arg == "--mode" && len(args) > 1 {
-			// Look for next argument as mode
-			for i, a := range args {
-				if a == "--mode" && i+1 < len(args) {
-					mode = args[i+1]
-					break
-				}
+		if arg == "--mode" || strings.HasPrefix(arg, "--mode=") {
+			if strings.Contains(arg, "=") {
+				mode = strings.Split(arg, "=")[1]
 			}
+		} else if arg == "dev" || arg == "devops" {
+			mode = arg
 		}
 	}
 
-	fmt.Printf("⚙️  Setting up Simple Container configuration (mode: %s)...\n", color.CyanString(mode))
+	var files []GeneratedFile
+	var err error
 
-	// TODO: Implement actual configuration generation using the modes package
-	// For now, provide a placeholder implementation that works with the current API
+	switch mode {
+	case "dev", "developer":
+		// Add deployment type confirmation for developer mode
+		if err := c.confirmDeploymentTypeForChat(context); err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("Setup cancelled: %v", err),
+			}, nil
+		}
+		files, err = c.generateDeveloperFiles(context)
+	case "devops":
+		files, err = c.generateDevOpsFiles(context)
+	default:
+		// Auto-detect based on project
+		if context.ProjectInfo.PrimaryStack != nil {
+			// Add deployment type confirmation for auto-detected developer mode
+			if err := c.confirmDeploymentTypeForChat(context); err != nil {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("Setup cancelled: %v", err),
+				}, nil
+			}
+			files, err = c.generateDeveloperFiles(context)
+		} else {
+			return &CommandResult{
+				Success: false,
+				Message: "Unable to determine setup mode. Specify --mode dev or --mode devops",
+			}, nil
+		}
+	}
+
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Setup failed: %v", err),
+		}, nil
+	}
+
+	message := fmt.Sprintf("Generated %d configuration files for %s mode", len(files), mode)
 
 	return &CommandResult{
-		Success: true,
-		Message: "✅ Simple Container configuration files generated successfully!\n\nYou can now deploy with:\n`sc deploy -s <your-project-name> -e staging`",
+		Success:  true,
+		Message:  message,
+		Files:    files,
+		NextStep: "Review the generated files and run 'docker-compose up -d' from ${project:root} to test locally, then 'sc deploy -s ${project:name} -e staging' to deploy",
 	}, nil
 }
 
@@ -332,4 +370,445 @@ func (c *ChatInterface) handleGetSupportedResources(ctx context.Context, args []
 		Success: true,
 		Message: message,
 	}, nil
+}
+
+// confirmDeploymentTypeForChat handles deployment type confirmation in chat interface
+func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContext) error {
+	// Initialize metadata if it doesn't exist
+	if context.Metadata == nil {
+		context.Metadata = make(map[string]interface{})
+	}
+	// Determine deployment type using simple heuristic (since internal method is private)
+	detectedType := "cloud-compose" // Default fallback
+	if context.ProjectInfo != nil {
+		// Simple heuristic based on project analysis
+		if context.ProjectInfo.PrimaryStack != nil {
+			lang := strings.ToLower(context.ProjectInfo.PrimaryStack.Language)
+			if lang == "html" || lang == "javascript" || lang == "typescript" {
+				// Check for static site indicators
+				detectedType = "static"
+			} else if lang == "go" || lang == "python" || lang == "java" {
+				detectedType = "single-image"
+			}
+		}
+	}
+
+	// Display detected type with description
+	fmt.Printf("🔍 Detected deployment type: %s\n", detectedType)
+
+	switch detectedType {
+	case "static":
+		fmt.Printf("   📄 Static site deployment (HTML/CSS/JS files)\n")
+		fmt.Printf("   💡 Best for: React, Vue, Angular, static sites\n")
+	case "single-image":
+		fmt.Printf("   🚀 Single container deployment (serverless/lambda style)\n")
+		fmt.Printf("   💡 Best for: AWS Lambda, simple APIs, microservices\n")
+	case "cloud-compose":
+		fmt.Printf("   🐳 Multi-container deployment (docker-compose based)\n")
+		fmt.Printf("   💡 Best for: Full-stack apps, databases, complex services\n")
+	}
+
+	// Use chat interface's ReadSimple for input (fixes Y/N prompt issue)
+	response, err := c.inputHandler.ReadSimple("\n   Is this correct? [Y/n]: ")
+	if err != nil {
+		// If there's an error reading input, default to "yes" and store the detected type
+		context.Metadata["confirmed_deployment_type"] = detectedType
+		return nil
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response == "n" || response == "no" {
+		// Let user choose the deployment type using chat interface
+		return c.selectDeploymentTypeForChat(context)
+	}
+
+	// Store the confirmed deployment type in context for use during generation
+	context.Metadata["confirmed_deployment_type"] = detectedType
+	return nil
+}
+
+// selectDeploymentTypeForChat handles manual deployment type selection in chat interface
+func (c *ChatInterface) selectDeploymentTypeForChat(context *ConversationContext) error {
+	// Initialize metadata if it doesn't exist
+	if context.Metadata == nil {
+		context.Metadata = make(map[string]interface{})
+	}
+	fmt.Printf("\n📋 Available deployment types:\n")
+	fmt.Printf("   1. static - Static site (HTML/CSS/JS files)\n")
+	fmt.Printf("   2. single-image - Single container (serverless/lambda style)\n")
+	fmt.Printf("   3. cloud-compose - Multi-container (docker-compose based)\n")
+
+	// Use chat interface's ReadSimple for menu selection
+	response, err := c.inputHandler.ReadSimple("\n   Select deployment type [1-3]: ")
+	if err != nil {
+		return fmt.Errorf("failed to read selection: %v", err)
+	}
+
+	response = strings.TrimSpace(response)
+
+	var selectedType string
+	switch response {
+	case "1":
+		selectedType = "static"
+		fmt.Printf("✅ Selected: static\n")
+	case "2":
+		selectedType = "single-image"
+		fmt.Printf("✅ Selected: single-image\n")
+	case "3", "":
+		selectedType = "cloud-compose"
+		fmt.Printf("✅ Selected: cloud-compose\n")
+	default:
+		selectedType = "cloud-compose"
+		fmt.Printf("Invalid selection. Using cloud-compose as default.\n")
+	}
+
+	// Store the selected deployment type in context for use during generation
+	context.Metadata["confirmed_deployment_type"] = selectedType
+
+	return nil
+}
+
+// generateDeveloperFiles creates client configuration files using DeveloperMode
+func (c *ChatInterface) generateDeveloperFiles(context *ConversationContext) ([]GeneratedFile, error) {
+	// Use DeveloperMode for consistent file generation
+	projectPath := "."
+	if context.ProjectPath != "" {
+		projectPath = context.ProjectPath
+	}
+
+	// Initialize metadata if it doesn't exist
+	if context.Metadata == nil {
+		context.Metadata = make(map[string]interface{})
+	}
+
+	// Get confirmed deployment type from context (if available)
+	var deploymentType string
+	if confirmedType, exists := context.Metadata["confirmed_deployment_type"]; exists {
+		if typeStr, ok := confirmedType.(string); ok {
+			deploymentType = typeStr
+		}
+	}
+
+	// Create SetupOptions for DeveloperMode
+	opts := &modes.SetupOptions{
+		Interactive:    false, // Chat interface handles interactivity differently
+		Environment:    "staging",
+		Parent:         "infrastructure",
+		SkipAnalysis:   false,
+		SkipDockerfile: false,
+		SkipCompose:    false,
+		OutputDir:      projectPath,
+		GenerateAll:    false,
+		UseStreaming:   true,           // Enable streaming for better UX in chat mode
+		DeploymentType: deploymentType, // Use the confirmed deployment type
+	}
+
+	// Capture the generated files by temporarily redirecting the DeveloperMode output
+	// We'll use a custom approach to get the generated content without writing files
+	return c.generateFilesUsingDeveloperMode(context, opts)
+}
+
+// generateFilesUsingDeveloperMode generates files using the modes package
+func (c *ChatInterface) generateFilesUsingDeveloperMode(context *ConversationContext, opts *modes.SetupOptions) ([]GeneratedFile, error) {
+	// Get or create project analysis
+	var projectAnalysis *analysis.ProjectAnalysis
+	if context.ProjectInfo != nil {
+		projectAnalysis = context.ProjectInfo
+	} else {
+		// Add progress reporting for better UX during analysis
+		fmt.Printf("🔄 Analyzing project for configuration generation...\n")
+		progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
+		c.analyzer.SetProgressReporter(progressReporter)
+
+		var err error
+		projectAnalysis, err = c.analyzer.AnalyzeProject(opts.OutputDir)
+		if err != nil {
+			// Use a basic fallback analysis
+			projectAnalysis = &analysis.ProjectAnalysis{
+				Name: "my-app",
+				PrimaryStack: &analysis.TechStackInfo{
+					Language: "javascript",
+				},
+			}
+		}
+	}
+
+	// Determine proper project name for file paths
+	projectName := projectAnalysis.Name
+	if projectName == "." || projectName == "" {
+		if absPath, err := filepath.Abs(opts.OutputDir); err == nil {
+			projectName = filepath.Base(absPath)
+		} else {
+			projectName = "my-app"
+		}
+	}
+
+	files := []GeneratedFile{}
+
+	// Start all file generations in parallel
+	fmt.Printf("📄 Generating configuration files in parallel...\n")
+
+	type fileGenResult struct {
+		file GeneratedFile
+		err  error
+		name string
+	}
+
+	var wg sync.WaitGroup
+	resultChan := make(chan fileGenResult, 3)
+
+	// Generate client.yaml
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		fmt.Printf("   📄 Generating client.yaml...\n")
+		clientYaml, err := c.developerMode.GenerateClientYAMLWithLLM(opts, projectAnalysis)
+		result := fileGenResult{name: "client.yaml", err: err}
+		if err == nil {
+			result.file = GeneratedFile{
+				Path:        ".sc/stacks/" + projectName + "/client.yaml",
+				Type:        "yaml",
+				Description: "Simple Container client configuration",
+				Generated:   true,
+				Content:     clientYaml,
+			}
+		}
+		resultChan <- result
+	}()
+
+	// Generate docker-compose.yaml
+	if !opts.SkipCompose {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fmt.Printf("   🐳 Generating docker-compose.yaml...\n")
+			composeYaml, err := c.developerMode.GenerateComposeYAMLWithLLM(projectAnalysis)
+			result := fileGenResult{name: "docker-compose.yaml", err: err}
+			if err == nil {
+				result.file = GeneratedFile{
+					Path:        "docker-compose.yaml",
+					Type:        "yaml",
+					Description: "Local development environment",
+					Generated:   true,
+					Content:     composeYaml,
+				}
+			}
+			resultChan <- result
+		}()
+	}
+
+	// Generate Dockerfile
+	if !opts.SkipDockerfile {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fmt.Printf("   🐳 Generating Dockerfile...\n")
+			dockerfile, err := c.developerMode.GenerateDockerfileWithLLM(projectAnalysis)
+			result := fileGenResult{name: "Dockerfile", err: err}
+			if err == nil {
+				result.file = GeneratedFile{
+					Path:        "Dockerfile",
+					Type:        "dockerfile",
+					Description: "Container image definition",
+					Generated:   true,
+					Content:     dockerfile,
+				}
+			}
+			resultChan <- result
+		}()
+	}
+
+	// Wait for all generations to complete and collect results
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results as they complete
+	for result := range resultChan {
+		if result.err == nil {
+			fmt.Printf("   ✅ %s generated\n", result.name)
+			files = append(files, result.file)
+		} else {
+			fmt.Printf("   ⚠️ Failed to generate %s: %v\n", result.name, result.err)
+		}
+	}
+
+	return files, nil
+}
+
+// generateDevOpsFiles creates infrastructure files for DevOps mode
+func (c *ChatInterface) generateDevOpsFiles(context *ConversationContext) ([]GeneratedFile, error) {
+	// Use DevOps mode to generate infrastructure files
+	files := []GeneratedFile{}
+
+	// Generate server.yaml using proper schema structure
+	serverContent := `schemaVersion: 1.0
+
+# Provisioner configuration
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      config:
+        bucketName: simple-container-state
+        region: us-east-1
+    secrets-provider:
+      type: aws-kms
+      config:
+        keyId: "arn:aws:kms:us-east-1:123456789012:key/simple-container-secrets"
+
+# Reusable templates for application teams
+templates:
+  web-app:
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
+    
+  api-service:
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
+
+# Secrets management configuration
+secrets:
+  type: aws-kms
+  config:
+    keyId: "alias/simple-container"
+
+# CI/CD integration
+cicd:
+  type: github-actions
+  config:
+    auth-token: "${secret:GITHUB_TOKEN}"
+
+# Shared infrastructure resources
+resources:
+  # Domain registrar (optional)
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: "your-cloudflare-account-id"
+      zoneName: "example.com"
+  
+  # Environment-specific resources
+  resources:
+    # Staging environment
+    staging:
+      template: web-app
+      resources:
+        # Database
+        postgres-db:
+          type: aws-rds-postgres
+          config:
+            name: myapp-staging-db
+            instanceClass: db.t3.micro
+            allocatedStorage: 20
+            engineVersion: "15.4"
+            username: dbadmin
+            password: "${secret:staging-db-password}"
+            databaseName: myapp
+            
+        # Cache
+        redis-cache:
+          type: aws-elasticache-redis
+          config:
+            name: myapp-staging-cache
+            nodeType: cache.t3.micro
+            numCacheNodes: 1
+            
+        # Storage
+        uploads-bucket:
+          type: s3-bucket
+          config:
+            name: myapp-staging-uploads
+            allowOnlyHttps: true
+
+    # Production environment
+    production:
+      template: web-app
+      resources:
+        # Database with high availability
+        postgres-db:
+          type: aws-rds-postgres
+          config:
+            name: myapp-prod-db
+            instanceClass: db.r5.large
+            allocatedStorage: 100
+            multiAZ: true
+            backupRetentionPeriod: 7
+            engineVersion: "15.4"
+            username: dbadmin
+            password: "${secret:prod-db-password}"
+            databaseName: myapp
+            
+        # Cache cluster
+        redis-cache:
+          type: aws-elasticache-redis
+          config:
+            name: myapp-prod-cache
+            nodeType: cache.r5.large
+            numCacheNodes: 3
+            
+        # Storage
+        uploads-bucket:
+          type: s3-bucket
+          config:
+            name: myapp-prod-uploads
+            allowOnlyHttps: true
+
+# Configuration variables
+variables:
+  app-prefix:
+    type: string
+    value: myapp`
+
+	files = append(files, GeneratedFile{
+		Path:        ".sc/stacks/infrastructure/server.yaml",
+		Type:        "yaml",
+		Description: "Infrastructure configuration",
+		Generated:   true,
+		Content:     serverContent,
+	})
+
+	// Generate secrets.yaml
+	secretsContent := `# Simple Container secrets configuration
+schemaVersion: 1.0
+
+# Authentication for cloud providers
+auth:
+  aws:
+    type: aws-token
+    config:
+      account: "123456789012"
+      accessKey: "AKIA..."  # Replace with actual AWS access key
+      secretAccessKey: "wJa..."  # Replace with actual AWS secret key
+      region: us-east-1
+
+# Secret values (managed with sc secrets add)
+values:
+  # Database passwords
+  staging-db-password: "${STAGING_DB_PASSWORD}"
+  prod-db-password: "${PROD_DB_PASSWORD}"
+  
+  # Cloud credentials  
+  aws-access-key: "${AWS_ACCESS_KEY}"
+  aws-secret-key: "${AWS_SECRET_KEY}"
+  
+  # Application secrets
+  jwt-secret: "${JWT_SECRET}"`
+
+	files = append(files, GeneratedFile{
+		Path:        ".sc/stacks/infrastructure/secrets.yaml",
+		Type:        "yaml",
+		Description: "Authentication and secrets",
+		Generated:   true,
+		Content:     secretsContent,
+	})
+
+	return files, nil
 }
