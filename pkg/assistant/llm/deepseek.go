@@ -64,14 +64,79 @@ func (p *DeepSeekProvider) Configure(config Config) error {
 	return nil
 }
 
-// ChatWithTools sends messages to DeepSeek with tools (not supported)
+// ChatWithTools sends messages to DeepSeek with tool support and returns a response
 func (p *DeepSeekProvider) ChatWithTools(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
 	// Use base validation
 	if err := p.ValidateConfiguration(); err != nil {
 		return nil, err
 	}
 
-	return nil, fmt.Errorf("DeepSeek provider does not support function/tool calling")
+	// Convert messages using base provider helper
+	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+
+	// Convert tools using base provider helper
+	langchainTools := p.ConvertToolsToLangChainGo(tools)
+
+	// Build options
+	options := []llms.CallOption{
+		llms.WithMaxTokens(p.config.MaxTokens),
+		llms.WithTemperature(float64(p.config.Temperature)),
+	}
+
+	// Add tools if provided
+	if len(langchainTools) > 0 {
+		options = append(options, llms.WithTools(langchainTools))
+	}
+
+	// Call DeepSeek with tools
+	startTime := time.Now()
+	response, err := p.client.GenerateContent(ctx, llmMessages, options...)
+	if err != nil {
+		return nil, enhanceDeepSeekError(err)
+	}
+
+	// Extract response content
+	var content string
+	if len(response.Choices) > 0 {
+		content = response.Choices[0].Content
+	}
+
+	// Calculate token usage using base provider helper
+	usage := p.CalculateUsageWithCost(
+		estimateTokens(messagesToString(messages)),
+		estimateTokens(content),
+		calculateDeepSeekCost,
+		p.model,
+	)
+
+	// Extract tool calls from response if any
+	var toolCalls []ToolCall
+	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
+		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
+		for i, tc := range response.Choices[0].ToolCalls {
+			// Parse function arguments
+			var args map[string]interface{}
+			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
+				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
+			}
+
+			toolCalls[i] = ToolCall{
+				ID:   tc.FunctionCall.Name, // Use function name as ID for DeepSeek
+				Type: "function",
+				Function: FunctionCall{
+					Name:      tc.FunctionCall.Name,
+					Arguments: args,
+				},
+			}
+		}
+	}
+
+	// Build response using base provider helper
+	metadata := map[string]string{
+		"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+	}
+
+	return p.BuildChatResponse(content, p.model, "stop", usage, toolCalls, metadata), nil
 }
 
 // Chat sends messages to DeepSeek and returns a response
@@ -212,7 +277,7 @@ func (p *DeepSeekProvider) GetCapabilities() Capabilities {
 		Models:            []string{},
 		MaxTokens:         4096,
 		SupportsStreaming: true,
-		SupportsFunctions: false,
+		SupportsFunctions: true,      // Tool calling now fully supported ⭐
 		CostPerToken:      0.0000014, // $0.14 per 1M tokens
 		RequiresAuth:      true,
 	}

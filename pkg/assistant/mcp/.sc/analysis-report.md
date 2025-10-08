@@ -1,6 +1,6 @@
 # Simple Container Project Analysis Report
 
-**Generated:** 2025-10-08 15:43:38 +03
+**Generated:** 2025-10-08 15:51:57 +03
 **Analyzer Version:** 1.0
 **Overall Confidence:** 55.0%
 
@@ -31,8 +31,8 @@
 - **Evidence:**
   - .sc directory found
 - **Additional Information:**
-  - has_sc_directory: true
   - maturity: partial
+  - has_sc_directory: true
 
 ## Git Repository Analysis
 
@@ -49,29 +49,29 @@
   - Sources: schemas/aws/index.json, schemas/aws/mysqlconfig.json, server.go
   - Connection: mysql
   - Recommended Resource: aws-rds-mysql
+- **postgresql** (90.0% confidence)
+  - Sources: schemas/aws/index.json, schemas/aws/postgresconfig.json, schemas/gcp/postgresgcpcloudsqlconfig.json, schemas/gcp/index.json, schemas/kubernetes/helmpostgresoperator.json, protocol.go, schemas/kubernetes/index.json, server.go
+  - Recommended Resource: aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator
 - **redis** (80.0% confidence)
-  - Sources: schemas/gcp/redisconfig.json, schemas/gcp/index.json, schemas/kubernetes/helmredisoperator.json, schemas/kubernetes/index.json, protocol.go, server.go
+  - Sources: schemas/gcp/index.json, schemas/gcp/redisconfig.json, schemas/kubernetes/helmredisoperator.json, protocol.go, schemas/kubernetes/index.json, server.go
   - Connection: redis
   - Recommended Resource: gcp-redis or kubernetes-helm-redis-operator
 - **mongodb** (80.0% confidence)
-  - Sources: schemas/index.json, schemas/kubernetes/helmmongodboperator.json, schemas/kubernetes/index.json, schemas/mongodb/atlasconfig.json, schemas/mongodb/index.json, protocol.go, server.go
+  - Sources: schemas/index.json, schemas/kubernetes/helmmongodboperator.json, protocol.go, schemas/kubernetes/index.json, schemas/mongodb/index.json, schemas/mongodb/atlasconfig.json, server.go
   - Connection: mongodb
   - Recommended Resource: mongodb-atlas
-- **postgresql** (90.0% confidence)
-  - Sources: schemas/aws/index.json, schemas/aws/postgresconfig.json, schemas/gcp/postgresgcpcloudsqlconfig.json, schemas/gcp/index.json, schemas/kubernetes/helmpostgresoperator.json, schemas/kubernetes/index.json, protocol.go, server.go
-  - Recommended Resource: aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator
 
 ### Storage
 
+- **s3** (100.0% confidence)
+  - Sources: schemas/aws/index.json, mcp_test.go, schemas/aws/s3bucket.json, schemas/aws/statestorageconfig.json, server.go
+  - Purpose: cloud_storage
 - **gcs** (90.0% confidence)
   - Sources: schemas/gcp/index.json, schemas/gcp/statestorageconfig.json, server.go
   - Purpose: cloud_storage
 - **static_assets** (50.0% confidence)
   - Sources: server.go
   - Purpose: static
-- **s3** (100.0% confidence)
-  - Sources: schemas/aws/index.json, schemas/aws/s3bucket.json, schemas/aws/statestorageconfig.json, mcp_test.go, server.go
-  - Purpose: cloud_storage
 
 ### Message Queues
 
