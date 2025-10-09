@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -495,6 +496,12 @@ func (a *AssistantCmd) runChat(cmd *cobra.Command, args []string) error {
 	projectPath := "."
 	if len(args) > 0 {
 		projectPath = args[0]
+	}
+
+	// Convert to absolute path for better session display
+	absPath, err := filepath.Abs(projectPath)
+	if err == nil {
+		projectPath = absPath
 	}
 
 	// Read configuration from flags

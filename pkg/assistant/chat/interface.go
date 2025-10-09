@@ -827,9 +827,11 @@ func (c *ChatInterface) selectOrCreateSession() error {
 		age := time.Since(session.LastUsedAt)
 		ageStr := formatDuration(age)
 
-		projectName := filepath.Base(session.ProjectPath)
+		projectName := session.ProjectPath
 		if projectName == "" || projectName == "." {
-			projectName = "no project"
+			projectName = "~"
+		} else {
+			projectName = filepath.Base(projectName)
 		}
 
 		fmt.Printf("  %d. %s\n", i+1, color.GreenString(session.Title))
