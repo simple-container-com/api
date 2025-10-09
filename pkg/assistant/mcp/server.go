@@ -16,6 +16,7 @@ import (
 	"github.com/simple-container-com/api/docs"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/chat"
 	"github.com/simple-container-com/api/pkg/assistant/core"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
@@ -43,7 +44,7 @@ type MCPServer struct {
 }
 
 // NewMCPServer creates a new MCP server instance with mode-aware logging
-func NewMCPServer(host string, port int, mode MCPMode, verboseMode bool) *MCPServer {
+func NewMCPServer(host string, port int, mode MCPMode, verboseMode bool, chatInterface *chat.ChatInterface) *MCPServer {
 	// Try to create enhanced JSON logger with mode awareness
 	mcpLogger, err := NewMCPLogger("mcp-server", mode, verboseMode)
 	fallbackLogger := log.New(os.Stderr, "MCP: ", log.LstdFlags)
@@ -57,7 +58,7 @@ func NewMCPServer(host string, port int, mode MCPMode, verboseMode bool) *MCPSer
 	}
 
 	return &MCPServer{
-		handler:        NewDefaultMCPHandler(),
+		handler:        NewDefaultMCPHandler(chatInterface),
 		logger:         mcpLogger,
 		fallbackLogger: fallbackLogger,
 		host:           host,
@@ -612,6 +613,85 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 				"required": []string{"resource_name", "resource_type", "environment", "config"},
 			},
 		},
+		{
+			"name":        "read_project_file",
+			"description": "📄 Read and display a project file (Dockerfile, docker-compose.yaml, etc.) with security obfuscation for sensitive content",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"filename": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the file to read (e.g., 'Dockerfile', 'docker-compose.yaml', 'client.yaml')",
+					},
+				},
+				"required": []string{"filename"},
+			},
+		},
+		{
+			"name":        "show_stack_config",
+			"description": "📋 Show stack configuration (checks both client.yaml and server.yaml) with comprehensive analysis",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Name of the stack to show configuration for",
+					},
+					"config_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of configuration to read: 'client' or 'server' (default: both)",
+						"enum":        []string{"client", "server"},
+					},
+				},
+				"required": []string{"stack_name"},
+			},
+		},
+		{
+			"name":        "advanced_search_documentation",
+			"description": "🔍 Advanced documentation search with LLM integration - allows active search when more context is needed",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Search query for documentation",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of results (default: 5)",
+						"default":     5,
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			"name":        "get_help",
+			"description": "❓ Get help information about available tools and their usage",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tool_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Specific tool to get help for (optional - shows all tools if not specified)",
+					},
+				},
+			},
+		},
+		{
+			"name":        "get_status",
+			"description": "📊 Get current Simple Container project status and diagnostic information",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"detailed": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Show detailed diagnostic information (default: false)",
+						"default":     false,
+					},
+				},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -1091,6 +1171,127 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			"isError": false,
 		})
 
+	case "read_project_file":
+		filename, ok := params.Arguments["filename"].(string)
+		if !ok || filename == "" {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "filename is required", nil)
+		}
+
+		result, err := s.handler.ReadProjectFile(ctx, ReadProjectFileParams{Filename: filename})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to read project file", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "show_stack_config":
+		stackName, ok := params.Arguments["stack_name"].(string)
+		if !ok || stackName == "" {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
+		}
+
+		configType := ""
+		if ct, ok := params.Arguments["config_type"].(string); ok {
+			configType = ct
+		}
+
+		result, err := s.handler.ShowStackConfig(ctx, ShowStackConfigParams{
+			StackName:  stackName,
+			ConfigType: configType,
+		})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to show stack configuration", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "advanced_search_documentation":
+		query, ok := params.Arguments["query"].(string)
+		if !ok || query == "" {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "query is required", nil)
+		}
+
+		limit := 5
+		if l, ok := params.Arguments["limit"].(float64); ok {
+			limit = int(l)
+		}
+
+		result, err := s.handler.AdvancedSearchDocumentation(ctx, AdvancedSearchDocumentationParams{
+			Query: query,
+			Limit: limit,
+		})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeEmbeddingError, "Advanced documentation search failed", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "get_help":
+		toolName := ""
+		if tn, ok := params.Arguments["tool_name"].(string); ok {
+			toolName = tn
+		}
+
+		result, err := s.handler.GetHelp(ctx, GetHelpParams{ToolName: toolName})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to get help", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "get_status":
+		detailed := false
+		if d, ok := params.Arguments["detailed"].(bool); ok {
+			detailed = d
+		}
+
+		result, err := s.handler.GetStatus(ctx, GetStatusParams{Detailed: detailed})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to get status", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
 	default:
 		return NewMCPError(req.ID, ErrorCodeMethodNotFound, fmt.Sprintf("Tool '%s' not found", params.Name), nil)
 	}
@@ -1167,11 +1368,12 @@ func (s *MCPServer) handleReadResource(ctx context.Context, req *MCPRequest) *MC
 // DefaultMCPHandler implements MCPHandler interface with only essential functionality
 type DefaultMCPHandler struct {
 	commandHandler     *core.UnifiedCommandHandler
+	chat               *chat.ChatInterface
 	clientCapabilities map[string]interface{} // Store client capabilities for feature detection
 }
 
-// NewDefaultMCPHandler creates a new default MCP handler
-func NewDefaultMCPHandler() MCPHandler {
+// NewDefaultMCPHandler creates a new default MCP handler with optional chat interface
+func NewDefaultMCPHandler(chatInterface *chat.ChatInterface) MCPHandler {
 	// Initialize unified command handler (should not fail with new robust implementation)
 	commandHandler, err := core.NewUnifiedCommandHandler()
 	if err != nil {
@@ -1180,8 +1382,17 @@ func NewDefaultMCPHandler() MCPHandler {
 		commandHandler = nil
 	}
 
+	// Create a default chat interface if none provided
+	if chatInterface == nil {
+		// Initialize with a default chat interface if needed
+		// This ensures we always have a valid chat interface, even if it's a no-op implementation
+		defaultChat := chat.ChatInterface{}
+		chatInterface = &defaultChat
+	}
+
 	return &DefaultMCPHandler{
 		commandHandler:     commandHandler,
+		chat:               chatInterface,
 		clientCapabilities: make(map[string]interface{}),
 	}
 }
@@ -2300,4 +2511,252 @@ resources:
 ` + "```" + `
 
 **🔍 Search documentation for specific resource schemas: "aws s3 schema", "mongodb atlas configuration", etc.**`
+}
+
+// New chat command equivalent handlers
+
+func (h *DefaultMCPHandler) ReadProjectFile(ctx context.Context, params ReadProjectFileParams) (*ReadProjectFileResult, error) {
+	// TODO: Implement file reading functionality
+	// For now, return a helpful error message
+	return &ReadProjectFileResult{
+		Filename: params.Filename,
+		Success:  false,
+		Message:  "❌ File reading functionality is not yet implemented",
+	}, nil
+}
+
+func (h *DefaultMCPHandler) ShowStackConfig(ctx context.Context, params ShowStackConfigParams) (*ShowStackConfigResult, error) {
+	// TODO: Implement stack configuration display functionality
+	// For now, return a helpful error message
+	return &ShowStackConfigResult{
+		StackName:  params.StackName,
+		ConfigType: params.ConfigType,
+		Success:    false,
+		Message:    "❌ Stack configuration display is not yet implemented",
+	}, nil
+}
+
+func (h *DefaultMCPHandler) AdvancedSearchDocumentation(ctx context.Context, params AdvancedSearchDocumentationParams) (*AdvancedSearchDocumentationResult, error) {
+	// Reuse the existing SearchDocumentation method but with different formatting
+	searchParams := SearchDocumentationParams{
+		Query: params.Query,
+		Limit: params.Limit,
+	}
+
+	result, err := h.SearchDocumentation(ctx, searchParams)
+	if err != nil {
+		return &AdvancedSearchDocumentationResult{
+			Query:   params.Query,
+			Success: false,
+			Message: fmt.Sprintf("❌ Advanced documentation search failed: %v", err),
+		}, nil
+	}
+
+	// Convert to the advanced result format
+	var docChunks []DocumentChunk
+	docChunks = append(docChunks, result.Documents...)
+
+	// Format enhanced message for LLM tool calling context
+	message := fmt.Sprintf("📚 **Found %d documentation results for \"%s\"**\n\n", result.Total, params.Query)
+	for i, doc := range docChunks {
+		score := int(doc.Similarity * 100)
+		title := "Unknown"
+		if t, exists := doc.Metadata["title"]; exists {
+			title = t
+		}
+		message += fmt.Sprintf("**%d. %s** (%d%% relevance)\n", i+1, title, score)
+
+		// Truncate content for tool response (600 chars)
+		content := doc.Content
+		if len(content) > 600 {
+			content = content[:600] + "..."
+		}
+		message += fmt.Sprintf("```\n%s\n```\n\n", content)
+	}
+	message += "💡 **Use this information to provide accurate, specific guidance based on Simple Container documentation.**"
+
+	return &AdvancedSearchDocumentationResult{
+		Query:   params.Query,
+		Results: docChunks,
+		Total:   result.Total,
+		Message: message,
+		Success: true,
+	}, nil
+}
+
+func (h *DefaultMCPHandler) GetHelp(ctx context.Context, params GetHelpParams) (*GetHelpResult, error) {
+	var helpMessage string
+
+	if params.ToolName != "" {
+		// Provide help for specific tool
+		switch params.ToolName {
+		case "search_documentation":
+			helpMessage = `📚 **search_documentation** - Search Simple Container documentation using semantic similarity
+
+**Usage:** Provide a query to search for relevant documentation
+**Parameters:**
+- query (required): Search terms for documentation
+- limit (optional): Maximum results (default: 5)
+
+**Example:** Search for "mongodb configuration" to find MongoDB setup examples`
+
+		case "get_project_context":
+			helpMessage = `📊 **get_project_context** - Analyze project structure and get Simple Container context
+
+**Usage:** Analyze a project directory to understand its tech stack
+**Parameters:**
+- path (optional): Project path to analyze (default: current directory)
+
+**Returns:** Project name, detected languages/frameworks, and SC configuration status`
+
+		case "setup_simple_container":
+			helpMessage = `🚀 **setup_simple_container** - Initialize Simple Container configuration
+
+**Usage:** Set up Simple Container files for a project
+**Parameters:**
+- path (optional): Project path (default: current directory)
+- environment (optional): Target environment (default: development)  
+- parent (optional): Parent stack reference (e.g., 'mycompany/infrastructure')
+- deployment_type (optional): 'static', 'single-image', or 'cloud-compose'
+- interactive (optional): Run in interactive mode (default: false)
+
+**Creates:** client.yaml, docker-compose.yaml, and other configuration files`
+
+		case "read_project_file":
+			helpMessage = `📄 **read_project_file** - Read and display project files securely
+
+**Usage:** Read project files with automatic credential obfuscation
+**Parameters:**
+- filename (required): File to read (e.g., 'Dockerfile', 'client.yaml')
+
+**Security:** Automatically masks sensitive credentials in configuration files`
+
+		case "show_stack_config":
+			helpMessage = `📋 **show_stack_config** - Display stack configuration
+
+**Usage:** Show comprehensive stack configuration from client.yaml and server.yaml
+**Parameters:**
+- stack_name (required): Name of the stack to display
+- config_type (optional): 'client' or 'server' (default: both)
+
+**Returns:** Complete configuration with analysis and guidance`
+
+		default:
+			helpMessage = fmt.Sprintf("❓ Tool '%s' not found. Use get_help without parameters to see all available tools.", params.ToolName)
+		}
+	} else {
+		// Provide general help with all available tools
+		helpMessage = `# 🛠️ Simple Container MCP Tools
+
+## 📚 Documentation & Analysis
+- **search_documentation** - Search documentation with semantic similarity
+- **advanced_search_documentation** - Enhanced search with LLM integration
+- **get_project_context** - Analyze project tech stack and structure
+- **analyze_project** - Detailed project analysis with recommendations
+
+## ⚙️ Configuration Management  
+- **get_current_config** - Read client.yaml or server.yaml configuration
+- **setup_simple_container** - Initialize Simple Container for a project
+- **read_project_file** - Read project files with credential protection
+- **show_stack_config** - Display comprehensive stack configuration
+
+## 🏗️ Stack & Environment Management
+- **add_environment** - Add new environments to client.yaml
+- **modify_stack_config** - Modify existing stack configurations  
+- **add_resource** - Add resources to server.yaml
+
+## 📊 Information & Support
+- **get_supported_resources** - List all supported cloud resources
+- **get_help** - This help system (use with tool_name for specific help)
+- **get_status** - Show project and system status
+
+**💡 Pro Tip:** Use search_documentation to find specific examples for any Simple Container feature!`
+	}
+
+	return &GetHelpResult{
+		ToolName: params.ToolName,
+		Message:  helpMessage,
+		Success:  true,
+	}, nil
+}
+
+func (h *DefaultMCPHandler) GetStatus(ctx context.Context, params GetStatusParams) (*GetStatusResult, error) {
+	// Get current working directory for status
+	currentDir, err := os.Getwd()
+	if err != nil {
+		currentDir = "unknown"
+	}
+
+	// Check if Simple Container is configured
+	scConfigured := false
+	scConfigPath := ""
+
+	// Look for .sc directory
+	if _, err := os.Stat(".sc"); err == nil {
+		scConfigured = true
+		scConfigPath = ".sc/"
+
+		// Check for specific config files
+		if _, err := os.Stat(".sc/stacks"); err == nil {
+			scConfigPath += "stacks/"
+		}
+	}
+
+	statusMessage := "# 📊 Simple Container Project Status\n\n"
+	statusMessage += fmt.Sprintf("**📁 Current Directory:** `%s`\n", currentDir)
+	statusMessage += fmt.Sprintf("**🔧 Simple Container Configured:** %t\n", scConfigured)
+
+	if scConfigured {
+		statusMessage += fmt.Sprintf("**📂 Configuration Path:** `%s`\n", scConfigPath)
+	}
+
+	details := make(map[string]interface{})
+	details["current_directory"] = currentDir
+	details["sc_configured"] = scConfigured
+	details["sc_config_path"] = scConfigPath
+
+	if params.Detailed {
+		// Add detailed diagnostic information
+		statusMessage += "\n## 🔍 Detailed Diagnostics\n"
+
+		// Check for common project files
+		commonFiles := []string{"package.json", "requirements.txt", "go.mod", "Dockerfile", "docker-compose.yaml", "client.yaml", "server.yaml"}
+		foundFiles := []string{}
+
+		for _, file := range commonFiles {
+			if _, err := os.Stat(file); err == nil {
+				foundFiles = append(foundFiles, file)
+			}
+		}
+
+		if len(foundFiles) > 0 {
+			statusMessage += fmt.Sprintf("**📄 Project Files Found:** %s\n", strings.Join(foundFiles, ", "))
+			details["project_files"] = foundFiles
+		}
+
+		// Check for git repository
+		if _, err := os.Stat(".git"); err == nil {
+			statusMessage += "**📦 Git Repository:** ✅ Present\n"
+			details["git_repository"] = true
+		} else {
+			details["git_repository"] = false
+		}
+
+		// MCP server status
+		statusMessage += "**🌐 MCP Server:** ✅ Running and responding\n"
+		details["mcp_server_status"] = "running"
+	}
+
+	status := "healthy"
+	if !scConfigured {
+		status = "not_configured"
+		statusMessage += "\n💡 **Next Steps:** Use `setup_simple_container` tool to initialize Simple Container configuration"
+	}
+
+	return &GetStatusResult{
+		Status:  status,
+		Message: statusMessage,
+		Details: details,
+		Success: true,
+	}, nil
 }

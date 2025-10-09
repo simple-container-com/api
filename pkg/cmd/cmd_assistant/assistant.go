@@ -385,8 +385,23 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
+				// Initialize chat interface
+				sessionConfig := chat.SessionConfig{
+					Mode:           "general",
+					ProjectPath:    ".",
+					LLMProvider:    "openai",
+					MaxTokens:      2048,
+					Temperature:    0.7,
+					EnableCommands: true,
+					LogLevel:       "info",
+				}
+				chatInterface, err := chat.NewChatInterface(sessionConfig)
+				if err != nil {
+					return fmt.Errorf("failed to initialize chat interface: %w", err)
+				}
+
 				// Initialize MCP server with stdio mode (JSON logs only, no console output)
-				server := mcp.NewMCPServer(host, port, mcp.MCPModeStdio, verbose)
+				server := mcp.NewMCPServer(host, port, mcp.MCPModeStdio, verbose, chatInterface)
 
 				// Start MCP server in goroutine
 				errCh := make(chan error, 1)
@@ -415,8 +430,23 @@ func (a *AssistantCmd) newMCPCmd() *cobra.Command {
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
+				// Initialize chat interface
+				sessionConfig := chat.SessionConfig{
+					Mode:           "general",
+					ProjectPath:    ".",
+					LLMProvider:    "openai",
+					MaxTokens:      2048,
+					Temperature:    0.7,
+					EnableCommands: true,
+					LogLevel:       "info",
+				}
+				chatInterface, err := chat.NewChatInterface(sessionConfig)
+				if err != nil {
+					return fmt.Errorf("failed to initialize chat interface: %w", err)
+				}
+
 				// Initialize MCP server with HTTP mode (console output when verbose enabled)
-				server := mcp.NewMCPServer(host, port, mcp.MCPModeHTTP, verbose)
+				server := mcp.NewMCPServer(host, port, mcp.MCPModeHTTP, verbose, chatInterface)
 
 				fmt.Printf("📡 MCP Server ready for Windsurf integration\n")
 				fmt.Printf("   Health: http://%s:%d/health\n", host, port)
@@ -746,7 +776,7 @@ func (a *AssistantCmd) runConfig(cmd *cobra.Command, configType, stackName strin
 	defer func() { _ = a.coreManager.Shutdown(ctx) }()
 
 	// Get current configuration using existing MCP handler functionality
-	handler := mcp.NewDefaultMCPHandler()
+	handler := mcp.NewDefaultMCPHandler(nil)
 	configParams := mcp.GetCurrentConfigParams{
 		ConfigType: configType,
 		StackName:  stackName,

@@ -249,6 +249,66 @@ type ProviderInfo struct {
 	Description string   `json:"description,omitempty"`
 }
 
+// New tool parameter types
+type ReadProjectFileParams struct {
+	Filename string `json:"filename"` // Name of the file to read
+}
+
+type ReadProjectFileResult struct {
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+	Message  string `json:"message"`
+	Success  bool   `json:"success"`
+}
+
+type ShowStackConfigParams struct {
+	StackName  string `json:"stack_name"`            // Stack name to show
+	ConfigType string `json:"config_type,omitempty"` // "client" or "server" (optional)
+}
+
+type ShowStackConfigResult struct {
+	StackName  string `json:"stack_name"`
+	ConfigType string `json:"config_type"`
+	FilePath   string `json:"file_path"`
+	Content    string `json:"content"`
+	Message    string `json:"message"`
+	Success    bool   `json:"success"`
+}
+
+type AdvancedSearchDocumentationParams struct {
+	Query string `json:"query"` // Search query
+	Limit int    `json:"limit,omitempty"`
+}
+
+type AdvancedSearchDocumentationResult struct {
+	Query   string          `json:"query"`
+	Results []DocumentChunk `json:"results"`
+	Total   int             `json:"total"`
+	Message string          `json:"message"`
+	Success bool            `json:"success"`
+}
+
+type GetHelpParams struct {
+	ToolName string `json:"tool_name,omitempty"` // Specific tool to get help for (optional)
+}
+
+type GetHelpResult struct {
+	ToolName string `json:"tool_name,omitempty"`
+	Message  string `json:"message"`
+	Success  bool   `json:"success"`
+}
+
+type GetStatusParams struct {
+	Detailed bool `json:"detailed,omitempty"` // Show detailed diagnostic information
+}
+
+type GetStatusResult struct {
+	Status  string                 `json:"status"`
+	Message string                 `json:"message"`
+	Details map[string]interface{} `json:"details,omitempty"`
+	Success bool                   `json:"success"`
+}
+
 // MCP method handler interface
 type MCPHandler interface {
 	SearchDocumentation(ctx context.Context, params SearchDocumentationParams) (*DocumentationSearchResult, error)
@@ -263,6 +323,13 @@ type MCPHandler interface {
 	AddEnvironment(ctx context.Context, params AddEnvironmentParams) (*AddEnvironmentResult, error)
 	ModifyStackConfig(ctx context.Context, params ModifyStackConfigParams) (*ModifyStackConfigResult, error)
 	AddResource(ctx context.Context, params AddResourceParams) (*AddResourceResult, error)
+
+	// New chat command equivalent methods
+	ReadProjectFile(ctx context.Context, params ReadProjectFileParams) (*ReadProjectFileResult, error)
+	ShowStackConfig(ctx context.Context, params ShowStackConfigParams) (*ShowStackConfigResult, error)
+	AdvancedSearchDocumentation(ctx context.Context, params AdvancedSearchDocumentationParams) (*AdvancedSearchDocumentationResult, error)
+	GetHelp(ctx context.Context, params GetHelpParams) (*GetHelpResult, error)
+	GetStatus(ctx context.Context, params GetStatusParams) (*GetStatusResult, error)
 
 	GetCapabilities(ctx context.Context) (map[string]interface{}, error)
 	Ping(ctx context.Context) (string, error)

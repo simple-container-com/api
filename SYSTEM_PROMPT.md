@@ -998,6 +998,25 @@ templates:
 
 ## Latest Updates
 
+### **MCP Tool Parity Achievement (2025-10-09)**
+- **✅ MCP Tool Parity**: Successfully implemented full parity between chat commands and MCP tools, enabling all core functionality to be accessible via both interfaces
+  - **Core Tools Added**:
+    - `read_project_file`: Equivalent to `/file` command for reading project files
+    - `show_stack_config`: Equivalent to `/show` command for displaying stack configurations
+    - `advanced_search_documentation`: Enhanced version of `/search_docs` with improved result formatting
+    - `get_help`: Provides help information about available tools and commands
+    - `get_status`: Shows current system and project status
+  - **Implementation Details**:
+    - Added new tool definitions to `handleListTools` in `pkg/assistant/mcp/server.go`
+    - Implemented corresponding handler methods in `DefaultMCPHandler`
+    - Added parameter and result structures in `pkg/assistant/mcp/protocol.go`
+    - Ensured proper error handling and response formatting for all tools
+  - **Technical Benefits**:
+    - Consistent behavior between chat and MCP interfaces
+    - Improved error handling and user feedback
+    - Better code organization with clear separation of concerns
+    - Enhanced testability of tool functionality
+
 ### **Chat Interface Input Issue Fix (2025-01-07)**
 - **Problem**: Users couldn't respond to Y/N prompts in chat mode due to terminal input conflicts between `liner` library and `fmt.Scanln()`
 - **Solution**: Updated chat interface to use `inputHandler.ReadSimple()` for all confirmation prompts, properly managing terminal stdin control

@@ -65,7 +65,7 @@ func TestMCPProtocol(t *testing.T) {
 
 func TestMCPServer(t *testing.T) {
 	// Create test server with HTTP mode for testing
-	server := NewMCPServer("localhost", 0, MCPModeHTTP, false) // Use port 0 for testing
+	server := NewMCPServer("localhost", 0, MCPModeHTTP, false, nil) // Use port 0 for testing
 
 	t.Run("test health check endpoint", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -221,7 +221,7 @@ func TestMCPServer(t *testing.T) {
 }
 
 func TestDefaultMCPHandler(t *testing.T) {
-	handler := NewDefaultMCPHandler()
+	handler := NewDefaultMCPHandler(nil)
 	ctx := context.Background()
 
 	t.Run("test ping", func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestDefaultMCPHandler(t *testing.T) {
 
 // Benchmark tests for MCP operations
 func BenchmarkMCPRequest(b *testing.B) {
-	server := NewMCPServer("localhost", 0, MCPModeHTTP, false)
+	server := NewMCPServer("localhost", 0, MCPModeHTTP, false, nil)
 
 	requestBody := MCPRequest{
 		JSONRPC: "2.0",
