@@ -131,6 +131,25 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **SECURITY: Implemented Comprehensive Credential Obfuscation for LLM Protection (2025-01-09)** - Enhanced all file reading operations to automatically mask sensitive credentials before exposing content to LLM
+  - **✅ Problem Identified**: Configuration files (especially secrets.yaml) containing actual credentials could be exposed to LLM during chat commands, analysis, and file reading operations
+  - **✅ Comprehensive Security Implementation**: 
+    - **Chat Commands**: All `/config`, `/show`, and `/file` commands now obfuscate credentials before displaying to users or processing by LLM
+    - **Core Commands**: All YAML file reading operations in UnifiedCommandHandler automatically apply credential masking
+    - **Intelligent Detection**: Automatically identifies secrets.yaml files and applies comprehensive YAML-structure-aware obfuscation
+    - **Pattern Recognition**: Detects and masks AWS keys (AKIA...), OpenAI keys (sk-...), GitHub tokens (ghp_...), database URIs, private keys, JWT tokens, and other credential patterns
+    - **Complete Values Section Protection**: All values in secrets.yaml `values:` section are automatically obfuscated regardless of key names, since this section specifically stores arbitrary sensitive credentials
+  - **✅ Technical Implementation**:
+    - **Files Modified**: `pkg/assistant/chat/commands_project.go`, `pkg/assistant/core/commands.go`
+    - **Methods Added**: `obfuscateCredentials()`, `obfuscateSecretsYAML()`, `obfuscateValue()`, `obfuscateURI()`, `obfuscateMultilineSecret()`, and supporting helper functions
+    - **Smart Preservation**: Maintains placeholder patterns (${secret:...}, ${env:...}) while masking actual credential values
+    - **Format-Aware**: Preserves credential format context (AWS: AKIA••••, OpenAI: sk-•••••) for better LLM understanding
+  - **✅ Security Benefits**:
+    - **Prevents Credential Exposure**: Actual secrets never exposed to LLM during configuration analysis or file reading
+    - **Maintains Functionality**: LLM can still provide meaningful analysis of configuration structure without seeing sensitive values
+    - **Format Preservation**: Credential types remain identifiable for proper guidance while values are protected
+    - **Comprehensive Coverage**: Protects against inadvertent exposure through any file reading path in the assistant
+  - **Impact**: Users can safely use AI assistant commands to view and analyze their configurations without risk of sensitive credentials being processed or exposed by the LLM
 - **FIXED: Removed Incorrect Port & Health Check Configuration from Stack Config** - Eliminated fictional `config.ports` and `config.healthCheck` parameters from modifystack command
   - **✅ Root Cause**: Stack configuration schemas (client.yaml) do not include port or health check configuration - these belong in docker-compose.yaml files or Dockerfile for cloud-compose deployments
   - **✅ JSON Schema Verification**: Confirmed across all stack config schemas (stackconfigcompose.json, stackconfigsingleimage.json, stackconfigstatic.json) that ports and healthCheck are NOT supported properties

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -1125,6 +1126,9 @@ func (h *UnifiedCommandHandler) readYamlFile(filePath string) (map[string]interf
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
 
+	// Obfuscate credentials before parsing - this protects against secrets exposure during YAML processing
+	data = h.obfuscateCredentials(data, filePath)
+
 	var content map[string]interface{}
 	err = yaml.Unmarshal(data, &content)
 	if err != nil {
@@ -1132,6 +1136,299 @@ func (h *UnifiedCommandHandler) readYamlFile(filePath string) (map[string]interf
 	}
 
 	return content, nil
+}
+
+// obfuscateCredentials masks sensitive values in file content before exposing to LLM
+func (h *UnifiedCommandHandler) obfuscateCredentials(content []byte, filePath string) []byte {
+	// Get filename for context
+	fileName := filepath.Base(filePath)
+
+	// Check if this is a secrets file or contains sensitive content
+	isSecretsFile := strings.Contains(fileName, "secrets") || strings.HasSuffix(fileName, "secrets.yaml") || strings.HasSuffix(fileName, "secrets.yml")
+
+	contentStr := string(content)
+
+	// For secrets.yaml files, apply comprehensive obfuscation
+	if isSecretsFile {
+		return []byte(h.obfuscateSecretsYAML(contentStr))
+	}
+
+	// For other files, apply general credential obfuscation
+	return []byte(h.obfuscateGeneralCredentials(contentStr))
+}
+
+// obfuscateSecretsYAML specifically handles secrets.yaml files
+func (h *UnifiedCommandHandler) obfuscateSecretsYAML(content string) string {
+	// Parse YAML to understand structure
+	var data map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &data); err != nil {
+		// If parsing fails, apply regex-based obfuscation as fallback
+		return h.obfuscateGeneralCredentials(content)
+	}
+
+	// Obfuscate sensitive fields in structured way
+	h.obfuscateYAMLValues(data)
+
+	// Marshal back to YAML
+	if obfuscatedBytes, err := yaml.Marshal(data); err == nil {
+		return string(obfuscatedBytes)
+	}
+
+	// Fallback to regex if marshaling fails
+	return h.obfuscateGeneralCredentials(content)
+}
+
+// obfuscateYAMLValues recursively obfuscates sensitive values in YAML structure
+func (h *UnifiedCommandHandler) obfuscateYAMLValues(data interface{}) {
+	h.obfuscateYAMLValuesWithContext(data, "")
+}
+
+// obfuscateYAMLValuesWithContext recursively obfuscates sensitive values with section context
+func (h *UnifiedCommandHandler) obfuscateYAMLValuesWithContext(data interface{}, sectionPath string) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			newSectionPath := key
+			if sectionPath != "" {
+				newSectionPath = sectionPath + "." + key
+			}
+
+			// Special handling for secrets.yaml 'values' section - obfuscate ALL values
+			if sectionPath == "values" || key == "values" && sectionPath == "" {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, key)
+				} else {
+					// If values section contains nested structure, obfuscate all string values
+					h.obfuscateAllStringValues(value)
+				}
+			} else if h.isSensitiveKey(key) {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, key)
+				}
+			} else {
+				h.obfuscateYAMLValuesWithContext(value, newSectionPath)
+			}
+		}
+	case map[interface{}]interface{}:
+		for key, value := range v {
+			keyStr := ""
+			if k, ok := key.(string); ok {
+				keyStr = k
+			}
+
+			newSectionPath := keyStr
+			if sectionPath != "" {
+				newSectionPath = sectionPath + "." + keyStr
+			}
+
+			// Special handling for secrets.yaml 'values' section - obfuscate ALL values
+			if sectionPath == "values" || keyStr == "values" && sectionPath == "" {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, keyStr)
+				} else {
+					// If values section contains nested structure, obfuscate all string values
+					h.obfuscateAllStringValues(value)
+				}
+			} else if keyStr != "" && h.isSensitiveKey(keyStr) {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, keyStr)
+				}
+			} else {
+				h.obfuscateYAMLValuesWithContext(value, newSectionPath)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			h.obfuscateYAMLValuesWithContext(item, sectionPath)
+		}
+	}
+}
+
+// obfuscateAllStringValues obfuscates all string values in a data structure (for values section)
+func (h *UnifiedCommandHandler) obfuscateAllStringValues(data interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			if strVal, ok := value.(string); ok {
+				v[key] = h.obfuscateValue(strVal, key)
+			} else {
+				h.obfuscateAllStringValues(value)
+			}
+		}
+	case map[interface{}]interface{}:
+		for key, value := range v {
+			keyStr := ""
+			if k, ok := key.(string); ok {
+				keyStr = k
+			}
+			if strVal, ok := value.(string); ok {
+				v[key] = h.obfuscateValue(strVal, keyStr)
+			} else {
+				h.obfuscateAllStringValues(value)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			h.obfuscateAllStringValues(item)
+		}
+	}
+}
+
+// isSensitiveKey checks if a YAML key contains sensitive information
+func (h *UnifiedCommandHandler) isSensitiveKey(key string) bool {
+	key = strings.ToLower(key)
+
+	// Common sensitive key patterns
+	sensitiveKeys := []string{
+		"password", "passwd", "pwd",
+		"secret", "secretkey", "secretaccesskey",
+		"token", "apikey", "api_key", "accesskey", "access_key",
+		"private_key", "privatekey", "private_key_id",
+		"credentials", "auth", "authentication",
+		"cert", "certificate", "key", "pem",
+		"webhook", "webhookurl", "webhook_url",
+		"dsn", "database_url", "connection_string", "connectionstring",
+		"mongodb_uri", "mongo_uri", "redis_url", "postgres_url",
+		"jwt_secret", "jwtsecret", "session_secret",
+	}
+
+	for _, sensitive := range sensitiveKeys {
+		if strings.Contains(key, sensitive) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// obfuscateValue masks a sensitive value while preserving its type/format context
+func (h *UnifiedCommandHandler) obfuscateValue(value, key string) string {
+	if value == "" {
+		return value
+	}
+
+	// Preserve placeholder patterns (${secret:...}, ${env:...}, etc.)
+	if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
+		return value
+	}
+
+	// Determine obfuscation pattern based on value characteristics
+	switch {
+	case strings.HasPrefix(value, "AKIA"):
+		// AWS Access Key pattern
+		return "AKIA••••••••••••••••"
+	case strings.HasPrefix(value, "sk-"):
+		// OpenAI API key pattern
+		return "sk-•••••••••••••••••••••••••••••••••••••••••••••••••"
+	case strings.HasPrefix(value, "xoxb-") || strings.HasPrefix(value, "xoxp-"):
+		// Slack token pattern
+		return strings.Split(value, "-")[0] + "-••••••••••••••••••••••••••••••••••"
+	case strings.HasPrefix(value, "ghp_"):
+		// GitHub token pattern
+		return "ghp_••••••••••••••••••••••••••••••••••••••••"
+	case strings.HasPrefix(value, "mongodb://") || strings.HasPrefix(value, "mongodb+srv://"):
+		// MongoDB URI pattern - preserve structure but mask credentials
+		return h.obfuscateURI(value)
+	case strings.HasPrefix(value, "postgres://") || strings.HasPrefix(value, "postgresql://"):
+		// PostgreSQL URI pattern
+		return h.obfuscateURI(value)
+	case strings.HasPrefix(value, "redis://"):
+		// Redis URI pattern
+		return h.obfuscateURI(value)
+	case strings.HasPrefix(value, "-----BEGIN"):
+		// Private key or certificate
+		return h.obfuscateMultilineSecret(value)
+	case len(value) > 20 && h.isBase64Like(value):
+		// Long base64-like string (certificates, tokens)
+		return value[:8] + "••••••••••••••••••••••••••••••••••••••••••••" + value[len(value)-4:]
+	case len(value) > 10:
+		// Generic long secret
+		if len(value) <= 20 {
+			return "••••••••••••••••••••"
+		}
+		return value[:4] + "••••••••••••••••••••••••••••••••" + value[len(value)-2:]
+	default:
+		// Short secrets
+		return "••••••••"
+	}
+}
+
+// obfuscateURI masks credentials in database/service URIs while preserving structure
+func (h *UnifiedCommandHandler) obfuscateURI(uri string) string {
+	// Pattern to match URI with credentials: scheme://user:pass@host:port/path
+	uriRegex := regexp.MustCompile(`^([^:]+://)[^:]+:[^@]+@(.+)$`)
+	if matches := uriRegex.FindStringSubmatch(uri); len(matches) == 3 {
+		return matches[1] + "••••••••:••••••••@" + matches[2]
+	}
+
+	// If no credentials found, just mask any embedded auth tokens
+	return uri
+}
+
+// obfuscateMultilineSecret handles multi-line secrets like private keys
+func (h *UnifiedCommandHandler) obfuscateMultilineSecret(secret string) string {
+	lines := strings.Split(secret, "\n")
+	if len(lines) < 3 {
+		return "••••••••••••••••••••••••••••••••"
+	}
+
+	// Preserve header and footer, mask content
+	result := []string{lines[0]}
+	for i := 1; i < len(lines)-1; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			result = append(result, "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••")
+		} else {
+			result = append(result, lines[i])
+		}
+	}
+	if len(lines) > 1 {
+		result = append(result, lines[len(lines)-1])
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// isBase64Like checks if a string looks like base64 encoding
+func (h *UnifiedCommandHandler) isBase64Like(s string) bool {
+	base64Regex := regexp.MustCompile(`^[A-Za-z0-9+/]+=*$`)
+	return base64Regex.MatchString(s) && len(s)%4 == 0
+}
+
+// obfuscateGeneralCredentials applies regex-based obfuscation for non-secrets files
+func (h *UnifiedCommandHandler) obfuscateGeneralCredentials(content string) string {
+	// Common credential patterns to obfuscate
+	patterns := map[string]string{
+		// AWS Access Keys
+		`AKIA[0-9A-Z]{16}`: "AKIA••••••••••••••••",
+		// OpenAI API Keys
+		`sk-[a-zA-Z0-9]{48}`: "sk-•••••••••••••••••••••••••••••••••••••••••••••••••",
+		// GitHub Tokens
+		`ghp_[a-zA-Z0-9]{36}`: "ghp_••••••••••••••••••••••••••••••••••••••••",
+		// JWT Tokens (long base64 strings)
+		`eyJ[a-zA-Z0-9+/]{50,}[=]*`: "eyJ••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••",
+		// Long hex strings (32+ chars)
+		`[a-fA-F0-9]{32,}`: func(match string) string {
+			return match[:8] + "••••••••••••••••••••••••••••••••••••••••••••" + match[len(match)-4:]
+		}("placeholder"),
+	}
+
+	result := content
+	for pattern, replacement := range patterns {
+		regex := regexp.MustCompile(pattern)
+		if pattern == `[a-fA-F0-9]{32,}` {
+			// Special handling for hex patterns to preserve prefix/suffix
+			result = regex.ReplaceAllStringFunc(result, func(match string) string {
+				if len(match) > 32 {
+					return match[:8] + "••••••••••••••••••••••••••••••••••••••••••••" + match[len(match)-4:]
+				}
+				return "••••••••••••••••••••••••••••••••"
+			})
+		} else {
+			result = regex.ReplaceAllString(result, replacement)
+		}
+	}
+
+	return result
 }
 
 func (h *UnifiedCommandHandler) writeYamlFile(filePath string, content map[string]interface{}) error {
