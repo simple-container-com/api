@@ -100,11 +100,14 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		return nil, fmt.Errorf("failed to configure LLM provider: %w", err)
 	}
 
-	// Load embeddings database
+	// Load embeddings database (optional - MCP server can work without embeddings)
 	ctx := context.Background()
 	embeddingsDB, err := embeddings.LoadEmbeddedDatabase(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load embeddings database: %w", err)
+		// Log warning but continue without embeddings database
+		// This allows MCP server to start even if embeddings are not available
+		fmt.Printf("Warning: Failed to load embeddings database: %v\n", err)
+		embeddingsDB = nil
 	}
 
 	// Create chat interface components (reuse embeddings to avoid reloading)
