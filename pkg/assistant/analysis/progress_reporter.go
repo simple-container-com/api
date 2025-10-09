@@ -72,16 +72,22 @@ func (s *StreamingProgressReporter) ReportProgress(phase string, message string,
 	// Create different output for different phases to show progress
 	phaseIndicators := map[string]string{
 		"initialization":           "🚀",
-		"tech_stack_detection":     "💻",
-		"tech_stack_analysis":      "🔧",
-		"architecture_detection":   "🏗️",
-		"initial_recommendations":  "💡",
+		"tech_stack":               "💻",
+		"architecture":             "🏗️",
+		"recommendations":          "💡",
+		"parallel_analysis":        "⚡",
 		"file_analysis":            "📁",
-		"resource_detection":       "🔍",
+		"resource_analysis":        "🔍",
 		"git_analysis":             "📊",
 		"enhanced_recommendations": "✨",
 		"llm_enhancement":          "🤖",
 		"completion":               "✅",
+		// Legacy indicators for backward compatibility
+		"tech_stack_detection":    "💻",
+		"tech_stack_analysis":     "🔧",
+		"architecture_detection":  "🏗️",
+		"initial_recommendations": "💡",
+		"resource_detection":      "🔍",
 	}
 
 	indicator := phaseIndicators[phase]

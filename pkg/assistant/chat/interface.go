@@ -873,6 +873,9 @@ func (c *ChatInterface) analyzeProject(ctx context.Context) error {
 	progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
 	c.analyzer.SetProgressReporter(progressReporter)
 
+	// Use CachedMode for chat interface to load from cache when available
+	c.analyzer.SetAnalysisMode(analysis.CachedMode)
+
 	projectInfo, err := c.analyzer.AnalyzeProject(c.config.ProjectPath)
 	if err != nil {
 		return err

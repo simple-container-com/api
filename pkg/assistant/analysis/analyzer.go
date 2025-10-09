@@ -352,11 +352,13 @@ func (pa *ProjectAnalyzer) analyzeProjectFresh(projectPath string) (*ProjectAnal
 
 	// Detect architecture patterns
 	pa.progressTracker.StartPhase("architecture")
+	pa.progressTracker.CompleteTask("architecture", "Analyzing project structure...")
 	analysis.Architecture = pa.detectArchitecture(detectedStacks, projectPath)
 	pa.progressTracker.CompletePhase("architecture", "Detected architecture: "+analysis.Architecture)
 
 	// Generate recommendations
 	pa.progressTracker.StartPhase("recommendations")
+	pa.progressTracker.CompleteTask("recommendations", "Analyzing project patterns...")
 	analysis.Recommendations = pa.generateRecommendations(analysis)
 	pa.progressTracker.CompletePhase("recommendations", fmt.Sprintf("Generated %d initial recommendations", len(analysis.Recommendations)))
 
@@ -416,7 +418,8 @@ func (pa *ProjectAnalyzer) analyzeProjectFresh(projectPath string) (*ProjectAnal
 	// Git analysis (conditional)
 	g.Go(func() error {
 		if pa.enableGitAnalysis {
-			gitAnalyzer := NewGitAnalyzer(projectPath)
+			// Use git analyzer with progress tracking
+			gitAnalyzer := NewGitAnalyzerWithProgress(projectPath, pa.progressTracker)
 			var err error
 			gitAnalysis, err = gitAnalyzer.AnalyzeGitRepository()
 			if err != nil {
@@ -439,12 +442,14 @@ func (pa *ProjectAnalyzer) analyzeProjectFresh(projectPath string) (*ProjectAnal
 
 	// Generate enhanced recommendations based on detected resources
 	pa.progressTracker.StartPhase("enhanced_recommendations")
+	pa.progressTracker.CompleteTask("enhanced_recommendations", "Analyzing resource dependencies...")
 	analysis.Recommendations = pa.generateEnhancedRecommendations(analysis)
 	pa.progressTracker.CompletePhase("enhanced_recommendations", fmt.Sprintf("Generated %d contextual recommendations", len(analysis.Recommendations)))
 
 	// Enhance analysis with LLM insights
 	if pa.llmProvider != nil {
 		pa.progressTracker.StartPhase("llm_enhancement")
+		pa.progressTracker.CompleteTask("llm_enhancement", "Preparing context for AI enhancement...")
 		if enhanced, err := pa.enhanceWithLLM(context.Background(), analysis); err == nil {
 			analysis = enhanced
 			pa.progressTracker.CompletePhase("llm_enhancement", "Analysis enhanced with AI insights")

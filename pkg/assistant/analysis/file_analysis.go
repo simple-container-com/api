@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,13 @@ import (
 // analyzeFiles provides file-level analysis
 func (pa *ProjectAnalyzer) analyzeFiles(projectPath string) ([]FileInfo, error) {
 	var files []FileInfo
+	var processedFiles int
+
+	// Start file analysis phase
+	if pa.progressTracker != nil {
+		pa.progressTracker.StartPhase("file_analysis")
+		pa.progressTracker.CompleteTask("file_analysis", "Starting file analysis...")
+	}
 
 	err := filepath.WalkDir(projectPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -71,8 +79,21 @@ func (pa *ProjectAnalyzer) analyzeFiles(projectPath string) ([]FileInfo, error) 
 		}
 
 		files = append(files, file)
+		processedFiles++
+
+		// Report progress every 50 files to avoid overwhelming the progress display
+		if pa.progressTracker != nil && processedFiles%50 == 0 {
+			pa.progressTracker.CompleteTask("file_analysis",
+				fmt.Sprintf("Analyzing files... (%d files processed)", processedFiles))
+		}
 		return nil
 	})
+
+	// Final progress report
+	if pa.progressTracker != nil {
+		pa.progressTracker.CompleteTask("file_analysis",
+			fmt.Sprintf("File analysis completed (%d files processed)", processedFiles))
+	}
 
 	return files, err
 }

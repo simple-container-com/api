@@ -401,6 +401,30 @@ templates:
     - Gracefully handles completion with proper line breaks
     - Accumulates full response for conversation history
   - **✅ Setup Command Streaming**: Fixed `/setup` command to enable streaming by changing `UseStreaming: false` to `UseStreaming: true` in SetupOptions
+- **MAJOR: Enhanced Granular Progress Reporting** - Dramatically improved analyzer progress feedback to prevent appearing hung during long analysis operations  
+  - **✅ Problem Identified**: Users reported analyzer appearing to hang during analysis, especially with complex projects, due to infrequent progress updates
+  - **✅ Comprehensive Progress Tracking Added**:
+    - **Tech Stack Detection**: Individual detector completion reporting (e.g., "Detected react (2/7 detectors)")
+    - **File Analysis**: Progress every 50 files processed with file count tracking
+    - **Resource Analysis**: Per-detector completion with resource type identification  
+    - **Git Analysis**: Granular step-by-step progress through 8 git analysis phases
+    - **Enhanced Recommendations**: Sub-phase progress reporting for analysis steps
+  - **✅ Progress Tracker Architecture Enhanced**: 
+    - **Separate Phase Tracking**: Individual phases for file_analysis, resource_analysis, git_analysis (vs. bundled parallel_analysis)
+    - **Dynamic Task Counting**: Proper detector counts and file counts for accurate progress percentages
+    - **Progressive Weight Distribution**: Better progress weighting across initialization (5%), tech_stack (15%), architecture (5%), recommendations (10%), parallel_analysis (15%), file_analysis (15%), resource_analysis (15%), git_analysis (5%), enhanced_recommendations (10%), llm_enhancement (5%)
+  - **✅ Enhanced Visual Indicators**: 
+    - **Phase-Specific Emojis**: 🚀 initialization, 💻 tech_stack, 🏗️ architecture, 💡 recommendations, ⚡ parallel_analysis, 📁 file_analysis, 🔍 resource_analysis, 📊 git_analysis, ✨ enhanced_recommendations, 🤖 llm_enhancement
+    - **Descriptive Messages**: Detailed progress descriptions like "Analyzing repository structure...", "Calculating project metrics...", "Running resource detectors (3/6 completed)"
+  - **✅ Code Changes Applied**:
+    - **resource_analysis.go**: Added per-detector progress tracking with resource type identification
+    - **file_analysis.go**: Added file count progress reporting every 50 files
+    - **git_analyzer.go**: Added comprehensive progress tracking with GitAnalyzerWithProgress constructor
+    - **analyzer.go**: Updated to use progress-enabled git analyzer and enhanced phase descriptions
+    - **progress_tracker.go**: Restructured phases with proper weights and individual tracking
+    - **progress_reporter.go**: Enhanced visual indicators and phase-specific emojis
+  - **✅ Chat Interface Fixed**: Updated chat mode to use CachedMode instead of QuickMode to properly respect existing cache
+  - **Impact**: Users now see continuous, informative progress updates throughout the entire analysis process, eliminating the perception of hangs and providing clear insight into analysis progress
   - **✅ Provider Compatibility**: Added automatic fallback to non-streaming mode for providers that don't support streaming
   - **✅ Graceful Degradation**: Maintains backward compatibility with `handleNonStreamingChat()` fallback method
   - **Technical Implementation**: Enhanced `pkg/assistant/chat/interface.go` with `handleStreamingChat()` and `handleNonStreamingChat()` methods, fixed `pkg/assistant/chat/commands.go` streaming flag

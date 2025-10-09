@@ -15,7 +15,8 @@ import (
 
 // GitAnalyzer provides Git repository analysis functionality
 type GitAnalyzer struct {
-	projectPath string
+	projectPath     string
+	progressTracker *ProgressTracker
 }
 
 // NewGitAnalyzer creates a new Git analyzer
@@ -25,10 +26,27 @@ func NewGitAnalyzer(projectPath string) *GitAnalyzer {
 	}
 }
 
+// NewGitAnalyzerWithProgress creates a new Git analyzer with progress tracking
+func NewGitAnalyzerWithProgress(projectPath string, progressTracker *ProgressTracker) *GitAnalyzer {
+	return &GitAnalyzer{
+		projectPath:     projectPath,
+		progressTracker: progressTracker,
+	}
+}
+
 // AnalyzeGitRepository performs comprehensive Git repository analysis
 func (ga *GitAnalyzer) AnalyzeGitRepository() (*GitAnalysis, error) {
+	// Start git analysis phase
+	if ga.progressTracker != nil {
+		ga.progressTracker.StartPhase("git_analysis")
+		ga.progressTracker.CompleteTask("git_analysis", "Starting Git repository analysis...")
+	}
+
 	// Check if it's a Git repository
 	if !ga.isGitRepository() {
+		if ga.progressTracker != nil {
+			ga.progressTracker.CompleteTask("git_analysis", "Not a Git repository")
+		}
 		return &GitAnalysis{IsGitRepo: false}, nil
 	}
 
@@ -38,39 +56,63 @@ func (ga *GitAnalyzer) AnalyzeGitRepository() (*GitAnalysis, error) {
 	}
 
 	// Get basic repository information
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Analyzing repository structure...")
+	}
 	if err := ga.getBasicRepoInfo(analysis); err != nil {
 		return analysis, err
 	}
 
 	// Get commit activity
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Analyzing commit activity...")
+	}
 	if activity, err := ga.getCommitActivity(); err == nil {
 		analysis.CommitActivity = activity
 	}
 
 	// Get contributors
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Analyzing contributors...")
+	}
 	if contributors, err := ga.getContributors(); err == nil {
 		analysis.Contributors = contributors
 	}
 
 	// Get last commit
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Getting latest commit info...")
+	}
 	if lastCommit, err := ga.getLastCommit(); err == nil {
 		analysis.LastCommit = lastCommit
 	}
 
 	// Check for CI/CD
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Detecting CI/CD platforms...")
+	}
 	analysis.HasCI, analysis.CIPlatforms = ga.detectCIPlatforms()
 
 	// Get tags
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Analyzing tags and releases...")
+	}
 	if tags, err := ga.getTags(); err == nil {
 		analysis.Tags = tags
 	}
 
 	// Calculate project age
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Calculating project metrics...")
+	}
 	if age, err := ga.getProjectAge(); err == nil {
 		analysis.ProjectAge = age
 	}
 
 	// Get file change statistics
+	if ga.progressTracker != nil {
+		ga.progressTracker.CompleteTask("git_analysis", "Analyzing file change statistics...")
+	}
 	if fileChanges, err := ga.getFileChangeStats(); err == nil {
 		analysis.FileChanges = fileChanges
 	}
