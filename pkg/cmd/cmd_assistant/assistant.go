@@ -187,7 +187,7 @@ Examples:
 	cmd.Flags().StringVar(&a.mode, "mode", "general", "Chat mode: dev, devops, or general")
 	cmd.Flags().String("openai-key", "", "OpenAI API key (or set OPENAI_API_KEY env var)")
 	cmd.Flags().String("llm-provider", "openai", "LLM provider: openai")
-	cmd.Flags().Int("max-tokens", 2048, "Maximum tokens per response")
+	cmd.Flags().Int("max-tokens", -1, "Maximum tokens per response (auto-calculated based on model if -1)")
 	cmd.Flags().Float32("temperature", 0.7, "LLM temperature (0.0-1.0)")
 	cmd.Flags().Bool("verbose", false, "Verbose output")
 

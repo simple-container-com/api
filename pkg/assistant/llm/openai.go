@@ -157,9 +157,109 @@ func (p *OpenAIProvider) ChatWithTools(ctx context.Context, messages []Message, 
 }
 
 // StreamChat sends messages to OpenAI and streams the response via callback
+// Uses direct streaming (not tool-enabled) for optimal continuation performance
 func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, callback StreamCallback) (*ChatResponse, error) {
-	// Call StreamChatWithTools with empty tools
-	return p.StreamChatWithTools(ctx, messages, []Tool{}, callback)
+	// Use base validation
+	if err := p.ValidateConfiguration(); err != nil {
+		return nil, err
+	}
+
+	// Convert messages to langchaingo format
+	llmMessages := make([]llms.MessageContent, 0, len(messages))
+	for _, msg := range messages {
+		var msgType llms.ChatMessageType
+		switch strings.ToLower(msg.Role) {
+		case "user":
+			msgType = llms.ChatMessageTypeHuman
+		case "assistant":
+			msgType = llms.ChatMessageTypeAI
+		case "system":
+			msgType = llms.ChatMessageTypeSystem
+		default:
+			msgType = llms.ChatMessageTypeHuman
+		}
+		llmMessages = append(llmMessages, llms.TextParts(msgType, msg.Content))
+	}
+
+	startTime := time.Now()
+	var fullContent strings.Builder
+	var completionTokens int
+
+	// Use direct streaming generation (not tool-enabled path)
+	_, err := p.client.GenerateContent(ctx, llmMessages,
+		llms.WithMaxTokens(p.config.MaxTokens),
+		llms.WithTemperature(float64(p.config.Temperature)),
+		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {
+			chunkStr := string(chunk)
+			if chunkStr == "" {
+				return nil
+			}
+
+			fullContent.WriteString(chunkStr)
+			completionTokens += estimateTokens(chunkStr)
+
+			// Send chunk to callback
+			streamChunk := StreamChunk{
+				Content:    fullContent.String(),
+				Delta:      chunkStr,
+				IsComplete: false,
+				Metadata: map[string]string{
+					"provider": "openai",
+				},
+				GeneratedAt: time.Now(),
+			}
+
+			return callback(streamChunk)
+		}),
+	)
+	if err != nil {
+		return nil, enhanceOpenAIError(err)
+	}
+
+	// Calculate token usage using base provider helper
+	usage := p.CalculateUsageWithCost(
+		estimateTokens(messagesToString(messages)),
+		estimateTokens(fullContent.String()),
+		calculateOpenAICost,
+		p.model,
+	)
+
+	// Send final chunk
+	finalChunk := StreamChunk{
+		Content:    fullContent.String(),
+		Delta:      "",
+		IsComplete: true,
+		Usage:      &usage,
+		Metadata: map[string]string{
+			"provider":          "openai",
+			"model":             p.model,
+			"finish_reason":     "stop",
+			"prompt_tokens":     fmt.Sprintf("%d", usage.PromptTokens),
+			"completion_tokens": fmt.Sprintf("%d", usage.CompletionTokens),
+			"total_tokens":      fmt.Sprintf("%d", usage.TotalTokens),
+			"latency_ms":        fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+		},
+		GeneratedAt: time.Now(),
+	}
+
+	// Send the final chunk
+	if err := callback(finalChunk); err != nil {
+		return nil, fmt.Errorf("callback error: %w", err)
+	}
+
+	return &ChatResponse{
+		Content:      fullContent.String(),
+		Usage:        usage,
+		Model:        p.model,
+		FinishReason: "stop",
+		Metadata: map[string]string{
+			"provider":   "openai",
+			"model":      p.model,
+			"latency_ms": fmt.Sprintf("%.0f", time.Since(startTime).Seconds()*1000),
+		},
+		GeneratedAt: time.Now(),
+		ToolCalls:   []ToolCall{}, // No tool calls for direct streaming
+	}, nil
 }
 
 // StreamChatWithTools sends messages to OpenAI with tool support and streams the response via callback

@@ -39,12 +39,13 @@ func CheckAndWarnExistingSimpleContainerProject(projectPath string, forceOverwri
 		}
 	}
 
-	// Check for other Simple Container files
+	// Check for other Simple Container specific files
+	// Note: Dockerfile alone is NOT a Simple Container indicator - it's a standard Docker file
 	otherFiles := []string{
-		"docker-compose.yaml",
-		"Dockerfile",
-		"secrets.yaml",
-		".sc/stacks",
+		"docker-compose.yaml", // Simple Container can generate/use compose files
+		"server.yaml",         // Simple Container server configuration
+		"secrets.yaml",        // Simple Container secrets file
+		".sc/stacks",          // Simple Container stacks directory
 	}
 
 	for _, file := range otherFiles {

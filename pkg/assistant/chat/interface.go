@@ -87,10 +87,44 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 		}
 	}
 
+	// Calculate dynamic MaxTokens if not set (0 or negative means calculate based on model capabilities)
+	maxTokens := sessionConfig.MaxTokens
+
+	if maxTokens <= 0 {
+		// Create a temporary provider to get model capabilities
+		tempProvider := llm.GlobalRegistry.Create(sessionConfig.LLMProvider)
+		if tempProvider != nil {
+			tempConfig := llm.Config{
+				Provider: sessionConfig.LLMProvider,
+				Model:    model,
+				APIKey:   apiKey,
+				BaseURL:  baseURL,
+			}
+			if err := tempProvider.Configure(tempConfig); err == nil {
+				modelMaxTokens := tempProvider.GetCapabilities().MaxTokens
+				maxTokens = CalculateOptimalMaxTokens(modelMaxTokens)
+				// Update session config with calculated value
+				sessionConfig.MaxTokens = maxTokens
+				fmt.Printf("🧮 Dynamic MaxTokens calculated: %d (15%% of %d context window)\n",
+					maxTokens, modelMaxTokens)
+			} else {
+				// Fallback to reasonable default if configuration fails
+				maxTokens = 8192
+				sessionConfig.MaxTokens = maxTokens
+				fmt.Printf("⚠️ Using fallback MaxTokens: %d (configuration failed: %v)\n", maxTokens, err)
+			}
+		} else {
+			// Fallback to reasonable default if provider creation fails
+			maxTokens = 8192
+			sessionConfig.MaxTokens = maxTokens
+			fmt.Printf("⚠️ Using fallback MaxTokens: %d (provider creation failed)\n", maxTokens)
+		}
+	}
+
 	llmConfig := llm.Config{
 		Provider:    sessionConfig.LLMProvider,
 		Model:       model,
-		MaxTokens:   sessionConfig.MaxTokens,
+		MaxTokens:   maxTokens,
 		Temperature: sessionConfig.Temperature,
 		APIKey:      apiKey,
 		BaseURL:     baseURL,
@@ -244,6 +278,11 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 		} else {
 			c.addMessage("system", systemPrompt)
 		}
+	} else {
+		// Update existing system message with latest prompt (in case it was updated)
+		systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
+		c.context.History[0].Content = systemPrompt
+		c.context.History[0].Timestamp = time.Now()
 	}
 
 	// Start chat loop with signal-aware context
@@ -565,9 +604,6 @@ func (c *ChatInterface) handleToolCalls(ctx context.Context, response *llm.ChatR
 		// Add tool result to conversation history for LLM context
 		toolResultMessage := c.toolCallHandler.FormatToolCallResult(toolCall, result)
 
-		// Optional: Debug tool results for troubleshooting
-		// fmt.Printf("DEBUG: Adding tool result (%d chars) to LLM context\n", len(toolResultMessage))
-
 		c.addMessage("tool", toolResultMessage)
 	}
 
@@ -728,6 +764,9 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 		return fmt.Errorf("unknown command: %s (type /help for available commands)", commandName)
 	}
 
+	// Add user command to conversation history for LLM context
+	c.addMessage("user", input)
+
 	// Execute command
 	result, err := command.Handler(ctx, args, c.context)
 	if err != nil {
@@ -740,6 +779,15 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 	} else {
 		fmt.Printf("%s %s\n", color.RedString("❌"), result.Message)
 	}
+
+	// Add command result to conversation history for LLM context
+	// This ensures the LLM knows what the command returned
+	statusIcon := "✅"
+	if !result.Success {
+		statusIcon = "❌"
+	}
+	commandResult := fmt.Sprintf("%s Command `%s` result:\n%s", statusIcon, input, result.Message)
+	c.addMessage("assistant", commandResult)
 
 	// Handle generated files - actually write them to disk
 	if len(result.Files) > 0 {
@@ -1367,15 +1415,28 @@ func (c *ChatInterface) ReloadLLMProvider() error {
 		return fmt.Errorf("unsupported LLM provider: %s", provider)
 	}
 
-	// Configure provider
+	// Configure provider first
 	llmConfig := llm.Config{
 		Provider:    provider,
-		Model:       providerCfg.Model, // Use model from provider config
-		MaxTokens:   c.config.MaxTokens,
+		Model:       providerCfg.Model,  // Use model from provider config
+		MaxTokens:   c.config.MaxTokens, // Temporary value, will recalculate after configuration
 		Temperature: c.config.Temperature,
 		APIKey:      providerCfg.APIKey,
 		BaseURL:     providerCfg.BaseURL,
 	}
+
+	if err := newProvider.Configure(llmConfig); err != nil {
+		return fmt.Errorf("failed to configure LLM provider: %w", err)
+	}
+
+	// Always recalculate MaxTokens when switching models to ensure compatibility
+	modelMaxTokens := newProvider.GetCapabilities().MaxTokens
+	maxTokens := CalculateOptimalMaxTokens(modelMaxTokens)
+	// Update session config with calculated value
+	c.config.MaxTokens = maxTokens
+
+	// Reconfigure provider with correct MaxTokens
+	llmConfig.MaxTokens = maxTokens
 
 	if err := newProvider.Configure(llmConfig); err != nil {
 		return fmt.Errorf("failed to configure LLM provider: %w", err)

@@ -95,10 +95,30 @@ func DefaultSessionConfig() SessionConfig {
 	return SessionConfig{
 		Mode:           "general",
 		LLMProvider:    "openai",
-		MaxTokens:      2048,
+		MaxTokens:      -1, // Force dynamic calculation (0 might be overridden by existing sessions)
 		Temperature:    0.7,
 		EnableCommands: true,
 		LogLevel:       "info",
 		Metadata:       make(map[string]string),
 	}
+}
+
+// CalculateOptimalMaxTokens calculates appropriate MaxTokens based on model capabilities
+// Uses 15% of context window for responses, with reasonable bounds
+func CalculateOptimalMaxTokens(modelMaxTokens int) int {
+	// Calculate 15% of context window for response tokens
+	responseTokens := int(float64(modelMaxTokens) * 0.15)
+
+	// Apply reasonable bounds
+	const minResponseTokens = 2048  // Minimum for any model
+	const maxResponseTokens = 16384 // Maximum to prevent excessive responses
+
+	if responseTokens < minResponseTokens {
+		return minResponseTokens
+	}
+	if responseTokens > maxResponseTokens {
+		return maxResponseTokens
+	}
+
+	return responseTokens
 }
