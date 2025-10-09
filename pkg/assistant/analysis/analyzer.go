@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -34,25 +35,35 @@ func (n *NoOpProgressReporter) ReportProgress(phase string, message string, perc
 type AnalysisMode int
 
 const (
-	QuickMode AnalysisMode = iota // Fast analysis for chat startup
-	FullMode                      // Comprehensive analysis for reports
+	QuickMode     AnalysisMode = iota // Fast analysis for chat startup
+	FullMode                          // Comprehensive analysis for reports
+	CachedMode                        // Load from cache if available
+	ForceFullMode                     // Force full analysis even if cache exists
+	SetupMode                         // For project setup, includes resource confirmation
 )
 
 // ProjectAnalyzer orchestrates tech stack detection and generates recommendations
 type ProjectAnalyzer struct {
-	detectors          []TechStackDetector
-	resourceDetectors  []ResourceDetector
-	llmProvider        LLMProvider
-	embeddingsDB       *embeddings.Database
-	progressReporter   ProgressReporter
-	progressTracker    *ProgressTracker
-	maxTokens          int          // Maximum tokens to send to LLM (0 = no limit)
-	skipLLMIfExpensive bool         // Skip LLM if estimated tokens exceed maxTokens
-	analysisMode       AnalysisMode // Quick vs Full analysis mode
-	skipGitAnalysis    bool         // Skip heavy git operations
-	skipComplexity     bool         // Skip code complexity analysis
-	skipTestFiles      bool         // Skip test files and testdata directories
-	skipExamples       bool         // Skip example files and documentation
+	// Core detector registries (full sets available)
+	allTechStackDetectors []TechStackDetector
+	allResourceDetectors  []ResourceDetector
+
+	// Active detectors for current mode
+	detectors         []TechStackDetector
+	resourceDetectors []ResourceDetector
+
+	llmProvider      LLMProvider
+	embeddingsDB     *embeddings.Database
+	progressReporter ProgressReporter
+	progressTracker  *ProgressTracker
+	analysisMode     AnalysisMode
+
+	// Mode-specific configurations
+	maxTokens          int  // Maximum tokens to send to LLM (0 = no limit)
+	skipLLMIfExpensive bool // Skip LLM if estimated tokens exceed maxTokens
+	enableComplexity   bool // Enable code complexity analysis
+	enableGitAnalysis  bool // Enable git operations
+	enableFileAnalysis bool // Enable detailed file analysis
 }
 
 // NewProjectAnalyzer creates a new analyzer with default detectors
@@ -60,35 +71,39 @@ func NewProjectAnalyzer() *ProjectAnalyzer {
 	// Initialize embeddings database for context enrichment
 	embeddingsDB, _ := embeddings.LoadEmbeddedDatabase(context.Background())
 
-	return &ProjectAnalyzer{
-		detectors: []TechStackDetector{
-			&SimpleContainerDetector{},
-			&NodeJSDetector{},
-			&PythonDetector{},
-			&GoDetector{},
-			&TerraformDetector{},
-			&PulumiDetector{},
-			&DockerDetector{},
-		},
-		resourceDetectors: []ResourceDetector{
-			&EnvironmentVariableDetector{},
-			&SecretDetector{},
-			&DatabaseDetector{},
-			&QueueDetector{},
-			&StorageDetector{},
-			&ExternalAPIDetector{},
-		},
-		llmProvider:        nil, // Can be set later with SetLLMProvider
-		embeddingsDB:       embeddingsDB,
-		progressReporter:   &NoOpProgressReporter{},
-		maxTokens:          2000,      // Default reasonable limit
-		skipLLMIfExpensive: true,      // Skip by default to save costs
-		analysisMode:       QuickMode, // Default to quick analysis for chat
-		skipGitAnalysis:    true,      // Skip heavy git operations by default
-		skipComplexity:     true,      // Skip complexity analysis by default
-		skipTestFiles:      true,      // Skip test files for faster analysis
-		skipExamples:       true,      // Skip example/doc files for faster analysis
+	// Define all available detectors
+	allTechDetectors := []TechStackDetector{
+		&SimpleContainerDetector{},
+		&NodeJSDetector{},
+		&PythonDetector{},
+		&GoDetector{},
+		&TerraformDetector{},
+		&PulumiDetector{},
+		&DockerDetector{},
 	}
+
+	allResourceDetectors := []ResourceDetector{
+		&EnvironmentVariableDetector{},
+		&SecretDetector{},
+		&DatabaseDetector{},
+		&QueueDetector{},
+		&StorageDetector{},
+		&ExternalAPIDetector{},
+	}
+
+	pa := &ProjectAnalyzer{
+		allTechStackDetectors: allTechDetectors,
+		allResourceDetectors:  allResourceDetectors,
+		llmProvider:           nil, // Can be set later with SetLLMProvider
+		embeddingsDB:          embeddingsDB,
+		progressReporter:      &NoOpProgressReporter{},
+		analysisMode:          QuickMode, // Default to quick analysis
+	}
+
+	// Configure detectors for the default mode
+	pa.configureDetectorsForMode(QuickMode)
+
+	return pa
 }
 
 // SetLLMProvider sets the LLM provider for enhanced analysis
@@ -98,35 +113,39 @@ func (pa *ProjectAnalyzer) SetLLMProvider(provider LLMProvider) {
 
 // NewProjectAnalyzerWithEmbeddings creates an analyzer with existing embeddings DB (for reuse)
 func NewProjectAnalyzerWithEmbeddings(embeddingsDB *embeddings.Database) *ProjectAnalyzer {
-	return &ProjectAnalyzer{
-		detectors: []TechStackDetector{
-			&SimpleContainerDetector{},
-			&NodeJSDetector{},
-			&PythonDetector{},
-			&GoDetector{},
-			&TerraformDetector{},
-			&PulumiDetector{},
-			&DockerDetector{},
-		},
-		resourceDetectors: []ResourceDetector{
-			&EnvironmentVariableDetector{},
-			&SecretDetector{},
-			&DatabaseDetector{},
-			&QueueDetector{},
-			&StorageDetector{},
-			&ExternalAPIDetector{},
-		},
-		llmProvider:        nil,
-		embeddingsDB:       embeddingsDB,
-		progressReporter:   &NoOpProgressReporter{},
-		maxTokens:          2000,      // Default reasonable limit
-		skipLLMIfExpensive: true,      // Skip by default to save costs
-		analysisMode:       QuickMode, // Default to quick analysis for chat
-		skipGitAnalysis:    true,      // Skip heavy git operations by default
-		skipComplexity:     true,      // Skip complexity analysis by default
-		skipTestFiles:      true,      // Skip test files for faster analysis
-		skipExamples:       true,      // Skip example/doc files for faster analysis
+	// Define all available detectors
+	allTechDetectors := []TechStackDetector{
+		&SimpleContainerDetector{},
+		&NodeJSDetector{},
+		&PythonDetector{},
+		&GoDetector{},
+		&TerraformDetector{},
+		&PulumiDetector{},
+		&DockerDetector{},
 	}
+
+	allResourceDetectors := []ResourceDetector{
+		&EnvironmentVariableDetector{},
+		&SecretDetector{},
+		&DatabaseDetector{},
+		&QueueDetector{},
+		&StorageDetector{},
+		&ExternalAPIDetector{},
+	}
+
+	pa := &ProjectAnalyzer{
+		allTechStackDetectors: allTechDetectors,
+		allResourceDetectors:  allResourceDetectors,
+		llmProvider:           nil,
+		embeddingsDB:          embeddingsDB,
+		progressReporter:      &NoOpProgressReporter{},
+		analysisMode:          QuickMode, // Default to quick analysis
+	}
+
+	// Configure detectors for the default mode
+	pa.configureDetectorsForMode(QuickMode)
+
+	return pa
 }
 
 // SetProgressReporter sets the progress reporter for analysis feedback
@@ -153,25 +172,83 @@ func (pa *ProjectAnalyzer) EnableLLMEnhancement() {
 	pa.skipLLMIfExpensive = false
 }
 
-// SetAnalysisMode configures the analysis depth
+// SetAnalysisMode configures the analysis depth and active detectors
 func (pa *ProjectAnalyzer) SetAnalysisMode(mode AnalysisMode) {
 	pa.analysisMode = mode
+	pa.configureDetectorsForMode(mode)
+}
+
+// configureDetectorsForMode configures active detectors based on analysis mode
+func (pa *ProjectAnalyzer) configureDetectorsForMode(mode AnalysisMode) {
+	// Core tech stack detectors (always active for basic project detection)
+	coreTechDetectors := []TechStackDetector{
+		&NodeJSDetector{},
+		&PythonDetector{},
+		&GoDetector{},
+	}
+
+	// Extended tech stack detectors
+	extendedTechDetectors := []TechStackDetector{
+		&SimpleContainerDetector{},
+		&TerraformDetector{},
+		&PulumiDetector{},
+		&DockerDetector{},
+	}
+
+	// Lightweight resource detectors (minimal overhead)
+	lightweightResourceDetectors := []ResourceDetector{
+		&EnvironmentVariableDetector{},
+	}
+
+	// Full resource detectors (can be expensive)
+	fullResourceDetectors := []ResourceDetector{
+		&SecretDetector{},
+		&DatabaseDetector{},
+		&QueueDetector{},
+		&StorageDetector{},
+		&ExternalAPIDetector{},
+	}
 
 	switch mode {
 	case QuickMode:
-		pa.skipGitAnalysis = true
-		pa.skipComplexity = true
-		pa.skipTestFiles = true
-		pa.skipExamples = true
+		// Minimal detectors for fast startup
+		pa.detectors = coreTechDetectors
+		pa.resourceDetectors = lightweightResourceDetectors
 		pa.maxTokens = 1000
 		pa.skipLLMIfExpensive = true
-	case FullMode:
-		pa.skipGitAnalysis = false
-		pa.skipComplexity = false
-		pa.skipTestFiles = false
-		pa.skipExamples = false
+		pa.enableComplexity = false
+		pa.enableGitAnalysis = false
+		pa.enableFileAnalysis = false
+
+	case FullMode, ForceFullMode:
+		// All detectors for comprehensive analysis
+		pa.detectors = append(coreTechDetectors, extendedTechDetectors...)
+		pa.resourceDetectors = append(lightweightResourceDetectors, fullResourceDetectors...)
 		pa.maxTokens = 0 // No limit
 		pa.skipLLMIfExpensive = false
+		pa.enableComplexity = true
+		pa.enableGitAnalysis = true
+		pa.enableFileAnalysis = true
+
+	case CachedMode:
+		// Core detectors, but will prefer cache over resource detection
+		pa.detectors = append(coreTechDetectors, extendedTechDetectors...)
+		pa.resourceDetectors = []ResourceDetector{} // Empty - will load from cache
+		pa.maxTokens = 1000
+		pa.skipLLMIfExpensive = true
+		pa.enableComplexity = false
+		pa.enableGitAnalysis = false
+		pa.enableFileAnalysis = false
+
+	case SetupMode:
+		// Core + extended tech detectors, selective resource detectors with user confirmation
+		pa.detectors = append(coreTechDetectors, extendedTechDetectors...)
+		pa.resourceDetectors = append(lightweightResourceDetectors, fullResourceDetectors...)
+		pa.maxTokens = 2000
+		pa.skipLLMIfExpensive = false
+		pa.enableComplexity = false // Skip complexity for setup but enable resources
+		pa.enableGitAnalysis = true
+		pa.enableFileAnalysis = false
 	}
 }
 
@@ -200,8 +277,21 @@ func (pa *ProjectAnalyzer) AddResourceDetector(detector ResourceDetector) {
 	})
 }
 
-// AnalyzeProject performs comprehensive project analysis
+// AnalyzeProject performs project analysis with caching support
 func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis, error) {
+	// Try to load from cache first (unless ForceFullMode)
+	if pa.analysisMode != ForceFullMode {
+		if cache, err := LoadAnalysisCache(projectPath); err == nil {
+			pa.progressReporter.ReportProgress("completion", "Loaded analysis from cache", 100)
+			return ConvertCacheToAnalysis(cache), nil
+		}
+	}
+
+	return pa.analyzeProjectFresh(projectPath)
+}
+
+// analyzeProjectFresh performs fresh analysis without cache
+func (pa *ProjectAnalyzer) analyzeProjectFresh(projectPath string) (*ProjectAnalysis, error) {
 	// Get absolute path for better display
 	absPath, err := filepath.Abs(projectPath)
 	if err != nil {
@@ -280,37 +370,62 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 	var resources *ResourceAnalysis
 	var gitAnalysis *GitAnalysis
 
-	// File analysis
+	// File analysis (conditional)
 	g.Go(func() error {
-		if fileResult, err := pa.analyzeFiles(projectPath); err == nil {
-			files = fileResult
-		}
-		pa.progressTracker.CompleteTask("parallel_analysis", "File analysis completed")
-		return nil
-	})
-
-	// Resource detection
-	g.Go(func() error {
-		if resourceResult, err := pa.analyzeResourcesParallel(projectPath); err == nil {
-			resources = resourceResult
-		}
-		pa.progressTracker.CompleteTask("parallel_analysis", "Resource detection completed")
-		return nil
-	})
-
-	// Git analysis
-	g.Go(func() error {
-		gitAnalyzer := NewGitAnalyzer(projectPath)
-		var err error
-		if !pa.skipGitAnalysis {
-			gitAnalysis, err = gitAnalyzer.AnalyzeGitRepository()
+		if pa.enableFileAnalysis {
+			if fileResult, err := pa.analyzeFiles(projectPath); err == nil {
+				files = fileResult
+			}
+			pa.progressTracker.CompleteTask("parallel_analysis", "File analysis completed")
 		} else {
-			gitAnalysis, err = gitAnalyzer.GetBasicGitInfo()
+			pa.progressTracker.CompleteTask("parallel_analysis", "File analysis skipped")
 		}
-		if err != nil {
-			gitAnalysis = nil // Ignore git errors
+		return nil
+	})
+
+	// Resource detection (conditional based on mode and detectors)
+	g.Go(func() error {
+		if len(pa.resourceDetectors) == 0 {
+			// Try to load resources from cache (CachedMode)
+			if cachedResources, err := GetResourcesFromCache(projectPath); err == nil {
+				resources = cachedResources
+				pa.progressTracker.CompleteTask("parallel_analysis", "Resource detection loaded from cache")
+			} else {
+				pa.progressTracker.CompleteTask("parallel_analysis", "Resource detection skipped (no cache)")
+			}
+		} else if pa.analysisMode == SetupMode {
+			// Ask user for confirmation before resource analysis
+			if pa.confirmResourceAnalysis() {
+				if resourceResult, err := pa.analyzeResourcesParallel(projectPath); err == nil {
+					resources = resourceResult
+				}
+				pa.progressTracker.CompleteTask("parallel_analysis", "Resource detection completed")
+			} else {
+				pa.progressTracker.CompleteTask("parallel_analysis", "Resource detection skipped by user")
+			}
+		} else {
+			// Standard resource detection with configured detectors
+			if resourceResult, err := pa.analyzeResourcesParallel(projectPath); err == nil {
+				resources = resourceResult
+			}
+			pa.progressTracker.CompleteTask("parallel_analysis", "Resource detection completed")
 		}
-		pa.progressTracker.CompleteTask("parallel_analysis", "Git analysis completed")
+		return nil
+	})
+
+	// Git analysis (conditional)
+	g.Go(func() error {
+		if pa.enableGitAnalysis {
+			gitAnalyzer := NewGitAnalyzer(projectPath)
+			var err error
+			gitAnalysis, err = gitAnalyzer.AnalyzeGitRepository()
+			if err != nil {
+				gitAnalysis = nil // Ignore git errors
+			}
+			pa.progressTracker.CompleteTask("parallel_analysis", "Git analysis completed")
+		} else {
+			pa.progressTracker.CompleteTask("parallel_analysis", "Git analysis skipped")
+		}
 		return nil
 	})
 
@@ -338,13 +453,38 @@ func (pa *ProjectAnalyzer) AnalyzeProject(projectPath string) (*ProjectAnalysis,
 		}
 	}
 
+	// Save cache for future quick access
+	if err := SaveAnalysisCache(analysis, projectPath); err != nil {
+		// Log warning but don't fail
+		fmt.Printf("⚠️ Warning: Could not save analysis cache: %v\n", err)
+	}
+
 	// Save detailed analysis report for future LLM reference
 	if err := pa.saveAnalysisReport(analysis, projectPath); err != nil {
 		// Log error but don't fail the analysis
 		pa.progressReporter.ReportProgress("completion", fmt.Sprintf("Analysis complete! (Warning: Could not save report: %v)", err), 100)
 	} else {
-		pa.progressReporter.ReportProgress("completion", "Analysis complete! Report saved to .sc/analysis-report.md", 100)
+		pa.progressReporter.ReportProgress("completion", "Analysis complete! Reports saved to .sc/analysis-*.md/json", 100)
 	}
 
 	return analysis, nil
+}
+
+// confirmResourceAnalysis asks user for confirmation before running resource analysis
+func (pa *ProjectAnalyzer) confirmResourceAnalysis() bool {
+	fmt.Printf("\n🔍 Resource detection can take some time on large projects (like those with node_modules).\n")
+	fmt.Printf("   This analyzes your code to detect databases, APIs, storage systems, etc.\n")
+	fmt.Printf("   \n")
+	fmt.Printf("   💡 This is mainly useful for initial project setup.\n")
+	fmt.Printf("   \n")
+	fmt.Printf("   Run resource detection? [y/N]: ")
+
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		// If there's an error reading input, default to "no"
+		return false
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "y" || response == "yes"
 }

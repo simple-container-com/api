@@ -117,8 +117,8 @@ func (pa *ProjectAnalyzer) shouldSkipPath(path string) bool {
 		}
 	}
 
-	// Skip test files and directories in QuickMode
-	if pa.skipTestFiles {
+	// Skip test files and directories in QuickMode and CachedMode
+	if pa.analysisMode == QuickMode || pa.analysisMode == CachedMode {
 		testPatterns := []string{
 			"test", "tests", "_test", ".test", "spec", "_spec", ".spec",
 			"testdata", "test_", "spec_", "__tests__", ".jest",
@@ -132,8 +132,8 @@ func (pa *ProjectAnalyzer) shouldSkipPath(path string) bool {
 		}
 	}
 
-	// Skip example/documentation files in QuickMode
-	if pa.skipExamples {
+	// Skip example/documentation files in QuickMode and CachedMode
+	if pa.analysisMode == QuickMode || pa.analysisMode == CachedMode {
 		examplePatterns := []string{
 			"example", "examples", "docs", "doc", "documentation",
 			"demo", "demos", "sample", "samples", "tutorial",

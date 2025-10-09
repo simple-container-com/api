@@ -400,6 +400,15 @@ func (d *PythonDetector) hasPythonSourceFiles(projectPath string) (bool, error) 
 		if err != nil {
 			return nil // Skip errors
 		}
+
+		// Skip dependency directories for performance
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if strings.HasSuffix(entry.Name(), ".py") {
 			found = true
 			return fs.SkipAll // Stop walking
@@ -539,6 +548,15 @@ func (d *GoDetector) hasGoSourceFiles(projectPath string) (bool, error) {
 		if err != nil {
 			return nil
 		}
+
+		// Skip dependency directories for performance
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
 			found = true
 			return fs.SkipAll
@@ -856,6 +874,15 @@ func (d *TerraformDetector) Detect(projectPath string) (*TechStackInfo, error) {
 		if err != nil {
 			return nil // Skip errors
 		}
+
+		// Skip dependency directories for performance
+		if ShouldSkipPath(path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if !d.IsDir() && strings.HasSuffix(d.Name(), ".tf") {
 			tfFiles++
 			if tfFiles == 1 {
@@ -904,6 +931,15 @@ func (d *TerraformDetector) Detect(projectPath string) (*TechStackInfo, error) {
 			if err != nil {
 				return nil
 			}
+
+			// Skip dependency directories for performance
+			if ShouldSkipPath(path) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
 			if !d.IsDir() && strings.HasSuffix(d.Name(), ".tf") {
 				if content, err := os.ReadFile(path); err == nil {
 					contentStr := string(content)

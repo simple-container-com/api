@@ -63,7 +63,7 @@ func (pa *ProjectAnalyzer) analyzeFiles(projectPath string) ([]FileInfo, error) 
 		}
 
 		// Analyze complexity for source files (conditionally skip for performance)
-		if file.Type == "source" && file.Language != "" && !pa.skipComplexity {
+		if file.Type == "source" && file.Language != "" && pa.enableComplexity {
 			complexityAnalyzer := NewComplexityAnalyzer()
 			if complexity, err := complexityAnalyzer.AnalyzeFile(path, file.Language); err == nil {
 				file.Complexity = complexity

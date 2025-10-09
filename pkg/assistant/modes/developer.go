@@ -121,6 +121,8 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts *SetupOptions) error {
 
 	// Step 1: Project Analysis (unless skipped)
 	if !opts.SkipAnalysis {
+		// Configure analyzer for setup mode (includes user confirmation for resources)
+		d.analyzer.SetAnalysisMode(analysis.SetupMode)
 
 		projectAnalysis, err = d.analyzer.AnalyzeProject(projectPath)
 		if err != nil {
@@ -187,8 +189,17 @@ func (d *DeveloperMode) Analyze(ctx context.Context, opts *AnalyzeOptions) error
 	fmt.Println(color.BlueFmt("🔍 Simple Container Developer Mode - Project Analysis"))
 	fmt.Printf("📂 Analyzing project: %s\n\n", color.CyanFmt(projectPath))
 
+	// Configure analyzer based on detailed flag
+	if opts.Detailed {
+		d.analyzer.SetAnalysisMode(analysis.FullMode)
+		fmt.Printf("📊 Running detailed analysis (including resource detection)...\n")
+	} else {
+		d.analyzer.SetAnalysisMode(analysis.CachedMode)
+		fmt.Printf("⚡ Running quick analysis (cache-first)...\n")
+	}
+
 	// Perform analysis
-	analysis, err := d.analyzer.AnalyzeProject(projectPath)
+	analysisResult, err := d.analyzer.AnalyzeProject(projectPath)
 	if err != nil {
 		return fmt.Errorf("analysis failed: %w", err)
 	}
@@ -196,11 +207,11 @@ func (d *DeveloperMode) Analyze(ctx context.Context, opts *AnalyzeOptions) error
 	// Display results based on format
 	switch opts.Format {
 	case "json":
-		return d.outputAnalysisJSON(analysis, opts.Output)
+		return d.outputAnalysisJSON(analysisResult, opts.Output)
 	case "yaml":
-		return d.outputAnalysisYAML(analysis, opts.Output)
+		return d.outputAnalysisYAML(analysisResult, opts.Output)
 	default:
-		d.outputAnalysisTable(analysis, opts.Detailed)
+		d.outputAnalysisTable(analysisResult, opts.Detailed)
 	}
 
 	return nil

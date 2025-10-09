@@ -97,6 +97,25 @@ func (h *ToolCallHandler) generateParameterSchema(command *ChatCommand) map[stri
 				argSchema["description"] = "Parent environment to map to (e.g. 'staging', 'prod', 'shared')"
 				argSchema["enum"] = []string{"staging", "production", "prod", "dev", "development", "shared"}
 			}
+		case "config.maxMemory":
+			if command.Name == "modifystack" {
+				argSchema["description"] = "Lambda function memory allocation in MB - USE THIS FOR MEMORY CHANGES (e.g. '512', '1024', '2048')"
+				argSchema["type"] = "string"
+				argSchema["enum"] = []string{"512", "1024", "2048", "3008"}
+				argSchema["examples"] = []string{"512", "1024", "2048"}
+			}
+		case "config.timeout":
+			if command.Name == "modifystack" {
+				argSchema["description"] = "Lambda function timeout in seconds (e.g. '30', '60', '120')"
+				argSchema["type"] = "string"
+				argSchema["examples"] = []string{"30", "60", "120", "300"}
+			}
+		case "config.scale.max":
+			if command.Name == "modifystack" {
+				argSchema["description"] = "Maximum number of container instances (NOT memory allocation!)"
+				argSchema["type"] = "string"
+				argSchema["examples"] = []string{"1", "5", "10", "20"}
+			}
 		case "stack":
 			if command.Name == "config" {
 				argSchema["description"] = "Stack name to display configuration for (e.g. 'myapp', 'service-name'). Leave empty for current project."

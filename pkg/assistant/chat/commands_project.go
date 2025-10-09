@@ -23,11 +23,12 @@ func (c *ChatInterface) registerProjectCommands() {
 	c.commands["analyze"] = &ChatCommand{
 		Name:        "analyze",
 		Description: "Analyze current project tech stack",
-		Usage:       "/analyze [--full]",
+		Usage:       "/analyze [--full] [--force]",
 		Handler:     c.handleAnalyze,
 		Aliases:     []string{"a"},
 		Args: []CommandArg{
-			{Name: "full", Type: "flag", Required: false, Description: "Run full analysis (slower but comprehensive)"},
+			{Name: "full", Type: "flag", Required: false, Description: "Run full analysis including resource detection (slower but comprehensive)"},
+			{Name: "force", Type: "flag", Required: false, Description: "Force fresh analysis even if cache exists"},
 		},
 	}
 
@@ -81,13 +82,44 @@ func (c *ChatInterface) handleAnalyze(ctx context.Context, args []string, contex
 		}, nil
 	}
 
-	// Parse arguments (analysis mode not used currently)
-	_ = args
+	// Parse arguments to determine analysis mode
+	fullAnalysis := false
+	forceAnalysis := false
 
-	fmt.Printf("🔍 Analyzing project at %s...\n", color.CyanString(context.ProjectPath))
+	for _, arg := range args {
+		switch arg {
+		case "--full", "-f":
+			fullAnalysis = true
+		case "--force":
+			forceAnalysis = true
+		}
+	}
 
-	// Create analyzer and run analysis
+	// Check if cache exists first
+	cacheExists := analysis.CacheExists(context.ProjectPath)
+	if cacheExists && !forceAnalysis {
+		fmt.Printf("📋 Found cached analysis for %s\n", color.CyanString(context.ProjectPath))
+	} else {
+		if fullAnalysis {
+			fmt.Printf("🔍 Running full analysis at %s...\n", color.CyanString(context.ProjectPath))
+		} else {
+			fmt.Printf("🔍 Analyzing project at %s...\n", color.CyanString(context.ProjectPath))
+		}
+	}
+
+	// Create analyzer and configure mode
 	analyzer := analysis.NewProjectAnalyzer()
+
+	if forceAnalysis && fullAnalysis {
+		analyzer.SetAnalysisMode(analysis.ForceFullMode)
+	} else if forceAnalysis {
+		analyzer.SetAnalysisMode(analysis.FullMode)
+	} else if fullAnalysis {
+		analyzer.SetAnalysisMode(analysis.FullMode)
+	} else {
+		analyzer.SetAnalysisMode(analysis.CachedMode)
+	}
+
 	result, err := analyzer.AnalyzeProject(context.ProjectPath)
 	if err != nil {
 		return &CommandResult{

@@ -52,7 +52,7 @@ func (d *EnvironmentVariableDetector) Detect(projectPath string) (*ResourceAnaly
 		}
 
 		// Skip paths with known dependency directories (faster than checking each dir)
-		if shouldSkipPath(path) {
+		if ShouldSkipPath(path) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -279,7 +279,7 @@ func (d *SecretDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 		}
 
 		// Skip paths with known dependency directories (faster than checking each dir)
-		if shouldSkipPath(path) {
+		if ShouldSkipPath(path) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -427,7 +427,7 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 		}
 
 		// Skip paths with known dependency directories (faster than checking each dir)
-		if shouldSkipPath(path) {
+		if ShouldSkipPath(path) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -665,8 +665,8 @@ func shouldSkipDir(name string) bool {
 	return false
 }
 
-// shouldSkipPath checks if a path should be skipped (for nested dependencies)
-func shouldSkipPath(path string) bool {
+// ShouldSkipPath checks if a path should be skipped (for nested dependencies)
+func ShouldSkipPath(path string) bool {
 	skipPatterns := []string{
 		"/node_modules/",
 		"/.meteor/",
@@ -827,7 +827,7 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 		}
 
 		// Skip paths with known dependency directories (faster than checking each dir)
-		if shouldSkipPath(path) {
+		if ShouldSkipPath(path) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -1050,7 +1050,7 @@ func (d *StorageDetector) Detect(projectPath string) (*ResourceAnalysis, error) 
 		}
 
 		// Skip paths with known dependency directories (faster than checking each dir)
-		if shouldSkipPath(path) {
+		if ShouldSkipPath(path) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -1290,7 +1290,7 @@ func (d *ExternalAPIDetector) Detect(projectPath string) (*ResourceAnalysis, err
 		}
 
 		// Skip paths with known dependency directories (faster than checking each dir)
-		if shouldSkipPath(path) {
+		if ShouldSkipPath(path) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
