@@ -26,7 +26,7 @@ type OllamaProvider struct {
 func NewOllamaProvider() Provider {
 	return &OllamaProvider{
 		BaseProvider: NewBaseProvider("ollama"), // Use base provider
-		model:        "llama2",
+		model:        "llama3.2", // Default to llama3.2 which supports tool calling
 		baseURL:      "http://localhost:11434",
 	}
 }
@@ -46,7 +46,7 @@ func (p *OllamaProvider) Configure(config Config) error {
 
 	// Set default model if not specified
 	if config.Model == "" {
-		config.Model = "llama2"
+		config.Model = "llama3.2" // Default to llama3.2 which supports tool calling
 	}
 
 	// Create Ollama client using base provider helper (eliminates 15+ lines of duplication)
@@ -69,6 +69,11 @@ func (p *OllamaProvider) ChatWithTools(ctx context.Context, messages []Message, 
 	// Use base validation
 	if err := p.ValidateConfiguration(); err != nil {
 		return nil, err
+	}
+
+	// Check if model supports tool calling
+	if !supportsToolCalling(p.model) {
+		fmt.Printf("\n⚠️  Warning: Model %s may not support tool calling. Consider using llama3.1, llama3.2, mistral-nemo, or qwen2.5\n", p.model)
 	}
 
 	// Convert messages using base provider helper
@@ -246,8 +251,10 @@ func (p *OllamaProvider) StreamChat(ctx context.Context, messages []Message, cal
 }
 
 // StreamChatWithTools sends messages to Ollama with tool support and streams the response via callback
+// NOTE: For reliability, we use fallback to non-streaming when tools are present.
+// This ensures tool calls are properly extracted and processed.
 func (p *OllamaProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
-	// Use base provider's standardized implementation (eliminates duplicate pattern)
+	// Use base provider's standardized implementation (fallback to non-streaming with tools)
 	return p.DefaultStreamChatWithTools(ctx, messages, tools, callback, p.ChatWithTools, p.StreamChat)
 }
 
@@ -277,11 +284,6 @@ func (p *OllamaProvider) IsAvailable() bool {
 
 // ListModels returns available models from Ollama API
 func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
-	// Use base validation
-	if err := p.ValidateConfiguration(); err != nil {
-		return nil, err
-	}
-
 	// Ollama has /api/tags endpoint for listing models
 	baseURL := p.baseURL
 	if baseURL == "" {
@@ -291,7 +293,9 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
 	// Remove /v1 suffix if present for Ollama native API
 	baseURL = strings.TrimSuffix(baseURL, "/v1")
 
-	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/api/tags", nil)
+	url := baseURL + "/api/tags"
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -299,7 +303,7 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch models: %w", err)
+		return nil, fmt.Errorf("failed to fetch models (is Ollama running?): %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -318,7 +322,12 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
 		} `json:"models"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if err := json.Unmarshal(body, &ollamaResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -340,6 +349,26 @@ func (p *OllamaProvider) ListModels(ctx context.Context) ([]string, error) {
 // Close cleans up resources
 func (p *OllamaProvider) Close() error {
 	return nil
+}
+
+// supportsToolCalling checks if an Ollama model supports tool/function calling
+func supportsToolCalling(model string) bool {
+	// Models known to support tool calling
+	toolSupportedModels := []string{
+		"llama3.1", "llama3.2", // Llama 3.1 and 3.2 series
+		"mistral-nemo", "mistral-large", // Mistral series
+		"qwen2.5", // Qwen series
+		"command-r", "command-r-plus", // Cohere Command R series
+		"firefunction", // FireFunction series
+	}
+
+	modelLower := strings.ToLower(model)
+	for _, supported := range toolSupportedModels {
+		if strings.Contains(modelLower, supported) {
+			return true
+		}
+	}
+	return false
 }
 
 // Register Ollama provider with global registry

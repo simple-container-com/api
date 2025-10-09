@@ -246,8 +246,10 @@ func (p *DeepSeekProvider) StreamChat(ctx context.Context, messages []Message, c
 }
 
 // StreamChatWithTools sends messages to DeepSeek with tool support and streams the response via callback
+// NOTE: For reliability, we use fallback to non-streaming when tools are present.
+// This ensures tool calls are properly extracted and processed.
 func (p *DeepSeekProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
-	// Use base provider's standardized implementation (eliminates duplicate pattern)
+	// Use base provider's standardized implementation (fallback to non-streaming with tools)
 	return p.DefaultStreamChatWithTools(ctx, messages, tools, callback, p.ChatWithTools, p.StreamChat)
 }
 

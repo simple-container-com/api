@@ -2,7 +2,7 @@ package chat
 
 import (
 	"bufio"
-	"context"
+	stdcontext "context"
 	"fmt"
 	"os"
 	"strconv"
@@ -52,7 +52,7 @@ func (c *ChatInterface) registerLLMCommands() {
 }
 
 // handleAPIKey manages LLM provider API key storage
-func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+func (c *ChatInterface) handleAPIKey(ctx stdcontext.Context, args []string, context *ConversationContext) (*CommandResult, error) {
 	if len(args) == 0 {
 		return &CommandResult{
 			Success: false,
@@ -280,7 +280,7 @@ func (c *ChatInterface) handleAPIKey(ctx context.Context, args []string, context
 }
 
 // handleProvider manages LLM provider settings
-func (c *ChatInterface) handleProvider(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+func (c *ChatInterface) handleProvider(ctx stdcontext.Context, args []string, context *ConversationContext) (*CommandResult, error) {
 	if len(args) == 0 {
 		return &CommandResult{
 			Success: false,
@@ -436,7 +436,7 @@ func (c *ChatInterface) handleProvider(ctx context.Context, args []string, conte
 }
 
 // handleModel handles model management commands
-func (c *ChatInterface) handleModel(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+func (c *ChatInterface) handleModel(ctx stdcontext.Context, args []string, context *ConversationContext) (*CommandResult, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return &CommandResult{
@@ -475,9 +475,17 @@ func (c *ChatInterface) handleModel(ctx context.Context, args []string, context 
 
 	switch action {
 	case "list":
+		// Try to fetch models dynamically from the provider
+		ctx := stdcontext.Background()
+		models, err := c.llm.ListModels(ctx)
+		if err != nil {
+			// If fetching fails, fall back to static capabilities
+			models = capabilities.Models
+		}
+
 		message := fmt.Sprintf("🤖 Available Models for %s:\n", capabilities.Name)
 
-		if len(capabilities.Models) == 0 {
+		if len(models) == 0 {
 			message += "\n❌ No models available or unable to fetch model list"
 			if provider == config.ProviderOllama {
 				message += "\n\nFor Ollama, make sure:"
@@ -491,7 +499,7 @@ func (c *ChatInterface) handleModel(ctx context.Context, args []string, context 
 			if currentModel == "" {
 				currentModel = c.llm.GetModel()
 			}
-			for i, model := range capabilities.Models {
+			for i, model := range models {
 				indicator := ""
 				if model == currentModel {
 					indicator = " ⭐ (current)"
@@ -510,16 +518,39 @@ func (c *ChatInterface) handleModel(ctx context.Context, args []string, context 
 		if len(args) < 2 {
 			return &CommandResult{
 				Success: false,
-				Message: "Please specify a model name\nUsage: /model switch <model>",
+				Message: "Please specify a model name or number\nUsage: /model switch <model|number>",
 			}, nil
 		}
 
-		modelName := args[1]
+		modelInput := args[1]
+		var modelName string
 
-		// For providers with dynamic model lists, validate the model
-		if len(capabilities.Models) > 0 {
+		// Try to fetch models dynamically for validation
+		ctx := stdcontext.Background()
+		availableModels, err := c.llm.ListModels(ctx)
+		if err != nil {
+			availableModels = capabilities.Models
+		}
+
+		// Check if input is a number (index)
+		if index, err := strconv.Atoi(modelInput); err == nil {
+			// User provided an index
+			if index < 1 || index > len(availableModels) {
+				return &CommandResult{
+					Success: false,
+					Message: fmt.Sprintf("❌ Invalid model number: %d\nValid range: 1-%d\nUse '/model list' to see available models", index, len(availableModels)),
+				}, nil
+			}
+			modelName = availableModels[index-1] // Convert to 0-based index
+		} else {
+			// User provided a model name
+			modelName = modelInput
+		}
+
+		// Validate the model exists
+		if len(availableModels) > 0 {
 			validModel := false
-			for _, availableModel := range capabilities.Models {
+			for _, availableModel := range availableModels {
 				if availableModel == modelName {
 					validModel = true
 					break

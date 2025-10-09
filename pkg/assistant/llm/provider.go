@@ -484,28 +484,31 @@ func (b *BaseProvider) CalculateUsageWithCost(promptTokens, completionTokens int
 func (b *BaseProvider) ExtractToolCallsFromLangChainResponse(response *llms.ContentResponse) []ToolCall {
 	var toolCalls []ToolCall
 
-	if len(response.Choices) > 0 && len(response.Choices[0].ToolCalls) > 0 {
-		toolCalls = make([]ToolCall, len(response.Choices[0].ToolCalls))
-		for i, tc := range response.Choices[0].ToolCalls {
-			// Parse function arguments
-			var args map[string]interface{}
-			if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
-				_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
-			}
+	// Iterate through all choices to find tool calls
+	// Some providers (like Anthropic) may put tool calls in different choices
+	for _, choice := range response.Choices {
+		if len(choice.ToolCalls) > 0 {
+			for _, tc := range choice.ToolCalls {
+				// Parse function arguments
+				var args map[string]interface{}
+				if tc.FunctionCall != nil && tc.FunctionCall.Arguments != "" {
+					_ = json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
+				}
 
-			// Extract ID, handling different provider patterns
-			id := tc.ID
-			if id == "" && tc.FunctionCall != nil {
-				id = tc.FunctionCall.Name // Fallback to function name as ID
-			}
+				// Extract ID, handling different provider patterns
+				id := tc.ID
+				if id == "" && tc.FunctionCall != nil {
+					id = tc.FunctionCall.Name // Fallback to function name as ID
+				}
 
-			toolCalls[i] = ToolCall{
-				ID:   id,
-				Type: "function",
-				Function: FunctionCall{
-					Name:      tc.FunctionCall.Name,
-					Arguments: args,
-				},
+				toolCalls = append(toolCalls, ToolCall{
+					ID:   id,
+					Type: "function",
+					Function: FunctionCall{
+						Name:      tc.FunctionCall.Name,
+						Arguments: args,
+					},
+				})
 			}
 		}
 	}

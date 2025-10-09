@@ -273,8 +273,12 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 }
 
 // StreamChatWithTools sends messages to Anthropic with tool support and streams the response via callback
+// NOTE: langchaingo v0.1.13 has a bug with Anthropic streaming+tools - it fails with
+// "invalid delta text field type" when processing tool_use deltas because it expects
+// a "text" field that doesn't exist in tool_use events. We use fallback to non-streaming.
+// See: https://github.com/tmc/langchaingo/blob/v0.1.13/llms/anthropic/internal/anthropicclient/messages.go#L232-238
 func (p *AnthropicProvider) StreamChatWithTools(ctx context.Context, messages []Message, tools []Tool, callback StreamCallback) (*ChatResponse, error) {
-	// Use base provider's standardized implementation (eliminates duplicate pattern)
+	// Use base provider's standardized implementation (fallback to non-streaming with tools)
 	return p.DefaultStreamChatWithTools(ctx, messages, tools, callback, p.ChatWithTools, p.StreamChat)
 }
 

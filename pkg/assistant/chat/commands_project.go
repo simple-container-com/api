@@ -1064,6 +1064,23 @@ func (c *ChatInterface) confirmDeploymentTypeForChat(context *ConversationContex
 	if context.Metadata == nil {
 		context.Metadata = make(map[string]interface{})
 	}
+	
+	// Skip confirmation if called via tool calling (stdin not available during streaming)
+	if isToolCalling, ok := context.Metadata["is_tool_calling"].(bool); ok && isToolCalling {
+		// Auto-detect and use deployment type without prompting
+		detectedType := "cloud-compose" // Default fallback
+		if context.ProjectInfo != nil && context.ProjectInfo.PrimaryStack != nil {
+			lang := strings.ToLower(context.ProjectInfo.PrimaryStack.Language)
+			if lang == "html" || lang == "javascript" || lang == "typescript" {
+				detectedType = "static"
+			} else if lang == "go" || lang == "python" || lang == "java" {
+				detectedType = "single-image"
+			}
+		}
+		context.Metadata["confirmed_deployment_type"] = detectedType
+		return nil
+	}
+	
 	// Determine deployment type using simple heuristic (since internal method is private)
 	detectedType := "cloud-compose" // Default fallback
 	if context.ProjectInfo != nil {

@@ -161,6 +161,21 @@ func (h *ToolCallHandler) ExecuteToolCall(ctx context.Context, toolCall llm.Tool
 		}, nil
 	}
 
+	// Mark that we're in tool calling mode (to skip interactive prompts)
+	// This is critical because stdin is not available during streaming
+	if chatContext.Metadata == nil {
+		chatContext.Metadata = make(map[string]interface{})
+	}
+	originalToolCalling := chatContext.Metadata["is_tool_calling"]
+	chatContext.Metadata["is_tool_calling"] = true
+	defer func() {
+		if originalToolCalling != nil {
+			chatContext.Metadata["is_tool_calling"] = originalToolCalling
+		} else {
+			delete(chatContext.Metadata, "is_tool_calling")
+		}
+	}()
+
 	// Convert arguments to string array format expected by commands
 	args := h.convertArgumentsToArgs(functionName, toolCall.Function.Arguments)
 

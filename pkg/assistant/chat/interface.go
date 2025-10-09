@@ -669,18 +669,32 @@ func (c *ChatInterface) handleNonStreamingContinuation(ctx context.Context) erro
 
 // handleGeneratedFiles processes generated files from command results
 func (c *ChatInterface) handleGeneratedFiles(result *CommandResult) {
-	// Ask for confirmation for each existing file individually
+	// Check if we're in tool calling mode (stdin not available during streaming)
+	isToolCalling := false
+	if c.context.Metadata != nil {
+		if val, ok := c.context.Metadata["is_tool_calling"].(bool); ok {
+			isToolCalling = val
+		}
+	}
+	
+	// Ask for confirmation for each existing file individually (unless in tool calling mode)
 	overwriteDecisions := make(map[string]bool)
 	for _, file := range result.Files {
 		filename := filepath.Base(file.Path)
 		if _, err := os.Stat(file.Path); err == nil {
-			fmt.Printf("\n⚠️  %s already exists. Overwrite? [y/N]: ", color.YellowString(filename))
+			if isToolCalling {
+				// Auto-overwrite in tool calling mode (stdin not available)
+				overwriteDecisions[filename] = true
+			} else {
+				// Ask user for confirmation
+				fmt.Printf("\n⚠️  %s already exists. Overwrite? [y/N]: ", color.YellowString(filename))
 
-			reader := bufio.NewReader(os.Stdin)
-			input, _ := reader.ReadString('\n')
-			input = strings.TrimSpace(strings.ToLower(input))
+				reader := bufio.NewReader(os.Stdin)
+				input, _ := reader.ReadString('\n')
+				input = strings.TrimSpace(strings.ToLower(input))
 
-			overwriteDecisions[filename] = (input == "y" || input == "yes")
+				overwriteDecisions[filename] = (input == "y" || input == "yes")
+			}
 		} else {
 			overwriteDecisions[filename] = true
 		}
