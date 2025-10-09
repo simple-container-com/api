@@ -1,0 +1,115 @@
+{
+  "timestamp": "2025-10-09T11:29:09.344659569+03:00",
+  "project_path": ".",
+  "analyzer_version": "1.1",
+  "tech_stacks": [
+    {
+      "language": "go",
+      "framework": "gorilla-mux",
+      "runtime": "go",
+      "version": "1.24.0",
+      "confidence": 0.95,
+      "evidence": [
+        "go.mod found",
+        "gorilla-mux framework detected"
+      ],
+      "metadata": {
+        "mode": "modules",
+        "module": "github.com/simple-container-com/api"
+      }
+    },
+    {
+      "language": "yaml",
+      "framework": "simple-container",
+      "runtime": "simple-container",
+      "version": "configured",
+      "confidence": 0.9000001,
+      "evidence": [
+        ".sc directory found",
+        "welder.yaml found",
+        "simple-container reference in go.mod",
+        "SC CLI usage in branch.yaml",
+        "SC CLI usage in push.yaml"
+      ],
+      "metadata": {
+        "has_sc_directory": "true",
+        "has_welder_config": "true",
+        "maturity": "full"
+      }
+    },
+    {
+      "language": "yaml",
+      "framework": "pulumi",
+      "runtime": "pulumi",
+      "version": "detected",
+      "confidence": 0.2,
+      "evidence": [
+        "Pulumi SDK in go.mod"
+      ]
+    }
+  ],
+  "architecture": "standard-web-app",
+  "confidence": 0.6833334,
+  "primary_stack": {
+    "language": "go",
+    "framework": "gorilla-mux",
+    "runtime": "go",
+    "version": "1.24.0",
+    "confidence": 0.95,
+    "evidence": [
+      "go.mod found",
+      "gorilla-mux framework detected"
+    ],
+    "metadata": {
+      "mode": "modules",
+      "module": "github.com/simple-container-com/api"
+    }
+  },
+  "recommendations": [
+    {
+      "type": "template",
+      "category": "",
+      "priority": "high",
+      "title": "Go Multi-stage Dockerfile",
+      "description": "Generate optimized multi-stage Dockerfile for Go application with minimal final image",
+      "action": "generate_dockerfile",
+      "template": "go-dockerfile"
+    },
+    {
+      "type": "optimization",
+      "category": "",
+      "priority": "medium",
+      "title": "Go Build Optimization",
+      "description": "Configure Go build with proper flags for smaller binaries and faster startup",
+      "action": "optimize_go_build"
+    },
+    {
+      "type": "template",
+      "category": "",
+      "priority": "high",
+      "title": "Add Dockerfile",
+      "description": "Generate optimized Dockerfile for containerized deployment",
+      "action": "generate_dockerfile"
+    },
+    {
+      "type": "enhancement",
+      "category": "",
+      "priority": "medium",
+      "title": "Simple Container Advanced Features",
+      "description": "Explore advanced Simple Container features like multi-environment deployments and resource optimization",
+      "action": "explore_advanced_features"
+    },
+    {
+      "type": "optimization",
+      "category": "",
+      "priority": "low",
+      "title": "Simple Container Configuration Review",
+      "description": "Review current Simple Container configuration for optimization opportunities",
+      "action": "review_configuration"
+    }
+  ],
+  "metadata": {
+    "analyzed_at": "2025-10-09T11:29:09.300805306+03:00",
+    "analyzer_version": "1.0"
+  }
+}

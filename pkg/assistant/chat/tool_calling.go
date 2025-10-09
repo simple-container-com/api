@@ -126,6 +126,12 @@ func (h *ToolCallHandler) generateParameterSchema(command *ChatCommand) map[stri
 				argSchema["type"] = "boolean"
 				argSchema["description"] = "Include AI-powered analysis of the configuration"
 			}
+		case "config.secrets":
+			if command.Name == "modifystack" {
+				argSchema["type"] = "string"
+				argSchema["description"] = "Secret references configuration. Use dotted notation to modify specific secrets (e.g. 'config.secrets.API_KEY=value') or use empty string to remove secrets. Secret names are project-specific."
+				argSchema["examples"] = []string{"", "config.secrets.API_KEY=value", "config.secrets.DB_URL="}
+			}
 		}
 
 		properties[arg.Name] = argSchema

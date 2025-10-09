@@ -35,7 +35,7 @@ func (c *ChatInterface) registerStackCommands() {
 
 	c.commands["modifystack"] = &ChatCommand{
 		Name:        "modifystack",
-		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, Lambda memory (config.maxMemory), scaling, etc. IMPORTANT: For memory changes use 'config.maxMemory', NOT 'config.scale.max'!",
+		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, Lambda memory (config.maxMemory), scaling, etc. IMPORTANT: For memory changes use 'config.maxMemory', NOT 'config.scale.max'! To remove secrets/databases: use dotted notation like 'config.secrets.SECRET_NAME=' with empty value.",
 		Usage:       "/modifystack <stack_name> <environment_name> <key=value> [key=value...]",
 		Handler:     c.handleModifyStack,
 		Args: []CommandArg{
@@ -50,7 +50,7 @@ func (c *ChatInterface) registerStackCommands() {
 			{Name: "config.scale.min", Type: "string", Required: false, Description: "Minimum number of container instances (NOT memory!)"},
 			{Name: "config.scale.max", Type: "string", Required: false, Description: "Maximum number of container instances (NOT memory!)"},
 			{Name: "config.env", Type: "string", Required: false, Description: "Environment variables in key=value format"},
-			{Name: "config.secrets", Type: "string", Required: false, Description: "Secret references in key=value format"},
+			{Name: "config.secrets", Type: "string", Required: false, Description: "Secret references in key=value format - use dotted notation like 'config.secrets.API_KEY' to modify specific secrets or empty string to remove"},
 		},
 	}
 
