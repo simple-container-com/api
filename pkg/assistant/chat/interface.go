@@ -712,7 +712,7 @@ func (c *ChatInterface) handleGeneratedFiles(result *CommandResult) {
 			isToolCalling = val
 		}
 	}
-	
+
 	// Ask for confirmation for each existing file individually (unless in tool calling mode)
 	overwriteDecisions := make(map[string]bool)
 	for _, file := range result.Files {

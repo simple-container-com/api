@@ -26,7 +26,7 @@ type OllamaProvider struct {
 func NewOllamaProvider() Provider {
 	return &OllamaProvider{
 		BaseProvider: NewBaseProvider("ollama"), // Use base provider
-		model:        "llama3.2", // Default to llama3.2 which supports tool calling
+		model:        "llama3.2",                // Default to llama3.2 which supports tool calling
 		baseURL:      "http://localhost:11434",
 	}
 }
@@ -357,7 +357,7 @@ func supportsToolCalling(model string) bool {
 	toolSupportedModels := []string{
 		"llama3.1", "llama3.2", // Llama 3.1 and 3.2 series
 		"mistral-nemo", "mistral-large", // Mistral series
-		"qwen2.5", // Qwen series
+		"qwen2.5",                     // Qwen series
 		"command-r", "command-r-plus", // Cohere Command R series
 		"firefunction", // FireFunction series
 	}
