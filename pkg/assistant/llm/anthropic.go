@@ -72,8 +72,18 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (*Chat
 		return nil, err
 	}
 
+	// Validate messages
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("at least one message is required")
+	}
+
 	// Convert messages using base provider helper
 	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+
+	// Validate converted messages
+	if len(llmMessages) == 0 {
+		return nil, fmt.Errorf("no valid messages after conversion (all messages were empty or filtered)")
+	}
 
 	// Call Anthropic
 	startTime := time.Now()
@@ -114,8 +124,18 @@ func (p *AnthropicProvider) ChatWithTools(ctx context.Context, messages []Messag
 		return nil, err
 	}
 
+	// Validate messages
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("at least one message is required")
+	}
+
 	// Convert messages using base provider helper
 	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+
+	// Validate converted messages
+	if len(llmMessages) == 0 {
+		return nil, fmt.Errorf("no valid messages after conversion (all messages were empty or filtered)")
+	}
 
 	// Convert tools using base provider helper
 	langchainTools := p.ConvertToolsToLangChainGo(tools)
@@ -170,8 +190,18 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		return nil, err
 	}
 
+	// Validate messages
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("at least one message is required")
+	}
+
 	// Convert messages using base provider helper
 	llmMessages := p.ConvertMessagesToLangChainGo(messages)
+
+	// Validate converted messages
+	if len(llmMessages) == 0 {
+		return nil, fmt.Errorf("no valid messages after conversion (all messages were empty or filtered)")
+	}
 
 	startTime := time.Now()
 	var fullContent strings.Builder

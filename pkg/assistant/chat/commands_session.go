@@ -170,9 +170,11 @@ func (c *ChatInterface) handleSessions(ctx context.Context, args []string, conte
 			age := time.Since(session.LastUsedAt)
 			ageStr := formatDuration(age)
 
-			projectName := filepath.Base(session.ProjectPath)
+			projectName := session.ProjectPath
 			if projectName == "" || projectName == "." {
-				projectName = "no project"
+				projectName = "~"
+			} else {
+				projectName = filepath.Base(projectName)
 			}
 
 			mark := ""
@@ -297,9 +299,11 @@ func (c *ChatInterface) handleSessionDeleteInteractive() (*CommandResult, error)
 		age := time.Since(session.LastUsedAt)
 		ageStr := formatDuration(age)
 
-		projectName := filepath.Base(session.ProjectPath)
+		projectName := session.ProjectPath
 		if projectName == "" || projectName == "." {
-			projectName = "no project"
+			projectName = "~"
+		} else {
+			projectName = filepath.Base(projectName)
 		}
 
 		mark := ""
@@ -406,9 +410,11 @@ func (c *ChatInterface) handleSessionDeleteAll() (*CommandResult, error) {
 
 	// Show sessions that will be deleted
 	for i, session := range sessions {
-		projectName := filepath.Base(session.ProjectPath)
+		projectName := session.ProjectPath
 		if projectName == "" || projectName == "." {
-			projectName = "no project"
+			projectName = "~"
+		} else {
+			projectName = filepath.Base(projectName)
 		}
 
 		mark := ""

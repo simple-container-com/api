@@ -216,8 +216,32 @@ func (c *ChatInterface) StartSession(ctx context.Context) error {
 	}
 
 	// Add system prompt with project context (if available)
-	systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
-	c.addMessage("system", systemPrompt)
+	// Check if we need to add system message (only if not already present or if it's empty)
+	needsSystemMessage := true
+	if len(c.context.History) > 0 && c.context.History[0].Role == "system" {
+		// System message already exists, check if it's not empty
+		if strings.TrimSpace(c.context.History[0].Content) != "" {
+			needsSystemMessage = false
+		} else {
+			// Remove empty system message
+			c.context.History = c.context.History[1:]
+		}
+	}
+
+	if needsSystemMessage {
+		systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, projectInfo, c.context.Resources)
+		// Insert at the beginning instead of appending
+		if len(c.context.History) > 0 {
+			c.context.History = append([]Message{{
+				Role:      "system",
+				Content:   systemPrompt,
+				Timestamp: time.Now(),
+				Metadata:  make(map[string]interface{}),
+			}}, c.context.History...)
+		} else {
+			c.addMessage("system", systemPrompt)
+		}
+	}
 
 	// Start chat loop with signal-aware context
 	return c.chatLoop(signalCtx)
@@ -288,6 +312,19 @@ func (c *ChatInterface) chatLoop(ctx context.Context) error {
 func (c *ChatInterface) handleChat(ctx context.Context, input string) error {
 	// Add user message to context
 	c.addMessage("user", input)
+
+	// Ensure we have at least a system message if history was empty
+	if len(c.context.History) == 1 && c.context.History[0].Role == "user" {
+		// No system message exists, add one
+		systemPrompt := prompts.GenerateContextualPrompt(c.config.Mode, c.context.ProjectInfo, c.context.Resources)
+		// Insert at the beginning
+		c.context.History = append([]Message{{
+			Role:      "system",
+			Content:   systemPrompt,
+			Timestamp: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		}}, c.context.History...)
+	}
 
 	// Enrich context with relevant documentation examples (RAG)
 	if err := c.enrichContextWithDocumentation(input); err != nil {
@@ -377,6 +414,13 @@ func (c *ChatInterface) handleStreamingChat(ctx context.Context) error {
 
 	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
 		response, err = c.llm.StreamChatWithTools(ctx, trimmedHistory, tools, callback)
+		// If tools are not supported by this specific model, fallback to regular chat
+		if err != nil && strings.Contains(err.Error(), "does not support tools") {
+			if c.config.LogLevel == "debug" {
+				fmt.Printf("\n⚠️  Model does not support tools, falling back to regular chat\n")
+			}
+			response, err = c.llm.StreamChat(ctx, trimmedHistory, callback)
+		}
 	} else {
 		response, err = c.llm.StreamChat(ctx, trimmedHistory, callback)
 	}
@@ -445,6 +489,13 @@ func (c *ChatInterface) handleNonStreamingChat(ctx context.Context) error {
 
 	if c.llm.GetCapabilities().SupportsFunctions && len(tools) > 0 {
 		response, err = c.llm.ChatWithTools(ctx, trimmedHistory, tools)
+		// If tools are not supported by this specific model, fallback to regular chat
+		if err != nil && strings.Contains(err.Error(), "does not support tools") {
+			if c.config.LogLevel == "debug" {
+				fmt.Printf("\n⚠️  Model does not support tools, falling back to regular chat\n")
+			}
+			response, err = c.llm.Chat(ctx, trimmedHistory)
+		}
 	} else {
 		response, err = c.llm.Chat(ctx, trimmedHistory)
 	}
@@ -553,8 +604,13 @@ func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
 		return nil
 	}
 
-	// Stream the continuation response
-	response, err := c.llm.StreamChat(ctx, c.context.History, callback)
+	// Trim context before continuation to fit model's context window
+	modelName := c.llm.GetModel()
+	reserveTokens := c.config.MaxTokens
+	trimmedHistory := llm.TrimMessagesToContextSize(c.context.History, modelName, reserveTokens)
+
+	// Stream the continuation response with trimmed history
+	response, err := c.llm.StreamChat(ctx, trimmedHistory, callback)
 	if err != nil {
 		return fmt.Errorf("LLM streaming continuation failed: %w", err)
 	}
@@ -575,8 +631,13 @@ func (c *ChatInterface) handleStreamingContinuation(ctx context.Context) error {
 
 // handleNonStreamingContinuation continues LLM generation in non-streaming mode after tool execution
 func (c *ChatInterface) handleNonStreamingContinuation(ctx context.Context) error {
-	// Get the continuation response
-	response, err := c.llm.Chat(ctx, c.context.History)
+	// Trim context before continuation to fit model's context window
+	modelName := c.llm.GetModel()
+	reserveTokens := c.config.MaxTokens
+	trimmedHistory := llm.TrimMessagesToContextSize(c.context.History, modelName, reserveTokens)
+
+	// Get the continuation response with trimmed history
+	response, err := c.llm.Chat(ctx, trimmedHistory)
 	if err != nil {
 		return fmt.Errorf("LLM continuation failed: %w", err)
 	}
@@ -766,9 +827,11 @@ func (c *ChatInterface) selectOrCreateSession() error {
 		age := time.Since(session.LastUsedAt)
 		ageStr := formatDuration(age)
 
-		projectName := filepath.Base(session.ProjectPath)
+		projectName := session.ProjectPath
 		if projectName == "" || projectName == "." {
-			projectName = "no project"
+			projectName = "~"
+		} else {
+			projectName = filepath.Base(projectName)
 		}
 
 		fmt.Printf("  %d. %s\n", i+1, color.GreenString(session.Title))
@@ -851,6 +914,25 @@ func (c *ChatInterface) printWelcome() {
 	fmt.Println()
 	fmt.Println(color.BlueBold("🚀 Simple Container AI Assistant"))
 	fmt.Println(color.WhiteString("I'll help you set up your project with Simple Container."))
+	fmt.Println()
+
+	// Display provider and model information
+	providerName := c.config.LLMProvider
+	modelName := c.llm.GetModel()
+	capabilities := c.llm.GetCapabilities()
+
+	// Get display name for provider
+	displayName := providerName
+	if capabilities.Name != "" {
+		displayName = capabilities.Name
+	}
+
+	fmt.Printf("%s %s", color.GrayString("🤖 Provider:"), color.CyanString(displayName))
+	if modelName != "" {
+		fmt.Printf(" | %s %s\n", color.GrayString("Model:"), color.YellowString(modelName))
+	} else {
+		fmt.Println()
+	}
 	fmt.Println()
 
 	if c.config.Mode == "dev" {
@@ -1009,6 +1091,62 @@ func (c *ChatInterface) addMessage(role, content string) {
 	if err := c.sessionManager.AddConversationMessage(role, content, message.Metadata); err != nil {
 		// Log but don't fail on save errors
 		fmt.Printf("%s Failed to save message to session: %v\n", color.YellowString("⚠️"), err)
+	}
+}
+
+// trimContextIfNeeded trims old messages from history if context is too large
+// Keeps system messages and recent messages within token limit
+func (c *ChatInterface) trimContextIfNeeded(maxTokens int) {
+	if len(c.context.History) <= 2 {
+		return // Keep at least system message and one exchange
+	}
+
+	// Estimate tokens (rough estimate: ~4 chars per token)
+	estimatedTokens := 0
+	for _, msg := range c.context.History {
+		estimatedTokens += len(msg.Content) / 4
+	}
+
+	if estimatedTokens <= maxTokens {
+		return // Within limit
+	}
+
+	// Keep system message(s) at the beginning
+	systemMessages := []Message{}
+	otherMessages := []Message{}
+
+	for _, msg := range c.context.History {
+		if msg.Role == "system" {
+			systemMessages = append(systemMessages, msg)
+		} else {
+			otherMessages = append(otherMessages, msg)
+		}
+	}
+
+	// Calculate how many recent messages we can keep
+	// Reserve 50% for system messages
+	maxOtherTokens := maxTokens / 2
+
+	// Keep recent messages that fit in the limit
+	keptMessages := []Message{}
+	currentTokens := 0
+
+	// Start from the end (most recent messages)
+	for i := len(otherMessages) - 1; i >= 0; i-- {
+		msgTokens := len(otherMessages[i].Content) / 4
+		if currentTokens+msgTokens > maxOtherTokens {
+			break
+		}
+		keptMessages = append([]Message{otherMessages[i]}, keptMessages...)
+		currentTokens += msgTokens
+	}
+
+	// Rebuild history: system messages + recent messages
+	c.context.History = append(systemMessages, keptMessages...)
+
+	if len(keptMessages) < len(otherMessages) {
+		fmt.Printf("%s Trimmed context: kept %d of %d messages (estimated %d tokens)\n",
+			color.YellowString("⚠️"), len(keptMessages), len(otherMessages), currentTokens)
 	}
 }
 
