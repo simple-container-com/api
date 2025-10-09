@@ -262,6 +262,16 @@ templates:
   - Replaced fictional template placeholders with correct Simple Container pattern (auto-injection)
   - Verified MongoDB Atlas and Redis resources rely on compute processor auto-injection of environment variables
   - Final verification confirmed zero remaining instances of fictional `connectionString` property
+- **ADDED: Comprehensive DNS Management Guide** - Created complete guide to DNS and domain configuration in Simple Container
+  - **✅ Location**: `docs/docs/guides/dns-management.md` - comprehensive DNS management documentation
+  - **✅ Cloudflare Integration**: Complete guide to Cloudflare DNS resource configuration with authentication setup
+  - **✅ Multi-Environment Support**: Environment-specific domain configuration patterns and template placeholders
+  - **✅ Security Features**: Cloudflare-only ingress protection, SSL/TLS management, and proxy configuration
+  - **✅ Email Infrastructure**: SPF, DKIM, DMARC record configuration for email deliverability
+  - **✅ Advanced Features**: Multi-region DNS, customer-specific domains, wildcard configurations, and SSL certificate integration
+  - **✅ Real-World Examples**: E-commerce platform DNS, SaaS application patterns, and multi-tenant configurations
+  - **✅ Troubleshooting**: DNS propagation checking, certificate validation, and common issue resolution
+  - **Impact**: Users now have complete guidance for managing domains and DNS records declaratively through Simple Container configuration
 
 ## Cryptographic Capabilities
 ### Public Key Support

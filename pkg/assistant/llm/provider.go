@@ -621,41 +621,54 @@ func TrimMessagesToContextSize(messages []Message, model string, reserveTokens i
 		return messages
 	}
 
+	// ALWAYS preserve system message first (required for consistent behavior)
+	totalTokens := 0
+	if systemMsg != nil {
+		systemTokens := estimateMessageTokens(*systemMsg)
+
+		// Always include system message, truncating if necessary
+		if systemTokens <= maxTokens {
+			totalTokens += systemTokens
+		} else {
+			// System message is larger than entire context, truncate it
+			maxSystemChars := (maxTokens - 20) * 4 // Reserve 20 tokens for overhead
+			if maxSystemChars > 100 {
+				truncatedContent := systemMsg.Content[:maxSystemChars] + "\n\n[System message truncated due to context limits]"
+				systemMsgCopy := *systemMsg
+				systemMsgCopy.Content = truncatedContent
+				systemMsg = &systemMsgCopy
+				totalTokens += maxTokens - 20
+			}
+		}
+	}
+
 	// CRITICAL: Always keep at least the most recent user/assistant message
 	// LLM APIs require at least one non-system message
 	lastMessage := otherMessages[len(otherMessages)-1]
 	lastMessageTokens := estimateMessageTokens(lastMessage)
 
-	totalTokens := lastMessageTokens
-	keptMessages := []Message{lastMessage}
-
-	// Add system message if it fits
-	if systemMsg != nil {
-		systemTokens := estimateMessageTokens(*systemMsg)
-
-		// If system message fits, add it
-		if totalTokens+systemTokens <= maxTokens {
-			totalTokens += systemTokens
-		} else {
-			// System message too large, truncate it or skip it
-			// Calculate how much we can keep
-			availableForSystem := maxTokens - totalTokens
-			if availableForSystem > 100 { // Keep at least 100 tokens of system message
-				// Truncate system message to fit
-				truncatedLen := (availableForSystem - 10) * 4 // Rough estimate
-				if truncatedLen > 0 && truncatedLen < len(systemMsg.Content) {
-					truncatedContent := systemMsg.Content[:truncatedLen] + "\n\n[System message truncated due to context limits]"
+	// Ensure we have room for at least the last message
+	if totalTokens+lastMessageTokens > maxTokens && systemMsg != nil {
+		// Need to make room by truncating system message further
+		availableForSystem := maxTokens - lastMessageTokens
+		if availableForSystem > 50 { // Minimum viable system message
+			currentSystemTokens := estimateMessageTokens(*systemMsg)
+			// Only truncate if the system message is actually large enough to warrant it
+			if currentSystemTokens > availableForSystem {
+				maxSystemChars := (availableForSystem - 10) * 4
+				if maxSystemChars > 0 && maxSystemChars < len(systemMsg.Content) {
+					truncatedContent := systemMsg.Content[:maxSystemChars] + "..."
 					systemMsgCopy := *systemMsg
 					systemMsgCopy.Content = truncatedContent
 					systemMsg = &systemMsgCopy
-					totalTokens += availableForSystem
+					totalTokens = availableForSystem
 				}
-			} else {
-				// Skip system message entirely if no room
-				systemMsg = nil
 			}
 		}
 	}
+
+	totalTokens += lastMessageTokens
+	keptMessages := []Message{lastMessage}
 
 	// Work backwards through remaining messages and add what fits
 	for i := len(otherMessages) - 2; i >= 0; i-- {
