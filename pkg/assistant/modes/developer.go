@@ -18,6 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/resources"
+	"github.com/simple-container-com/api/pkg/assistant/utils"
 	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
@@ -115,6 +116,11 @@ func (d *DeveloperMode) Setup(ctx context.Context, opts *SetupOptions) error {
 
 	fmt.Println(color.BlueFmt("🚀 Simple Container Developer Mode - Project Setup"))
 	fmt.Printf("📂 Project path: %s\n", color.CyanFmt(projectPath))
+
+	// Check if project is already using Simple Container
+	if err := utils.CheckAndWarnExistingSimpleContainerProject(projectPath, opts.ForceOverwrite, opts.SkipConfirmation, true); err != nil {
+		return err
+	}
 
 	var projectAnalysis *analysis.ProjectAnalysis
 	var err error

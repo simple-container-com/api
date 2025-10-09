@@ -19,6 +19,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/assistant/resources"
 	"github.com/simple-container-com/api/pkg/assistant/security"
+	"github.com/simple-container-com/api/pkg/assistant/utils"
 )
 
 // registerProjectCommands registers project analysis and configuration commands
@@ -296,6 +297,14 @@ func (c *ChatInterface) handleSetup(ctx context.Context, args []string, context 
 		return &CommandResult{
 			Success: false,
 			Message: "Project not analyzed yet. Run /analyze first.",
+		}, nil
+	}
+
+	// Check if project is already using Simple Container and warn the user
+	if err := utils.CheckAndWarnExistingSimpleContainerProject(".", false, false, false); err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Setup cancelled: %v", err),
 		}, nil
 	}
 

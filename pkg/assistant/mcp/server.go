@@ -18,6 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/chat"
 	"github.com/simple-container-com/api/pkg/assistant/core"
+	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 )
 
@@ -1425,7 +1426,28 @@ func (h *DefaultMCPHandler) SearchDocumentation(ctx context.Context, params Sear
 
 	// Convert unified result to MCP format
 	documents := []DocumentChunk{}
-	if resultsData, ok := result.Data["results"].([]interface{}); ok {
+	// First try the correct type: []embeddings.SearchResult
+	if resultsData, ok := result.Data["results"].([]embeddings.SearchResult); ok {
+		documents = make([]DocumentChunk, len(resultsData))
+		for i, searchResult := range resultsData {
+			// Convert metadata map[string]interface{} to map[string]string
+			metadata := make(map[string]string)
+			for k, v := range searchResult.Metadata {
+				if str, ok := v.(string); ok {
+					metadata[k] = str
+				} else {
+					metadata[k] = fmt.Sprintf("%v", v)
+				}
+			}
+
+			documents[i] = DocumentChunk{
+				Content:    searchResult.Content,
+				Similarity: float32(searchResult.Score),
+				Metadata:   metadata,
+			}
+		}
+	} else if resultsData, ok := result.Data["results"].([]interface{}); ok {
+		// Fallback for interface{} conversion
 		documents = make([]DocumentChunk, len(resultsData))
 		for i, res := range resultsData {
 			if resultMap, ok := res.(map[string]interface{}); ok {

@@ -15,6 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/assistant/security"
+	"github.com/simple-container-com/api/pkg/assistant/utils"
 )
 
 // UnifiedCommandHandler provides a shared layer for both MCP and chat interfaces
@@ -1389,4 +1390,10 @@ func (h *UnifiedCommandHandler) writeYamlValue(output *strings.Builder, value in
 	default:
 		output.WriteString(fmt.Sprintf("%v\n", v))
 	}
+}
+
+// CheckExistingSimpleContainerProject checks if project is already using Simple Container and warns user
+// Delegates to shared utility function for consistency
+func (h *UnifiedCommandHandler) CheckExistingSimpleContainerProject(projectPath string, forceOverwrite, skipConfirmation bool) error {
+	return utils.CheckAndWarnExistingSimpleContainerProject(projectPath, forceOverwrite, skipConfirmation, true)
 }
