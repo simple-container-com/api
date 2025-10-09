@@ -596,6 +596,7 @@ func GetModelContextSize(model string) int {
 
 // TrimMessagesToContextSize trims message history to fit within the model's context window
 // It preserves the system message (first) and keeps the most recent messages
+// IMPORTANT: Always keeps at least one non-system message (required by LLM APIs)
 func TrimMessagesToContextSize(messages []Message, model string, reserveTokens int) []Message {
 	contextSize := GetModelContextSize(model)
 	maxTokens := contextSize - reserveTokens // Reserve tokens for response
@@ -604,32 +605,69 @@ func TrimMessagesToContextSize(messages []Message, model string, reserveTokens i
 		return messages
 	}
 
-	// Always keep system message if present
+	// Identify system message and other messages
 	var systemMsg *Message
-	startIdx := 0
-	if len(messages) > 0 && messages[0].Role == "system" {
-		systemMsg = &messages[0]
-		startIdx = 1
+	var otherMessages []Message
+	for i := range messages {
+		if messages[i].Role == "system" {
+			systemMsg = &messages[i]
+		} else {
+			otherMessages = append(otherMessages, messages[i])
+		}
 	}
 
-	// Estimate tokens for all messages
-	totalTokens := 0
+	// If no non-system messages, return as-is
+	if len(otherMessages) == 0 {
+		return messages
+	}
+
+	// CRITICAL: Always keep at least the most recent user/assistant message
+	// LLM APIs require at least one non-system message
+	lastMessage := otherMessages[len(otherMessages)-1]
+	lastMessageTokens := estimateMessageTokens(lastMessage)
+
+	totalTokens := lastMessageTokens
+	keptMessages := []Message{lastMessage}
+
+	// Add system message if it fits
 	if systemMsg != nil {
-		totalTokens += estimateMessageTokens(*systemMsg)
+		systemTokens := estimateMessageTokens(*systemMsg)
+
+		// If system message fits, add it
+		if totalTokens+systemTokens <= maxTokens {
+			totalTokens += systemTokens
+		} else {
+			// System message too large, truncate it or skip it
+			// Calculate how much we can keep
+			availableForSystem := maxTokens - totalTokens
+			if availableForSystem > 100 { // Keep at least 100 tokens of system message
+				// Truncate system message to fit
+				truncatedLen := (availableForSystem - 10) * 4 // Rough estimate
+				if truncatedLen > 0 && truncatedLen < len(systemMsg.Content) {
+					truncatedContent := systemMsg.Content[:truncatedLen] + "\n\n[System message truncated due to context limits]"
+					systemMsgCopy := *systemMsg
+					systemMsgCopy.Content = truncatedContent
+					systemMsg = &systemMsgCopy
+					totalTokens += availableForSystem
+				}
+			} else {
+				// Skip system message entirely if no room
+				systemMsg = nil
+			}
+		}
 	}
 
-	// Start from the end and work backwards to keep most recent messages
-	var keptMessages []Message
-	for i := len(messages) - 1; i >= startIdx; i-- {
-		msgTokens := estimateMessageTokens(messages[i])
+	// Work backwards through remaining messages and add what fits
+	for i := len(otherMessages) - 2; i >= 0; i-- {
+		msgTokens := estimateMessageTokens(otherMessages[i])
 		if totalTokens+msgTokens > maxTokens {
 			break
 		}
 		totalTokens += msgTokens
-		keptMessages = append([]Message{messages[i]}, keptMessages...)
+		keptMessages = append([]Message{otherMessages[i]}, keptMessages...)
 	}
 
-	// Reconstruct final message list
+	// Reconstruct final message list: system message first (if present), then other messages
 	var result []Message
 	if systemMsg != nil {
 		result = append(result, *systemMsg)
