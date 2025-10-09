@@ -425,6 +425,32 @@ templates:
     - **progress_reporter.go**: Enhanced visual indicators and phase-specific emojis
   - **✅ Chat Interface Fixed**: Updated chat mode to use CachedMode instead of QuickMode to properly respect existing cache
   - **Impact**: Users now see continuous, informative progress updates throughout the entire analysis process, eliminating the perception of hangs and providing clear insight into analysis progress
+- **CRITICAL: Fixed AI Assistant File Reading Bug** - Resolved issue where AI provided generic template responses instead of reading actual project files
+  - **✅ Problem Identified**: AI assistant lacked actual file reading capabilities, providing misleading generic responses when users asked about their project files
+  - **✅ Root Cause**: No chat command existed to read real project files (Dockerfile, docker-compose.yaml, package.json, etc.)
+  - **✅ Critical Impact**: Users received completely wrong information about their actual project configuration, making the AI assistant unreliable and potentially harmful
+  - **✅ Example of the Bug**:
+    - **User asked**: "show current Dockerfile"
+    - **AI responded**: Generic golang:1.19-alpine multi-stage Dockerfile template
+    - **Reality**: Actual Dockerfile used `registry.k.avito.ru/avito/service-golang:1.24` with completely different structure
+  - **✅ Comprehensive Solution Implemented**:
+    - **New `/file` Command**: Added comprehensive file reading command with aliases `/show` and `/cat`
+    - **Real File Reading**: Uses `os.Getwd()` to detect user's current project directory and `os.ReadFile()` to read actual files
+    - **Smart Syntax Highlighting**: Automatic language detection based on filename/extension (dockerfile, yaml, json, go, python, etc.)
+    - **Rich File Display**: Shows file path, content with syntax highlighting, file size, and modification time
+    - **Error Handling**: Graceful handling of missing files with helpful tips
+    - **Wide File Support**: Supports 20+ file types including Dockerfile, docker-compose.yaml, package.json, go.mod, requirements.txt, .env files, and more
+  - **✅ Technical Implementation**:
+    - **Command Registration**: Added to `registerProjectCommands()` with proper argument parsing
+    - **File Handler**: `handleReadProjectFile()` function with comprehensive error handling and file type detection
+    - **Syntax Detection**: `getSyntaxLanguage()` function supporting dockerfile, yaml, json, go, python, javascript, and 15+ other languages
+    - **User Experience**: Displays current working directory, file path, content with proper formatting, and file metadata
+  - **✅ Usage Examples**:
+    - `/file Dockerfile` - Shows actual Dockerfile with syntax highlighting
+    - `/show docker-compose.yaml` - Displays real docker-compose configuration
+    - `/cat package.json` - Shows actual npm package configuration
+    - `/file .env` - Reveals actual environment variable configuration
+  - **Impact**: AI assistant now provides accurate, real file content instead of misleading generic templates, making it trustworthy and genuinely helpful for project analysis
   - **✅ Provider Compatibility**: Added automatic fallback to non-streaming mode for providers that don't support streaming
   - **✅ Graceful Degradation**: Maintains backward compatibility with `handleNonStreamingChat()` fallback method
   - **Technical Implementation**: Enhanced `pkg/assistant/chat/interface.go` with `handleStreamingChat()` and `handleNonStreamingChat()` methods, fixed `pkg/assistant/chat/commands.go` streaming flag

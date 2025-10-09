@@ -71,6 +71,17 @@ func (c *ChatInterface) registerProjectCommands() {
 		Handler:     c.handleGetSupportedResources,
 		Args:        []CommandArg{},
 	}
+
+	c.commands["file"] = &ChatCommand{
+		Name:        "file",
+		Description: "Read and display a project file (Dockerfile, docker-compose.yaml, etc.)",
+		Usage:       "/file <filename>",
+		Handler:     c.handleReadProjectFile,
+		Aliases:     []string{"show", "cat"},
+		Args: []CommandArg{
+			{Name: "filename", Type: "string", Required: true, Description: "File name to read (e.g., Dockerfile, docker-compose.yaml, package.json)"},
+		},
+	}
 }
 
 // handleAnalyze analyzes the current project
@@ -498,6 +509,135 @@ func (c *ChatInterface) selectDeploymentTypeForChat(context *ConversationContext
 	context.Metadata["confirmed_deployment_type"] = selectedType
 
 	return nil
+}
+
+// handleReadProjectFile reads and displays a project file
+func (c *ChatInterface) handleReadProjectFile(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) == 0 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Please specify a filename. Usage: /file <filename>",
+		}, nil
+	}
+
+	filename := args[0]
+
+	// Get current working directory (the user's project directory)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to get current directory: %v", err),
+		}, nil
+	}
+
+	// Build full file path
+	filePath := filepath.Join(cwd, filename)
+
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ File not found: %s\n\n💡 **Tip**: Make sure you're in your project directory and the file exists.", filename),
+		}, nil
+	}
+
+	// Read the file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to read file %s: %v", filename, err),
+		}, nil
+	}
+
+	// Determine syntax highlighting based on file extension/name
+	language := getSyntaxLanguage(filename)
+
+	message := fmt.Sprintf("📄 **%s** (from %s)\n\n", filename, cwd)
+	message += fmt.Sprintf("```%s\n", language)
+	message += string(data)
+	message += "\n```\n"
+
+	// Add file info
+	stat, _ := os.Stat(filePath)
+	message += fmt.Sprintf("\n📊 **File Info**: %d bytes, modified %s",
+		len(data), stat.ModTime().Format("2006-01-02 15:04:05"))
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+	}, nil
+}
+
+// getSyntaxLanguage determines the syntax highlighting language for a filename
+func getSyntaxLanguage(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	name := strings.ToLower(filename)
+
+	// Handle specific filenames first
+	switch name {
+	case "dockerfile", "dockerfile.dev", "dockerfile.prod":
+		return "dockerfile"
+	case "docker-compose.yaml", "docker-compose.yml":
+		return "yaml"
+	case "package.json", "composer.json":
+		return "json"
+	case "go.mod", "go.sum":
+		return "go"
+	case "requirements.txt", "setup.py", "pyproject.toml":
+		return "python"
+	case "makefile":
+		return "makefile"
+	case ".env", ".env.example", ".env.local", ".env.production":
+		return "bash"
+	}
+
+	// Handle extensions
+	switch ext {
+	case ".js", ".mjs":
+		return "javascript"
+	case ".ts":
+		return "typescript"
+	case ".py":
+		return "python"
+	case ".go":
+		return "go"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".json":
+		return "json"
+	case ".toml":
+		return "toml"
+	case ".xml":
+		return "xml"
+	case ".sh", ".bash":
+		return "bash"
+	case ".sql":
+		return "sql"
+	case ".md":
+		return "markdown"
+	case ".html":
+		return "html"
+	case ".css":
+		return "css"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".rs":
+		return "rust"
+	case ".cpp", ".cc", ".cxx":
+		return "cpp"
+	case ".c":
+		return "c"
+	case ".cs":
+		return "csharp"
+	default:
+		return ""
+	}
 }
 
 // generateDeveloperFiles creates client configuration files using DeveloperMode
