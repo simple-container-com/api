@@ -25,7 +25,7 @@ func (c *ChatInterface) registerProjectCommands() {
 		Description: "Analyze current project tech stack",
 		Usage:       "/analyze [--full] [--force]",
 		Handler:     c.handleAnalyze,
-		Aliases:     []string{"a"},
+		Aliases:     []string{"a", "analyse"}, // Added British spelling
 		Args: []CommandArg{
 			{Name: "full", Type: "flag", Required: false, Description: "Run full analysis including resource detection (slower but comprehensive)"},
 			{Name: "force", Type: "flag", Required: false, Description: "Force fresh analysis even if cache exists"},
@@ -106,12 +106,22 @@ func (c *ChatInterface) handleAnalyze(ctx context.Context, args []string, contex
 		}
 	}
 
-	// Check if cache exists first
+	// Check if cache exists and its completeness
 	cacheExists := analysis.CacheExists(context.ProjectPath)
+	hasResourcesInCache := analysis.HasResourcesInCache(context.ProjectPath)
+
+	// Determine if we need to run full analysis despite cache
+	needsFullAnalysis := forceAnalysis || (fullAnalysis && (!cacheExists || !hasResourcesInCache))
+
 	if cacheExists && !forceAnalysis {
-		fmt.Printf("📋 Found cached analysis for %s\n", color.CyanString(context.ProjectPath))
+		if fullAnalysis && !hasResourcesInCache {
+			fmt.Printf("📋 Found incomplete cached analysis (missing resources) for %s\n", color.YellowString(context.ProjectPath))
+			fmt.Printf("🔍 Running full analysis to detect resources and environment variables...\n")
+		} else {
+			fmt.Printf("📋 Found cached analysis for %s\n", color.CyanString(context.ProjectPath))
+		}
 	} else {
-		if fullAnalysis {
+		if fullAnalysis || needsFullAnalysis {
 			fmt.Printf("🔍 Running full analysis at %s...\n", color.CyanString(context.ProjectPath))
 		} else {
 			fmt.Printf("🔍 Analyzing project at %s...\n", color.CyanString(context.ProjectPath))
@@ -121,12 +131,21 @@ func (c *ChatInterface) handleAnalyze(ctx context.Context, args []string, contex
 	// Create analyzer and configure mode
 	analyzer := analysis.NewProjectAnalyzer()
 
+	// Set up progress reporting for better UX
+	progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
+	analyzer.SetProgressReporter(progressReporter)
+
 	if forceAnalysis && fullAnalysis {
 		analyzer.SetAnalysisMode(analysis.ForceFullMode)
 	} else if forceAnalysis {
 		analyzer.SetAnalysisMode(analysis.FullMode)
 	} else if fullAnalysis {
-		analyzer.SetAnalysisMode(analysis.FullMode)
+		// If cache exists but lacks resources, use ForceFullMode to ensure we get everything
+		if cacheExists && !hasResourcesInCache {
+			analyzer.SetAnalysisMode(analysis.ForceFullMode)
+		} else {
+			analyzer.SetAnalysisMode(analysis.FullMode)
+		}
 	} else {
 		analyzer.SetAnalysisMode(analysis.CachedMode)
 	}
@@ -153,20 +172,93 @@ func (c *ChatInterface) handleAnalyze(ctx context.Context, args []string, contex
 		message += "\n"
 	}
 
-	if result.Resources != nil && len(result.Resources.Databases) > 0 {
-		message += "\n📚 **Technologies Detected**:\n"
-		for _, db := range result.Resources.Databases {
-			message += fmt.Sprintf("  • Database: %s\n", db.Name)
-		}
-	}
+	// Display comprehensive resource information
+	if result.Resources != nil {
+		resourceCount := 0
 
-	if result.Resources != nil && (len(result.Resources.Databases) > 0 || len(result.Resources.ExternalAPIs) > 0) {
-		message += "\n🔗 **External Dependencies**:\n"
-		for _, db := range result.Resources.Databases {
-			message += fmt.Sprintf("  • Database: %s\n", db.Name)
+		// Environment Variables
+		if len(result.Resources.EnvironmentVars) > 0 {
+			if resourceCount == 0 {
+				message += "\n📋 **Resources Detected**:\n"
+			}
+			message += fmt.Sprintf("  🌐 **Environment Variables**: %d found\n", len(result.Resources.EnvironmentVars))
+			// Show first few environment variables as examples
+			for i, envVar := range result.Resources.EnvironmentVars {
+				if i >= 3 { // Limit to first 3 to avoid overwhelming output
+					message += fmt.Sprintf("    • ... and %d more\n", len(result.Resources.EnvironmentVars)-3)
+					break
+				}
+				message += fmt.Sprintf("    • %s\n", envVar.Name)
+			}
+			resourceCount++
 		}
-		for _, api := range result.Resources.ExternalAPIs {
-			message += fmt.Sprintf("  • API: %s\n", api.Name)
+
+		// Databases
+		if len(result.Resources.Databases) > 0 {
+			if resourceCount == 0 {
+				message += "\n📋 **Resources Detected**:\n"
+			}
+			message += fmt.Sprintf("  💾 **Databases**: %d found\n", len(result.Resources.Databases))
+			for _, db := range result.Resources.Databases {
+				message += fmt.Sprintf("    • %s (%s)\n", db.Name, db.Type)
+			}
+			resourceCount++
+		}
+
+		// External APIs
+		if len(result.Resources.ExternalAPIs) > 0 {
+			if resourceCount == 0 {
+				message += "\n📋 **Resources Detected**:\n"
+			}
+			message += fmt.Sprintf("  🌐 **External APIs**: %d found\n", len(result.Resources.ExternalAPIs))
+			for _, api := range result.Resources.ExternalAPIs {
+				message += fmt.Sprintf("    • %s\n", api.Name)
+			}
+			resourceCount++
+		}
+
+		// Secrets
+		if len(result.Resources.Secrets) > 0 {
+			if resourceCount == 0 {
+				message += "\n📋 **Resources Detected**:\n"
+			}
+			message += fmt.Sprintf("  🔐 **Secrets**: %d found\n", len(result.Resources.Secrets))
+			for i, secret := range result.Resources.Secrets {
+				if i >= 3 {
+					message += fmt.Sprintf("    • ... and %d more\n", len(result.Resources.Secrets)-3)
+					break
+				}
+				message += fmt.Sprintf("    • %s\n", secret.Name)
+			}
+			resourceCount++
+		}
+
+		// Storage
+		if len(result.Resources.Storage) > 0 {
+			if resourceCount == 0 {
+				message += "\n📋 **Resources Detected**:\n"
+			}
+			message += fmt.Sprintf("  💽 **Storage**: %d found\n", len(result.Resources.Storage))
+			for _, storage := range result.Resources.Storage {
+				message += fmt.Sprintf("    • %s (%s)\n", storage.Name, storage.Type)
+			}
+			resourceCount++
+		}
+
+		// Queues
+		if len(result.Resources.Queues) > 0 {
+			if resourceCount == 0 {
+				message += "\n📋 **Resources Detected**:\n"
+			}
+			message += fmt.Sprintf("  📨 **Queues**: %d found\n", len(result.Resources.Queues))
+			for _, queue := range result.Resources.Queues {
+				message += fmt.Sprintf("    • %s (%s)\n", queue.Name, queue.Type)
+			}
+			resourceCount++
+		}
+
+		if resourceCount == 0 {
+			message += "\n📋 **Resources**: None detected (use `/analyze --full` for comprehensive resource detection)\n"
 		}
 	}
 

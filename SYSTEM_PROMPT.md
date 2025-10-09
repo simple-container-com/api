@@ -451,6 +451,75 @@ templates:
     - `/cat package.json` - Shows actual npm package configuration
     - `/file .env` - Reveals actual environment variable configuration
   - **Impact**: AI assistant now provides accurate, real file content instead of misleading generic templates, making it trustworthy and genuinely helpful for project analysis
+- **CRITICAL: Fixed client.yaml Formatting Issues** - Resolved double spacing and confusing field ordering when modifying client.yaml files
+  - **✅ Problems Identified**:
+    - **Double Spacing**: YAML marshaler was adding excessive whitespace (x2 spacing) making files harder to read
+    - **Wrong Field Order**: `config` section appeared first, making basic properties like `parent`, `parentEnv`, and `type` appear last, causing confusion
+  - **✅ Root Cause**: Default `yaml.Marshal()` function doesn't preserve field ordering and uses inconsistent spacing
+  - **✅ Comprehensive Solution Implemented**:
+    - **Smart File Detection**: `writeYamlFile()` now detects client.yaml files and routes them to specialized formatting
+    - **Custom YAML Writer**: `writeClientYamlWithOrdering()` function provides precise control over field ordering and spacing
+    - **Logical Field Order**: Fields now appear in logical order: `parent`, `parentEnv`, `type`, `runs`, `uses`, `dependencies`, `config`
+    - **Consistent Spacing**: Proper 2-space indentation throughout, eliminating double spacing issues
+    - **Preserves Other Files**: Server.yaml and other YAML files continue using standard marshaling
+  - **✅ Technical Implementation**:
+    - **File Path Detection**: `strings.HasSuffix(filePath, "client.yaml")` routes client files to custom formatter
+    - **Ordered Field Writing**: `writeStackConfigOrdered()` function enforces logical field sequence
+    - **Recursive Value Formatting**: `writeYamlValue()` handles nested objects, arrays, and scalar values with consistent indentation
+    - **Schema Preservation**: All existing functionality preserved, only formatting improved
+  - **✅ Field Ordering Logic**:
+    ```go
+    orderedFields := []string{"parent", "parentEnv", "type", "runs", "uses", "dependencies", "config"}
+    ```
+    This ensures basic stack properties appear first, followed by the more complex `config` section
+  - **✅ Formatting Benefits**:
+    - **Before**: `config:` section first, double-spaced indentation, confusing structure
+    - **After**: Logical field order with `parent`/`parentEnv`/`type` first, consistent spacing, clear hierarchy  
+  - **Impact**: Users now see properly formatted client.yaml files with logical field ordering and consistent spacing, making configuration much easier to read and understand
+- **CRITICAL: Fixed Incomplete Cache Analysis Issue** - Resolved problem where analyze command failed to run full analysis when cache lacked resources
+  - **✅ Problem Identified**: Chat interface using CachedMode never detected resources/environment variables, even when `/analyze --full` was requested
+  - **✅ Root Causes**:
+    - **British Spelling**: User typed `/analyse` but command was only registered as `/analyze` (American spelling)
+    - **Incomplete Cache Logic**: `--full` flag ignored when cache existed, even if cache was missing critical resource data
+    - **No Cache Completeness Check**: System didn't verify if cached analysis actually contained resources/environment variables
+  - **✅ Comprehensive Solution Implemented**:
+    - **British Spelling Support**: Added `"analyse"` alias to analyze command registration for international users
+    - **Smart Cache Completeness Detection**: New `HasResourcesInCache()` function checks if cache contains actual resource data
+    - **Intelligent Analysis Mode Selection**: `--full` now forces ForceFullMode when cache exists but lacks resources
+    - **Progressive Analysis Messages**: Clear user feedback about cache status and analysis reasoning
+    - **Enhanced Resource Display**: Comprehensive display of environment variables, databases, APIs, secrets, storage, and queues
+  - **✅ Technical Implementation**:
+    ```go
+    // British spelling support
+    Aliases: []string{"a", "analyse"}, // Added British spelling
+    
+    // Smart cache completeness check
+    cacheExists := analysis.CacheExists(context.ProjectPath)
+    hasResourcesInCache := analysis.HasResourcesInCache(context.ProjectPath)
+    
+    // Intelligent mode selection  
+    if fullAnalysis && !hasResourcesInCache {
+        analyzer.SetAnalysisMode(analysis.ForceFullMode) // Force full analysis
+    }
+    ```
+  - **✅ Enhanced User Experience**:
+    - **Progress Reporting**: Added streaming progress reporter for all analysis modes
+    - **Detailed Resource Display**: Shows environment variables (first 3), databases, APIs, secrets, storage, queues with counts
+    - **Helpful Messages**: Explains cache status and why full analysis is running
+    - **Fallback Guidance**: Shows `/analyze --full` hint when no resources detected
+  - **✅ Analysis Output Enhancement**:
+    ```
+    📋 Resources Detected:
+      🌐 Environment Variables: 17 found
+        • DATABASE_URL
+        • REDIS_URL  
+        • API_KEY
+        • ... and 14 more
+      💾 Databases: 2 found
+        • PostgreSQL (postgresql)
+        • Redis (redis)
+    ```
+  - **Impact**: Users can now reliably run comprehensive analysis that detects environment variables and resources, whether using British (`/analyse`) or American (`/analyze`) spelling, with intelligent cache handling that ensures complete analysis when requested
   - **✅ Provider Compatibility**: Added automatic fallback to non-streaming mode for providers that don't support streaming
   - **✅ Graceful Degradation**: Maintains backward compatibility with `handleNonStreamingChat()` fallback method
   - **Technical Implementation**: Enhanced `pkg/assistant/chat/interface.go` with `handleStreamingChat()` and `handleNonStreamingChat()` methods, fixed `pkg/assistant/chat/commands.go` streaming flag

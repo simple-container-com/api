@@ -1135,6 +1135,12 @@ func (h *UnifiedCommandHandler) readYamlFile(filePath string) (map[string]interf
 }
 
 func (h *UnifiedCommandHandler) writeYamlFile(filePath string, content map[string]interface{}) error {
+	// Check if this is a client.yaml file that needs special formatting
+	if strings.HasSuffix(filePath, "client.yaml") {
+		return h.writeClientYamlWithOrdering(filePath, content)
+	}
+
+	// Use standard YAML marshaling for other files
 	data, err := yaml.Marshal(content)
 	if err != nil {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
@@ -1268,4 +1274,116 @@ func (h *UnifiedCommandHandler) detectGeneratedFiles(basePath string) []string {
 	}
 
 	return files
+}
+
+// writeClientYamlWithOrdering writes client.yaml with proper field ordering and formatting
+func (h *UnifiedCommandHandler) writeClientYamlWithOrdering(filePath string, content map[string]interface{}) error {
+	var output strings.Builder
+
+	// Write top-level fields first (if they exist)
+	if schemaVersion, ok := content["schemaVersion"]; ok {
+		output.WriteString(fmt.Sprintf("schemaVersion: %v\n", schemaVersion))
+		output.WriteString("\n")
+	}
+
+	// Write stacks section with proper ordering
+	if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+		output.WriteString("stacks:\n")
+
+		for stackName, stackConfig := range stacks {
+			if stackConfigMap, ok := stackConfig.(map[string]interface{}); ok {
+				output.WriteString(fmt.Sprintf("  %s:\n", stackName))
+				h.writeStackConfigOrdered(&output, stackConfigMap, "    ")
+			}
+		}
+	}
+
+	// Write other top-level sections (variables, etc.)
+	for key, value := range content {
+		if key != "schemaVersion" && key != "stacks" {
+			output.WriteString(fmt.Sprintf("\n%s:\n", key))
+			h.writeYamlValue(&output, value, "  ")
+		}
+	}
+
+	err := os.WriteFile(filePath, []byte(output.String()), 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// writeStackConfigOrdered writes stack configuration with proper field ordering
+func (h *UnifiedCommandHandler) writeStackConfigOrdered(output *strings.Builder, stackConfig map[string]interface{}, indent string) {
+	// Define the desired order of fields
+	orderedFields := []string{"parent", "parentEnv", "type", "runs", "uses", "dependencies", "config"}
+
+	// Write fields in the specified order
+	for _, field := range orderedFields {
+		if value, exists := stackConfig[field]; exists {
+			output.WriteString(fmt.Sprintf("%s%s: ", indent, field))
+			h.writeYamlValue(output, value, indent+"  ")
+		}
+	}
+
+	// Write any remaining fields that weren't in the ordered list
+	for field, value := range stackConfig {
+		found := false
+		for _, orderedField := range orderedFields {
+			if field == orderedField {
+				found = true
+				break
+			}
+		}
+		if !found {
+			output.WriteString(fmt.Sprintf("%s%s: ", indent, field))
+			h.writeYamlValue(output, value, indent+"  ")
+		}
+	}
+}
+
+// writeYamlValue writes a YAML value with proper formatting and indentation
+func (h *UnifiedCommandHandler) writeYamlValue(output *strings.Builder, value interface{}, indent string) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		output.WriteString("\n")
+		for key, subValue := range v {
+			output.WriteString(fmt.Sprintf("%s%s: ", indent, key))
+			h.writeYamlValue(output, subValue, indent+"  ")
+		}
+	case []interface{}:
+		output.WriteString("\n")
+		for _, item := range v {
+			output.WriteString(fmt.Sprintf("%s- ", indent))
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				// Handle array of objects
+				output.WriteString("\n")
+				for key, subValue := range itemMap {
+					output.WriteString(fmt.Sprintf("%s  %s: ", indent, key))
+					h.writeYamlValue(output, subValue, indent+"    ")
+				}
+			} else {
+				// Handle simple array items
+				output.WriteString(fmt.Sprintf("%v\n", item))
+			}
+		}
+	case []string:
+		if len(v) == 0 {
+			output.WriteString("[]\n")
+		} else if len(v) == 1 {
+			output.WriteString(fmt.Sprintf("%s\n", v[0]))
+		} else {
+			output.WriteString("\n")
+			for _, item := range v {
+				output.WriteString(fmt.Sprintf("%s- %s\n", indent, item))
+			}
+		}
+	case string:
+		output.WriteString(fmt.Sprintf("%s\n", v))
+	case nil:
+		output.WriteString("null\n")
+	default:
+		output.WriteString(fmt.Sprintf("%v\n", v))
+	}
 }
