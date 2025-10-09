@@ -51,6 +51,14 @@ func (d *EnvironmentVariableDetector) Detect(projectPath string) (*ResourceAnaly
 			return nil // Continue on errors
 		}
 
+		// Skip paths with known dependency directories (faster than checking each dir)
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		// Skip common ignore directories
 		if entry.IsDir() {
 			if shouldSkipDir(entry.Name()) {
@@ -270,6 +278,14 @@ func (d *SecretDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 			return nil
 		}
 
+		// Skip paths with known dependency directories (faster than checking each dir)
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if entry.IsDir() {
 			if shouldSkipDir(entry.Name()) {
 				return filepath.SkipDir
@@ -407,6 +423,14 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+
+		// Skip paths with known dependency directories (faster than checking each dir)
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -618,10 +642,48 @@ func shouldSkipDir(name string) bool {
 	skipDirs := []string{
 		"node_modules", "__pycache__", "vendor", "target", "build", "dist",
 		".git", ".svn", ".hg", "coverage", "logs", "tmp", "temp",
+		// JavaScript/Node.js
+		".npm", ".yarn", "bower_components", ".next", ".nuxt", ".cache",
+		// Meteor
+		".meteor", "packages",
+		// IDE and tools
+		".idea", ".vscode", ".vs", ".DS_Store",
+		// Testing and coverage
+		"cypress", "jest_cache", "nyc_output", ".nyc_output",
+		// Build outputs
+		"out", "output", "public/build", "static/build",
+		// Dependencies and caches
+		"deps", "lib", ".tsbuildinfo",
 	}
 
 	for _, skip := range skipDirs {
 		if name == skip {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ShouldSkipPath checks if a path should be skipped (for nested dependencies)
+func ShouldSkipPath(path string) bool {
+	skipPatterns := []string{
+		"/node_modules/",
+		"/.meteor/",
+		"/.git/",
+		"/vendor/",
+		"/build/",
+		"/dist/",
+		"/out/",
+		"/coverage/",
+		"/cypress/",
+		"/.cache/",
+		"/.npm/",
+		"/.yarn/",
+	}
+
+	for _, pattern := range skipPatterns {
+		if strings.Contains(path, pattern) {
 			return true
 		}
 	}
@@ -761,6 +823,14 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+
+		// Skip paths with known dependency directories (faster than checking each dir)
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -976,6 +1046,14 @@ func (d *StorageDetector) Detect(projectPath string) (*ResourceAnalysis, error) 
 	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+
+		// Skip paths with known dependency directories (faster than checking each dir)
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -1208,6 +1286,14 @@ func (d *ExternalAPIDetector) Detect(projectPath string) (*ResourceAnalysis, err
 	var filesToScan []string
 	err := filepath.WalkDir(projectPath, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			return nil
+		}
+
+		// Skip paths with known dependency directories (faster than checking each dir)
+		if ShouldSkipPath(path) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

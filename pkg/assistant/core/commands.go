@@ -14,6 +14,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
+	"github.com/simple-container-com/api/pkg/assistant/security"
 )
 
 // UnifiedCommandHandler provides a shared layer for both MCP and chat interfaces
@@ -493,9 +494,9 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		return h.modifyStackRaw(ctx, content, environmentName, changes, filePath)
 	}
 
-	// Debug file writes to see what's being written
-	debugYAML, _ := yaml.Marshal(modifiedContent)
-	fmt.Printf("DEBUG: Writing to file %s:\n%s\n", filePath, string(debugYAML))
+	// Optional: Debug file writes for troubleshooting
+	// debugYAML, _ := yaml.Marshal(modifiedContent)
+	// fmt.Printf("DEBUG: Writing to file %s\n", filePath)
 
 	// Write back to file
 	err = h.writeYamlFile(filePath, modifiedContent)
@@ -541,11 +542,8 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	// Build enriched prompt using existing functions (DRY principle)
 	prompt := h.buildStackModificationPrompt(content, stackName, changes, projectAnalysis)
 
-	// Debug output to diagnose change detection issue
-	fmt.Printf("DEBUG: ModifyStack - stackName: %s\n", stackName)
-	fmt.Printf("DEBUG: ModifyStack - changes requested: %+v\n", changes)
-	currentYAML, _ := yaml.Marshal(content)
-	fmt.Printf("DEBUG: ModifyStack - current content:\n%s\n", string(currentYAML))
+	// Optional: Debug output for troubleshooting
+	// fmt.Printf("DEBUG: ModifyStack - stackName: %s, changes: %+v\n", stackName, changes)
 
 	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
 	llmProvider := h.developerMode.GetLLMProvider()
@@ -571,13 +569,8 @@ CRITICAL INSTRUCTIONS:
 		return nil, nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
-	// Debug LLM response to see what it generated
-	fmt.Printf("DEBUG: LLM Response length: %d chars\n", len(response.Content))
-	if len(response.Content) > 1000 {
-		fmt.Printf("DEBUG: LLM Response (first 800 chars): %.800s...\n", response.Content)
-	} else {
-		fmt.Printf("DEBUG: LLM Response: %s\n", response.Content)
-	}
+	// Optional: Debug LLM response for troubleshooting
+	// fmt.Printf("DEBUG: LLM Response (%d chars)\n", len(response.Content))
 
 	// Parse the response and extract changes applied
 	modifiedContent, changesApplied, err := h.parseModifiedYAML(response.Content, content, stackName)
@@ -585,11 +578,8 @@ CRITICAL INSTRUCTIONS:
 		return nil, nil, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
 
-	// Debug changes detection to see why it's returning empty
-	fmt.Printf("DEBUG: Changes detected by comparison: %+v\n", changesApplied)
-	if len(changesApplied) == 0 {
-		fmt.Printf("DEBUG: No changes detected - this means LLM generated identical content!\n")
-	}
+	// Optional: Debug changes detection for troubleshooting
+	// fmt.Printf("DEBUG: Changes detected: %+v\n", changesApplied)
 
 	return modifiedContent, changesApplied, nil
 }
@@ -659,7 +649,21 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 	prompt.WriteString(string(currentYAML))
 	prompt.WriteString("\n")
 
-	prompt.WriteString(fmt.Sprintf("STACK TO MODIFY: %s\n\n", stackName))
+	// Analyze available environments
+	if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+		environments := make([]string, 0, len(stacks))
+		for envName := range stacks {
+			environments = append(environments, envName)
+		}
+
+		prompt.WriteString(fmt.Sprintf("AVAILABLE ENVIRONMENTS: %v\n", environments))
+		if len(environments) > 1 {
+			prompt.WriteString("⚠️ MULTIPLE ENVIRONMENTS DETECTED - Make sure you're modifying the correct environment!\n")
+		}
+		prompt.WriteString("\n")
+	}
+
+	prompt.WriteString(fmt.Sprintf("ENVIRONMENT TO MODIFY: %s\n\n", stackName))
 
 	prompt.WriteString("REQUESTED CHANGES:\n")
 	for key, value := range changes {
@@ -676,12 +680,38 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 	prompt.WriteString("- Use ONLY valid Simple Container properties from the documentation context\n")
 	prompt.WriteString("- Handle dot notation (config.scale.max) by updating nested properties\n")
 
+	prompt.WriteString("\nCRITICAL MULTIPLE ENVIRONMENTS HANDLING:\n")
+	if stacks, ok := content["stacks"].(map[string]interface{}); ok && len(stacks) > 1 {
+		prompt.WriteString("- ⚠️ MULTIPLE ENVIRONMENTS EXIST - User must specify which environment to modify\n")
+		prompt.WriteString("- If user request doesn't specify environment, STOP and ask: 'Which environment would you like to modify?'\n")
+		prompt.WriteString("- List available environments and ask user to choose before proceeding\n")
+		prompt.WriteString("- DO NOT assume or guess which environment the user wants to modify\n")
+	} else {
+		prompt.WriteString("- Single environment detected - proceed with modifications\n")
+	}
+
 	prompt.WriteString("\nCRITICAL ENVIRONMENT VARIABLES SEMANTIC UNDERSTANDING:\n")
 	prompt.WriteString("- BOTH 'env:' and 'secrets:' sections contain ENVIRONMENT VARIABLES\n")
 	prompt.WriteString("- 'env:' = non-sensitive environment variables (plain text)\n")
 	prompt.WriteString("- 'secrets:' = sensitive environment variables (handled securely at deploy)\n")
 	prompt.WriteString("- When user asks to 'remove environment variables for X', remove from BOTH env: AND secrets: sections\n")
 	prompt.WriteString("- When user asks to 'remove database env vars', remove database-related entries from BOTH sections\n")
+
+	prompt.WriteString("\nCRITICAL LAMBDA CONFIGURATION UNDERSTANDING:\n")
+	prompt.WriteString("⚠️ MEMORY vs SCALING ARE COMPLETELY DIFFERENT CONCEPTS:\n")
+	prompt.WriteString("- 'maxMemory' = Lambda function memory allocation in MB (e.g., 512, 1024, 2048)\n")
+	prompt.WriteString("- 'timeout' = Lambda function timeout in seconds\n")
+	prompt.WriteString("- 'scale.max' = Container scaling maximum instances (NOT MEMORY!)\n")
+	prompt.WriteString("\n🚨 CRITICAL MAPPING RULES:\n")
+	prompt.WriteString("- 'increase memory' → MODIFY 'maxMemory' field (NOT scale.max!)\n")
+	prompt.WriteString("- 'extend max memory' → MODIFY 'maxMemory' field (NOT scale.max!)\n")
+	prompt.WriteString("- 'memory to 1024' → SET 'maxMemory: 1024' (NOT scale.max!)\n")
+	prompt.WriteString("- 'scaling' or 'instances' → MODIFY 'scale.max' field\n")
+	prompt.WriteString("\n❌ WRONG EXAMPLE:\n")
+	prompt.WriteString("User: 'increase memory to 1024' → DO NOT CREATE: scale: {max: 1024}\n")
+	prompt.WriteString("✅ CORRECT EXAMPLE:\n")
+	prompt.WriteString("User: 'increase memory to 1024' → CREATE: maxMemory: 1024\n")
+	prompt.WriteString("\n🔒 NEVER CONFUSE MEMORY ALLOCATION WITH SCALING CONFIGURATION!\n")
 
 	prompt.WriteString("\nCRITICAL REMOVAL/DELETION INSTRUCTIONS:\n")
 	prompt.WriteString("- When a change shows empty value (e.g., 'config.uses:' or 'config.env:'), REMOVE that entire section\n")
@@ -690,6 +720,13 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 	prompt.WriteString("- DO NOT add fictional resources or environment variables that weren't in the original\n")
 	prompt.WriteString("- DO NOT hallucinate new services like 'additional-service-1' or fake env vars like 'DATABASE_URL'\n")
 	prompt.WriteString("- ONLY modify what exists in the CURRENT CONFIGURATION provided above\n")
+
+	prompt.WriteString("\nCRITICAL CONFIGURATION PRESERVATION:\n")
+	prompt.WriteString("- PRESERVE ALL existing configuration that is not being modified\n")
+	prompt.WriteString("- DO NOT remove existing properties like 'env:', 'secrets:', 'template:', 'timeout:', etc.\n")
+	prompt.WriteString("- ONLY modify the specific properties requested by the user\n")
+	prompt.WriteString("- Keep the complete original structure and add/modify only requested changes\n")
+	prompt.WriteString("- If original has 'maxMemory: 512' and user wants 1024, change ONLY that value\n")
 
 	prompt.WriteString("\n- Return the complete modified client.yaml configuration\n")
 	prompt.WriteString("- Ensure proper YAML formatting and schema compliance\n\n")
@@ -736,18 +773,6 @@ func (h *UnifiedCommandHandler) enrichContextWithDocumentation(configType string
 	return contextBuilder.String()
 }
 
-// Helper function to get map keys for debugging
-func getMapKeys(m map[string]interface{}) []string {
-	if m == nil {
-		return []string{}
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
-}
-
 // parseModifiedYAML extracts the modified configuration and determines what changed
 func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalContent map[string]interface{}, stackName string) (map[string]interface{}, map[string]interface{}, error) {
 	// Clean the response (remove code blocks if present)
@@ -774,20 +799,8 @@ func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalConte
 		originalStack, _ := originalStacks[stackName].(map[string]interface{})
 		modifiedStack, _ := modifiedStacks[stackName].(map[string]interface{})
 
-		// Debug stack comparison to see what's being compared
-		fmt.Printf("DEBUG: Comparing stacks for %s\n", stackName)
-		fmt.Printf("DEBUG: Original stack has keys: %v\n", getMapKeys(originalStack))
-		fmt.Printf("DEBUG: Modified stack has keys: %v\n", getMapKeys(modifiedStack))
-
-		// Show specific comparison for problematic areas
-		if origConfig, ok := originalStack["config"].(map[string]interface{}); ok {
-			if modConfig, ok := modifiedStack["config"].(map[string]interface{}); ok {
-				fmt.Printf("DEBUG: Original config uses: %v\n", origConfig["uses"])
-				fmt.Printf("DEBUG: Modified config uses: %v\n", modConfig["uses"])
-				fmt.Printf("DEBUG: Original config secrets: %v\n", origConfig["secrets"])
-				fmt.Printf("DEBUG: Modified config secrets: %v\n", modConfig["secrets"])
-			}
-		}
+		// Optional: Debug stack comparison for troubleshooting
+		// fmt.Printf("DEBUG: Comparing stacks for %s\n", stackName)
 
 		if originalStack != nil && modifiedStack != nil {
 			h.compareConfigs(originalStack, modifiedStack, "", changesApplied)
@@ -1108,7 +1121,9 @@ func (h *UnifiedCommandHandler) findServerYaml(basePath string) string {
 }
 
 func (h *UnifiedCommandHandler) readYamlFile(filePath string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(filePath)
+	// Use SecureFileReader for comprehensive credential protection
+	secureReader := security.NewSecureFileReader()
+	data, err := secureReader.ReadFileSecurely(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}
@@ -1123,6 +1138,12 @@ func (h *UnifiedCommandHandler) readYamlFile(filePath string) (map[string]interf
 }
 
 func (h *UnifiedCommandHandler) writeYamlFile(filePath string, content map[string]interface{}) error {
+	// Check if this is a client.yaml file that needs special formatting
+	if strings.HasSuffix(filePath, "client.yaml") {
+		return h.writeClientYamlWithOrdering(filePath, content)
+	}
+
+	// Use standard YAML marshaling for other files
 	data, err := yaml.Marshal(content)
 	if err != nil {
 		return fmt.Errorf("failed to marshal YAML: %w", err)
@@ -1256,4 +1277,116 @@ func (h *UnifiedCommandHandler) detectGeneratedFiles(basePath string) []string {
 	}
 
 	return files
+}
+
+// writeClientYamlWithOrdering writes client.yaml with proper field ordering and formatting
+func (h *UnifiedCommandHandler) writeClientYamlWithOrdering(filePath string, content map[string]interface{}) error {
+	var output strings.Builder
+
+	// Write top-level fields first (if they exist)
+	if schemaVersion, ok := content["schemaVersion"]; ok {
+		output.WriteString(fmt.Sprintf("schemaVersion: %v\n", schemaVersion))
+		output.WriteString("\n")
+	}
+
+	// Write stacks section with proper ordering
+	if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+		output.WriteString("stacks:\n")
+
+		for stackName, stackConfig := range stacks {
+			if stackConfigMap, ok := stackConfig.(map[string]interface{}); ok {
+				output.WriteString(fmt.Sprintf("  %s:\n", stackName))
+				h.writeStackConfigOrdered(&output, stackConfigMap, "    ")
+			}
+		}
+	}
+
+	// Write other top-level sections (variables, etc.)
+	for key, value := range content {
+		if key != "schemaVersion" && key != "stacks" {
+			output.WriteString(fmt.Sprintf("\n%s:\n", key))
+			h.writeYamlValue(&output, value, "  ")
+		}
+	}
+
+	err := os.WriteFile(filePath, []byte(output.String()), 0o644)
+	if err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// writeStackConfigOrdered writes stack configuration with proper field ordering
+func (h *UnifiedCommandHandler) writeStackConfigOrdered(output *strings.Builder, stackConfig map[string]interface{}, indent string) {
+	// Define the desired order of fields
+	orderedFields := []string{"parent", "parentEnv", "type", "runs", "uses", "dependencies", "config"}
+
+	// Write fields in the specified order
+	for _, field := range orderedFields {
+		if value, exists := stackConfig[field]; exists {
+			output.WriteString(fmt.Sprintf("%s%s: ", indent, field))
+			h.writeYamlValue(output, value, indent+"  ")
+		}
+	}
+
+	// Write any remaining fields that weren't in the ordered list
+	for field, value := range stackConfig {
+		found := false
+		for _, orderedField := range orderedFields {
+			if field == orderedField {
+				found = true
+				break
+			}
+		}
+		if !found {
+			output.WriteString(fmt.Sprintf("%s%s: ", indent, field))
+			h.writeYamlValue(output, value, indent+"  ")
+		}
+	}
+}
+
+// writeYamlValue writes a YAML value with proper formatting and indentation
+func (h *UnifiedCommandHandler) writeYamlValue(output *strings.Builder, value interface{}, indent string) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		output.WriteString("\n")
+		for key, subValue := range v {
+			output.WriteString(fmt.Sprintf("%s%s: ", indent, key))
+			h.writeYamlValue(output, subValue, indent+"  ")
+		}
+	case []interface{}:
+		output.WriteString("\n")
+		for _, item := range v {
+			output.WriteString(fmt.Sprintf("%s- ", indent))
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				// Handle array of objects
+				output.WriteString("\n")
+				for key, subValue := range itemMap {
+					output.WriteString(fmt.Sprintf("%s  %s: ", indent, key))
+					h.writeYamlValue(output, subValue, indent+"    ")
+				}
+			} else {
+				// Handle simple array items
+				output.WriteString(fmt.Sprintf("%v\n", item))
+			}
+		}
+	case []string:
+		if len(v) == 0 {
+			output.WriteString("[]\n")
+		} else if len(v) == 1 {
+			output.WriteString(fmt.Sprintf("%s\n", v[0]))
+		} else {
+			output.WriteString("\n")
+			for _, item := range v {
+				output.WriteString(fmt.Sprintf("%s- %s\n", indent, item))
+			}
+		}
+	case string:
+		output.WriteString(fmt.Sprintf("%s\n", v))
+	case nil:
+		output.WriteString("null\n")
+	default:
+		output.WriteString(fmt.Sprintf("%v\n", v))
+	}
 }

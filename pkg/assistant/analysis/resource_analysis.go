@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -20,6 +21,15 @@ func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*Resour
 		ExternalAPIs:    []ExternalAPI{},
 	}
 
+	// Track progress for resource detection
+	var completedResourceDetectors int
+	totalResourceDetectors := len(pa.resourceDetectors)
+
+	// Start resource detection phase
+	if pa.progressTracker != nil {
+		pa.progressTracker.StartPhase("resource_analysis")
+	}
+
 	// Use errgroup for better parallel execution
 	g, _ := errgroup.WithContext(context.Background())
 
@@ -34,6 +44,19 @@ func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*Resour
 			if analysis, err := fastEnvDetector.Detect(projectPath); err == nil && analysis != nil {
 				mu.Lock()
 				combined.EnvironmentVars = append(combined.EnvironmentVars, analysis.EnvironmentVars...)
+				completedResourceDetectors++
+				if pa.progressTracker != nil {
+					pa.progressTracker.CompleteTask("resource_analysis",
+						fmt.Sprintf("Detected environment variables (%d/%d resource detectors)", completedResourceDetectors, totalResourceDetectors))
+				}
+				mu.Unlock()
+			} else {
+				mu.Lock()
+				completedResourceDetectors++
+				if pa.progressTracker != nil {
+					pa.progressTracker.CompleteTask("resource_analysis",
+						fmt.Sprintf("Running resource detectors (%d/%d completed)", completedResourceDetectors, totalResourceDetectors))
+				}
 				mu.Unlock()
 			}
 			return nil
@@ -67,6 +90,25 @@ func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*Resour
 					combined.Queues = append(combined.Queues, analysis.Queues...)
 					combined.Storage = append(combined.Storage, analysis.Storage...)
 					combined.ExternalAPIs = append(combined.ExternalAPIs, analysis.ExternalAPIs...)
+					completedResourceDetectors++
+					if pa.progressTracker != nil {
+						resourceCount := len(analysis.Secrets) + len(analysis.Databases) + len(analysis.Queues) + len(analysis.Storage) + len(analysis.ExternalAPIs)
+						if resourceCount > 0 {
+							pa.progressTracker.CompleteTask("resource_analysis",
+								fmt.Sprintf("Detected %s resources (%d/%d resource detectors)", detector.Name(), completedResourceDetectors, totalResourceDetectors))
+						} else {
+							pa.progressTracker.CompleteTask("resource_analysis",
+								fmt.Sprintf("Running resource detectors (%d/%d completed)", completedResourceDetectors, totalResourceDetectors))
+						}
+					}
+					mu.Unlock()
+				} else {
+					mu.Lock()
+					completedResourceDetectors++
+					if pa.progressTracker != nil {
+						pa.progressTracker.CompleteTask("resource_analysis",
+							fmt.Sprintf("Running resource detectors (%d/%d completed)", completedResourceDetectors, totalResourceDetectors))
+					}
 					mu.Unlock()
 				}
 				return nil
@@ -86,6 +128,25 @@ func (pa *ProjectAnalyzer) analyzeResourcesParallel(projectPath string) (*Resour
 					combined.Queues = append(combined.Queues, analysis.Queues...)
 					combined.Storage = append(combined.Storage, analysis.Storage...)
 					combined.ExternalAPIs = append(combined.ExternalAPIs, analysis.ExternalAPIs...)
+					completedResourceDetectors++
+					if pa.progressTracker != nil {
+						resourceCount := len(analysis.EnvironmentVars) + len(analysis.Secrets) + len(analysis.Databases) + len(analysis.Queues) + len(analysis.Storage) + len(analysis.ExternalAPIs)
+						if resourceCount > 0 {
+							pa.progressTracker.CompleteTask("resource_analysis",
+								fmt.Sprintf("Detected %s resources (%d/%d resource detectors)", detector.Name(), completedResourceDetectors, totalResourceDetectors))
+						} else {
+							pa.progressTracker.CompleteTask("resource_analysis",
+								fmt.Sprintf("Running resource detectors (%d/%d completed)", completedResourceDetectors, totalResourceDetectors))
+						}
+					}
+					mu.Unlock()
+				} else {
+					mu.Lock()
+					completedResourceDetectors++
+					if pa.progressTracker != nil {
+						pa.progressTracker.CompleteTask("resource_analysis",
+							fmt.Sprintf("Running resource detectors (%d/%d completed)", completedResourceDetectors, totalResourceDetectors))
+					}
 					mu.Unlock()
 				}
 				return nil // Never fail the group, just skip failed detectors
@@ -117,8 +178,8 @@ func (pa *ProjectAnalyzer) shouldSkipPath(path string) bool {
 		}
 	}
 
-	// Skip test files and directories in QuickMode
-	if pa.skipTestFiles {
+	// Skip test files and directories in QuickMode and CachedMode
+	if pa.analysisMode == QuickMode || pa.analysisMode == CachedMode {
 		testPatterns := []string{
 			"test", "tests", "_test", ".test", "spec", "_spec", ".spec",
 			"testdata", "test_", "spec_", "__tests__", ".jest",
@@ -132,8 +193,8 @@ func (pa *ProjectAnalyzer) shouldSkipPath(path string) bool {
 		}
 	}
 
-	// Skip example/documentation files in QuickMode
-	if pa.skipExamples {
+	// Skip example/documentation files in QuickMode and CachedMode
+	if pa.analysisMode == QuickMode || pa.analysisMode == CachedMode {
 		examplePatterns := []string{
 			"example", "examples", "docs", "doc", "documentation",
 			"demo", "demos", "sample", "samples", "tutorial",

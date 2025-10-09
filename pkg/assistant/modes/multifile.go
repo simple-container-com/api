@@ -89,11 +89,8 @@ func (d *DeveloperMode) GenerateMultipleFiles(ctx context.Context, req MultiFile
 
 	fmt.Printf("📋 Files to generate: %s\n\n", color.GreenFmt(strings.Join(fileTypes, ", ")))
 
-	// Check for existing files and get user confirmation
-	if !d.checkExistingFilesAndConfirm(req) {
-		result.Errors = append(result.Errors, "User cancelled file generation due to existing files")
-		return result, fmt.Errorf("file generation cancelled by user")
-	}
+	// Check for existing files and get user confirmation for each file
+	overwriteDecisions := d.checkExistingFilesAndConfirm(req)
 
 	// Generate coordinated content using intelligent prompting
 	coordinated, err := d.generateCoordinatedContent(ctx, req, progressDisplays)
@@ -157,8 +154,8 @@ func (d *DeveloperMode) GenerateMultipleFiles(ctx context.Context, req MultiFile
 		}
 	}
 
-	// Write generated files
-	writeErrors := d.writeGeneratedFiles(ctx, req, result)
+	// Write generated files based on user decisions
+	writeErrors := d.writeGeneratedFiles(ctx, req, result, overwriteDecisions)
 	if len(writeErrors) > 0 {
 		result.Errors = append(result.Errors, writeErrors...)
 		return result, fmt.Errorf("failed to write %d files", len(writeErrors))
@@ -429,29 +426,41 @@ func (d *DeveloperMode) validateMultipleFiles(ctx context.Context, content *Coor
 	return results
 }
 
-// checkExistingFilesAndConfirm checks for existing files and prompts user for confirmation
-func (d *DeveloperMode) checkExistingFilesAndConfirm(req MultiFileGenerationRequest) bool {
+// checkExistingFilesAndConfirm checks for existing files and prompts user for confirmation on each one
+func (d *DeveloperMode) checkExistingFilesAndConfirm(req MultiFileGenerationRequest) map[string]bool {
 	// Skip confirmation if force overwrite is enabled (for MCP/API usage)
 	if req.ForceOverwrite {
-		return true
+		return map[string]bool{
+			"Dockerfile":          true,
+			"docker-compose.yaml": true,
+			"client.yaml":         true,
+			"server.yaml":         true,
+		}
 	}
-	var existingFiles []string
 
-	// Check which files already exist
+	overwriteDecisions := make(map[string]bool)
+
+	// Check Dockerfile and ask for confirmation if it exists
 	if req.GenerateDockerfile {
 		dockerfilePath := filepath.Join(req.ProjectPath, "Dockerfile")
 		if _, err := os.Stat(dockerfilePath); err == nil {
-			existingFiles = append(existingFiles, "Dockerfile")
+			overwriteDecisions["Dockerfile"] = d.confirmOverwrite("Dockerfile", false)
+		} else {
+			overwriteDecisions["Dockerfile"] = true
 		}
 	}
 
+	// Check docker-compose.yaml and ask for confirmation if it exists
 	if req.GenerateDockerCompose {
 		composePath := filepath.Join(req.ProjectPath, "docker-compose.yaml")
 		if _, err := os.Stat(composePath); err == nil {
-			existingFiles = append(existingFiles, "docker-compose.yaml")
+			overwriteDecisions["docker-compose.yaml"] = d.confirmOverwrite("docker-compose.yaml", false)
+		} else {
+			overwriteDecisions["docker-compose.yaml"] = true
 		}
 	}
 
+	// Check client.yaml and ask for confirmation if it exists
 	if req.GenerateClientYAML {
 		// Determine project name for client.yaml path
 		projectName := filepath.Base(req.ProjectPath)
@@ -468,38 +477,27 @@ func (d *DeveloperMode) checkExistingFilesAndConfirm(req MultiFileGenerationRequ
 
 		clientPath := filepath.Join(req.ProjectPath, ".sc", "stacks", projectName, "client.yaml")
 		if _, err := os.Stat(clientPath); err == nil {
-			existingFiles = append(existingFiles, "client.yaml")
+			overwriteDecisions["client.yaml"] = d.confirmOverwrite("client.yaml", false)
+		} else {
+			overwriteDecisions["client.yaml"] = true
 		}
 	}
 
+	// Check server.yaml and ask for confirmation if it exists
 	if req.GenerateServerYAML {
 		serverPath := filepath.Join(req.ProjectPath, ".sc", "stacks", "infrastructure", "server.yaml")
 		if _, err := os.Stat(serverPath); err == nil {
-			existingFiles = append(existingFiles, "server.yaml")
+			overwriteDecisions["server.yaml"] = d.confirmOverwrite("server.yaml", false)
+		} else {
+			overwriteDecisions["server.yaml"] = true
 		}
 	}
 
-	// If no existing files, proceed
-	if len(existingFiles) == 0 {
-		return true
-	}
-
-	// Prompt user for confirmation
-	fmt.Printf("\n⚠️  The following files already exist: %s\n", color.YellowString(strings.Join(existingFiles, ", ")))
-	fmt.Printf("   Overwrite all existing files? [y/N]: ")
-
-	var response string
-	if _, err := fmt.Scanln(&response); err != nil {
-		// If there's an error reading input, default to "no"
-		return false
-	}
-
-	response = strings.ToLower(strings.TrimSpace(response))
-	return response == "y" || response == "yes"
+	return overwriteDecisions
 }
 
-// writeGeneratedFiles writes all generated files to disk
-func (d *DeveloperMode) writeGeneratedFiles(ctx context.Context, req MultiFileGenerationRequest, result *MultiFileGenerationResult) []string {
+// writeGeneratedFiles writes all generated files to disk based on overwrite decisions
+func (d *DeveloperMode) writeGeneratedFiles(ctx context.Context, req MultiFileGenerationRequest, result *MultiFileGenerationResult, overwriteDecisions map[string]bool) []string {
 	var errors []string
 
 	filesToWrite := []struct {
@@ -515,6 +513,12 @@ func (d *DeveloperMode) writeGeneratedFiles(ctx context.Context, req MultiFileGe
 
 	for _, file := range filesToWrite {
 		if file.content != "" && file.path != "" {
+			// Check if we should overwrite this file based on user decision
+			if shouldOverwrite, exists := overwriteDecisions[file.name]; exists && !shouldOverwrite {
+				fmt.Printf("⚠️  Skipped %s (user chose not to overwrite)\n", color.YellowString(file.name))
+				continue
+			}
+
 			// Create directory if it doesn't exist
 			if err := os.MkdirAll(filepath.Dir(file.path), 0o755); err != nil {
 				errors = append(errors, fmt.Sprintf("Failed to create directory for %s: %v", file.name, err))

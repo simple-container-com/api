@@ -59,16 +59,31 @@ func NewProgressTracker(reporter ProgressReporter, totalDetectors, totalResource
 
 	tracker.phases["parallel_analysis"] = &ProgressPhase{
 		Name:        "parallel_analysis",
-		Weight:      0.50, // 50% - the heaviest phase (file + resource + git analysis)
+		Weight:      0.15, // 15% - coordination of parallel tasks
 		TotalTasks:  3,    // file analysis, resource analysis, git analysis
 		Description: "Running parallel analysis...",
 	}
 
+	// Individual analysis phases that run in parallel
+	tracker.phases["file_analysis"] = &ProgressPhase{
+		Name:        "file_analysis",
+		Weight:      0.15, // 15% - file walking and analysis
+		TotalTasks:  1,    // Dynamic based on file count
+		Description: "Analyzing project files...",
+	}
+
 	tracker.phases["resource_analysis"] = &ProgressPhase{
 		Name:        "resource_analysis",
-		Weight:      0.0, // Part of parallel_analysis
+		Weight:      0.15, // 15% - resource detection
 		TotalTasks:  totalResourceDetectors,
 		Description: "Detecting resources...",
+	}
+
+	tracker.phases["git_analysis"] = &ProgressPhase{
+		Name:        "git_analysis",
+		Weight:      0.05, // 5% - git repository analysis
+		TotalTasks:  8,    // Various git analysis steps
+		Description: "Analyzing Git repository...",
 	}
 
 	tracker.phases["enhanced_recommendations"] = &ProgressPhase{

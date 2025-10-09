@@ -1,5 +1,8 @@
 # Simple Container API - System Prompt
 
+## ⚠️ CRITICAL DEVELOPMENT WORKFLOW
+**ALWAYS run `welder run fmt` after completing any code modifications to ensure proper formatting and linting compliance!**
+
 ## Project Overview
 This is the Simple Container API project with MkDocs documentation. The project provides infrastructure-as-code capabilities for deploying applications across multiple cloud providers including AWS, GCP, and others.
 
@@ -128,6 +131,37 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **SECURITY: Implemented Comprehensive Credential Obfuscation for LLM Protection (2025-01-09)** - Enhanced all file reading operations to automatically mask sensitive credentials before exposing content to LLM
+  - **✅ Problem Identified**: Configuration files (especially secrets.yaml) containing actual credentials could be exposed to LLM during chat commands, analysis, and file reading operations
+  - **✅ Comprehensive Security Implementation**: 
+    - **Chat Commands**: All `/config`, `/show`, and `/file` commands now obfuscate credentials before displaying to users or processing by LLM
+    - **Core Commands**: All YAML file reading operations in UnifiedCommandHandler automatically apply credential masking
+    - **Intelligent Detection**: Automatically identifies secrets.yaml files and applies comprehensive YAML-structure-aware obfuscation
+    - **Pattern Recognition**: Detects and masks AWS keys (AKIA...), OpenAI keys (sk-...), GitHub tokens (ghp_...), database URIs, private keys, JWT tokens, and other credential patterns
+    - **Complete Values Section Protection**: All values in secrets.yaml `values:` section are automatically obfuscated regardless of key names, since this section specifically stores arbitrary sensitive credentials
+  - **✅ Technical Implementation**:
+    - **Files Modified**: `pkg/assistant/chat/commands_project.go`, `pkg/assistant/core/commands.go`
+    - **Methods Added**: `obfuscateCredentials()`, `obfuscateSecretsYAML()`, `obfuscateValue()`, `obfuscateURI()`, `obfuscateMultilineSecret()`, and supporting helper functions
+    - **Smart Preservation**: Maintains placeholder patterns (${secret:...}, ${env:...}) while masking actual credential values
+    - **Format-Aware**: Preserves credential format context (AWS: AKIA••••, OpenAI: sk-•••••) for better LLM understanding
+  - **✅ Security Benefits**:
+    - **Prevents Credential Exposure**: Actual secrets never exposed to LLM during configuration analysis or file reading
+    - **Maintains Functionality**: LLM can still provide meaningful analysis of configuration structure without seeing sensitive values
+    - **Format Preservation**: Credential types remain identifiable for proper guidance while values are protected
+    - **Comprehensive Coverage**: Protects against inadvertent exposure through any file reading path in the assistant
+  - **Impact**: Users can safely use AI assistant commands to view and analyze their configurations without risk of sensitive credentials being processed or exposed by the LLM
+  - **⚠️ CRITICAL SECURITY WARNING**: Obfuscation ONLY works through Simple Container chat commands (`/file`, `/config`, `/show`). Using Cascade's native tools (`> read filename`) or IDE file preview **BYPASSES ALL PROTECTION** and exposes raw credentials to the LLM. Always use protected commands for viewing secrets files.
+- **FIXED: Removed Incorrect Port & Health Check Configuration from Stack Config** - Eliminated fictional `config.ports` and `config.healthCheck` parameters from modifystack command
+  - **✅ Root Cause**: Stack configuration schemas (client.yaml) do not include port or health check configuration - these belong in docker-compose.yaml files or Dockerfile for cloud-compose deployments
+  - **✅ JSON Schema Verification**: Confirmed across all stack config schemas (stackconfigcompose.json, stackconfigsingleimage.json, stackconfigstatic.json) that ports and healthCheck are NOT supported properties
+  - **✅ Architecture Clarification**: 
+    - **cloud-compose**: Ports and health checks defined in docker-compose.yaml with Simple Container labels or in Dockerfile HEALTHCHECK instructions
+    - **single-image**: Lambda-style deployments don't use traditional port/health mappings  
+    - **static**: Static sites don't need port/health configuration
+  - **✅ Fix Applied**: Removed `{Name: "config.ports", ...}` and `{Name: "config.healthCheck", ...}` from modifystack command arguments in `pkg/assistant/chat/commands.go`
+  - **✅ Enhanced System Prompt**: Added comprehensive guidance showing correct placement of ports and health checks in docker-compose.yaml vs Dockerfile with Simple Container labels
+  - **✅ Documentation Verified**: All existing port/health check references in documentation are correctly placed in docker-compose.yaml files, no incorrect client.yaml examples found
+  - **Impact**: ModifyStack command no longer suggests fictional port or health check configuration, ensuring users follow correct Simple Container architecture patterns
 - **FIXED: ECS Fargate ECR Auto-Creation Issue** - Resolved AI assistant incorrectly including ECR repository resources in ECS Fargate examples
   - **✅ Problem Identified**: AI was adding unnecessary `ecr-repository` resources in server.yaml examples for `ecs-fargate` templates
   - **✅ Root Cause**: Simple Container automatically creates ECR repositories for each stack when deploying to ECS Fargate - manual definition is unnecessary
@@ -387,6 +421,167 @@ templates:
     - Gracefully handles completion with proper line breaks
     - Accumulates full response for conversation history
   - **✅ Setup Command Streaming**: Fixed `/setup` command to enable streaming by changing `UseStreaming: false` to `UseStreaming: true` in SetupOptions
+- **MAJOR: Enhanced Granular Progress Reporting** - Dramatically improved analyzer progress feedback to prevent appearing hung during long analysis operations  
+  - **✅ Problem Identified**: Users reported analyzer appearing to hang during analysis, especially with complex projects, due to infrequent progress updates
+  - **✅ Comprehensive Progress Tracking Added**:
+    - **Tech Stack Detection**: Individual detector completion reporting (e.g., "Detected react (2/7 detectors)")
+    - **File Analysis**: Progress every 50 files processed with file count tracking
+    - **Resource Analysis**: Per-detector completion with resource type identification  
+    - **Git Analysis**: Granular step-by-step progress through 8 git analysis phases
+    - **Enhanced Recommendations**: Sub-phase progress reporting for analysis steps
+  - **✅ Progress Tracker Architecture Enhanced**: 
+    - **Separate Phase Tracking**: Individual phases for file_analysis, resource_analysis, git_analysis (vs. bundled parallel_analysis)
+    - **Dynamic Task Counting**: Proper detector counts and file counts for accurate progress percentages
+    - **Progressive Weight Distribution**: Better progress weighting across initialization (5%), tech_stack (15%), architecture (5%), recommendations (10%), parallel_analysis (15%), file_analysis (15%), resource_analysis (15%), git_analysis (5%), enhanced_recommendations (10%), llm_enhancement (5%)
+  - **✅ Enhanced Visual Indicators**: 
+    - **Phase-Specific Emojis**: 🚀 initialization, 💻 tech_stack, 🏗️ architecture, 💡 recommendations, ⚡ parallel_analysis, 📁 file_analysis, 🔍 resource_analysis, 📊 git_analysis, ✨ enhanced_recommendations, 🤖 llm_enhancement
+    - **Descriptive Messages**: Detailed progress descriptions like "Analyzing repository structure...", "Calculating project metrics...", "Running resource detectors (3/6 completed)"
+  - **✅ Code Changes Applied**:
+    - **resource_analysis.go**: Added per-detector progress tracking with resource type identification
+    - **file_analysis.go**: Added file count progress reporting every 50 files
+    - **git_analyzer.go**: Added comprehensive progress tracking with GitAnalyzerWithProgress constructor
+    - **analyzer.go**: Updated to use progress-enabled git analyzer and enhanced phase descriptions
+    - **progress_tracker.go**: Restructured phases with proper weights and individual tracking
+    - **progress_reporter.go**: Enhanced visual indicators and phase-specific emojis
+  - **✅ Chat Interface Fixed**: Updated chat mode to use CachedMode instead of QuickMode to properly respect existing cache
+  - **Impact**: Users now see continuous, informative progress updates throughout the entire analysis process, eliminating the perception of hangs and providing clear insight into analysis progress
+- **CRITICAL: Fixed AI Assistant File Reading Bug** - Resolved issue where AI provided generic template responses instead of reading actual project files
+  - **✅ Problem Identified**: AI assistant lacked actual file reading capabilities, providing misleading generic responses when users asked about their project files
+  - **✅ Root Cause**: No chat command existed to read real project files (Dockerfile, docker-compose.yaml, package.json, etc.)
+  - **✅ Critical Impact**: Users received completely wrong information about their actual project configuration, making the AI assistant unreliable and potentially harmful
+  - **✅ Example of the Bug**:
+    - **User asked**: "show current Dockerfile"
+    - **AI responded**: Generic golang:1.19-alpine multi-stage Dockerfile template
+    - **Reality**: Actual Dockerfile used `registry.k.avito.ru/avito/service-golang:1.24` with completely different structure
+  - **✅ Comprehensive Solution Implemented**:
+    - **New `/file` Command**: Added comprehensive file reading command with aliases `/show` and `/cat`
+    - **Real File Reading**: Uses `os.Getwd()` to detect user's current project directory and `os.ReadFile()` to read actual files
+    - **Smart Syntax Highlighting**: Automatic language detection based on filename/extension (dockerfile, yaml, json, go, python, etc.)
+    - **Rich File Display**: Shows file path, content with syntax highlighting, file size, and modification time
+    - **Error Handling**: Graceful handling of missing files with helpful tips
+    - **Wide File Support**: Supports 20+ file types including Dockerfile, docker-compose.yaml, package.json, go.mod, requirements.txt, .env files, and more
+  - **✅ Technical Implementation**:
+    - **Command Registration**: Added to `registerProjectCommands()` with proper argument parsing
+    - **File Handler**: `handleReadProjectFile()` function with comprehensive error handling and file type detection
+    - **Syntax Detection**: `getSyntaxLanguage()` function supporting dockerfile, yaml, json, go, python, javascript, and 15+ other languages
+    - **User Experience**: Displays current working directory, file path, content with proper formatting, and file metadata
+  - **✅ Usage Examples**:
+    - `/file Dockerfile` - Shows actual Dockerfile with syntax highlighting
+    - `/show docker-compose.yaml` - Displays real docker-compose configuration
+    - `/cat package.json` - Shows actual npm package configuration
+    - `/file .env` - Reveals actual environment variable configuration
+  - **Impact**: AI assistant now provides accurate, real file content instead of misleading generic templates, making it trustworthy and genuinely helpful for project analysis
+- **CRITICAL: Fixed client.yaml Formatting Issues** - Resolved double spacing and confusing field ordering when modifying client.yaml files
+  - **✅ Problems Identified**:
+    - **Double Spacing**: YAML marshaler was adding excessive whitespace (x2 spacing) making files harder to read
+    - **Wrong Field Order**: `config` section appeared first, making basic properties like `parent`, `parentEnv`, and `type` appear last, causing confusion
+  - **✅ Root Cause**: Default `yaml.Marshal()` function doesn't preserve field ordering and uses inconsistent spacing
+  - **✅ Comprehensive Solution Implemented**:
+    - **Smart File Detection**: `writeYamlFile()` now detects client.yaml files and routes them to specialized formatting
+    - **Custom YAML Writer**: `writeClientYamlWithOrdering()` function provides precise control over field ordering and spacing
+    - **Logical Field Order**: Fields now appear in logical order: `parent`, `parentEnv`, `type`, `runs`, `uses`, `dependencies`, `config`
+    - **Consistent Spacing**: Proper 2-space indentation throughout, eliminating double spacing issues
+    - **Preserves Other Files**: Server.yaml and other YAML files continue using standard marshaling
+  - **✅ Technical Implementation**:
+    - **File Path Detection**: `strings.HasSuffix(filePath, "client.yaml")` routes client files to custom formatter
+    - **Ordered Field Writing**: `writeStackConfigOrdered()` function enforces logical field sequence
+    - **Recursive Value Formatting**: `writeYamlValue()` handles nested objects, arrays, and scalar values with consistent indentation
+    - **Schema Preservation**: All existing functionality preserved, only formatting improved
+  - **✅ Field Ordering Logic**:
+    ```go
+    orderedFields := []string{"parent", "parentEnv", "type", "runs", "uses", "dependencies", "config"}
+    ```
+    This ensures basic stack properties appear first, followed by the more complex `config` section
+  - **✅ Formatting Benefits**:
+    - **Before**: `config:` section first, double-spaced indentation, confusing structure
+    - **After**: Logical field order with `parent`/`parentEnv`/`type` first, consistent spacing, clear hierarchy  
+  - **Impact**: Users now see properly formatted client.yaml files with logical field ordering and consistent spacing, making configuration much easier to read and understand
+- **CRITICAL: Fixed Incomplete Cache Analysis Issue** - Resolved problem where analyze command failed to run full analysis when cache lacked resources
+  - **✅ Problem Identified**: Chat interface using CachedMode never detected resources/environment variables, even when `/analyze --full` was requested
+  - **✅ Root Causes**:
+    - **British Spelling**: User typed `/analyse` but command was only registered as `/analyze` (American spelling)
+    - **Incomplete Cache Logic**: `--full` flag ignored when cache existed, even if cache was missing critical resource data
+    - **No Cache Completeness Check**: System didn't verify if cached analysis actually contained resources/environment variables
+  - **✅ Comprehensive Solution Implemented**:
+    - **British Spelling Support**: Added `"analyse"` alias to analyze command registration for international users
+    - **Smart Cache Completeness Detection**: New `HasResourcesInCache()` function checks if cache contains actual resource data
+    - **Intelligent Analysis Mode Selection**: `--full` now forces ForceFullMode when cache exists but lacks resources
+    - **Progressive Analysis Messages**: Clear user feedback about cache status and analysis reasoning
+    - **Enhanced Resource Display**: Comprehensive display of environment variables, databases, APIs, secrets, storage, and queues
+  - **✅ Technical Implementation**:
+    ```go
+    // British spelling support
+    Aliases: []string{"a", "analyse"}, // Added British spelling
+    
+    // Smart cache completeness check
+    cacheExists := analysis.CacheExists(context.ProjectPath)
+    hasResourcesInCache := analysis.HasResourcesInCache(context.ProjectPath)
+    
+    // Intelligent mode selection  
+    if fullAnalysis && !hasResourcesInCache {
+        analyzer.SetAnalysisMode(analysis.ForceFullMode) // Force full analysis
+    }
+    ```
+  - **✅ Enhanced User Experience**:
+    - **Progress Reporting**: Added streaming progress reporter for all analysis modes
+    - **Detailed Resource Display**: Shows environment variables (first 3), databases, APIs, secrets, storage, queues with counts
+    - **Helpful Messages**: Explains cache status and why full analysis is running
+    - **Fallback Guidance**: Shows `/analyze --full` hint when no resources detected
+  - **✅ Analysis Output Enhancement**:
+    ```
+    📋 Resources Detected:
+      🌐 Environment Variables: 17 found
+        • DATABASE_URL
+        • REDIS_URL  
+        • API_KEY
+        • ... and 14 more
+      💾 Databases: 2 found
+        • PostgreSQL (postgresql)
+        • Redis (redis)
+    ```
+  - **Impact**: Users can now reliably run comprehensive analysis that detects environment variables and resources, whether using British (`/analyse`) or American (`/analyze`) spelling, with intelligent cache handling that ensures complete analysis when requested
+- **CRITICAL: Enhanced Stack Display Commands** - Fixed issue where AI assistant gave generic responses instead of showing actual stack configurations
+  - **✅ Problem Identified**: AI assistant provided template responses when users asked to show stack configurations, instead of checking what files actually exist
+  - **✅ Root Cause**: Commands only checked for client.yaml and gave generic "file not found" responses without checking for server.yaml or providing comprehensive stack information
+  - **✅ Real-World Example**:
+    - **User asked**: `show bewize stack`
+    - **AI responded**: "bewize stack doesn't exist, here's a template to create it"
+    - **Reality**: `.sc/stacks/bewize/server.yaml` existed with real Kubernetes configuration
+  - **✅ Comprehensive Solution Implemented**:
+    - **New `/show` Command**: Dedicated stack display command that intelligently checks for both client.yaml and server.yaml
+    - **Smart File Detection**: Uses `fileExists()` helper to check actual file presence instead of assuming
+    - **Dual Configuration Display**: Shows both client and server configurations when they exist
+    - **Configuration Status Summary**: Clear ✅/❌ indicators showing what exists vs. what's missing
+    - **Separated Commands**: `/file` for generic file reading, `/show` for stack-specific configuration display
+  - **✅ Technical Implementation**:
+    ```go
+    c.commands["show"] = &ChatCommand{
+        Name:        "show",
+        Description: "Show stack configuration (checks both client.yaml and server.yaml)",
+        Usage:       "/show <stack_name> [--type client|server]",
+        Handler:     c.handleShowStack,
+    }
+    ```
+  - **✅ Enhanced User Experience**:
+    - **Comprehensive Display**: Shows both client.yaml and server.yaml when they exist
+    - **Clear Status Indicators**: Visual ✅/❌ status for each configuration type
+    - **Helpful Error Messages**: When files don't exist, shows exactly what was checked
+    - **Flexible Filtering**: `--type client` or `--type server` to show specific configuration types
+  - **✅ Example Output**:
+    ```
+    📦 Stack: bewize
+    
+    🖥️ Server Configuration (.sc/stacks/bewize/server.yaml)
+    [actual YAML content with syntax highlighting]
+    
+    📍 Configuration status:
+      • Client: .sc/stacks/bewize/client.yaml ❌  
+      • Server: .sc/stacks/bewize/server.yaml ✅
+    ```
+  - **✅ Command Separation**:
+    - **`/file <filename>`**: Read any project file (Dockerfile, package.json, etc.) with `/cat` alias
+    - **`/show <stack_name>`**: Intelligent stack configuration display with `/stack` alias
+  - **Impact**: AI assistant now shows actual stack configurations instead of providing misleading template responses, giving users accurate information about their existing Simple Container setup
   - **✅ Provider Compatibility**: Added automatic fallback to non-streaming mode for providers that don't support streaming
   - **✅ Graceful Degradation**: Maintains backward compatibility with `handleNonStreamingChat()` fallback method
   - **Technical Implementation**: Enhanced `pkg/assistant/chat/interface.go` with `handleStreamingChat()` and `handleNonStreamingChat()` methods, fixed `pkg/assistant/chat/commands.go` streaming flag

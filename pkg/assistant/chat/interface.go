@@ -666,31 +666,33 @@ func (c *ChatInterface) handleNonStreamingContinuation(ctx context.Context) erro
 
 // handleGeneratedFiles processes generated files from command results
 func (c *ChatInterface) handleGeneratedFiles(result *CommandResult) {
-	// Check for existing files and get confirmation
-	existingFiles := []string{}
+	// Ask for confirmation for each existing file individually
+	overwriteDecisions := make(map[string]bool)
 	for _, file := range result.Files {
+		filename := filepath.Base(file.Path)
 		if _, err := os.Stat(file.Path); err == nil {
-			existingFiles = append(existingFiles, filepath.Base(file.Path))
+			fmt.Printf("\n⚠️  %s already exists. Overwrite? [y/N]: ", color.YellowString(filename))
+
+			reader := bufio.NewReader(os.Stdin)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(strings.ToLower(input))
+
+			overwriteDecisions[filename] = (input == "y" || input == "yes")
+		} else {
+			overwriteDecisions[filename] = true
 		}
 	}
 
-	// Ask for confirmation if files exist
-	if len(existingFiles) > 0 {
-		fmt.Printf("The following files already exist: %s\n", strings.Join(existingFiles, ", "))
-		fmt.Print("Overwrite? (y/n): ")
-
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(strings.ToLower(input))
-
-		if input != "y" && input != "yes" {
-			fmt.Println("Files not written.")
-			return
-		}
-	}
-
-	// Write files to disk
+	// Write files to disk based on user decisions
 	for _, file := range result.Files {
+		filename := filepath.Base(file.Path)
+
+		// Check if we should write this file based on user decision
+		if shouldOverwrite, exists := overwriteDecisions[filename]; exists && !shouldOverwrite {
+			fmt.Printf("  ⚠️  Skipped: %s (user chose not to overwrite)\n", color.YellowString(file.Path))
+			continue
+		}
+
 		// Create directory if it doesn't exist
 		dir := filepath.Dir(file.Path)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -702,7 +704,7 @@ func (c *ChatInterface) handleGeneratedFiles(result *CommandResult) {
 		if err := os.WriteFile(file.Path, []byte(file.Content), 0o644); err != nil {
 			fmt.Printf("Error writing file %s: %v\n", file.Path, err)
 		} else {
-			fmt.Printf("  📄 Created: %s\n", file.Path)
+			fmt.Printf("  📄 Created: %s\n", color.GreenString(file.Path))
 		}
 	}
 }
@@ -738,35 +740,36 @@ func (c *ChatInterface) handleCommand(ctx context.Context, input string) error {
 
 	// Handle generated files - actually write them to disk
 	if len(result.Files) > 0 {
-		// Check for existing files and get confirmation
-		existingFiles := []string{}
+		// Ask for confirmation for each existing file individually
+		overwriteDecisions := make(map[string]bool)
 		for _, file := range result.Files {
+			filename := filepath.Base(file.Path)
 			if _, err := os.Stat(file.Path); err == nil {
-				existingFiles = append(existingFiles, filepath.Base(file.Path))
-			}
-		}
+				fmt.Printf("\n⚠️  %s already exists. Overwrite? [y/N]: ", color.YellowString(filename))
 
-		// If there are existing files, prompt for confirmation
-		if len(existingFiles) > 0 {
-			fmt.Printf("\n⚠️  The following files already exist: %s\n", color.YellowString(strings.Join(existingFiles, ", ")))
-			fmt.Printf("   Overwrite all existing files? [y/N]: ")
-
-			var response string
-			if _, err := fmt.Scanln(&response); err != nil {
-				// If there's an error reading input, default to "no"
-				fmt.Printf("   %s (cancelled)\n", color.YellowString("⚠"))
-				return nil
-			}
-
-			response = strings.ToLower(strings.TrimSpace(response))
-			if !(response == "y" || response == "yes") {
-				fmt.Printf("   %s (cancelled)\n", color.YellowString("⚠"))
-				return nil
+				var response string
+				if _, err := fmt.Scanln(&response); err != nil {
+					// If there's an error reading input, default to "no"
+					overwriteDecisions[filename] = false
+				} else {
+					response = strings.ToLower(strings.TrimSpace(response))
+					overwriteDecisions[filename] = response == "y" || response == "yes"
+				}
+			} else {
+				overwriteDecisions[filename] = true
 			}
 		}
 
 		fmt.Printf("\n%s Generated files:\n", color.CyanString("📁"))
 		for _, file := range result.Files {
+			filename := filepath.Base(file.Path)
+
+			// Check if we should write this file based on user decision
+			if shouldOverwrite, exists := overwriteDecisions[filename]; exists && !shouldOverwrite {
+				fmt.Printf("  - %s (%s) - %s\n", color.YellowString(file.Path), file.Type, color.YellowString("⚠ Skipped"))
+				continue
+			}
+
 			// Create directory if needed
 			dir := filepath.Dir(file.Path)
 			if dir != "." {
@@ -949,6 +952,9 @@ func (c *ChatInterface) analyzeProject(ctx context.Context) error {
 	// Set up progress reporter for nice analysis feedback
 	progressReporter := analysis.NewStreamingProgressReporter(os.Stdout)
 	c.analyzer.SetProgressReporter(progressReporter)
+
+	// Use CachedMode for chat interface to load from cache when available
+	c.analyzer.SetAnalysisMode(analysis.CachedMode)
 
 	projectInfo, err := c.analyzer.AnalyzeProject(c.config.ProjectPath)
 	if err != nil {
