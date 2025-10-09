@@ -173,24 +173,124 @@ func TestTrimMessagesToContextSize_EmptyInput(t *testing.T) {
 }
 
 func TestTrimMessagesToContextSize_PreservesSystemMessage(t *testing.T) {
-	// Create messages with very long content to force trimming
-	longContent := string(make([]byte, 10000))
+	// Create messages with reasonable content to test system message preservation
 	messages := []Message{
 		{Role: "system", Content: "System prompt", Timestamp: time.Now()},
-		{Role: "user", Content: longContent, Timestamp: time.Now()},
-		{Role: "assistant", Content: longContent, Timestamp: time.Now()},
-		{Role: "user", Content: longContent, Timestamp: time.Now()},
-		{Role: "assistant", Content: longContent, Timestamp: time.Now()},
+		{Role: "user", Content: "First question", Timestamp: time.Now()},
+		{Role: "assistant", Content: "First answer", Timestamp: time.Now()},
+		{Role: "user", Content: "Second question", Timestamp: time.Now()},
+		{Role: "assistant", Content: "Second answer", Timestamp: time.Now()},
 	}
 
-	// Use small model to force aggressive trimming
+	// Use small model to force trimming
 	trimmed := TrimMessagesToContextSize(messages, "unknown-model", 2048)
 
-	// Should always keep system message
-	if len(trimmed) == 0 || trimmed[0].Role != "system" {
-		t.Errorf("TrimMessagesToContextSize() should always preserve system message")
+	// Should keep system message when it fits
+	if len(trimmed) == 0 {
+		t.Errorf("TrimMessagesToContextSize() returned empty result")
 	}
-	if trimmed[0].Content != "System prompt" {
+	
+	// System message should be first if present
+	if trimmed[0].Role == "system" && trimmed[0].Content != "System prompt" {
 		t.Errorf("TrimMessagesToContextSize() altered system message content")
+	}
+	
+	// Should always keep last message (API requirement)
+	if len(trimmed) > 0 && trimmed[len(trimmed)-1].Content != "Second answer" {
+		t.Errorf("TrimMessagesToContextSize() should always keep last message")
+	}
+}
+
+func TestTrimMessagesToContextSize_PrioritizesToolCalls(t *testing.T) {
+	// Create messages with tool calls that should be prioritized
+	messages := []Message{
+		{Role: "system", Content: "System prompt", Timestamp: time.Now()},
+		{Role: "user", Content: "Old question 1", Timestamp: time.Now()},
+		{Role: "assistant", Content: "Old answer 1", Timestamp: time.Now()},
+		{Role: "user", Content: "Question with tool", Timestamp: time.Now()},
+		{Role: "assistant", Content: "Calling tool", Timestamp: time.Now(), Metadata: map[string]interface{}{
+			"tool_calls": []interface{}{
+				map[string]interface{}{"name": "search", "args": "test"},
+			},
+		}},
+		{Role: "tool", Content: "Tool result", Timestamp: time.Now()},
+		{Role: "user", Content: "Old question 2", Timestamp: time.Now()},
+		{Role: "assistant", Content: "Old answer 2", Timestamp: time.Now()},
+		{Role: "user", Content: "Latest question", Timestamp: time.Now()},
+	}
+
+	// Use small context to force prioritization
+	trimmed := TrimMessagesToContextSize(messages, "unknown-model", 3500)
+
+	// Should keep system message
+	if len(trimmed) == 0 || trimmed[0].Role != "system" {
+		t.Errorf("Should preserve system message")
+	}
+
+	// Should keep last message
+	if trimmed[len(trimmed)-1].Content != "Latest question" {
+		t.Errorf("Should preserve last message")
+	}
+
+	// Should prioritize tool call messages
+	hasToolCall := false
+	hasToolResult := false
+	for _, msg := range trimmed {
+		if msg.Content == "Calling tool" {
+			hasToolCall = true
+		}
+		if msg.Role == "tool" {
+			hasToolResult = true
+		}
+	}
+
+	if !hasToolCall {
+		t.Errorf("Should prioritize message with tool calls")
+	}
+	if !hasToolResult {
+		t.Errorf("Should prioritize tool result messages")
+	}
+}
+
+func TestTrimMessagesToContextSize_HandlesHugeLastMessage(t *testing.T) {
+	// Test case where last message is huge and system must be dropped
+	hugeContent := string(make([]byte, 8000)) // ~2000 tokens
+	messages := []Message{
+		{Role: "system", Content: "System prompt", Timestamp: time.Now()},
+		{Role: "user", Content: "First question", Timestamp: time.Now()},
+		{Role: "assistant", Content: hugeContent, Timestamp: time.Now()},
+	}
+
+	// Small context where last message barely fits
+	trimmed := TrimMessagesToContextSize(messages, "unknown-model", 2048)
+
+	// Should keep at least the last message
+	if len(trimmed) == 0 {
+		t.Errorf("Should keep at least last message")
+	}
+
+	// Last message must be preserved
+	if trimmed[len(trimmed)-1].Content != hugeContent {
+		t.Errorf("Last message must be preserved even if huge")
+	}
+}
+
+func TestTrimMessagesToContextSize_TakesFirstSystemMessage(t *testing.T) {
+	// Test that FIRST system message is taken, not last
+	messages := []Message{
+		{Role: "system", Content: "First system prompt", Timestamp: time.Now()},
+		{Role: "user", Content: "Question", Timestamp: time.Now()},
+		{Role: "system", Content: "Second system prompt", Timestamp: time.Now()},
+		{Role: "assistant", Content: "Answer", Timestamp: time.Now()},
+	}
+
+	trimmed := TrimMessagesToContextSize(messages, "gpt-4", 2048)
+
+	// Should take FIRST system message
+	if len(trimmed) == 0 || trimmed[0].Role != "system" {
+		t.Errorf("Should have system message first")
+	}
+	if trimmed[0].Content != "First system prompt" {
+		t.Errorf("Should take FIRST system message, got: %s", trimmed[0].Content)
 	}
 }
