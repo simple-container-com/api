@@ -77,9 +77,21 @@ func (c *ChatInterface) registerProjectCommands() {
 		Description: "Read and display a project file (Dockerfile, docker-compose.yaml, etc.)",
 		Usage:       "/file <filename>",
 		Handler:     c.handleReadProjectFile,
-		Aliases:     []string{"show", "cat"},
+		Aliases:     []string{"cat"},
 		Args: []CommandArg{
 			{Name: "filename", Type: "string", Required: true, Description: "File name to read (e.g., Dockerfile, docker-compose.yaml, package.json)"},
+		},
+	}
+
+	c.commands["show"] = &ChatCommand{
+		Name:        "show",
+		Description: "Show stack configuration (checks both client.yaml and server.yaml)",
+		Usage:       "/show <stack_name> [--type client|server]",
+		Handler:     c.handleShowStack,
+		Aliases:     []string{"stack"},
+		Args: []CommandArg{
+			{Name: "stack_name", Type: "string", Required: true, Description: "Name of the stack to display (e.g., bewize, myapp)"},
+			{Name: "type", Type: "string", Required: false, Description: "Configuration type: 'client' or 'server' (shows both if not specified)"},
 		},
 	}
 }
@@ -445,6 +457,104 @@ func (c *ChatInterface) handleConfig(ctx context.Context, args []string, context
 		Success: true,
 		Message: message,
 	}, nil
+}
+
+// handleShowStack shows comprehensive stack configuration
+func (c *ChatInterface) handleShowStack(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) == 0 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Please specify a stack name. Usage: /show <stack_name>",
+		}, nil
+	}
+
+	stackName := args[0]
+	showType := "" // Show both by default
+
+	// Parse arguments
+	for i, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--type="):
+			showType = strings.TrimPrefix(arg, "--type=")
+		case arg == "--type" && i+1 < len(args):
+			showType = args[i+1]
+		}
+	}
+
+	// Check for stack directory
+	stackDir := filepath.Join(".sc", "stacks", stackName)
+	if _, err := os.Stat(stackDir); os.IsNotExist(err) {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Stack directory '%s' not found at %s", stackName, stackDir),
+		}, nil
+	}
+
+	var message strings.Builder
+	message.WriteString(fmt.Sprintf("📦 **Stack: %s**\n\n", stackName))
+
+	foundConfigs := 0
+
+	// Check for client.yaml
+	clientPath := filepath.Join(stackDir, "client.yaml")
+	if (showType == "" || showType == "client") && fileExists(clientPath) {
+		data, err := os.ReadFile(clientPath)
+		if err == nil {
+			message.WriteString(fmt.Sprintf("📋 **Client Configuration** (`%s`)\n\n", clientPath))
+			message.WriteString("```yaml\n")
+			message.WriteString(string(data))
+			message.WriteString("\n```\n\n")
+			foundConfigs++
+		}
+	}
+
+	// Check for server.yaml
+	serverPath := filepath.Join(stackDir, "server.yaml")
+	if (showType == "" || showType == "server") && fileExists(serverPath) {
+		data, err := os.ReadFile(serverPath)
+		if err == nil {
+			if foundConfigs > 0 {
+				message.WriteString("---\n\n")
+			}
+			message.WriteString(fmt.Sprintf("🖥️ **Server Configuration** (`%s`)\n\n", serverPath))
+			message.WriteString("```yaml\n")
+			message.WriteString(string(data))
+			message.WriteString("\n```\n\n")
+			foundConfigs++
+		}
+	}
+
+	// Add summary of what exists
+	if foundConfigs == 0 {
+		message.WriteString("❌ **No configuration files found**\n\n")
+		message.WriteString("📍 **Checked locations:**\n")
+		message.WriteString(fmt.Sprintf("  • Client: %s ❌\n", clientPath))
+		message.WriteString(fmt.Sprintf("  • Server: %s ❌\n", serverPath))
+		message.WriteString("\n💡 **Tip**: Create configuration files using `/setup` command")
+	} else {
+		message.WriteString("📍 **Configuration status:**\n")
+		if fileExists(clientPath) {
+			message.WriteString(fmt.Sprintf("  • Client: %s ✅\n", clientPath))
+		} else {
+			message.WriteString(fmt.Sprintf("  • Client: %s ❌\n", clientPath))
+		}
+		if fileExists(serverPath) {
+			message.WriteString(fmt.Sprintf("  • Server: %s ✅\n", serverPath))
+		} else {
+			message.WriteString(fmt.Sprintf("  • Server: %s ❌\n", serverPath))
+		}
+	}
+
+	return &CommandResult{
+		Success: foundConfigs > 0,
+		Message: message.String(),
+	}, nil
+}
+
+// fileExists checks if a file exists
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
 }
 
 // handleGetProjectContext gets basic project context information using unified handler

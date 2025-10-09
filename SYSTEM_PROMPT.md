@@ -520,6 +520,48 @@ templates:
         • Redis (redis)
     ```
   - **Impact**: Users can now reliably run comprehensive analysis that detects environment variables and resources, whether using British (`/analyse`) or American (`/analyze`) spelling, with intelligent cache handling that ensures complete analysis when requested
+- **CRITICAL: Enhanced Stack Display Commands** - Fixed issue where AI assistant gave generic responses instead of showing actual stack configurations
+  - **✅ Problem Identified**: AI assistant provided template responses when users asked to show stack configurations, instead of checking what files actually exist
+  - **✅ Root Cause**: Commands only checked for client.yaml and gave generic "file not found" responses without checking for server.yaml or providing comprehensive stack information
+  - **✅ Real-World Example**:
+    - **User asked**: `show bewize stack`
+    - **AI responded**: "bewize stack doesn't exist, here's a template to create it"
+    - **Reality**: `.sc/stacks/bewize/server.yaml` existed with real Kubernetes configuration
+  - **✅ Comprehensive Solution Implemented**:
+    - **New `/show` Command**: Dedicated stack display command that intelligently checks for both client.yaml and server.yaml
+    - **Smart File Detection**: Uses `fileExists()` helper to check actual file presence instead of assuming
+    - **Dual Configuration Display**: Shows both client and server configurations when they exist
+    - **Configuration Status Summary**: Clear ✅/❌ indicators showing what exists vs. what's missing
+    - **Separated Commands**: `/file` for generic file reading, `/show` for stack-specific configuration display
+  - **✅ Technical Implementation**:
+    ```go
+    c.commands["show"] = &ChatCommand{
+        Name:        "show",
+        Description: "Show stack configuration (checks both client.yaml and server.yaml)",
+        Usage:       "/show <stack_name> [--type client|server]",
+        Handler:     c.handleShowStack,
+    }
+    ```
+  - **✅ Enhanced User Experience**:
+    - **Comprehensive Display**: Shows both client.yaml and server.yaml when they exist
+    - **Clear Status Indicators**: Visual ✅/❌ status for each configuration type
+    - **Helpful Error Messages**: When files don't exist, shows exactly what was checked
+    - **Flexible Filtering**: `--type client` or `--type server` to show specific configuration types
+  - **✅ Example Output**:
+    ```
+    📦 Stack: bewize
+    
+    🖥️ Server Configuration (.sc/stacks/bewize/server.yaml)
+    [actual YAML content with syntax highlighting]
+    
+    📍 Configuration status:
+      • Client: .sc/stacks/bewize/client.yaml ❌  
+      • Server: .sc/stacks/bewize/server.yaml ✅
+    ```
+  - **✅ Command Separation**:
+    - **`/file <filename>`**: Read any project file (Dockerfile, package.json, etc.) with `/cat` alias
+    - **`/show <stack_name>`**: Intelligent stack configuration display with `/stack` alias
+  - **Impact**: AI assistant now shows actual stack configurations instead of providing misleading template responses, giving users accurate information about their existing Simple Container setup
   - **✅ Provider Compatibility**: Added automatic fallback to non-streaming mode for providers that don't support streaming
   - **✅ Graceful Degradation**: Maintains backward compatibility with `handleNonStreamingChat()` fallback method
   - **Technical Implementation**: Enhanced `pkg/assistant/chat/interface.go` with `handleStreamingChat()` and `handleNonStreamingChat()` methods, fixed `pkg/assistant/chat/commands.go` streaming flag
