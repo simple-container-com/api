@@ -15,6 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/assistant/security"
+	"github.com/simple-container-com/api/pkg/assistant/utils"
 )
 
 // UnifiedCommandHandler provides a shared layer for both MCP and chat interfaces
@@ -542,8 +543,18 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	// Build enriched prompt using existing functions (DRY principle)
 	prompt := h.buildStackModificationPrompt(content, stackName, changes, projectAnalysis)
 
-	// Optional: Debug output for troubleshooting
-	// fmt.Printf("DEBUG: ModifyStack - stackName: %s, changes: %+v\n", stackName, changes)
+	// Optional debug output (enable for troubleshooting)
+	debugLLMModification := false // Set to true to see debug output
+	if debugLLMModification {
+		fmt.Printf("🔍 DEBUG: Original configuration being sent to LLM:\n")
+		originalYAML, _ := yaml.Marshal(content)
+		fmt.Printf("%s\n", string(originalYAML))
+		fmt.Printf("🔍 DEBUG: Requested changes: %+v\n", changes)
+		fmt.Printf("🔍 DEBUG: LLM Prompt:\n")
+		fmt.Printf("═══════════════════════════════════════════════════════════\n")
+		fmt.Printf("%s\n", prompt)
+		fmt.Printf("═══════════════════════════════════════════════════════════\n")
+	}
 
 	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
 	llmProvider := h.developerMode.GetLLMProvider()
@@ -554,29 +565,73 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	response, err := llmProvider.Chat(ctx, []llm.Message{
 		{Role: "system", Content: `You are an expert in Simple Container configuration modification. Generate ONLY valid YAML that EXACTLY follows the provided schemas.
 
-CRITICAL INSTRUCTIONS:
-✅ Follow the JSON schemas EXACTLY - every property must match the schema structure
-✅ Use ONLY properties defined in the schemas - no fictional or made-up properties
-✅ Return complete, valid client.yaml configuration
-✅ When you see "REMOVE ENTIRE SECTION", DELETE that section completely from the YAML
-✅ When you see "SET X TO: Y (remove any keys not listed here)", include ONLY the keys listed in Y
-✅ DO NOT add fictional keys, services, or environment variables
-✅ DO NOT keep keys that were explicitly meant to be removed
-✅ EXACTLY follow removal instructions - if something should be deleted, DELETE IT`},
+🚨 CRITICAL YAML GENERATION RULES:
+✅ Return COMPLETE client.yaml configuration EXACTLY like the original
+✅ Include EVERY section from the original configuration  
+✅ When adding to nested objects (like secrets:), MERGE with existing entries
+✅ NEVER replace entire sections - only ADD or MODIFY specific properties
+✅ Generate ONLY pure YAML - no explanatory text, no comments, no extra content
+
+🔒 PRESERVATION REQUIREMENTS:
+✅ If original has secrets.API_KEY and you add secrets.REDIS_URL → BOTH must be in result
+✅ If original has env.ENVIRONMENT and you add env.NODE_ENV → BOTH must be in result  
+✅ NEVER lose existing properties when adding new ones
+✅ MERGE operations, don't REPLACE operations
+
+❌ FORBIDDEN ACTIONS:
+❌ Do NOT add text like "AVAILABLE ENVIRONMENTS:" - YAML only!
+❌ Do NOT replace entire sections - merge into them
+❌ Do NOT omit existing properties when adding new ones
+❌ Do NOT add explanatory comments or descriptions
+❌ Do NOT set properties to 'null' - completely omit deleted keys instead
+
+🗑️ DELETION INSTRUCTIONS:
+✅ When removing a property, COMPLETELY OMIT it from the YAML
+✅ Do NOT set deleted properties to 'null', 'nil', or empty values
+✅ Example: If removing DB_PASSWORD from secrets, the secrets section should NOT contain DB_PASSWORD at all
+
+🧠 INTELLIGENT RESOURCE CLEANUP:
+✅ When removing a resource from 'uses', also remove any secrets that reference that resource
+✅ Example: Removing 'gcp-cloudsql-postgres' from uses should also remove 'DATABASE_URL: \${resource:gcp-cloudsql-postgres.url}' from secrets
+✅ Look for resource references in secrets like '\${resource:RESOURCE_NAME.*}' and clean them up
+✅ Be comprehensive - clean up all traces of removed resources`},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
 
-	// Optional: Debug LLM response for troubleshooting
-	// fmt.Printf("DEBUG: LLM Response (%d chars)\n", len(response.Content))
+	// Clean the response to ensure only valid YAML
+	cleanedResponse := h.cleanLLMYAMLResponse(response.Content)
+
+	if debugLLMModification {
+		fmt.Printf("🔍 DEBUG: LLM Response for stack modification:\n")
+		fmt.Printf("═══════════════════════════════════════════════════════════\n")
+		fmt.Printf("%s\n", response.Content)
+		fmt.Printf("═══════════════════════════════════════════════════════════\n")
+
+		if cleanedResponse != response.Content {
+			fmt.Printf("🧹 DEBUG: Cleaned response (removed non-YAML content):\n")
+			fmt.Printf("═══════════════════════════════════════════════════════════\n")
+			fmt.Printf("%s\n", cleanedResponse)
+			fmt.Printf("═══════════════════════════════════════════════════════════\n")
+		}
+	}
+
+	// Use cleaned response
+	response.Content = cleanedResponse
 
 	// Parse the response and extract changes applied
 	modifiedContent, changesApplied, err := h.parseModifiedYAML(response.Content, content, stackName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
+
+	// Clean up any null values that might have slipped through
+	h.removeNullValues(modifiedContent)
+
+	// Clean up orphaned resource references
+	h.cleanupOrphanedResourceReferences(modifiedContent)
 
 	// Optional: Debug changes detection for troubleshooting
 	// fmt.Printf("DEBUG: Changes detected: %+v\n", changesApplied)
@@ -600,6 +655,9 @@ func (h *UnifiedCommandHandler) modifyStackRaw(ctx context.Context, content map[
 			Error:   err.Error(),
 		}, err
 	}
+
+	// Clean up orphaned resource references in raw fallback mode too
+	h.cleanupOrphanedResourceReferences(content)
 
 	// Write back to file
 	err = h.writeYamlFile(filePath, content)
@@ -670,7 +728,7 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 		if value == nil || fmt.Sprintf("%v", value) == "" {
 			prompt.WriteString(fmt.Sprintf("- REMOVE ENTIRE SECTION: %s (delete this section completely)\n", key))
 		} else {
-			prompt.WriteString(fmt.Sprintf("- SET %s TO: %v (remove any keys not listed here)\n", key, value))
+			prompt.WriteString(fmt.Sprintf("- SET %s TO: %v\n", key, value))
 		}
 	}
 
@@ -773,6 +831,147 @@ func (h *UnifiedCommandHandler) enrichContextWithDocumentation(configType string
 	return contextBuilder.String()
 }
 
+// cleanLLMYAMLResponse removes non-YAML content that LLMs sometimes add
+func (h *UnifiedCommandHandler) cleanLLMYAMLResponse(response string) string {
+	// Remove code block markers
+	cleaned := strings.TrimSpace(response)
+	cleaned = strings.TrimPrefix(cleaned, "```yaml")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+
+	// Split into lines and filter out non-YAML content
+	lines := strings.Split(cleaned, "\n")
+	var yamlLines []string
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Skip empty lines at the beginning but keep them in the middle/end
+		if len(yamlLines) == 0 && trimmedLine == "" {
+			continue
+		}
+
+		// Skip lines that look like explanatory text, comments, or contain null values
+		if strings.HasPrefix(trimmedLine, "AVAILABLE ENVIRONMENTS:") ||
+			strings.HasPrefix(trimmedLine, "AVAILABLE STACKS:") ||
+			strings.HasPrefix(trimmedLine, "CONFIGURATION:") ||
+			strings.HasPrefix(trimmedLine, "MODIFIED:") ||
+			strings.Contains(trimmedLine, ": null") ||
+			strings.Contains(trimmedLine, ": nil") ||
+			(strings.HasPrefix(trimmedLine, "# ") && !isYAMLComment(line)) {
+			continue
+		}
+
+		// Keep the line if it looks like valid YAML
+		yamlLines = append(yamlLines, line)
+	}
+
+	return strings.Join(yamlLines, "\n")
+}
+
+// isYAMLComment checks if a line is a proper YAML comment (indented correctly)
+func isYAMLComment(line string) bool {
+	// YAML comments should maintain proper indentation and be part of the structure
+	trimmed := strings.TrimLeft(line, " \t")
+	return strings.HasPrefix(trimmed, "#") && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") || len(strings.TrimSpace(line)) == 0 || strings.Index(line, "#") == 0)
+}
+
+// removeNullValues recursively removes null values from the configuration
+func (h *UnifiedCommandHandler) removeNullValues(config map[string]interface{}) {
+	for key, value := range config {
+		if value == nil {
+			// Remove null values entirely
+			delete(config, key)
+		} else if nestedMap, ok := value.(map[string]interface{}); ok {
+			// Recursively clean nested maps
+			h.removeNullValues(nestedMap)
+		}
+	}
+}
+
+// cleanupOrphanedResourceReferences removes secrets/env vars that reference resources not in the uses section
+func (h *UnifiedCommandHandler) cleanupOrphanedResourceReferences(config map[string]interface{}) {
+	// Get the stacks configuration
+	stacks, ok := config["stacks"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Process each stack
+	for _, stackConfig := range stacks {
+		stackMap, ok := stackConfig.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		stackConfigSection, ok := stackMap["config"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get the list of used resources
+		usedResources := make(map[string]bool)
+		if uses, ok := stackConfigSection["uses"]; ok {
+			switch usesVal := uses.(type) {
+			case []interface{}:
+				for _, resource := range usesVal {
+					if resourceName, ok := resource.(string); ok {
+						usedResources[resourceName] = true
+					}
+				}
+			case []string:
+				for _, resource := range usesVal {
+					usedResources[resource] = true
+				}
+			case string:
+				usedResources[usesVal] = true
+			}
+		}
+
+		// Clean up secrets section
+		if secrets, ok := stackConfigSection["secrets"].(map[string]interface{}); ok {
+			for secretKey, secretValue := range secrets {
+				if secretStr, ok := secretValue.(string); ok {
+					// Check if this secret references a resource not in uses
+					resourceName := h.extractResourceName(secretStr)
+					if resourceName != "" && !usedResources[resourceName] {
+						delete(secrets, secretKey)
+					}
+				}
+			}
+		}
+
+		// Clean up env section
+		if env, ok := stackConfigSection["env"].(map[string]interface{}); ok {
+			for envKey, envValue := range env {
+				if envStr, ok := envValue.(string); ok {
+					// Check if this env var references a resource not in uses
+					resourceName := h.extractResourceName(envStr)
+					if resourceName != "" && !usedResources[resourceName] {
+						delete(env, envKey)
+					}
+				}
+			}
+		}
+	}
+}
+
+// extractResourceName extracts the resource name from a resource reference like ${resource:redis.url}
+func (h *UnifiedCommandHandler) extractResourceName(value string) string {
+	// Look for pattern like ${resource:RESOURCE_NAME.PROPERTY}
+	if strings.Contains(value, "${resource:") {
+		start := strings.Index(value, "${resource:") + len("${resource:")
+		end := strings.Index(value[start:], ".")
+		if end == -1 {
+			end = strings.Index(value[start:], "}")
+		}
+		if end != -1 {
+			return value[start : start+end]
+		}
+	}
+	return ""
+}
+
 // parseModifiedYAML extracts the modified configuration and determines what changed
 func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalContent map[string]interface{}, stackName string) (map[string]interface{}, map[string]interface{}, error) {
 	// Clean the response (remove code blocks if present)
@@ -812,6 +1011,7 @@ func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalConte
 
 // compareConfigs recursively compares configurations to determine what changed
 func (h *UnifiedCommandHandler) compareConfigs(original, modified map[string]interface{}, prefix string, changes map[string]interface{}) {
+	// First pass: Check for additions and modifications
 	for key, modValue := range modified {
 		fullKey := key
 		if prefix != "" {
@@ -822,13 +1022,13 @@ func (h *UnifiedCommandHandler) compareConfigs(original, modified map[string]int
 			// Key exists in both, check if values differ
 			if origMap, ok := origValue.(map[string]interface{}); ok {
 				if modMap, ok := modValue.(map[string]interface{}); ok {
-					// Both are maps, recurse
+					// Both are maps, recurse to compare nested structure
 					h.compareConfigs(origMap, modMap, fullKey, changes)
 					continue
 				}
 			}
 
-			// Compare values directly
+			// Compare values directly (for non-map values)
 			if fmt.Sprintf("%v", origValue) != fmt.Sprintf("%v", modValue) {
 				changes[fullKey] = map[string]interface{}{
 					"old": origValue,
@@ -840,6 +1040,22 @@ func (h *UnifiedCommandHandler) compareConfigs(original, modified map[string]int
 			changes[fullKey] = map[string]interface{}{
 				"old": nil,
 				"new": modValue,
+			}
+		}
+	}
+
+	// Second pass: Check for deletions
+	for key, origValue := range original {
+		fullKey := key
+		if prefix != "" {
+			fullKey = prefix + "." + key
+		}
+
+		if _, exists := modified[key]; !exists {
+			// Key was completely deleted
+			changes[fullKey] = map[string]interface{}{
+				"old": origValue,
+				"new": "⚠️ DELETED",
 			}
 		}
 	}
@@ -1225,21 +1441,105 @@ func (h *UnifiedCommandHandler) applyChangesToConfig(config map[string]interface
 				}
 			}
 
-			// Set the value
+			// Set the value with intelligent merging
 			finalKey := parts[len(parts)-1]
 			oldValue := current[finalKey]
-			current[finalKey] = newValue
-			changesApplied[fullKey] = map[string]interface{}{
-				"old": oldValue,
-				"new": newValue,
+
+			// Handle deletion vs modification
+			if newValue == nil {
+				// Delete the key entirely when newValue is nil
+				delete(current, finalKey)
+				changesApplied[fullKey] = map[string]interface{}{
+					"old": oldValue,
+					"new": "⚠️ DELETED",
+				}
+			} else if oldMap, oldIsMap := oldValue.(map[string]interface{}); oldIsMap {
+				if newMap, newIsMap := newValue.(map[string]interface{}); newIsMap {
+					// Merge maps: preserve existing keys, add/update new ones
+					mergedMap := make(map[string]interface{})
+					// Copy all existing keys first
+					for k, v := range oldMap {
+						mergedMap[k] = v
+					}
+					// Add/update with new keys, handle deletions
+					for k, v := range newMap {
+						if v == nil {
+							// Delete the key when value is nil
+							delete(mergedMap, k)
+						} else {
+							mergedMap[k] = v
+						}
+					}
+					current[finalKey] = mergedMap
+					changesApplied[fullKey] = map[string]interface{}{
+						"old": oldValue,
+						"new": mergedMap,
+					}
+				} else {
+					// New value is not a map, replace entirely
+					current[finalKey] = newValue
+					changesApplied[fullKey] = map[string]interface{}{
+						"old": oldValue,
+						"new": newValue,
+					}
+				}
+			} else {
+				// Old value is not a map, replace entirely
+				current[finalKey] = newValue
+				changesApplied[fullKey] = map[string]interface{}{
+					"old": oldValue,
+					"new": newValue,
+				}
 			}
 		} else {
-			// Direct key
+			// Direct key with intelligent merging and deletion support
 			oldValue := config[key]
-			config[key] = newValue
-			changesApplied[fullKey] = map[string]interface{}{
-				"old": oldValue,
-				"new": newValue,
+
+			// Handle deletion vs modification
+			if newValue == nil {
+				// Delete the key entirely when newValue is nil
+				delete(config, key)
+				changesApplied[fullKey] = map[string]interface{}{
+					"old": oldValue,
+					"new": "⚠️ DELETED",
+				}
+			} else if oldMap, oldIsMap := oldValue.(map[string]interface{}); oldIsMap {
+				if newMap, newIsMap := newValue.(map[string]interface{}); newIsMap {
+					// Merge maps: preserve existing keys, add/update new ones
+					mergedMap := make(map[string]interface{})
+					// Copy all existing keys first
+					for k, v := range oldMap {
+						mergedMap[k] = v
+					}
+					// Add/update with new keys, handle deletions
+					for k, v := range newMap {
+						if v == nil {
+							// Delete the key when value is nil
+							delete(mergedMap, k)
+						} else {
+							mergedMap[k] = v
+						}
+					}
+					config[key] = mergedMap
+					changesApplied[fullKey] = map[string]interface{}{
+						"old": oldValue,
+						"new": mergedMap,
+					}
+				} else {
+					// New value is not a map, replace entirely
+					config[key] = newValue
+					changesApplied[fullKey] = map[string]interface{}{
+						"old": oldValue,
+						"new": newValue,
+					}
+				}
+			} else {
+				// Old value is not a map, replace entirely
+				config[key] = newValue
+				changesApplied[fullKey] = map[string]interface{}{
+					"old": oldValue,
+					"new": newValue,
+				}
 			}
 		}
 	}
@@ -1389,4 +1689,10 @@ func (h *UnifiedCommandHandler) writeYamlValue(output *strings.Builder, value in
 	default:
 		output.WriteString(fmt.Sprintf("%v\n", v))
 	}
+}
+
+// CheckExistingSimpleContainerProject checks if project is already using Simple Container and warns user
+// Delegates to shared utility function for consistency
+func (h *UnifiedCommandHandler) CheckExistingSimpleContainerProject(projectPath string, forceOverwrite, skipConfirmation bool) error {
+	return utils.CheckAndWarnExistingSimpleContainerProject(projectPath, forceOverwrite, skipConfirmation, true)
 }

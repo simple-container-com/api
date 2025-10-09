@@ -189,12 +189,12 @@ func TestTrimMessagesToContextSize_PreservesSystemMessage(t *testing.T) {
 	if len(trimmed) == 0 {
 		t.Errorf("TrimMessagesToContextSize() returned empty result")
 	}
-	
+
 	// System message should be first if present
 	if trimmed[0].Role == "system" && trimmed[0].Content != "System prompt" {
 		t.Errorf("TrimMessagesToContextSize() altered system message content")
 	}
-	
+
 	// Should always keep last message (API requirement)
 	if len(trimmed) > 0 && trimmed[len(trimmed)-1].Content != "Second answer" {
 		t.Errorf("TrimMessagesToContextSize() should always keep last message")

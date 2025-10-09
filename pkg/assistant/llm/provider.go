@@ -708,103 +708,36 @@ func TrimMessagesToContextSize(messages []Message, model string, reserveTokens i
 	return result
 }
 
-// selectHistoryWithPriorities selects history messages using priority-based sliding window
+// selectHistoryWithPriorities selects history messages using priority-aware sliding window
+// CRITICAL: Preserves conversation flow to maintain assistant→tool→assistant sequences
 func selectHistoryWithPriorities(history []Message, availableTokens int) []Message {
 	if len(history) == 0 || availableTokens <= 0 {
 		return []Message{}
 	}
 
-	// Categorize messages by priority
-	type priorityMsg struct {
-		msg      Message
-		tokens   int
-		priority int
-		index    int
-	}
+	// FIXED: Use simple backwards iteration that preserves conversation flow
+	// This is critical for tool result processing to work correctly
 
-	var highPriority []priorityMsg // Messages with tool calls
-	var normalPriority []priorityMsg // Regular messages
+	var result []Message
+	totalTokens := 0
 
-	for i, msg := range history {
-		tokens := estimateMessageTokens(msg)
-		priority := 1 // Normal priority
+	// Work backwards through history and add what fits
+	// This maintains the exact conversation sequence that tools depend on
+	for i := len(history) - 1; i >= 0; i-- {
+		msgTokens := estimateMessageTokens(history[i])
 
-		// High priority: messages with tool calls or tool results
-		if hasToolCalls(msg) || msg.Role == "tool" {
-			priority = 2
-			highPriority = append(highPriority, priorityMsg{msg, tokens, priority, i})
+		// Check if we can fit this message
+		if totalTokens+msgTokens <= availableTokens {
+			totalTokens += msgTokens
+			// Prepend to maintain chronological order
+			result = append([]Message{history[i]}, result...)
 		} else {
-			normalPriority = append(normalPriority, priorityMsg{msg, tokens, priority, i})
+			// Stop when we can't fit more messages
+			break
 		}
-	}
-
-	// Select messages to keep
-	var selected []priorityMsg
-	usedTokens := 0
-
-	// Phase 1: Add high priority messages (from newest to oldest)
-	for i := len(highPriority) - 1; i >= 0; i-- {
-		pm := highPriority[i]
-		if usedTokens+pm.tokens <= availableTokens {
-			selected = append(selected, pm)
-			usedTokens += pm.tokens
-		}
-	}
-
-	// Phase 2: Add normal priority messages (from newest to oldest)
-	for i := len(normalPriority) - 1; i >= 0; i-- {
-		pm := normalPriority[i]
-		if usedTokens+pm.tokens <= availableTokens {
-			selected = append(selected, pm)
-			usedTokens += pm.tokens
-		}
-	}
-
-	// Sort selected messages by original index to maintain chronological order
-	for i := 0; i < len(selected); i++ {
-		for j := i + 1; j < len(selected); j++ {
-			if selected[i].index > selected[j].index {
-				selected[i], selected[j] = selected[j], selected[i]
-			}
-		}
-	}
-
-	// Extract messages
-	result := make([]Message, len(selected))
-	for i, pm := range selected {
-		result[i] = pm.msg
 	}
 
 	return result
-}
-
-// hasToolCalls checks if a message contains tool calls
-func hasToolCalls(msg Message) bool {
-	if msg.Metadata == nil {
-		return false
-	}
-
-	// Check for tool_calls in metadata
-	if toolCalls, ok := msg.Metadata["tool_calls"]; ok {
-		// Check if it's not nil and not empty
-		switch v := toolCalls.(type) {
-		case []interface{}:
-			return len(v) > 0
-		case map[string]interface{}:
-			return len(v) > 0
-		case string:
-			return v != ""
-		default:
-			return toolCalls != nil
-		}
-	}
-
-	// Check for function_call in metadata (older format)
-	if funcCall, ok := msg.Metadata["function_call"]; ok {
-		return funcCall != nil
-	}
-
-	return false
 }
 
 // estimateMessageTokens estimates the number of tokens in a message
