@@ -1020,11 +1020,24 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 
 	case "get_current_config":
 		configType := "client"
+		var stackName string
+
 		if ct, ok := params.Arguments["config_type"].(string); ok {
-			configType = ct
+			// Validate config_type - must be "client" or "server"
+			switch ct {
+			case "client", "server":
+				configType = ct
+			default:
+				// If invalid config_type provided, treat it as potential stack_name
+				// and default config_type to "client"
+				if stackName == "" {
+					stackName = ct
+				}
+				configType = "client" // Default to client for invalid config_type
+			}
 		}
 
-		var stackName string
+		// Override with explicit stack_name if provided
 		if sn, ok := params.Arguments["stack_name"].(string); ok {
 			stackName = sn
 		}
