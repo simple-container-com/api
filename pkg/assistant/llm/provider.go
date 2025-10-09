@@ -594,100 +594,214 @@ func GetModelContextSize(model string) int {
 	return 4096
 }
 
-// TrimMessagesToContextSize trims message history to fit within the model's context window
-// It preserves the system message (first) and keeps the most recent messages
-// IMPORTANT: Always keeps at least one non-system message (required by LLM APIs)
+// TrimMessagesToContextSize intelligently trims message history using priority-based sliding window
+//
+// Priority order (highest to lowest):
+// 1. System prompt - always included fully (critical for model behavior)
+// 2. Last user message - always included fully (API requirement)
+// 3. Messages with tool calls - high priority for context
+// 4. Recent history - sliding window from newest to oldest
+//
+// Strategy:
+// - Reserve space for system prompt + last message first
+// - Fill remaining space with prioritized history
+// - Ensures optimal context usage while maintaining coherence
 func TrimMessagesToContextSize(messages []Message, model string, reserveTokens int) []Message {
 	contextSize := GetModelContextSize(model)
-	maxTokens := contextSize - reserveTokens // Reserve tokens for response
+	maxTokens := contextSize - reserveTokens
 
-	if len(messages) == 0 {
+	if len(messages) == 0 || maxTokens <= 0 {
 		return messages
 	}
 
-	// Identify system message and other messages
+	// Step 1: Separate system message (FIRST one only) from conversation
 	var systemMsg *Message
-	var otherMessages []Message
+	var conversationMsgs []Message
+
 	for i := range messages {
-		if messages[i].Role == "system" {
+		// FIX: Take FIRST system message only, not last
+		if messages[i].Role == "system" && systemMsg == nil {
 			systemMsg = &messages[i]
-		} else {
-			otherMessages = append(otherMessages, messages[i])
+		} else if messages[i].Role != "system" {
+			conversationMsgs = append(conversationMsgs, messages[i])
 		}
 	}
 
-	// If no non-system messages, return as-is
-	if len(otherMessages) == 0 {
+	// If no conversation messages, return system only
+	if len(conversationMsgs) == 0 {
+		if systemMsg != nil {
+			return []Message{*systemMsg}
+		}
 		return messages
 	}
 
-	// ALWAYS preserve system message first (required for consistent behavior)
+	// Step 2: Reserve space for critical elements (system + last message)
 	totalTokens := 0
+
+	// Reserve system prompt fully (priority #1)
+	var finalSystemMsg *Message
 	if systemMsg != nil {
 		systemTokens := estimateMessageTokens(*systemMsg)
 
-		// Always include system message, truncating if necessary
-		if systemTokens <= maxTokens {
+		// Try to keep system prompt fully
+		if systemTokens <= maxTokens*3/10 { // Max 30% for system
+			finalSystemMsg = systemMsg
+			totalTokens += systemTokens
+		} else if systemTokens <= maxTokens/2 { // Max 50% in extreme case
+			finalSystemMsg = systemMsg
 			totalTokens += systemTokens
 		} else {
-			// System message is larger than entire context, truncate it
-			maxSystemChars := (maxTokens - 20) * 4 // Reserve 20 tokens for overhead
+			// System prompt is huge, truncate to 30% of context
+			maxSystemChars := (maxTokens*3/10 - 20) * 4
 			if maxSystemChars > 100 {
-				truncatedContent := systemMsg.Content[:maxSystemChars] + "\n\n[System message truncated due to context limits]"
+				truncatedContent := systemMsg.Content[:maxSystemChars] + "\n\n[System prompt truncated to fit context]"
 				systemMsgCopy := *systemMsg
 				systemMsgCopy.Content = truncatedContent
-				systemMsg = &systemMsgCopy
-				totalTokens += maxTokens - 20
+				finalSystemMsg = &systemMsgCopy
+				totalTokens += maxTokens * 3 / 10
 			}
 		}
 	}
 
-	// CRITICAL: Always keep at least the most recent user/assistant message
-	// LLM APIs require at least one non-system message
-	lastMessage := otherMessages[len(otherMessages)-1]
-	lastMessageTokens := estimateMessageTokens(lastMessage)
+	// Reserve last message fully (priority #2)
+	lastMsg := conversationMsgs[len(conversationMsgs)-1]
+	lastMsgTokens := estimateMessageTokens(lastMsg)
 
-	// Ensure we have room for at least the last message
-	if totalTokens+lastMessageTokens > maxTokens && systemMsg != nil {
-		// Need to make room by truncating system message further
-		availableForSystem := maxTokens - lastMessageTokens
-		if availableForSystem > 50 { // Minimum viable system message
-			currentSystemTokens := estimateMessageTokens(*systemMsg)
-			// Only truncate if the system message is actually large enough to warrant it
-			if currentSystemTokens > availableForSystem {
+	// Ensure room for last message
+	if totalTokens+lastMsgTokens > maxTokens {
+		if finalSystemMsg != nil {
+			// Reduce system message to make room
+			availableForSystem := maxTokens - lastMsgTokens - 50
+			if availableForSystem > 50 {
 				maxSystemChars := (availableForSystem - 10) * 4
-				if maxSystemChars > 0 && maxSystemChars < len(systemMsg.Content) {
-					truncatedContent := systemMsg.Content[:maxSystemChars] + "..."
-					systemMsgCopy := *systemMsg
-					systemMsgCopy.Content = truncatedContent
-					systemMsg = &systemMsgCopy
+				if maxSystemChars > 0 && maxSystemChars < len(finalSystemMsg.Content) {
+					systemMsgCopy := *finalSystemMsg
+					systemMsgCopy.Content = finalSystemMsg.Content[:maxSystemChars] + "..."
+					finalSystemMsg = &systemMsgCopy
 					totalTokens = availableForSystem
 				}
+			} else {
+				// Drop system message if necessary to keep last message
+				finalSystemMsg = nil
+				totalTokens = 0
 			}
 		}
 	}
 
-	totalTokens += lastMessageTokens
-	keptMessages := []Message{lastMessage}
+	totalTokens += lastMsgTokens
 
-	// Work backwards through remaining messages and add what fits
-	for i := len(otherMessages) - 2; i >= 0; i-- {
-		msgTokens := estimateMessageTokens(otherMessages[i])
-		if totalTokens+msgTokens > maxTokens {
-			break
-		}
-		totalTokens += msgTokens
-		keptMessages = append([]Message{otherMessages[i]}, keptMessages...)
-	}
+	// Step 3: Fill remaining space with prioritized history
+	availableForHistory := maxTokens - totalTokens
+	historyMsgs := selectHistoryWithPriorities(conversationMsgs[:len(conversationMsgs)-1], availableForHistory)
 
-	// Reconstruct final message list: system message first (if present), then other messages
+	// Step 4: Reconstruct final message list
 	var result []Message
-	if systemMsg != nil {
-		result = append(result, *systemMsg)
+	if finalSystemMsg != nil {
+		result = append(result, *finalSystemMsg)
 	}
-	result = append(result, keptMessages...)
+	result = append(result, historyMsgs...)
+	result = append(result, lastMsg)
 
 	return result
+}
+
+// selectHistoryWithPriorities selects history messages using priority-based sliding window
+func selectHistoryWithPriorities(history []Message, availableTokens int) []Message {
+	if len(history) == 0 || availableTokens <= 0 {
+		return []Message{}
+	}
+
+	// Categorize messages by priority
+	type priorityMsg struct {
+		msg      Message
+		tokens   int
+		priority int
+		index    int
+	}
+
+	var highPriority []priorityMsg // Messages with tool calls
+	var normalPriority []priorityMsg // Regular messages
+
+	for i, msg := range history {
+		tokens := estimateMessageTokens(msg)
+		priority := 1 // Normal priority
+
+		// High priority: messages with tool calls or tool results
+		if hasToolCalls(msg) || msg.Role == "tool" {
+			priority = 2
+			highPriority = append(highPriority, priorityMsg{msg, tokens, priority, i})
+		} else {
+			normalPriority = append(normalPriority, priorityMsg{msg, tokens, priority, i})
+		}
+	}
+
+	// Select messages to keep
+	var selected []priorityMsg
+	usedTokens := 0
+
+	// Phase 1: Add high priority messages (from newest to oldest)
+	for i := len(highPriority) - 1; i >= 0; i-- {
+		pm := highPriority[i]
+		if usedTokens+pm.tokens <= availableTokens {
+			selected = append(selected, pm)
+			usedTokens += pm.tokens
+		}
+	}
+
+	// Phase 2: Add normal priority messages (from newest to oldest)
+	for i := len(normalPriority) - 1; i >= 0; i-- {
+		pm := normalPriority[i]
+		if usedTokens+pm.tokens <= availableTokens {
+			selected = append(selected, pm)
+			usedTokens += pm.tokens
+		}
+	}
+
+	// Sort selected messages by original index to maintain chronological order
+	for i := 0; i < len(selected); i++ {
+		for j := i + 1; j < len(selected); j++ {
+			if selected[i].index > selected[j].index {
+				selected[i], selected[j] = selected[j], selected[i]
+			}
+		}
+	}
+
+	// Extract messages
+	result := make([]Message, len(selected))
+	for i, pm := range selected {
+		result[i] = pm.msg
+	}
+
+	return result
+}
+
+// hasToolCalls checks if a message contains tool calls
+func hasToolCalls(msg Message) bool {
+	if msg.Metadata == nil {
+		return false
+	}
+
+	// Check for tool_calls in metadata
+	if toolCalls, ok := msg.Metadata["tool_calls"]; ok {
+		// Check if it's not nil and not empty
+		switch v := toolCalls.(type) {
+		case []interface{}:
+			return len(v) > 0
+		case map[string]interface{}:
+			return len(v) > 0
+		case string:
+			return v != ""
+		default:
+			return toolCalls != nil
+		}
+	}
+
+	// Check for function_call in metadata (older format)
+	if funcCall, ok := msg.Metadata["function_call"]; ok {
+		return funcCall != nil
+	}
+
+	return false
 }
 
 // estimateMessageTokens estimates the number of tokens in a message
