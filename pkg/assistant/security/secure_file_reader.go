@@ -128,6 +128,9 @@ func (sfr *SecureFileReader) obfuscateYAMLValues(data interface{}, sectionPath s
 			} else if sfr.isSensitiveKey(key) {
 				if strVal, ok := value.(string); ok {
 					v[key] = sfr.obfuscateValue(strVal, key)
+				} else {
+					// Still recurse into nested structures under sensitive keys
+					sfr.obfuscateYAMLValues(value, newSectionPath)
 				}
 			} else {
 				sfr.obfuscateYAMLValues(value, newSectionPath)
@@ -155,6 +158,9 @@ func (sfr *SecureFileReader) obfuscateYAMLValues(data interface{}, sectionPath s
 			} else if keyStr != "" && sfr.isSensitiveKey(keyStr) {
 				if strVal, ok := value.(string); ok {
 					v[key] = sfr.obfuscateValue(strVal, keyStr)
+				} else {
+					// Still recurse into nested structures under sensitive keys
+					sfr.obfuscateYAMLValues(value, newSectionPath)
 				}
 			} else {
 				sfr.obfuscateYAMLValues(value, newSectionPath)
@@ -296,6 +302,8 @@ func (sfr *SecureFileReader) obfuscateValue(value, key string) string {
 		return "sk-•••••••••••••••••••••••••••••••••••••••••••••••••••"
 	case strings.HasPrefix(value, "ghp_"):
 		return "ghp_••••••••••••••••••••••••••••••••••••••••"
+	case strings.HasPrefix(value, "pul-"):
+		return "pul-••••••••••••••••••••••••••••••••••••••••"
 	case strings.HasPrefix(value, "-----BEGIN"):
 		return sfr.obfuscateMultilineSecret(value)
 	case len(value) > 20 && sfr.isBase64Like(value):
