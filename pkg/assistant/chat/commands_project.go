@@ -18,6 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
 	"github.com/simple-container-com/api/pkg/assistant/resources"
+	"github.com/simple-container-com/api/pkg/assistant/security"
 )
 
 // registerProjectCommands registers project analysis and configuration commands
@@ -1184,17 +1185,15 @@ func (c *ChatInterface) handleReadProjectFile(ctx context.Context, args []string
 		}, nil
 	}
 
-	// Read the file
-	data, err := os.ReadFile(filePath)
+	// Read the file securely with automatic credential obfuscation
+	secureReader := security.NewSecureFileReader()
+	data, err := secureReader.ReadFileSecurely(filePath)
 	if err != nil {
 		return &CommandResult{
 			Success: false,
 			Message: fmt.Sprintf("❌ Failed to read file %s: %v", filename, err),
 		}, nil
 	}
-
-	// Obfuscate credentials before exposing to LLM
-	data = obfuscateCredentials(data, filePath)
 
 	// Determine syntax highlighting based on file extension/name
 	language := getSyntaxLanguage(filename)

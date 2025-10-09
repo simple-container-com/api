@@ -150,6 +150,7 @@ templates:
     - **Format Preservation**: Credential types remain identifiable for proper guidance while values are protected
     - **Comprehensive Coverage**: Protects against inadvertent exposure through any file reading path in the assistant
   - **Impact**: Users can safely use AI assistant commands to view and analyze their configurations without risk of sensitive credentials being processed or exposed by the LLM
+  - **⚠️ CRITICAL SECURITY WARNING**: Obfuscation ONLY works through Simple Container chat commands (`/file`, `/config`, `/show`). Using Cascade's native tools (`> read filename`) or IDE file preview **BYPASSES ALL PROTECTION** and exposes raw credentials to the LLM. Always use protected commands for viewing secrets files.
 - **FIXED: Removed Incorrect Port & Health Check Configuration from Stack Config** - Eliminated fictional `config.ports` and `config.healthCheck` parameters from modifystack command
   - **✅ Root Cause**: Stack configuration schemas (client.yaml) do not include port or health check configuration - these belong in docker-compose.yaml files or Dockerfile for cloud-compose deployments
   - **✅ JSON Schema Verification**: Confirmed across all stack config schemas (stackconfigcompose.json, stackconfigsingleimage.json, stackconfigstatic.json) that ports and healthCheck are NOT supported properties
