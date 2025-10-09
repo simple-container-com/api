@@ -1,8 +1,8 @@
 # Simple Container Project Analysis Report
 
-**Generated:** 2025-10-08 16:39:05 +03
+**Generated:** 2025-10-09 10:52:57 +03
 **Analyzer Version:** 1.0
-**Overall Confidence:** 55.0%
+**Overall Confidence:** 70.0%
 
 ## Project Overview
 
@@ -23,62 +23,7 @@
 - **Additional Information:**
   - mode: gopath
 
-### 2. yaml simple-container
-
-- **Confidence:** 40.0%
-- **Runtime:** simple-container
-- **Version:** partial
-- **Evidence:**
-  - .sc directory found
-- **Additional Information:**
-  - has_sc_directory: true
-  - maturity: partial
-
-## Git Repository Analysis
-
-- **Branch:** feature/ai-setup
-- **Remote URL:** github-universe:simple-container-com/api.git
-- **Contributors:** 0
-- **Has CI/CD:** false
-
 ## Detected Resources
-
-### Databases
-
-- **postgresql** (90.0% confidence)
-  - Sources: schemas/aws/index.json, schemas/aws/postgresconfig.json, schemas/gcp/postgresgcpcloudsqlconfig.json, schemas/gcp/index.json, schemas/kubernetes/helmpostgresoperator.json, protocol.go, schemas/kubernetes/index.json, server.go
-  - Recommended Resource: aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator
-- **mysql** (80.0% confidence)
-  - Sources: schemas/aws/index.json, schemas/aws/mysqlconfig.json, server.go
-  - Connection: mysql
-  - Recommended Resource: aws-rds-mysql
-- **redis** (80.0% confidence)
-  - Sources: schemas/gcp/index.json, schemas/gcp/redisconfig.json, protocol.go, schemas/kubernetes/helmredisoperator.json, schemas/kubernetes/index.json, server.go
-  - Connection: redis
-  - Recommended Resource: gcp-redis or kubernetes-helm-redis-operator
-- **mongodb** (80.0% confidence)
-  - Sources: schemas/index.json, schemas/kubernetes/helmmongodboperator.json, protocol.go, schemas/mongodb/index.json, schemas/kubernetes/index.json, schemas/mongodb/atlasconfig.json, server.go
-  - Connection: mongodb
-  - Recommended Resource: mongodb-atlas
-
-### Storage
-
-- **s3** (100.0% confidence)
-  - Sources: mcp_test.go, schemas/aws/s3bucket.json, schemas/aws/index.json, schemas/aws/statestorageconfig.json, server.go
-  - Purpose: cloud_storage
-- **gcs** (90.0% confidence)
-  - Sources: schemas/gcp/index.json, schemas/gcp/statestorageconfig.json, server.go
-  - Purpose: cloud_storage
-- **static_assets** (50.0% confidence)
-  - Sources: server.go
-  - Purpose: static
-
-### Message Queues
-
-- **gcp_pubsub** (70.0% confidence)
-  - Sources: schemas/gcp/index.json, schemas/gcp/pubsubconfig.json
-- **rabbitmq** (85.0% confidence)
-  - Sources: schemas/kubernetes/index.json, schemas/kubernetes/helmrabbitmqoperator.json, server.go
 
 ## Recommendations
 
@@ -88,37 +33,23 @@
 - Generate optimized multi-stage Dockerfile for Go application with minimal final image
 - Action: generate_dockerfile
 
+**Initialize Simple Container**
+- Set up Simple Container configuration for streamlined deployment and infrastructure management
+- Action: init_simple_container
+
 **Add Dockerfile**
 - Generate optimized Dockerfile for containerized deployment
 - Action: generate_dockerfile
 
-**CI/CD Pipeline Setup**
-- No CI/CD detected. Set up automated testing and deployment pipeline for better development workflow
-- Action: setup_cicd
+**Infrastructure as Code Setup**
+- No infrastructure management detected. Simple Container provides easy infrastructure-as-code with built-in best practices
+- Action: setup_infrastructure_as_code
 
 ### Medium Priority
 
 **Go Build Optimization**
 - Configure Go build with proper flags for smaller binaries and faster startup
 - Action: optimize_go_build
-
-**Simple Container Advanced Features**
-- Explore advanced Simple Container features like multi-environment deployments and resource optimization
-- Action: explore_advanced_features
-
-**Version Tagging Strategy**
-- No version tags detected. Implement semantic versioning for better release management
-- Action: setup_versioning
-
-**Database Architecture Review**
-- Multiple databases detected. Review data architecture for potential consolidation opportunities
-- Action: review_database_architecture
-
-### Low Priority
-
-**Simple Container Configuration Review**
-- Review current Simple Container configuration for optimization opportunities
-- Action: review_configuration
 
 ## Simple Container Setup Guide
 

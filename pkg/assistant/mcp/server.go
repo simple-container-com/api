@@ -1683,35 +1683,23 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 	// Check what files were created - Simple Container uses .sc/stacks/ directory structure
 	filesCreated := []string{}
 
-	// Analyze project to get project name for correct path (now using current directory since we changed to it)
-	analyzer := analysis.NewProjectAnalyzer()
-	projectInfo, err := analyzer.AnalyzeProject(".")
-	if err != nil {
-		projectInfo = &analysis.ProjectAnalysis{Name: "project"}
-	}
+	// Discover all available stacks (both client and parent stacks)
+	availableStacks := h.discoverAvailableStacks()
 
-	projectName := projectInfo.Name
-	if projectName == "" || projectName == "." {
-		// Use directory name as fallback (current directory)
-		if absPath, err := filepath.Abs("."); err == nil {
-			projectName = filepath.Base(absPath)
-		} else {
-			projectName = "project"
+	// Check for common project files
+	commonFiles := []string{"docker-compose.yaml", "Dockerfile"}
+	for _, file := range commonFiles {
+		if _, err := os.Stat(file); err == nil {
+			filesCreated = append(filesCreated, file)
 		}
 	}
 
-	// Check for Simple Container files in correct locations (relative to current directory)
-	filesToCheck := map[string]string{
-		"client.yaml":         filepath.Join(".sc", "stacks", projectName, "client.yaml"),
-		"server.yaml":         filepath.Join(".sc", "stacks", "infrastructure", "server.yaml"),
-		"docker-compose.yaml": "docker-compose.yaml",
-		"Dockerfile":          "Dockerfile",
+	// Add discovered stacks to created files
+	if len(availableStacks.ClientStacks) > 0 {
+		filesCreated = append(filesCreated, fmt.Sprintf("%d client stack(s)", len(availableStacks.ClientStacks)))
 	}
-
-	for displayName, fullPath := range filesToCheck {
-		if _, err := os.Stat(fullPath); err == nil {
-			filesCreated = append(filesCreated, displayName)
-		}
+	if len(availableStacks.ParentStacks) > 0 {
+		filesCreated = append(filesCreated, fmt.Sprintf("%d parent stack(s)", len(availableStacks.ParentStacks)))
 	}
 
 	message := "✅ Simple Container setup completed successfully!\n"
@@ -1722,15 +1710,46 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 	}
 	message += fmt.Sprintf("📄 Files created: %v\n", filesCreated)
 
-	// Add helpful information about the .sc directory structure
-	if len(filesCreated) > 0 {
-		message += "\n📂 Directory Structure:\n"
-		message += fmt.Sprintf("├── .sc/stacks/%s/client.yaml (stack configuration)\n", projectName)
-		if params.Parent != "" {
-			message += "├── .sc/stacks/infrastructure/server.yaml (parent resources)\n"
+	// Add detailed information about discovered stacks
+	if len(availableStacks.ClientStacks) > 0 || len(availableStacks.ParentStacks) > 0 {
+		message += "\n📂 Discovered Stack Structure:\n"
+		message += "├── .sc/stacks/\n"
+
+		// Show parent stacks (DevOps infrastructure)
+		for _, parentStack := range availableStacks.ParentStacks {
+			message += fmt.Sprintf("│   ├── %s/ (parent infrastructure)\n", parentStack)
+			message += "│   │   ├── server.yaml\n"
+			if _, err := os.Stat(filepath.Join(".sc", "stacks", parentStack, "secrets.yaml")); err == nil {
+				message += "│   │   └── secrets.yaml\n"
+			}
 		}
-		message += "├── docker-compose.yaml (local development)\n"
-		message += "└── Dockerfile (container image)\n"
+
+		// Show client stacks (Developer applications)
+		for _, clientStack := range availableStacks.ClientStacks {
+			message += fmt.Sprintf("│   ├── %s/ (client application)\n", clientStack)
+			message += "│   │   ├── client.yaml\n"
+			if _, err := os.Stat(filepath.Join(".sc", "stacks", clientStack, "secrets.yaml")); err == nil {
+				message += "│   │   └── secrets.yaml\n"
+			}
+		}
+
+		// Show project files
+		if _, err := os.Stat("docker-compose.yaml"); err == nil {
+			message += "├── docker-compose.yaml (local development)\n"
+		}
+		if _, err := os.Stat("Dockerfile"); err == nil {
+			message += "└── Dockerfile (container image)\n"
+		}
+
+		// Add helpful usage information
+		if len(availableStacks.ClientStacks) > 0 {
+			message += fmt.Sprintf("\n💡 **Available Client Stacks**: %v\n", availableStacks.ClientStacks)
+			message += "   Use: `/show <stack-name>` to view configuration\n"
+		}
+		if len(availableStacks.ParentStacks) > 0 {
+			message += fmt.Sprintf("\n🏗️ **Available Parent Stacks**: %v\n", availableStacks.ParentStacks)
+			message += "   Use: `/show <stack-name>` to view infrastructure\n"
+		}
 	}
 
 	// Add schema context for LLM guidance on future modifications
@@ -1741,12 +1760,61 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 		FilesCreated: filesCreated,
 		Success:      true,
 		Metadata: map[string]interface{}{
-			"path":        path,
-			"environment": params.Environment,
-			"parent":      params.Parent,
-			"setup_time":  time.Now(),
+			"path":          path,
+			"environment":   params.Environment,
+			"parent":        params.Parent,
+			"setup_time":    time.Now(),
+			"client_stacks": availableStacks.ClientStacks,
+			"parent_stacks": availableStacks.ParentStacks,
 		},
 	}, nil
+}
+
+// StackDiscovery holds information about discovered stacks
+type StackDiscovery struct {
+	ClientStacks []string // Stacks with client.yaml (developer applications)
+	ParentStacks []string // Stacks with server.yaml (infrastructure/parent stacks)
+}
+
+// discoverAvailableStacks scans .sc/stacks/ directory to find all available stacks
+func (h *DefaultMCPHandler) discoverAvailableStacks() StackDiscovery {
+	discovery := StackDiscovery{
+		ClientStacks: []string{},
+		ParentStacks: []string{},
+	}
+
+	stacksDir := filepath.Join(".sc", "stacks")
+	if _, err := os.Stat(stacksDir); os.IsNotExist(err) {
+		return discovery
+	}
+
+	entries, err := os.ReadDir(stacksDir)
+	if err != nil {
+		return discovery
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		stackName := entry.Name()
+		stackPath := filepath.Join(stacksDir, stackName)
+
+		// Check for client.yaml (developer/application stack)
+		clientYamlPath := filepath.Join(stackPath, "client.yaml")
+		if _, err := os.Stat(clientYamlPath); err == nil {
+			discovery.ClientStacks = append(discovery.ClientStacks, stackName)
+		}
+
+		// Check for server.yaml (infrastructure/parent stack)
+		serverYamlPath := filepath.Join(stackPath, "server.yaml")
+		if _, err := os.Stat(serverYamlPath); err == nil {
+			discovery.ParentStacks = append(discovery.ParentStacks, stackName)
+		}
+	}
+
+	return discovery
 }
 
 func (h *DefaultMCPHandler) determineDeploymentType(projectInfo *analysis.ProjectAnalysis) string {

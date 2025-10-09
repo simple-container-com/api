@@ -68,7 +68,7 @@ UNIVERSAL RULE: Stack name (-s) = actual project/service name, Environment (-e) 
 CORRECT ALTERNATIVES for monitoring/debugging:
 - Use curl health checks: curl https://api.domain.com/health
 - Use Docker commands: docker logs container_name
-- Check configuration files: cat .sc/stacks/infrastructure/server.yaml
+- Check configuration files: cat .sc/stacks/<parent-stack-name>/server.yaml
 - File system operations: ls .sc/stacks/, grep -A 10 "resources:"
 
 🚨 CRITICAL: SECRETS.YAML FORMAT (ANTI-MISINFORMATION)

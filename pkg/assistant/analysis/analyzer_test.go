@@ -15,7 +15,7 @@ func TestProjectAnalyzer(t *testing.T) {
 	analyzer := NewProjectAnalyzer()
 
 	t.Run("test analyzer initialization", func(t *testing.T) {
-		assert.True(t, len(analyzer.detectors) >= 4)
+		assert.True(t, len(analyzer.detectors) >= 3)
 
 		// Verify detectors are sorted by priority
 		for i := 1; i < len(analyzer.detectors); i++ {

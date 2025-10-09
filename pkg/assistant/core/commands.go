@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1290,6 +1291,12 @@ func (h *UnifiedCommandHandler) isSensitiveKey(key string) bool {
 		"dsn", "database_url", "connection_string", "connectionstring",
 		"mongodb_uri", "mongo_uri", "redis_url", "postgres_url",
 		"jwt_secret", "jwtsecret", "session_secret",
+		// Kubernetes-specific fields
+		"kubeconfig", "client-key", "client-key-data", "client-certificate-data",
+		"certificate-authority-data", "client-cert", "client-cert-data",
+		"user-key", "user-cert", "ca-cert", "ca-key",
+		// GCP-specific fields
+		"service_account_key", "client_secret", "refresh_token",
 	}
 
 	for _, sensitive := range sensitiveKeys {
@@ -1338,6 +1345,12 @@ func (h *UnifiedCommandHandler) obfuscateValue(value, key string) string {
 	case strings.HasPrefix(value, "-----BEGIN"):
 		// Private key or certificate
 		return h.obfuscateMultilineSecret(value)
+	case strings.Contains(value, "\"private_key\"") || strings.Contains(value, "\"client_secret\""):
+		// GCP service account JSON or similar embedded JSON credentials
+		return h.obfuscateEmbeddedJSON(value)
+	case strings.Contains(value, "apiVersion:") && strings.Contains(value, "clusters:"):
+		// Kubernetes kubeconfig YAML
+		return h.obfuscateEmbeddedYAML(value)
 	case len(value) > 20 && h.isBase64Like(value):
 		// Long base64-like string (certificates, tokens)
 		return value[:8] + "••••••••••••••••••••••••••••••••••••••••••••" + value[len(value)-4:]
@@ -1426,6 +1439,132 @@ func (h *UnifiedCommandHandler) obfuscateGeneralCredentials(content string) stri
 		} else {
 			result = regex.ReplaceAllString(result, replacement)
 		}
+	}
+
+	return result
+}
+
+// obfuscateEmbeddedJSON handles JSON structures embedded in credential values (e.g., GCP service accounts)
+func (h *UnifiedCommandHandler) obfuscateEmbeddedJSON(jsonStr string) string {
+	// Try to parse as JSON
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &jsonData); err != nil {
+		// If parsing fails, apply general obfuscation
+		return h.obfuscateGeneralCredentials(jsonStr)
+	}
+
+	// Obfuscate sensitive fields in the JSON
+	h.obfuscateJSONCredentials(jsonData)
+
+	// Marshal back to JSON
+	if obfuscatedBytes, err := json.Marshal(jsonData); err == nil {
+		return string(obfuscatedBytes)
+	}
+
+	// Fallback to general obfuscation
+	return h.obfuscateGeneralCredentials(jsonStr)
+}
+
+// obfuscateJSONCredentials recursively obfuscates sensitive fields in JSON data
+func (h *UnifiedCommandHandler) obfuscateJSONCredentials(data interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			if h.isSensitiveKey(key) {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, key)
+				}
+			} else {
+				h.obfuscateJSONCredentials(value)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			h.obfuscateJSONCredentials(item)
+		}
+	}
+}
+
+// obfuscateEmbeddedYAML handles YAML structures embedded in credential values (e.g., kubeconfig)
+func (h *UnifiedCommandHandler) obfuscateEmbeddedYAML(yamlStr string) string {
+	// Try to parse as YAML
+	var yamlData interface{}
+	if err := yaml.Unmarshal([]byte(yamlStr), &yamlData); err != nil {
+		// If parsing fails, apply general obfuscation to sensitive-looking parts
+		return h.obfuscateYAMLStringPatterns(yamlStr)
+	}
+
+	// Obfuscate sensitive fields in the YAML
+	h.obfuscateEmbeddedYAMLValues(yamlData)
+
+	// Marshal back to YAML
+	if obfuscatedBytes, err := yaml.Marshal(yamlData); err == nil {
+		return string(obfuscatedBytes)
+	}
+
+	// Fallback to pattern-based obfuscation
+	return h.obfuscateYAMLStringPatterns(yamlStr)
+}
+
+// obfuscateEmbeddedYAMLValues recursively obfuscates sensitive fields in embedded YAML
+func (h *UnifiedCommandHandler) obfuscateEmbeddedYAMLValues(data interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			if h.isSensitiveKey(key) {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, key)
+				}
+			} else {
+				h.obfuscateEmbeddedYAMLValues(value)
+			}
+		}
+	case map[interface{}]interface{}:
+		for key, value := range v {
+			if keyStr, ok := key.(string); ok && h.isSensitiveKey(keyStr) {
+				if strVal, ok := value.(string); ok {
+					v[key] = h.obfuscateValue(strVal, keyStr)
+				}
+			} else {
+				h.obfuscateEmbeddedYAMLValues(value)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			h.obfuscateEmbeddedYAMLValues(item)
+		}
+	}
+}
+
+// obfuscateYAMLStringPatterns applies pattern-based obfuscation for YAML strings
+func (h *UnifiedCommandHandler) obfuscateYAMLStringPatterns(yamlStr string) string {
+	// Define patterns for sensitive YAML keys and their typical values
+	patterns := map[string]*regexp.Regexp{
+		// Kubernetes certificate data (base64)
+		`(client-key-data|client-certificate-data|certificate-authority-data):\s*([A-Za-z0-9+/=]{20,})`: regexp.MustCompile(`(client-key-data|client-certificate-data|certificate-authority-data):\s*([A-Za-z0-9+/=]{20,})`),
+		// Private keys in YAML
+		`(private_key|private-key):\s*"([^"]+)"`: regexp.MustCompile(`(private_key|private-key):\s*"([^"]+)"`),
+		// JWT tokens and other long tokens
+		`(token):\s*([A-Za-z0-9._-]{20,})`: regexp.MustCompile(`(token):\s*([A-Za-z0-9._-]{20,})`),
+	}
+
+	result := yamlStr
+	for _, pattern := range patterns {
+		result = pattern.ReplaceAllStringFunc(result, func(match string) string {
+			// Extract the key-value structure and obfuscate the value part
+			parts := strings.SplitN(match, ":", 2)
+			if len(parts) == 2 {
+				key := strings.TrimSpace(parts[0])
+				value := strings.TrimSpace(parts[1])
+				// Remove quotes if present
+				if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
+					value = value[1 : len(value)-1]
+					return key + `: "` + h.obfuscateValue(value, key) + `"`
+				}
+				return key + `: ` + h.obfuscateValue(value, key)
+			}
+			return match
+		})
 	}
 
 	return result
