@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -84,6 +85,20 @@ func (c *ChatInterface) registerProjectCommands() {
 		Aliases:     []string{"cat"},
 		Args: []CommandArg{
 			{Name: "filename", Type: "string", Required: true, Description: "File name to read (e.g., Dockerfile, docker-compose.yaml, package.json)"},
+		},
+	}
+
+	c.commands["write"] = &ChatCommand{
+		Name:        "write",
+		Description: "Write content to a project file (create new or modify existing)",
+		Usage:       "/write <filename> <content> [--lines start-end] [--append]",
+		Handler:     c.handleWriteProjectFile,
+		Aliases:     []string{"edit"},
+		Args: []CommandArg{
+			{Name: "filename", Type: "string", Required: true, Description: "File name to write (e.g., Dockerfile, docker-compose.yaml)"},
+			{Name: "content", Type: "string", Required: true, Description: "Content to write to the file"},
+			{Name: "lines", Type: "string", Required: false, Description: "Line range to replace (e.g., '10-20' or '5' for single line)"},
+			{Name: "append", Type: "boolean", Required: false, Description: "Append content to end of file instead of replacing"},
 		},
 	}
 
@@ -1653,4 +1668,212 @@ values:
 	})
 
 	return files, nil
+}
+
+// handleWriteProjectFile writes content to a project file with multiple modes
+func (c *ChatInterface) handleWriteProjectFile(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if len(args) < 2 {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Please specify filename and content. Usage: /write <filename> <content> [--lines start-end] [--append]",
+		}, nil
+	}
+
+	filename := args[0]
+	content := args[1]
+
+	// Parse optional flags
+	var lineRange string
+	var appendMode bool
+
+	for i := 2; i < len(args); i++ {
+		if args[i] == "--append" {
+			appendMode = true
+		} else if args[i] == "--lines" && i+1 < len(args) {
+			lineRange = args[i+1]
+			i++ // Skip the next arg since it's the line range value
+		}
+	}
+
+	// Get current working directory (the user's project directory)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to get current directory: %v", err),
+		}, nil
+	}
+
+	// Build full file path and validate security
+	filePath := filepath.Join(cwd, filename)
+
+	// Basic security check - prevent writing outside project directory
+	if !strings.HasPrefix(filepath.Clean(filePath), filepath.Clean(cwd)) {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Security error: Cannot write files outside the project directory",
+		}, nil
+	}
+
+	var finalContent []byte
+	var mode string
+
+	if lineRange != "" {
+		// Line range replacement mode
+		mode = "line-range replacement"
+		finalContent, err = c.replaceFileLines(filePath, content, lineRange)
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to replace lines in %s: %v", filename, err),
+			}, nil
+		}
+	} else if appendMode {
+		// Append mode
+		mode = "append"
+		finalContent, err = c.appendToFile(filePath, content)
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to append to %s: %v", filename, err),
+			}, nil
+		}
+	} else {
+		// Full file replacement mode (default)
+		mode = "full replacement"
+		finalContent = []byte(content)
+	}
+
+	// Write the file
+	err = os.WriteFile(filePath, finalContent, 0o644)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to write file %s: %v", filename, err),
+		}, nil
+	}
+
+	// Determine syntax highlighting for preview
+	language := getSyntaxLanguage(filename)
+
+	// Create success message with preview
+	message := fmt.Sprintf("✅ **File written successfully**: %s (%s)\n", filename, mode)
+	message += fmt.Sprintf("📁 **Location**: %s\n\n", filePath)
+
+	// Show a preview of the written content (first few lines)
+	lines := strings.Split(string(finalContent), "\n")
+	previewLines := 10
+	if len(lines) > previewLines {
+		message += fmt.Sprintf("📄 **Preview** (first %d lines):\n", previewLines)
+		message += fmt.Sprintf("```%s\n", language)
+		message += strings.Join(lines[:previewLines], "\n")
+		message += "\n... (" + strconv.Itoa(len(lines)-previewLines) + " more lines)\n```"
+	} else {
+		message += fmt.Sprintf("📄 **Content**:\n```%s\n", language)
+		message += string(finalContent)
+		message += "\n```"
+	}
+
+	// Add file info
+	stat, _ := os.Stat(filePath)
+	message += fmt.Sprintf("\n📊 **File Info**: %d bytes written", len(finalContent))
+	if stat != nil {
+		message += fmt.Sprintf(", modified %s", stat.ModTime().Format("2006-01-02 15:04:05"))
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+	}, nil
+}
+
+// replaceFileLines replaces specific lines in a file with new content
+func (c *ChatInterface) replaceFileLines(filePath, newContent, lineRange string) ([]byte, error) {
+	// Parse line range (e.g., "10-20" or "5")
+	var startLine, endLine int
+	var err error
+
+	if strings.Contains(lineRange, "-") {
+		parts := strings.Split(lineRange, "-")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid line range format. Use 'start-end' or single line number")
+		}
+		startLine, err = strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return nil, fmt.Errorf("invalid start line number: %v", err)
+		}
+		endLine, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return nil, fmt.Errorf("invalid end line number: %v", err)
+		}
+	} else {
+		// Single line replacement
+		startLine, err = strconv.Atoi(strings.TrimSpace(lineRange))
+		if err != nil {
+			return nil, fmt.Errorf("invalid line number: %v", err)
+		}
+		endLine = startLine
+	}
+
+	// Convert to 0-based indexing
+	startLine--
+	endLine--
+
+	// Read existing file content
+	var existingContent []byte
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		existingContent, err = os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read existing file: %v", err)
+		}
+	}
+
+	// Split into lines
+	lines := strings.Split(string(existingContent), "\n")
+
+	// Validate line range
+	if startLine < 0 || startLine >= len(lines) {
+		return nil, fmt.Errorf("start line %d is out of range (file has %d lines)", startLine+1, len(lines))
+	}
+	if endLine < 0 || endLine >= len(lines) {
+		return nil, fmt.Errorf("end line %d is out of range (file has %d lines)", endLine+1, len(lines))
+	}
+	if startLine > endLine {
+		return nil, fmt.Errorf("start line (%d) cannot be greater than end line (%d)", startLine+1, endLine+1)
+	}
+
+	// Replace the specified lines
+	newLines := strings.Split(newContent, "\n")
+
+	// Build the final content
+	var result []string
+	result = append(result, lines[:startLine]...) // Lines before replacement
+	result = append(result, newLines...)          // New content
+	result = append(result, lines[endLine+1:]...) // Lines after replacement
+
+	return []byte(strings.Join(result, "\n")), nil
+}
+
+// appendToFile appends content to the end of a file
+func (c *ChatInterface) appendToFile(filePath, content string) ([]byte, error) {
+	var existingContent []byte
+
+	// Read existing file if it exists
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		var err error
+		existingContent, err = os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read existing file: %v", err)
+		}
+	}
+
+	// Ensure there's a newline before appending (if file has content)
+	finalContent := string(existingContent)
+	if len(existingContent) > 0 && !strings.HasSuffix(finalContent, "\n") {
+		finalContent += "\n"
+	}
+
+	finalContent += content
+
+	return []byte(finalContent), nil
 }

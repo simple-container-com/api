@@ -475,6 +475,7 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 
 var RefappClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
+	Defaults:      map[string]interface{}{},
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
 			Type:        api.ClientTypeCloudCompose,
