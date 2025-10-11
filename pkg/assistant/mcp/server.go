@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -690,7 +691,39 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 						"description": "Show detailed diagnostic information (default: false)",
 						"default":     false,
 					},
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Project path to analyze (default: current directory)",
+						"default":     ".",
+					},
 				},
+			},
+		},
+		{
+			"name":        "write_project_file",
+			"description": "✍️ Write content to a project file (create new or modify existing)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"filename": map[string]interface{}{
+						"type":        "string",
+						"description": "File name to write (e.g., Dockerfile, docker-compose.yaml)",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "Content to write to the file",
+					},
+					"lines": map[string]interface{}{
+						"type":        "string",
+						"description": "Line range to replace (e.g., '10-20' or '5' for single line) - optional",
+					},
+					"append": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Append content to end of file instead of replacing",
+						"default":     false,
+					},
+				},
+				"required": []string{"filename", "content"},
 			},
 		},
 	}
@@ -1291,9 +1324,56 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 			detailed = d
 		}
 
-		result, err := s.handler.GetStatus(ctx, GetStatusParams{Detailed: detailed})
+		path := "."
+		if p, ok := params.Arguments["path"].(string); ok {
+			path = p
+		}
+
+		result, err := s.handler.GetStatus(ctx, GetStatusParams{Detailed: detailed, Path: path})
 		if err != nil {
 			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to get status", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "write_project_file":
+		filename, ok := params.Arguments["filename"].(string)
+		if !ok || filename == "" {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "filename is required", nil)
+		}
+
+		content, ok := params.Arguments["content"].(string)
+		if !ok {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "content is required", nil)
+		}
+
+		// Parse optional parameters
+		lines := ""
+		if l, ok := params.Arguments["lines"].(string); ok {
+			lines = l
+		}
+
+		append := false
+		if a, ok := params.Arguments["append"].(bool); ok {
+			append = a
+		}
+
+		result, err := s.handler.WriteProjectFile(ctx, WriteProjectFileParams{
+			Filename: filename,
+			Content:  content,
+			Lines:    lines,
+			Append:   append,
+		})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeFileOperationError, "File write failed", err.Error())
 		}
 
 		return NewMCPResponse(req.ID, map[string]interface{}{
@@ -2716,11 +2796,30 @@ func (h *DefaultMCPHandler) GetHelp(ctx context.Context, params GetHelpParams) (
 }
 
 func (h *DefaultMCPHandler) GetStatus(ctx context.Context, params GetStatusParams) (*GetStatusResult, error) {
-	// Get current working directory for status
-	currentDir, err := os.Getwd()
-	if err != nil {
-		currentDir = "unknown"
+	// Use provided path or current directory
+	path := params.Path
+	if path == "" {
+		path = "."
 	}
+
+	// Get absolute path for display
+	currentDir, err := filepath.Abs(path)
+	if err != nil {
+		currentDir = path
+	}
+
+	// Change to the target directory for analysis
+	originalDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	if err := os.Chdir(currentDir); err != nil {
+		return nil, fmt.Errorf("failed to change to directory %s: %w", currentDir, err)
+	}
+	defer func() {
+		_ = os.Chdir(originalDir) // Restore original directory - ignore error in defer
+	}()
 
 	// Check if Simple Container is configured
 	scConfigured := false
@@ -2794,4 +2893,165 @@ func (h *DefaultMCPHandler) GetStatus(ctx context.Context, params GetStatusParam
 		Details: details,
 		Success: true,
 	}, nil
+}
+
+func (h *DefaultMCPHandler) WriteProjectFile(ctx context.Context, params WriteProjectFileParams) (*WriteProjectFileResult, error) {
+	filename := params.Filename
+	content := params.Content
+
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Build full file path and validate security
+	filePath := filepath.Join(cwd, filename)
+
+	// Basic security check - prevent writing outside project directory
+	if !strings.HasPrefix(filepath.Clean(filePath), filepath.Clean(cwd)) {
+		return &WriteProjectFileResult{
+			Message: "❌ Security error: Cannot write files outside the project directory",
+			Success: false,
+		}, nil
+	}
+
+	var finalContent []byte
+	var mode string
+
+	if params.Lines != "" {
+		// Line range replacement mode
+		mode = "line-range replacement"
+		finalContent, err = h.replaceFileLines(filePath, content, params.Lines)
+		if err != nil {
+			return &WriteProjectFileResult{
+				Message: fmt.Sprintf("❌ Failed to replace lines in %s: %v", filename, err),
+				Success: false,
+			}, nil
+		}
+	} else if params.Append {
+		// Append mode
+		mode = "append"
+		finalContent, err = h.appendToFile(filePath, content)
+		if err != nil {
+			return &WriteProjectFileResult{
+				Message: fmt.Sprintf("❌ Failed to append to %s: %v", filename, err),
+				Success: false,
+			}, nil
+		}
+	} else {
+		// Full file replacement mode (default)
+		mode = "full replacement"
+		finalContent = []byte(content)
+	}
+
+	// Write the file
+	err = os.WriteFile(filePath, finalContent, 0o644)
+	if err != nil {
+		return &WriteProjectFileResult{
+			Message: fmt.Sprintf("❌ Failed to write file %s: %v", filename, err),
+			Success: false,
+		}, nil
+	}
+
+	// Create success message
+	message := fmt.Sprintf("✅ **File written successfully**: %s (%s)\n", filename, mode)
+	message += fmt.Sprintf("📁 **Location**: %s\n", filePath)
+	message += fmt.Sprintf("📊 **File Info**: %d bytes written", len(finalContent))
+
+	return &WriteProjectFileResult{
+		Message: message,
+		Files:   []string{filename},
+		Success: true,
+	}, nil
+}
+
+// Helper functions for file operations
+func (h *DefaultMCPHandler) replaceFileLines(filePath, newContent, lineRange string) ([]byte, error) {
+	// Parse line range (e.g., "10-20" or "5")
+	var startLine, endLine int
+	var err error
+
+	if strings.Contains(lineRange, "-") {
+		parts := strings.Split(lineRange, "-")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid line range format. Use 'start-end' or single line number")
+		}
+		startLine, err = strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return nil, fmt.Errorf("invalid start line number: %v", err)
+		}
+		endLine, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return nil, fmt.Errorf("invalid end line number: %v", err)
+		}
+	} else {
+		// Single line replacement
+		startLine, err = strconv.Atoi(strings.TrimSpace(lineRange))
+		if err != nil {
+			return nil, fmt.Errorf("invalid line number: %v", err)
+		}
+		endLine = startLine
+	}
+
+	// Convert to 0-based indexing
+	startLine--
+	endLine--
+
+	// Read existing file content
+	var existingContent []byte
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		existingContent, err = os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read existing file: %v", err)
+		}
+	}
+
+	// Split into lines
+	lines := strings.Split(string(existingContent), "\n")
+
+	// Validate line range
+	if startLine < 0 || startLine >= len(lines) {
+		return nil, fmt.Errorf("start line %d is out of range (file has %d lines)", startLine+1, len(lines))
+	}
+	if endLine < 0 || endLine >= len(lines) {
+		return nil, fmt.Errorf("end line %d is out of range (file has %d lines)", endLine+1, len(lines))
+	}
+	if startLine > endLine {
+		return nil, fmt.Errorf("start line (%d) cannot be greater than end line (%d)", startLine+1, endLine+1)
+	}
+
+	// Replace the specified lines
+	newLines := strings.Split(newContent, "\n")
+
+	// Build the final content
+	var result []string
+	result = append(result, lines[:startLine]...) // Lines before replacement
+	result = append(result, newLines...)          // New content
+	result = append(result, lines[endLine+1:]...) // Lines after replacement
+
+	return []byte(strings.Join(result, "\n")), nil
+}
+
+func (h *DefaultMCPHandler) appendToFile(filePath, content string) ([]byte, error) {
+	var existingContent []byte
+
+	// Read existing file if it exists
+	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
+		var err error
+		existingContent, err = os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read existing file: %v", err)
+		}
+	}
+
+	// Ensure there's a newline before appending (if file has content)
+	finalContent := string(existingContent)
+	if len(existingContent) > 0 && !strings.HasSuffix(finalContent, "\n") {
+		finalContent += "\n"
+	}
+
+	finalContent += content
+
+	return []byte(finalContent), nil
 }

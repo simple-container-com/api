@@ -445,6 +445,7 @@ resources:
 - single-image: REQUIRES image.dockerfile; MAY use timeout, maxMemory, env, secrets
 - static: REQUIRES bundleDir; MAY use indexDocument, errorDocument, domain; NO runs, uses, env, secrets, scale
 
+🚫 DNS: dnsRecords belong in server.yaml (infrastructure), domain references go in client.yaml (applications)
 🚫 NEVER use double dollar signs in placeholders: Use ${secret:name} NOT $${secret:name}
 
 RESPONSE GUIDELINES:

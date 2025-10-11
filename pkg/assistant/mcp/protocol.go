@@ -299,7 +299,8 @@ type GetHelpResult struct {
 }
 
 type GetStatusParams struct {
-	Detailed bool `json:"detailed,omitempty"` // Show detailed diagnostic information
+	Detailed bool   `json:"detailed,omitempty"` // Show detailed diagnostic information
+	Path     string `json:"path,omitempty"`     // Project path to analyze (default: current directory)
 }
 
 type GetStatusResult struct {
@@ -307,6 +308,19 @@ type GetStatusResult struct {
 	Message string                 `json:"message"`
 	Details map[string]interface{} `json:"details,omitempty"`
 	Success bool                   `json:"success"`
+}
+
+type WriteProjectFileParams struct {
+	Filename string `json:"filename"`         // File name to write
+	Content  string `json:"content"`          // Content to write to the file
+	Lines    string `json:"lines,omitempty"`  // Line range to replace (e.g., '10-20' or '5' for single line)
+	Append   bool   `json:"append,omitempty"` // Append content to end of file instead of replacing
+}
+
+type WriteProjectFileResult struct {
+	Message string   `json:"message"`
+	Files   []string `json:"files,omitempty"`
+	Success bool     `json:"success"`
 }
 
 // MCP method handler interface
@@ -330,6 +344,7 @@ type MCPHandler interface {
 	AdvancedSearchDocumentation(ctx context.Context, params AdvancedSearchDocumentationParams) (*AdvancedSearchDocumentationResult, error)
 	GetHelp(ctx context.Context, params GetHelpParams) (*GetHelpResult, error)
 	GetStatus(ctx context.Context, params GetStatusParams) (*GetStatusResult, error)
+	WriteProjectFile(ctx context.Context, params WriteProjectFileParams) (*WriteProjectFileResult, error)
 
 	GetCapabilities(ctx context.Context) (map[string]interface{}, error)
 	Ping(ctx context.Context) (string, error)
@@ -349,6 +364,7 @@ const (
 	ErrorCodeAnalysisError      = -32003
 	ErrorCodeEmbeddingError     = -32004
 	ErrorCodeGenerationError    = -32005
+	ErrorCodeFileOperationError = -32006
 )
 
 // Helper functions for creating MCP responses
