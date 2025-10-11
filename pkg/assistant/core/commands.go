@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -455,7 +456,24 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		}, fmt.Errorf("client.yaml not found at %s", filePath)
 	}
 
-	// Read current configuration
+	// First, read the raw file content to check for YAML anchors
+	rawContent, err := os.ReadFile(filePath)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to read client.yaml: %v", err),
+			Error:   err.Error(),
+		}, err
+	}
+
+	// Check if the file contains YAML anchors
+	hasAnchors := h.hasYamlAnchors(string(rawContent))
+	if hasAnchors {
+		// Use text-based modification to preserve anchors
+		return h.modifyStackWithTextManipulation(ctx, string(rawContent), stackName, environmentName, changes, filePath)
+	}
+
+	// Read current configuration for normal processing
 	content, err := h.readYamlFile(filePath)
 	if err != nil {
 		return &CommandResult{
@@ -633,6 +651,9 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	// Clean up orphaned resource references
 	h.cleanupOrphanedResourceReferences(modifiedContent)
 
+	// CRITICAL: Preserve all environments and root-level properties (YAML anchors, defaults, etc.)
+	h.preserveAllRootLevelProperties(content, modifiedContent, stackName)
+
 	// Optional: Debug changes detection for troubleshooting
 	// fmt.Printf("DEBUG: Changes detected: %+v\n", changesApplied)
 
@@ -744,6 +765,36 @@ func (h *UnifiedCommandHandler) buildStackModificationPrompt(content map[string]
 		prompt.WriteString("- If user request doesn't specify environment, STOP and ask: 'Which environment would you like to modify?'\n")
 		prompt.WriteString("- List available environments and ask user to choose before proceeding\n")
 		prompt.WriteString("- DO NOT assume or guess which environment the user wants to modify\n")
+		prompt.WriteString("\n🚨 CRITICAL COMPLETE CONFIGURATION PRESERVATION REQUIREMENTS:\n")
+		prompt.WriteString("- PRESERVE ALL ROOT-LEVEL PROPERTIES: schemaVersion, defaults, customers, any YAML anchor definitions\n")
+		prompt.WriteString("- PRESERVE ALL OTHER ENVIRONMENTS EXACTLY AS THEY ARE\n")
+		prompt.WriteString("- ONLY modify the specified environment ('" + stackName + "')\n")
+		prompt.WriteString("- ALL other environments MUST remain completely unchanged\n")
+		prompt.WriteString("- DO NOT remove, modify, or alter any other environment sections\n")
+		prompt.WriteString("- DO NOT remove YAML anchor definitions like 'defaults:', 'customers:', or '&stack', '&config', etc.\n")
+		prompt.WriteString("- Return the COMPLETE configuration with ALL root-level sections AND environments intact\n")
+
+		// List all environments that must be preserved
+		environmentsToPreserve := make([]string, 0, len(stacks))
+		for envName := range stacks {
+			if envName != stackName {
+				environmentsToPreserve = append(environmentsToPreserve, envName)
+			}
+		}
+		if len(environmentsToPreserve) > 0 {
+			prompt.WriteString(fmt.Sprintf("- PRESERVE THESE ENVIRONMENTS UNTOUCHED: %v\n", environmentsToPreserve))
+		}
+
+		// List all root-level properties that must be preserved
+		rootPropertiesToPreserve := make([]string, 0)
+		for rootKey := range content {
+			if rootKey != "stacks" {
+				rootPropertiesToPreserve = append(rootPropertiesToPreserve, rootKey)
+			}
+		}
+		if len(rootPropertiesToPreserve) > 0 {
+			prompt.WriteString(fmt.Sprintf("- PRESERVE THESE ROOT-LEVEL SECTIONS UNTOUCHED: %v\n", rootPropertiesToPreserve))
+		}
 	} else {
 		prompt.WriteString("- Single environment detected - proceed with modifications\n")
 	}
@@ -970,6 +1021,482 @@ func (h *UnifiedCommandHandler) extractResourceName(value string) string {
 		}
 	}
 	return ""
+}
+
+// hasYamlAnchors checks if the YAML content contains anchor definitions or references
+func (h *UnifiedCommandHandler) hasYamlAnchors(content string) bool {
+	// Look for YAML anchor definitions (&anchor) or references (<<: *anchor, *anchor)
+	return strings.Contains(content, "&") && (strings.Contains(content, "<<:") || strings.Contains(content, "*"))
+}
+
+// preserveEnvironmentIndentation ensures the modified environment maintains original indentation
+func (h *UnifiedCommandHandler) preserveEnvironmentIndentation(modifiedLines []string, originalBaseIndent string) []string {
+	if len(modifiedLines) == 0 {
+		return modifiedLines
+	}
+
+	result := make([]string, len(modifiedLines))
+
+	for i, line := range modifiedLines {
+		if i == 0 {
+			// First line should maintain the original base indentation (environment name line)
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" {
+				result[i] = originalBaseIndent + trimmed
+			} else {
+				result[i] = line
+			}
+		} else if strings.TrimSpace(line) == "" {
+			// Empty lines remain empty
+			result[i] = line
+		} else {
+			// Subsequent lines should maintain relative indentation
+			trimmed := strings.TrimLeft(line, " ")
+			currentIndent := len(line) - len(trimmed)
+
+			if currentIndent == 0 && trimmed != "" {
+				// If line has no indentation but should be indented, add base + standard indent
+				result[i] = originalBaseIndent + "  " + trimmed // Use 2 spaces for environment properties
+			} else {
+				// Normalize all content to proper YAML indentation structure
+				// Environment properties (parentEnv, <<:, config) should be at environment level + 2 spaces
+				// Nested properties should maintain relative structure
+				if strings.HasPrefix(trimmed, "<<:") ||
+					(strings.Contains(trimmed, ":") && !strings.Contains(trimmed, "  ")) {
+					// This is a top-level environment property
+					result[i] = originalBaseIndent + "  " + trimmed
+				} else if currentIndent > 6 {
+					// Deep nested property - calculate relative indentation
+					result[i] = originalBaseIndent + "    " + trimmed
+				} else if currentIndent > 2 {
+					// Nested property under config/env/secrets
+					result[i] = originalBaseIndent + "    " + trimmed
+				} else {
+					// Default - environment property level
+					result[i] = originalBaseIndent + "  " + trimmed
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// modifyStackWithTextManipulation performs targeted environment-only LLM modifications to preserve YAML anchors
+func (h *UnifiedCommandHandler) modifyStackWithTextManipulation(ctx context.Context, rawContent, stackName, environmentName string, changes map[string]interface{}, filePath string) (*CommandResult, error) {
+	// First check if we have defaults section to provide as context to LLM
+	defaultsSection := ""
+	defaultsExists := strings.Contains(rawContent, "defaults:")
+	if defaultsExists {
+		if section, _, _, err := h.extractYamlSection(rawContent, "defaults"); err == nil {
+			defaultsSection = section
+		}
+	}
+
+	// Extract the stacks section to work within it
+	stacksSection, stacksStart, stacksEnd, err := h.extractYamlSection(rawContent, "stacks")
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Could not find 'stacks' section in client.yaml: %v", err),
+			Error:   "stacks_section_not_found",
+		}, err
+	}
+
+	// Extract just the target environment section from within stacks
+	envSection, envStart, envEnd, err := h.extractEnvironmentFromStacks(stacksSection, environmentName)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Could not find environment '%s' in stacks: %v", environmentName, err),
+			Error:   "environment_not_found",
+		}, err
+	}
+
+	// Get LLM provider
+	llmProvider := h.developerMode.GetLLMProvider()
+	if llmProvider == nil {
+		return h.fallbackToRegexReplacement(rawContent, environmentName, changes, filePath)
+	}
+
+	// Create enhanced prompt with defaults context
+	modifiedEnvSection, changesApplied, err := h.modifyEnvironmentWithLLMAndContext(ctx, envSection, environmentName, changes, defaultsSection, llmProvider)
+	if err != nil {
+		return h.fallbackToRegexReplacement(rawContent, environmentName, changes, filePath)
+	}
+
+	// Reconstruct using line-based approach for safety with indentation preservation
+	allLines := strings.Split(rawContent, "\n")
+	stacksLines := strings.Split(stacksSection, "\n")
+	modifiedEnvLines := strings.Split(modifiedEnvSection, "\n")
+
+	// Preserve original indentation by detecting the base indentation of the environment
+	originalEnvIndent := ""
+	if envStart < len(stacksLines) && len(stacksLines[envStart]) > 0 {
+		line := stacksLines[envStart]
+		for i, char := range line {
+			if char != ' ' {
+				originalEnvIndent = line[:i]
+				break
+			}
+		}
+	}
+
+	// Apply original indentation to modified environment lines
+	properlyIndentedEnvLines := h.preserveEnvironmentIndentation(modifiedEnvLines, originalEnvIndent)
+
+	// Replace the environment lines within the stacks section
+	newStacksLines := make([]string, 0, len(stacksLines))
+	newStacksLines = append(newStacksLines, stacksLines[:envStart]...)
+	newStacksLines = append(newStacksLines, properlyIndentedEnvLines...)
+	newStacksLines = append(newStacksLines, stacksLines[envEnd:]...)
+
+	// Replace the stacks section within the entire file
+	newAllLines := make([]string, 0, len(allLines))
+	newAllLines = append(newAllLines, allLines[:stacksStart]...)
+	newAllLines = append(newAllLines, newStacksLines...)
+	newAllLines = append(newAllLines, allLines[stacksEnd:]...)
+
+	modifiedContent := strings.Join(newAllLines, "\n")
+
+	// Write the modified content back to file
+	err = os.WriteFile(filePath, []byte(modifiedContent), 0o644)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to write client.yaml: %v", err),
+			Error:   err.Error(),
+		}, err
+	}
+
+	message := fmt.Sprintf("✅ Successfully modified '%s' environment using targeted LLM modification\n", environmentName)
+	message += fmt.Sprintf("📁 File: %s\n", filePath)
+	message += "🔗 YAML anchors and all root-level sections preserved\n"
+	if defaultsExists {
+		message += "🎯 Defaults section preserved and used as context\n"
+	}
+	message += "⚡ Optimized: Modified only target environment (not entire file)\n"
+	message += fmt.Sprintf("🔄 Changes applied: %+v\n", changesApplied)
+
+	data := map[string]interface{}{
+		"stack_name":         stackName,
+		"environment_name":   environmentName,
+		"file_path":          filePath,
+		"changes_applied":    changesApplied,
+		"method":             "targeted_text_manipulation_with_context",
+		"anchors_preserved":  true,
+		"defaults_preserved": defaultsExists,
+		"optimized":          true,
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+		Data:    data,
+	}, nil
+}
+
+// extractYamlSection extracts a specific top-level section from YAML content
+func (h *UnifiedCommandHandler) extractYamlSection(content, sectionName string) (string, int, int, error) {
+	lines := strings.Split(content, "\n")
+	sectionStart := -1
+	sectionEnd := len(lines)
+
+	// Find the section start
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), sectionName+":") {
+			sectionStart = i
+			break
+		}
+	}
+
+	if sectionStart == -1 {
+		return "", -1, -1, fmt.Errorf("section '%s' not found", sectionName)
+	}
+
+	// Find the section end (next top-level key or end of file)
+	sectionIndent := len(lines[sectionStart]) - len(strings.TrimLeft(lines[sectionStart], " "))
+
+	for i := sectionStart + 1; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if len(trimmed) == 0 || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Check if this is another top-level section (same or less indentation)
+		currentIndent := len(line) - len(strings.TrimLeft(line, " "))
+		if currentIndent <= sectionIndent && strings.Contains(line, ":") && !strings.HasPrefix(trimmed, "-") {
+			sectionEnd = i
+			break
+		}
+	}
+
+	sectionContent := strings.Join(lines[sectionStart:sectionEnd], "\n")
+
+	// For safer text replacement, we'll return line indices instead of byte positions
+	return sectionContent, sectionStart, sectionEnd, nil
+}
+
+// extractEnvironmentFromStacks extracts a specific environment from within the stacks section
+func (h *UnifiedCommandHandler) extractEnvironmentFromStacks(stacksContent, environmentName string) (string, int, int, error) {
+	lines := strings.Split(stacksContent, "\n")
+	envStart := -1
+	envEnd := len(lines)
+
+	// Find the environment start
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Handle both "env:" and "env: &anchor" patterns
+		if trimmed == environmentName+":" || strings.HasPrefix(trimmed, environmentName+": ") {
+			envStart = i
+			break
+		}
+	}
+
+	if envStart == -1 {
+		return "", -1, -1, fmt.Errorf("environment '%s' not found in stacks section", environmentName)
+	}
+
+	// Find the environment end (next environment or end of stacks)
+	envIndent := len(lines[envStart]) - len(strings.TrimLeft(lines[envStart], " "))
+
+	for i := envStart + 1; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if len(trimmed) == 0 || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Check if this is another environment (same indentation level with colon)
+		currentIndent := len(line) - len(strings.TrimLeft(line, " "))
+		if currentIndent <= envIndent && strings.HasSuffix(trimmed, ":") && !strings.HasPrefix(trimmed, "-") {
+			envEnd = i
+			break
+		}
+	}
+
+	envContent := strings.Join(lines[envStart:envEnd], "\n")
+
+	// Return line indices for safer text replacement
+	return envContent, envStart, envEnd, nil
+}
+
+// modifyEnvironmentWithLLMAndContext enhanced version with defaults section context
+func (h *UnifiedCommandHandler) modifyEnvironmentWithLLMAndContext(ctx context.Context, envSection, environmentName string, changes map[string]interface{}, defaultsSection string, llmProvider llm.Provider) (string, map[string]interface{}, error) {
+	// Create enhanced prompt with defaults context
+	var prompt strings.Builder
+	prompt.WriteString("You are modifying a single environment in a Simple Container client.yaml file.\n\n")
+
+	prompt.WriteString("🚨 CRITICAL YAML PRESERVATION INSTRUCTIONS:\n")
+	prompt.WriteString("- ONLY modify the requested properties in this environment\n")
+	prompt.WriteString("- PRESERVE all existing configuration that isn't being changed\n")
+	prompt.WriteString("- PRESERVE all YAML anchors and references (<<: *anchor, *reference)\n")
+	prompt.WriteString("- PRESERVE exact indentation and formatting\n")
+	prompt.WriteString("- Return ONLY the modified environment section with the same indentation\n")
+	prompt.WriteString("- DO NOT add explanatory text, code blocks, or markdown formatting\n\n")
+
+	// Include defaults section if available
+	if defaultsSection != "" {
+		prompt.WriteString("🎯 AVAILABLE DEFAULTS SECTION FOR REFERENCE:\n")
+		prompt.WriteString("Use these anchors if the environment references them:\n")
+		prompt.WriteString(defaultsSection)
+		prompt.WriteString("\n\n🔗 YAML ANCHOR USAGE:\n")
+		prompt.WriteString("- If environment uses <<: *stack, preserve it exactly\n")
+		prompt.WriteString("- If environment uses <<: *config, preserve it exactly\n")
+		prompt.WriteString("- If environment uses *reference, preserve it exactly\n")
+		prompt.WriteString("- DO NOT expand anchors - keep references intact\n\n")
+	}
+
+	prompt.WriteString(fmt.Sprintf("ENVIRONMENT TO MODIFY: %s\n\n", environmentName))
+
+	prompt.WriteString("CURRENT ENVIRONMENT SECTION:\n")
+	prompt.WriteString(envSection)
+	prompt.WriteString("\n\n")
+
+	prompt.WriteString("REQUESTED CHANGES:\n")
+	for key, value := range changes {
+		prompt.WriteString(fmt.Sprintf("- SET %s TO: %v\n", key, value))
+	}
+
+	prompt.WriteString("\n✅ MERGE STRATEGY:\n")
+	prompt.WriteString("- Apply changes additively - merge new values with existing configuration\n")
+	prompt.WriteString("- If changing 'config.domain', only modify domain, keep all other config properties\n")
+	prompt.WriteString("- If adding secrets, merge with existing secrets section\n")
+	prompt.WriteString("- Preserve any YAML anchors used in this environment\n\n")
+
+	prompt.WriteString("Return the complete modified environment section with proper indentation:")
+
+	// Send to LLM
+	messages := []llm.Message{
+		{
+			Role:      "user",
+			Content:   prompt.String(),
+			Timestamp: time.Now(),
+			Metadata:  make(map[string]interface{}),
+		},
+	}
+	response, err := llmProvider.Chat(ctx, messages)
+	if err != nil {
+		return "", nil, fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	// Clean and validate response
+	cleanedResponse := strings.TrimSpace(response.Content)
+
+	// Enhanced validation
+	if !strings.Contains(cleanedResponse, environmentName+":") {
+		return "", nil, fmt.Errorf("LLM response doesn't contain expected environment '%s'", environmentName)
+	}
+
+	// Validate that response contains reasonable content
+	lines := strings.Split(cleanedResponse, "\n")
+	if len(lines) < 2 {
+		return "", nil, fmt.Errorf("LLM response too short, possibly invalid")
+	}
+
+	// Create changes map
+	changesApplied := make(map[string]interface{})
+	for key, value := range changes {
+		changesApplied[key] = map[string]interface{}{
+			"new":    value,
+			"action": "modified_with_context",
+		}
+	}
+
+	return cleanedResponse, changesApplied, nil
+}
+
+// fallbackToRegexReplacement handles simple modifications using regex when LLM fails
+func (h *UnifiedCommandHandler) fallbackToRegexReplacement(rawContent, environmentName string, changes map[string]interface{}, filePath string) (*CommandResult, error) {
+	modifiedContent := rawContent
+	changesApplied := make(map[string]interface{})
+
+	// Handle simple domain changes
+	if len(changes) == 1 {
+		if domainValue, ok := changes["config.domain"]; ok {
+			if newDomain, ok := domainValue.(string); ok {
+				// Look for domain in the specific environment section
+				envPattern := fmt.Sprintf(`(?m)^(\s+%s:.*\n(?:\s+.*\n)*?\s+domain:\s+)(.+?)(\s*\n)`, regexp.QuoteMeta(environmentName))
+				re := regexp.MustCompile(envPattern)
+
+				if re.MatchString(modifiedContent) {
+					modifiedContent = re.ReplaceAllString(modifiedContent, fmt.Sprintf("${1}%s${3}", newDomain))
+					changesApplied["config.domain"] = map[string]interface{}{
+						"new": newDomain,
+					}
+				} else {
+					return &CommandResult{
+						Success: false,
+						Message: fmt.Sprintf("❌ Could not find domain configuration for environment '%s'", environmentName),
+						Error:   "domain_not_found",
+					}, fmt.Errorf("domain not found for environment %s", environmentName)
+				}
+			}
+		}
+	}
+
+	// Write the modified content back to file
+	err := os.WriteFile(filePath, []byte(modifiedContent), 0o644)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to write client.yaml: %v", err),
+			Error:   err.Error(),
+		}, err
+	}
+
+	message := fmt.Sprintf("✅ Successfully modified '%s' environment using regex replacement\n", environmentName)
+	message += fmt.Sprintf("📁 File: %s\n", filePath)
+	message += "🔗 YAML anchors preserved\n"
+	message += fmt.Sprintf("🔄 Changes applied: %+v\n", changesApplied)
+
+	data := map[string]interface{}{
+		"environment_name":  environmentName,
+		"file_path":         filePath,
+		"changes_applied":   changesApplied,
+		"method":            "regex_replacement",
+		"anchors_preserved": true,
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+		Data:    data,
+	}, nil
+}
+
+// preserveAllRootLevelProperties ensures all root-level properties and environments are preserved
+// This includes YAML anchors (defaults, customers), schema info, and all non-target environments
+func (h *UnifiedCommandHandler) preserveAllRootLevelProperties(originalContent, modifiedContent map[string]interface{}, targetStackName string) {
+	// Preserve ALL root-level properties from original (defaults, customers, schemaVersion, etc.)
+	for rootKey, rootValue := range originalContent {
+		if rootKey == "stacks" {
+			// Handle stacks section specially to preserve environments
+			h.preserveStackEnvironments(originalContent, modifiedContent, targetStackName)
+		} else {
+			// Preserve other root-level properties (defaults, customers, schemaVersion, etc.)
+			if _, exists := modifiedContent[rootKey]; !exists {
+				// Root-level property was removed by LLM, restore it
+				modifiedContent[rootKey] = h.deepCopyInterface(rootValue)
+			}
+		}
+	}
+}
+
+// preserveStackEnvironments ensures all environments from original config are preserved in modified config
+func (h *UnifiedCommandHandler) preserveStackEnvironments(originalContent, modifiedContent map[string]interface{}, targetStackName string) {
+	// Get original stacks
+	originalStacks, ok := originalContent["stacks"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Get modified stacks (create if missing)
+	modifiedStacks, ok := modifiedContent["stacks"].(map[string]interface{})
+	if !ok {
+		modifiedStacks = make(map[string]interface{})
+		modifiedContent["stacks"] = modifiedStacks
+	}
+
+	// Preserve all environments that were in the original but might be missing from modified
+	for envName, envConfig := range originalStacks {
+		if envName != targetStackName {
+			// This is not the environment being modified, so preserve it exactly
+			if _, exists := modifiedStacks[envName]; !exists {
+				// Environment was removed by LLM, restore it
+				modifiedStacks[envName] = h.deepCopyInterface(envConfig)
+			}
+		}
+	}
+}
+
+// deepCopyInterface creates a deep copy of any interface{} value
+func (h *UnifiedCommandHandler) deepCopyInterface(original interface{}) interface{} {
+	switch x := original.(type) {
+	case map[string]interface{}:
+		clone := make(map[string]interface{})
+		for k, v := range x {
+			clone[k] = h.deepCopyInterface(v)
+		}
+		return clone
+	case []interface{}:
+		clone := make([]interface{}, len(x))
+		for i, v := range x {
+			clone[i] = h.deepCopyInterface(v)
+		}
+		return clone
+	case []string:
+		clone := make([]string, len(x))
+		copy(clone, x)
+		return clone
+	default:
+		return original
+	}
 }
 
 // parseModifiedYAML extracts the modified configuration and determines what changed

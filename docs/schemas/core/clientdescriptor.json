@@ -9,6 +9,19 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "defaults": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "type": "object"
+      },
       "schemaVersion": {
         "type": "string"
       },
