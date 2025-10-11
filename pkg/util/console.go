@@ -139,10 +139,10 @@ type mwc []io.WriteCloser
 func (m mwc) Write(p []byte) (n int, err error) {
 	for _, w := range m {
 		if n, err = w.Write(p); err != nil {
-			return //nolint: gofumpt
+			return n, err //nolint: gofumpt
 		}
 	}
-	return
+	return n, err
 }
 
 func (m mwc) Close() error {

@@ -23,7 +23,7 @@ This tutorial guides **DevOps teams and developers** on how to migrate from **Te
 
 # **1️⃣ Understanding the Migration Approach**
 
-| Feature                       | Terraform / Pulumi                      | Simple Container                         |
+| Feature                       | Terraform / Pulumi                      | Simple Container                                |
 |-------------------------------|-----------------------------------------|-------------------------------------------------|
 | **Infrastructure Management** | Declarative IaC (HCL, Python, Go, etc.) | **High-level YAML (`server.yaml`)**             |
 | **Microservice Deployment**   | Requires external CI/CD                 | **Built-in (`client.yaml`)**                    |

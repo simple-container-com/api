@@ -13,6 +13,7 @@ import (
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_assistant"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
@@ -71,6 +72,7 @@ func main() {
 	rootCmd.SetVersionTemplate("{{printf \"%s\\n\" .Version}}")
 
 	rootCmd.AddCommand(
+		cmd_assistant.NewAssistantCmd(rootCmdInstance),
 		cmd_secrets.NewSecretsCmd(rootCmdInstance),
 		cmd_init.NewInitCmd(rootCmdInstance),
 		cmd_provision.NewProvisionCmd(rootCmdInstance),

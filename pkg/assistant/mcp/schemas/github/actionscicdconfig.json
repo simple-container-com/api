@@ -1,0 +1,21 @@
+{
+  "name": "ActionsCiCdConfig",
+  "type": "resource",
+  "provider": "github",
+  "description": "GITHUB actionscicd configuration",
+  "goPackage": "pkg/clouds/github/",
+  "goStruct": "ActionsCiCdConfig",
+  "resourceType": "github-actions",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "auth-token": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "auth-token"
+    ],
+    "type": "object"
+  }
+}

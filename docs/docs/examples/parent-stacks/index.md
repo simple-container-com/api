@@ -16,14 +16,14 @@ schemaVersion: 1.0
 
 templates:
   ecs-fargate-us:
-    type: aws-ecs-fargate
+    type: ecs-fargate
     config: &aws-us-config
       credentials: "${auth:aws-us}"
       account: "${auth:aws-us.projectId}"
       region: us-east-1
       
   ecs-fargate-eu:
-    type: aws-ecs-fargate
+    type: ecs-fargate
     config: &aws-eu-config
       credentials: "${auth:aws-eu}"
       account: "${auth:aws-eu.projectId}"
@@ -249,7 +249,7 @@ schemaVersion: 1.0
 
 templates:
   aws-compute:
-    type: aws-ecs-fargate
+    type: ecs-fargate
     config:
       credentials: "${auth:aws}"
       account: "${auth:aws.projectId}"

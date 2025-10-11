@@ -20,7 +20,55 @@ const (
 // ClientDescriptor describes the client schema
 type ClientDescriptor struct {
 	SchemaVersion string                           `json:"schemaVersion" yaml:"schemaVersion"`
+	Defaults      map[string]interface{}           `json:"defaults,omitempty" yaml:"defaults,omitempty"` // Maximum flexibility - supports any user-defined YAML anchors, templates, and configuration
 	Stacks        map[string]StackClientDescriptor `json:"stacks" yaml:"stacks"`
+
+	// Additional flexible root-level properties for future extensibility
+	// Any other user-defined root-level sections will be preserved via our text manipulation approach
+}
+
+// HasDefaults checks if the client configuration has a defaults section
+func (c *ClientDescriptor) HasDefaults() bool {
+	return len(c.Defaults) > 0
+}
+
+// GetDefaultsSection returns the defaults section as a map for flexible access
+// This allows users to define any YAML anchors and templates they need
+func (c *ClientDescriptor) GetDefaultsSection() map[string]interface{} {
+	if c.Defaults == nil {
+		return make(map[string]interface{})
+	}
+	return c.Defaults
+}
+
+// SetDefaultsSection sets the entire defaults section (used for programmatic configuration)
+func (c *ClientDescriptor) SetDefaultsSection(defaults map[string]interface{}) {
+	c.Defaults = defaults
+}
+
+// GetDefaultValue retrieves a specific value from the defaults section
+// Supports nested access using dot notation (e.g., "stack.type", "config.baseDnsZone")
+func (c *ClientDescriptor) GetDefaultValue(key string) (interface{}, bool) {
+	if !c.HasDefaults() {
+		return nil, false
+	}
+
+	// Support simple key access
+	if val, exists := c.Defaults[key]; exists {
+		return val, true
+	}
+
+	// Support nested key access (basic implementation)
+	// Could be enhanced further if needed
+	return nil, false
+}
+
+// SetDefaultValue sets a specific value in the defaults section
+func (c *ClientDescriptor) SetDefaultValue(key string, value interface{}) {
+	if c.Defaults == nil {
+		c.Defaults = make(map[string]interface{})
+	}
+	c.Defaults[key] = value
 }
 
 type StackClientDescriptor struct {

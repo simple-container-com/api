@@ -12,6 +12,7 @@ This section provides step-by-step guides for deploying applications using Simpl
 
 ### Operational Guides
 
+- **[DNS Management](dns-management.md)** - Complete guide to domain and DNS configuration with Cloudflare
 - **[Secrets Management](secrets-management.md)** - Comprehensive guide to handling secrets and credentials
 - **[Migration Guide](migration.md)** - Migrate existing applications to Simple Container
 - **[Service Deployment Steps](service-steps-to-deploy.md)** - General deployment workflow

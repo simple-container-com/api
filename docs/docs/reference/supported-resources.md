@@ -1191,7 +1191,7 @@ provisioner:
         credentials: "${auth:gcloud}"
         projectId: "${auth:gcloud.projectId}"
         provision: false
-        name: bewize-sc-state
+        name: my-sc-state
         location: europe-west3
     secrets-provider:
       type: passphrase

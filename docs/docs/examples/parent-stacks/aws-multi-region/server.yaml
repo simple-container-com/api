@@ -17,16 +17,18 @@ provisioner:
         keyName: example-company-kms-key
 
 templates:
+  # ECS Fargate templates - IMPORTANT: Always require authentication configuration
+  # Required config: credentials (AWS auth) and account (AWS project ID)
   stack-per-app-eu:
     type: ecs-fargate
     config: &aws-eu-cfg
-      credentials: "${auth:aws-eu}"
-      account: "${auth:aws-eu.projectId}"
+      credentials: "${auth:aws-eu}"        # Required: AWS authentication
+      account: "${auth:aws-eu.projectId}"  # Required: AWS account/project ID
   stack-per-app-us:
     type: ecs-fargate
     config: &aws-us-cfg
-      credentials: "${auth:aws-us}"
-      account: "${auth:aws-us.projectId}"
+      credentials: "${auth:aws-us}"        # Required: AWS authentication  
+      account: "${auth:aws-us.projectId}"  # Required: AWS account/project ID
   static-eu:
     type: aws-static-website
     config: *aws-eu-cfg

@@ -150,6 +150,11 @@ func (c *cryptor) unmarshalSecretsFile() error {
 		return errors.Wrapf(err, "failed to unmarshal secrets file: %q", secretsFilePath)
 	} else {
 		c.secrets = *res
+		// Normalize all public keys to ensure consistency (remove aliases/comments)
+		// This handles legacy keys that were stored with aliases before normalization was implemented
+		c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
+			return TrimPubKey(key)
+		})
 	}
 	return nil
 }
