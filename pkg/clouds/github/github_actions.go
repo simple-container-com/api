@@ -9,18 +9,35 @@ type ActionsCiCdConfig struct {
 	AuthToken string `json:"auth-token" yaml:"auth-token"`
 }
 
-// ReadCiCdConfig reads CI/CD configuration, supporting both legacy and enhanced formats
+// ReadCiCdConfig reads CI/CD configuration using SC's standard pattern
 func ReadCiCdConfig(config *api.Config) (api.Config, error) {
-	// Try to convert to enhanced config first
-	enhancedConfig := &EnhancedActionsCiCdConfig{}
-	if convertedConfig, err := api.ConvertConfig(config, enhancedConfig); err == nil {
-		// If enhanced config conversion succeeds, set defaults and return
-		enhancedConfig.SetDefaults()
-		return convertedConfig, nil
+	// Try to convert to strongly typed GitHub Actions configuration first
+	convertedConfig, err := api.ConvertConfig(config, &GitHubActionsCiCdConfig{})
+	if err != nil {
+		// Fall back to legacy config for backward compatibility
+		return api.ConvertConfig(config, &ActionsCiCdConfig{})
 	}
 
-	// Fall back to legacy config for backward compatibility
-	return api.ConvertConfig(config, &ActionsCiCdConfig{})
+	// Set defaults for any missing required fields
+	if gitHubConfig, ok := convertedConfig.Config.(*GitHubActionsCiCdConfig); ok {
+		if gitHubConfig.Organization == "" {
+			gitHubConfig.Organization = "simple-container-org"
+		}
+		if len(gitHubConfig.Environments) == 0 {
+			gitHubConfig.Environments = map[string]GitHubEnvironmentConfig{
+				"staging":    {Type: "staging"},
+				"production": {Type: "production"},
+			}
+		}
+		if len(gitHubConfig.WorkflowGeneration.Templates) == 0 {
+			gitHubConfig.WorkflowGeneration.Templates = []string{"deploy", "destroy"}
+		}
+		if gitHubConfig.WorkflowGeneration.CustomActions == nil {
+			gitHubConfig.WorkflowGeneration.CustomActions = map[string]string{}
+		}
+	}
+
+	return convertedConfig, nil
 }
 
 // ReadEnhancedCiCdConfig specifically reads enhanced CI/CD configuration

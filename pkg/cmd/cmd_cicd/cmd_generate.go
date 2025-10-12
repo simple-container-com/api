@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
@@ -121,23 +120,8 @@ func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
 
 	fmt.Printf("🔧 CI/CD Type: %s\n", color.GreenString(serverDesc.CiCd.Type))
 
-	// TODO: Implement proper enhanced config reading
-	enhancedConfig := &github.EnhancedActionsCiCdConfig{
-		Organization: github.OrganizationConfig{
-			Name: "default-org",
-		},
-		WorkflowGeneration: github.WorkflowGenerationConfig{
-			Templates: []string{"deploy", "destroy"},
-		},
-		Environments: map[string]github.EnvironmentConfig{
-			"staging":    {Type: "staging"},
-			"production": {Type: "production"},
-		},
-		Notifications: github.NotificationConfig{
-			SlackWebhook:   "",
-			DiscordWebhook: "",
-		},
-	}
+	// Create enhanced config based on server descriptor
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
 
 	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
 	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)
@@ -190,8 +174,8 @@ func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
 	fmt.Printf("  2. Commit and push the workflows to your repository\n")
 	fmt.Printf("  3. Configure required secrets in your GitHub repository:\n")
 
-	// TODO: Implement GetRequiredSecrets method
-	requiredSecrets := []string{"SC_CONFIG"} // Default required secret
+	// Get required secrets based on configuration
+	requiredSecrets := getRequiredSecrets(enhancedConfig)
 	for _, secret := range requiredSecrets {
 		fmt.Printf("     - %s\n", color.YellowString(secret))
 	}
@@ -204,27 +188,6 @@ func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
 	}
 
 	return nil
-}
-
-func readServerConfig(configFile string) (*api.ServerDescriptor, error) {
-	// TODO: Implement proper server config reading
-	// For now, return a minimal server descriptor
-	serverDesc := &api.ServerDescriptor{
-		CiCd: api.CiCdDescriptor{
-			Type:   github.CiCdTypeGithubActions,
-			Config: api.Config{},
-		},
-	}
-
-	return serverDesc, nil
-}
-
-func getEnvironmentNames(environments map[string]github.EnvironmentConfig) []string {
-	var names []string
-	for name := range environments {
-		names = append(names, name)
-	}
-	return names
 }
 
 func checkExistingWorkflows(config *github.EnhancedActionsCiCdConfig, stackName, outputDir string) []string {

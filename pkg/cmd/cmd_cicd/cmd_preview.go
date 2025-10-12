@@ -87,20 +87,8 @@ func runPreview(rootCmd *root_cmd.RootCmd, params PreviewParams) error {
 		return fmt.Errorf("no GitHub Actions CI/CD configuration found in %s", params.ConfigFile)
 	}
 
-	// TODO: Implement proper enhanced config reading
-	// For now, create a minimal config for preview
-	enhancedConfig := &github.EnhancedActionsCiCdConfig{
-		Organization: github.OrganizationConfig{
-			Name: "default-org",
-		},
-		WorkflowGeneration: github.WorkflowGenerationConfig{
-			Templates: []string{"deploy", "destroy"},
-		},
-		Environments: map[string]github.EnvironmentConfig{
-			"staging":    {Type: "staging"},
-			"production": {Type: "production"},
-		},
-	}
+	// Create enhanced config based on server descriptor
+	enhancedConfig := createEnhancedConfig(serverConfig, stackName)
 
 	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
 	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)

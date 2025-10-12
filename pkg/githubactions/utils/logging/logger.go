@@ -2,13 +2,13 @@ package logging
 
 import (
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"time"
+
+	"github.com/simple-container-com/api/pkg/util"
 )
 
-// Logger interface for structured logging
+// Logger interface for structured logging - maintains compatibility with existing githubactions code
 type Logger interface {
 	Info(msg string, keysAndValues ...interface{})
 	Warn(msg string, keysAndValues ...interface{})
@@ -16,67 +16,61 @@ type Logger interface {
 	Debug(msg string, keysAndValues ...interface{})
 }
 
-// StandardLogger implements Logger interface with structured logging
-type StandardLogger struct {
-	component string
-	infoLog   *log.Logger
-	warnLog   *log.Logger
-	errorLog  *log.Logger
-	debugLog  *log.Logger
+// LoggerWrapper wraps SC's existing util.Logger to provide structured logging interface
+type LoggerWrapper struct {
+	component  string
+	utilLogger util.Logger
 }
 
-// NewLogger creates a new structured logger
+// NewLogger creates a new logger wrapper around SC's util logger
 func NewLogger(component string) Logger {
-	return &StandardLogger{
-		component: component,
-		infoLog:   log.New(os.Stdout, "", 0),
-		warnLog:   log.New(os.Stdout, "", 0),
-		errorLog:  log.New(os.Stderr, "", 0),
-		debugLog:  log.New(os.Stdout, "", 0),
+	// Create a StdoutLogger using SC's existing logger
+	stdoutLogger := util.NewStdoutLogger(nil, nil) // Uses os.Stdout, os.Stderr
+
+	return &LoggerWrapper{
+		component:  component,
+		utilLogger: stdoutLogger,
 	}
 }
 
-// NewLoggerWithOutput creates a logger with custom output
-func NewLoggerWithOutput(component string, out io.Writer, errOut io.Writer) Logger {
-	return &StandardLogger{
-		component: component,
-		infoLog:   log.New(out, "", 0),
-		warnLog:   log.New(out, "", 0),
-		errorLog:  log.New(errOut, "", 0),
-		debugLog:  log.New(out, "", 0),
+// NewLoggerWithUtilLogger creates a logger wrapper around an existing util.Logger
+func NewLoggerWithUtilLogger(component string, utilLogger util.Logger) Logger {
+	return &LoggerWrapper{
+		component:  component,
+		utilLogger: utilLogger,
 	}
 }
 
 // Info logs an info message with structured key-value pairs
-func (l *StandardLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l *LoggerWrapper) Info(msg string, keysAndValues ...interface{}) {
 	formatted := l.formatMessage("INFO", msg, keysAndValues...)
-	l.infoLog.Print(formatted)
+	l.utilLogger.Log(formatted)
 }
 
 // Warn logs a warning message with structured key-value pairs
-func (l *StandardLogger) Warn(msg string, keysAndValues ...interface{}) {
+func (l *LoggerWrapper) Warn(msg string, keysAndValues ...interface{}) {
 	formatted := l.formatMessage("WARN", msg, keysAndValues...)
-	l.warnLog.Print(formatted)
+	l.utilLogger.Log(formatted)
 }
 
 // Error logs an error message with structured key-value pairs
-func (l *StandardLogger) Error(msg string, keysAndValues ...interface{}) {
+func (l *LoggerWrapper) Error(msg string, keysAndValues ...interface{}) {
 	formatted := l.formatMessage("ERROR", msg, keysAndValues...)
-	l.errorLog.Print(formatted)
+	l.utilLogger.Err(formatted)
 }
 
 // Debug logs a debug message with structured key-value pairs
-func (l *StandardLogger) Debug(msg string, keysAndValues ...interface{}) {
+func (l *LoggerWrapper) Debug(msg string, keysAndValues ...interface{}) {
 	// Only show debug logs if DEBUG environment variable is set
 	if os.Getenv("DEBUG") == "" {
 		return
 	}
 	formatted := l.formatMessage("DEBUG", msg, keysAndValues...)
-	l.debugLog.Print(formatted)
+	l.utilLogger.Debugf("%s", formatted)
 }
 
 // formatMessage formats a log message with timestamp, level, component, and key-value pairs
-func (l *StandardLogger) formatMessage(level, msg string, keysAndValues ...interface{}) string {
+func (l *LoggerWrapper) formatMessage(level, msg string, keysAndValues ...interface{}) string {
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 
 	// Build the base message
@@ -92,7 +86,7 @@ func (l *StandardLogger) formatMessage(level, msg string, keysAndValues ...inter
 }
 
 // formatKeyValues formats key-value pairs into a readable string
-func (l *StandardLogger) formatKeyValues(keysAndValues ...interface{}) string {
+func (l *LoggerWrapper) formatKeyValues(keysAndValues ...interface{}) string {
 	if len(keysAndValues) == 0 {
 		return ""
 	}
@@ -123,15 +117,15 @@ func (l *StandardLogger) formatKeyValues(keysAndValues ...interface{}) string {
 	return result
 }
 
-// NoOpLogger is a logger that does nothing (useful for testing)
-type NoOpLogger struct{}
+// NoOpLoggerWrapper wraps util.NoopLogger for compatibility
+type NoOpLoggerWrapper struct{}
 
-// NewNoOpLogger creates a logger that does nothing
+// NewNoOpLogger creates a logger that does nothing (useful for testing)
 func NewNoOpLogger() Logger {
-	return &NoOpLogger{}
+	return &NoOpLoggerWrapper{}
 }
 
-func (n *NoOpLogger) Info(msg string, keysAndValues ...interface{})  {}
-func (n *NoOpLogger) Warn(msg string, keysAndValues ...interface{})  {}
-func (n *NoOpLogger) Error(msg string, keysAndValues ...interface{}) {}
-func (n *NoOpLogger) Debug(msg string, keysAndValues ...interface{}) {}
+func (n *NoOpLoggerWrapper) Info(msg string, keysAndValues ...interface{})  {}
+func (n *NoOpLoggerWrapper) Warn(msg string, keysAndValues ...interface{})  {}
+func (n *NoOpLoggerWrapper) Error(msg string, keysAndValues ...interface{}) {}
+func (n *NoOpLoggerWrapper) Debug(msg string, keysAndValues ...interface{}) {}

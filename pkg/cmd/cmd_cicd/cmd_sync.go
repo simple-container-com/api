@@ -89,15 +89,8 @@ func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 		return fmt.Errorf("no GitHub Actions CI/CD configuration found in %s", params.ConfigFile)
 	}
 
-	// TODO: Implement proper enhanced config reading
-	enhancedConfig := &github.EnhancedActionsCiCdConfig{
-		Organization: github.OrganizationConfig{
-			Name: "default-org",
-		},
-		WorkflowGeneration: github.WorkflowGenerationConfig{
-			Templates: []string{"deploy", "destroy"},
-		},
-	}
+	// Create enhanced config based on server descriptor
+	enhancedConfig := createEnhancedConfig(serverConfig, stackName)
 
 	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
 	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)

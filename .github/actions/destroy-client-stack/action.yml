@@ -20,6 +20,12 @@ inputs:
   discord-webhook-url:
     description: 'Discord webhook URL for notifications (optional)'
     required: false
+  telegram-chat-id:
+    description: 'Telegram chat ID for notifications (optional)'
+    required: false
+  telegram-token:
+    description: 'Telegram bot token for notifications (optional)'
+    required: false
 
 outputs:
   environment:
@@ -41,3 +47,5 @@ runs:
     SC_CONFIG: ${{ inputs.sc-config }}
     SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
     DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
+    TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
+    TELEGRAM_TOKEN: ${{ inputs.telegram-token }}

@@ -76,6 +76,8 @@ type PRPreviewConfig struct {
 type NotificationConfig struct {
 	SlackWebhook   string            `json:"slack-webhook" yaml:"slack-webhook"`
 	DiscordWebhook string            `json:"discord-webhook" yaml:"discord-webhook"`
+	TelegramChatID string            `json:"telegram-chat-id" yaml:"telegram-chat-id"`
+	TelegramToken  string            `json:"telegram-token" yaml:"telegram-token"`
 	UserMappings   map[string]string `json:"user-mappings" yaml:"user-mappings"`
 	CCOnStart      bool              `json:"cc-on-start" yaml:"cc-on-start"`
 	Channels       map[string]string `json:"channels" yaml:"channels"`
