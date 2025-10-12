@@ -745,12 +745,45 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		return NewMCPError(req.ID, ErrorCodeInvalidParams, "Invalid parameters", err.Error())
 	}
 
-	switch params.Name {
+	// Add timeout for tool calls to prevent hanging (30 seconds for analysis, 15 for others)
+	timeout := 15 * time.Second
+	if params.Name == "analyze_project" || params.Name == "setup_simple_container" {
+		timeout = 30 * time.Second
+	}
+	
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Run tool call with timeout protection
+	resultChan := make(chan *MCPResponse, 1)
+	go func() {
+		resultChan <- s.executeToolCall(ctxWithTimeout, req, params.Name, params.Arguments)
+	}()
+
+	select {
+	case result := <-resultChan:
+		return result
+	case <-ctxWithTimeout.Done():
+		if s.logger != nil {
+			s.logger.Error(ctx, "Tool call timeout: %s exceeded %v", params.Name, timeout)
+		}
+		return NewMCPError(req.ID, ErrorCodeTimeout, 
+			fmt.Sprintf("Tool call '%s' exceeded timeout of %v. This may indicate a performance issue.", params.Name, timeout),
+			map[string]interface{}{
+				"tool":    params.Name,
+				"timeout": timeout.String(),
+				"hint":    "Try using cached mode or check system resources",
+			})
+	}
+}
+
+func (s *MCPServer) executeToolCall(ctx context.Context, req *MCPRequest, toolName string, arguments map[string]interface{}) *MCPResponse {
+	switch toolName {
 	case "search_documentation":
 		// Convert arguments to SearchDocumentationParams
-		query, _ := params.Arguments["query"].(string)
+		query, _ := arguments["query"].(string)
 		limit := 5
-		if l, ok := params.Arguments["limit"].(float64); ok {
+		if l, ok := arguments["limit"].(float64); ok {
 			limit = int(l)
 		}
 
@@ -782,7 +815,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 
 	case "get_project_context":
 		path := "."
-		if p, ok := params.Arguments["path"].(string); ok {
+		if p, ok := arguments["path"].(string); ok {
 			path = p
 		}
 
@@ -849,7 +882,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 
 	case "analyze_project":
 		path := "."
-		if p, ok := params.Arguments["path"].(string); ok {
+		if p, ok := arguments["path"].(string); ok {
 			path = p
 		}
 
@@ -997,7 +1030,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 
 	case "setup_simple_container":
 		path := "."
-		if p, ok := params.Arguments["path"].(string); ok {
+		if p, ok := arguments["path"].(string); ok {
 			path = p
 		}
 
@@ -1009,22 +1042,22 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		path = absPath
 
 		environment := "development"
-		if env, ok := params.Arguments["environment"].(string); ok {
+		if env, ok := arguments["environment"].(string); ok {
 			environment = env
 		}
 
 		var parent string
-		if p, ok := params.Arguments["parent"].(string); ok {
+		if p, ok := arguments["parent"].(string); ok {
 			parent = p
 		}
 
 		deploymentType := "auto"
-		if dt, ok := params.Arguments["deployment_type"].(string); ok {
+		if dt, ok := arguments["deployment_type"].(string); ok {
 			deploymentType = dt
 		}
 
 		interactive := false
-		if i, ok := params.Arguments["interactive"].(bool); ok {
+		if i, ok := arguments["interactive"].(bool); ok {
 			interactive = i
 		}
 
@@ -1055,7 +1088,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		configType := "client"
 		var stackName string
 
-		if ct, ok := params.Arguments["config_type"].(string); ok {
+		if ct, ok := arguments["config_type"].(string); ok {
 			// Validate config_type - must be "client" or "server"
 			switch ct {
 			case "client", "server":
@@ -1071,7 +1104,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		}
 
 		// Override with explicit stack_name if provided
-		if sn, ok := params.Arguments["stack_name"].(string); ok {
+		if sn, ok := arguments["stack_name"].(string); ok {
 			stackName = sn
 		}
 
@@ -1096,28 +1129,28 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "add_environment":
-		stackName, ok := params.Arguments["stack_name"].(string)
+		stackName, ok := arguments["stack_name"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
 		}
 
-		deploymentType, ok := params.Arguments["deployment_type"].(string)
+		deploymentType, ok := arguments["deployment_type"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "deployment_type is required", nil)
 		}
 
-		parent, ok := params.Arguments["parent"].(string)
+		parent, ok := arguments["parent"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "parent is required", nil)
 		}
 
-		parentEnv, ok := params.Arguments["parent_env"].(string)
+		parentEnv, ok := arguments["parent_env"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "parent_env is required", nil)
 		}
 
 		var config map[string]interface{}
-		if c, ok := params.Arguments["config"].(map[string]interface{}); ok {
+		if c, ok := arguments["config"].(map[string]interface{}); ok {
 			config = c
 		}
 
@@ -1145,12 +1178,12 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "modify_stack_config":
-		stackName, ok := params.Arguments["stack_name"].(string)
+		stackName, ok := arguments["stack_name"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
 		}
 
-		changes, ok := params.Arguments["changes"].(map[string]interface{})
+		changes, ok := arguments["changes"].(map[string]interface{})
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "changes is required", nil)
 		}
@@ -1176,22 +1209,22 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "add_resource":
-		resourceName, ok := params.Arguments["resource_name"].(string)
+		resourceName, ok := arguments["resource_name"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "resource_name is required", nil)
 		}
 
-		resourceType, ok := params.Arguments["resource_type"].(string)
+		resourceType, ok := arguments["resource_type"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "resource_type is required", nil)
 		}
 
-		environment, ok := params.Arguments["environment"].(string)
+		environment, ok := arguments["environment"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "environment is required", nil)
 		}
 
-		config, ok := params.Arguments["config"].(map[string]interface{})
+		config, ok := arguments["config"].(map[string]interface{})
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "config is required", nil)
 		}
@@ -1219,7 +1252,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "read_project_file":
-		filename, ok := params.Arguments["filename"].(string)
+		filename, ok := arguments["filename"].(string)
 		if !ok || filename == "" {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "filename is required", nil)
 		}
@@ -1240,13 +1273,13 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "show_stack_config":
-		stackName, ok := params.Arguments["stack_name"].(string)
+		stackName, ok := arguments["stack_name"].(string)
 		if !ok || stackName == "" {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
 		}
 
 		configType := ""
-		if ct, ok := params.Arguments["config_type"].(string); ok {
+		if ct, ok := arguments["config_type"].(string); ok {
 			configType = ct
 		}
 
@@ -1269,13 +1302,13 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "advanced_search_documentation":
-		query, ok := params.Arguments["query"].(string)
+		query, ok := arguments["query"].(string)
 		if !ok || query == "" {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "query is required", nil)
 		}
 
 		limit := 5
-		if l, ok := params.Arguments["limit"].(float64); ok {
+		if l, ok := arguments["limit"].(float64); ok {
 			limit = int(l)
 		}
 
@@ -1299,7 +1332,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 
 	case "get_help":
 		toolName := ""
-		if tn, ok := params.Arguments["tool_name"].(string); ok {
+		if tn, ok := arguments["tool_name"].(string); ok {
 			toolName = tn
 		}
 
@@ -1320,12 +1353,12 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 
 	case "get_status":
 		detailed := false
-		if d, ok := params.Arguments["detailed"].(bool); ok {
+		if d, ok := arguments["detailed"].(bool); ok {
 			detailed = d
 		}
 
 		path := "."
-		if p, ok := params.Arguments["path"].(string); ok {
+		if p, ok := arguments["path"].(string); ok {
 			path = p
 		}
 
@@ -1345,24 +1378,24 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	case "write_project_file":
-		filename, ok := params.Arguments["filename"].(string)
+		filename, ok := arguments["filename"].(string)
 		if !ok || filename == "" {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "filename is required", nil)
 		}
 
-		content, ok := params.Arguments["content"].(string)
+		content, ok := arguments["content"].(string)
 		if !ok {
 			return NewMCPError(req.ID, ErrorCodeInvalidParams, "content is required", nil)
 		}
 
 		// Parse optional parameters
 		lines := ""
-		if l, ok := params.Arguments["lines"].(string); ok {
+		if l, ok := arguments["lines"].(string); ok {
 			lines = l
 		}
 
 		append := false
-		if a, ok := params.Arguments["append"].(bool); ok {
+		if a, ok := arguments["append"].(bool); ok {
 			append = a
 		}
 
@@ -1387,7 +1420,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		})
 
 	default:
-		return NewMCPError(req.ID, ErrorCodeMethodNotFound, fmt.Sprintf("Tool '%s' not found", params.Name), nil)
+		return NewMCPError(req.ID, ErrorCodeMethodNotFound, fmt.Sprintf("Tool '%s' not found", toolName), nil)
 	}
 }
 
@@ -1833,6 +1866,10 @@ func (h *DefaultMCPHandler) AnalyzeProject(ctx context.Context, params AnalyzePr
 	progressReporter := analysis.NewJSONProgressReporter(os.Stderr)
 	analyzer.SetProgressReporter(progressReporter)
 
+	// Set analysis mode to FullMode for comprehensive analysis (matching chat behavior)
+	// This ensures resource detection, git analysis, and all other detectors run
+	analyzer.SetAnalysisMode(analysis.FullMode)
+
 	projectInfo, err := analyzer.AnalyzeProject(params.Path)
 	if err != nil {
 		return nil, fmt.Errorf("project analysis failed: %w", err)
@@ -1932,8 +1969,11 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 	// Use the existing developer mode setup functionality
 	developerMode := modes.NewDeveloperMode()
 
+	// Determine if we need to run analysis to detect deployment type
+	needsAnalysisForDeploymentType := params.DeploymentType == "" || params.DeploymentType == "auto"
+
 	// If deployment_type is empty or "auto", either use elicitation or intelligent defaults
-	if params.DeploymentType == "" || params.DeploymentType == "auto" {
+	if needsAnalysisForDeploymentType {
 		// Check if client supports elicitation
 		if h.supportsElicitation() {
 			// Use elicitation to ask user for deployment type
@@ -1941,6 +1981,8 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 		} else {
 			// Fall back to intelligent defaults
 			analyzer := analysis.NewProjectAnalyzer()
+			// Set analysis mode for consistent behavior with chat interface
+			analyzer.SetAnalysisMode(analysis.FullMode)
 			projectInfo, err := analyzer.AnalyzeProject(params.Path)
 			if err != nil {
 				// If analysis fails, default to cloud-compose (most common)
@@ -1954,10 +1996,10 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 
 	// Phase 2: Proceed with setup using specified deployment type
 	setupOptions := modes.SetupOptions{
-		Interactive:      false, // Force non-interactive for MCP to prevent hanging
+		Interactive:      false,                         // Force non-interactive for MCP to prevent hanging
 		Environment:      params.Environment,
 		Parent:           params.Parent,
-		SkipAnalysis:     false, // Always run analysis for better setup
+		SkipAnalysis:     needsAnalysisForDeploymentType, // Skip only if we already analyzed for deployment type detection
 		OutputDir:        params.Path,
 		DeploymentType:   params.DeploymentType, // Use the specified deployment type
 		SkipConfirmation: true,                  // Skip confirmation prompts for MCP
@@ -2179,6 +2221,8 @@ func (h *DefaultMCPHandler) supportsElicitation() bool {
 func (h *DefaultMCPHandler) elicitDeploymentType(ctx context.Context, params SetupSimpleContainerParams, developerMode *modes.DeveloperMode) (*SetupSimpleContainerResult, error) {
 	// Analyze project first to provide context
 	analyzer := analysis.NewProjectAnalyzer()
+	// Set analysis mode for consistent behavior with chat interface
+	analyzer.SetAnalysisMode(analysis.FullMode)
 	projectInfo, err := analyzer.AnalyzeProject(params.Path)
 	if err != nil {
 		// If analysis fails, fall back to intelligent default
@@ -2250,7 +2294,7 @@ func (h *DefaultMCPHandler) elicitDeploymentType(ctx context.Context, params Set
 		Interactive:      false, // Force non-interactive for MCP to prevent hanging
 		Environment:      params.Environment,
 		Parent:           params.Parent,
-		SkipAnalysis:     false, // Always run analysis for better setup
+		SkipAnalysis:     true,  // Skip analysis - we already analyzed above (even if it failed)
 		OutputDir:        params.Path,
 		DeploymentType:   params.DeploymentType, // Use the determined deployment type
 		SkipConfirmation: true,                  // Skip confirmation prompts for MCP

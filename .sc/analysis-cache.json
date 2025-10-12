@@ -1,51 +1,18 @@
 {
-  "timestamp": "2025-10-10T00:20:20.478881+03:00",
+  "timestamp": "2025-10-12T21:40:11.858702+03:00",
   "project_path": "/Users/laboratory/projects/github/simple-container-api",
   "analyzer_version": "1.1",
   "resources": {
     "environment_variables": [
       {
-        "name": "METEOR_SETTINGS",
+        "name": "SIMPLE_CONTAINER_MAX_TOKENS",
         "sources": [
-          "docs/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+          ".env.example"
         ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "PORT",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "port",
-        "description": "Port number configuration",
-        "required": true
-      },
-      {
-        "name": "MYSQL_PASSWORD",
-        "sources": [
-          "pkg/clouds/pulumi/aws/compute_proc.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "VERSION",
-        "sources": [
-          "pkg/clouds/pulumi/aws/alerts.go",
-          "pkg/clouds/pulumi/gcp/docker_image.go",
-          "pkg/cmd/root_cmd/root.go",
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true,
+        "default_value": "4000"
       },
       {
         "name": "MONGO_URL",
@@ -60,177 +27,39 @@
         "required": true
       },
       {
-        "name": "SIMPLE_CONTAINER_LLM_MODEL",
-        "sources": [
-          ".env.example"
-        ],
-        "usage_type": "environment",
-        "description": "Environment or mode specification",
-        "required": true,
-        "default_value": "gpt-3.5-turbo"
-      },
-      {
-        "name": "JWT_SECRET",
+        "name": "PROD_DB_PASSWORD",
         "sources": [
           "pkg/assistant/chat/commands_project.go"
         ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "DOCKER_USERNAME",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "OUTPUT_FILE",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "USE_PREFIXES",
-        "sources": [
-          "pkg/clouds/pulumi/kubernetes/caddy.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "REPLICA_SET",
-        "sources": [
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "FORCE_UPDATE",
-        "sources": [
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "POSTGRES_USER",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
         "usage_type": "database_config",
         "description": "Database connection configuration",
         "required": true
       },
       {
-        "name": "SC_MCP_API_KEY",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "LAMBDA_TASK_ROOT",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "DB_PASSWORD",
-        "sources": [
-          "pkg/clouds/pulumi/aws/compute_proc.go",
-          "pkg/clouds/pulumi/db/constants.go",
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "QUERY",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "S3_BUCKET",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "DB_USER",
-        "sources": [
-          "pkg/clouds/pulumi/aws/compute_proc.go",
-          "pkg/clouds/pulumi/db/constants.go",
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "INIT_SQL",
-        "sources": [
-          "pkg/clouds/pulumi/db/constants.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "PLATFORM",
-        "sources": [
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "HOME",
-        "sources": [
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "SKIP_TESTS",
+        "name": "GOOS",
         "sources": [
           "welder.yaml"
         ],
         "usage_type": "config",
         "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "DEEPSEEK_API_KEY",
+        "sources": [
+          "pkg/assistant/chat/interface.go"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "ANTHROPIC_API_KEY",
+        "sources": [
+          "pkg/assistant/chat/interface.go"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
         "required": true
       },
       {
@@ -244,186 +73,23 @@
         "required": true
       },
       {
-        "name": "CURRENT",
+        "name": "SOURCE_IMAGE",
         "sources": [
-          "sc.sh"
+          "pkg/clouds/pulumi/aws/alerts.go",
+          "pkg/clouds/pulumi/gcp/docker_image.go"
         ],
         "usage_type": "config",
         "description": "Application configuration parameter",
         "required": true
       },
       {
-        "name": "EMBEDDING_MODEL",
-        "sources": [
-          "welder.yaml"
-        ],
-        "usage_type": "environment",
-        "description": "Environment or mode specification",
-        "required": true
-      },
-      {
-        "name": "GITHUB_SERVER_URL",
-        "sources": [
-          ".github/workflows/push.yaml",
-          ".github/workflows/branch.yaml"
-        ],
-        "usage_type": "url",
-        "description": "Service URL or endpoint configuration",
-        "required": true
-      },
-      {
-        "name": "GITHUB_REPOSITORY",
-        "sources": [
-          ".github/workflows/push.yaml",
-          ".github/workflows/branch.yaml",
-          "pkg/provisioner/common_test.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "MONGODB_ATLAS_PRIVATE_KEY",
+        "name": "DATABASE_URL",
         "sources": [
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
         ],
         "usage_type": "database_config",
         "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "SIMPLE_CONTAINER_VERSION",
-        "sources": [
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "VERSION_COMPARE",
-        "sources": [
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "STAGING_DB_PASSWORD",
-        "sources": [
-          "pkg/assistant/chat/commands_project.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "REDIS_URL",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "ROOT_USER",
-        "sources": [
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "BINDIR",
-        "sources": [
-          "sc.sh"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "GOARCH",
-        "sources": [
-          "welder.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "GCP_SERVICE_ACCOUNT_KEY",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "PROJECT_NAME",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "TELEGRAM_TOKEN",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "MONGO_URI",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "DEFAULT_ENTRY_START",
-        "sources": [
-          "pkg/clouds/pulumi/kubernetes/caddy.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "PATH",
-        "sources": [
-          "pkg/clouds/pulumi/login.go",
-          "sc.sh",
-          "welder.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "GITHUB_ACTOR",
-        "sources": [
-          ".github/workflows/push.yaml",
-          ".github/workflows/branch.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
         "required": true
       },
       {
@@ -443,12 +109,51 @@
         "default_value": "sk-your-openai-api-key-here"
       },
       {
-        "name": "DEEPSEEK_API_KEY",
+        "name": "STAGING_DB_PASSWORD",
         "sources": [
-          "pkg/assistant/chat/interface.go"
+          "pkg/assistant/chat/commands_project.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "AWS_SECRET_KEY",
+        "sources": [
+          "pkg/assistant/chat/commands_project.go"
         ],
         "usage_type": "secret",
         "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "MONGODB_ATLAS_PUBLIC_KEY",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "LAMBDA_TASK_ROOT",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "POSTGRES_PASSWORD",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
         "required": true
       },
       {
@@ -459,6 +164,281 @@
         ],
         "usage_type": "secret",
         "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "DOCKER_USERNAME",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "GITHUB_OUTPUT",
+        "sources": [
+          ".github/workflows/push.yaml",
+          ".github/workflows/branch.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "REDIS_URL",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "SC_MCP_API_KEY",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "DISCORD_WEBHOOK_URL",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "url",
+        "description": "Service URL or endpoint configuration",
+        "required": true
+      },
+      {
+        "name": "MYSQL_PORT",
+        "sources": [
+          "pkg/clouds/pulumi/aws/compute_proc.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "DB_USER",
+        "sources": [
+          "pkg/clouds/pulumi/aws/compute_proc.go",
+          "pkg/clouds/pulumi/db/constants.go",
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "PATH",
+        "sources": [
+          "pkg/clouds/pulumi/login.go",
+          "sc.sh",
+          "welder.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "GITHUB_REPOSITORY",
+        "sources": [
+          ".github/workflows/push.yaml",
+          ".github/workflows/branch.yaml",
+          "pkg/provisioner/common_test.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "METEOR_SETTINGS",
+        "sources": [
+          "docs/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "PUBSUB_TOPIC",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "DOCKER_PASSWORD",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "DB_PASSWORD",
+        "sources": [
+          "pkg/clouds/pulumi/aws/compute_proc.go",
+          "pkg/clouds/pulumi/db/constants.go",
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "DEFAULT_ENTRY_START",
+        "sources": [
+          "pkg/clouds/pulumi/kubernetes/caddy.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "REPLICA_SET",
+        "sources": [
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "CURRENT",
+        "sources": [
+          "sc.sh"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "MYSQL_PASSWORD",
+        "sources": [
+          "pkg/clouds/pulumi/aws/compute_proc.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "ROOT_DATABASE",
+        "sources": [
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "SKIP_EMBEDDINGS",
+        "sources": [
+          "welder.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "YANDEX_API_KEY",
+        "sources": [
+          "pkg/assistant/chat/interface.go"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "MYSQL_USER",
+        "sources": [
+          "pkg/clouds/pulumi/aws/compute_proc.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "SKIP_TESTS",
+        "sources": [
+          "welder.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "EXT",
+        "sources": [
+          "welder.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "GITHUB_RUN_ID",
+        "sources": [
+          ".github/workflows/push.yaml",
+          ".github/workflows/branch.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "GITHUB_SERVER_URL",
+        "sources": [
+          ".github/workflows/push.yaml",
+          ".github/workflows/branch.yaml"
+        ],
+        "usage_type": "url",
+        "description": "Service URL or endpoint configuration",
+        "required": true
+      },
+      {
+        "name": "S3_BUCKET",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "PROJECT_NAME",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "OUTPUT_FILE",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
         "required": true
       },
       {
@@ -473,31 +453,32 @@
         "required": true
       },
       {
-        "name": "MYSQL_HOST",
+        "name": "EMBEDDING_MODEL",
         "sources": [
-          "pkg/clouds/pulumi/aws/compute_proc.go"
+          "welder.yaml"
+        ],
+        "usage_type": "environment",
+        "description": "Environment or mode specification",
+        "required": true
+      },
+      {
+        "name": "MONGODB_URL",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
         ],
         "usage_type": "database_config",
         "description": "Database connection configuration",
         "required": true
       },
       {
-        "name": "SOURCE_IMAGE",
+        "name": "POSTGRES_DB",
         "sources": [
-          "pkg/clouds/pulumi/aws/alerts.go",
-          "pkg/clouds/pulumi/gcp/docker_image.go"
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
         ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "PROXY_PID",
-        "sources": [
-          "pkg/clouds/pulumi/gcp/cloudsql_proxy.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
         "required": true
       },
       {
@@ -521,21 +502,68 @@
         "required": true
       },
       {
-        "name": "ROOT_DATABASE",
+        "name": "FORCE_UPDATE",
         "sources": [
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "GOOS",
-        "sources": [
-          "welder.yaml"
+          "sc.sh"
         ],
         "usage_type": "config",
         "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "QUERY",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "USE_PREFIXES",
+        "sources": [
+          "pkg/clouds/pulumi/kubernetes/caddy.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "URL",
+        "sources": [
+          "sc.sh"
+        ],
+        "usage_type": "url",
+        "description": "Service URL or endpoint configuration",
+        "required": true
+      },
+      {
+        "name": "HOME",
+        "sources": [
+          "sc.sh"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "PLATFORM",
+        "sources": [
+          "sc.sh"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "POSTGRES_USER",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
         "required": true
       },
       {
@@ -543,6 +571,153 @@
         "sources": [
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "SIMPLE_CONTAINER_LLM_MODEL",
+        "sources": [
+          ".env.example"
+        ],
+        "usage_type": "environment",
+        "description": "Environment or mode specification",
+        "required": true,
+        "default_value": "gpt-3.5-turbo"
+      },
+      {
+        "name": "SIMPLE_CONTAINER_TEMPERATURE",
+        "sources": [
+          ".env.example"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true,
+        "default_value": "0.7"
+      },
+      {
+        "name": "MONGODB_ATLAS_PRIVATE_KEY",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "AWS_ACCESS_KEY",
+        "sources": [
+          "pkg/assistant/chat/commands_project.go"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "USER",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json",
+          "pkg/template/template.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "VERSION",
+        "sources": [
+          "pkg/clouds/pulumi/aws/alerts.go",
+          "pkg/clouds/pulumi/gcp/docker_image.go",
+          "pkg/cmd/root_cmd/root.go",
+          "sc.sh"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "MYSQL_HOST",
+        "sources": [
+          "pkg/clouds/pulumi/aws/compute_proc.go"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "SOME_VAR",
+        "sources": [
+          "pkg/template/template_test.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "SIMPLE_CONTAINER_VERSION",
+        "sources": [
+          "sc.sh"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "SIMPLE_CONTAINER_EMBEDDING_MODEL",
+        "sources": [
+          ".env.example"
+        ],
+        "usage_type": "environment",
+        "description": "Environment or mode specification",
+        "required": true,
+        "default_value": "text-embedding-3-small"
+      },
+      {
+        "name": "JWT_SECRET",
+        "sources": [
+          "pkg/assistant/chat/commands_project.go"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "PORT",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "port",
+        "description": "Port number configuration",
+        "required": true
+      },
+      {
+        "name": "TELEGRAM_TOKEN",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "TELEGRAM_CHAT",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "ROOT_USER",
+        "sources": [
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
         ],
         "usage_type": "config",
         "description": "Application configuration parameter",
@@ -558,248 +733,9 @@
         "required": true
       },
       {
-        "name": "URL",
+        "name": "BINDIR",
         "sources": [
           "sc.sh"
-        ],
-        "usage_type": "url",
-        "description": "Service URL or endpoint configuration",
-        "required": true
-      },
-      {
-        "name": "SIMPLE_CONTAINER_MAX_TOKENS",
-        "sources": [
-          ".env.example"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true,
-        "default_value": "4000"
-      },
-      {
-        "name": "PROD_DB_PASSWORD",
-        "sources": [
-          "pkg/assistant/chat/commands_project.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "PUBSUB_TOPIC",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "DATABASE_URL",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "DEFAULT_ENTRY",
-        "sources": [
-          "pkg/clouds/pulumi/kubernetes/caddy.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "SKIP_EMBEDDINGS",
-        "sources": [
-          "welder.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "DOCKER_PASSWORD",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "SIMPLE_CONTAINER_STARTUP_DELAY",
-        "sources": [
-          "cmd/cloud-helpers/main.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "GITHUB_REF_NAME",
-        "sources": [
-          ".github/workflows/push.yaml",
-          ".github/workflows/branch.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "AWS_ACCESS_KEY",
-        "sources": [
-          "pkg/assistant/chat/commands_project.go"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "BRANCH_NAME",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "MYSQL_USER",
-        "sources": [
-          "pkg/clouds/pulumi/aws/compute_proc.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "MYSQL_PORT",
-        "sources": [
-          "pkg/clouds/pulumi/aws/compute_proc.go"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "SIMPLE_CONTAINER_EMBEDDING_MODEL",
-        "sources": [
-          ".env.example"
-        ],
-        "usage_type": "environment",
-        "description": "Environment or mode specification",
-        "required": true,
-        "default_value": "text-embedding-3-small"
-      },
-      {
-        "name": "AWS_SECRET_KEY",
-        "sources": [
-          "pkg/assistant/chat/commands_project.go"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "POSTGRES_DB",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "USER",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json",
-          "pkg/template/template.go"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "OPENAI_KEY",
-        "sources": [
-          "welder.yaml"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "SIMPLE_CONTAINER_TEMPERATURE",
-        "sources": [
-          ".env.example"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true,
-        "default_value": "0.7"
-      },
-      {
-        "name": "ANTHROPIC_API_KEY",
-        "sources": [
-          "pkg/assistant/chat/interface.go"
-        ],
-        "usage_type": "secret",
-        "description": "Sensitive credential or secret value",
-        "required": true
-      },
-      {
-        "name": "MONGODB_ATLAS_PUBLIC_KEY",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "MONGODB_URL",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "POSTGRES_PASSWORD",
-        "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
-        "required": true
-      },
-      {
-        "name": "HOST",
-        "sources": [
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
-        ],
-        "usage_type": "url",
-        "description": "Service URL or endpoint configuration",
-        "required": true
-      },
-      {
-        "name": "SOME_VAR",
-        "sources": [
-          "pkg/template/template_test.go"
         ],
         "usage_type": "config",
         "description": "Application configuration parameter",
@@ -818,6 +754,83 @@
         "required": true
       },
       {
+        "name": "GCP_SERVICE_ACCOUNT_KEY",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "secret",
+        "description": "Sensitive credential or secret value",
+        "required": true
+      },
+      {
+        "name": "BRANCH_NAME",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "MONGO_URI",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "DATABASE_HOST",
+        "sources": [
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "usage_type": "database_config",
+        "description": "Database connection configuration",
+        "required": true
+      },
+      {
+        "name": "PROXY_PID",
+        "sources": [
+          "pkg/clouds/pulumi/gcp/cloudsql_proxy.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "GOARCH",
+        "sources": [
+          "welder.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "GITHUB_REF_NAME",
+        "sources": [
+          ".github/workflows/push.yaml",
+          ".github/workflows/branch.yaml"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "SIMPLE_CONTAINER_STARTUP_DELAY",
+        "sources": [
+          "cmd/cloud-helpers/main.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
         "name": "POSTGRES_HOST",
         "sources": [
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
@@ -828,20 +841,27 @@
         "required": true
       },
       {
-        "name": "DISCORD_WEBHOOK_URL",
+        "name": "INIT_SQL",
         "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+          "pkg/clouds/pulumi/db/constants.go"
         ],
-        "usage_type": "url",
-        "description": "Service URL or endpoint configuration",
+        "usage_type": "config",
+        "description": "Application configuration parameter",
         "required": true
       },
       {
-        "name": "TELEGRAM_CHAT",
+        "name": "DEFAULT_ENTRY",
         "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+          "pkg/clouds/pulumi/kubernetes/caddy.go"
+        ],
+        "usage_type": "config",
+        "description": "Application configuration parameter",
+        "required": true
+      },
+      {
+        "name": "VERSION_COMPARE",
+        "sources": [
+          "sc.sh"
         ],
         "usage_type": "config",
         "description": "Application configuration parameter",
@@ -857,45 +877,25 @@
         "required": true
       },
       {
-        "name": "EXT",
+        "name": "OPENAI_KEY",
         "sources": [
           "welder.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "YANDEX_API_KEY",
-        "sources": [
-          "pkg/assistant/chat/interface.go"
         ],
         "usage_type": "secret",
         "description": "Sensitive credential or secret value",
         "required": true
       },
       {
-        "name": "DATABASE_HOST",
+        "name": "HOST",
         "sources": [
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go"
         ],
-        "usage_type": "database_config",
-        "description": "Database connection configuration",
+        "usage_type": "url",
+        "description": "Service URL or endpoint configuration",
         "required": true
       },
       {
-        "name": "GITHUB_RUN_ID",
-        "sources": [
-          ".github/workflows/push.yaml",
-          ".github/workflows/branch.yaml"
-        ],
-        "usage_type": "config",
-        "description": "Application configuration parameter",
-        "required": true
-      },
-      {
-        "name": "GITHUB_OUTPUT",
+        "name": "GITHUB_ACTOR",
         "sources": [
           ".github/workflows/push.yaml",
           ".github/workflows/branch.yaml"
@@ -979,125 +979,153 @@
     ],
     "databases": [
       {
-        "type": "postgresql",
+        "type": "mongodb",
         "sources": [
-          "docs/docs/examples/kubernetes-native/streaming-platform/client.yaml",
-          "docs/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml",
-          "docs/schemas/aws/postgresconfig.json",
-          "docs/schemas/aws/index.json",
-          "docs/schemas/gcp/postgresgcpcloudsqlconfig.json",
-          "docs/schemas/gcp/index.json",
-          "docs/schemas/kubernetes/helmpostgresoperator.json",
-          "docs/schemas/kubernetes/index.json",
           "cmd/generate-embeddings/main.go",
-          "pkg/api/tests/refapp.go",
+          ".sc/secrets.yaml",
+          "docs/docs/examples/ecs-deployments/backend-service/client.yaml",
+          "docs/docs/examples/ecs-deployments/blockchain-service/client.yaml",
+          "docs/docs/examples/ecs-deployments/meteor-app/client.yaml",
+          "docs/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
+          "docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
+          "docs/docs/examples/lambda-functions/billing-system/client.yaml",
+          "docs/docs/examples/lambda-functions/cost-analytics/client.yaml",
+          "docs/docs/examples/lambda-functions/scheduler/client.yaml",
+          "docs/docs/examples/lambda-functions/storage-service/client.yaml",
+          "cmd/schema-gen/main.go",
+          "docs/docs/examples/parent-stacks/aws-multi-region/server.yaml",
+          "docs/docs/examples/secrets/gcp-auth-cloudflare-mongodb-discord-telegram/secrets.yaml",
+          "docs/docs/examples/secrets/aws-mongodb-atlas/secrets.yaml",
+          "docs/schemas/index.json",
+          "docs/schemas/kubernetes/helmmongodboperator.json",
+          "docs/schemas/kubernetes/index.json",
+          "docs/schemas/mongodb/index.json",
+          "docs/schemas/mongodb/atlasconfig.json",
+          "pkg/api/git/testdata/repo/stacks/common/secrets.yaml",
+          "pkg/api/git/testdata/repo/stacks/refapp/secrets.yaml",
+          "pkg/api/secrets/testdata/repo/stacks/common/secrets.yaml",
+          "pkg/api/secrets/testdata/repo/stacks/refapp/secrets.yaml",
+          "pkg/api/tests/testdata/stacks/common/secrets.yaml",
+          "pkg/api/tests/testdata/stacks/refapp/docker-compose.yaml",
+          "pkg/api/tests/testdata/stacks/refapp/client.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-ansible-k3s/secrets.yaml",
           "pkg/api/tests/testdata/stacks/refapp/server.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-aws/client.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-aws/docker-compose.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-gke-autopilot/client.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-gke-autopilot/docker-compose.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-kubernetes/client.yaml",
+          "pkg/api/tests/testdata/stacks/refapp-kubernetes/docker-compose.yaml",
+          "pkg/api/tests/refapp.go",
           "pkg/assistant/analysis/analyzer_test.go",
-          "pkg/assistant/analysis/detector.go",
           "pkg/assistant/analysis/recommendations.go",
+          "pkg/assistant/chat/commands_docs.go",
           "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/analysis/detector.go",
           "pkg/assistant/chat/commands_stack.go",
-          "pkg/assistant/chat/tool_calling.go",
+          "pkg/assistant/chat/commands_core.go",
           "pkg/assistant/chat/commands_project.go",
-          "pkg/assistant/embeddings/docs/examples/kubernetes-native/streaming-platform/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml",
           "pkg/assistant/chat/interface.go",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/backend-service/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/blockchain-service/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
+          "pkg/assistant/embeddings/docs/examples/lambda-functions/billing-system/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/lambda-functions/scheduler/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/lambda-functions/cost-analytics/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/lambda-functions/storage-service/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml",
           "pkg/assistant/embeddings/embeddings.go",
           "pkg/assistant/llm/prompts/system.go",
-          "pkg/assistant/mcp/schemas/aws/index.json",
-          "pkg/assistant/mcp/schemas/aws/postgresconfig.json",
           "pkg/assistant/mcp/protocol.go",
-          "pkg/assistant/mcp/schemas/gcp/postgresgcpcloudsqlconfig.json",
-          "pkg/assistant/mcp/schemas/gcp/index.json",
-          "pkg/assistant/mcp/schemas/kubernetes/helmpostgresoperator.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/mcp/schemas/index.json",
+          "pkg/assistant/mcp/schemas/kubernetes/helmmongodboperator.json",
           "pkg/assistant/mcp/schemas/kubernetes/index.json",
-          "pkg/assistant/modes/developer.go",
-          "pkg/assistant/modes/devops.go",
-          "pkg/assistant/modes/schemas/aws/index.json",
-          "pkg/assistant/modes/schemas/aws/postgresconfig.json",
+          "pkg/assistant/mcp/schemas/mongodb/atlasconfig.json",
+          "pkg/assistant/mcp/schemas/mongodb/index.json",
           "pkg/assistant/mcp/server.go",
-          "pkg/assistant/modes/schemas/gcp/postgresgcpcloudsqlconfig.json",
-          "pkg/assistant/modes/schemas/gcp/index.json",
-          "pkg/assistant/modes/schemas/kubernetes/helmpostgresoperator.json",
+          "pkg/assistant/modes/devops.go",
+          "pkg/assistant/modes/developer.go",
+          "pkg/assistant/modes/schemas/index.json",
+          "pkg/assistant/modes/schemas/kubernetes/helmmongodboperator.json",
+          "pkg/assistant/modes/schemas/mongodb/atlasconfig.json",
           "pkg/assistant/modes/schemas/kubernetes/index.json",
+          "pkg/assistant/modes/schemas/mongodb/index.json",
           "pkg/assistant/resources/matcher.go",
           "pkg/assistant/security/secure_file_reader.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/clouds/aws/rds_postgres.go",
-          "pkg/clouds/aws/init.go",
-          "pkg/clouds/gcloud/init.go",
-          "pkg/clouds/gcloud/postgres.go",
-          "pkg/clouds/k8s/postgres.go",
           "pkg/clouds/k8s/init.go",
-          "pkg/clouds/pulumi/aws/compute_proc.go",
-          "pkg/clouds/pulumi/aws/init.go",
-          "pkg/clouds/pulumi/aws/rds_mysql.go",
-          "pkg/clouds/pulumi/aws/rds_postgres.go",
-          "pkg/clouds/pulumi/db/constants.go",
-          "pkg/clouds/pulumi/gcp/cloudsql_proxy.go",
-          "pkg/clouds/pulumi/gcp/init.go",
-          "pkg/clouds/pulumi/gcp/init_pg_user_job.go",
-          "pkg/clouds/pulumi/gcp/compute_proc.go",
-          "pkg/clouds/pulumi/gcp/postgres.go",
-          "pkg/clouds/pulumi/kubernetes/helm_operator_postgres.go",
+          "pkg/clouds/k8s/postgres.go",
+          "pkg/clouds/mongodb/init.go",
+          "pkg/clouds/mongodb/mongodb.go",
+          "pkg/clouds/pulumi/e2e_compose_test.go",
+          "pkg/clouds/pulumi/init.go",
+          "pkg/clouds/pulumi/kubernetes/compute_proc_mongodb.go",
+          "pkg/clouds/pulumi/kubernetes/helm_operator_mongodb.go",
+          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go",
+          "pkg/clouds/pulumi/mongodb/cluster.go",
+          "pkg/clouds/pulumi/mongodb/compute_proc.go",
+          "pkg/clouds/pulumi/mongodb/init.go",
+          "pkg/clouds/pulumi/mongodb/provider.go",
+          "pkg/clouds/pulumi/mongodb/util.go",
+          "pkg/clouds/pulumi/mongodb/util_test.go",
           "pkg/clouds/pulumi/kubernetes/init.go",
-          "pkg/clouds/pulumi/kubernetes/helpers.go",
-          "pkg/clouds/pulumi/kubernetes/init_pg_user_job.go",
-          "pkg/clouds/pulumi/kubernetes/compute_proc_postgres.go",
-          "pkg/cmd/cmd_assistant/assistant.go",
+          "pkg/clouds/pulumi/testutil/secrets_test_util.go",
+          "pkg/provisioner/init.go",
           "pkg/provisioner/placeholders/tests/placeholders_test.go",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
         ],
+        "connection": "mongodb",
         "config": {
-          "database": "connections\\n-",
-          "host": "customera.myapp.com\\n",
-          "port": "80"
+          "collection": "//"
         },
-        "confidence": 0.90000004,
-        "recommended": "aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator"
+        "confidence": 0.8,
+        "recommended": "mongodb-atlas"
       },
       {
         "type": "redis",
         "sources": [
+          "cmd/generate-embeddings/main.go",
           "docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
           "docs/schemas/gcp/redisconfig.json",
           "docs/schemas/gcp/index.json",
           "docs/schemas/kubernetes/helmredisoperator.json",
           "docs/schemas/kubernetes/index.json",
-          "cmd/generate-embeddings/main.go",
           "pkg/assistant/analysis/analyzer_test.go",
-          "pkg/assistant/analysis/detector.go",
           "pkg/assistant/analysis/recommendations.go",
           "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/analysis/detector.go",
           "pkg/assistant/chat/commands_stack.go",
-          "pkg/assistant/chat/tool_calling.go",
           "pkg/assistant/chat/commands_project.go",
-          "pkg/assistant/embeddings/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
+          "pkg/assistant/chat/tool_calling.go",
           "pkg/assistant/chat/interface.go",
+          "pkg/assistant/embeddings/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
+          "pkg/assistant/core/commands.go",
           "pkg/assistant/embeddings/embeddings.go",
           "pkg/assistant/llm/prompts/system.go",
           "pkg/assistant/mcp/protocol.go",
           "pkg/assistant/mcp/schemas/gcp/index.json",
           "pkg/assistant/mcp/schemas/gcp/redisconfig.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
           "pkg/assistant/mcp/schemas/kubernetes/helmredisoperator.json",
           "pkg/assistant/mcp/schemas/kubernetes/index.json",
-          "pkg/assistant/modes/developer.go",
-          "pkg/assistant/modes/devops.go",
           "pkg/assistant/mcp/server.go",
-          "pkg/assistant/modes/schemas/gcp/index.json",
+          "pkg/assistant/modes/devops.go",
+          "pkg/assistant/modes/developer.go",
           "pkg/assistant/modes/schemas/gcp/redisconfig.json",
+          "pkg/assistant/modes/schemas/gcp/index.json",
           "pkg/assistant/modes/schemas/kubernetes/helmredisoperator.json",
           "pkg/assistant/modes/schemas/kubernetes/index.json",
           "pkg/assistant/resources/matcher.go",
           "pkg/assistant/security/secure_file_reader.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
           "pkg/clouds/gcloud/init.go",
           "pkg/clouds/gcloud/redis.go",
-          "pkg/clouds/k8s/postgres.go",
           "pkg/clouds/k8s/init.go",
+          "pkg/clouds/k8s/postgres.go",
           "pkg/clouds/pulumi/gcp/init.go",
-          "pkg/clouds/pulumi/gcp/redis.go",
           "pkg/clouds/pulumi/kubernetes/compute_proc_redis.go",
+          "pkg/clouds/pulumi/gcp/redis.go",
           "pkg/clouds/pulumi/kubernetes/helm_operator_redis.go",
           "pkg/clouds/pulumi/kubernetes/init.go",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
@@ -1117,9 +1145,9 @@
           "pkg/assistant/chat/commands_project.go",
           "pkg/assistant/embeddings/embeddings.go",
           "pkg/assistant/llm/prompts/system.go",
-          "pkg/assistant/modes/developer.go",
-          "pkg/assistant/modes/devops.go",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/modes/devops.go",
+          "pkg/assistant/modes/developer.go",
           "pkg/clouds/pulumi/aws/exec_ecs_task.go",
           "pkg/clouds/pulumi/aws/static_egress.go",
           "pkg/clouds/pulumi/aws/ecs_fargate.go",
@@ -1127,6 +1155,127 @@
         ],
         "confidence": 0.8,
         "recommended": "Consider managed Elasticsearch service"
+      },
+      {
+        "type": "postgresql",
+        "sources": [
+          "cmd/generate-embeddings/main.go",
+          "docs/docs/examples/kubernetes-native/streaming-platform/client.yaml",
+          "docs/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml",
+          "docs/schemas/aws/index.json",
+          "docs/schemas/aws/postgresconfig.json",
+          "docs/schemas/gcp/postgresgcpcloudsqlconfig.json",
+          "docs/schemas/gcp/index.json",
+          "docs/schemas/kubernetes/helmpostgresoperator.json",
+          "docs/schemas/kubernetes/index.json",
+          "pkg/api/tests/testdata/stacks/refapp/server.yaml",
+          "pkg/api/tests/refapp.go",
+          "pkg/assistant/analysis/analyzer_test.go",
+          "pkg/assistant/analysis/recommendations.go",
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/analysis/detector.go",
+          "pkg/assistant/chat/commands_stack.go",
+          "pkg/assistant/chat/commands_project.go",
+          "pkg/assistant/chat/tool_calling.go",
+          "pkg/assistant/chat/interface.go",
+          "pkg/assistant/embeddings/docs/examples/kubernetes-native/streaming-platform/client.yaml",
+          "pkg/assistant/embeddings/docs/examples/kubernetes-native/streaming-platform/docker-compose.yaml",
+          "pkg/assistant/core/commands.go",
+          "pkg/assistant/embeddings/embeddings.go",
+          "pkg/assistant/llm/prompts/system.go",
+          "pkg/assistant/mcp/protocol.go",
+          "pkg/assistant/mcp/schemas/aws/index.json",
+          "pkg/assistant/mcp/schemas/aws/postgresconfig.json",
+          "pkg/assistant/mcp/schemas/gcp/index.json",
+          "pkg/assistant/mcp/schemas/gcp/postgresgcpcloudsqlconfig.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/mcp/schemas/kubernetes/helmpostgresoperator.json",
+          "pkg/assistant/mcp/schemas/kubernetes/index.json",
+          "pkg/assistant/mcp/server.go",
+          "pkg/assistant/modes/schemas/aws/index.json",
+          "pkg/assistant/modes/schemas/aws/postgresconfig.json",
+          "pkg/assistant/modes/devops.go",
+          "pkg/assistant/modes/developer.go",
+          "pkg/assistant/modes/schemas/gcp/postgresgcpcloudsqlconfig.json",
+          "pkg/assistant/modes/schemas/gcp/index.json",
+          "pkg/assistant/modes/schemas/kubernetes/helmpostgresoperator.json",
+          "pkg/assistant/modes/schemas/kubernetes/index.json",
+          "pkg/assistant/resources/matcher.go",
+          "pkg/assistant/security/secure_file_reader.go",
+          "pkg/clouds/aws/init.go",
+          "pkg/clouds/aws/rds_postgres.go",
+          "pkg/clouds/gcloud/init.go",
+          "pkg/clouds/gcloud/postgres.go",
+          "pkg/clouds/k8s/init.go",
+          "pkg/clouds/k8s/postgres.go",
+          "pkg/clouds/pulumi/aws/init.go",
+          "pkg/clouds/pulumi/aws/rds_mysql.go",
+          "pkg/clouds/pulumi/aws/rds_postgres.go",
+          "pkg/clouds/pulumi/aws/compute_proc.go",
+          "pkg/clouds/pulumi/db/constants.go",
+          "pkg/clouds/pulumi/gcp/cloudsql_proxy.go",
+          "pkg/clouds/pulumi/gcp/compute_proc.go",
+          "pkg/clouds/pulumi/gcp/init.go",
+          "pkg/clouds/pulumi/gcp/init_pg_user_job.go",
+          "pkg/clouds/pulumi/gcp/postgres.go",
+          "pkg/clouds/pulumi/kubernetes/compute_proc_postgres.go",
+          "pkg/clouds/pulumi/kubernetes/helm_operator_postgres.go",
+          "pkg/clouds/pulumi/kubernetes/helpers.go",
+          "pkg/clouds/pulumi/kubernetes/init_pg_user_job.go",
+          "pkg/clouds/pulumi/kubernetes/init.go",
+          "pkg/cmd/cmd_assistant/assistant.go",
+          "pkg/provisioner/placeholders/tests/placeholders_test.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "connection": "gorm",
+        "config": {
+          "database": "connections\\n-",
+          "host": "customera.myapp.com\\n",
+          "port": "80"
+        },
+        "confidence": 0.90000004,
+        "recommended": "aws-rds-postgres or gcp-cloudsql-postgres or kubernetes-helm-postgres-operator"
+      },
+      {
+        "type": "mysql",
+        "sources": [
+          "cmd/generate-embeddings/main.go",
+          "docs/docs/examples/ecs-deployments/blog-platform/client.yaml",
+          "docs/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml",
+          "docs/schemas/aws/index.json",
+          "docs/schemas/aws/mysqlconfig.json",
+          "pkg/assistant/analysis/recommendations.go",
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/analysis/detector.go",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml",
+          "pkg/assistant/embeddings/docs/examples/ecs-deployments/blog-platform/client.yaml",
+          "pkg/assistant/embeddings/embeddings.go",
+          "pkg/assistant/llm/prompts/system.go",
+          "pkg/assistant/mcp/schemas/aws/index.json",
+          "pkg/assistant/mcp/schemas/aws/mysqlconfig.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/mcp/server.go",
+          "pkg/assistant/modes/schemas/aws/index.json",
+          "pkg/assistant/modes/schemas/aws/mysqlconfig.json",
+          "pkg/assistant/modes/devops.go",
+          "pkg/assistant/modes/developer.go",
+          "pkg/assistant/resources/matcher.go",
+          "pkg/clouds/aws/init.go",
+          "pkg/clouds/aws/rds_mysql.go",
+          "pkg/clouds/pulumi/aws/init.go",
+          "pkg/clouds/pulumi/aws/rds_mysql.go",
+          "pkg/clouds/pulumi/aws/compute_proc.go",
+          "pkg/clouds/pulumi/gcp/init_pg_user_job.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "connection": "mysql",
+        "config": {
+          "database": "connections\\n-",
+          "host": "customera.myapp.com\\n",
+          "port": "80"
+        },
+        "confidence": 0.8,
+        "recommended": "aws-rds-mysql"
       },
       {
         "type": "sqlite",
@@ -1139,155 +1288,28 @@
         "connection": "sqlite",
         "confidence": 0.8,
         "recommended": "Consider upgrading to managed database for production"
-      },
-      {
-        "type": "mongodb",
-        "sources": [
-          "docs/docs/examples/ecs-deployments/backend-service/client.yaml",
-          "cmd/schema-gen/main.go",
-          "docs/docs/examples/ecs-deployments/blockchain-service/client.yaml",
-          ".sc/secrets.yaml",
-          "docs/docs/examples/ecs-deployments/meteor-app/client.yaml",
-          "docs/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
-          "docs/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
-          "docs/docs/examples/lambda-functions/billing-system/client.yaml",
-          "docs/docs/examples/lambda-functions/scheduler/client.yaml",
-          "docs/docs/examples/lambda-functions/storage-service/client.yaml",
-          "docs/docs/examples/secrets/aws-mongodb-atlas/secrets.yaml",
-          "docs/docs/examples/parent-stacks/aws-multi-region/server.yaml",
-          "docs/docs/examples/secrets/gcp-auth-cloudflare-mongodb-discord-telegram/secrets.yaml",
-          "docs/docs/examples/lambda-functions/cost-analytics/client.yaml",
-          "docs/schemas/index.json",
-          "docs/schemas/kubernetes/helmmongodboperator.json",
-          "docs/schemas/mongodb/index.json",
-          "docs/schemas/mongodb/atlasconfig.json",
-          "docs/schemas/kubernetes/index.json",
-          "pkg/api/git/testdata/repo/stacks/common/secrets.yaml",
-          "pkg/api/git/testdata/repo/stacks/refapp/secrets.yaml",
-          "cmd/generate-embeddings/main.go",
-          "pkg/api/secrets/testdata/repo/stacks/common/secrets.yaml",
-          "pkg/api/secrets/testdata/repo/stacks/refapp/secrets.yaml",
-          "pkg/api/tests/refapp.go",
-          "pkg/api/tests/testdata/stacks/common/secrets.yaml",
-          "pkg/api/tests/testdata/stacks/refapp/client.yaml",
-          "pkg/api/tests/testdata/stacks/refapp/docker-compose.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-ansible-k3s/secrets.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-aws/client.yaml",
-          "pkg/api/tests/testdata/stacks/refapp/server.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-aws/docker-compose.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-gke-autopilot/client.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-gke-autopilot/docker-compose.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-kubernetes/client.yaml",
-          "pkg/api/tests/testdata/stacks/refapp-kubernetes/docker-compose.yaml",
-          "pkg/assistant/analysis/analyzer_test.go",
-          "pkg/assistant/analysis/detector.go",
-          "pkg/assistant/analysis/recommendations.go",
-          "pkg/assistant/chat/commands_docs.go",
-          "pkg/assistant/chat/commands_core.go",
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/chat/commands_stack.go",
-          "pkg/assistant/chat/commands_project.go",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/backend-service/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/blockchain-service/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/meteor-app/docker-compose.yaml",
-          "pkg/assistant/embeddings/docs/examples/gke-autopilot/comprehensive-setup/server.yaml",
-          "pkg/assistant/embeddings/docs/examples/lambda-functions/billing-system/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/lambda-functions/cost-analytics/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/lambda-functions/scheduler/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/lambda-functions/storage-service/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml",
-          "pkg/assistant/chat/interface.go",
-          "pkg/assistant/embeddings/embeddings.go",
-          "pkg/assistant/llm/prompts/system.go",
-          "pkg/assistant/mcp/protocol.go",
-          "pkg/assistant/mcp/schemas/index.json",
-          "pkg/assistant/mcp/schemas/kubernetes/helmmongodboperator.json",
-          "pkg/assistant/mcp/schemas/mongodb/atlasconfig.json",
-          "pkg/assistant/mcp/schemas/mongodb/index.json",
-          "pkg/assistant/mcp/schemas/kubernetes/index.json",
-          "pkg/assistant/modes/developer.go",
-          "pkg/assistant/modes/devops.go",
-          "pkg/assistant/mcp/server.go",
-          "pkg/assistant/modes/schemas/index.json",
-          "pkg/assistant/modes/schemas/kubernetes/helmmongodboperator.json",
-          "pkg/assistant/modes/schemas/kubernetes/index.json",
-          "pkg/assistant/modes/schemas/mongodb/atlasconfig.json",
-          "pkg/assistant/modes/schemas/mongodb/index.json",
-          "pkg/assistant/resources/matcher.go",
-          "pkg/assistant/security/secure_file_reader.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/clouds/k8s/postgres.go",
-          "pkg/clouds/k8s/init.go",
-          "pkg/clouds/mongodb/init.go",
-          "pkg/clouds/mongodb/mongodb.go",
-          "pkg/clouds/pulumi/e2e_compose_test.go",
-          "pkg/clouds/pulumi/init.go",
-          "pkg/clouds/pulumi/kubernetes/compute_proc_mongodb.go",
-          "pkg/clouds/pulumi/kubernetes/helm_operator_mongodb.go",
-          "pkg/clouds/pulumi/kubernetes/init.go",
-          "pkg/clouds/pulumi/kubernetes/init_mongo_user_job.go",
-          "pkg/clouds/pulumi/mongodb/compute_proc.go",
-          "pkg/clouds/pulumi/mongodb/init.go",
-          "pkg/clouds/pulumi/mongodb/provider.go",
-          "pkg/clouds/pulumi/mongodb/util.go",
-          "pkg/clouds/pulumi/mongodb/util_test.go",
-          "pkg/clouds/pulumi/mongodb/cluster.go",
-          "pkg/clouds/pulumi/testutil/secrets_test_util.go",
-          "pkg/provisioner/init.go",
-          "pkg/provisioner/placeholders/tests/placeholders_test.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "connection": "mongodb",
-        "config": {
-          "collection": "//"
-        },
-        "confidence": 0.8,
-        "recommended": "mongodb-atlas"
-      },
-      {
-        "type": "mysql",
-        "sources": [
-          "docs/docs/examples/ecs-deployments/blog-platform/client.yaml",
-          "docs/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml",
-          "docs/schemas/aws/index.json",
-          "docs/schemas/aws/mysqlconfig.json",
-          "cmd/generate-embeddings/main.go",
-          "pkg/assistant/analysis/detector.go",
-          "pkg/assistant/analysis/recommendations.go",
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/blog-platform/client.yaml",
-          "pkg/assistant/embeddings/docs/examples/ecs-deployments/blog-platform/docker-compose.yaml",
-          "pkg/assistant/embeddings/embeddings.go",
-          "pkg/assistant/llm/prompts/system.go",
-          "pkg/assistant/mcp/schemas/aws/index.json",
-          "pkg/assistant/mcp/schemas/aws/mysqlconfig.json",
-          "pkg/assistant/modes/developer.go",
-          "pkg/assistant/modes/devops.go",
-          "pkg/assistant/modes/schemas/aws/index.json",
-          "pkg/assistant/modes/schemas/aws/mysqlconfig.json",
-          "pkg/assistant/mcp/server.go",
-          "pkg/assistant/resources/matcher.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/clouds/aws/rds_mysql.go",
-          "pkg/clouds/aws/init.go",
-          "pkg/clouds/pulumi/aws/compute_proc.go",
-          "pkg/clouds/pulumi/aws/init.go",
-          "pkg/clouds/pulumi/aws/rds_mysql.go",
-          "pkg/clouds/pulumi/gcp/init_pg_user_job.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "connection": "mysql",
-        "config": {
-          "database": "connections\\n-",
-          "host": "customera.myapp.com\\n",
-          "port": "80"
-        },
-        "confidence": 0.8,
-        "recommended": "aws-rds-mysql"
       }
     ],
     "queues": [
+      {
+        "type": "gcp_pubsub",
+        "sources": [
+          "cmd/schema-gen/main.go",
+          "docs/schemas/gcp/index.json",
+          "docs/schemas/gcp/pubsubconfig.json",
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/mcp/schemas/gcp/index.json",
+          "pkg/assistant/mcp/schemas/gcp/pubsubconfig.json",
+          "pkg/assistant/modes/schemas/gcp/index.json",
+          "pkg/assistant/modes/schemas/gcp/pubsubconfig.json",
+          "pkg/clouds/pulumi/gcp/init.go",
+          "pkg/clouds/pulumi/gcp/pubsub.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "confidence": 1,
+        "recommended": "Use GCP Pub/Sub with ${auth:gcloud}"
+      },
       {
         "type": "kafka",
         "sources": [
@@ -1363,80 +1385,28 @@
         ],
         "confidence": 0.8,
         "recommended": "Consider managed NATS service"
-      },
-      {
-        "type": "gcp_pubsub",
-        "sources": [
-          "cmd/schema-gen/main.go",
-          "docs/schemas/gcp/pubsubconfig.json",
-          "docs/schemas/gcp/index.json",
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/mcp/schemas/gcp/index.json",
-          "pkg/assistant/mcp/schemas/gcp/pubsubconfig.json",
-          "pkg/assistant/modes/schemas/gcp/index.json",
-          "pkg/assistant/modes/schemas/gcp/pubsubconfig.json",
-          "pkg/clouds/pulumi/gcp/init.go",
-          "pkg/clouds/pulumi/gcp/pubsub.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "confidence": 1,
-        "recommended": "Use GCP Pub/Sub with ${auth:gcloud}"
       }
     ],
     "storage": [
       {
-        "type": "gcs",
-        "sources": [
-          "caddy.Dockerfile",
-          ".sc/secrets.yaml",
-          "docs/docs/examples/parent-stacks/aws-multi-region/server.yaml",
-          "docs/schemas/gcp/index.json",
-          "docs/schemas/gcp/statestorageconfig.json",
-          "pkg/assistant/analysis/detector.go",
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml",
-          "pkg/assistant/mcp/schemas/gcp/statestorageconfig.json",
-          "pkg/assistant/mcp/schemas/gcp/index.json",
-          "pkg/assistant/modes/developer.go",
-          "pkg/assistant/mcp/server.go",
-          "pkg/assistant/modes/devops.go",
-          "pkg/assistant/modes/schemas/gcp/index.json",
-          "pkg/assistant/modes/schemas/gcp/statestorageconfig.json",
-          "pkg/assistant/resources/matcher.go",
-          "pkg/clouds/gcloud/auth.go",
-          "pkg/clouds/pulumi/gcp/bucket_uploader.go",
-          "pkg/clouds/pulumi/gcp/provider.go",
-          "pkg/clouds/pulumi/gcp/static_website.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "buckets": [
-          "mycompany-sc-state"
-        ],
-        "purpose": "cloud_storage",
-        "confidence": 1,
-        "recommended": "gcp-bucket"
-      },
-      {
         "type": "s3",
         "sources": [
-          ".sc/secrets.yaml",
           "cmd/schema-gen/main.go",
           "cmd/generate-embeddings/main.go",
           "docs/docs/examples/parent-stacks/aws-multi-region/server.yaml",
           "docs/schemas/aws/index.json",
           "docs/schemas/aws/s3bucket.json",
           "docs/schemas/aws/statestorageconfig.json",
+          ".sc/secrets.yaml",
           "pkg/api/secrets/alias_deduplication_test.go",
           "pkg/api/secrets/testdata/repo/.sc/cfg.local-key-inline.yaml",
           "pkg/api/secrets/util_test.go",
           "pkg/api/tests/testdata/stacks/common/server.yaml",
           "pkg/assistant/analysis/detector.go",
           "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/chat/interface.go",
           "pkg/assistant/chat/commands_project.go",
           "pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml",
+          "pkg/assistant/chat/interface.go",
           "pkg/assistant/embeddings/embeddings.go",
           "pkg/assistant/llm/prompts/system.go",
           "pkg/assistant/mcp/mcp_test.go",
@@ -1459,8 +1429,8 @@
           "pkg/clouds/pulumi/aws/static_website.go",
           "pkg/clouds/pulumi/e2e_compose_test.go",
           "pkg/clouds/pulumi/e2e_helpers_test.go",
-          "pkg/clouds/pulumi/pulumi.go",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/clouds/pulumi/pulumi.go",
           "pkg/provisioner/testdata/.sc/cfg.default.yaml",
           "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
         ],
@@ -1494,8 +1464,8 @@
           "pkg/assistant/analysis/architecture_analysis.go",
           "pkg/assistant/analysis/recommendations.go",
           "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/chat/commands_ui.go",
           "pkg/assistant/chat/commands_project.go",
+          "pkg/assistant/chat/commands_ui.go",
           "pkg/assistant/llm/prompts/system.go",
           "pkg/assistant/modes/developer.go",
           "pkg/assistant/mcp/server.go",
@@ -1547,17 +1517,42 @@
         "purpose": "uploads",
         "confidence": 0.70000005,
         "recommended": "s3-bucket or gcp-bucket for scalable file storage"
+      },
+      {
+        "type": "gcs",
+        "sources": [
+          "caddy.Dockerfile",
+          "docs/docs/examples/parent-stacks/aws-multi-region/server.yaml",
+          ".sc/secrets.yaml",
+          "docs/schemas/gcp/index.json",
+          "docs/schemas/gcp/statestorageconfig.json",
+          "pkg/assistant/analysis/detector.go",
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/embeddings/docs/examples/parent-stacks/aws-multi-region/server.yaml",
+          "pkg/assistant/mcp/schemas/gcp/index.json",
+          "pkg/assistant/mcp/schemas/gcp/statestorageconfig.json",
+          "pkg/assistant/modes/developer.go",
+          "pkg/assistant/mcp/server.go",
+          "pkg/assistant/modes/devops.go",
+          "pkg/assistant/modes/schemas/gcp/index.json",
+          "pkg/assistant/modes/schemas/gcp/statestorageconfig.json",
+          "pkg/assistant/resources/matcher.go",
+          "pkg/clouds/gcloud/auth.go",
+          "pkg/clouds/pulumi/gcp/bucket_uploader.go",
+          "pkg/clouds/pulumi/gcp/provider.go",
+          "pkg/clouds/pulumi/gcp/static_website.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "buckets": [
+          "mycompany-sc-state"
+        ],
+        "purpose": "cloud_storage",
+        "confidence": 1,
+        "recommended": "gcp-bucket"
       }
     ],
     "external_apis": [
-      {
-        "name": "google_analytics",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "analytics",
-        "confidence": 0.9
-      },
       {
         "name": "anthropic",
         "sources": [
@@ -1583,6 +1578,15 @@
         "confidence": 0.9
       },
       {
+        "name": "sendgrid",
+        "sources": [
+          "pkg/assistant/analysis/detector.go",
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "email",
+        "confidence": 0.9
+      },
+      {
         "name": "paypal",
         "sources": [
           "pkg/assistant/analysis/resource_detectors.go"
@@ -1591,39 +1595,19 @@
         "confidence": 0.9
       },
       {
-        "name": "google_maps",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "purpose": "maps",
-        "confidence": 0.9
-      },
-      {
-        "name": "square",
+        "name": "amplitude",
         "sources": [
           "pkg/assistant/analysis/resource_detectors.go"
         ],
-        "purpose": "payment",
+        "purpose": "analytics",
         "confidence": 0.8
       },
       {
-        "name": "aws_ses",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "purpose": "email",
-        "confidence": 0.9
-      },
-      {
-        "name": "twilio",
+        "name": "algolia",
         "sources": [
           "pkg/assistant/analysis/resource_detectors.go"
         ],
-        "purpose": "communication",
+        "purpose": "search",
         "confidence": 0.9
       },
       {
@@ -1637,12 +1621,12 @@
           "pkg/assistant/chat/commands_llm.go",
           "pkg/assistant/analysis/resource_detectors.go",
           "pkg/assistant/chat/types.go",
-          "pkg/assistant/config/config.go",
           "pkg/assistant/chat/commands_project.go",
+          "pkg/assistant/config/config.go",
           "pkg/assistant/chat/interface.go",
+          "pkg/assistant/embeddings/embeddings.go",
           "pkg/assistant/llm/deepseek.go",
           "pkg/assistant/llm/ollama.go",
-          "pkg/assistant/embeddings/embeddings.go",
           "pkg/assistant/llm/openai.go",
           "pkg/assistant/llm/provider.go",
           "pkg/assistant/llm/provider_test.go",
@@ -1664,54 +1648,6 @@
         "confidence": 0.9
       },
       {
-        "name": "slack",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go",
-          "pkg/clouds/aws/helpers/ch_cloudwatch_alert.go",
-          "pkg/clouds/pulumi/aws/alerts.go",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
-          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
-        ],
-        "endpoints": [
-          "https://hooks.slack.com/services/...\\",
-          "https://hooks.slack.com/services/YOUR-WORKSPACE-ID/YOUR-CHANNEL-ID/YOUR-WEBHOOK-TOKEN\\"
-        ],
-        "purpose": "communication",
-        "confidence": 0.8
-      },
-      {
-        "name": "auth0",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "authentication",
-        "confidence": 0.9
-      },
-      {
-        "name": "mapbox",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "maps",
-        "confidence": 0.9
-      },
-      {
-        "name": "huggingface",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "ai",
-        "confidence": 0.8
-      },
-      {
-        "name": "supabase",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "backend_service",
-        "confidence": 0.9
-      },
-      {
         "name": "stripe",
         "sources": [
           "pkg/assistant/analysis/detector.go",
@@ -1723,15 +1659,15 @@
         "confidence": 0.9
       },
       {
-        "name": "mailgun",
+        "name": "twilio",
         "sources": [
           "pkg/assistant/analysis/resource_detectors.go"
         ],
-        "purpose": "email",
+        "purpose": "communication",
         "confidence": 0.9
       },
       {
-        "name": "firebase",
+        "name": "supabase",
         "sources": [
           "pkg/assistant/analysis/resource_detectors.go"
         ],
@@ -1739,27 +1675,11 @@
         "confidence": 0.9
       },
       {
-        "name": "algolia",
+        "name": "mapbox",
         "sources": [
           "pkg/assistant/analysis/resource_detectors.go"
         ],
-        "purpose": "search",
-        "confidence": 0.9
-      },
-      {
-        "name": "amplitude",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "analytics",
-        "confidence": 0.8
-      },
-      {
-        "name": "mixpanel",
-        "sources": [
-          "pkg/assistant/analysis/resource_detectors.go"
-        ],
-        "purpose": "analytics",
+        "purpose": "maps",
         "confidence": 0.9
       },
       {
@@ -1784,13 +1704,96 @@
         "confidence": 0.8
       },
       {
-        "name": "sendgrid",
+        "name": "mailgun",
         "sources": [
-          "pkg/assistant/analysis/detector.go",
           "pkg/assistant/analysis/resource_detectors.go"
         ],
         "purpose": "email",
         "confidence": 0.9
+      },
+      {
+        "name": "google_maps",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "purpose": "maps",
+        "confidence": 0.9
+      },
+      {
+        "name": "google_analytics",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "analytics",
+        "confidence": 0.9
+      },
+      {
+        "name": "auth0",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "authentication",
+        "confidence": 0.9
+      },
+      {
+        "name": "aws_ses",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "purpose": "email",
+        "confidence": 0.9
+      },
+      {
+        "name": "square",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "payment",
+        "confidence": 0.8
+      },
+      {
+        "name": "firebase",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "backend_service",
+        "confidence": 0.9
+      },
+      {
+        "name": "huggingface",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "ai",
+        "confidence": 0.8
+      },
+      {
+        "name": "mixpanel",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go"
+        ],
+        "purpose": "analytics",
+        "confidence": 0.9
+      },
+      {
+        "name": "slack",
+        "sources": [
+          "pkg/assistant/analysis/resource_detectors.go",
+          "pkg/clouds/aws/helpers/ch_cloudwatch_alert.go",
+          "pkg/clouds/pulumi/aws/alerts.go",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json",
+          "pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json"
+        ],
+        "endpoints": [
+          "https://hooks.slack.com/services/...\\",
+          "https://hooks.slack.com/services/YOUR-WORKSPACE-ID/YOUR-CHANNEL-ID/YOUR-WEBHOOK-TOKEN\\"
+        ],
+        "purpose": "communication",
+        "confidence": 0.8
       }
     ]
   },
@@ -2927,12 +2930,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 322,
-        "cyclomatic_score": 41,
+        "lines_of_code": 350,
+        "cyclomatic_score": 50,
         "function_count": 5,
         "class_count": 29,
         "import_count": 4,
-        "comment_ratio": 0.06349207,
+        "comment_ratio": 0.08685446,
         "complexity_level": "high"
       }
     },
@@ -2969,7 +2972,7 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 167,
+        "lines_of_code": 168,
         "cyclomatic_score": 2,
         "import_count": 1,
         "complexity_level": "low"
@@ -3547,7 +3550,7 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 565,
+        "lines_of_code": 566,
         "cyclomatic_score": 1,
         "function_count": 2,
         "import_count": 9,
@@ -4089,12 +4092,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 1301,
-        "cyclomatic_score": 354,
+        "lines_of_code": 1476,
+        "cyclomatic_score": 392,
         "function_count": 18,
         "class_count": 1,
-        "import_count": 16,
-        "comment_ratio": 0.106796116,
+        "import_count": 18,
+        "comment_ratio": 0.10957447,
         "complexity_level": "high"
       }
     },
@@ -4158,12 +4161,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 993,
-        "cyclomatic_score": 285,
+        "lines_of_code": 1038,
+        "cyclomatic_score": 295,
         "function_count": 2,
         "class_count": 1,
         "import_count": 22,
-        "comment_ratio": 0.16225627,
+        "comment_ratio": 0.16299266,
         "complexity_level": "high"
       }
     },
@@ -4248,12 +4251,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 82,
-        "cyclomatic_score": 4,
-        "function_count": 1,
+        "lines_of_code": 94,
+        "cyclomatic_score": 9,
+        "function_count": 2,
         "class_count": 7,
         "import_count": 4,
-        "comment_ratio": 0.552381,
+        "comment_ratio": 0.52,
         "complexity_level": "low"
       }
     },
@@ -4278,13 +4281,13 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 1072,
-        "cyclomatic_score": 193,
-        "function_count": 1,
+        "lines_of_code": 1690,
+        "cyclomatic_score": 365,
+        "function_count": 2,
         "class_count": 2,
-        "import_count": 12,
-        "comment_ratio": 0.085427135,
-        "complexity_level": "very_high"
+        "import_count": 14,
+        "comment_ratio": 0.10557053,
+        "complexity_level": "high"
       }
     },
     {
@@ -4894,12 +4897,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 328,
-        "cyclomatic_score": 75,
+        "lines_of_code": 411,
+        "cyclomatic_score": 86,
         "function_count": 8,
         "class_count": 1,
         "import_count": 8,
-        "comment_ratio": 0.19181034,
+        "comment_ratio": 0.17198582,
         "complexity_level": "high"
       }
     },
@@ -4909,11 +4912,11 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 609,
-        "cyclomatic_score": 56,
+        "lines_of_code": 644,
+        "cyclomatic_score": 58,
         "function_count": 6,
         "import_count": 3,
-        "comment_ratio": 0.019257221,
+        "comment_ratio": 0.018205462,
         "complexity_level": "high"
       }
     },
@@ -4923,12 +4926,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 607,
-        "cyclomatic_score": 139,
-        "function_count": 9,
-        "class_count": 14,
+        "lines_of_code": 552,
+        "cyclomatic_score": 121,
+        "function_count": 8,
+        "class_count": 13,
         "import_count": 8,
-        "comment_ratio": 0.2341629,
+        "comment_ratio": 0.24602203,
         "complexity_level": "high"
       }
     },
@@ -4996,12 +4999,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 318,
-        "cyclomatic_score": 9,
+        "lines_of_code": 332,
+        "cyclomatic_score": 10,
         "function_count": 3,
-        "class_count": 41,
+        "class_count": 43,
         "import_count": 3,
-        "comment_ratio": 0.11508951,
+        "comment_ratio": 0.12285012,
         "complexity_level": "low"
       }
     },
@@ -5251,12 +5254,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 2208,
-        "cyclomatic_score": 353,
+        "lines_of_code": 2439,
+        "cyclomatic_score": 404,
         "function_count": 2,
         "class_count": 3,
-        "import_count": 17,
-        "comment_ratio": 0.082157075,
+        "import_count": 19,
+        "comment_ratio": 0.0853499,
         "complexity_level": "very_high"
       }
     },
@@ -5266,12 +5269,12 @@
       "language": "go",
       "size": 0,
       "complexity": {
-        "lines_of_code": 1839,
-        "cyclomatic_score": 561,
+        "lines_of_code": 1843,
+        "cyclomatic_score": 563,
         "function_count": 5,
         "class_count": 3,
-        "import_count": 16,
-        "comment_ratio": 0.093683764,
+        "import_count": 17,
+        "comment_ratio": 0.09386892,
         "complexity_level": "very_high"
       }
     },
@@ -5661,6 +5664,20 @@
         "import_count": 9,
         "comment_ratio": 0.08181818,
         "complexity_level": "high"
+      }
+    },
+    {
+      "path": "pkg/assistant/utils/project_utils.go",
+      "type": "source",
+      "language": "go",
+      "size": 0,
+      "complexity": {
+        "lines_of_code": 77,
+        "cyclomatic_score": 26,
+        "function_count": 1,
+        "import_count": 6,
+        "comment_ratio": 0.1262136,
+        "complexity_level": "medium"
       }
     },
     {
@@ -7827,7 +7844,7 @@
       "size": 0,
       "complexity": {
         "lines_of_code": 943,
-        "cyclomatic_score": 170,
+        "cyclomatic_score": 171,
         "function_count": 6,
         "class_count": 1,
         "import_count": 21,
@@ -8707,12 +8724,12 @@
     "remote_url": "git@github.com:simple-container-com/api.git",
     "current_branch": "feature/ai-setup",
     "last_commit": {
-      "hash": "bd0e615ada61c19094e822028fef7e7e49a4a30a",
-      "author": "Laboratory",
-      "email": "vit.nikitin@gmail.com",
-      "date": "2025-10-09 22:21:12 +0300",
-      "message": "add new stragic work with context",
-      "files_changed": 4
+      "hash": "55faa2c6950f9a323dadcc6e447c4e250cf35fdd",
+      "author": "Universe Ops",
+      "email": "universe-ops@github.com",
+      "date": "2025-10-11 18:36:56 +0300",
+      "message": "keep parity between MCP and chat comands",
+      "files_changed": 3
     },
     "contributors": [
       {
@@ -8723,12 +8740,12 @@
       {
         "name": "Universe Ops",
         "email": "universe-ops@github.com",
-        "commits": 156
+        "commits": 163
       },
       {
         "name": "Laboratory",
         "email": "vit.nikitin@gmail.com",
-        "commits": 45
+        "commits": 48
       },
       {
         "name": "Andrey Krasavin",
@@ -8752,9 +8769,9 @@
       }
     ],
     "commit_activity": {
-      "total_commits": 834,
-      "recent_commits_30d": 162,
-      "average_per_week": 0,
+      "total_commits": 844,
+      "recent_commits_30d": 172,
+      "average_per_week": 5907.9995,
       "most_active_day": "Wednesday",
       "most_active_hour": 10
     },
@@ -8772,7 +8789,7 @@
         },
         {
           "path": "pkg/api/client.go",
-          "changes": 79,
+          "changes": 80,
           "type": "source"
         },
         {
@@ -8816,10 +8833,10 @@
         ".example": 1,
         ".gitignore": 39,
         ".gitkeep": 1,
-        ".go": 3129,
+        ".go": 3165,
         ".html": 19,
-        ".json": 160,
-        ".md": 275,
+        ".json": 162,
+        ".md": 276,
         ".mod": 84,
         ".png": 2,
         ".pub": 3,
@@ -8847,7 +8864,8 @@
       "v2024.4.67",
       "v2024.4.66",
       "v2024.4.65"
-    ]
+    ],
+    "project_age_days": 1
   },
   "recommendations": [
     {
@@ -8957,7 +8975,7 @@
     }
   ],
   "metadata": {
-    "analyzed_at": "2025-10-10T00:20:07.297807+03:00",
+    "analyzed_at": "2025-10-12T21:39:57.289897+03:00",
     "analyzer_version": "1.0"
   }
 }
