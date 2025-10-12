@@ -750,7 +750,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 	if params.Name == "analyze_project" || params.Name == "setup_simple_container" {
 		timeout = 30 * time.Second
 	}
-	
+
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -767,7 +767,7 @@ func (s *MCPServer) handleCallTool(ctx context.Context, req *MCPRequest) *MCPRes
 		if s.logger != nil {
 			s.logger.Error(ctx, "Tool call timeout: %s exceeded %v", params.Name, timeout)
 		}
-		return NewMCPError(req.ID, ErrorCodeTimeout, 
+		return NewMCPError(req.ID, ErrorCodeTimeout,
 			fmt.Sprintf("Tool call '%s' exceeded timeout of %v. This may indicate a performance issue.", params.Name, timeout),
 			map[string]interface{}{
 				"tool":    params.Name,
@@ -1996,7 +1996,7 @@ func (h *DefaultMCPHandler) SetupSimpleContainer(ctx context.Context, params Set
 
 	// Phase 2: Proceed with setup using specified deployment type
 	setupOptions := modes.SetupOptions{
-		Interactive:      false,                         // Force non-interactive for MCP to prevent hanging
+		Interactive:      false, // Force non-interactive for MCP to prevent hanging
 		Environment:      params.Environment,
 		Parent:           params.Parent,
 		SkipAnalysis:     needsAnalysisForDeploymentType, // Skip only if we already analyzed for deployment type detection
@@ -2294,7 +2294,7 @@ func (h *DefaultMCPHandler) elicitDeploymentType(ctx context.Context, params Set
 		Interactive:      false, // Force non-interactive for MCP to prevent hanging
 		Environment:      params.Environment,
 		Parent:           params.Parent,
-		SkipAnalysis:     true,  // Skip analysis - we already analyzed above (even if it failed)
+		SkipAnalysis:     true, // Skip analysis - we already analyzed above (even if it failed)
 		OutputDir:        params.Path,
 		DeploymentType:   params.DeploymentType, // Use the determined deployment type
 		SkipConfirmation: true,                  // Skip confirmation prompts for MCP
