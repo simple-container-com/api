@@ -1,0 +1,79 @@
+{
+  "timestamp": "2025-10-11T13:29:43.134270959+03:00",
+  "project_path": "/home/iasadykov/projects/github/simple-container/api/pkg/assistant/mcp",
+  "analyzer_version": "1.1",
+  "resources": {},
+  "tech_stacks": [
+    {
+      "language": "go",
+      "runtime": "go",
+      "confidence": 0.7,
+      "evidence": [
+        ".go files found (legacy GOPATH mode)"
+      ],
+      "metadata": {
+        "mode": "gopath"
+      }
+    }
+  ],
+  "architecture": "standard-web-app",
+  "confidence": 0.7,
+  "primary_stack": {
+    "language": "go",
+    "runtime": "go",
+    "confidence": 0.7,
+    "evidence": [
+      ".go files found (legacy GOPATH mode)"
+    ],
+    "metadata": {
+      "mode": "gopath"
+    }
+  },
+  "recommendations": [
+    {
+      "type": "template",
+      "category": "",
+      "priority": "high",
+      "title": "Go Multi-stage Dockerfile",
+      "description": "Generate optimized multi-stage Dockerfile for Go application with minimal final image",
+      "action": "generate_dockerfile",
+      "template": "go-dockerfile"
+    },
+    {
+      "type": "optimization",
+      "category": "",
+      "priority": "medium",
+      "title": "Go Build Optimization",
+      "description": "Configure Go build with proper flags for smaller binaries and faster startup",
+      "action": "optimize_go_build"
+    },
+    {
+      "type": "setup",
+      "category": "",
+      "priority": "high",
+      "title": "Initialize Simple Container",
+      "description": "Set up Simple Container configuration for streamlined deployment and infrastructure management",
+      "action": "init_simple_container"
+    },
+    {
+      "type": "template",
+      "category": "",
+      "priority": "high",
+      "title": "Add Dockerfile",
+      "description": "Generate optimized Dockerfile for containerized deployment",
+      "action": "generate_dockerfile"
+    },
+    {
+      "type": "setup",
+      "category": "",
+      "priority": "high",
+      "title": "Infrastructure as Code Setup",
+      "description": "No infrastructure management detected. Simple Container provides easy infrastructure-as-code with built-in best practices",
+      "action": "setup_infrastructure_as_code"
+    }
+  ],
+  "metadata": {
+    "analyzed_at": "2025-10-11T13:29:43.125232264+03:00",
+    "analyzer_version": "1.0"
+  }
+}

@@ -30,6 +30,7 @@ modules:
         - task: fmt
         - task: test
         - task: build-all
+        - task: build-github-actions
         - task: docker-login
         - task: build-cloud-helpers
         - task: build-docs
@@ -59,6 +60,12 @@ modules:
         runAfterPush:
           tasks:
             - tag-release
+      # GitHub Actions - Single Self-Contained Image
+      - name: github-actions
+        dockerFile: ${project:root}/github-actions.Dockerfile
+        tags:
+          - simplecontainer/github-actions:latest
+          - simplecontainer/github-actions:${project:version}
 tasks:
   clean:
     runOn: host
@@ -112,6 +119,12 @@ tasks:
     runOn: host
     script:
       - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
+  build-github-actions:
+    runOn: host
+    script:
+      - echo "Building GitHub Actions binary..."
+      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/github-actions ./cmd/github-actions
+      - echo "✅ GitHub Actions binary built successfully"
   test:
     runOn: host
     script:

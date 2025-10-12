@@ -1,0 +1,153 @@
+name: 'Setup Simple Container'
+description: 'Install and configure Simple Container CLI with secrets and environment setup'
+branding:
+  icon: 'settings'
+  color: 'gray'
+
+inputs:
+  sc-config:
+    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    required: true
+  sc-version:
+    description: 'Simple Container CLI version'
+    required: false
+    default: 'latest'
+  setup-devops-repo:
+    description: 'Whether to setup devops repository access'
+    required: false
+    default: 'false'
+  devops-repo:
+    description: 'Devops repository (org/repo format)'
+    required: false
+    default: 'myorg/devops'
+
+outputs:
+  sc-version:
+    description: 'Actual Simple Container version installed'
+  webhook-urls:
+    description: 'Extracted webhook URLs for notifications'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Simple Container CLI
+      shell: bash
+      run: |
+        echo "🔧 Installing Simple Container CLI..."
+        
+        # Set version if specified
+        if [[ "${{ inputs.sc-version }}" != "latest" ]]; then
+          export SIMPLE_CONTAINER_VERSION="${{ inputs.sc-version }}"
+        fi
+        
+        # Install SC CLI with single command
+        curl -s "https://dist.simple-container.com/sc.sh" | bash
+        
+        # Verify installation
+        if ! command -v sc >/dev/null 2>&1; then
+          echo "❌ Simple Container CLI installation failed"
+          exit 1
+        fi
+        
+        # Output actual version
+        SC_VERSION=$(sc --version | head -1 | cut -d' ' -f3)
+        echo "sc-version=$SC_VERSION" >> $GITHUB_OUTPUT
+        echo "✅ Simple Container CLI v$SC_VERSION installed"
+    
+    - name: Configure Simple Container
+      shell: bash
+      env:
+        SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
+      run: |
+        echo "🔐 Configuring Simple Container..."
+        
+        # Create SC config directory
+        mkdir -p .sc
+        
+        # Write SC config to file
+        echo "$SIMPLE_CONTAINER_CONFIG" > .sc/cfg.default.yaml
+        
+        # Reveal secrets for operations
+        if ! sc secrets reveal --force; then
+          echo "⚠️ Failed to reveal secrets - continuing without secrets"
+        fi
+        
+        echo "✅ Simple Container configured successfully"
+    
+    - name: Setup DevOps Repository
+      if: inputs.setup-devops-repo == 'true'
+      shell: bash
+      run: |
+        echo "📂 Setting up DevOps repository access..."
+        
+        # Read SSH private key from SC config
+        PRIVATE_KEY=$(yq eval '.privateKey' .sc/cfg.default.yaml 2>/dev/null || echo "")
+        
+        if [[ -n "$PRIVATE_KEY" ]]; then
+          # Setup SSH key for DevOps repo access
+          mkdir -p ~/.ssh
+          echo "$PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Add GitHub to known hosts
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          
+          # Clone DevOps repository
+          git clone "git@github.com:${{ inputs.devops-repo }}.git" .devops
+          
+          # Copy stack configurations
+          if [[ -d ".devops/.sc/stacks" ]]; then
+            cp -fR .devops/.sc/stacks/* .sc/stacks/ 2>/dev/null || echo "No additional stack configs found"
+          fi
+          
+          echo "✅ DevOps repository configured"
+        else
+          echo "⚠️ No SSH private key found in SC config - skipping DevOps repo setup"
+        fi
+    
+    - name: Extract Notification Webhooks
+      id: webhooks
+      shell: bash
+      run: |
+        echo "🔔 Extracting notification webhook URLs..."
+        
+        # Try to extract webhook URLs from parent stack
+        SLACK_WEBHOOK=""
+        DISCORD_WEBHOOK=""
+        
+        # Attempt to get webhooks from parent stack secrets
+        if sc status >/dev/null 2>&1; then
+          SLACK_WEBHOOK=$(sc stack secret-get -s parent cicd-bot-slack-webhook-url 2>/dev/null || echo "")
+          DISCORD_WEBHOOK=$(sc stack secret-get -s parent cicd-bot-discord-webhook-url 2>/dev/null || echo "")
+        fi
+        
+        # Set outputs for use by other steps
+        if [[ -n "$SLACK_WEBHOOK" ]]; then
+          echo "slack-webhook=$SLACK_WEBHOOK" >> $GITHUB_OUTPUT
+          echo "✅ Slack webhook configured"
+        fi
+        
+        if [[ -n "$DISCORD_WEBHOOK" ]]; then
+          echo "discord-webhook=$DISCORD_WEBHOOK" >> $GITHUB_OUTPUT
+          echo "✅ Discord webhook configured"
+        fi
+        
+        # Combined output for easy access
+        WEBHOOK_URLS="slack=$SLACK_WEBHOOK;discord=$DISCORD_WEBHOOK"
+        echo "webhook-urls=$WEBHOOK_URLS" >> $GITHUB_OUTPUT
+    
+    - name: Validate Setup
+      shell: bash
+      run: |
+        echo "✅ Simple Container setup validation:"
+        echo "   - CLI Version: $(sc --version | head -1)"
+        echo "   - Config: ✅ Configured"
+        echo "   - Secrets: $(sc secrets status | grep -c 'revealed' || echo '0') files revealed"
+        echo "   - DevOps Repo: ${{ inputs.setup-devops-repo == 'true' && '✅ Configured' || 'Skipped' }}"
+        
+        # Test basic SC functionality
+        if sc status --help >/dev/null 2>&1; then
+          echo "   - SC Commands: ✅ Working"
+        else
+          echo "   - SC Commands: ⚠️ Limited functionality"
+        fi

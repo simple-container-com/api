@@ -6,6 +6,26 @@
 ## Project Overview
 This is the Simple Container API project with MkDocs documentation. The project provides infrastructure-as-code capabilities for deploying applications across multiple cloud providers including AWS, GCP, and others.
 
+### Recent Major Additions
+
+#### GitHub Actions Implementation (Production Ready ✅)
+- **Refactored to use SC's internal APIs** for Simple Container deployments
+  - Location: `cmd/github-actions/`, `pkg/githubactions/actions/`, `.github/actions/`
+  - Single Docker image with 4 action types: deploy-client-stack, provision-parent-stack, destroy-client-stack, destroy-parent-stack
+  - **Uses SC's internal APIs**: provisioner, logger, git, notifications, secrets packages
+  - **Reuses existing SC patterns**: No duplicate implementations, follows SC architectural patterns
+  - Single `github-actions.Dockerfile` in root, built via welder.yaml
+  - **Status**: ✅ **Fully tested and production ready**
+
+#### CI/CD Workflow Generation (In Progress)
+- **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration
+  - New CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`
+  - Enhanced server.yaml schema with comprehensive CI/CD configuration support
+  - Location: `pkg/cmd/cmd_cicd/`, `pkg/clouds/github/enhanced_config.go`, `pkg/clouds/github/workflow_generator.go`
+  - Supports organizational-level workflow templates, environment-specific deployments, and notifications
+  - Internal API refactor plan documented for using SC internal APIs instead of shell commands
+  - Status: `sc cicd generate` command completed, other commands pending
+
 ## Important Guidelines
 
 ### Documentation Requirements
