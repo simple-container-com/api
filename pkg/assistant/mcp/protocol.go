@@ -365,6 +365,7 @@ const (
 	ErrorCodeEmbeddingError     = -32004
 	ErrorCodeGenerationError    = -32005
 	ErrorCodeFileOperationError = -32006
+	ErrorCodeTimeout            = -32007
 )
 
 // Helper functions for creating MCP responses
