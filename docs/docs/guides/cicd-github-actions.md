@@ -193,13 +193,13 @@ Validate your CI/CD configuration and existing workflows:
 
 ```bash
 # Validate CI/CD configuration for a stack
-sc cicd validate myorg/infrastructure
+sc cicd validate --stack myorg/infrastructure
 
 # Validate with specific configuration file
-sc cicd validate myorg/infrastructure --config .sc/stacks/myorg-infrastructure/server.yaml
+sc cicd validate --stack myorg/infrastructure --config .sc/stacks/myorg-infrastructure/server.yaml
 
 # Show differences between configuration and existing workflows
-sc cicd validate myorg/infrastructure --show-diff
+sc cicd validate --stack myorg/infrastructure --show-diff
 ```
 
 ### Sync Workflows
@@ -207,14 +207,14 @@ sc cicd validate myorg/infrastructure --show-diff
 Synchronize existing workflows with updated configuration:
 
 ```bash
-# Sync workflows after configuration changes
-sc cicd sync
+# Sync workflows for a specific stack
+sc cicd sync --stack myorg/infrastructure
 
 # Sync with dry-run to see what would change
-sc cicd sync --dry-run
+sc cicd sync --stack myorg/infrastructure --dry-run
 
-# Sync specific stack
-sc cicd sync --stack myorg/infrastructure
+# Force sync without confirmation
+sc cicd sync --stack myorg/infrastructure --force
 ```
 
 ### Preview Workflows
@@ -226,10 +226,10 @@ Preview generated workflows before writing files:
 sc cicd preview --stack myorg/infrastructure
 
 # Preview with detailed output
-sc cicd preview myorg/infrastructure --format detailed
+sc cicd preview --stack myorg/infrastructure --format detailed
 
 # Show workflow content
-sc cicd preview myorg/infrastructure --show-content
+sc cicd preview --stack myorg/infrastructure --show-content
 ```
 
 ## Generated Workflows
@@ -412,7 +412,7 @@ on:
 **Workflow fails with "Stack not found":**
 ```bash
 # Ensure your stack exists and configuration is valid
-sc cicd validate myorg/infrastructure
+sc cicd validate --stack myorg/infrastructure
 
 # Check if server.yaml exists in the correct location
 ls -la .sc/stacks/myorg-infrastructure/server.yaml
@@ -430,10 +430,10 @@ aws sts get-caller-identity
 **Configuration validation errors:**
 ```bash
 # Validate your server.yaml configuration
-sc cicd validate myorg/infrastructure --show-diff
+sc cicd validate --stack myorg/infrastructure --show-diff
 
 # Check the generated workflows
-sc cicd preview myorg/infrastructure --show-content
+sc cicd preview --stack myorg/infrastructure --show-content
 ```
 
 ### Debugging Workflows
@@ -460,7 +460,7 @@ sc cicd preview myorg/infrastructure --show-content
    sc deploy -s myorg/infrastructure -e staging --preview
    
    # Validate configuration
-   sc cicd validate myorg/infrastructure --show-diff
+   sc cicd validate --stack myorg/infrastructure --show-diff
    ```
 
 ## Example Workflows

@@ -201,6 +201,9 @@ func templateFuncs() template.FuncMap {
 		"envVarRef": func(envVar string) string {
 			return fmt.Sprintf("${{ github.event.inputs.%s }}", envVar)
 		},
+		"replace": func(input, old, new string) string {
+			return strings.ReplaceAll(input, old, new)
+		},
 	}
 }
 

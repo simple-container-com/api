@@ -219,9 +219,9 @@ pkg/clouds/github/
 ### **B. New CLI Command** 
 
 ```bash
-sc cicd generate --stack-name myorg/infrastructure --output .github/workflows/
-sc cicd validate --config server.yaml
-sc cicd sync    # Update existing workflows based on server.yaml changes
+sc cicd generate --stack myorg/infrastructure --output .github/workflows/
+sc cicd validate --stack myorg/infrastructure --config server.yaml
+sc cicd sync --stack myorg/infrastructure    # Update existing workflows based on server.yaml changes
 ```
 
 ### **C. Workflow Templates**

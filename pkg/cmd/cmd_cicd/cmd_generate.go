@@ -73,59 +73,30 @@ Only workflows for templates specified in the CI/CD configuration will be genera
 }
 
 func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
-	// Parse stack name
-	stackName := params.StackName
-	if stackName == "" {
+	// Validate stack name
+	if params.StackName == "" {
 		return fmt.Errorf("stack name is required (use --stack flag)")
 	}
 
-	// Detect or use specified config file
-	configFile := params.ConfigFile
-	if configFile == "" {
-		// Auto-detect server.yaml file
-		possiblePaths := []string{
-			".sc/stacks/" + stackName + "/server.yaml",
-			"server.yaml",
-			".sc/stacks/common/server.yaml",
-		}
-
-		for _, path := range possiblePaths {
-			if _, err := os.Stat(path); err == nil {
-				configFile = path
-				break
-			}
-		}
-
-		if configFile == "" {
-			return fmt.Errorf("could not find server.yaml file. Tried: %v\nUse --config to specify path", possiblePaths)
-		}
+	// Process stack name and auto-detect config file
+	stackName := processStackName(params.StackName)
+	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("📖 Reading configuration from: %s\n", color.CyanString(configFile))
 
-	// Read and parse server configuration
-	serverDesc, err := readServerConfig(configFile)
+	// Load and validate server configuration
+	serverDesc, err := validateAndLoadServerConfig(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to read server configuration: %w", err)
+		return err
 	}
 
-	// Validate CI/CD configuration
-	if serverDesc.CiCd.Type == "" {
-		return fmt.Errorf("no CI/CD configuration found in server.yaml")
-	}
+	// Configuration and type validation already done in validateAndLoadServerConfig
 
-	if serverDesc.CiCd.Type != github.CiCdTypeGithubActions {
-		return fmt.Errorf("unsupported CI/CD type: %s (only 'github-actions' is supported)", serverDesc.CiCd.Type)
-	}
-
-	fmt.Printf("🔧 CI/CD Type: %s\n", color.GreenString(serverDesc.CiCd.Type))
-
-	// Create enhanced config based on server descriptor
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
-
-	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
-	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)
-	fmt.Printf("🌐 Environments: %v\n", getEnvironmentNames(enhancedConfig.Environments))
+	// Create enhanced config with logging
+	enhancedConfig := setupEnhancedConfigWithLogging(serverDesc, stackName, configFile)
 
 	// Check output directory
 	outputDir := params.Output

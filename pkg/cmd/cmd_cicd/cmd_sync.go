@@ -31,7 +31,7 @@ func NewSyncCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "sync [stack-name]",
+		Use:   "sync",
 		Short: "Synchronize existing workflow files with server.yaml configuration",
 		Long: `Synchronize existing GitHub Actions workflow files with the current CI/CD 
 configuration in server.yaml. This command updates outdated workflows and 
@@ -39,23 +39,22 @@ creates missing ones while preserving existing customizations where possible.
 
 Examples:
   # Sync workflows for a specific stack
-  sc cicd sync myapp
+  sc cicd sync --stack myapp
 
   # Preview changes without applying them
-  sc cicd sync myapp --dry-run
+  sc cicd sync --stack myapp --dry-run
 
   # Force sync without backing up existing files
-  sc cicd sync myapp --force --no-backup
+  sc cicd sync --stack myapp --force --no-backup
 
   # Sync with custom workflows directory
-  sc cicd sync myapp --workflows-dir .github/custom-workflows`,
-		Args: cobra.ExactArgs(1),
+  sc cicd sync --stack myapp --workflows-dir .github/custom-workflows`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			params.StackName = args[0]
 			return runSync(rootCmd, params)
 		},
 	}
 
+	cmd.Flags().StringVarP(&params.StackName, "stack", "s", "", "Stack name (required)")
 	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", params.ConfigFile, "Server config file path")
 	cmd.Flags().StringVarP(&params.WorkflowsDir, "workflows-dir", "w", params.WorkflowsDir, "GitHub workflows directory")
 	cmd.Flags().BoolVar(&params.DryRun, "dry-run", params.DryRun, "Preview changes without applying them")
@@ -63,37 +62,35 @@ Examples:
 	cmd.Flags().BoolVar(&params.BackupExisting, "backup", params.BackupExisting, "Backup existing files before modification")
 	cmd.Flags().BoolVar(&params.Verbose, "verbose", params.Verbose, "Verbose output")
 
+	_ = cmd.MarkFlagRequired("stack")
+
 	return cmd
 }
 
 func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 	fmt.Printf("%s Synchronizing CI/CD workflows...\n", color.BlueString("🔄"))
 
-	// Read and validate server configuration
-	serverConfig, err := readServerConfig(params.ConfigFile)
+	// Process stack name and auto-detect config file
+	stackName := processStackName(params.StackName)
+	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
 	if err != nil {
-		return fmt.Errorf("failed to read server config: %w", err)
+		return err
 	}
 
-	stackName := params.StackName
-	if stackName == "" {
-		stackName = "default-stack"
+	fmt.Printf("📆 Reading configuration from: %s\n", color.CyanString(configFile))
+
+	// Load and validate server configuration
+	serverConfig, err := validateAndLoadServerConfig(configFile)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
-	fmt.Printf("📁 Config file: %s\n", color.CyanString(params.ConfigFile))
+	fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
 	fmt.Printf("📂 Workflows directory: %s\n", color.CyanString(params.WorkflowsDir))
 
-	// Extract CI/CD configuration
-	if serverConfig.CiCd.Type != github.CiCdTypeGithubActions {
-		return fmt.Errorf("no GitHub Actions CI/CD configuration found in %s", params.ConfigFile)
-	}
-
-	// Create enhanced config based on server descriptor
-	enhancedConfig := createEnhancedConfig(serverConfig, stackName)
-
-	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
-	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)
+	// Create enhanced config with logging
+	enhancedConfig := setupEnhancedConfigWithLogging(serverConfig, stackName, configFile)
 
 	if params.DryRun {
 		fmt.Printf("\n%s Dry run mode - no files will be modified\n", color.YellowString("🔍"))

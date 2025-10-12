@@ -30,7 +30,7 @@ func NewPreviewCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "preview [stack-name]",
+		Use:   "preview",
 		Short: "Preview workflow files that would be generated",
 		Long: `Preview the GitHub Actions workflow files that would be generated based on 
 the CI/CD configuration in server.yaml. This command shows the expected 
@@ -38,23 +38,22 @@ workflow structure, content, and configuration without creating any files.
 
 Examples:
   # Preview workflows for a specific stack
-  sc cicd preview myapp
+  sc cicd preview --stack myapp
 
   # Preview with detailed content
-  sc cicd preview myapp --show-content --verbose
+  sc cicd preview --stack myapp --show-content --verbose
 
   # Preview and show differences with existing files
-  sc cicd preview myapp --show-diff
+  sc cicd preview --stack myapp --show-diff
 
   # Save preview to a file
-  sc cicd preview myapp --output preview.yaml --format detailed`,
-		Args: cobra.ExactArgs(1),
+  sc cicd preview --stack myapp --output preview.yaml --format detailed`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			params.StackName = args[0]
 			return runPreview(rootCmd, params)
 		},
 	}
 
+	cmd.Flags().StringVarP(&params.StackName, "stack", "s", "", "Stack name (required)")
 	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", params.ConfigFile, "Server config file path")
 	cmd.Flags().StringVarP(&params.Output, "output", "o", params.Output, "Output file for preview (optional)")
 	cmd.Flags().BoolVar(&params.ShowContent, "show-content", params.ShowContent, "Show workflow file contents")
@@ -62,37 +61,32 @@ Examples:
 	cmd.Flags().StringVar(&params.Format, "format", params.Format, "Output format: summary, detailed, json")
 	cmd.Flags().BoolVarP(&params.Verbose, "verbose", "v", params.Verbose, "Verbose output")
 
+	_ = cmd.MarkFlagRequired("stack")
+
 	return cmd
 }
 
 func runPreview(rootCmd *root_cmd.RootCmd, params PreviewParams) error {
 	fmt.Printf("%s Generating workflow preview...\n", color.BlueString("👀"))
 
-	// Read and validate server configuration
-	serverConfig, err := readServerConfig(params.ConfigFile)
+	// Process stack name and auto-detect config file
+	stackName := processStackName(params.StackName)
+	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
 	if err != nil {
-		return fmt.Errorf("failed to read server config: %w", err)
+		return err
 	}
 
-	stackName := params.StackName
-	if stackName == "" {
-		stackName = "default-stack"
+	// Load and validate server configuration
+	serverConfig, err := validateAndLoadServerConfig(configFile)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
-	fmt.Printf("📁 Config file: %s\n", color.CyanString(params.ConfigFile))
+	fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
 
-	// Extract CI/CD configuration
-	if serverConfig.CiCd.Type != github.CiCdTypeGithubActions {
-		return fmt.Errorf("no GitHub Actions CI/CD configuration found in %s", params.ConfigFile)
-	}
-
-	// Create enhanced config based on server descriptor
-	enhancedConfig := createEnhancedConfig(serverConfig, stackName)
-
-	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
-	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)
-	fmt.Printf("🌐 Environments: %v\n", getEnvironmentNames(enhancedConfig.Environments))
+	// Create enhanced config with logging
+	enhancedConfig := setupEnhancedConfigWithLogging(serverConfig, stackName, configFile)
 
 	// Generate preview
 	fmt.Printf("\n%s Generating preview...\n", color.BlueString("🔮"))

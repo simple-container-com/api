@@ -11,6 +11,18 @@ provisioner:
       type: pulumi-cloud
       config:
         credentials: "${auth:pulumi}"
+cicd:
+  type: github-actions
+  config:
+    organization: "simple-container-com"
+    environments:
+      production:
+        type: production
+        protection: true
+        auto-deploy: true
+        runners: ["ubuntu-22"]
+    workflow-generation:
+      enabled: true
 templates:
   static-website:
     type: gcp-static-website

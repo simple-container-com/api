@@ -111,13 +111,13 @@ sc cicd generate --stack myorg/infrastructure --output .github/workflows/
 ### Validate Configuration
 ```bash
 # Validate CI/CD setup
-sc cicd validate myorg/infrastructure --show-diff
+sc cicd validate --stack myorg/infrastructure --show-diff
 ```
 
 ### Preview Changes
 ```bash
 # Preview generated workflows
-sc cicd preview myorg/infrastructure --show-content
+sc cicd preview --stack myorg/infrastructure --show-content
 ```
 
 ## Best Practices
@@ -183,7 +183,7 @@ config:
 1. Review the **[CI/CD Guide](../../guides/cicd-github-actions.md)** for comprehensive documentation
 2. Check **[Troubleshooting section](../../guides/cicd-github-actions.md#troubleshooting)** in the main guide
 3. Examine workflow logs in GitHub Actions tab
-4. Test configuration locally with `sc cicd validate <stack-name>`
+4. Test configuration locally with `sc cicd validate --stack <stack-name>`
 
 ## Contributing
 

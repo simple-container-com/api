@@ -374,7 +374,7 @@ sc secrets hide
 sc cicd generate --stack my-app --output .github/workflows/
 
 # Validate the generated configuration
-sc cicd validate my-app
+sc cicd validate --stack my-app
 ```
 
 ### 5. Commit and Push
@@ -599,7 +599,7 @@ on:
 1. **Check workflow logs** in GitHub Actions tab
 2. **Validate configuration locally:**
    ```bash
-   sc cicd validate my-app --show-diff
+   sc cicd validate --stack my-app --show-diff
    ```
 3. **Test deployment locally:**
    ```bash

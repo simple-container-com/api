@@ -6,7 +6,7 @@ const deployTemplate = `name: Deploy {{ .Organization.Name }} {{ .StackName }}
 
 on:
   push:
-    branches: [{{ .DefaultBranch }}]
+    branches: [{{ if .DefaultBranch }}{{ .DefaultBranch }}{{ else }}main{{ end }}]
   workflow_dispatch:
     inputs:
       environment:
@@ -70,12 +70,6 @@ jobs:
           validation-command: |
             {{ $env.ValidationCmd | indent 12 }}
           {{- end }}
-          {{- if $.Notifications.SlackWebhook }}
-          slack-webhook-url: ${{ "{{" }} secrets.SLACK_WEBHOOK_URL {{ "}}" }}
-          {{- end }}
-          {{- if $.Notifications.DiscordWebhook }}
-          discord-webhook-url: ${{ "{{" }} secrets.DISCORD_WEBHOOK_URL {{ "}}" }}
-          {{- end }}
           cc-on-start: "{{ $.Notifications.CCOnStart }}"
           
       {{- if $.Validation.Required }}
@@ -100,21 +94,7 @@ jobs:
       {{- end }}
 
 {{- end }}
-{{- end }}
-
-  # Notification job (runs after successful deployment)
-  notify-success:
-    name: Notify Success
-    needs: [{{- range $envName, $env := .Environments }}{{- if ne $env.Type "preview" }}deploy-{{ $envName }}, {{- end }}{{- end }}]
-    runs-on: ubuntu-latest
-    if: ${{ "{{" }} success() {{ "}}" }}
-    steps:
-      - name: Send success notification
-        run: |
-          echo "🎉 Deployment completed successfully!"
-          {{- if .Notifications.SlackWebhook }}
-          # Send Slack notification would be handled by the action itself
-          {{- end }}`
+{{- end }}`
 
 const destroyTemplate = `name: Destroy {{ .Organization.Name }} {{ .StackName }}
 
@@ -208,25 +188,8 @@ jobs:
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
           skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
-          {{- if .Notifications.SlackWebhook }}
-          slack-webhook-url: ${{ "{{" }} secrets.SLACK_WEBHOOK_URL {{ "}}" }}
-          {{- end }}
-          {{- if .Notifications.DiscordWebhook }}
-          discord-webhook-url: ${{ "{{" }} secrets.DISCORD_WEBHOOK_URL {{ "}}" }}
-          {{- end }}
 
-  # Cleanup job (runs after destruction)
-  cleanup:
-    name: Post-Destruction Cleanup
-    needs: [validate-destroy, destroy-stack]
-    runs-on: ubuntu-latest
-    if: ${{ "{{" }} success() {{ "}}" }}
-    steps:
-      - name: Cleanup resources
-        run: |
-          echo "🧹 Running post-destruction cleanup..."
-          echo "Environment ${{ "{{" }} needs.validate-destroy.outputs.environment {{ "}}" }} has been destroyed."
-          # Additional cleanup logic would go here`
+`
 
 const provisionTemplate = `name: Provision {{ .Organization.Name }} Infrastructure
 
@@ -272,12 +235,8 @@ jobs:
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           dry-run: ${{ "{{" }} github.event.inputs.dry_run {{ "}}" }}
           notify-on-completion: "true"
-          {{- if .Notifications.SlackWebhook }}
-          slack-webhook-url: ${{ "{{" }} secrets.SLACK_WEBHOOK_URL {{ "}}" }}
-          {{- end }}
-          {{- if .Notifications.DiscordWebhook }}
-          discord-webhook-url: ${{ "{{" }} secrets.DISCORD_WEBHOOK_URL {{ "}}" }}
-          {{- end }}
+          # Notification webhooks automatically configured from SC secrets.yaml
+          # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
 
   test-infrastructure:
     name: Test Infrastructure
