@@ -824,13 +824,13 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 		},
 		{
 			"name":        "show_config_diff",
-			"description": "📊 Show configuration changes with resolved inheritance (git diff style)",
+			"description": "📊 Show configuration changes with resolved inheritance (git diff style). Supports hierarchical stack groups and wildcards.",
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"stack_name": map[string]interface{}{
 						"type":        "string",
-						"description": "Stack name to show diff for",
+						"description": "Stack name to show diff for. Supports hierarchical syntax like 'simple-container:staging' or 'simple-container/staging' to specify stack group and stack name. Use '*' for all stacks, wildcards like 'test*' or '*prod*' to match multiple stacks, or just group name like 'simple-container' to show all stacks in that group. Leave empty for all stacks.",
 					},
 					"config_type": map[string]interface{}{
 						"type":        "string",
@@ -850,7 +850,7 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 						"default":     "split",
 					},
 				},
-				"required": []string{"stack_name"},
+				"required": []string{},
 			},
 		},
 	}

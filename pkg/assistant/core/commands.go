@@ -1735,13 +1735,77 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 		format = "split"
 	}
 
+	// Check if stackName contains hierarchy separator (e.g., "simple-container:staging" or "simple-container/staging")
+	var stackGroup string
+	var stackFilter string
+	var configFilePath string
+
+	if stackName != "" && stackName != "*" {
+		// Check for hierarchy separator
+		var parts []string
+		if strings.Contains(stackName, ":") {
+			parts = strings.SplitN(stackName, ":", 2)
+		} else if strings.Contains(stackName, "/") {
+			parts = strings.SplitN(stackName, "/", 2)
+		}
+
+		if len(parts) == 2 {
+			// Hierarchical syntax: "simple-container:staging" or "simple-container/staging"
+			potentialGroup := parts[0]
+			if h.isStackGroup(".", potentialGroup) {
+				stackGroup = potentialGroup
+				configFilePath = h.findClientYamlForStackGroup(".", stackGroup)
+				stackFilter = parts[1] // Can be specific stack or pattern
+			} else {
+				// Not a valid stack group, treat whole string as stack filter
+				stackFilter = stackName
+			}
+		} else {
+			// No separator - check if this is a stack group
+			if h.isStackGroup(".", stackName) {
+				// It's a stack group - load its specific config
+				stackGroup = stackName
+				configFilePath = h.findClientYamlForStackGroup(".", stackGroup)
+				stackFilter = "" // Show all stacks in this group
+			} else {
+				// Not a stack group - might be a pattern or specific stack
+				stackFilter = stackName
+			}
+		}
+	} else {
+		stackFilter = stackName
+	}
+
 	// Get current config to access the stacks map
-	currentConfig, err := h.GetCurrentConfig(ctx, "client", "") // Get full client config to access all stacks
-	if err != nil || !currentConfig.Success {
-		return &CommandResult{
-			Success: false,
-			Message: fmt.Sprintf("❌ Failed to get current configuration: %v", err),
-		}, nil
+	var currentConfig *CommandResult
+	var err error
+
+	if configFilePath != "" {
+		// Load config from specific stack group file
+		yamlContent, readErr := h.readYamlFile(configFilePath)
+		if readErr != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to read config from %s: %v", configFilePath, readErr),
+			}, nil
+		}
+
+		currentConfig = &CommandResult{
+			Success: true,
+			Data: map[string]interface{}{
+				"file_path": configFilePath,
+				"content":   yamlContent,
+			},
+		}
+	} else {
+		// Use default config discovery
+		currentConfig, err = h.GetCurrentConfig(ctx, "client", "")
+		if err != nil || !currentConfig.Success {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to get current configuration: %v", err),
+			}, nil
+		}
 	}
 
 	// Extract stacks map from the config
@@ -1780,34 +1844,30 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 	// Initialize configdiff service with the stacks map and custom provider
 	diffSvc := configdiff.NewConfigDiffServiceWithProvider(stacksMap, versionProvider)
 
-	// If no stack name is provided, list available stacks
-	if stackName == "" {
-		stacks, err := h.ListAvailableStacks()
-		if err != nil {
-			return &CommandResult{
-				Success: false,
-				Message: fmt.Sprintf("❌ Failed to list available stacks: %v", err),
-			}, nil
+	// Determine which stacks to show diff for
+	var stacksToProcess []string
+
+	// If stackFilter is empty or "*", show all stacks in current context
+	if stackFilter == "" || stackFilter == "*" {
+		for k := range stacks {
+			stacksToProcess = append(stacksToProcess, k)
 		}
 
-		if len(stacks) == 0 {
+		if len(stacksToProcess) == 0 {
+			groupInfo := ""
+			if stackGroup != "" {
+				groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+			}
 			return &CommandResult{
 				Success: true,
-				Message: "No stacks found in the configuration. Use `/getconfig` to view the current configuration.",
+				Message: fmt.Sprintf("No stacks found%s. Use `/getconfig` to view the current configuration.", groupInfo),
 			}, nil
 		}
 
 		// Show diff for all stacks
 		var allMessages []string
-
-		for _, stackName := range stacks {
-			// Get diff for this stack
-			result, err := h.ShowConfigDiff(ctx, stackName, configType, compareWith, format)
-			if err != nil {
-				allMessages = append(allMessages, fmt.Sprintf("❌ Failed to get diff for stack '%s': %v", stackName, err))
-				continue
-			}
-
+		for _, stack := range stacksToProcess {
+			result := h.showSingleStackDiff(ctx, stack, configType, compareWith, format, diffSvc, stacksMap, configFilePath)
 			if result.Success {
 				allMessages = append(allMessages, result.Message)
 			} else {
@@ -1816,14 +1876,89 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 		}
 
 		if len(allMessages) == 0 {
+			groupInfo := ""
+			if stackGroup != "" {
+				groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+			}
 			return &CommandResult{
 				Success: true,
-				Message: "No changes found in any stacks.",
+				Message: fmt.Sprintf("No changes found in any stacks%s.", groupInfo),
 			}, nil
 		}
 
 		// Combine all messages
-		finalMessage := fmt.Sprintf("🔍 Configuration diff for all stacks (comparing with %s):\n\n", compareWith)
+		groupInfo := ""
+		if stackGroup != "" {
+			groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+		}
+		finalMessage := fmt.Sprintf("🔍 Configuration diff for all stacks%s (comparing with %s):\n\n", groupInfo, compareWith)
+		finalMessage += strings.Join(allMessages, "\n\n"+strings.Repeat("═", 80)+"\n\n")
+
+		return &CommandResult{
+			Success: true,
+			Message: finalMessage,
+		}, nil
+	}
+
+	// Check if stackFilter is a pattern (contains wildcard)
+	if strings.Contains(stackFilter, "*") {
+		// Convert pattern to regex
+		pattern := "^" + strings.ReplaceAll(regexp.QuoteMeta(stackFilter), "\\*", ".*") + "$"
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Invalid pattern '%s': %v", stackFilter, err),
+			}, nil
+		}
+
+		// Filter stacks by pattern from current stacks map
+		var matchingStacks []string
+		for k := range stacks {
+			if re.MatchString(k) {
+				matchingStacks = append(matchingStacks, k)
+			}
+		}
+
+		if len(matchingStacks) == 0 {
+			groupInfo := ""
+			if stackGroup != "" {
+				groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+			}
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ No stacks found matching pattern '%s'%s", stackFilter, groupInfo),
+			}, nil
+		}
+
+		// Show diff for all matching stacks
+		var allMessages []string
+		for _, s := range matchingStacks {
+			result := h.showSingleStackDiff(ctx, s, configType, compareWith, format, diffSvc, stacksMap, configFilePath)
+			if result.Success {
+				allMessages = append(allMessages, result.Message)
+			} else {
+				allMessages = append(allMessages, fmt.Sprintf("❌ %s", result.Message))
+			}
+		}
+
+		if len(allMessages) == 0 {
+			groupInfo := ""
+			if stackGroup != "" {
+				groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+			}
+			return &CommandResult{
+				Success: true,
+				Message: fmt.Sprintf("No changes found in stacks matching '%s'%s.", stackFilter, groupInfo),
+			}, nil
+		}
+
+		// Combine all messages
+		groupInfo := ""
+		if stackGroup != "" {
+			groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+		}
+		finalMessage := fmt.Sprintf("🔍 Configuration diff for stacks matching '%s'%s (comparing with %s):\n\n", stackFilter, groupInfo, compareWith)
 		finalMessage += strings.Join(allMessages, "\n\n"+strings.Repeat("═", 80)+"\n\n")
 
 		return &CommandResult{
@@ -1833,13 +1968,23 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 	}
 
 	// Validate the stack exists
-	if _, exists := stacksMap[stackName]; !exists {
+	if _, exists := stacksMap[stackFilter]; !exists {
+		groupInfo := ""
+		if stackGroup != "" {
+			groupInfo = fmt.Sprintf(" in group '%s'", stackGroup)
+		}
 		return &CommandResult{
 			Success: false,
-			Message: fmt.Sprintf("❌ Stack '%s' not found in configuration", stackName),
+			Message: fmt.Sprintf("❌ Stack '%s' not found in configuration%s", stackFilter, groupInfo),
 		}, nil
 	}
 
+	// Show diff for single stack
+	return h.showSingleStackDiff(ctx, stackFilter, configType, compareWith, format, diffSvc, stacksMap, configFilePath), nil
+}
+
+// showSingleStackDiff shows diff for a single stack (helper method)
+func (h *UnifiedCommandHandler) showSingleStackDiff(ctx context.Context, stackName, configType, compareWith, format string, diffSvc *configdiff.ConfigDiffService, stacksMap api.StacksMap, configFilePath string) *CommandResult {
 	// Set up diff options
 	options := configdiff.DefaultDiffOptions()
 	switch format {
@@ -1864,14 +2009,14 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 		return &CommandResult{
 			Success: false,
 			Message: fmt.Sprintf("❌ Failed to generate config diff: %v", err),
-		}, nil
+		}
 	}
 
 	if !result.Success {
 		return &CommandResult{
 			Success: false,
 			Message: fmt.Sprintf("❌ %s", result.Error),
-		}, nil
+		}
 	}
 
 	// Format the result message
@@ -1887,7 +2032,7 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 			"compare_with": compareWith,
 			"format":       format,
 		},
-	}, nil
+	}
 }
 
 func (h *UnifiedCommandHandler) AddResource(ctx context.Context, resourceName, resourceType, environment string, config map[string]interface{}) (*CommandResult, error) {
@@ -1991,6 +2136,29 @@ func (h *UnifiedCommandHandler) findClientYaml(basePath string) string {
 	}
 
 	return ""
+}
+
+// findClientYamlForStackGroup finds client.yaml for a specific stack group
+func (h *UnifiedCommandHandler) findClientYamlForStackGroup(basePath, stackGroup string) string {
+	// Check in .sc/stacks/<stackGroup>/client.yaml
+	path := filepath.Join(basePath, ".sc/stacks", stackGroup, "client.yaml")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return ""
+}
+
+// isStackGroup checks if a name is a stack group (directory in .sc/stacks/)
+func (h *UnifiedCommandHandler) isStackGroup(basePath, name string) bool {
+	path := filepath.Join(basePath, ".sc/stacks", name)
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		// Check if it contains a client.yaml
+		clientPath := filepath.Join(path, "client.yaml")
+		if _, err := os.Stat(clientPath); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *UnifiedCommandHandler) findServerYaml(basePath string) string {

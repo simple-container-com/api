@@ -79,11 +79,11 @@ func (c *ChatInterface) registerStackCommands() {
 
 	c.commands["diff"] = &ChatCommand{
 		Name:        "diff",
-		Description: "Show configuration differences between versions or environments",
-		Usage:       "/diff [stack_name] [config_type=client|server] [compare_with=HEAD~1] [format=split|unified|inline|compact]",
+		Description: "Show configuration differences between versions or environments. Supports hierarchical stack groups and wildcards.",
+		Usage:       "/diff [stack_group[:stack_name]|*|pattern] [config_type=client|server] [compare_with=HEAD~1] [format=split|unified|inline|compact]\n\nExamples:\n  /diff                            # Show diff for all stacks\n  /diff *                          # Show diff for all stacks\n  /diff simple-container           # Show diff for all stacks in 'simple-container' group\n  /diff simple-container:staging   # Show diff for 'staging' stack in 'simple-container' group\n  /diff simple-container/staging   # Alternative syntax with slash\n  /diff simple-container:test*     # Show diff for all stacks starting with 'test' in 'simple-container' group\n  /diff staging                    # Show diff for 'staging' stack (auto-detect group)\n  /diff test* client               # Show diff for all stacks starting with 'test'\n  /diff *prod* client              # Show diff for all stacks containing 'prod'",
 		Handler:     c.handleConfigDiff,
 		Args: []CommandArg{
-			{Name: "stack_name", Type: "string", Required: false, Description: "Name of the stack to compare (omit to show all stacks)"},
+			{Name: "stack_name", Type: "string", Required: false, Description: "Stack name or group:stack format (e.g., 'simple-container:staging'). Use '*' for all, wildcards like 'test*' or '*prod*', or group name alone to show all stacks in that group"},
 			{Name: "config_type", Type: "string", Required: false, Description: "Configuration type: client or server", Default: "client"},
 			{Name: "compare_with", Type: "string", Required: false, Description: "Git reference to compare with (e.g., HEAD~1, main, v1.0)", Default: "HEAD~1"},
 			{Name: "format", Type: "string", Required: false, Description: "Output format: split, unified, inline, or compact", Default: "split"},

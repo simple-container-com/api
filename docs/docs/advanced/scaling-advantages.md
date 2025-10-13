@@ -255,7 +255,7 @@ stacks:
   # Base environment with shared resources
   prod: &prod
     type: cloud-compose
-    parent: integrail/myapp-infra
+    parent: simple-container/myapp-infra
     config: &config
       domain: prod.myapp.com
       uses: [mongodb-cluster-us-1a]  # Choose which cluster to use
@@ -636,11 +636,11 @@ resources:
 
 # client.yaml - Customers choose regions easily
 us-customer:
-  parent: integrail/myapp-us
+  parent: simple-container/myapp-us
   parentEnv: prod
   
 eu-customer:
-  parent: integrail/myapp-eu
+  parent: simple-container/myapp-eu
   parentEnv: prod
 ```
 
