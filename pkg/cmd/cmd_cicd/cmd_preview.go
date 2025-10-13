@@ -2,14 +2,12 @@ package cmd_cicd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
-	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/assistant/cicd"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -69,322 +67,48 @@ Examples:
 func runPreview(rootCmd *root_cmd.RootCmd, params PreviewParams) error {
 	fmt.Printf("%s Generating workflow preview...\n", color.BlueString("👀"))
 
-	// Process stack name and auto-detect config file
-	stackName := processStackName(params.StackName)
-	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
-	if err != nil {
-		return err
+	// Create CI/CD service and run preview
+	service := cicd.NewService()
+
+	serviceParams := cicd.PreviewParams{
+		StackName:   params.StackName,
+		ConfigFile:  params.ConfigFile,
+		ShowContent: params.ShowContent,
 	}
 
-	// Load and validate server configuration
-	serverConfig, err := validateAndLoadServerConfig(configFile)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
-	fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
-
-	// Create enhanced config with logging
-	enhancedConfig := setupEnhancedConfigWithLogging(serverConfig, stackName, configFile)
-
-	// Generate preview
-	fmt.Printf("\n%s Generating preview...\n", color.BlueString("🔮"))
-
-	// Use a temporary directory for preview generation
-	tempDir := filepath.Join(os.TempDir(), "sc-cicd-preview", stackName)
-	defer os.RemoveAll(tempDir)
-
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, tempDir)
-	preview, err := generator.PreviewWorkflow()
+	result, err := service.PreviewWorkflows(serviceParams)
 	if err != nil {
 		return fmt.Errorf("failed to generate preview: %w", err)
 	}
 
-	// Display or save preview
-	if params.Output != "" {
-		return savePreview(preview, params)
+	if !result.Success {
+		return fmt.Errorf("%s", result.Message)
 	}
 
-	return displayPreview(preview, params)
-}
-
-func displayPreview(preview *github.WorkflowPreview, params PreviewParams) error {
-	switch params.Format {
-	case "summary":
-		return displayPreviewSummary(preview, params)
-	case "detailed":
-		return displayPreviewDetailed(preview, params)
-	case "json":
-		return displayPreviewJSON(preview, params)
-	default:
-		return fmt.Errorf("unknown format: %s (supported: summary, detailed, json)", params.Format)
+	// Display basic info
+	if stackName, ok := result.Data["stack_name"].(string); ok {
+		fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
 	}
-}
-
-func displayPreviewSummary(preview *github.WorkflowPreview, params PreviewParams) error {
-	fmt.Printf("\n%s Workflow Preview Summary\n", color.BlueString("📋"))
-	fmt.Printf("═══════════════════════════\n")
-
-	fmt.Printf("\n%s Generated Workflows:\n", color.GreenString("📄"))
-	for _, workflow := range preview.Workflows {
-		fmt.Printf("  ✨ %s\n", color.CyanString(workflow.Name))
-		fmt.Printf("     File: %s\n", workflow.FileName)
-		fmt.Printf("     Jobs: %d\n", len(workflow.Jobs))
-
-		if params.Verbose {
-			for _, job := range workflow.Jobs {
-				fmt.Printf("       - %s (%d steps)\n", job.Name, len(job.Steps))
-			}
-		}
+	if organization, ok := result.Data["organization"].(string); ok {
+		fmt.Printf("🏢 Organization: %s\n", color.CyanString(organization))
 	}
 
-	fmt.Printf("\n%s Configuration Details:\n", color.BlueString("⚙️"))
-	fmt.Printf("  Organization: %s\n", preview.Config.Organization.Name)
-	fmt.Printf("  Environments: %d configured\n", len(preview.Config.Environments))
-	fmt.Printf("  Custom Actions: %v\n", preview.Config.WorkflowGeneration.CustomActions)
+	// Display preview content
+	fmt.Printf("\n%s\n", result.Message)
 
-	if preview.Config.Notifications.SlackWebhook != "" || preview.Config.Notifications.DiscordWebhook != "" {
-		fmt.Printf("  Notifications: ")
-		var notifyTypes []string
-		if preview.Config.Notifications.SlackWebhook != "" {
-			notifyTypes = append(notifyTypes, "Slack")
-		}
-		if preview.Config.Notifications.DiscordWebhook != "" {
-			notifyTypes = append(notifyTypes, "Discord")
-		}
-		fmt.Printf("%s\n", color.GreenString(fmt.Sprintf("%v", notifyTypes)))
-	}
-
-	// Show differences if requested and applicable
-	if params.ShowDiff {
-		return showWorkflowDifferences(preview, params)
-	}
-
-	return nil
-}
-
-func displayPreviewDetailed(preview *github.WorkflowPreview, params PreviewParams) error {
-	fmt.Printf("\n%s Detailed Workflow Preview\n", color.BlueString("📋"))
-	fmt.Printf("═══════════════════════════════\n")
-
-	for i, workflow := range preview.Workflows {
-		if i > 0 {
-			fmt.Printf("%s", "\n"+strings.Repeat("─", 50)+"\n")
-		}
-
-		fmt.Printf("\n%s Workflow: %s\n", color.GreenString("📄"), color.CyanString(workflow.Name))
-		fmt.Printf("File: %s\n", workflow.FileName)
-		fmt.Printf("Description: %s\n", workflow.Description)
-
-		// Show triggers
-		if len(workflow.Triggers) > 0 {
-			fmt.Printf("\n%s Triggers:\n", color.YellowString("🎯"))
-			for _, trigger := range workflow.Triggers {
-				fmt.Printf("  - %s\n", trigger)
+	// Show additional details if verbose
+	if params.Verbose {
+		if templates, ok := result.Data["templates"].([]string); ok {
+			fmt.Printf("\n%s Templates:\n", color.BlueString("📋"))
+			for _, template := range templates {
+				fmt.Printf("  - %s\n", template)
 			}
 		}
 
-		// Show jobs
-		fmt.Printf("\n%s Jobs:\n", color.BlueString("🏃"))
-		for _, job := range workflow.Jobs {
-			fmt.Printf("  %s %s\n", color.CyanString("📋"), job.Name)
-			fmt.Printf("    Runner: %s\n", job.Runner)
-			if job.Environment != "" {
-				fmt.Printf("    Environment: %s\n", job.Environment)
-			}
-
-			fmt.Printf("    Steps (%d):\n", len(job.Steps))
-			for _, step := range job.Steps {
-				fmt.Printf("      - %s\n", step.Name)
-				if params.Verbose && step.Action != "" {
-					fmt.Printf("        Uses: %s\n", step.Action)
-				}
-			}
-		}
-
-		// Show content if requested
-		if params.ShowContent {
-			fmt.Printf("\n%s Workflow Content:\n", color.BlueString("📝"))
-			fmt.Printf("```yaml\n%s```\n", workflow.Content)
+		if environments, ok := result.Data["environments"].([]string); ok {
+			fmt.Printf("\n%s Environments: %s\n", color.BlueString("🌐"), strings.Join(environments, ", "))
 		}
 	}
 
-	return nil
-}
-
-func displayPreviewJSON(preview *github.WorkflowPreview, params PreviewParams) error {
-	// This would marshal the preview struct to JSON
-	fmt.Printf("{\n")
-	fmt.Printf("  \"stack_name\": \"%s\",\n", preview.StackName)
-	fmt.Printf("  \"workflows\": [\n")
-
-	for i, workflow := range preview.Workflows {
-		if i > 0 {
-			fmt.Printf(",\n")
-		}
-		fmt.Printf("    {\n")
-		fmt.Printf("      \"name\": \"%s\",\n", workflow.Name)
-		fmt.Printf("      \"file_name\": \"%s\",\n", workflow.FileName)
-		fmt.Printf("      \"description\": \"%s\",\n", workflow.Description)
-		fmt.Printf("      \"jobs_count\": %d\n", len(workflow.Jobs))
-		fmt.Printf("    }")
-	}
-
-	fmt.Printf("\n  ]\n")
-	fmt.Printf("}\n")
-	return nil
-}
-
-func showWorkflowDifferences(preview *github.WorkflowPreview, params PreviewParams) error {
-	fmt.Printf("\n%s Comparing with existing workflows...\n", color.BlueString("🔍"))
-
-	workflowsDir := ".github/workflows"
-	foundDifferences := false
-
-	for _, workflow := range preview.Workflows {
-		existingPath := filepath.Join(workflowsDir, workflow.FileName)
-
-		if _, err := os.Stat(existingPath); os.IsNotExist(err) {
-			fmt.Printf("  + %s (new file)\n", color.GreenString(workflow.FileName))
-			foundDifferences = true
-			continue
-		}
-
-		// Read existing file
-		existingContent, err := os.ReadFile(existingPath)
-		if err != nil {
-			fmt.Printf("  ? %s (could not read existing file)\n", color.YellowString(workflow.FileName))
-			continue
-		}
-
-		// Compare content
-		if string(existingContent) != workflow.Content {
-			fmt.Printf("  ~ %s (modified)\n", color.YellowString(workflow.FileName))
-			foundDifferences = true
-
-			if params.Verbose {
-				// Show simplified diff (just indicate changes)
-				fmt.Printf("    Content differs from existing file\n")
-			}
-		} else {
-			fmt.Printf("  = %s (unchanged)\n", color.GreenString(workflow.FileName))
-		}
-	}
-
-	if !foundDifferences {
-		fmt.Printf("  %s All workflows match existing files\n", color.GreenString("✅"))
-	}
-
-	return nil
-}
-
-func savePreview(preview *github.WorkflowPreview, params PreviewParams) error {
-	fmt.Printf("💾 Saving preview to: %s\n", color.CyanString(params.Output))
-
-	file, err := os.Create(params.Output)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
-	}
-	defer file.Close()
-
-	// Write preview content based on format
-	switch params.Format {
-	case "summary", "detailed":
-		return writePreviewText(file, preview, params)
-	case "json":
-		return writePreviewJSON(file, preview, params)
-	default:
-		return fmt.Errorf("unsupported output format: %s", params.Format)
-	}
-}
-
-func writePreviewText(file *os.File, preview *github.WorkflowPreview, params PreviewParams) error {
-	// Write text-based preview to file
-	if _, err := file.WriteString(fmt.Sprintf("# Workflow Preview for %s\n\n", preview.StackName)); err != nil {
-		return err
-	}
-
-	for _, workflow := range preview.Workflows {
-		if _, err := file.WriteString(fmt.Sprintf("## %s\n", workflow.Name)); err != nil {
-			return err
-		}
-		if _, err := file.WriteString(fmt.Sprintf("File: %s\n", workflow.FileName)); err != nil {
-			return err
-		}
-		if _, err := file.WriteString(fmt.Sprintf("Jobs: %d\n\n", len(workflow.Jobs))); err != nil {
-			return err
-		}
-
-		if params.ShowContent {
-			if _, err := file.WriteString("### Content:\n"); err != nil {
-				return err
-			}
-			if _, err := file.WriteString("```yaml\n"); err != nil {
-				return err
-			}
-			if _, err := file.WriteString(workflow.Content); err != nil {
-				return err
-			}
-			if _, err := file.WriteString("\n```\n\n"); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func writePreviewJSON(file *os.File, preview *github.WorkflowPreview, params PreviewParams) error {
-	// Write JSON preview to file
-	if _, err := file.WriteString("{\n"); err != nil {
-		return err
-	}
-	if _, err := file.WriteString(fmt.Sprintf("  \"stack_name\": \"%s\",\n", preview.StackName)); err != nil {
-		return err
-	}
-	if _, err := file.WriteString("  \"workflows\": [\n"); err != nil {
-		return err
-	}
-
-	for i, workflow := range preview.Workflows {
-		if i > 0 {
-			if _, err := file.WriteString(",\n"); err != nil {
-				return err
-			}
-		}
-		if _, err := file.WriteString("    {\n"); err != nil {
-			return err
-		}
-		if _, err := file.WriteString(fmt.Sprintf("      \"name\": \"%s\",\n", workflow.Name)); err != nil {
-			return err
-		}
-		if _, err := file.WriteString(fmt.Sprintf("      \"file_name\": \"%s\",\n", workflow.FileName)); err != nil {
-			return err
-		}
-		if _, err := file.WriteString(fmt.Sprintf("      \"description\": \"%s\"", workflow.Description)); err != nil {
-			return err
-		}
-
-		if params.ShowContent {
-			if _, err := file.WriteString(",\n"); err != nil {
-				return err
-			}
-			if _, err := file.WriteString(fmt.Sprintf("      \"content\": %q", workflow.Content)); err != nil {
-				return err
-			}
-		}
-
-		if _, err := file.WriteString("\n    }"); err != nil {
-			return err
-		}
-	}
-
-	if _, err := file.WriteString("\n  ]\n"); err != nil {
-		return err
-	}
-	if _, err := file.WriteString("}\n"); err != nil {
-		return err
-	}
 	return nil
 }

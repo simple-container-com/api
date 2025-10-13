@@ -2,14 +2,11 @@ package cmd_cicd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
-	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/assistant/cicd"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -70,224 +67,52 @@ Examples:
 func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 	fmt.Printf("%s Synchronizing CI/CD workflows...\n", color.BlueString("🔄"))
 
-	// Process stack name and auto-detect config file
-	stackName := processStackName(params.StackName)
-	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
+	// Create CI/CD service and run sync
+	service := cicd.NewService()
+
+	serviceParams := cicd.SyncParams{
+		StackName:  params.StackName,
+		ConfigFile: params.ConfigFile,
+		DryRun:     params.DryRun,
+		Force:      params.Force,
+	}
+
+	result, err := service.SyncWorkflows(serviceParams)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sync CI/CD workflows: %w", err)
 	}
 
-	fmt.Printf("📆 Reading configuration from: %s\n", color.CyanString(configFile))
-
-	// Load and validate server configuration
-	serverConfig, err := validateAndLoadServerConfig(configFile)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
-	fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
-	fmt.Printf("📂 Workflows directory: %s\n", color.CyanString(params.WorkflowsDir))
-
-	// Create enhanced config with logging
-	enhancedConfig := setupEnhancedConfigWithLogging(serverConfig, stackName, configFile)
-
-	if params.DryRun {
-		fmt.Printf("\n%s Dry run mode - no files will be modified\n", color.YellowString("🔍"))
-		return previewSync(enhancedConfig, stackName, params.WorkflowsDir)
-	}
-
-	// Ensure workflows directory exists
-	if err := os.MkdirAll(params.WorkflowsDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create workflows directory: %w", err)
-	}
-
-	// Get sync plan
-	fmt.Printf("\n%s Analyzing existing workflows...\n", color.BlueString("📊"))
-
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, params.WorkflowsDir)
-	syncPlan, err := generator.GetSyncPlan()
-	if err != nil {
-		return fmt.Errorf("failed to create sync plan: %w", err)
-	}
-
-	if syncPlan.IsUpToDate() {
-		fmt.Printf("\n%s All workflows are already up-to-date! ✨\n", color.GreenString("✅"))
-		return nil
-	}
-
-	// Display sync plan
-	displaySyncPlan(syncPlan, params.Verbose)
-
-	// Get confirmation if not forced
-	if !params.Force {
-		fmt.Printf("\nProceed with sync? [y/N]: ")
-		var response string
-		_, _ = fmt.Scanln(&response)
-		if response != "y" && response != "Y" {
-			fmt.Println("Sync cancelled.")
-			return nil
-		}
-	}
-
-	// Backup existing files if requested
-	if params.BackupExisting {
-		fmt.Printf("\n%s Creating backups...\n", color.BlueString("💾"))
-		if err := createBackups(syncPlan, params.WorkflowsDir); err != nil {
-			return fmt.Errorf("failed to create backups: %w", err)
-		}
-	}
-
-	// Execute sync
-	fmt.Printf("\n%s Synchronizing workflows...\n", color.GreenString("🚀"))
-
-	if err := generator.SyncWorkflows(syncPlan); err != nil {
-		return fmt.Errorf("failed to sync workflows: %w", err)
-	}
-
-	fmt.Printf("\n%s Workflow synchronization completed successfully!\n", color.GreenString("✅"))
-
-	// Show summary
-	displaySyncSummary(syncPlan)
-
-	return nil
-}
-
-func previewSync(config *github.EnhancedActionsCiCdConfig, stackName, workflowsDir string) error {
-	generator := github.NewWorkflowGenerator(config, stackName, workflowsDir)
-	syncPlan, err := generator.GetSyncPlan()
-	if err != nil {
-		return fmt.Errorf("failed to create sync plan: %w", err)
-	}
-
-	if syncPlan.IsUpToDate() {
-		fmt.Printf("\n%s All workflows are already up-to-date! ✨\n", color.GreenString("✅"))
-		return nil
-	}
-
-	fmt.Printf("\n%s Changes that would be made:\n", color.BlueString("📋"))
-	displaySyncPlan(syncPlan, true)
-
-	return nil
-}
-
-func displaySyncPlan(plan *github.SyncPlan, verbose bool) {
-	if len(plan.FilesToCreate) > 0 {
-		fmt.Printf("\n%s Files to create:\n", color.GreenString("📄"))
-		for _, file := range plan.FilesToCreate {
-			fmt.Printf("  + %s\n", color.GreenString(file))
-		}
-	}
-
-	if len(plan.FilesToUpdate) > 0 {
-		fmt.Printf("\n%s Files to update:\n", color.YellowString("🔄"))
-		for _, update := range plan.FilesToUpdate {
-			fmt.Printf("  ~ %s", color.YellowString(update.File))
-			if verbose && len(update.Changes) > 0 {
-				fmt.Printf(" (%d changes)\n", len(update.Changes))
-				for _, change := range update.Changes {
-					fmt.Printf("    - %s\n", change)
-				}
-			} else {
-				fmt.Println()
+	if !result.Success {
+		// Handle specific error cases
+		if existingFiles, ok := result.Data["existing_files"].([]string); ok {
+			fmt.Printf("\n%s Existing workflow files found:\n", color.YellowString("⚠️"))
+			for _, file := range existingFiles {
+				fmt.Printf("  - %s\n", file)
 			}
+			fmt.Printf("\nUse --force to overwrite existing files\n")
 		}
+		return fmt.Errorf("%s", result.Message)
 	}
 
-	if len(plan.FilesToRemove) > 0 {
-		fmt.Printf("\n%s Obsolete files (will be backed up):\n", color.RedString("🗑️"))
-		for _, file := range plan.FilesToRemove {
-			fmt.Printf("  - %s\n", color.RedString(file))
-		}
+	// Display basic info
+	if stackName, ok := result.Data["stack_name"].(string); ok {
+		fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
+	}
+	if configFile, ok := result.Data["config_file"].(string); ok {
+		fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
+	}
+	if workflowsDir, ok := result.Data["workflows_dir"].(string); ok {
+		fmt.Printf("📂 Workflows directory: %s\n", color.CyanString(workflowsDir))
 	}
 
-	fmt.Printf("\n%s Summary: %s\n", color.BlueString("📊"),
-		color.CyanString(fmt.Sprintf("%d to create, %d to update, %d to remove",
-			len(plan.FilesToCreate), len(plan.FilesToUpdate), len(plan.FilesToRemove))))
-}
+	// Success - display result
+	fmt.Printf("\n%s\n", result.Message)
 
-func createBackups(plan *github.SyncPlan, workflowsDir string) error {
-	timestamp := time.Now().Format("20060102-150405")
-	backupDir := filepath.Join(workflowsDir, ".backup", timestamp)
-
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create backup directory: %w", err)
-	}
-
-	// Backup files that will be updated
-	for _, update := range plan.FilesToUpdate {
-		srcFile := update.File
-		srcPath := filepath.Join(workflowsDir, srcFile)
-		dstPath := filepath.Join(backupDir, srcFile)
-
-		// Ensure destination directory exists
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create backup subdirectory: %w", err)
-		}
-
-		// Copy file
-		if err := copyFile(srcPath, dstPath); err != nil {
-			return fmt.Errorf("failed to backup %s: %w", srcFile, err)
-		}
-
-		fmt.Printf("  💾 %s → %s\n", srcFile, filepath.Join(".backup", timestamp, srcFile))
-	}
-
-	// Backup files that will be removed
-	for _, srcFile := range plan.FilesToRemove {
-		srcPath := filepath.Join(workflowsDir, srcFile)
-		dstPath := filepath.Join(backupDir, srcFile)
-
-		// Ensure destination directory exists
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create backup subdirectory: %w", err)
-		}
-
-		// Copy file
-		if err := copyFile(srcPath, dstPath); err != nil {
-			return fmt.Errorf("failed to backup %s: %w", srcFile, err)
-		}
-
-		fmt.Printf("  💾 %s → %s\n", srcFile, filepath.Join(".backup", timestamp, srcFile))
-	}
-
-	return nil
-}
-
-func copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	_, err = destFile.ReadFrom(sourceFile)
-	return err
-}
-
-func displaySyncSummary(plan *github.SyncPlan) {
-	fmt.Printf("\n%s Sync completed:\n", color.BlueString("📊"))
-
-	if len(plan.FilesToCreate) > 0 {
-		fmt.Printf("  ✅ Created %d new workflow file(s)\n", len(plan.FilesToCreate))
-	}
-
-	if len(plan.FilesToUpdate) > 0 {
-		fmt.Printf("  🔄 Updated %d existing workflow file(s)\n", len(plan.FilesToUpdate))
-	}
-
-	if len(plan.FilesToRemove) > 0 {
-		fmt.Printf("  🗑️  Removed %d obsolete workflow file(s)\n", len(plan.FilesToRemove))
-	}
-
+	// Show next steps
 	fmt.Printf("\n%s Next steps:\n", color.BlueString("💡"))
 	fmt.Printf("  1. Review the synchronized workflow files\n")
 	fmt.Printf("  2. Test the workflows in your repository\n")
 	fmt.Printf("  3. Commit and push the changes\n")
+
+	return nil
 }

@@ -2,12 +2,11 @@ package cmd_cicd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
-	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/assistant/cicd"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -60,107 +59,46 @@ Examples:
 func runValidate(rootCmd *root_cmd.RootCmd, params ValidateParams) error {
 	fmt.Printf("%s Validating CI/CD workflows...\n", color.BlueString("🔍"))
 
-	// Process stack name and auto-detect config file
-	stackName := processStackName(params.StackName)
-	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
-	if err != nil {
-		return err
+	// Create CI/CD service and run validation
+	service := cicd.NewService()
+
+	serviceParams := cicd.ValidateParams{
+		StackName:    params.StackName,
+		ConfigFile:   params.ConfigFile,
+		WorkflowsDir: params.WorkflowsDir,
+		ShowDiff:     params.ShowDiff,
+		Verbose:      params.Verbose,
 	}
 
-	// Load and validate server configuration
-	serverConfig, err := validateAndLoadServerConfig(configFile)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
-	fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
-	fmt.Printf("📂 Workflows directory: %s\n", color.CyanString(params.WorkflowsDir))
-
-	// Create enhanced config with logging
-	enhancedConfig := setupEnhancedConfigWithLogging(serverConfig, stackName, configFile)
-
-	// Validate workflows directory exists
-	if _, err := os.Stat(params.WorkflowsDir); os.IsNotExist(err) {
-		return fmt.Errorf("workflows directory does not exist: %s", params.WorkflowsDir)
-	}
-
-	// Perform validation
-	fmt.Printf("\n%s Validating workflow files...\n", color.BlueString("📝"))
-
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, params.WorkflowsDir)
-	validationResults, err := generator.ValidateWorkflows()
+	result, err := service.ValidateWorkflows(serviceParams)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Display results
-	return displayValidationResults(validationResults, params)
-}
-
-func displayValidationResults(results *github.ValidationResults, params ValidateParams) error {
-	if results.IsValid {
-		fmt.Printf("\n%s All workflow files are valid and up-to-date! ✨\n", color.GreenString("✅"))
-
-		if params.Verbose {
-			fmt.Printf("\n%s Validated files:\n", color.BlueString("📋"))
-			for _, file := range results.ValidFiles {
-				fmt.Printf("  ✅ %s\n", color.GreenString(file))
-			}
-		}
-		return nil
+	// Display basic info
+	if stackName, ok := result.Data["stack_name"].(string); ok {
+		fmt.Printf("📋 Stack: %s\n", color.CyanString(stackName))
+	}
+	if configFile, ok := result.Data["config_file"].(string); ok {
+		fmt.Printf("📁 Config file: %s\n", color.CyanString(configFile))
+	}
+	if workflowsDir, ok := result.Data["workflows_dir"].(string); ok {
+		fmt.Printf("📂 Workflows directory: %s\n", color.CyanString(workflowsDir))
 	}
 
-	fmt.Printf("\n%s Validation issues found:\n", color.RedString("❌"))
+	// Display validation results
+	fmt.Printf("\n%s\n", result.Message)
 
-	// Show missing files
-	if len(results.MissingFiles) > 0 {
-		fmt.Printf("\n%s Missing workflow files:\n", color.YellowString("📄"))
-		for _, file := range results.MissingFiles {
-			fmt.Printf("  ❌ %s\n", color.RedString(file))
+	if len(result.Warnings) > 0 {
+		fmt.Printf("\n%s Validation Details:\n", color.BlueString("📝"))
+		for _, warning := range result.Warnings {
+			fmt.Printf("  %s\n", warning)
 		}
 	}
 
-	// Show outdated files
-	if len(results.OutdatedFiles) > 0 {
-		fmt.Printf("\n%s Outdated workflow files:\n", color.YellowString("🔄"))
-		for _, file := range results.OutdatedFiles {
-			fmt.Printf("  ⚠️  %s\n", color.YellowString(file))
-		}
+	if !result.Success {
+		return fmt.Errorf("validation failed")
 	}
 
-	// Show invalid files
-	if len(results.InvalidFiles) > 0 {
-		fmt.Printf("\n%s Invalid workflow files:\n", color.RedString("❌"))
-		for file, issues := range results.InvalidFiles {
-			fmt.Printf("  ❌ %s:\n", color.RedString(file))
-			for _, issue := range issues {
-				fmt.Printf("     - %s\n", issue)
-			}
-		}
-	}
-
-	// Show differences if requested
-	if params.ShowDiff && len(results.Differences) > 0 {
-		fmt.Printf("\n%s Differences found:\n", color.BlueString("📊"))
-		for file, diffs := range results.Differences {
-			fmt.Printf("\n%s %s:\n", color.CyanString("📄"), file)
-			for _, diff := range diffs {
-				fmt.Printf("  %s\n", diff)
-			}
-		}
-	}
-
-	// Show recommendations
-	fmt.Printf("\n%s Recommendations:\n", color.BlueString("💡"))
-	fmt.Printf("  1. Run %s to generate missing files\n",
-		color.GreenString("sc cicd generate "+params.StackName))
-	fmt.Printf("  2. Run %s to update outdated files\n",
-		color.GreenString("sc cicd sync "+params.StackName))
-
-	if len(results.InvalidFiles) > 0 {
-		fmt.Printf("  3. Review and fix invalid workflow configurations\n")
-	}
-
-	return fmt.Errorf("validation failed: %d issues found", results.TotalIssues())
+	return nil
 }

@@ -1,14 +1,16 @@
-package cmd_cicd
+package cicd
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 )
 
+// createEnhancedConfig converts server configuration to enhanced GitHub Actions config
 func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *github.EnhancedActionsCiCdConfig {
 	// Use SC's standard conversion pattern to get strongly typed GitHub Actions configuration
 	convertedConfig, err := api.ConvertConfig(&serverDesc.CiCd.Config, &github.GitHubActionsCiCdConfig{})
@@ -70,100 +72,48 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 		}
 	}
 
-	// Create enhanced configuration from strongly typed config with proper defaults
+	// Convert to enhanced config
 	config := &github.EnhancedActionsCiCdConfig{
 		Organization: github.OrganizationConfig{
 			Name:          gitHubConfig.Organization,
-			DefaultBranch: "main", // Default to main branch
+			DefaultBranch: "main",
 		},
 		WorkflowGeneration: github.WorkflowGenerationConfig{
-			Enabled:    true,
-			OutputPath: ".github/workflows/",
-			Templates:  []string{"deploy", "destroy"},
-			CustomActions: map[string]string{
-				"deploy":         "simple-container-com/api/.github/actions/deploy@v1",
-				"destroy-client": "simple-container-com/api/.github/actions/destroy@v1",
-				"provision":      "simple-container-com/api/.github/actions/provision@v1",
-			},
-			SCVersion: "latest",
+			Enabled:       gitHubConfig.WorkflowGeneration.Enabled,
+			Templates:     gitHubConfig.WorkflowGeneration.Templates,
+			CustomActions: gitHubConfig.WorkflowGeneration.CustomActions,
+			SCVersion:     gitHubConfig.WorkflowGeneration.SCVersion,
 		},
 		Execution: github.ExecutionConfig{
-			DefaultTimeout: "30", // 30 minutes
-			Concurrency: github.ConcurrencyConfig{
-				Group:            "${{ github.workflow }}-${{ github.ref }}",
-				CancelInProgress: false,
-			},
+			DefaultTimeout: "30", // Default timeout in minutes
 		},
 		Environments: make(map[string]github.EnvironmentConfig),
 		Notifications: github.NotificationConfig{
 			SlackWebhook:   gitHubConfig.Notifications.SlackWebhook,
 			DiscordWebhook: gitHubConfig.Notifications.DiscordWebhook,
-			TelegramChatID: gitHubConfig.Notifications.TelegramChatID,
-			TelegramToken:  gitHubConfig.Notifications.TelegramToken,
-			CCOnStart:      false, // Don't CC on start by default
-		},
-		Validation: github.ValidationConfig{
-			Required: false, // No validation by default
+			CCOnStart:      false, // Default to false
 		},
 	}
 
-	// Convert environments to enhanced format with proper defaults
-	for envName, envConfig := range gitHubConfig.Environments {
-		// Set default runners if none specified
-		runners := envConfig.Runners
-		if len(runners) == 0 {
-			runners = []string{"ubuntu-latest"}
-		}
-
-		config.Environments[envName] = github.EnvironmentConfig{
-			Type:        envConfig.Type,
-			Runners:     runners,
-			Protection:  envConfig.Protection,
-			Reviewers:   envConfig.Reviewers,
-			Secrets:     envConfig.Secrets,
-			Variables:   envConfig.Variables,
-			DeployFlags: envConfig.DeployFlags,
-			AutoDeploy:  envConfig.AutoDeploy,
-		}
-	}
-
-	// Override with user-provided config if available
-	if gitHubConfig.WorkflowGeneration.Enabled {
-		config.WorkflowGeneration.Enabled = gitHubConfig.WorkflowGeneration.Enabled
-	}
-	if gitHubConfig.WorkflowGeneration.OutputPath != "" {
-		config.WorkflowGeneration.OutputPath = gitHubConfig.WorkflowGeneration.OutputPath
-	}
-	if len(gitHubConfig.WorkflowGeneration.Templates) > 0 {
-		config.WorkflowGeneration.Templates = gitHubConfig.WorkflowGeneration.Templates
-	}
-	if len(gitHubConfig.WorkflowGeneration.CustomActions) > 0 {
-		for key, value := range gitHubConfig.WorkflowGeneration.CustomActions {
-			config.WorkflowGeneration.CustomActions[key] = value
+	// Convert environments
+	for name, env := range gitHubConfig.Environments {
+		config.Environments[name] = github.EnvironmentConfig{
+			Type:      env.Type,
+			Runners:   env.Runners,
+			Variables: env.Variables,
 		}
 	}
 
 	return config
 }
 
-func getEnvironmentNames(environments map[string]github.EnvironmentConfig) []string {
-	var names []string
-	for name := range environments {
-		names = append(names, name)
-	}
-	return names
-}
-
+// getRequiredSecrets returns the list of required secrets for the configuration
 func getRequiredSecrets(config *github.EnhancedActionsCiCdConfig) []string {
 	// Simple Container uses unified secrets management:
 	// - Only SC_CONFIG is required as a GitHub repository secret
 	// - All other secrets (notifications, webhooks, tokens) are managed in .sc/stacks/<stack>/secrets.yaml
-	// - SC automatically decrypts and provides these secrets via SC_CONFIG
-	requiredSecrets := []string{
-		"SC_CONFIG", // Contains SSH key for decrypting all Simple Container secrets
-	}
-
-	return requiredSecrets
+	// - This approach eliminates the need to manage dozens of individual repository secrets
+	return []string{"SC_CONFIG"}
 }
 
 // processStackName handles stack name validation and defaulting
@@ -180,20 +130,19 @@ func autoDetectConfigFile(configFile, stackName string) (string, error) {
 		return configFile, nil
 	}
 
-	// Auto-detect server.yaml file based on stack name
-	possiblePaths := []string{
-		".sc/stacks/" + stackName + "/server.yaml",
-		"server.yaml",
-		".sc/stacks/common/server.yaml",
+	// Try stack-specific server.yaml first
+	stackDir := filepath.Join(".sc", "stacks", stackName)
+	stackServerYaml := filepath.Join(stackDir, "server.yaml")
+	if _, err := os.Stat(stackServerYaml); err == nil {
+		return stackServerYaml, nil
 	}
 
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
+	// Fall back to root server.yaml
+	if _, err := os.Stat("server.yaml"); err == nil {
+		return "server.yaml", nil
 	}
 
-	return "", fmt.Errorf("could not find server.yaml file. Tried: %v\nUse --config to specify path", possiblePaths)
+	return "", fmt.Errorf("no server.yaml found. Checked: %s, server.yaml", stackServerYaml)
 }
 
 // validateAndLoadServerConfig loads and validates server configuration
@@ -203,7 +152,7 @@ func validateAndLoadServerConfig(configFile string) (*api.ServerDescriptor, erro
 		return nil, fmt.Errorf("failed to read server configuration: %w", err)
 	}
 
-	// Validate CI/CD configuration
+	// Validate CI/CD configuration exists
 	if serverDesc.CiCd.Type == "" {
 		return nil, fmt.Errorf(`no CI/CD configuration found in %s
 
@@ -224,39 +173,84 @@ cicd:
         auto-deploy: false
         runners: ["ubuntu-latest"]
     notifications:
-      slack: "\${secret:slack-webhook-url}"
+      slack: "${secret:slack-webhook-url}"
     workflow-generation:
       enabled: true`, configFile)
 	}
 
-	if serverDesc.CiCd.Type != github.CiCdTypeGithubActions {
-		return nil, fmt.Errorf("unsupported CI/CD type: %s (only 'github-actions' is supported)", serverDesc.CiCd.Type)
+	// Validate that the CI/CD type is supported
+	if serverDesc.CiCd.Type != "github-actions" {
+		return nil, fmt.Errorf("unsupported CI/CD type '%s'. Only 'github-actions' is currently supported", serverDesc.CiCd.Type)
 	}
 
 	return serverDesc, nil
 }
 
-// setupEnhancedConfigWithLogging creates enhanced config and logs the details
-func setupEnhancedConfigWithLogging(serverDesc *api.ServerDescriptor, stackName, configFile string) *github.EnhancedActionsCiCdConfig {
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
-
-	fmt.Printf("🔧 CI/CD Type: %s\n", color.GreenString(serverDesc.CiCd.Type))
-	fmt.Printf("🏢 Organization: %s\n", color.GreenString(enhancedConfig.Organization.Name))
-	fmt.Printf("📄 Templates: %v\n", enhancedConfig.WorkflowGeneration.Templates)
-	fmt.Printf("🌍 Environments: %v\n", getEnvironmentNames(enhancedConfig.Environments))
-
-	return enhancedConfig
-}
-
+// readServerConfig reads the server configuration file
 func readServerConfig(configFile string) (*api.ServerDescriptor, error) {
 	// Use SC's internal API to read server configuration
 	serverDesc, err := api.ReadServerDescriptor(configFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read server configuration from %s: %w", configFile, err)
+		return nil, fmt.Errorf("failed to read server configuration: %w", err)
+	}
+	return serverDesc, nil
+}
+
+// previewGeneration shows what workflows would be generated
+func (s *Service) previewGeneration(config *github.EnhancedActionsCiCdConfig, stackName, outputDir string) (*Result, error) {
+	var message strings.Builder
+	message.WriteString("🔍 **CI/CD Workflow Preview**\n\n")
+	message.WriteString(fmt.Sprintf("📋 **Stack**: %s\n", stackName))
+	message.WriteString(fmt.Sprintf("🏢 **Organization**: %s\n", config.Organization.Name))
+	message.WriteString(fmt.Sprintf("📁 **Output Directory**: %s\n\n", outputDir))
+
+	message.WriteString("**Workflows to be generated:**\n")
+
+	// List workflows based on templates
+	for _, template := range config.WorkflowGeneration.Templates {
+		workflowFile := fmt.Sprintf("%s-%s.yml", template, stackName)
+		message.WriteString(fmt.Sprintf("- %s\n", workflowFile))
 	}
 
-	// Don't default to any CI/CD type - let the caller handle empty configuration
-	// This ensures proper error handling when no CI/CD config exists
+	message.WriteString(fmt.Sprintf("\n**Environments**: %s\n", strings.Join(getEnvironmentNames(config.Environments), ", ")))
 
-	return serverDesc, nil
+	requiredSecrets := getRequiredSecrets(config)
+	message.WriteString(fmt.Sprintf("**Required Secrets**: %s\n", strings.Join(requiredSecrets, ", ")))
+
+	return &Result{
+		Success: true,
+		Message: message.String(),
+		Data: map[string]interface{}{
+			"stack_name":       stackName,
+			"organization":     config.Organization.Name,
+			"output_dir":       outputDir,
+			"templates":        config.WorkflowGeneration.Templates,
+			"environments":     getEnvironmentNames(config.Environments),
+			"required_secrets": requiredSecrets,
+		},
+	}, nil
+}
+
+// checkExistingWorkflows checks for existing workflow files
+func (s *Service) checkExistingWorkflows(config *github.EnhancedActionsCiCdConfig, stackName, outputDir string) []string {
+	var existingFiles []string
+
+	for _, template := range config.WorkflowGeneration.Templates {
+		workflowFile := fmt.Sprintf("%s-%s.yml", template, stackName)
+		filePath := filepath.Join(outputDir, workflowFile)
+		if _, err := os.Stat(filePath); err == nil {
+			existingFiles = append(existingFiles, workflowFile)
+		}
+	}
+
+	return existingFiles
+}
+
+// getEnvironmentNames extracts environment names from configuration
+func getEnvironmentNames(environments map[string]github.EnvironmentConfig) []string {
+	var names []string
+	for name := range environments {
+		names = append(names, name)
+	}
+	return names
 }

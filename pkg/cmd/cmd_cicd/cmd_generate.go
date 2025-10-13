@@ -2,13 +2,11 @@ package cmd_cicd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api/logger/color"
-	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/assistant/cicd"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 
@@ -78,118 +76,49 @@ func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
 		return fmt.Errorf("stack name is required (use --stack flag)")
 	}
 
-	// Process stack name and auto-detect config file
-	stackName := processStackName(params.StackName)
-	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
+	fmt.Printf("📖 Reading configuration...\n")
+
+	// Create CI/CD service and run generation
+	service := cicd.NewService()
+
+	serviceParams := cicd.GenerateParams{
+		StackName:  params.StackName,
+		Output:     params.Output,
+		ConfigFile: params.ConfigFile,
+		Force:      params.Force,
+		DryRun:     params.DryRun,
+	}
+
+	result, err := service.GenerateWorkflows(serviceParams)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to generate CI/CD workflows: %w", err)
 	}
 
-	fmt.Printf("📖 Reading configuration from: %s\n", color.CyanString(configFile))
-
-	// Load and validate server configuration
-	serverDesc, err := validateAndLoadServerConfig(configFile)
-	if err != nil {
-		return err
-	}
-
-	// Configuration and type validation already done in validateAndLoadServerConfig
-
-	// Create enhanced config with logging
-	enhancedConfig := setupEnhancedConfigWithLogging(serverDesc, stackName, configFile)
-
-	// Check output directory
-	outputDir := params.Output
-	if !filepath.IsAbs(outputDir) {
-		abs, err := filepath.Abs(outputDir)
-		if err != nil {
-			return fmt.Errorf("failed to resolve output path: %w", err)
-		}
-		outputDir = abs
-	}
-
-	fmt.Printf("📁 Output directory: %s\n", color.CyanString(outputDir))
-
-	if params.DryRun {
-		fmt.Printf("\n%s Dry run mode - no files will be written\n", color.YellowString("🔍"))
-		return previewGeneration(enhancedConfig, stackName, outputDir)
-	}
-
-	// Check for existing files
-	if !params.Force {
-		existingFiles := checkExistingWorkflows(enhancedConfig, stackName, outputDir)
-		if len(existingFiles) > 0 {
+	if !result.Success {
+		// Handle specific error cases
+		if existingFiles, ok := result.Data["existing_files"].([]string); ok {
 			fmt.Printf("\n%s Existing workflow files found:\n", color.YellowString("⚠️"))
 			for _, file := range existingFiles {
 				fmt.Printf("  - %s\n", file)
 			}
 			fmt.Printf("\nUse --force to overwrite existing files\n")
-			return fmt.Errorf("workflow files already exist")
+		}
+		return fmt.Errorf("%s", result.Message)
+	}
+
+	// Success - display result
+	fmt.Printf("\n%s\n", result.Message)
+
+	if requiredSecrets, ok := result.Data["required_secrets"].([]string); ok && len(requiredSecrets) > 0 {
+		fmt.Printf("\n%s Next steps:\n", color.BlueString("💡"))
+		fmt.Printf("  1. Review the generated workflow files\n")
+		fmt.Printf("  2. Commit and push the workflows to your repository\n")
+		fmt.Printf("  3. Configure required secrets in your GitHub repository:\n")
+
+		for _, secret := range requiredSecrets {
+			fmt.Printf("     - %s\n", color.YellowString(secret))
 		}
 	}
-
-	// Generate workflows
-	fmt.Printf("\n%s Generating workflows...\n", color.GreenString("🚀"))
-
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, outputDir)
-	if err := generator.GenerateWorkflows(); err != nil {
-		return fmt.Errorf("failed to generate workflows: %w", err)
-	}
-
-	fmt.Printf("\n%s Workflow generation completed successfully!\n", color.GreenString("✅"))
-	fmt.Printf("\nGenerated workflows in: %s\n", color.CyanString(outputDir))
-
-	// Show next steps
-	fmt.Printf("\n%s Next steps:\n", color.BlueString("💡"))
-	fmt.Printf("  1. Review the generated workflow files\n")
-	fmt.Printf("  2. Commit and push the workflows to your repository\n")
-	fmt.Printf("  3. Configure required secrets in your GitHub repository:\n")
-
-	// Get required secrets based on configuration
-	requiredSecrets := getRequiredSecrets(enhancedConfig)
-	for _, secret := range requiredSecrets {
-		fmt.Printf("     - %s\n", color.YellowString(secret))
-	}
-
-	if enhancedConfig.Notifications.SlackWebhook != "" {
-		fmt.Printf("     - %s (for Slack notifications)\n", color.YellowString("SLACK_WEBHOOK_URL"))
-	}
-	if enhancedConfig.Notifications.DiscordWebhook != "" {
-		fmt.Printf("     - %s (for Discord notifications)\n", color.YellowString("DISCORD_WEBHOOK_URL"))
-	}
-
-	return nil
-}
-
-func checkExistingWorkflows(config *github.EnhancedActionsCiCdConfig, stackName, outputDir string) []string {
-	var existing []string
-
-	for _, template := range config.WorkflowGeneration.Templates {
-		filename := fmt.Sprintf("%s-%s.yml", template, stackName)
-		filePath := filepath.Join(outputDir, filename)
-
-		if _, err := os.Stat(filePath); err == nil {
-			existing = append(existing, filePath)
-		}
-	}
-
-	return existing
-}
-
-func previewGeneration(config *github.EnhancedActionsCiCdConfig, stackName, outputDir string) error {
-	fmt.Printf("\n%s Files that would be generated:\n", color.BlueString("📋"))
-
-	for _, template := range config.WorkflowGeneration.Templates {
-		filename := fmt.Sprintf("%s-%s.yml", template, stackName)
-		filePath := filepath.Join(outputDir, filename)
-		fmt.Printf("  - %s\n", color.GreenString(filePath))
-	}
-
-	fmt.Printf("\n%s Configuration summary:\n", color.BlueString("📊"))
-	fmt.Printf("  Organization: %s\n", config.Organization.Name)
-	fmt.Printf("  Environments: %d\n", len(config.Environments))
-	fmt.Printf("  Templates: %v\n", config.WorkflowGeneration.Templates)
-	fmt.Printf("  Custom Actions: %v\n", config.WorkflowGeneration.CustomActions)
 
 	return nil
 }

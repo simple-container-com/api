@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/cicd"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
@@ -24,6 +25,7 @@ type UnifiedCommandHandler struct {
 	embeddingsDB  *embeddings.Database
 	analyzer      *analysis.ProjectAnalyzer
 	developerMode *modes.DeveloperMode
+	cicdService   *cicd.Service
 }
 
 // CommandResult represents the result of any command execution
@@ -49,6 +51,7 @@ func NewUnifiedCommandHandler() (*UnifiedCommandHandler, error) {
 		embeddingsDB:  db,
 		analyzer:      analysis.NewProjectAnalyzer(),
 		developerMode: modes.NewDeveloperMode(),
+		cicdService:   cicd.NewService(),
 	}, nil
 }
 
@@ -2222,4 +2225,105 @@ func (h *UnifiedCommandHandler) writeYamlValue(output *strings.Builder, value in
 // Delegates to shared utility function for consistency
 func (h *UnifiedCommandHandler) CheckExistingSimpleContainerProject(projectPath string, forceOverwrite, skipConfirmation bool) error {
 	return utils.CheckAndWarnExistingSimpleContainerProject(projectPath, forceOverwrite, skipConfirmation, true)
+}
+
+// GenerateCICD generates CI/CD workflows for GitHub Actions
+func (h *UnifiedCommandHandler) GenerateCICD(ctx context.Context, stackName, configFile string) (*CommandResult, error) {
+	params := cicd.GenerateParams{
+		StackName:  stackName,
+		ConfigFile: configFile,
+		Output:     "", // Use default output directory
+		Force:      false,
+		DryRun:     false,
+	}
+
+	result, err := h.cicdService.GenerateWorkflows(params)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to generate CI/CD workflows: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+		Data:    result.Data,
+	}, nil
+}
+
+// ValidateCICD validates CI/CD configuration in server.yaml
+func (h *UnifiedCommandHandler) ValidateCICD(ctx context.Context, stackName, configFile string, showDiff bool) (*CommandResult, error) {
+	params := cicd.ValidateParams{
+		StackName:    stackName,
+		ConfigFile:   configFile,
+		WorkflowsDir: "", // Use default
+		ShowDiff:     showDiff,
+		Verbose:      false,
+	}
+
+	result, err := h.cicdService.ValidateWorkflows(params)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("CI/CD configuration validation failed: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+		Data:    result.Data,
+	}, nil
+}
+
+// PreviewCICD previews CI/CD workflows that would be generated
+func (h *UnifiedCommandHandler) PreviewCICD(ctx context.Context, stackName, configFile string, showContent bool) (*CommandResult, error) {
+	params := cicd.PreviewParams{
+		StackName:   stackName,
+		ConfigFile:  configFile,
+		ShowContent: showContent,
+	}
+
+	result, err := h.cicdService.PreviewWorkflows(params)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to preview CI/CD workflows: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+		Data:    result.Data,
+	}, nil
+}
+
+// SyncCICD syncs CI/CD workflows to GitHub repository
+func (h *UnifiedCommandHandler) SyncCICD(ctx context.Context, stackName, configFile string, dryRun bool) (*CommandResult, error) {
+	params := cicd.SyncParams{
+		StackName:  stackName,
+		ConfigFile: configFile,
+		DryRun:     dryRun,
+		Force:      false,
+	}
+
+	result, err := h.cicdService.SyncWorkflows(params)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to sync CI/CD workflows: %v", err),
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+		Data:    result.Data,
+	}, nil
 }

@@ -726,6 +726,102 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 				"required": []string{"filename", "content"},
 			},
 		},
+		{
+			"name":        "generate_cicd",
+			"description": "🚀 Generate CI/CD workflows for GitHub Actions",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to generate CI/CD workflows for",
+					},
+					"config_file": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to server.yaml configuration file (optional)",
+					},
+				},
+			},
+		},
+		{
+			"name":        "validate_cicd",
+			"description": "✅ Validate CI/CD configuration in server.yaml",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to validate CI/CD configuration for",
+					},
+					"config_file": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to server.yaml configuration file (optional)",
+					},
+					"show_diff": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Show differences between current and expected configuration",
+						"default":     false,
+					},
+				},
+			},
+		},
+		{
+			"name":        "preview_cicd",
+			"description": "👀 Preview CI/CD workflows that would be generated",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to preview CI/CD workflows for",
+					},
+					"config_file": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to server.yaml configuration file (optional)",
+					},
+					"show_content": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Show full workflow file contents in preview",
+						"default":     false,
+					},
+				},
+			},
+		},
+		{
+			"name":        "sync_cicd",
+			"description": "🔄 Sync CI/CD workflows to GitHub repository",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to sync CI/CD workflows for",
+					},
+					"config_file": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to server.yaml configuration file (optional)",
+					},
+					"dry_run": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Show what would be synced without actually syncing",
+						"default":     false,
+					},
+				},
+			},
+		},
+		{
+			"name":        "setup_cicd",
+			"description": "⚙️ Interactive CI/CD setup wizard for GitHub Actions configuration",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to setup CI/CD for (optional - provides generic guidance if not specified)",
+					},
+				},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -1414,6 +1510,148 @@ func (s *MCPServer) executeToolCall(ctx context.Context, req *MCPRequest, toolNa
 				{
 					"type": "text",
 					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "generate_cicd":
+		stackName, _ := arguments["stack_name"].(string)
+		configFile, _ := arguments["config_file"].(string)
+
+		result, err := s.handler.GenerateCICD(ctx, stackName, configFile)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to generate CI/CD workflows", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "validate_cicd":
+		stackName, _ := arguments["stack_name"].(string)
+		configFile, _ := arguments["config_file"].(string)
+		showDiff := false
+		if d, ok := arguments["show_diff"].(bool); ok {
+			showDiff = d
+		}
+
+		result, err := s.handler.ValidateCICD(ctx, stackName, configFile, showDiff)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to validate CI/CD configuration", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "preview_cicd":
+		stackName, _ := arguments["stack_name"].(string)
+		configFile, _ := arguments["config_file"].(string)
+		showContent := false
+		if sc, ok := arguments["show_content"].(bool); ok {
+			showContent = sc
+		}
+
+		result, err := s.handler.PreviewCICD(ctx, stackName, configFile, showContent)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to preview CI/CD workflows", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "sync_cicd":
+		stackName, _ := arguments["stack_name"].(string)
+		configFile, _ := arguments["config_file"].(string)
+		dryRun := false
+		if dr, ok := arguments["dry_run"].(bool); ok {
+			dryRun = dr
+		}
+
+		result, err := s.handler.SyncCICD(ctx, stackName, configFile, dryRun)
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to sync CI/CD workflows", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError": false,
+		})
+
+	case "setup_cicd":
+		stackName, _ := arguments["stack_name"].(string)
+
+		// Provide interactive CI/CD setup guidance
+		message := "🚀 **CI/CD Setup Guide**\n\n"
+		if stackName == "" {
+			message += "**Step 1: Add CI/CD Configuration**\n"
+			message += "Add the following to your `server.yaml`:\n\n"
+			message += "```yaml\n"
+			message += "cicd:\n"
+			message += "  type: github-actions\n"
+			message += "  config:\n"
+			message += "    organization: \"your-github-org\"\n"
+			message += "    environments:\n"
+			message += "      staging:\n"
+			message += "        type: staging\n"
+			message += "        auto-deploy: true\n"
+			message += "        runners: [\"ubuntu-latest\"]\n"
+			message += "      production:\n"
+			message += "        type: production\n"
+			message += "        protection: true\n"
+			message += "        auto-deploy: false\n"
+			message += "        runners: [\"ubuntu-latest\"]\n"
+			message += "    notifications:\n"
+			message += "      slack: \"${secret:slack-webhook-url}\"\n"
+			message += "      discord: \"${secret:discord-webhook-url}\"\n"
+			message += "    workflow-generation:\n"
+			message += "      enabled: true\n"
+			message += "```\n\n"
+			message += "**Step 2: Generate Workflows**\n"
+			message += "Use `generate_cicd` tool with your stack name.\n\n"
+			message += "**Step 3: Validate Configuration**\n"
+			message += "Use `validate_cicd` tool to check your setup.\n\n"
+			message += "**Step 4: Preview and Sync**\n"
+			message += "Use `preview_cicd` to see what will be created, then `sync_cicd` to deploy.\n"
+		} else {
+			message += fmt.Sprintf("**Setting up CI/CD for stack: %s**\n\n", stackName)
+			message += "**Next Steps:**\n"
+			message += "1. Validate your configuration: `validate_cicd` with `stack_name: \"" + stackName + "\"`\n"
+			message += "2. Generate workflows: `generate_cicd` with `stack_name: \"" + stackName + "\"`\n"
+			message += "3. Preview results: `preview_cicd` with `stack_name: \"" + stackName + "\" and show_content: true`\n"
+			message += "4. Sync to repository: `sync_cicd` with `stack_name: \"" + stackName + "\"`\n"
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": message,
 				},
 			},
 			"isError": false,
@@ -2560,6 +2798,26 @@ func (h *DefaultMCPHandler) GetCapabilities(ctx context.Context) (map[string]int
 
 func (h *DefaultMCPHandler) Ping(ctx context.Context) (string, error) {
 	return "pong", nil
+}
+
+// GenerateCICD generates CI/CD workflows for GitHub Actions
+func (h *DefaultMCPHandler) GenerateCICD(ctx context.Context, stackName, configFile string) (*core.CommandResult, error) {
+	return h.commandHandler.GenerateCICD(ctx, stackName, configFile)
+}
+
+// ValidateCICD validates CI/CD configuration in server.yaml
+func (h *DefaultMCPHandler) ValidateCICD(ctx context.Context, stackName, configFile string, showDiff bool) (*core.CommandResult, error) {
+	return h.commandHandler.ValidateCICD(ctx, stackName, configFile, showDiff)
+}
+
+// PreviewCICD previews CI/CD workflows that would be generated
+func (h *DefaultMCPHandler) PreviewCICD(ctx context.Context, stackName, configFile string, showContent bool) (*core.CommandResult, error) {
+	return h.commandHandler.PreviewCICD(ctx, stackName, configFile, showContent)
+}
+
+// SyncCICD syncs CI/CD workflows to GitHub repository
+func (h *DefaultMCPHandler) SyncCICD(ctx context.Context, stackName, configFile string, dryRun bool) (*core.CommandResult, error) {
+	return h.commandHandler.SyncCICD(ctx, stackName, configFile, dryRun)
 }
 
 // getStackConfigSchemaContext provides schema guidance for stack configuration modifications
