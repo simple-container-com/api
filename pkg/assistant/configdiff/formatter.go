@@ -243,10 +243,7 @@ func (f *Formatter) formatInlineChange(change DiffLine) string {
 
 func (f *Formatter) formatCompactChange(change DiffLine) string {
 	// Remove "stacks." prefix for compact format
-	path := change.Path
-	if strings.HasPrefix(path, "stacks.") {
-		path = strings.TrimPrefix(path, "stacks.")
-	}
+	path := strings.TrimPrefix(change.Path, "stacks.")
 
 	switch change.Type {
 	case DiffLineAdded:

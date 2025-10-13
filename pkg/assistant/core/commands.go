@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -1716,46 +1718,6 @@ func (h *UnifiedCommandHandler) parseAddedEnvironment(response string, originalC
 	return modifiedContent, stackConfig, nil
 }
 
-// getFileFromGit retrieves the contents of a file from a specific git reference
-func (h *UnifiedCommandHandler) getFileFromGit(ref string, filePath string) ([]byte, error) {
-	// Normalize the file path to handle relative paths
-	absPath, err := filepath.Abs(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path: %v", err)
-	}
-
-	// Get the git root directory
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	gitRoot, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get git root: %v", err)
-	}
-
-	// Convert to string and clean up
-	gitRootStr := strings.TrimSpace(string(gitRoot))
-
-	// Get the relative path from git root to the file
-	relPath, err := filepath.Rel(gitRootStr, absPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get relative path: %v", err)
-	}
-
-	// Convert Windows paths to Unix-style for git
-	relPath = filepath.ToSlash(relPath)
-
-	// Execute git command to get the file content
-	cmd = exec.Command("git", "-C", gitRootStr, "show", fmt.Sprintf("%s:%s", ref, relPath))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// If the file doesn't exist in the given ref, return empty content
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
-			return []byte{}, nil
-		}
-		return nil, fmt.Errorf("failed to get file from git: %v\nOutput: %s", err, string(output))
-	}
-	return output, nil
-}
-
 // AddResource adds a new resource to server.yaml
 // ShowConfigDiff shows configuration differences between versions or environments
 func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, configType, compareWith, format string) (*CommandResult, error) {
@@ -1796,16 +1758,14 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 		}
 	}
 
-	if stacks != nil {
-		for k := range stacks {
-			// Create a new stack with the name and default values
-			stack := api.Stack{
-				Name:    k,
-				Secrets: api.SecretsDescriptor{},
-				Server:  api.ServerDescriptor{},
-			}
-			stacksMap[k] = stack
+	for k := range stacks {
+		// Create a new stack with the name and default values
+		stack := api.Stack{
+			Name:    k,
+			Secrets: api.SecretsDescriptor{},
+			Server:  api.ServerDescriptor{},
 		}
+		stacksMap[k] = stack
 	}
 
 	// Create a custom version provider that uses the correct file path
@@ -1913,7 +1873,7 @@ func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, c
 
 	// Format the result message
 	message := fmt.Sprintf("🔍 %s config diff for stack '%s' (comparing with %s):\n\n%s",
-		strings.Title(configType), stackName, compareWith, result.Message)
+		cases.Title(language.English).String(configType), stackName, compareWith, result.Message)
 
 	return &CommandResult{
 		Success: true,

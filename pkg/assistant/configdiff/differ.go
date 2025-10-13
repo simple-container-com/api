@@ -385,9 +385,8 @@ func (d *Differ) toNumber(value interface{}) (float64, bool) {
 		return v, true
 	case string:
 		// Try to parse string as number
-		if num, err := fmt.Sscanf(v, "%f", new(float64)); err == nil && num == 1 {
-			var result float64
-			fmt.Sscanf(v, "%f", &result)
+		var result float64
+		if num, err := fmt.Sscanf(v, "%f", &result); err == nil && num == 1 {
 			return result, true
 		}
 	}
