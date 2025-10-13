@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -11,7 +12,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
+	"github.com/simple-container-com/api/pkg/assistant/configdiff"
 	"github.com/simple-container-com/api/pkg/assistant/embeddings"
 	"github.com/simple-container-com/api/pkg/assistant/llm"
 	"github.com/simple-container-com/api/pkg/assistant/modes"
@@ -513,10 +516,6 @@ func (h *UnifiedCommandHandler) ModifyStackConfig(ctx context.Context, stackName
 		return h.modifyStackRaw(ctx, content, environmentName, changes, filePath)
 	}
 
-	// Optional: Debug file writes for troubleshooting
-	// debugYAML, _ := yaml.Marshal(modifiedContent)
-	// fmt.Printf("DEBUG: Writing to file %s\n", filePath)
-
 	// Write back to file
 	err = h.writeYamlFile(filePath, modifiedContent)
 	if err != nil {
@@ -560,19 +559,6 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 
 	// Build enriched prompt using existing functions (DRY principle)
 	prompt := h.buildStackModificationPrompt(content, stackName, changes, projectAnalysis)
-
-	// Optional debug output (enable for troubleshooting)
-	debugLLMModification := false // Set to true to see debug output
-	if debugLLMModification {
-		fmt.Printf("🔍 DEBUG: Original configuration being sent to LLM:\n")
-		originalYAML, _ := yaml.Marshal(content)
-		fmt.Printf("%s\n", string(originalYAML))
-		fmt.Printf("🔍 DEBUG: Requested changes: %+v\n", changes)
-		fmt.Printf("🔍 DEBUG: LLM Prompt:\n")
-		fmt.Printf("═══════════════════════════════════════════════════════════\n")
-		fmt.Printf("%s\n", prompt)
-		fmt.Printf("═══════════════════════════════════════════════════════════\n")
-	}
 
 	// Use LLM interface directly (reusing existing pattern from DeveloperMode)
 	llmProvider := h.developerMode.GetLLMProvider()
@@ -622,20 +608,6 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 	// Clean the response to ensure only valid YAML
 	cleanedResponse := h.cleanLLMYAMLResponse(response.Content)
 
-	if debugLLMModification {
-		fmt.Printf("🔍 DEBUG: LLM Response for stack modification:\n")
-		fmt.Printf("═══════════════════════════════════════════════════════════\n")
-		fmt.Printf("%s\n", response.Content)
-		fmt.Printf("═══════════════════════════════════════════════════════════\n")
-
-		if cleanedResponse != response.Content {
-			fmt.Printf("🧹 DEBUG: Cleaned response (removed non-YAML content):\n")
-			fmt.Printf("═══════════════════════════════════════════════════════════\n")
-			fmt.Printf("%s\n", cleanedResponse)
-			fmt.Printf("═══════════════════════════════════════════════════════════\n")
-		}
-	}
-
 	// Use cleaned response
 	response.Content = cleanedResponse
 
@@ -653,9 +625,6 @@ func (h *UnifiedCommandHandler) modifyStackWithLLM(ctx context.Context, content 
 
 	// CRITICAL: Preserve all environments and root-level properties (YAML anchors, defaults, etc.)
 	h.preserveAllRootLevelProperties(content, modifiedContent, stackName)
-
-	// Optional: Debug changes detection for troubleshooting
-	// fmt.Printf("DEBUG: Changes detected: %+v\n", changesApplied)
 
 	return modifiedContent, changesApplied, nil
 }
@@ -1525,9 +1494,6 @@ func (h *UnifiedCommandHandler) parseModifiedYAML(response string, originalConte
 		originalStack, _ := originalStacks[stackName].(map[string]interface{})
 		modifiedStack, _ := modifiedStacks[stackName].(map[string]interface{})
 
-		// Optional: Debug stack comparison for troubleshooting
-		// fmt.Printf("DEBUG: Comparing stacks for %s\n", stackName)
-
 		if originalStack != nil && modifiedStack != nil {
 			h.compareConfigs(originalStack, modifiedStack, "", changesApplied)
 		}
@@ -1750,7 +1716,217 @@ func (h *UnifiedCommandHandler) parseAddedEnvironment(response string, originalC
 	return modifiedContent, stackConfig, nil
 }
 
+// getFileFromGit retrieves the contents of a file from a specific git reference
+func (h *UnifiedCommandHandler) getFileFromGit(ref string, filePath string) ([]byte, error) {
+	// Normalize the file path to handle relative paths
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %v", err)
+	}
+
+	// Get the git root directory
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	gitRoot, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git root: %v", err)
+	}
+
+	// Convert to string and clean up
+	gitRootStr := strings.TrimSpace(string(gitRoot))
+
+	// Get the relative path from git root to the file
+	relPath, err := filepath.Rel(gitRootStr, absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get relative path: %v", err)
+	}
+
+	// Convert Windows paths to Unix-style for git
+	relPath = filepath.ToSlash(relPath)
+
+	// Execute git command to get the file content
+	cmd = exec.Command("git", "-C", gitRootStr, "show", fmt.Sprintf("%s:%s", ref, relPath))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// If the file doesn't exist in the given ref, return empty content
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			return []byte{}, nil
+		}
+		return nil, fmt.Errorf("failed to get file from git: %v\nOutput: %s", err, string(output))
+	}
+	return output, nil
+}
+
 // AddResource adds a new resource to server.yaml
+// ShowConfigDiff shows configuration differences between versions or environments
+func (h *UnifiedCommandHandler) ShowConfigDiff(ctx context.Context, stackName, configType, compareWith, format string) (*CommandResult, error) {
+	// Set default values if not provided
+	if configType == "" {
+		configType = "client"
+	}
+	if compareWith == "" {
+		compareWith = "HEAD"
+	}
+	if format == "" {
+		format = "split"
+	}
+
+	// Get current config to access the stacks map
+	currentConfig, err := h.GetCurrentConfig(ctx, "client", "") // Get full client config to access all stacks
+	if err != nil || !currentConfig.Success {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to get current configuration: %v", err),
+		}, nil
+	}
+
+	// Extract stacks map from the config
+	stacksMap := make(api.StacksMap)
+	var stacks map[string]interface{}
+
+	// Check if stacks are in content first
+	if content, ok := currentConfig.Data["content"].(map[string]interface{}); ok {
+		if contentStacks, ok := content["stacks"].(map[string]interface{}); ok {
+			stacks = contentStacks
+		}
+	}
+	// Fallback: check direct stacks key
+	if stacks == nil {
+		if directStacks, ok := currentConfig.Data["stacks"].(map[string]interface{}); ok {
+			stacks = directStacks
+		}
+	}
+
+	if stacks != nil {
+		for k := range stacks {
+			// Create a new stack with the name and default values
+			stack := api.Stack{
+				Name:    k,
+				Secrets: api.SecretsDescriptor{},
+				Server:  api.ServerDescriptor{},
+			}
+			stacksMap[k] = stack
+		}
+	}
+
+	// Create a custom version provider that uses the correct file path
+	versionProvider := &CustomConfigVersionProvider{
+		filePath: currentConfig.Data["file_path"].(string),
+		content:  currentConfig.Data["content"].(map[string]interface{}),
+	}
+
+	// Initialize configdiff service with the stacks map and custom provider
+	diffSvc := configdiff.NewConfigDiffServiceWithProvider(stacksMap, versionProvider)
+
+	// If no stack name is provided, list available stacks
+	if stackName == "" {
+		stacks, err := h.ListAvailableStacks()
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to list available stacks: %v", err),
+			}, nil
+		}
+
+		if len(stacks) == 0 {
+			return &CommandResult{
+				Success: true,
+				Message: "No stacks found in the configuration. Use `/getconfig` to view the current configuration.",
+			}, nil
+		}
+
+		// Show diff for all stacks
+		var allMessages []string
+
+		for _, stackName := range stacks {
+			// Get diff for this stack
+			result, err := h.ShowConfigDiff(ctx, stackName, configType, compareWith, format)
+			if err != nil {
+				allMessages = append(allMessages, fmt.Sprintf("❌ Failed to get diff for stack '%s': %v", stackName, err))
+				continue
+			}
+
+			if result.Success {
+				allMessages = append(allMessages, result.Message)
+			} else {
+				allMessages = append(allMessages, fmt.Sprintf("❌ %s", result.Message))
+			}
+		}
+
+		if len(allMessages) == 0 {
+			return &CommandResult{
+				Success: true,
+				Message: "No changes found in any stacks.",
+			}, nil
+		}
+
+		// Combine all messages
+		finalMessage := fmt.Sprintf("🔍 Configuration diff for all stacks (comparing with %s):\n\n", compareWith)
+		finalMessage += strings.Join(allMessages, "\n\n"+strings.Repeat("═", 80)+"\n\n")
+
+		return &CommandResult{
+			Success: true,
+			Message: finalMessage,
+		}, nil
+	}
+
+	// Validate the stack exists
+	if _, exists := stacksMap[stackName]; !exists {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Stack '%s' not found in configuration", stackName),
+		}, nil
+	}
+
+	// Set up diff options
+	options := configdiff.DefaultDiffOptions()
+	switch format {
+	case "unified":
+		options.Format = configdiff.FormatUnified
+	case "inline":
+		options.Format = configdiff.FormatInline
+	case "compact":
+		options.Format = configdiff.FormatCompact
+	default: // split
+		options.Format = configdiff.FormatSplit
+	}
+
+	// Generate the diff
+	result, err := diffSvc.GenerateConfigDiff(configdiff.ConfigDiffParams{
+		StackName:   stackName,
+		ConfigType:  configType,
+		CompareWith: compareWith,
+		Options:     options,
+	})
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to generate config diff: %v", err),
+		}, nil
+	}
+
+	if !result.Success {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ %s", result.Error),
+		}, nil
+	}
+
+	// Format the result message
+	message := fmt.Sprintf("🔍 %s config diff for stack '%s' (comparing with %s):\n\n%s",
+		strings.Title(configType), stackName, compareWith, result.Message)
+
+	return &CommandResult{
+		Success: true,
+		Message: message,
+		Metadata: map[string]interface{}{
+			"stack_name":   stackName,
+			"config_type":  configType,
+			"compare_with": compareWith,
+			"format":       format,
+		},
+	}, nil
+}
+
 func (h *UnifiedCommandHandler) AddResource(ctx context.Context, resourceName, resourceType, environment string, config map[string]interface{}) (*CommandResult, error) {
 	filePath := h.findServerYaml(".")
 	if filePath == "" {
@@ -1896,12 +2072,73 @@ func (h *UnifiedCommandHandler) writeYamlFile(filePath string, content map[strin
 	if err != nil {
 		return fmt.Errorf("failed to write file %s: %w", filePath, err)
 	}
-
 	return nil
 }
 
+func (h *UnifiedCommandHandler) ListAvailableStacks() ([]string, error) {
+	var stacks []string
+
+	// Try to get stacks from configuration first
+	configResult, err := h.GetCurrentConfig(context.Background(), "client", "")
+	if err == nil && configResult.Success {
+		// Check if stacks are in content
+		if content, ok := configResult.Data["content"].(map[string]interface{}); ok {
+			if stacksMap, ok := content["stacks"].(map[string]interface{}); ok {
+				for stackName := range stacksMap {
+					stacks = append(stacks, stackName)
+				}
+				if len(stacks) > 0 {
+					return stacks, nil
+				}
+			}
+		}
+		// Fallback: check direct stacks key
+		if stacksMap, ok := configResult.Data["stacks"].(map[string]interface{}); ok {
+			for stackName := range stacksMap {
+				stacks = append(stacks, stackName)
+			}
+			if len(stacks) > 0 {
+				return stacks, nil
+			}
+		}
+	}
+
+	// Fall back to directory scanning
+	// First check for stacks in the new location (dist directory)
+	distPath := filepath.Join(".sc", "stacks", "dist")
+	if _, err := os.Stat(distPath); err == nil {
+		files, err := os.ReadDir(distPath)
+		if err == nil {
+			for _, file := range files {
+				if file.IsDir() && file.Name() != "dist" && file.Name() != "docs" {
+					stacks = append(stacks, file.Name())
+				}
+			}
+			if len(stacks) > 0 {
+				return stacks, nil
+			}
+		}
+	}
+
+	// Fall back to the old location (stacks directory)
+	stacksPath := filepath.Join(".sc", "stacks")
+	if _, err := os.Stat(stacksPath); err == nil {
+		files, err := os.ReadDir(stacksPath)
+		if err == nil {
+			for _, file := range files {
+				if file.IsDir() && file.Name() != "dist" && file.Name() != "docs" {
+					stacks = append(stacks, file.Name())
+				}
+			}
+		}
+	}
+
+	return stacks, nil
+}
+
+// getStackNames extracts stack names from a stacks map
 func (h *UnifiedCommandHandler) getStackNames(stacks map[string]interface{}) []string {
-	names := make([]string, 0, len(stacks))
+	var names []string
 	for name := range stacks {
 		names = append(names, name)
 	}
@@ -2222,4 +2459,105 @@ func (h *UnifiedCommandHandler) writeYamlValue(output *strings.Builder, value in
 // Delegates to shared utility function for consistency
 func (h *UnifiedCommandHandler) CheckExistingSimpleContainerProject(projectPath string, forceOverwrite, skipConfirmation bool) error {
 	return utils.CheckAndWarnExistingSimpleContainerProject(projectPath, forceOverwrite, skipConfirmation, true)
+}
+
+// CustomConfigVersionProvider implements configdiff.ConfigVersionProvider for our specific use case
+type CustomConfigVersionProvider struct {
+	filePath string
+	content  map[string]interface{}
+}
+
+// GetCurrent gets the current configuration for a specific stack
+func (p *CustomConfigVersionProvider) GetCurrent(stackName, configType string) (*configdiff.ResolvedConfig, error) {
+	// Extract the specific stack from the content
+	if stacks, ok := p.content["stacks"].(map[string]interface{}); ok {
+		if stackConfig, ok := stacks[stackName].(map[string]interface{}); ok {
+			// Convert stack config to YAML string
+			yamlBytes, err := yaml.Marshal(stackConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal stack config to YAML: %v", err)
+			}
+
+			return &configdiff.ResolvedConfig{
+				StackName:    stackName,
+				ConfigType:   configType,
+				Content:      string(yamlBytes),
+				ParsedConfig: stackConfig,
+				FilePath:     p.filePath,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("stack '%s' not found in configuration", stackName)
+}
+
+// GetFromGit gets configuration from a git reference
+func (p *CustomConfigVersionProvider) GetFromGit(stackName, configType, gitRef string) (*configdiff.ResolvedConfig, error) {
+	// Get the file content from git using git show
+	cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", gitRef, p.filePath))
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file from git: %v", err)
+	}
+
+	// Parse the YAML content
+	var yamlContent map[string]interface{}
+	if err := yaml.Unmarshal(output, &yamlContent); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML from git: %v", err)
+	}
+
+	// Extract the specific stack from the content
+	if stacks, ok := yamlContent["stacks"].(map[string]interface{}); ok {
+		if stackConfig, ok := stacks[stackName].(map[string]interface{}); ok {
+			// Convert stack config to YAML string
+			yamlBytes, err := yaml.Marshal(stackConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal stack config to YAML: %v", err)
+			}
+
+			return &configdiff.ResolvedConfig{
+				StackName:    stackName,
+				ConfigType:   configType,
+				Content:      string(yamlBytes),
+				ParsedConfig: stackConfig,
+				FilePath:     p.filePath,
+				GitRef:       gitRef,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("stack '%s' not found in git reference %s", stackName, gitRef)
+}
+
+// GetFromLocal gets configuration from a local file path
+func (p *CustomConfigVersionProvider) GetFromLocal(stackName, configType, filePath string) (*configdiff.ResolvedConfig, error) {
+	// Read the file and extract the stack
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var yamlContent map[string]interface{}
+	if err := yaml.Unmarshal(content, &yamlContent); err != nil {
+		return nil, err
+	}
+
+	if stacks, ok := yamlContent["stacks"].(map[string]interface{}); ok {
+		if stackConfig, ok := stacks[stackName].(map[string]interface{}); ok {
+			// Convert stack config to YAML string
+			yamlBytes, err := yaml.Marshal(stackConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal stack config to YAML: %v", err)
+			}
+
+			return &configdiff.ResolvedConfig{
+				StackName:    stackName,
+				ConfigType:   configType,
+				Content:      string(yamlBytes),
+				ParsedConfig: stackConfig,
+				FilePath:     filePath,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("stack '%s' not found in file %s", stackName, filePath)
 }

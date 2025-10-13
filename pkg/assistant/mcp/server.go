@@ -726,6 +726,37 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 				"required": []string{"filename", "content"},
 			},
 		},
+		{
+			"name":        "show_config_diff",
+			"description": "📊 Show configuration changes with resolved inheritance (git diff style)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to show diff for",
+					},
+					"config_type": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"client", "server"},
+						"description": "Type of configuration to diff (default: client)",
+						"default":     "client",
+					},
+					"compare_with": map[string]interface{}{
+						"type":        "string",
+						"description": "Git ref to compare with (e.g., 'HEAD~1', 'main', commit hash)",
+						"default":     "HEAD~1",
+					},
+					"format": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"unified", "split", "inline", "compact"},
+						"description": "Output format (default: split)",
+						"default":     "split",
+					},
+				},
+				"required": []string{"stack_name"},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -1417,6 +1448,48 @@ func (s *MCPServer) executeToolCall(ctx context.Context, req *MCPRequest, toolNa
 				},
 			},
 			"isError": false,
+		})
+
+	case "show_config_diff":
+		stackName, ok := arguments["stack_name"].(string)
+		if !ok || stackName == "" {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
+		}
+
+		configType := "client"
+		if ct, ok := arguments["config_type"].(string); ok && ct != "" {
+			configType = ct
+		}
+
+		compareWith := "HEAD~1"
+		if cw, ok := arguments["compare_with"].(string); ok && cw != "" {
+			compareWith = cw
+		}
+
+		format := "split"
+		if f, ok := arguments["format"].(string); ok && f != "" {
+			format = f
+		}
+
+		result, err := s.handler.ShowConfigDiff(ctx, ShowConfigDiffParams{
+			StackName:   stackName,
+			ConfigType:  configType,
+			CompareWith: compareWith,
+			Format:      format,
+		})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to show config diff", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError":  false,
+			"metadata": result.Metadata,
 		})
 
 	default:
@@ -2695,6 +2768,46 @@ func (h *DefaultMCPHandler) ShowStackConfig(ctx context.Context, params ShowStac
 	}, nil
 }
 
+func (h *DefaultMCPHandler) ShowConfigDiff(ctx context.Context, params ShowConfigDiffParams) (*ShowConfigDiffResult, error) {
+	// Set defaults
+	configType := params.ConfigType
+	if configType == "" {
+		configType = "client"
+	}
+
+	compareWith := params.CompareWith
+	if compareWith == "" {
+		compareWith = "HEAD~1"
+	}
+
+	format := params.Format
+	if format == "" {
+		format = "split"
+	}
+
+	// Use the unified command handler to show config diff
+	result, err := h.commandHandler.ShowConfigDiff(ctx, params.StackName, configType, compareWith, format)
+	if err != nil {
+		return &ShowConfigDiffResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to show config diff: %v", err),
+		}, nil
+	}
+
+	// Convert CommandResult to ShowConfigDiffResult
+	return &ShowConfigDiffResult{
+		StackName:   params.StackName,
+		ConfigType:  configType,
+		CompareFrom: compareWith,
+		CompareTo:   "current",
+		Success:     result.Success,
+		Message:     result.Message,
+		Metadata: map[string]interface{}{
+			"format": format,
+		},
+	}, nil
+}
+
 func (h *DefaultMCPHandler) AdvancedSearchDocumentation(ctx context.Context, params AdvancedSearchDocumentationParams) (*AdvancedSearchDocumentationResult, error) {
 	// Reuse the existing SearchDocumentation method but with different formatting
 	searchParams := SearchDocumentationParams{
@@ -2800,6 +2913,18 @@ func (h *DefaultMCPHandler) GetHelp(ctx context.Context, params GetHelpParams) (
 
 **Returns:** Complete configuration with analysis and guidance`
 
+		case "show_config_diff":
+			helpMessage = `📊 **show_config_diff** - Show configuration changes with resolved inheritance
+
+**Usage:** Compare configuration changes between git references, similar to git diff
+**Parameters:**
+- stack_name (required): Stack name to show diff for
+- config_type (optional): 'client' or 'server' (default: 'client')
+- compare_with (optional): Git ref to compare with (default: 'HEAD~1')
+- format (optional): 'unified', 'split', 'inline', 'compact' (default: 'split')
+
+**Features:** Resolves YAML inheritance, obfuscates secrets, provides change analysis with warnings`
+
 		default:
 			helpMessage = fmt.Sprintf("❓ Tool '%s' not found. Use get_help without parameters to see all available tools.", params.ToolName)
 		}
@@ -2818,6 +2943,7 @@ func (h *DefaultMCPHandler) GetHelp(ctx context.Context, params GetHelpParams) (
 - **setup_simple_container** - Initialize Simple Container for a project
 - **read_project_file** - Read project files with credential protection
 - **show_stack_config** - Display comprehensive stack configuration
+- **show_config_diff** - Show configuration changes with git diff style
 
 ## 🏗️ Stack & Environment Management
 - **add_environment** - Add new environments to client.yaml
@@ -3098,4 +3224,140 @@ func (h *DefaultMCPHandler) appendToFile(filePath, content string) ([]byte, erro
 	finalContent += content
 
 	return []byte(finalContent), nil
+}
+
+// Helper methods for generating diff format examples
+
+func (h *DefaultMCPHandler) generateSplitDiffExample(stackName, configType, compareWith string) string {
+	return fmt.Sprintf(`📊 Configuration Diff: %s/%s.yaml
+Comparing: %s → Working Directory
+Resolved with inheritance applied
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔹 Environment: dev
+
+  stacks.dev.config.scale.max
+  │ 3 → 5  (Scaling capacity increased by 67%%)
+
+  stacks.dev.config.env[1].value (DB_POOL_SIZE)
+  │ "10" → "15"  (Database connection pool increased)
+
+  stacks.dev.config.env[2] (NEW)
+  │ + CACHE_ENABLED = "true"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔹 Environment: prod
+
+  stacks.prod.parent
+  │ infrastructure/base → infrastructure/production  ⚠️  Inheritance chain modified
+
+  stacks.prod.config.scale.min
+  │ 2 → 5  (Minimum instances increased by 150%%)
+
+  stacks.prod.config.scale.max
+  │ 10 → 20  (Maximum instances doubled)
+
+  stacks.prod.config.env[0].value (LOG_LEVEL)
+  │ info → warn  ⚠️  Log verbosity reduced
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 Summary:
+  • 6 changes total
+  • 1 addition
+  • 0 deletions
+  • 5 modifications
+  
+⚠️  Warnings:
+  • Parent stack changed in prod - verify inheritance chain
+  • Log level reduced in prod - may affect debugging
+
+🔧 **Note:** This is a demonstration of the config diff format. Full implementation with actual git comparison is in progress.`,
+		stackName, configType, compareWith)
+}
+
+func (h *DefaultMCPHandler) generateUnifiedDiffExample(stackName, configType, compareWith string) string {
+	return fmt.Sprintf(`📊 Configuration Diff: %s/%s.yaml
+Comparing: %s → Working Directory
+Resolved with inheritance applied
+
+--- .sc/stacks/%s/%s.yaml (%s) [resolved]
++++ .sc/stacks/%s/%s.yaml (current) [resolved]
+@@ -8,7 +8,7 @@
+       scale:
+         min: 1
+-        max: 3
++        max: 5
+       env:
+         - name: LOG_LEVEL
+           value: debug
+         - name: DB_POOL_SIZE
+-          value: "10"
++          value: "15"
++        - name: CACHE_ENABLED
++          value: "true"
+
+@@ -19,10 +20,10 @@
+     type: cloud-compose
+-    parent: infrastructure/base
++    parent: infrastructure/production
+     config:
+       scale:
+-        min: 2
+-        max: 10
++        min: 5
++        max: 20
+       env:
+         - name: LOG_LEVEL
+-          value: info
++          value: warn
+
+📈 Summary:
+  • 6 lines changed
+  • 2 lines added
+  • 0 lines removed
+  • 2 environments affected: dev, prod
+
+🔧 **Note:** This is a demonstration of the unified diff format. Full implementation with actual git comparison is in progress.`,
+		stackName, configType, compareWith, stackName, configType, compareWith, stackName, configType)
+}
+
+func (h *DefaultMCPHandler) generateInlineDiffExample(stackName, configType, compareWith string) string {
+	return fmt.Sprintf(`📊 Configuration Diff: %s/%s.yaml
+Comparing: %s → Working Directory
+
+🔹 dev:
+  stacks.dev.config.scale.max: 3 → 5
+  stacks.dev.config.env[1].value: "10" → "15"
+  stacks.dev.config.env[2]: + CACHE_ENABLED="true"
+
+🔹 prod:
+  stacks.prod.parent: infrastructure/base → infrastructure/production ⚠️
+  stacks.prod.config.scale.min: 2 → 5
+  stacks.prod.config.scale.max: 10 → 20
+  stacks.prod.config.env[0].value: info → warn ⚠️
+
+📈 6 changes | 1 addition | 0 deletions
+
+🔧 **Note:** This is a demonstration of the inline diff format. Full implementation with actual git comparison is in progress.`,
+		stackName, configType, compareWith)
+}
+
+func (h *DefaultMCPHandler) generateCompactDiffExample(stackName, configType, compareWith string) string {
+	return fmt.Sprintf(`📊 %s/%s.yaml (%s → current) - 6 changes
+
+  dev.config.scale.max: 3 → 5
+  dev.config.env[1].value: "10" → "15"
+  dev.config.env[2]: + CACHE_ENABLED="true"
+  prod.parent: infrastructure/base → infrastructure/production ⚠️
+  prod.config.scale.min: 2 → 5
+  prod.config.scale.max: 10 → 20
+  prod.config.env[0].value: info → warn ⚠️
+
+⚠️  2 warnings
+
+🔧 **Note:** This is a demonstration of the compact diff format. Full implementation with actual git comparison is in progress.`,
+		stackName, configType, compareWith)
 }

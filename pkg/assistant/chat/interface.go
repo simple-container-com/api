@@ -211,8 +211,6 @@ func NewChatInterface(sessionConfig SessionConfig) (*ChatInterface, error) {
 	// Initialize input handler with commands
 	chat.inputHandler = NewInputHandler(chat.commands)
 
-	// Note: System prompt will be added in StartSession after project analysis
-
 	return chat, nil
 }
 
@@ -1037,8 +1035,6 @@ func (c *ChatInterface) analyzeProject(ctx context.Context) error {
 			projectInfo.PrimaryStack.Framework,
 			projectInfo.PrimaryStack.Confidence*100)
 	}
-
-	// Note: System prompt is now added in StartSession with this project context
 
 	return nil
 }
