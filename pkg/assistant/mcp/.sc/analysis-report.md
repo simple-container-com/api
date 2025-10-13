@@ -1,13 +1,13 @@
 # Simple Container Project Analysis Report
 
-**Generated:** 2025-10-12 22:34:16 +03
+**Generated:** 2025-10-12 23:51:02 +03
 **Analyzer Version:** 1.0
 **Overall Confidence:** 70.0%
 
 ## Project Overview
 
 - **Name:** mcp
-- **Path:** /Users/laboratory/projects/github/simple-container-api/pkg/assistant/mcp
+- **Path:** /home/iasadykov/projects/github/simple-container/api/pkg/assistant/mcp
 - **Architecture:** standard-web-app
 - **Primary Technology:** go  (70.0% confidence)
 

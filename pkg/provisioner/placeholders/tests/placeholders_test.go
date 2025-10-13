@@ -57,10 +57,10 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(secretsProviderCfg.Credentials.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 
 				// cicd
-				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))
+				Expect(stacks["common"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GitHubActionsCiCdConfig{}))
 				cicdConfig := stacks["common"].Server.CiCd.Config.Config
-				ghConfig := cicdConfig.(*github.ActionsCiCdConfig)
-				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
+				ghConfig := cicdConfig.(*github.GitHubActionsCiCdConfig)
+				Expect(ghConfig.Organization).To(Equal("simple-container-org"))
 			},
 		},
 		{
@@ -84,10 +84,10 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				Expect(pgConfig.CredentialsValue()).To(Equal("<gcloud-service-account-email>"))
 				Expect(pgConfig.Project).To(Equal("refapp"))
 
-				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))
+				Expect(stacks["refapp"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GitHubActionsCiCdConfig{}))
 				cicdConfig := stacks["refapp"].Server.CiCd.Config.Config
-				ghConfig := cicdConfig.(*github.ActionsCiCdConfig)
-				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
+				ghConfig := cicdConfig.(*github.GitHubActionsCiCdConfig)
+				Expect(ghConfig.Organization).To(Equal("simple-container-org"))
 
 				resMongoCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["mongodb"].Config.Config
 				Expect(resMongoCfg).To(BeAssignableToTypeOf(&mongodb.AtlasConfig{}))
@@ -120,10 +120,10 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			},
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp-aws"]).NotTo(BeNil())
-				Expect(stacks["refapp-aws"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.ActionsCiCdConfig{}))
+				Expect(stacks["refapp-aws"].Server.CiCd.Config.Config).To(BeAssignableToTypeOf(&github.GitHubActionsCiCdConfig{}))
 				cicdConfig := stacks["refapp-aws"].Server.CiCd.Config.Config
-				ghConfig := cicdConfig.(*github.ActionsCiCdConfig)
-				Expect(ghConfig.AuthToken).To(Equal("<encrypted-secret>"))
+				ghConfig := cicdConfig.(*github.GitHubActionsCiCdConfig)
+				Expect(ghConfig.Organization).To(Equal("simple-container-org"))
 				// TODO: tests for aws resources
 			},
 		},

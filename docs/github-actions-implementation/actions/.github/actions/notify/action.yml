@@ -1,0 +1,215 @@
+name: 'Simple Container Notifications'
+description: 'Send professional notifications for Simple Container operations'
+branding:
+  icon: 'message-square'
+  color: 'purple'
+
+inputs:
+  status:
+    description: 'Status of the operation (started, success, failure, cancelled)'
+    required: true
+  operation:
+    description: 'Type of operation (deploy, provision, destroy)'
+    required: true
+  stack-name:
+    description: 'Name of the stack (for client operations)'
+    required: false
+  environment:
+    description: 'Environment name'
+    required: false
+  version:
+    description: 'Version that was deployed/provisioned'
+    required: false
+  duration:
+    description: 'Operation duration'
+    required: false
+  build-url:
+    description: 'URL to the GitHub Actions build'
+    required: false
+  slack-webhook-url:
+    description: 'Slack webhook URL'
+    required: false
+  discord-webhook-url:
+    description: 'Discord webhook URL'
+    required: false
+  custom-message:
+    description: 'Custom message to append'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Prepare Notification Data
+      id: prepare
+      shell: bash
+      run: |
+        # Set default values
+        BUILD_URL="${{ inputs.build-url || github.server_url }}/{{ github.repository }}/actions/runs/{{ github.run_id }}"
+        ACTOR="${{ github.actor }}"
+        BRANCH="${{ github.ref_name }}"
+        
+        # Determine emoji and color based on status
+        case "${{ inputs.status }}" in
+          "started")
+            EMOJI="🚧"
+            COLOR="#FFA500"
+            ;;
+          "success")
+            EMOJI="✅"
+            COLOR="#00FF00"
+            ;;
+          "failure")
+            EMOJI="❗"
+            COLOR="#FF0000"
+            ;;
+          "cancelled")
+            EMOJI="❌"
+            COLOR="#808080"
+            ;;
+          *)
+            EMOJI="ℹ️"
+            COLOR="#0000FF"
+            ;;
+        esac
+        
+        # Build operation description
+        OPERATION_DESC=""
+        case "${{ inputs.operation }}" in
+          "deploy")
+            if [[ -n "${{ inputs.stack-name }}" ]]; then
+              OPERATION_DESC="deploy *${{ inputs.stack-name }}*"
+              if [[ -n "${{ inputs.environment }}" ]]; then
+                OPERATION_DESC="$OPERATION_DESC to *${{ inputs.environment }}*"
+              fi
+            else
+              OPERATION_DESC="deploy"
+            fi
+            ;;
+          "provision")
+            OPERATION_DESC="provision infrastructure"
+            if [[ -n "${{ inputs.environment }}" ]]; then
+              OPERATION_DESC="$OPERATION_DESC for *${{ inputs.environment }}*"
+            fi
+            ;;
+          "destroy")
+            if [[ -n "${{ inputs.stack-name }}" ]]; then
+              OPERATION_DESC="destroy *${{ inputs.stack-name }}*"
+              if [[ -n "${{ inputs.environment }}" ]]; then
+                OPERATION_DESC="$OPERATION_DESC in *${{ inputs.environment }}*"
+              fi
+            else
+              OPERATION_DESC="destroy infrastructure"
+              if [[ -n "${{ inputs.environment }}" ]]; then
+                OPERATION_DESC="$OPERATION_DESC for *${{ inputs.environment }}*"
+              fi
+            fi
+            ;;
+          *)
+            OPERATION_DESC="${{ inputs.operation }}"
+            ;;
+        esac
+        
+        # Build version info
+        VERSION_INFO=""
+        if [[ -n "${{ inputs.version }}" ]]; then
+          VERSION_INFO=" (v${{ inputs.version }})"
+        fi
+        
+        # Build duration info
+        DURATION_INFO=""
+        if [[ -n "${{ inputs.duration }}" ]]; then
+          DURATION_INFO=" (took: ${{ inputs.duration }})"
+        fi
+        
+        # Build complete message
+        MESSAGE="$EMOJI *<$BUILD_URL|${{ inputs.status | upcase }}>* $OPERATION_DESC$VERSION_INFO ($BRANCH)$DURATION_INFO by $ACTOR"
+        
+        if [[ -n "${{ inputs.custom-message }}" ]]; then
+          MESSAGE="$MESSAGE - ${{ inputs.custom-message }}"
+        fi
+        
+        # Set outputs
+        echo "emoji=$EMOJI" >> $GITHUB_OUTPUT
+        echo "color=$COLOR" >> $GITHUB_OUTPUT
+        echo "message=$MESSAGE" >> $GITHUB_OUTPUT
+        echo "build-url=$BUILD_URL" >> $GITHUB_OUTPUT
+    
+    - name: Send Slack Notification
+      if: inputs.slack-webhook-url != ''
+      shell: bash
+      run: |
+        echo "📱 Sending Slack notification..."
+        
+        SLACK_PAYLOAD=$(cat <<EOF
+{
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "${{ steps.prepare.outputs.message }}"
+      }
+    }
+  ]
+}
+EOF
+)
+        
+        # Send to Slack
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -H "Content-type: application/json" \
+          --data "$SLACK_PAYLOAD" \
+          "${{ inputs.slack-webhook-url }}")
+        
+        if [[ "$HTTP_STATUS" -eq 200 ]]; then
+          echo "✅ Slack notification sent successfully"
+        else
+          echo "⚠️ Slack notification failed (HTTP $HTTP_STATUS)"
+        fi
+    
+    - name: Send Discord Notification
+      if: inputs.discord-webhook-url != ''
+      shell: bash
+      run: |
+        echo "📱 Sending Discord notification..."
+        
+        # Convert Slack markdown to Discord format
+        DISCORD_MESSAGE=$(echo "${{ steps.prepare.outputs.message }}" | \
+          sed 's/\*\([^*]*\)\*/\*\*\1\*\*/g' | \
+          sed 's/<\([^|]*\)|\([^>]*\)>/[\2](\1)/g')
+        
+        DISCORD_PAYLOAD=$(cat <<EOF
+{
+  "embeds": [
+    {
+      "description": "$DISCORD_MESSAGE",
+      "color": ${{ steps.prepare.outputs.color == '#00FF00' && '65280' || (steps.prepare.outputs.color == '#FF0000' && '16711680' || '255') }},
+      "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+    }
+  ]
+}
+EOF
+)
+        
+        # Send to Discord
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -H "Content-type: application/json" \
+          --data "$DISCORD_PAYLOAD" \
+          "${{ inputs.discord-webhook-url }}")
+        
+        if [[ "$HTTP_STATUS" -eq 204 ]]; then
+          echo "✅ Discord notification sent successfully"
+        else
+          echo "⚠️ Discord notification failed (HTTP $HTTP_STATUS)"
+        fi
+    
+    - name: Summary
+      shell: bash
+      run: |
+        echo "📋 Notification Summary:"
+        echo "   Status: ${{ inputs.status }}"
+        echo "   Operation: ${{ inputs.operation }}"
+        echo "   Slack: ${{ inputs.slack-webhook-url != '' && '✅ Sent' || '⚠️ Skipped' }}"
+        echo "   Discord: ${{ inputs.discord-webhook-url != '' && '✅ Sent' || '⚠️ Skipped' }}"

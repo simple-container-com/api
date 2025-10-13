@@ -1,0 +1,59 @@
+name: 'Deploy Simple Container Client Stack'
+description: 'Deploy a Simple Container client stack using internal SC APIs'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  stack-name:
+    description: 'Name of the stack to deploy'
+    required: true
+  environment:
+    description: 'Target environment (staging, prod, etc.)'
+    required: true
+    default: 'staging'
+  sc-config:
+    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    required: true
+  version:
+    description: 'Version to deploy'
+    required: false
+    default: 'latest'
+  slack-webhook-url:
+    description: 'Slack webhook URL for notifications (optional)'
+    required: false
+  discord-webhook-url:
+    description: 'Discord webhook URL for notifications (optional)'
+    required: false
+  telegram-chat-id:
+    description: 'Telegram chat ID for notifications (optional)'
+    required: false
+  telegram-token:
+    description: 'Telegram bot token for notifications (optional)'
+    required: false
+
+outputs:
+  version:
+    description: 'Version that was deployed'
+  environment:
+    description: 'Environment that was deployed to'
+  stack-name:
+    description: 'Stack name that was deployed'
+  duration:
+    description: 'Deployment duration'
+  status:
+    description: 'Deployment status (success/failure)'
+
+runs:
+  using: 'docker'
+  image: 'docker://simplecontainer/github-actions:latest'
+  env:
+    GITHUB_ACTION_TYPE: 'deploy-client-stack'
+    STACK_NAME: ${{ inputs.stack-name }}
+    ENVIRONMENT: ${{ inputs.environment }}
+    SC_CONFIG: ${{ inputs.sc-config }}
+    VERSION: ${{ inputs.version }}
+    SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+    DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
+    TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
+    TELEGRAM_TOKEN: ${{ inputs.telegram-token }}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/simple-container-com/api/pkg/assistant/core"
 )
 
 // MCP (Model Context Protocol) implementation for Simple Container
@@ -364,6 +366,12 @@ type MCPHandler interface {
 	GetHelp(ctx context.Context, params GetHelpParams) (*GetHelpResult, error)
 	GetStatus(ctx context.Context, params GetStatusParams) (*GetStatusResult, error)
 	WriteProjectFile(ctx context.Context, params WriteProjectFileParams) (*WriteProjectFileResult, error)
+
+	// CI/CD pipeline management methods
+	GenerateCICD(ctx context.Context, stackName, configFile string) (*core.CommandResult, error)
+	ValidateCICD(ctx context.Context, stackName, configFile string, showDiff bool) (*core.CommandResult, error)
+	PreviewCICD(ctx context.Context, stackName, configFile string, showContent bool) (*core.CommandResult, error)
+	SyncCICD(ctx context.Context, stackName, configFile string, dryRun bool) (*core.CommandResult, error)
 
 	GetCapabilities(ctx context.Context) (map[string]interface{}, error)
 	Ping(ctx context.Context) (string, error)

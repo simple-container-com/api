@@ -1,0 +1,146 @@
+name: 'Provision Simple Container Parent Stack'
+description: 'Provision shared infrastructure using Simple Container'
+branding:
+  icon: 'server'
+  color: 'green'
+
+inputs:
+  sc-config:
+    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    required: true
+  sc-version:
+    description: 'Simple Container CLI version'
+    required: false
+    default: 'latest'
+  target-environment:
+    description: 'Specific environment to provision'
+    required: false
+  dry-run:
+    description: 'Perform dry run without provisioning'
+    required: false
+    default: 'false'
+  notify-on-completion:
+    description: 'Send notification when completed'
+    required: false
+    default: 'true'
+
+outputs:
+  version:
+    description: 'Generated version for the provision'
+  duration:
+    description: 'Provisioning duration'
+  status:
+    description: 'Provision status (success/failure)'
+  resources-provisioned:
+    description: 'Count of resources provisioned'
+  environments-updated:
+    description: 'List of environments updated'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Simple Container
+      uses: simple-container-com/api/.github/actions/setup-sc@v2025.10.4
+      with:
+        sc-config: ${{ inputs.sc-config }}
+        sc-version: ${{ inputs.sc-version }}
+        setup-devops-repo: 'true'
+    
+    - name: Generate Version
+      id: version
+      shell: bash
+      run: |
+        VERSION=$(date +%Y.%-m.%-d).${GITHUB_RUN_NUMBER:-1}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "start-time=$(date +%s)" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
+    
+    - name: Install Additional Tools
+      shell: bash
+      run: |
+        echo "🔧 Installing additional infrastructure tools..."
+        
+        # Install Pulumi for infrastructure operations
+        curl -fsSL https://get.pulumi.com | sh
+        export PATH=$PATH:~/.pulumi/bin
+        echo "PATH=$PATH:~/.pulumi/bin" >> $GITHUB_ENV
+        
+        echo "✅ Infrastructure tools installed"
+    
+    - name: Provision Infrastructure
+      id: provision
+      shell: bash
+      env:
+        SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        echo "🚀 Starting infrastructure provisioning..."
+        
+        # Set up provisioning context
+        export PROVISION_VERSION="$VERSION"
+        
+        # Build provisioning command
+        PROVISION_CMD="sc provision"
+        
+        if [[ "${{ inputs.target-environment }}" != "" ]]; then
+          PROVISION_CMD="$PROVISION_CMD --environment ${{ inputs.target-environment }}"
+          echo "Targeting environment: ${{ inputs.target-environment }}"
+        fi
+        
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          PROVISION_CMD="$PROVISION_CMD --dry-run"
+          echo "🔍 Performing dry-run provisioning..."
+        else
+          echo "🚀 Performing actual provisioning..."
+        fi
+        
+        # Execute provisioning with verbose output
+        $PROVISION_CMD --verbose
+        
+        # Extract results (these would be implemented in the actual SC CLI)
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "resources-provisioned=unknown" >> $GITHUB_OUTPUT
+        echo "environments-updated=${{ inputs.target-environment || 'all' }}" >> $GITHUB_OUTPUT
+        
+        echo "✅ Infrastructure provisioning completed"
+    
+    - name: Calculate Duration
+      if: always()
+      id: duration
+      shell: bash
+      run: |
+        start_time="${{ steps.version.outputs.start-time }}"
+        end_time=$(date +%s)
+        duration_sec=$((end_time - start_time))
+        duration_min=$((duration_sec / 60))
+        duration_sec=$((duration_sec % 60))
+        duration="${duration_min}m${duration_sec}s"
+        echo "duration=$duration" >> $GITHUB_OUTPUT
+        echo "Provision duration: $duration"
+    
+    - name: Create Release Tag
+      if: success() && inputs.dry-run != 'true'
+      shell: bash
+      run: |
+        # Create release tag for successful provisioning
+        TAG="infra-v${{ steps.version.outputs.version }}"
+        
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        if git tag "$TAG" 2>/dev/null; then
+          git push origin "$TAG" 2>/dev/null || echo "Failed to push tag"
+          echo "📋 Created release tag: $TAG"
+        else
+          echo "⚠️ Failed to create release tag"
+        fi
+    
+    - name: Set Final Outputs
+      if: always()
+      shell: bash
+      run: |
+        echo "version=${{ steps.version.outputs.version }}" >> $GITHUB_OUTPUT
+        echo "duration=${{ steps.duration.outputs.duration }}" >> $GITHUB_OUTPUT
+        echo "status=${{ steps.provision.outputs.status || 'failure' }}" >> $GITHUB_OUTPUT
+        echo "resources-provisioned=${{ steps.provision.outputs.resources-provisioned }}" >> $GITHUB_OUTPUT
+        echo "environments-updated=${{ steps.provision.outputs.environments-updated }}" >> $GITHUB_OUTPUT

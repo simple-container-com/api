@@ -6,6 +6,7 @@ func (c *ChatInterface) registerCommands() {
 	c.registerCoreCommands()    // help, search, clear, status
 	c.registerProjectCommands() // analyze, setup, config, context, resources
 	c.registerStackCommands()   // getconfig, addenv, modifystack, addresource
+	c.registerCICDCommands()    // cicd-generate, cicd-validate, cicd-preview, cicd-sync, cicd-setup
 	c.registerLLMCommands()     // apikey, provider, model
 	c.registerSessionCommands() // history, sessions
 	c.registerUICommands()      // switch, theme
