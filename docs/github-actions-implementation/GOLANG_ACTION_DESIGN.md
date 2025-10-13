@@ -102,11 +102,10 @@ type Config struct {
     Environment string `env:"ENVIRONMENT" required:"true"`
     SCConfig    string `env:"SC_CONFIG" required:"true"`
     
-    // Simple Container configuration
-    SCVersion     string `env:"SC_VERSION" default:"latest"`
+    // Simple Container configuration  
     SCDeployFlags string `env:"SC_DEPLOY_FLAGS"`
     
-    // Version management
+    // Pre-built SC binary is included in GitHub Actions image
     VersionSuffix    string `env:"VERSION_SUFFIX"`
     AppImageVersion  string `env:"APP_IMAGE_VERSION"`
     

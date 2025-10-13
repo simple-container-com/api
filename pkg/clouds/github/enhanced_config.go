@@ -161,15 +161,21 @@ func (c *EnhancedActionsCiCdConfig) SetDefaults() {
 	}
 
 	if c.WorkflowGeneration.SCVersion == "" {
-		c.WorkflowGeneration.SCVersion = "v1"
+		c.WorkflowGeneration.SCVersion = "latest" // Use latest by default, which maps to @main
 	}
 
 	if c.WorkflowGeneration.CustomActions == nil {
+		// Use @main for latest version by default, but allow CalVer tags to be specified via SCVersion
+		actionVersion := "@main"
+		if c.WorkflowGeneration.SCVersion != "" && c.WorkflowGeneration.SCVersion != "latest" {
+			actionVersion = "@" + c.WorkflowGeneration.SCVersion
+		}
+
 		c.WorkflowGeneration.CustomActions = map[string]string{
-			"deploy":         "simple-container-com/api/.github/actions/deploy-client-stack@v1",
-			"provision":      "simple-container-com/api/.github/actions/provision-parent-stack@v1",
-			"destroy-client": "simple-container-com/api/.github/actions/destroy-client-stack@v1",
-			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent-stack@v1",
+			"deploy":         "simple-container-com/api/.github/actions/deploy" + actionVersion,
+			"provision":      "simple-container-com/api/.github/actions/provision" + actionVersion,
+			"destroy-client": "simple-container-com/api/.github/actions/destroy" + actionVersion,
+			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent" + actionVersion,
 		}
 	}
 
