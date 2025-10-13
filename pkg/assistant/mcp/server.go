@@ -822,6 +822,37 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 				},
 			},
 		},
+		{
+			"name":        "show_config_diff",
+			"description": "📊 Show configuration changes with resolved inheritance (git diff style)",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"stack_name": map[string]interface{}{
+						"type":        "string",
+						"description": "Stack name to show diff for",
+					},
+					"config_type": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"client", "server"},
+						"description": "Type of configuration to diff (default: client)",
+						"default":     "client",
+					},
+					"compare_with": map[string]interface{}{
+						"type":        "string",
+						"description": "Git ref to compare with (e.g., 'HEAD~1', 'main', commit hash)",
+						"default":     "HEAD~1",
+					},
+					"format": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"unified", "split", "inline", "compact"},
+						"description": "Output format (default: split)",
+						"default":     "split",
+					},
+				},
+				"required": []string{"stack_name"},
+			},
+		},
 	}
 
 	result := map[string]interface{}{
@@ -1655,6 +1686,48 @@ func (s *MCPServer) executeToolCall(ctx context.Context, req *MCPRequest, toolNa
 				},
 			},
 			"isError": false,
+		})
+
+	case "show_config_diff":
+		stackName, ok := arguments["stack_name"].(string)
+		if !ok || stackName == "" {
+			return NewMCPError(req.ID, ErrorCodeInvalidParams, "stack_name is required", nil)
+		}
+
+		configType := "client"
+		if ct, ok := arguments["config_type"].(string); ok && ct != "" {
+			configType = ct
+		}
+
+		compareWith := "HEAD~1"
+		if cw, ok := arguments["compare_with"].(string); ok && cw != "" {
+			compareWith = cw
+		}
+
+		format := "split"
+		if f, ok := arguments["format"].(string); ok && f != "" {
+			format = f
+		}
+
+		result, err := s.handler.ShowConfigDiff(ctx, ShowConfigDiffParams{
+			StackName:   stackName,
+			ConfigType:  configType,
+			CompareWith: compareWith,
+			Format:      format,
+		})
+		if err != nil {
+			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to show config diff", err.Error())
+		}
+
+		return NewMCPResponse(req.ID, map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Message,
+				},
+			},
+			"isError":  false,
+			"metadata": result.Metadata,
 		})
 
 	default:
@@ -2953,6 +3026,46 @@ func (h *DefaultMCPHandler) ShowStackConfig(ctx context.Context, params ShowStac
 	}, nil
 }
 
+func (h *DefaultMCPHandler) ShowConfigDiff(ctx context.Context, params ShowConfigDiffParams) (*ShowConfigDiffResult, error) {
+	// Set defaults
+	configType := params.ConfigType
+	if configType == "" {
+		configType = "client"
+	}
+
+	compareWith := params.CompareWith
+	if compareWith == "" {
+		compareWith = "HEAD~1"
+	}
+
+	format := params.Format
+	if format == "" {
+		format = "split"
+	}
+
+	// Use the unified command handler to show config diff
+	result, err := h.commandHandler.ShowConfigDiff(ctx, params.StackName, configType, compareWith, format)
+	if err != nil {
+		return &ShowConfigDiffResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to show config diff: %v", err),
+		}, nil
+	}
+
+	// Convert CommandResult to ShowConfigDiffResult
+	return &ShowConfigDiffResult{
+		StackName:   params.StackName,
+		ConfigType:  configType,
+		CompareFrom: compareWith,
+		CompareTo:   "current",
+		Success:     result.Success,
+		Message:     result.Message,
+		Metadata: map[string]interface{}{
+			"format": format,
+		},
+	}, nil
+}
+
 func (h *DefaultMCPHandler) AdvancedSearchDocumentation(ctx context.Context, params AdvancedSearchDocumentationParams) (*AdvancedSearchDocumentationResult, error) {
 	// Reuse the existing SearchDocumentation method but with different formatting
 	searchParams := SearchDocumentationParams{
@@ -3058,6 +3171,18 @@ func (h *DefaultMCPHandler) GetHelp(ctx context.Context, params GetHelpParams) (
 
 **Returns:** Complete configuration with analysis and guidance`
 
+		case "show_config_diff":
+			helpMessage = `📊 **show_config_diff** - Show configuration changes with resolved inheritance
+
+**Usage:** Compare configuration changes between git references, similar to git diff
+**Parameters:**
+- stack_name (required): Stack name to show diff for
+- config_type (optional): 'client' or 'server' (default: 'client')
+- compare_with (optional): Git ref to compare with (default: 'HEAD~1')
+- format (optional): 'unified', 'split', 'inline', 'compact' (default: 'split')
+
+**Features:** Resolves YAML inheritance, obfuscates secrets, provides change analysis with warnings`
+
 		default:
 			helpMessage = fmt.Sprintf("❓ Tool '%s' not found. Use get_help without parameters to see all available tools.", params.ToolName)
 		}
@@ -3076,6 +3201,7 @@ func (h *DefaultMCPHandler) GetHelp(ctx context.Context, params GetHelpParams) (
 - **setup_simple_container** - Initialize Simple Container for a project
 - **read_project_file** - Read project files with credential protection
 - **show_stack_config** - Display comprehensive stack configuration
+- **show_config_diff** - Show configuration changes with git diff style
 
 ## 🏗️ Stack & Environment Management
 - **add_environment** - Add new environments to client.yaml

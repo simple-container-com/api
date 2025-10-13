@@ -325,6 +325,24 @@ type WriteProjectFileResult struct {
 	Success bool     `json:"success"`
 }
 
+// Config diff types
+type ShowConfigDiffParams struct {
+	StackName   string `json:"stack_name"`             // Stack name to show diff for
+	ConfigType  string `json:"config_type,omitempty"`  // "client" or "server" (default: "client")
+	CompareWith string `json:"compare_with,omitempty"` // Git ref to compare with (default: "HEAD~1")
+	Format      string `json:"format,omitempty"`       // "unified", "split", "inline", "compact" (default: "split")
+}
+
+type ShowConfigDiffResult struct {
+	StackName   string                 `json:"stack_name"`
+	ConfigType  string                 `json:"config_type"`
+	CompareFrom string                 `json:"compare_from"`
+	CompareTo   string                 `json:"compare_to"`
+	Message     string                 `json:"message"`
+	Success     bool                   `json:"success"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // MCP method handler interface
 type MCPHandler interface {
 	SearchDocumentation(ctx context.Context, params SearchDocumentationParams) (*DocumentationSearchResult, error)
@@ -343,6 +361,7 @@ type MCPHandler interface {
 	// New chat command equivalent methods
 	ReadProjectFile(ctx context.Context, params ReadProjectFileParams) (*ReadProjectFileResult, error)
 	ShowStackConfig(ctx context.Context, params ShowStackConfigParams) (*ShowStackConfigResult, error)
+	ShowConfigDiff(ctx context.Context, params ShowConfigDiffParams) (*ShowConfigDiffResult, error)
 	AdvancedSearchDocumentation(ctx context.Context, params AdvancedSearchDocumentationParams) (*AdvancedSearchDocumentationResult, error)
 	GetHelp(ctx context.Context, params GetHelpParams) (*GetHelpResult, error)
 	GetStatus(ctx context.Context, params GetStatusParams) (*GetStatusResult, error)

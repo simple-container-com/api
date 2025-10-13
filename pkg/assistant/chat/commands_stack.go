@@ -65,6 +65,30 @@ func (c *ChatInterface) registerStackCommands() {
 			{Name: "environment", Type: "string", Required: true, Description: "Environment to add resource to"},
 		},
 	}
+
+	c.commands["stack"] = &ChatCommand{
+		Name:        "stack",
+		Description: "Manage and view stack configurations",
+		Usage:       "/stack [list|info] [stack_name]",
+		Handler:     c.handleStack,
+		Args: []CommandArg{
+			{Name: "action", Type: "string", Required: false, Description: "Action: list (show all stacks) or info (show stack details)", Default: "list"},
+			{Name: "stack_name", Type: "string", Required: false, Description: "Name of the stack (required for info action)"},
+		},
+	}
+
+	c.commands["diff"] = &ChatCommand{
+		Name:        "diff",
+		Description: "Show configuration differences between versions or environments",
+		Usage:       "/diff [stack_name] [config_type=client|server] [compare_with=HEAD~1] [format=split|unified|inline|compact]",
+		Handler:     c.handleConfigDiff,
+		Args: []CommandArg{
+			{Name: "stack_name", Type: "string", Required: false, Description: "Name of the stack to compare (omit to show all stacks)"},
+			{Name: "config_type", Type: "string", Required: false, Description: "Configuration type: client or server", Default: "client"},
+			{Name: "compare_with", Type: "string", Required: false, Description: "Git reference to compare with (e.g., HEAD~1, main, v1.0)", Default: "HEAD~1"},
+			{Name: "format", Type: "string", Required: false, Description: "Output format: split, unified, inline, or compact", Default: "split"},
+		},
+	}
 }
 
 // handleGetConfig gets current Simple Container configuration using unified handler
@@ -209,32 +233,15 @@ func (c *ChatInterface) handleModifyStack(ctx context.Context, args []string, co
 // handleAddResource adds a new resource to server.yaml using unified handler
 func (c *ChatInterface) handleAddResource(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
 	if c.commandHandler == nil {
-		return &CommandResult{
-			Success: false,
-			Message: "❌ Command handler not available",
-		}, nil
-	}
-
-	if len(args) < 3 {
-		return &CommandResult{
-			Success: false,
-			Message: "❌ Usage: /addresource <resource_name> <resource_type> <environment>",
-		}, nil
+		return &CommandResult{}, nil
 	}
 
 	resourceName := args[0]
 	resourceType := args[1]
 	environment := args[2]
 
-	// Additional config can be passed as key=value pairs
-	config := make(map[string]interface{})
-	for i := 3; i < len(args); i++ {
-		if parts := strings.SplitN(args[i], "=", 2); len(parts) == 2 {
-			config[parts[0]] = parts[1]
-		}
-	}
-
-	result, err := c.commandHandler.AddResource(ctx, resourceName, resourceType, environment, config)
+	// Use unified command handler
+	result, err := c.commandHandler.AddResource(ctx, resourceName, resourceType, environment, nil)
 	if err != nil {
 		return &CommandResult{
 			Success: false,
@@ -246,4 +253,234 @@ func (c *ChatInterface) handleAddResource(ctx context.Context, args []string, co
 		Success: result.Success,
 		Message: result.Message,
 	}, nil
+}
+
+// handleConfigDiff shows configuration differences between versions or environments
+func (c *ChatInterface) handleConfigDiff(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	// Default values
+	params := map[string]string{
+		"stack_name":   "", // Empty means show all stacks
+		"config_type":  "client",
+		"compare_with": "HEAD", // Compare with last commit by default
+		"format":       "split",
+	}
+
+	// Parse arguments
+	for _, arg := range args {
+		if strings.Contains(arg, "=") {
+			// Handle named parameters (e.g., config_type=server)
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) == 2 {
+				params[parts[0]] = parts[1]
+			}
+		} else if params["stack_name"] == "" {
+			// The first non-parameter argument is treated as stack_name
+			params["stack_name"] = arg
+		}
+	}
+
+	// If no stack name is provided, show diff for all stacks
+	if params["stack_name"] == "" {
+		// Get current config to list available stacks
+		result, err := c.commandHandler.GetCurrentConfig(ctx, params["config_type"], "")
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to get configuration: %v", err),
+			}, nil
+		}
+
+		// Extract stack names from the config
+		var stackNames []string
+		// Check if stacks are in content first
+		if content, ok := result.Data["content"].(map[string]interface{}); ok {
+			if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+				for stackName := range stacks {
+					stackNames = append(stackNames, stackName)
+				}
+			}
+		}
+		// Fallback: check direct stacks key
+		if len(stackNames) == 0 {
+			if stacks, ok := result.Data["stacks"].(map[string]interface{}); ok {
+				for stackName := range stacks {
+					stackNames = append(stackNames, stackName)
+				}
+			}
+		}
+
+		if len(stackNames) == 0 {
+			return &CommandResult{
+				Success: true,
+				Message: "No stacks found in the configuration. Use `/getconfig` to view the current configuration.",
+			}, nil
+		}
+
+		// Show diff for all stacks
+		var allMessages []string
+
+		for _, stackName := range stackNames {
+			// Get diff for this stack
+			result, err := c.commandHandler.ShowConfigDiff(
+				ctx,
+				stackName,
+				params["config_type"],
+				params["compare_with"],
+				params["format"],
+			)
+			if err != nil {
+				allMessages = append(allMessages, fmt.Sprintf("❌ Failed to get diff for stack '%s': %v", stackName, err))
+				continue
+			}
+
+			if result.Success {
+				allMessages = append(allMessages, result.Message)
+			} else {
+				allMessages = append(allMessages, fmt.Sprintf("❌ %s", result.Message))
+			}
+		}
+
+		if len(allMessages) == 0 {
+			return &CommandResult{
+				Success: true,
+				Message: "No changes found in any stacks.",
+			}, nil
+		}
+
+		// Combine all messages
+		finalMessage := fmt.Sprintf("🔍 Configuration diff for all stacks (comparing with %s):\n\n", params["compare_with"])
+		finalMessage += strings.Join(allMessages, "\n\n"+strings.Repeat("═", 80)+"\n\n")
+
+		return &CommandResult{
+			Success: true,
+			Message: finalMessage,
+		}, nil
+	}
+
+	// Call the MCP handler with the specified stack
+	result, err := c.commandHandler.ShowConfigDiff(
+		ctx,
+		params["stack_name"],
+		params["config_type"],
+		params["compare_with"],
+		params["format"],
+	)
+	if err != nil {
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Failed to show config diff: %v", err),
+		}, nil
+	}
+
+	return &CommandResult{
+		Success: result.Success,
+		Message: result.Message,
+	}, nil
+}
+
+// handleStack manages and views stack configurations
+func (c *ChatInterface) handleStack(ctx context.Context, args []string, context *ConversationContext) (*CommandResult, error) {
+	if c.commandHandler == nil {
+		return &CommandResult{
+			Success: false,
+			Message: "❌ Command handler not available",
+		}, nil
+	}
+
+	// Default action is list
+	action := "list"
+	stackName := ""
+
+	// Parse arguments
+	if len(args) > 0 {
+		action = args[0]
+	}
+	if len(args) > 1 {
+		stackName = args[1]
+	}
+
+	switch action {
+	case "list":
+		// Get current config to list available stacks
+		result, err := c.commandHandler.GetCurrentConfig(ctx, "client", "")
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to get configuration: %v", err),
+			}, nil
+		}
+
+		// Extract stack names from the config
+		var stackNames []string
+		// Check if stacks are in content first
+		if content, ok := result.Data["content"].(map[string]interface{}); ok {
+			if stacks, ok := content["stacks"].(map[string]interface{}); ok {
+				for stackName := range stacks {
+					stackNames = append(stackNames, stackName)
+				}
+			}
+		}
+		// Fallback: check direct stacks key
+		if len(stackNames) == 0 {
+			if stacks, ok := result.Data["stacks"].(map[string]interface{}); ok {
+				for stackName := range stacks {
+					stackNames = append(stackNames, stackName)
+				}
+			}
+		}
+
+		if len(stackNames) == 0 {
+			return &CommandResult{
+				Success: true,
+				Message: "No stacks found in the configuration. Use `/getconfig` to view the current configuration.",
+			}, nil
+		}
+
+		// Show available stacks
+		message := "📋 Available stacks:\n\n"
+		for _, name := range stackNames {
+			message += fmt.Sprintf("• **%s**\n", name)
+		}
+		message += "\n💡 Use `/stack info <stack_name>` to view details or `/diff <stack_name>` to see changes"
+
+		return &CommandResult{
+			Success: true,
+			Message: message,
+		}, nil
+
+	case "info":
+		if stackName == "" {
+			return &CommandResult{
+				Success: false,
+				Message: "❌ Stack name is required for info action. Usage: `/stack info <stack_name>`",
+			}, nil
+		}
+
+		// Get current config for the specific stack
+		result, err := c.commandHandler.GetCurrentConfig(ctx, "client", stackName)
+		if err != nil {
+			return &CommandResult{
+				Success: false,
+				Message: fmt.Sprintf("❌ Failed to get stack configuration: %v", err),
+			}, nil
+		}
+
+		return &CommandResult{
+			Success: result.Success,
+			Message: fmt.Sprintf("📊 Stack '%s' configuration:\n\n%s", stackName, result.Message),
+		}, nil
+
+	default:
+		return &CommandResult{
+			Success: false,
+			Message: fmt.Sprintf("❌ Unknown action '%s'. Available actions: list, info", action),
+		}, nil
+	}
 }
