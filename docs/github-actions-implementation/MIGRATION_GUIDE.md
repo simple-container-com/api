@@ -17,10 +17,10 @@ This guide provides step-by-step instructions for migrating from the existing ha
 
 | New Action | Usage | Complexity | Maintenance |
 |------------|-------|------------|-------------|
-| `deploy-client-stack@v1` | ~10 lines | Very Low | None |
-| `provision-parent-stack@v1` | ~5 lines | Very Low | None |
-| `destroy-client-stack@v1` | ~10 lines | Very Low | None |
-| `destroy-parent-stack@v1` | ~10 lines | Very Low | None |
+| `deploy@v2025.10.4` | ~10 lines | Very Low | None |
+| `provision@v2025.10.4` | ~5 lines | Very Low | None |
+| `destroy@v2025.10.4` | ~10 lines | Very Low | None |
+| `destroy-parent@v2025.10.4` | ~10 lines | Very Low | None |
 | **Total** | **~35 lines** | **Simple** | **None** |
 
 ## Migration Strategy
@@ -107,7 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy Application Stack
-        uses: simple-container/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: ${{ github.event.inputs.environment || 'staging' }}
@@ -152,7 +152,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: "staging"
@@ -170,7 +170,7 @@ jobs:
       name: production
       required-reviewers: ["team-lead", "devops-team"]
     steps:
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: "production"
@@ -217,7 +217,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Provision Parent Stack
-        uses: simple-container/actions/provision-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
 ```
@@ -280,7 +280,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Destroy Application Stack
-        uses: simple-container/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: ${{ github.event.inputs.stack_name }}
           environment: ${{ github.event.inputs.environment }}
@@ -303,7 +303,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: simple-container/actions/destroy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: "staging"
@@ -341,7 +341,7 @@ jobs:
     environment: infrastructure-destroy
     steps:
       - name: Destroy Parent Stack
-        uses: simple-container/actions/destroy-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           confirmation: ${{ github.event.inputs.confirmation }}
@@ -408,7 +408,7 @@ jobs:
     strategy:
       matrix: ${{ strategy }}
     steps:
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: ${{ matrix.environment }}
@@ -437,7 +437,7 @@ jobs:
     steps:
       - name: Deploy to Staging
         if: github.ref != 'refs/heads/main'
-        uses: simple-container/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: "staging"
@@ -445,7 +445,7 @@ jobs:
           
       - name: Deploy to Production  
         if: github.ref == 'refs/heads/main'
-        uses: simple-container/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-service"
           environment: "production"
@@ -592,12 +592,12 @@ environment:
 
 #### Issue 4: Action Not Found
 
-**Error**: `Action simple-container/actions/deploy-client-stack@v1 not found`
+**Error**: `Action simple-container-com/api/.github/actions/deploy@v2025.10.4 not found`
 
 **Solution**:
 ```yaml
 # Use correct action reference when available
-uses: simple-container/actions/deploy-client-stack@v1
+uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
 # Or use local actions during development
 uses: ./.github/actions/deploy-client-stack
 ```
@@ -608,7 +608,7 @@ Enable debug mode for troubleshooting:
 
 ```yaml
 steps:
-  - uses: simple-container/actions/deploy-client-stack@v1
+  - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
     with:
       stack-name: "my-service"
       environment: "staging"

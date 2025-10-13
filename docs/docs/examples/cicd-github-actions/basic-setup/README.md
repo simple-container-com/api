@@ -419,7 +419,7 @@ jobs:
     environment: staging
     steps:
       - name: Deploy to Staging
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: my-app
           environment: staging
@@ -431,7 +431,7 @@ jobs:
     environment: production
     steps:
       - name: Deploy to Production
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: my-app
           environment: production
@@ -463,7 +463,7 @@ jobs:
     environment: ${{ github.event.inputs.environment }}
     steps:
       - name: Destroy Stack
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: my-app
           environment: ${{ github.event.inputs.environment }}

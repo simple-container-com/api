@@ -106,7 +106,7 @@ jobs:
     environment: ${{ github.event.inputs.environment || 'staging' }}
     steps:
       - name: Deploy Application with Notifications
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: notification-app
           environment: ${{ github.event.inputs.environment || 'staging' }}

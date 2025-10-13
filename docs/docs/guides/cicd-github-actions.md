@@ -266,7 +266,7 @@ jobs:
     steps:
     - name: Deploy Infrastructure
       id: deploy
-      uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+      uses: simple-container-com/api/.github/actions/provision@v2025.10.4
       with:
         stack-name: myorg/infrastructure
         sc-config: ${{ secrets.SC_CONFIG }}
@@ -277,7 +277,7 @@ jobs:
 - **`stack-name`** - Name of the deployed stack
 - **`status`** - Deployment status ("success")
 
-For `deploy-client-stack@v1` action:
+For `deploy@v2025.10.4` action:
 - **`version`** - Deployed application version
 - **`environment`** - Target environment name
 

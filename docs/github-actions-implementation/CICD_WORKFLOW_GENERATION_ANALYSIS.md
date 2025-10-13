@@ -132,9 +132,9 @@ cicd:
       templates: ["deploy", "destroy", "provision", "pr-preview"]
       auto-update: true
       custom-actions:
-        deploy: "simple-container-com/api/.github/actions/deploy-client-stack@v1"
-        destroy: "simple-container-com/api/.github/actions/destroy-client-stack@v1"
-        provision: "simple-container-com/api/.github/actions/provision-parent-stack@v1"
+        deploy: "simple-container-com/api/.github/actions/deploy@v2025.10.4"
+        destroy: "simple-container-com/api/.github/actions/destroy@v2025.10.4"
+        provision: "simple-container-com/api/.github/actions/provision@v2025.10.4"
     
     # Environment-specific configurations
     environments:
@@ -273,10 +273,10 @@ cicd:
   config:
     custom-actions:
       # Automatically resolves to our implementation
-      deploy: "simple-container-com/api/.github/actions/deploy-client-stack@v1"
-      provision: "simple-container-com/api/.github/actions/provision-parent-stack@v1"
-      destroy-client: "simple-container-com/api/.github/actions/destroy-client-stack@v1"
-      destroy-parent: "simple-container-com/api/.github/actions/destroy-parent-stack@v1"
+      deploy: "simple-container-com/api/.github/actions/deploy@v2025.10.4"
+      provision: "simple-container-com/api/.github/actions/provision@v2025.10.4"
+      destroy-client: "simple-container-com/api/.github/actions/destroy@v2025.10.4"
+      destroy-parent: "simple-container-com/api/.github/actions/destroy-parent@v2025.10.4"
 ```
 
 ### **Generated Workflow Benefits**
@@ -323,7 +323,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to Staging
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "acme-app"
           environment: "staging"
@@ -335,7 +335,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     steps:
       - name: Deploy to Production
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "acme-app"
           environment: "production"

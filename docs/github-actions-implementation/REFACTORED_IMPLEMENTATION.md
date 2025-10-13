@@ -44,7 +44,7 @@ Successfully refactored GitHub Actions to use Simple Container's internal APIs a
 
 ### **Deploy Client Stack**
 ```yaml
-- uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+- uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
   with:
     stack-name: "my-app"
     environment: "staging"
@@ -54,7 +54,7 @@ Successfully refactored GitHub Actions to use Simple Container's internal APIs a
 
 ### **Provision Parent Stack**
 ```yaml
-- uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+- uses: simple-container-com/api/.github/actions/provision@v2025.10.4
   with:
     stack-name: "infrastructure"
     sc-config: ${{ secrets.SC_CONFIG }}
@@ -62,7 +62,7 @@ Successfully refactored GitHub Actions to use Simple Container's internal APIs a
 
 ### **Destroy Client Stack**
 ```yaml
-- uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+- uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
   with:
     stack-name: "my-app"
     environment: "staging"
@@ -71,7 +71,7 @@ Successfully refactored GitHub Actions to use Simple Container's internal APIs a
 
 ### **Destroy Parent Stack**
 ```yaml
-- uses: simple-container-com/api/.github/actions/destroy-parent-stack@v1
+- uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
   with:
     stack-name: "infrastructure"
     sc-config: ${{ secrets.SC_CONFIG }}

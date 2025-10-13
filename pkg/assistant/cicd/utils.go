@@ -25,9 +25,9 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 				Enabled:   true,
 				Templates: []string{"deploy", "destroy"},
 				CustomActions: map[string]string{
-					"deploy":         "simple-container-com/api/.github/actions/deploy@v1",
-					"destroy-client": "simple-container-com/api/.github/actions/destroy@v1",
-					"provision":      "simple-container-com/api/.github/actions/provision@v1",
+					"deploy":         "simple-container-com/api/.github/actions/deploy@main",
+					"destroy-client": "simple-container-com/api/.github/actions/destroy@main",
+					"provision":      "simple-container-com/api/.github/actions/provision@main",
 				},
 				SCVersion: "latest",
 			},
@@ -55,9 +55,9 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 				Enabled:   true,
 				Templates: []string{"deploy", "destroy"},
 				CustomActions: map[string]string{
-					"deploy":         "simple-container-com/api/.github/actions/deploy@v1",
-					"destroy-client": "simple-container-com/api/.github/actions/destroy@v1",
-					"provision":      "simple-container-com/api/.github/actions/provision@v1",
+					"deploy":         "simple-container-com/api/.github/actions/deploy@main",
+					"destroy-client": "simple-container-com/api/.github/actions/destroy@main",
+					"provision":      "simple-container-com/api/.github/actions/provision@main",
 				},
 				SCVersion: "latest",
 			},
@@ -72,37 +72,79 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 		}
 	}
 
-	// Convert to enhanced config
+	// Convert to enhanced config with proper defaults
 	config := &github.EnhancedActionsCiCdConfig{
 		Organization: github.OrganizationConfig{
 			Name:          gitHubConfig.Organization,
 			DefaultBranch: "main",
 		},
 		WorkflowGeneration: github.WorkflowGenerationConfig{
-			Enabled:       gitHubConfig.WorkflowGeneration.Enabled,
-			Templates:     gitHubConfig.WorkflowGeneration.Templates,
-			CustomActions: gitHubConfig.WorkflowGeneration.CustomActions,
-			SCVersion:     gitHubConfig.WorkflowGeneration.SCVersion,
+			Enabled:   true,
+			Templates: []string{"deploy", "destroy"},
+			CustomActions: map[string]string{
+				"deploy":         "simple-container-com/api/.github/actions/deploy@main",
+				"destroy-client": "simple-container-com/api/.github/actions/destroy@main",
+				"provision":      "simple-container-com/api/.github/actions/provision@main",
+			},
+			SCVersion: "latest",
 		},
 		Execution: github.ExecutionConfig{
-			DefaultTimeout: "30", // Default timeout in minutes
+			DefaultTimeout: "30",
+			Concurrency: github.ConcurrencyConfig{
+				Group:            "deploy-" + stackName + "-${{ github.ref }}",
+				CancelInProgress: false,
+			},
 		},
 		Environments: make(map[string]github.EnvironmentConfig),
 		Notifications: github.NotificationConfig{
 			SlackWebhook:   gitHubConfig.Notifications.SlackWebhook,
 			DiscordWebhook: gitHubConfig.Notifications.DiscordWebhook,
-			CCOnStart:      false, // Default to false
+			CCOnStart:      false,
 		},
 	}
 
-	// Convert environments
-	for name, env := range gitHubConfig.Environments {
-		config.Environments[name] = github.EnvironmentConfig{
-			Type:      env.Type,
-			Runners:   env.Runners,
-			Variables: env.Variables,
+	// Override with user-provided config if available
+	if len(gitHubConfig.WorkflowGeneration.Templates) > 0 {
+		config.WorkflowGeneration.Templates = gitHubConfig.WorkflowGeneration.Templates
+	}
+	if len(gitHubConfig.WorkflowGeneration.CustomActions) > 0 {
+		for key, value := range gitHubConfig.WorkflowGeneration.CustomActions {
+			config.WorkflowGeneration.CustomActions[key] = value
 		}
 	}
+	if gitHubConfig.WorkflowGeneration.SCVersion != "" {
+		config.WorkflowGeneration.SCVersion = gitHubConfig.WorkflowGeneration.SCVersion
+	}
+
+	// Convert environments with proper defaults and validation
+	for name, env := range gitHubConfig.Environments {
+		// Validate and fix runner names
+		runners := env.Runners
+		if len(runners) == 0 {
+			runners = []string{"ubuntu-latest"}
+		} else {
+			// Fix invalid runner names
+			for i, runner := range runners {
+				if runner == "ubuntu-22" {
+					runners[i] = "ubuntu-latest"
+				}
+			}
+		}
+
+		config.Environments[name] = github.EnvironmentConfig{
+			Type:        env.Type,
+			Runners:     runners,
+			Variables:   env.Variables,
+			Protection:  env.Protection,
+			Reviewers:   env.Reviewers,
+			Secrets:     env.Secrets,
+			DeployFlags: env.DeployFlags,
+			AutoDeploy:  env.AutoDeploy,
+		}
+	}
+
+	// The default environment selection is handled by the WorkflowGenerator
+	// in the getDefaultEnvironment() function
 
 	return config
 }

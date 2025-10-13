@@ -102,11 +102,10 @@ type Config struct {
     Environment string `env:"ENVIRONMENT" required:"true"`
     SCConfig    string `env:"SC_CONFIG" required:"true"`
     
-    // Simple Container configuration
-    SCVersion     string `env:"SC_VERSION" default:"latest"`
+    // Simple Container configuration  
     SCDeployFlags string `env:"SC_DEPLOY_FLAGS"`
     
-    // Version management
+    // Pre-built SC binary is included in GitHub Actions image
     VersionSuffix    string `env:"VERSION_SUFFIX"`
     AppImageVersion  string `env:"APP_IMAGE_VERSION"`
     
@@ -803,7 +802,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy Application  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-app"
           environment: "staging"

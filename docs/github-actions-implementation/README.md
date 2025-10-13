@@ -11,7 +11,7 @@ Instead of maintaining complex, hardcoded workflows for each project, these acti
 These actions are completely self-contained Docker-based actions that embed ALL functionality:
 - **Repository**: `https://github.com/simple-container-com/api`
 - **Actions Location**: `.github/actions/` within the main repository
-- **Usage Pattern**: `simple-container-com/api/.github/actions/<action-name>@v1`
+- **Usage Pattern**: `simple-container-com/api/.github/actions/<action-name>@v2025.10.4` (or `@main` for latest)
 - **Zero External Dependencies**: No `actions/checkout`, no external tools, no composite dependencies
 - **Complete Embedded Functionality**: All 467+ lines of workflow logic built into Docker images
 - **Drop-in Replacement**: Single action call replaces entire complex workflows
@@ -20,16 +20,17 @@ These actions are completely self-contained Docker-based actions that embed ALL 
 
 | Action                     | Purpose                    | Usage                                                                | Replaces Workflow             |
 |----------------------------|----------------------------|----------------------------------------------------------------------|-------------------------------|
-| **deploy-client-stack**    | Deploy application stacks  | `simple-container-com/api/.github/actions/deploy-client-stack@v1`    | build-and-deploy-service.yaml |
-| **provision-parent-stack** | Provision infrastructure   | `simple-container-com/api/.github/actions/provision-parent-stack@v1` | provision.yaml                |
-| **destroy-client-stack**   | Destroy application stacks | `simple-container-com/api/.github/actions/destroy-client-stack@v1`   | destroy-service.yaml          |
-| **destroy-parent-stack**   | Destroy infrastructure     | `simple-container-com/api/.github/actions/destroy-parent-stack@v1`   | *(new capability)*            |
+| **deploy-client-stack**    | Deploy application stacks  | `simple-container-com/api/.github/actions/deploy@v2025.10.4`         | build-and-deploy-service.yaml |
+| **provision-parent-stack** | Provision infrastructure   | `simple-container-com/api/.github/actions/provision@v2025.10.4`      | provision.yaml                |
+| **destroy-client-stack**   | Destroy application stacks | `simple-container-com/api/.github/actions/destroy@v2025.10.4`        | destroy-service.yaml          |
+| **destroy-parent-stack**   | Destroy infrastructure     | `simple-container-com/api/.github/actions/destroy-parent@v2025.10.4` | *(new capability)*            |
 
 **Key Features:**
 - 🐳 **Docker-based**: Each action is a complete Docker container with all tools
 - ⚡ **Zero Dependencies**: No external GitHub Actions required  
-- 🔧 **All Tools Embedded**: SC CLI, Git, Docker, Pulumi, notifications, etc.
+- 🔧 **All Tools Embedded**: Pre-built SC CLI, Git, Docker, Pulumi, notifications, etc.
 - 📋 **Complete Functionality**: Version generation, secrets, notifications, cleanup
+- 🏷️ **CalVer Versioning**: Use `@v2025.10.4` for production, `@main` for latest
 
 ## Benefits
 
@@ -66,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy Stack  # ONLY STEP NEEDED - embeds all 467+ lines!
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@main
         with:
           stack-name: "my-app"
           environment: "staging"
@@ -84,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Provision Infrastructure  # Complete self-contained operation
-        uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/provision@main
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
 ```
@@ -103,7 +104,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     environment: production
     steps:
-      - uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "everworker"
           environment: "production"  
@@ -141,7 +142,7 @@ jobs:
 ### Common Components
 All actions share these standardized components:
 
-- **🔧 Simple Container CLI Installation** - Automatic installation and versioning
+- **🔧 Simple Container CLI** - Pre-built SC binary embedded in action images
 - **🔐 Secrets Management** - Secure handling of SC_CONFIG and related secrets  
 - **📊 Progress Tracking** - Duration calculation and progress reporting
 - **🔔 Notifications** - Slack/Discord integration with professional formatting

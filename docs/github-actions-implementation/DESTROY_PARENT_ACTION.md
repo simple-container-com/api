@@ -496,7 +496,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: infrastructure-destroy
     steps:
-      - uses: simple-container/actions/destroy-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           confirmation: ${{ github.event.inputs.confirmation }}
@@ -544,7 +544,7 @@ jobs:
       name: production-infrastructure-destroy
       required-reviewers: ["infrastructure-team", "security-team"]
     steps:
-      - uses: simple-container/actions/destroy-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           confirmation: "DESTROY-INFRASTRUCTURE"
@@ -571,7 +571,7 @@ jobs:
   resource-cleanup:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/destroy-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           confirmation: "DESTROY-INFRASTRUCTURE"

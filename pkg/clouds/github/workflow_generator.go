@@ -93,18 +93,50 @@ func (wg *WorkflowGenerator) prepareTemplateData() *WorkflowTemplateData {
 	// Determine default environment (first staging, then first production, then first overall)
 	defaultEnv := wg.getDefaultEnvironment()
 
+	// Ensure defaults are applied
+	scVersion := wg.config.WorkflowGeneration.SCVersion
+	if scVersion == "" {
+		scVersion = "latest"
+	}
+
+	// Ensure concurrency group has a default
+	concurrencyGroup := wg.config.Execution.Concurrency.Group
+	if concurrencyGroup == "" {
+		concurrencyGroup = fmt.Sprintf("deploy-%s-${{ github.ref }}", wg.stackName)
+	}
+
+	// Update the execution config with defaults
+	execution := wg.config.Execution
+	execution.Concurrency.Group = concurrencyGroup
+
+	// Ensure custom actions have defaults with proper versioning
+	customActions := wg.config.WorkflowGeneration.CustomActions
+	if len(customActions) == 0 {
+		// Use SCVersion for action versioning, defaulting to @main for latest
+		actionVersion := "@main" // Use main branch by default for latest version
+		if scVersion != "" && scVersion != "latest" {
+			actionVersion = "@" + scVersion // Use specific CalVer tag if provided
+		}
+
+		customActions = map[string]string{
+			"deploy":         "simple-container-com/api/.github/actions/deploy" + actionVersion,
+			"destroy-client": "simple-container-com/api/.github/actions/destroy" + actionVersion,
+			"provision":      "simple-container-com/api/.github/actions/provision" + actionVersion,
+		}
+	}
+
 	return &WorkflowTemplateData{
 		StackName:          wg.stackName,
 		Organization:       wg.config.Organization,
 		Environments:       wg.config.Environments,
-		CustomActions:      wg.config.WorkflowGeneration.CustomActions,
+		CustomActions:      customActions,
 		RequiredSecrets:    wg.config.GetRequiredSecrets(),
 		DefaultBranch:      wg.config.Organization.DefaultBranch,
 		DefaultEnvironment: defaultEnv,
 		Notifications:      wg.config.Notifications,
-		Execution:          wg.config.Execution,
+		Execution:          execution,
 		Validation:         wg.config.Validation,
-		SCVersion:          wg.config.WorkflowGeneration.SCVersion,
+		SCVersion:          scVersion,
 	}
 }
 
@@ -181,6 +213,35 @@ func templateFuncs() template.FuncMap {
 				result = append(result, fmt.Sprintf(`"%s"`, item))
 			}
 			return "[" + strings.Join(result, ", ") + "]"
+		},
+		"envNamesExcluding": func(environments map[string]EnvironmentConfig, excludeType string) string {
+			var names []string
+			for name, env := range environments {
+				if env.Type != excludeType {
+					names = append(names, name)
+				}
+			}
+			return strings.Join(names, ", ")
+		},
+		"timeoutMinutes": func(timeout string) string {
+			// Remove 'm' suffixes and any other non-numeric characters, keeping only the number
+			cleaned := strings.ReplaceAll(timeout, "m", "")
+			cleaned = strings.ReplaceAll(cleaned, "minutes", "")
+			cleaned = strings.TrimSpace(cleaned)
+			if cleaned == "" {
+				return "30"
+			}
+			return cleaned
+		},
+		"defaultAction": func(actionType, scVersion string) string {
+			// Build default action reference with proper versioning
+			baseAction := "simple-container-com/api/.github/actions/" + actionType
+
+			// Use SCVersion for action versioning, defaulting to @main for latest
+			if scVersion == "" || scVersion == "latest" {
+				return baseAction + "@main" // Use main branch for latest version
+			}
+			return baseAction + "@" + scVersion // Use specific CalVer tag
 		},
 		"indent": func(spaces int, text string) string {
 			indent := strings.Repeat(" ", spaces)
@@ -555,7 +616,7 @@ func (wg *WorkflowGenerator) PreviewWorkflow() (*WorkflowPreview, error) {
 				Runner:      "ubuntu-latest",
 				Environment: templateData.DefaultEnvironment,
 				Steps: []StepInfo{
-					{Name: "Deploy Stack", Action: "simple-container-com/api/.github/actions/deploy-client-stack@v1"},
+					{Name: "Deploy Stack", Action: "simple-container-com/api/.github/actions/deploy@main"},
 				},
 			}},
 		}

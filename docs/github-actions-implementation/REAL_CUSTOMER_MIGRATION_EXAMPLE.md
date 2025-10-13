@@ -146,7 +146,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Deploy Application
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "everworker"
           environment: ${{ inputs.environment || 'staging' }}
@@ -194,7 +194,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Deploy PR Preview
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "everworker"
           environment: "pr${{ github.event.pull_request.number }}"
@@ -223,7 +223,7 @@ jobs:
     
     steps:
       - name: Destroy PR Preview
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: "everworker"
           environment: "pr${{ github.event.pull_request.number }}"

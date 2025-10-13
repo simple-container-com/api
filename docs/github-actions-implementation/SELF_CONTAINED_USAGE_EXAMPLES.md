@@ -65,7 +65,7 @@ jobs:
     environment: ${{ inputs.environment }}  # GitHub Environment protection
     steps:
       - name: Deploy Application Stack
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "everworker"
           environment: ${{ inputs.environment || 'staging' }}
@@ -90,7 +90,7 @@ jobs:
     environment: production
     steps:
       - name: Deploy to Production  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-app"
           environment: "production"
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy PR Preview  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -150,7 +150,7 @@ jobs:
         environment: ${{ fromJSON(github.event.inputs.environments) }}
     steps:
       - name: Deploy to ${{ matrix.environment }}  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "multi-env-app"
           environment: ${{ matrix.environment }}
@@ -173,7 +173,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Provision Parent Stack  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           notify-on-completion: true
@@ -195,7 +195,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy PR Preview  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -210,7 +210,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup PR Preview  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -235,7 +235,7 @@ jobs:
         stack: [temp-feature-1, temp-feature-2, old-test]
     steps:
       - name: Cleanup Old Stack  # ONLY STEP NEEDED!
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         continue-on-error: true
         with:
           stack-name: ${{ matrix.stack }}
@@ -300,7 +300,7 @@ Each self-contained action internally handles:
 cp .github/workflows/deploy.yml .github/workflows/deploy.old.yml
 
 # Replace with self-contained action
-# Edit deploy.yml to use simple-container-com/api/.github/actions/deploy-client-stack@v1
+# Edit deploy.yml to use simple-container-com/api/.github/actions/deploy@v2025.10.4
 ```
 
 ### 2. Test in Development

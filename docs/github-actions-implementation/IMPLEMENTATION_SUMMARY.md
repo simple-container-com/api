@@ -89,7 +89,7 @@ notifications.NewManager(cfg, logAdapter)           // ✅ Existing notification
 jobs:
   deploy:
     steps:
-      - uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-app"
           environment: "staging"
@@ -102,7 +102,7 @@ jobs:
 jobs:
   provision:
     steps:
-      - uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           stack-name: "infrastructure"
           sc-config: ${{ secrets.SC_CONFIG }}

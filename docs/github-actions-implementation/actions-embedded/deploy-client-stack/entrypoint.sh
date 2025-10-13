@@ -100,9 +100,9 @@ fi
 #######################
 log_phase "PHASE 3" "Simple Container Setup"
 
-# Install Simple Container CLI
-log_info "Installing Simple Container CLI"
-/scripts/sc-operations/install-sc.sh "${SC_VERSION:-2025.8.5}"
+# Simple Container CLI is pre-installed in the action image
+log_info "Using pre-built Simple Container CLI"
+sc --version
 
 # Setup Simple Container configuration
 log_info "Setting up SC configuration"

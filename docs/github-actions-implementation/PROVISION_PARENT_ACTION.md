@@ -256,7 +256,7 @@ jobs:
   provision:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/provision-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
 ```
@@ -274,7 +274,7 @@ jobs:
   sync-infrastructure:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/provision-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           sc-version: "latest"
@@ -302,7 +302,7 @@ jobs:
   provision-env:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/provision-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           target-environment: ${{ github.event.inputs.target_env }}
@@ -324,7 +324,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/provision-parent-stack@v1
+      - uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           dry-run: true
@@ -527,7 +527,7 @@ jobs:
 **After (Simple action):**
 ```yaml
 steps:
-  - uses: simple-container/actions/provision-parent-stack@v1
+  - uses: simple-container-com/api/.github/actions/provision@v2025.10.4
     with:
       sc-config: ${{ secrets.SC_CONFIG }}
 ```

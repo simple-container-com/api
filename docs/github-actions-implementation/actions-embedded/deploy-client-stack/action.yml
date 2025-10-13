@@ -17,11 +17,7 @@ inputs:
     description: 'Simple Container configuration (SC_CONFIG secret content)'
     required: true
 
-  # Simple Container options
-  sc-version:
-    description: 'Simple Container CLI version'
-    required: false
-    default: '2025.8.5'
+  # Simple Container options (pre-built in action image)
   sc-deploy-flags:
     description: 'Additional flags for sc deploy command'
     required: false
@@ -107,8 +103,7 @@ runs:
     ENVIRONMENT: ${{ inputs.environment }}
     SC_CONFIG: ${{ inputs.sc-config }}
     
-    # Simple Container configuration
-    SC_VERSION: ${{ inputs.sc-version }}
+    # Simple Container configuration (binary pre-built in image)
     SC_DEPLOY_FLAGS: ${{ inputs.sc-deploy-flags }}
     
     # Version management

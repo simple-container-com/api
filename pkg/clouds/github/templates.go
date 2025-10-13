@@ -13,7 +13,7 @@ on:
         description: 'Environment to deploy to'
         required: true
         type: choice
-        options: [{{- range $name, $env := .Environments }}{{ if ne $env.Type "preview" }}{{ $name }}, {{ end }}{{- end }}]
+        options: [{{ envNamesExcluding .Environments "preview" }}]
         default: '{{ .DefaultEnvironment }}'
       skip_validation:
         description: 'Skip validation checks'
@@ -22,7 +22,7 @@ on:
         default: false
 
 concurrency:
-  group: {{ .Execution.Concurrency.Group }}
+  group: {{ if .Execution.Concurrency.Group }}{{ .Execution.Concurrency.Group }}{{ else }}deploy-{{ .StackName }}-${{ "{{" }} github.ref {{ "}}" }}{{ end }}
   cancel-in-progress: {{ .Execution.Concurrency.CancelInProgress }}
 
 permissions:
@@ -33,7 +33,6 @@ permissions:
 
 env:
   STACK_NAME: "{{ .StackName }}"
-  SC_VERSION: "{{ .SCVersion }}"
 
 jobs:
 {{- range $envName, $env := .Environments }}
@@ -48,8 +47,8 @@ jobs:
         required_reviewers: {{ $env.Reviewers | yamlList }}
       {{- end }}
     {{- end }}
-    runs-on: {{ index $env.Runners 0 }}
-    timeout-minutes: {{ $.Execution.DefaultTimeout | replace "m" "" }}
+    runs-on: {{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if $.Execution.DefaultTimeout }}{{ timeoutMinutes $.Execution.DefaultTimeout }}{{ else }}30{{ end }}
     {{- if or (and (eq $.DefaultBranch "main") (not $env.AutoDeploy)) (eq $env.Type "production") }}
     if: ${{ "{{" }} github.event_name == 'workflow_dispatch' && github.event.inputs.environment == '{{ $envName }}' {{ "}}" }}
     {{- else if $env.AutoDeploy }}
@@ -58,7 +57,7 @@ jobs:
     
     steps:
       - name: Deploy {{ $.StackName }} to {{ $envName }}
-        uses: {{ index $.CustomActions "deploy" }}
+        uses: {{ if index $.CustomActions "deploy" }}{{ index $.CustomActions "deploy" }}{{ else }}{{ defaultAction "deploy" $.SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "{{ $envName }}"
@@ -105,7 +104,7 @@ on:
         description: 'Environment to destroy'
         required: true
         type: choice
-        options: [{{- range $name, $env := .Environments }}{{ $name }}, {{ end }}]
+        options: [{{ envNamesExcluding .Environments "preview" }}]
       confirmation:
         description: 'Type DESTROY to confirm'
         required: true
@@ -132,7 +131,6 @@ permissions:
 
 env:
   STACK_NAME: "{{ .StackName }}"
-  SC_VERSION: "{{ .SCVersion }}"
 
 jobs:
   validate-destroy:
@@ -176,12 +174,12 @@ jobs:
     {{- if $hasProtectedEnvs }}
     environment: ${{ "{{" }} needs.validate-destroy.outputs.environment {{ "}}" }}
     {{- end }}
-    runs-on: {{ index (index .Environments .DefaultEnvironment).Runners 0 }}
-    timeout-minutes: {{ .Execution.DefaultTimeout | replace "m" "" }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
       - name: Destroy {{ .StackName }}
-        uses: {{ index .CustomActions "destroy-client" }}
+        uses: {{ if index .CustomActions "destroy-client" }}{{ index .CustomActions "destroy-client" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "${{ "{{" }} needs.validate-destroy.outputs.environment {{ "}}" }}"
@@ -218,18 +216,17 @@ permissions:
 
 env:
   STACK_NAME: "{{ .StackName }}"
-  SC_VERSION: "{{ .SCVersion }}"
 
 jobs:
   provision-infrastructure:
     name: Provision Infrastructure
     environment: infrastructure
-    runs-on: {{ index (index .Environments .DefaultEnvironment).Runners 0 }}
-    timeout-minutes: {{ .Execution.DefaultTimeout | replace "m" "" }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
       - name: Provision Parent Stack
-        uses: {{ index .CustomActions "provision" }}
+        uses: {{ if index .CustomActions "provision" }}{{ index .CustomActions "provision" }}{{ else }}{{ defaultAction "provision" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
@@ -287,7 +284,6 @@ permissions:
 
 env:
   STACK_NAME: "{{ .StackName }}"
-  SC_VERSION: "{{ .SCVersion }}"
   PR_NUMBER: ${{ "{{" }} github.event.pull_request.number {{ "}}" }}
 
 jobs:
@@ -327,12 +323,12 @@ jobs:
     name: Deploy PR Preview
     needs: check-deploy-label
     if: ${{ "{{" }} github.event.action != 'closed' && needs.check-deploy-label.outputs.should-deploy == 'true' && needs.check-deploy-label.outputs.preview-enabled == 'true' {{ "}}" }}
-    runs-on: {{ index (index .Environments .DefaultEnvironment).Runners 0 }}
-    timeout-minutes: {{ .Execution.DefaultTimeout | replace "m" "" }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
       - name: Deploy PR Preview
-        uses: {{ index .CustomActions "deploy" }}
+        uses: {{ if index .CustomActions "deploy" }}{{ index .CustomActions "deploy" }}{{ else }}{{ defaultAction "deploy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "preview"
@@ -376,7 +372,7 @@ jobs:
     
     steps:
       - name: Destroy PR Preview
-        uses: {{ index .CustomActions "destroy-client" }}
+        uses: {{ if index .CustomActions "destroy-client" }}{{ index .CustomActions "destroy-client" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "preview"

@@ -7,23 +7,23 @@ This document provides real-world usage examples for the Simple Container GitHub
 The actions are published from the main Simple Container repository:
 - **Repository**: `https://github.com/simple-container-com/api`  
 - **Actions Path**: `.github/actions/` within the repository
-- **Usage**: `simple-container-com/api/.github/actions/<action-name>@v1`
+- **Usage**: `simple-container-com/api/.github/actions/<action-name>@v2025.10.4`
 
 ## Available Actions
 
 | Action | Purpose | Usage |
 |--------|---------|--------|
-| **deploy-client-stack** | Deploy application stacks | `simple-container-com/api/.github/actions/deploy-client-stack@v1` |
-| **provision-parent-stack** | Provision infrastructure | `simple-container-com/api/.github/actions/provision-parent-stack@v1` |
-| **destroy-client-stack** | Destroy application stacks | `simple-container-com/api/.github/actions/destroy-client-stack@v1` |
-| **destroy-parent-stack** | Destroy infrastructure | `simple-container-com/api/.github/actions/destroy-parent-stack@v1` |
+| **deploy** | Deploy application stacks | `simple-container-com/api/.github/actions/deploy@v2025.10.4` |
+| **provision** | Provision infrastructure | `simple-container-com/api/.github/actions/provision@v2025.10.4` |
+| **destroy** | Destroy application stacks | `simple-container-com/api/.github/actions/destroy@v2025.10.4` |
+| **destroy-parent** | Destroy infrastructure | `simple-container-com/api/.github/actions/destroy-parent@v2025.10.4` |
 
 ## Shared Actions
 
 | Action | Purpose | Usage |
 |--------|---------|--------|
-| **setup-sc** | Install and configure SC CLI | `simple-container-com/api/.github/actions/setup-sc@v1` |
-| **notify** | Send notifications | `simple-container-com/api/.github/actions/notify@v1` |
+| **setup-sc** | Install and configure SC CLI | `simple-container-com/api/.github/actions/setup-sc@v2025.10.4` |
+| **notify** | Send notifications | `simple-container-com/api/.github/actions/notify@v2025.10.4` |
 
 ## Complete Implementation Examples
 
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Deploy to Staging
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-app"
           environment: "staging"
@@ -55,7 +55,7 @@ jobs:
           
       - name: Notify Team
         if: always()
-        uses: simple-container-com/api/.github/actions/notify@v1
+        uses: simple-container-com/api/.github/actions/notify@v2025.10.4
         with:
           status: ${{ job.status }}
           operation: "deploy"
@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Deploy to Production
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-app"
           environment: "production"
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Deploy PR Preview
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup PR Preview
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -175,7 +175,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Provision Infrastructure
-        uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
 
@@ -187,7 +187,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Destroy Development Infrastructure
-        uses: simple-container-com/api/.github/actions/destroy-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           confirmation: "DESTROY-INFRASTRUCTURE"
@@ -202,7 +202,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Destroy Staging Infrastructure
-        uses: simple-container-com/api/.github/actions/destroy-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy-parent@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           confirmation: "DESTROY-INFRASTRUCTURE"
@@ -241,7 +241,7 @@ jobs:
       - uses: actions/checkout@v4
         
       - name: Deploy to ${{ matrix.environment }}
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: ${{ github.event.inputs.stack-name }}
           environment: ${{ matrix.environment }}
@@ -269,7 +269,7 @@ jobs:
       fail-fast: false
     steps:
       - name: Cleanup Old Stack
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         continue-on-error: true
         with:
           stack-name: ${{ matrix.stack }}
@@ -296,7 +296,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Notify Start
-        uses: simple-container-com/api/.github/actions/notify@v1
+        uses: simple-container-com/api/.github/actions/notify@v2025.10.4
         with:
           status: "started"
           operation: "deploy"
@@ -306,7 +306,7 @@ jobs:
           
       - name: Deploy Production
         id: deploy
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "production-app"
           environment: "production"
@@ -324,7 +324,7 @@ jobs:
             
       - name: Notify Success
         if: success()
-        uses: simple-container-com/api/.github/actions/notify@v1
+        uses: simple-container-com/api/.github/actions/notify@v2025.10.4
         with:
           status: "success"
           operation: "deploy"
@@ -337,7 +337,7 @@ jobs:
           
       - name: Notify Failure
         if: failure()
-        uses: simple-container-com/api/.github/actions/notify@v1
+        uses: simple-container-com/api/.github/actions/notify@v2025.10.4
         with:
           status: "failure"
           operation: "deploy"
@@ -363,7 +363,7 @@ jobs:
       
       # Use shared setup action independently
       - name: Setup Simple Container
-        uses: simple-container-com/api/.github/actions/setup-sc@v1
+        uses: simple-container-com/api/.github/actions/setup-sc@v2025.10.4
         with:
           sc-config: ${{ secrets.SC_CONFIG }}
           sc-version: "2025.8.5"
@@ -411,7 +411,7 @@ To migrate from existing hardcoded workflows:
    uses: myorg/devops/.github/workflows/build-and-deploy-service.yaml@main
    
    # New  
-   uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+   uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
    ```
 
 2. **Update input parameters**:

@@ -49,10 +49,10 @@ runs:
           exit 1
         fi
         
-        # Output actual version
-        SC_VERSION=$(sc --version | head -1 | cut -d' ' -f3)
-        echo "sc-version=$SC_VERSION" >> $GITHUB_OUTPUT
-        echo "✅ Simple Container CLI v$SC_VERSION installed"
+        # Output actual version (pre-built in action image)
+        ACTUAL_VERSION=$(sc --version | head -1 | cut -d' ' -f3)
+        echo "sc-version=$ACTUAL_VERSION" >> $GITHUB_OUTPUT
+        echo "✅ Simple Container CLI v$ACTUAL_VERSION ready"
     
     - name: Configure Simple Container
       shell: bash

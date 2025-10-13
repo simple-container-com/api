@@ -215,7 +215,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "my-app"
           environment: "staging"
@@ -235,7 +235,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "api-service"
           environment: "prod"
@@ -260,7 +260,7 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -285,7 +285,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/deploy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: "service"
           environment: ${{ github.event.inputs.environment }}
@@ -431,7 +431,7 @@ jobs:
 **After (Simple action):**
 ```yaml
 steps:
-  - uses: simple-container/actions/deploy-client-stack@v1
+  - uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
     with:
       stack-name: "my-app"
       environment: "staging"

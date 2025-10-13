@@ -316,7 +316,7 @@ jobs:
     environment: preview
     steps:
       - name: Deploy Preview Environment
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: ${{ env.STACK_NAME }}
           environment: preview
@@ -339,7 +339,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup Preview Environment
-        uses: simple-container-com/api/.github/actions/destroy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: preview-app-pr-${{ github.event.number }}
           environment: preview

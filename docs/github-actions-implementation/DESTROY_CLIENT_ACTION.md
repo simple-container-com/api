@@ -378,7 +378,7 @@ jobs:
   destroy:
     runs-on: ubuntu-latest
     steps:
-      - uses: simple-container/actions/destroy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: ${{ github.event.inputs.stack_name }}
           environment: ${{ github.event.inputs.environment }}
@@ -399,7 +399,7 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
-      - uses: simple-container/actions/destroy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: "webapp"
           environment: "staging"
@@ -439,7 +439,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production-destroy # Requires manual approval
     steps:
-      - uses: simple-container/actions/destroy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         with:
           stack-name: ${{ github.event.inputs.stack_name }}
           environment: "prod"
@@ -466,7 +466,7 @@ jobs:
       matrix:
         stack: [old-feature-1, old-feature-2, legacy-test-stack]
     steps:
-      - uses: simple-container/actions/destroy-client-stack@v1
+      - uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
         continue-on-error: true
         with:
           stack-name: ${{ matrix.stack }}
@@ -626,7 +626,7 @@ jobs:
 **After (Simple action):**
 ```yaml
 steps:
-  - uses: simple-container/actions/destroy-client-stack@v1
+  - uses: simple-container-com/api/.github/actions/destroy@v2025.10.4
     with:
       stack-name: "my-app"
       environment: "staging"

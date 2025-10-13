@@ -40,7 +40,7 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Simple Container
-      uses: simple-container-com/actions/.github/actions/setup-sc@v1
+      uses: simple-container-com/api/.github/actions/setup-sc@v2025.10.4
       with:
         sc-config: ${{ inputs.sc-config }}
         sc-version: ${{ inputs.sc-version }}

@@ -420,7 +420,7 @@ jobs:
     steps:
       - name: Deploy Infrastructure
         id: infra-deploy
-        uses: simple-container-com/api/.github/actions/provision-parent-stack@v1
+        uses: simple-container-com/api/.github/actions/provision@v2025.10.4
         with:
           stack-name: infrastructure
           sc-config: ${{ secrets.SC_CONFIG }}
@@ -436,7 +436,7 @@ jobs:
     steps:
       - name: Deploy API Stack
         id: api-deploy
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: api
           environment: ${{ github.event.inputs.environment || 'staging' }}
@@ -449,7 +449,7 @@ jobs:
     environment: ${{ github.event.inputs.environment || 'staging' }}
     steps:
       - name: Deploy Frontend Application
-        uses: simple-container-com/api/.github/actions/deploy-client-stack@v1
+        uses: simple-container-com/api/.github/actions/deploy@v2025.10.4
         with:
           stack-name: frontend
           environment: ${{ github.event.inputs.environment || 'staging' }}
@@ -473,7 +473,7 @@ jobs:
           FRONTEND_URL: https://${{ github.event.inputs.environment || 'staging' }}.mycompany.com
 ```
 
-**Note**: All Simple Container actions (`provision-parent-stack@v1` and `deploy-client-stack@v1`) include built-in notification support. Configure notification webhooks in your secrets to receive automatic notifications on deployment success or failure.
+**Note**: All Simple Container actions (`provision@v2025.10.4` and `deploy@v2025.10.4`) include built-in notification support. Configure notification webhooks in your secrets to receive automatic notifications on deployment success or failure.
 ```
 
 ## Setup Instructions
