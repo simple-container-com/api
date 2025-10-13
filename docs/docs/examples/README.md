@@ -45,6 +45,11 @@ This directory contains production-tested Simple Container configurations based 
 - **gcp-comprehensive**: Complete GCP setup with all service types
 - **hybrid-cloud**: Mixed cloud provider configurations
 
+### Kubernetes Affinity (`kubernetes-affinity/`)
+- **multi-tier-node-isolation**: Real-world node pool isolation for multi-tier architecture
+- **high-availability**: Zone anti-affinity and pod distribution patterns
+- **performance-optimization**: Resource-specific scheduling and optimization
+
 ## Usage
 
 Each example directory contains:
@@ -65,3 +70,5 @@ All examples use anonymized domains like `example.com`, `mycompany.com`, etc., a
 - **Email Services**: SMTP integration patterns
 - **AI/ML Integration**: Bedrock, LLM proxy configurations
 - **Blockchain**: Smart contract integration patterns
+- **Kubernetes Affinity**: Node pool isolation, pod scheduling, performance optimization
+- **Enterprise Scheduling**: Multi-tier architectures with workload separation
