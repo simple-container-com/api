@@ -228,6 +228,14 @@ templates:
   - **✅ Standalone Task**: `welder run embeddings` for interactive embeddings generation with cost confirmation
   - **✅ Professional UX**: Comprehensive error handling, progress tracking, token usage reporting, integration testing commands
   - **Impact**: AI Assistant semantic search quality dramatically improved with professional-grade OpenAI embeddings vs. local 128-dimensional approximations
+- **MAJOR: Comprehensive Affinity Rules Support for Kubernetes CloudRun Templates** - Implemented enterprise-grade pod scheduling and node pool isolation
+  - **Space Pay Integration**: Added nodePool, exclusiveNodePool, computeClass support for GCP migration requirements
+  - **Advanced Scheduling**: Full Kubernetes node affinity, pod affinity, and pod anti-affinity rules support
+  - **GKE Optimization**: Automatic mapping to cloud.google.com/gke-nodepool and node.kubernetes.io/instance-type labels
+  - **CloudExtras Enhancement**: Extended cloudExtras block with comprehensive AffinityRules struct
+  - **Backward Compatibility**: Maintains existing NodeSelector functionality while adding advanced capabilities
+  - **Example Configuration**: Created comprehensive Space Pay example demonstrating all affinity features
+  - **Data Flow**: kube_run.go → deployment.go → simple_container.go with proper affinity rule conversion
 - **MAJOR: Complete JSON Schema Ecosystem** - Implemented comprehensive JSON Schema generation for ALL Simple Container configurations
   - **EXPANDED**: Now generates schemas for both cloud resources AND core configuration files
   - **54 TOTAL SCHEMAS**: 37 cloud resources + 6 configuration file schemas + index files across 8 providers
