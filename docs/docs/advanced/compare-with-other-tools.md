@@ -244,11 +244,11 @@ resources:
 
 # client.yaml - Customers choose regions easily
 us-customer:
-  parent: integrail/myapp-us
+  parent: simple-container/myapp-us
   parentEnv: prod
   
 eu-customer:
-  parent: integrail/myapp-eu
+  parent: simple-container/myapp-eu
   parentEnv: prod
 ```
 

@@ -5,6 +5,15 @@ bin
 .sc/cfg.*.yaml
 .welder-out/*
 
+# AI Assistant build artifacts
+pkg/assistant/embeddings/docs/
+pkg/assistant/modes/schemas/
+
+# AI Assistant vectors - ignore large generated files but keep directory structure
+pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
+pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json
+# Keep .gitkeep and small fallback files
+
 pkg/clouds/pulumi/testdata/secrets/cloudflare-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/gcp-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/aws-e2e-config.yaml
@@ -12,3 +21,5 @@ pkg/clouds/pulumi/testdata/secrets/pulumi-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/mongodb-e2e-config.yaml
 .sc/stacks/dist/secrets.yaml
 pkg/clouds/pulumi/testdata/secrets/docker-creds.yaml
+.windsurf
+.claude

@@ -45,6 +45,12 @@ This directory contains production-tested Simple Container configurations based 
 - **gcp-comprehensive**: Complete GCP setup with all service types
 - **hybrid-cloud**: Mixed cloud provider configurations
 
+### CI/CD with GitHub Actions (`cicd-github-actions/`)
+- **basic-setup**: Simple staging/production pipeline with automatic deployment
+- **multi-stack**: Complex deployment managing multiple related stacks
+- **preview-deployments**: PR-based preview environments with cleanup automation
+- **advanced-notifications**: Multi-channel notifications with custom templates
+
 ### Kubernetes Affinity (`kubernetes-affinity/`)
 - **multi-tier-node-isolation**: Real-world node pool isolation for multi-tier architecture
 - **high-availability**: Zone anti-affinity and pod distribution patterns
