@@ -42,7 +42,7 @@ schemaVersion: 1.0
 stacks:
   staging:
     type: cloud-compose
-    parent: integrail/devops  # Reference to the organization's infrastructure
+    parent: simple-container/devops  # Reference to the organization's infrastructure
     config:
       dockerComposeFile: ./docker-compose.yaml
       uses:

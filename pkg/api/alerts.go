@@ -74,8 +74,15 @@ type MaxErrorConfig struct {
 type AlertType string
 
 const (
+	// Monitoring Alert Types
 	AlertTriggered AlertType = "TRIGGERED"
 	AlertResolved  AlertType = "RESOLVED"
+
+	// Build/Deployment Notification Types
+	BuildStarted   AlertType = "BUILD_STARTED"
+	BuildSucceeded AlertType = "BUILD_SUCCEEDED"
+	BuildFailed    AlertType = "BUILD_FAILED"
+	BuildCancelled AlertType = "BUILD_CANCELLED"
 )
 
 type Alert struct {

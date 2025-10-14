@@ -1,0 +1,16 @@
+{
+  "description": "JSON Schema definitions for Mongodb resources and templates",
+  "provider": "mongodb",
+  "resources": [
+    {
+      "name": "AtlasConfig",
+      "type": "resource",
+      "provider": "mongodb",
+      "description": "MongoDB Atlas atlas configuration",
+      "goPackage": "pkg/clouds/mongodb/",
+      "goStruct": "AtlasConfig",
+      "resourceType": "mongodb-atlas",
+      "schema": {}
+    }
+  ]
+}

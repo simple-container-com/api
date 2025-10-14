@@ -65,8 +65,44 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	CiCd: api.CiCdDescriptor{
 		Type: "github-actions",
-		Config: api.Config{Config: &github.ActionsCiCdConfig{
-			AuthToken: "${secret:GITHUB_TOKEN}",
+		Config: api.Config{Config: &github.GitHubActionsCiCdConfig{
+			Organization: "simple-container-org",
+			Environments: map[string]github.GitHubEnvironmentConfig{
+				"staging": {
+					Type:        "staging",
+					Runners:     nil,
+					Protection:  false,
+					Reviewers:   nil,
+					Secrets:     nil,
+					Variables:   nil,
+					DeployFlags: nil,
+					AutoDeploy:  false,
+				},
+				"production": {
+					Type:        "production",
+					Runners:     nil,
+					Protection:  false,
+					Reviewers:   nil,
+					Secrets:     nil,
+					Variables:   nil,
+					DeployFlags: nil,
+					AutoDeploy:  false,
+				},
+			},
+			Notifications: github.GitHubNotificationConfig{
+				SlackWebhook:   "",
+				DiscordWebhook: "",
+				TelegramChatID: "",
+				TelegramToken:  "",
+			},
+			WorkflowGeneration: github.GitHubWorkflowConfig{
+				Enabled:       false,
+				OutputPath:    "",
+				Templates:     []string{"deploy", "destroy"},
+				AutoUpdate:    false,
+				CustomActions: map[string]string{},
+				SCVersion:     "",
+			},
 		}},
 	},
 	Secrets: api.SecretsConfigDescriptor{
@@ -160,8 +196,44 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	CiCd: api.CiCdDescriptor{
 		Type: "github-actions",
-		Config: api.Config{Config: &github.ActionsCiCdConfig{
-			AuthToken: "<encrypted-secret>",
+		Config: api.Config{Config: &github.GitHubActionsCiCdConfig{
+			Organization: "simple-container-org",
+			Environments: map[string]github.GitHubEnvironmentConfig{
+				"staging": {
+					Type:        "staging",
+					Runners:     []string{},
+					Protection:  false,
+					Reviewers:   []string{},
+					Secrets:     []string{},
+					Variables:   map[string]string{},
+					DeployFlags: []string{},
+					AutoDeploy:  false,
+				},
+				"production": {
+					Type:        "production",
+					Runners:     []string{},
+					Protection:  false,
+					Reviewers:   []string{},
+					Secrets:     []string{},
+					Variables:   map[string]string{},
+					DeployFlags: []string{},
+					AutoDeploy:  false,
+				},
+			},
+			Notifications: github.GitHubNotificationConfig{
+				SlackWebhook:   "",
+				DiscordWebhook: "",
+				TelegramChatID: "",
+				TelegramToken:  "",
+			},
+			WorkflowGeneration: github.GitHubWorkflowConfig{
+				Enabled:       false,
+				OutputPath:    "",
+				Templates:     []string{"deploy", "destroy"},
+				AutoUpdate:    false,
+				CustomActions: map[string]string{},
+				SCVersion:     "",
+			},
 		}},
 	},
 	Secrets: api.SecretsConfigDescriptor{
@@ -475,6 +547,7 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 
 var RefappClientDescriptor = &api.ClientDescriptor{
 	SchemaVersion: api.ClientSchemaVersion,
+	Defaults:      map[string]interface{}{},
 	Stacks: map[string]api.StackClientDescriptor{
 		"staging": {
 			Type:        api.ClientTypeCloudCompose,

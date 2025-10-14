@@ -1,0 +1,45 @@
+name: 'Destroy Simple Container Parent Stack'
+description: 'Destroy a Simple Container parent stack using internal SC APIs'
+branding:
+  icon: 'x-circle'
+  color: 'red'
+
+inputs:
+  stack-name:
+    description: 'Name of the parent stack to destroy'
+    required: true
+  sc-config:
+    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    required: true
+  slack-webhook-url:
+    description: 'Slack webhook URL for notifications (optional)'
+    required: false
+  discord-webhook-url:
+    description: 'Discord webhook URL for notifications (optional)'
+    required: false
+  telegram-chat-id:
+    description: 'Telegram chat ID for notifications (optional)'
+    required: false
+  telegram-token:
+    description: 'Telegram bot token for notifications (optional)'
+    required: false
+
+outputs:
+  stack-name:
+    description: 'Parent stack name that was destroyed'
+  duration:
+    description: 'Destruction duration'
+  status:
+    description: 'Destruction status (success/failure)'
+
+runs:
+  using: 'docker'
+  image: 'docker://simplecontainer/github-actions:latest'
+  env:
+    GITHUB_ACTION_TYPE: 'destroy-parent-stack'
+    STACK_NAME: ${{ inputs.stack-name }}
+    SC_CONFIG: ${{ inputs.sc-config }}
+    SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+    DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
+    TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
+    TELEGRAM_TOKEN: ${{ inputs.telegram-token }}

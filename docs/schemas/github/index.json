@@ -3,12 +3,12 @@
   "provider": "github",
   "resources": [
     {
-      "name": "ActionsCiCdConfig",
+      "name": "GitHubActionsCiCdConfig",
       "type": "resource",
       "provider": "github",
-      "description": "GITHUB actionscicd configuration",
+      "description": "GITHUB githubactionscicd configuration",
       "goPackage": "pkg/clouds/github/",
-      "goStruct": "ActionsCiCdConfig",
+      "goStruct": "GitHubActionsCiCdConfig",
       "resourceType": "github-actions",
       "schema": {}
     }

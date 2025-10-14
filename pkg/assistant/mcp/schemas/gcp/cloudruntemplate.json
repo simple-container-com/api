@@ -1,0 +1,42 @@
+{
+  "name": "CloudrunTemplate",
+  "type": "template",
+  "provider": "gcp",
+  "description": "Google Cloud Platform deployment template configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "CloudrunTemplate",
+  "resourceType": "kubernetes-cloudrun",
+  "templateType": "kubernetes-cloudrun",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dockerRegistryPassword": {
+            "type": "string"
+          },
+          "dockerRegistryURL": {
+            "type": "string"
+          },
+          "dockerRegistryUsername": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "caddyResource": {
+        "type": "string"
+      },
+      "useSSL": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "",
+      ""
+    ],
+    "type": "object"
+  }
+}
