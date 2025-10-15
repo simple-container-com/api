@@ -1009,11 +1009,35 @@ func (h *UnifiedCommandHandler) preserveEnvironmentIndentation(modifiedLines []s
 		return modifiedLines
 	}
 
+	// Simple approach: trust the LLM's relative indentation, just adjust the base level
 	result := make([]string, len(modifiedLines))
+
+	// Find what indentation the LLM used for the first property line
+	llmPropertyIndent := ""
+	for i, line := range modifiedLines {
+		if i == 0 {
+			continue // Skip environment name
+		}
+		if strings.TrimSpace(line) == "" {
+			continue // Skip empty lines
+		}
+
+		// Find the indentation of first property line
+		for j, char := range line {
+			if char != ' ' {
+				llmPropertyIndent = line[:j]
+				break
+			}
+		}
+		break
+	}
+
+	// Target indentation for environment properties should be originalBaseIndent + 2 spaces
+	targetPropertyIndent := originalBaseIndent + "  "
 
 	for i, line := range modifiedLines {
 		if i == 0 {
-			// First line should maintain the original base indentation (environment name line)
+			// Environment name line - use original base indentation
 			trimmed := strings.TrimSpace(line)
 			if trimmed != "" {
 				result[i] = originalBaseIndent + trimmed
@@ -1024,31 +1048,15 @@ func (h *UnifiedCommandHandler) preserveEnvironmentIndentation(modifiedLines []s
 			// Empty lines remain empty
 			result[i] = line
 		} else {
-			// Subsequent lines should maintain relative indentation
-			trimmed := strings.TrimLeft(line, " ")
-			currentIndent := len(line) - len(trimmed)
-
-			if currentIndent == 0 && trimmed != "" {
-				// If line has no indentation but should be indented, add base + standard indent
-				result[i] = originalBaseIndent + "  " + trimmed // Use 2 spaces for environment properties
+			// Replace LLM's property indentation with target indentation
+			if llmPropertyIndent != "" && strings.HasPrefix(line, llmPropertyIndent) {
+				// Replace the LLM's base indentation with our target
+				remainingContent := line[len(llmPropertyIndent):]
+				result[i] = targetPropertyIndent + remainingContent
 			} else {
-				// Normalize all content to proper YAML indentation structure
-				// Environment properties (parentEnv, <<:, config) should be at environment level + 2 spaces
-				// Nested properties should maintain relative structure
-				if strings.HasPrefix(trimmed, "<<:") ||
-					(strings.Contains(trimmed, ":") && !strings.Contains(trimmed, "  ")) {
-					// This is a top-level environment property
-					result[i] = originalBaseIndent + "  " + trimmed
-				} else if currentIndent > 6 {
-					// Deep nested property - calculate relative indentation
-					result[i] = originalBaseIndent + "    " + trimmed
-				} else if currentIndent > 2 {
-					// Nested property under config/env/secrets
-					result[i] = originalBaseIndent + "    " + trimmed
-				} else {
-					// Default - environment property level
-					result[i] = originalBaseIndent + "  " + trimmed
-				}
+				// Fallback: assume it's already properly formatted, just ensure minimum indentation
+				trimmed := strings.TrimLeft(line, " ")
+				result[i] = targetPropertyIndent + trimmed
 			}
 		}
 	}
@@ -1270,9 +1278,12 @@ func (h *UnifiedCommandHandler) modifyEnvironmentWithLLMAndContext(ctx context.C
 	prompt.WriteString("- ONLY modify the requested properties in this environment\n")
 	prompt.WriteString("- PRESERVE all existing configuration that isn't being changed\n")
 	prompt.WriteString("- PRESERVE all YAML anchors and references (<<: *anchor, *reference)\n")
-	prompt.WriteString("- PRESERVE exact indentation and formatting\n")
-	prompt.WriteString("- Return ONLY the modified environment section with the same indentation\n")
-	prompt.WriteString("- DO NOT add explanatory text, code blocks, or markdown formatting\n\n")
+	prompt.WriteString("- Use consistent 2-space YAML indentation\n")
+	prompt.WriteString("- Environment properties (<<:, type, config:, etc.) should be indented 2 spaces from environment name\n")
+	prompt.WriteString("- Nested config properties should be indented 4 spaces from environment name\n")
+	prompt.WriteString("- Return ONLY the modified environment section starting with the environment name\n")
+	prompt.WriteString("- DO NOT add explanatory text, code blocks, or markdown formatting\n")
+	prompt.WriteString("- DO NOT place properties at wrong indentation levels\n\n")
 
 	// Include defaults section if available
 	if defaultsSection != "" {
@@ -1292,16 +1303,106 @@ func (h *UnifiedCommandHandler) modifyEnvironmentWithLLMAndContext(ctx context.C
 	prompt.WriteString(envSection)
 	prompt.WriteString("\n\n")
 
+	// Detect deployment type for type-specific guidance
+	deploymentType := ""
+	if strings.Contains(envSection, "type: single-image") {
+		deploymentType = "single-image"
+	} else if strings.Contains(envSection, "type: cloud-compose") {
+		deploymentType = "cloud-compose"
+	} else if strings.Contains(envSection, "type: static") {
+		deploymentType = "static"
+	}
+
+	// Validate memory-related changes against deployment type
+	for key := range changes {
+		if key == "config.maxMemory" && deploymentType == "cloud-compose" {
+			return "", nil, fmt.Errorf("invalid configuration: config.maxMemory is not applicable for cloud-compose deployments (use config.size.memory or docker-compose.yaml resources instead)")
+		}
+		if key == "config.size.memory" && deploymentType == "single-image" {
+			return "", nil, fmt.Errorf("invalid configuration: config.size.memory is not applicable for single-image deployments (use config.maxMemory instead)")
+		}
+	}
+
 	prompt.WriteString("REQUESTED CHANGES:\n")
 	for key, value := range changes {
 		prompt.WriteString(fmt.Sprintf("- SET %s TO: %v\n", key, value))
 	}
+
+	// Add deployment type-specific guidance
+	if deploymentType != "" {
+		prompt.WriteString(fmt.Sprintf("\n🎯 DEPLOYMENT TYPE DETECTED: %s\n", deploymentType))
+
+		switch deploymentType {
+		case "single-image":
+			prompt.WriteString("📋 SINGLE-IMAGE DEPLOYMENT RULES:\n")
+			prompt.WriteString("- Use `config.maxMemory` for Lambda function memory (MB)\n")
+			prompt.WriteString("- Use `config.timeout` for Lambda timeout (seconds)\n")
+			prompt.WriteString("- No docker-compose related settings\n")
+			prompt.WriteString("- Lambda-specific cloudExtras apply\n")
+		case "cloud-compose":
+			prompt.WriteString("📋 CLOUD-COMPOSE DEPLOYMENT RULES:\n")
+			prompt.WriteString("- DO NOT use `config.maxMemory` - this is for single-image only!\n")
+			prompt.WriteString("- Memory should be configured in docker-compose.yaml file or container settings\n")
+			prompt.WriteString("- Use `config.dockerComposeFile` to specify compose file\n")
+			prompt.WriteString("- Use `config.runs` to specify which services to run\n")
+			prompt.WriteString("- For memory changes, consider `config.size.memory` or docker-compose resources\n")
+		case "static":
+			prompt.WriteString("📋 STATIC DEPLOYMENT RULES:\n")
+			prompt.WriteString("- No memory settings applicable\n")
+			prompt.WriteString("- Focus on domain, CDN, and static asset configuration\n")
+		}
+		prompt.WriteString("\n")
+	}
+
+	prompt.WriteString("⚠️  CRITICAL DEPLOYMENT TYPE VALIDATION:\n")
+	prompt.WriteString("- If user requests memory changes, validate against deployment type\n")
+	prompt.WriteString("- single-image: Use config.maxMemory (Lambda memory)\n")
+	prompt.WriteString("- cloud-compose: Use config.size.memory or note that memory is configured in docker-compose.yaml\n")
+	prompt.WriteString("- static: Memory settings not applicable\n")
 
 	prompt.WriteString("\n✅ MERGE STRATEGY:\n")
 	prompt.WriteString("- Apply changes additively - merge new values with existing configuration\n")
 	prompt.WriteString("- If changing 'config.domain', only modify domain, keep all other config properties\n")
 	prompt.WriteString("- If adding secrets, merge with existing secrets section\n")
 	prompt.WriteString("- Preserve any YAML anchors used in this environment\n\n")
+
+	prompt.WriteString("📋 EXPECTED YAML STRUCTURE EXAMPLES:\n")
+
+	if deploymentType == "single-image" {
+		prompt.WriteString("# SINGLE-IMAGE EXAMPLE:\n")
+		prompt.WriteString("staging:\n")
+		prompt.WriteString("  type: single-image\n")
+		prompt.WriteString("  template: lambda-eu\n")
+		prompt.WriteString("  config:\n")
+		prompt.WriteString("    maxMemory: 8192    # ✅ Correct for Lambda\n")
+		prompt.WriteString("    timeout: 30\n")
+		prompt.WriteString("    domain: api.example.com\n")
+	} else if deploymentType == "cloud-compose" {
+		prompt.WriteString("# CLOUD-COMPOSE EXAMPLE:\n")
+		prompt.WriteString("beta:\n")
+		prompt.WriteString("  <<: *staging\n")
+		prompt.WriteString("  type: cloud-compose\n")
+		prompt.WriteString("  config:\n")
+		prompt.WriteString("    <<: *config\n")
+		prompt.WriteString("    dockerComposeFile: docker-compose.yaml\n")
+		prompt.WriteString("    runs: [app, worker]\n")
+		prompt.WriteString("    size:\n")
+		prompt.WriteString("      memory: 8192     # ✅ Container memory\n")
+		prompt.WriteString("      cpu: 2048\n")
+		prompt.WriteString("    scale:\n")
+		prompt.WriteString("      max: 6\n")
+		prompt.WriteString("      min: 2\n")
+		prompt.WriteString("    # Note: NO maxMemory for cloud-compose!\n")
+	} else {
+		prompt.WriteString("# GENERAL EXAMPLE:\n")
+		prompt.WriteString("environment:\n")
+		prompt.WriteString("  <<: *parent\n")
+		prompt.WriteString("  type: [deployment-type]\n")
+		prompt.WriteString("  config:\n")
+		prompt.WriteString("    domain: example.com\n")
+		prompt.WriteString("    # Memory config depends on deployment type\n")
+	}
+	prompt.WriteString("\n")
 
 	prompt.WriteString("Return the complete modified environment section with proper indentation:")
 
