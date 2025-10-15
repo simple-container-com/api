@@ -415,7 +415,7 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 		{regexp.MustCompile(`\.db$|\.sqlite$|sqlite`), "sqlite", 0.8},
 
 		// ElasticSearch (only match actual Elasticsearch, not ElastiCache/ElasticBeanstalk)
-		{regexp.MustCompile(`(?i)\belasticsearch\b(?![\w])|elasticsearch[\.\-_]|elastic[\s]+search|elastic\.co`), "elasticsearch", 0.8},
+		{regexp.MustCompile(`(?i)\belasticsearch\b|elasticsearch[\.\-_]|elastic[\s]+search|elastic\.co`), "elasticsearch", 0.8},
 		{regexp.MustCompile(`port\s*:\s*9200`), "elasticsearch", 0.7},
 	}
 
