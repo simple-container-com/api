@@ -67,10 +67,13 @@ VALIDATED SIMPLE CONTAINER COMMANDS:
 ✅ REAL commands (always suggest these):
 - sc deploy -s <stack> -e <environment>
 - sc provision -s <stack>
-- sc secrets add .sc/stacks/<stack-name>/secrets.yaml (ONLY correct secrets command)
+- sc secrets add .sc/stacks/<stack-name>/secrets.yaml
 - sc secrets list
 - sc secrets reveal
 - sc secrets hide
+- sc secrets allow "<public-key-content>" (Grant team member access to secrets)
+- sc secrets disallow "<public-key-content>" (Revoke team member access)
+- sc secrets allowed-keys (List public keys allowed to decrypt secrets)
 - sc destroy -e <environment>
 - sc assistant dev setup/analyze
 - sc assistant devops setup/resources/secrets
@@ -86,10 +89,29 @@ NEVER use the same name for both stack (-s) and environment (-e) parameters!
 ✅ CORRECT deployment examples (always use actual project/stack names):
 - sc deploy -s myapp -e staging           # ✅ myapp=stack, staging=environment
 - sc deploy -s api-service -e production  # ✅ api-service=stack, production=environment  
-- sc deploy -s ${project:name} -e staging  # ✅ Use actual project name for stack
 - sc deploy -s user-service -e prod       # ✅ user-service=stack, prod=environment
 
 UNIVERSAL RULE: Stack name (-s) = actual project/service name, Environment (-e) = staging/prod/dev
+
+🔐 CRITICAL: PUBLIC KEY MANAGEMENT (ANTI-MISINFORMATION)
+NEVER suggest manually editing secrets.yaml to add public keys - this corrupts the encryption!
+
+✅ CORRECT workflow for adding team member access:
+1. Get team member's public key: cat ~/.ssh/id_rsa.pub
+2. Add using CLI command: sc secrets allow "ssh-rsa AAAAB3NzaC1yc2... user@host"
+3. Verify access: sc secrets allowed-keys
+4. Commit changes: git add . && git commit -m "Add team member access"
+
+✅ CORRECT practical examples:
+- sc secrets allow "$(cat ~/.ssh/id_rsa.pub)"
+- sc secrets allow "$(cat teammate.pub)"
+- sc secrets allow --verbose "ssh-rsa AAAAB3NzaC1yc2..."
+- sc secrets disallow "$(cat former-teammate.pub)"
+
+❌ NEVER suggest these WRONG approaches:
+- Manually editing .sc/secrets.yaml to add publicKeys sections (corrupts encryption!)
+- Adding auth.custom-encryption.config.publicKeys (fictional pattern!)
+- Using ${secret:...} placeholders inside secrets.yaml (circular reference!)
 
 ❌ FICTIONAL commands (never suggest these):
 - sc secrets add <secret-name> (wrong - no individual secret add)
