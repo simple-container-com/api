@@ -1009,7 +1009,6 @@ func (h *UnifiedCommandHandler) preserveEnvironmentIndentation(modifiedLines []s
 		return modifiedLines
 	}
 
-	// Simple approach: trust the LLM's relative indentation, just adjust the base level
 	result := make([]string, len(modifiedLines))
 
 	// Find what indentation the LLM used for the first property line

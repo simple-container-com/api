@@ -5,6 +5,8 @@ bin
 .sc/cfg.*.yaml
 .welder-out/*
 
+REAL_WORLD_EXAMPLES_MAP.md
+
 # AI Assistant build artifacts
 pkg/assistant/embeddings/docs/
 pkg/assistant/modes/schemas/
