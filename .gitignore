@@ -11,6 +11,9 @@ REAL_WORLD_EXAMPLES_MAP.md
 pkg/assistant/embeddings/docs/
 pkg/assistant/modes/schemas/
 
+# AI Assistant analysis cache - may contain sensitive project information
+.sc/analysis-cache.json
+
 # AI Assistant vectors - ignore large generated files but keep directory structure
 pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json
 pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json

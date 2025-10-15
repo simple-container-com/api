@@ -414,8 +414,8 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 		// SQLite
 		{regexp.MustCompile(`\.db$|\.sqlite$|sqlite`), "sqlite", 0.8},
 
-		// ElasticSearch
-		{regexp.MustCompile(`(?i)elasticsearch|elastic`), "elasticsearch", 0.8},
+		// ElasticSearch (only match actual Elasticsearch, not ElastiCache/ElasticBeanstalk)
+		{regexp.MustCompile(`(?i)\belasticsearch\b(?![\w])|elasticsearch[\.\-_]|elastic[\s]+search|elastic\.co`), "elasticsearch", 0.8},
 		{regexp.MustCompile(`port\s*:\s*9200`), "elasticsearch", 0.7},
 	}
 
@@ -473,6 +473,16 @@ func (d *DatabaseDetector) Detect(projectPath string) (*ResourceAnalysis, error)
 			for _, dbPattern := range configPatterns {
 				if dbPattern.pattern.MatchString(contentStr) {
 					dbType := dbPattern.dbType
+
+					// Skip false positives for Elasticsearch
+					if dbType == "elasticsearch" {
+						// Skip if this is AWS ElastiCache (Redis cache service) or services.json
+						if strings.Contains(strings.ToLower(contentStr), "elasticache") ||
+							strings.Contains(strings.ToLower(contentStr), "elastic cache") ||
+							strings.Contains(strings.ToLower(relPath), "services.json") {
+							continue
+						}
+					}
 
 					if existingDB, exists := localDBMap[dbType]; exists {
 						// Add source if not already present in local map
@@ -790,9 +800,9 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 		{regexp.MustCompile(`(?i)kafka`), "kafka", 0.85},
 		{regexp.MustCompile(`port\s*:\s*9092`), "kafka", 0.7},
 
-		// AWS SQS
-		{regexp.MustCompile(`(?i)sqs\..*\.amazonaws\.com|aws.*sqs`), "aws_sqs", 0.9},
-		{regexp.MustCompile(`(?i)sqs`), "aws_sqs", 0.7},
+		// AWS SQS (only AWS-specific patterns, exclude package dependency names)
+		{regexp.MustCompile(`(?i)sqs\..*\.amazonaws\.com|aws[-_\s]*sqs|sqs[-_\s]*queue|queue[-_\s]*sqs`), "aws_sqs", 0.9},
+		{regexp.MustCompile(`(?i)@aws-sdk\/client-sqs|aws-sdk.*sqs`), "aws_sqs", 0.6}, // Lower confidence for SDK deps
 
 		// Redis Pub/Sub
 		{regexp.MustCompile(`(?i)redis.*pub|redis.*sub|pub.*redis|sub.*redis`), "redis_pubsub", 0.8},
@@ -873,6 +883,18 @@ func (d *QueueDetector) Detect(projectPath string) (*ResourceAnalysis, error) {
 			for _, queuePattern := range queuePatterns {
 				if queuePattern.pattern.MatchString(contentStr) {
 					queueType := queuePattern.queueType
+
+					// Skip false positives for AWS SQS
+					if queueType == "aws_sqs" {
+						pathLower := strings.ToLower(relPath)
+
+						// Skip all package lock files entirely for queue detection
+						if strings.Contains(pathLower, "package-lock.json") ||
+							strings.Contains(pathLower, "yarn.lock") ||
+							strings.Contains(pathLower, "pnpm-lock.yaml") {
+							continue
+						}
+					}
 
 					if existingQueue, exists := localQueueMap[queueType]; exists {
 						// Add source if not already present in local map
@@ -1443,6 +1465,11 @@ func (d *ExternalAPIDetector) Detect(projectPath string) (*ResourceAnalysis, err
 
 // Helper functions for new detectors
 func shouldScanForQueues(filename string) bool {
+	// Reduce false positives by being more selective with lock files
+	if strings.Contains(filename, "package-lock.json") || strings.Contains(filename, "yarn.lock") {
+		return false // Skip dependency lock files for queue detection
+	}
+
 	return shouldScanForEnvVars(filename) ||
 		strings.Contains(filename, "queue") ||
 		strings.Contains(filename, "messaging") ||
