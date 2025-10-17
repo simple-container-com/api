@@ -206,7 +206,9 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		params.Log.Info(ctx.Context(), "load balancer ip is %v", ip)
 		return ip
 	}))
-	if caddyJson, err := json.Marshal(caddy); err != nil {
+	// Only marshal the CaddyConfig, not the entire CaddyDeployment struct
+	// to avoid marshaling ClusterResource which contains Pulumi outputs
+	if caddyJson, err := json.Marshal(caddy.CaddyConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to marshal caddy config")
 	} else {
 		ctx.Export(ToCaddyConfigExport(clusterName), sdk.String(string(caddyJson)))

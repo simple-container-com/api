@@ -152,6 +152,17 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **CRITICAL: Fixed GKE Autopilot Caddy JSON Marshaling Error (2025-10-17)** - Resolved Pulumi output marshaling issue causing deployment failures
+  - **✅ Problem Identified**: `sc provision --preview -s pay-space` failing with "json: error calling MarshalJSON for type pulumi.BoolPtrOutput: Outputs can not be marshaled to JSON"
+    - **Root Cause**: Code in `pkg/clouds/pulumi/kubernetes/caddy.go` was attempting to marshal entire `CaddyDeployment` struct to JSON
+    - **Issue**: `CaddyDeployment.ClusterResource` field contains Pulumi resources with outputs (`pulumi.BoolPtrOutput`) that cannot be JSON marshaled
+  - **✅ Technical Fix Applied**:
+    - **Selective Marshaling**: Changed `json.Marshal(caddy)` to `json.Marshal(caddy.CaddyConfig)` on line 211
+    - **Safe Export**: Only marshal the configuration data, not Pulumi resource dependencies
+    - **Preserved Functionality**: Caddy configuration still properly exported while avoiding resource marshaling
+  - **✅ Files Modified**:
+    - `pkg/clouds/pulumi/kubernetes/caddy.go` - Fixed JSON marshaling to exclude Pulumi outputs
+  - **Impact**: GKE Autopilot deployments with caddy now complete successfully without marshaling errors
 - **SETUP: Fixed Deployment Type Detection for Full-Stack Applications (2025-10-15)** - Enhanced setup command to correctly identify deployment types for complex projects
   - **✅ Problem Identified**: Setup was incorrectly suggesting "static" deployment for full-stack applications with frontend directories
     - **Root Cause**: Priority order checked static indicators (build/dist/public dirs) before docker-compose.yaml 
