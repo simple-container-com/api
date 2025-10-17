@@ -152,6 +152,38 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **COMPREHENSIVE: Updated All GKE Documentation to Fix Outdated Versions (2025-10-18)** - Systematic cleanup of all GKE examples and documentation
+  - **✅ Problem Identified**: Examples used deprecated GKE versions like `1.27.16-gke.1296000` causing "Master version unsupported" errors
+    - **Root Cause**: GCP regularly deprecates old versions, but documentation had hardcoded outdated versions
+    - **Impact**: Users experienced deployment failures when trying to use example configurations
+    - **Regional Issues**: Different regions support different versions and update at different schedules
+  - **✅ Comprehensive Updates Applied**:
+    - **Version Updates**: Updated all examples to use `1.33.4-gke.1245000` with version checking commands
+    - **Comprehensive Setup**: Enhanced `/docs/examples/gke-autopilot/comprehensive-setup/` with detailed version management
+    - **Parent Stacks**: Fixed both europe-west3 and us-central1 examples in `/docs/examples/parent-stacks/index.md`
+    - **Kubernetes Affinity**: Updated all GKE clusters in `/docs/examples/kubernetes-affinity/multi-tier-node-isolation/`
+    - **GKE Index**: Fixed main GKE example in `/docs/examples/gke-autopilot/index.md`
+  - **✅ Schema Compliance Fixes**:
+    - **Fixed Fictional Resource Type**: `gcp-memorystore-redis` → `gcp-redis` (validated against actual schemas)
+    - **Verified Resource Types**: All resource types now match actual Simple Container support in `/docs/schemas/gcp/`
+    - **JSON Schema Validation**: Confirmed all examples use only real, supported resource properties
+  - **✅ New Documentation Created**:
+    - **GKE Version Management Guide**: `/docs/guides/gke-version-management.md` with comprehensive troubleshooting
+    - **Regional Considerations**: Detailed guidance for us-central1, europe-west3, asia-southeast1 differences  
+    - **Version Checking Commands**: Clear instructions for verifying current versions per region
+    - **Best Practices**: Monthly update schedules, version selection strategies, automation guidance
+  - **✅ Enhanced User Experience**:
+    - **Version Comments**: All examples now include verification commands: `# Check: gcloud container get-server-config --location=region`
+    - **Regional Guidance**: Clear documentation of which regions get updates first
+    - **Troubleshooting Workflow**: Step-by-step guide for resolving version errors
+    - **Automation Guidance**: Scripts and best practices for staying current
+  - **✅ Files Modified**:
+    - `docs/examples/gke-autopilot/comprehensive-setup/server.yaml` - Updated version + enhanced README
+    - `docs/examples/parent-stacks/index.md` - Fixed both production and data cluster versions
+    - `docs/examples/kubernetes-affinity/multi-tier-node-isolation/server.yaml` - Updated all 3 GKE clusters + fixed Redis type
+    - `docs/examples/gke-autopilot/index.md` - Updated main GKE cluster version
+    - `docs/guides/gke-version-management.md` - NEW comprehensive guide created
+  - **Impact**: Users can now successfully deploy GKE examples without version errors, with clear guidance for staying current
 - **CRITICAL: Fixed GKE Autopilot Caddy JSON Marshaling Error (2025-10-17)** - Resolved Pulumi output marshaling issue causing deployment failures
   - **✅ Problem Identified**: `sc provision --preview -s pay-space` failing with "json: error calling MarshalJSON for type pulumi.BoolPtrOutput: Outputs can not be marshaled to JSON"
     - **Root Cause**: Code in `pkg/clouds/pulumi/kubernetes/caddy.go` was attempting to marshal entire `CaddyDeployment` struct to JSON
