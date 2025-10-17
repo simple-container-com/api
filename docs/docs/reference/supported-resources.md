@@ -710,46 +710,68 @@ resources:
 
 Creates and manages Google Cloud SQL PostgreSQL databases.
 
+**Golang Struct Reference:** `pkg/clouds/gcloud/postgres.go:PostgresGcpCloudsqlConfig`
+
+**JSON Schema:** [PostgresGcpCloudsqlConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/postgresgcpcloudsqlconfig.json)
+
 **Configuration Properties:**
 ```yaml
+# server.yaml - Parent Stack
 resources:
-  my-cloudsql-postgres:
-    type: gcp-cloudsql-postgres
-    config:
-      projectId: "my-gcp-project"
-      region: "us-central1"
-      instanceId: "my-postgres-instance"
-      databaseVersion: "POSTGRES_14"
-      tier: "db-f1-micro"
-      diskSize: 10
-      diskType: "PD_SSD"
-      backupEnabled: true
-      backupStartTime: "02:00"
-      maintenanceWindow:
-        day: 7  # Sunday
-        hour: 3
-      authorizedNetworks:
-        - "0.0.0.0/0"  # Allow all IPs (not recommended for production)
+  resources:
+    production:
+      resources:
+        my-cloudsql-postgres:
+          type: gcp-cloudsql-postgres
+          config:
+            # GCP credentials and project (inherited from Credentials)
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            
+            # PostgreSQL configuration (from PostgresGcpCloudsqlConfig struct)
+            project: "my-gcp-project"                    # GCP project ID
+            version: "POSTGRES_14"                       # PostgreSQL version
+            tier: "db-f1-micro"                         # Instance tier
+            region: "us-central1"                       # GCP region
+            maxConnections: 100                          # Maximum connections (optional)
+            deletionProtection: true                     # Enable deletion protection (optional)
+            queryInsightsEnabled: false                  # Enable query insights (optional)
+            queryStringLength: 1024                      # Query string length limit (optional)
+            usersProvisionRuntime:                       # User provisioning runtime (optional)
+              type: "kubernetes"
+              resourceName: "postgres-job-runner"
 ```
 
 #### **Redis** (`gcp-redis`)
 
 Creates and manages Google Cloud Memorystore Redis instances.
 
+**Golang Struct Reference:** `pkg/clouds/gcloud/redis.go:RedisConfig`
+
+**JSON Schema:** [RedisConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/redisconfig.json)
+
 **Configuration Properties:**
 ```yaml
+# server.yaml - Parent Stack
 resources:
-  my-redis:
-    type: gcp-redis
-    config:
-      projectId: "my-gcp-project"
-      region: "us-central1"
-      instanceId: "my-redis-instance"
-      memorySizeGb: 1
-      tier: "BASIC"
-      redisVersion: "REDIS_6_X"
-      authEnabled: true
-      transitEncryptionMode: "SERVER_AUTHENTICATION"
+  resources:
+    production:
+      resources:
+        my-redis:
+          type: gcp-redis
+          config:
+            # GCP credentials and project (inherited from Credentials)
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            
+            # Redis configuration (from RedisConfig struct)
+            project: "my-gcp-project"               # GCP project ID
+            version: "6.2"                         # Redis version
+            region: "us-central1"                  # GCP region
+            memorySizeGb: 1                        # Memory size in GB
+            redisConfig:                           # Redis configuration map
+              maxmemory-policy: "allkeys-lru"
+              timeout: "300"
 ```
 
 ### **Messaging Resources**
@@ -1157,7 +1179,7 @@ The provisioner manages two key components:
 
 Stores Pulumi state locally on the file system for local development.
 
-**Golang Struct Reference:** `pkg/clouds/fs/fs.go:StateStorageConfig`
+**Golang Struct Reference:** `pkg/clouds/fs/fs_state.go:FileSystemStateStorage`
 
 ```yaml
 # server.yaml - Parent Stack
@@ -1177,7 +1199,7 @@ provisioner:
 
 Encrypts secrets using a passphrase for local development.
 
-**Golang Struct Reference:** `pkg/clouds/fs/fs.go:SecretsProviderConfig`
+**Golang Struct Reference:** `pkg/clouds/fs/fs_state.go:PassphraseSecretsProvider`
 
 ```yaml
 # server.yaml - Parent Stack
