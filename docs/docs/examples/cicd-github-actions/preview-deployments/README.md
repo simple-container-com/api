@@ -110,8 +110,12 @@ cicd:
     
     # Enhanced notifications for previews
     notifications:
-      slack: "${secret:slack-webhook-url}"
-      discord: "${secret:discord-webhook-url}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
+      discord:
+        webhook-url: "${secret:discord-webhook-url}"
+        enabled: true
     
     # Preview-specific workflow settings
     workflow-generation:

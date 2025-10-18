@@ -264,17 +264,6 @@ templates:
       projectId: "${auth:gcloud-prod-eu.projectId}"
       region: "europe-west1"
 
-variables:
-  staging-registry:
-    type: string
-    value: "asia-east1-docker.pkg.dev/acme-staging/docker-registry-staging"
-  production-registry:
-    type: string
-    value: "asia-east1-docker.pkg.dev/acme-production/docker-registry-prod"
-  prod-eu-registry:
-    type: string
-    value: "europe-central2-docker.pkg.dev/acme-prod-eu/docker-registry-prod-eu"
-
 resources:
   registrar:
     type: cloudflare
@@ -372,10 +361,16 @@ cicd:
         reviewers: ["devops-team"] 
         auto-deploy: false
     notifications:
-      slack-webhook-url: "${secret:slack-webhook-url}"
-      discord-webhook-url: "${secret:discord-webhook-url}"
-      telegram-chat-id: "${secret:telegram-chat-id}"
-      telegram-token: "${secret:telegram-bot-token}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
+      discord:
+        webhook-url: "${secret:discord-webhook-url}"
+        enabled: true
+      telegram:
+        bot-token: "${secret:telegram-bot-token}"
+        chat-id: "${secret:telegram-chat-id}"
+        enabled: true
 ```
 
 #### **1.2 Secrets Migration**
@@ -633,13 +628,13 @@ Ensure CalVer versioning continues to work with Simple Container actions.
 
 ## Timeline Summary
 
-| Phase | Duration | Deliverables |
-|-------|----------|-------------|
-| Phase 1 | 4-6 weeks | Parent stack migration, core infrastructure |  
-| Phase 2 | 6-9 weeks | All client services migrated |
-| Phase 3 | 2-4 weeks | Advanced features validated |
-| Phase 4 | 1-2 weeks | Cleanup and optimization |
-| **Total** | **13-21 weeks** | Complete Simple Container migration |
+| Phase     | Duration        | Deliverables                                |
+|-----------|-----------------|---------------------------------------------|
+| Phase 1   | 4-6 weeks       | Parent stack migration, core infrastructure |  
+| Phase 2   | 6-9 weeks       | All client services migrated                |
+| Phase 3   | 2-4 weeks       | Advanced features validated                 |
+| Phase 4   | 1-2 weeks       | Cleanup and optimization                    |
+| **Total** | **13-21 weeks** | Complete Simple Container migration         |
 
 ## Post-Migration Benefits
 

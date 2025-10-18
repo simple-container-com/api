@@ -73,8 +73,16 @@ cicd:
     
     # Notification settings
     notifications:
-      slack: "${secret:slack-webhook-url}"
-      discord: "${secret:discord-webhook-url}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
+      discord:
+        webhook-url: "${secret:discord-webhook-url}"
+        enabled: true
+      telegram:
+        bot-token: "${secret:telegram-bot-token}"
+        chat-id: "${secret:telegram-chat-id}"
+        enabled: false
     
     # Workflow generation settings
     workflow-generation:
@@ -119,10 +127,16 @@ cicd:
         deploy-flags: ["--timeout", "30m"]
     
     notifications:
-      slack: "${secret:slack-webhook-url}"
-      discord: "${secret:discord-webhook-url}"
-      telegram-chat-id: "${secret:telegram-chat-id}"
-      telegram-token: "${secret:telegram-token}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
+      discord:
+        webhook-url: "${secret:discord-webhook-url}"
+        enabled: true
+      telegram:
+        bot-token: "${secret:telegram-bot-token}"
+        chat-id: "${secret:telegram-chat-id}"
+        enabled: true
     
     workflow-generation:
       enabled: true
@@ -160,8 +174,8 @@ values:
   # Notification webhooks managed by Simple Container
   slack-webhook-url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
   discord-webhook-url: "https://discord.com/api/webhooks/YOUR/WEBHOOK/URL"
+  telegram-bot-token: your-telegram-bot-token-here
   telegram-chat-id: your-telegram-chat-id-here
-  telegram-token: your-telegram-bot-token-here
   
   # Application secrets for deployment
   staging-database-url: your-staging-database-connection-string

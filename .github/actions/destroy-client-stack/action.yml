@@ -14,18 +14,6 @@ inputs:
   sc-config:
     description: 'Simple Container configuration (SC_CONFIG secret content)'
     required: true
-  slack-webhook-url:
-    description: 'Slack webhook URL for notifications (optional)'
-    required: false
-  discord-webhook-url:
-    description: 'Discord webhook URL for notifications (optional)'
-    required: false
-  telegram-chat-id:
-    description: 'Telegram chat ID for notifications (optional)'
-    required: false
-  telegram-token:
-    description: 'Telegram bot token for notifications (optional)'
-    required: false
 
 outputs:
   environment:
@@ -45,7 +33,3 @@ runs:
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
     SC_CONFIG: ${{ inputs.sc-config }}
-    SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
-    DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
-    TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
-    TELEGRAM_TOKEN: ${{ inputs.telegram-token }}
