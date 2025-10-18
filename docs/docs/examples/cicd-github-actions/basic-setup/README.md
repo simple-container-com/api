@@ -98,7 +98,9 @@ cicd:
     
     # Notification settings
     notifications:
-      slack: "${secret:slack-webhook-url}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
     
     # Workflow generation settings
     workflow-generation:

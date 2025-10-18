@@ -152,6 +152,143 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **COMPREHENSIVE: Updated All GKE Documentation to Fix Outdated Versions (2025-10-18)** - Systematic cleanup of all GKE examples and documentation
+  - **✅ Problem Identified**: Examples used deprecated GKE versions like `1.27.16-gke.1296000` causing "Master version unsupported" errors
+    - **Root Cause**: GCP regularly deprecates old versions, but documentation had hardcoded outdated versions
+    - **Impact**: Users experienced deployment failures when trying to use example configurations
+    - **Regional Issues**: Different regions support different versions and update at different schedules
+  - **✅ Comprehensive Updates Applied**:
+    - **Version Updates**: Updated all examples to use `1.33.4-gke.1245000` with version checking commands
+    - **Comprehensive Setup**: Enhanced `/docs/examples/gke-autopilot/comprehensive-setup/` with detailed version management
+    - **Parent Stacks**: Fixed both europe-west3 and us-central1 examples in `/docs/examples/parent-stacks/index.md`
+    - **Kubernetes Affinity**: Updated all GKE clusters in `/docs/examples/kubernetes-affinity/multi-tier-node-isolation/`
+    - **GKE Index**: Fixed main GKE example in `/docs/examples/gke-autopilot/index.md`
+  - **✅ Schema Compliance Fixes**:
+    - **Fixed Fictional Resource Type**: `gcp-memorystore-redis` → `gcp-redis` (validated against actual schemas)
+    - **Verified Resource Types**: All resource types now match actual Simple Container support in `/docs/schemas/gcp/`
+    - **JSON Schema Validation**: Confirmed all examples use only real, supported resource properties
+  - **✅ New Documentation Created**:
+    - **GKE Version Management Guide**: `/docs/guides/gke-version-management.md` with comprehensive troubleshooting
+    - **Regional Considerations**: Detailed guidance for us-central1, europe-west3, asia-southeast1 differences  
+    - **Version Checking Commands**: Clear instructions for verifying current versions per region
+    - **Best Practices**: Monthly update schedules, version selection strategies, automation guidance
+  - **✅ Enhanced User Experience**:
+    - **Version Comments**: All examples now include verification commands: `# Check: gcloud container get-server-config --location=region`
+    - **Regional Guidance**: Clear documentation of which regions get updates first
+    - **Troubleshooting Workflow**: Step-by-step guide for resolving version errors
+    - **Automation Guidance**: Scripts and best practices for staying current
+  - **✅ Files Modified**:
+    - `docs/examples/gke-autopilot/comprehensive-setup/server.yaml` - Updated version + enhanced README
+    - `docs/examples/parent-stacks/index.md` - Fixed both production and data cluster versions
+    - `docs/examples/kubernetes-affinity/multi-tier-node-isolation/server.yaml` - Updated all 3 GKE clusters + fixed Redis type
+    - `docs/examples/gke-autopilot/index.md` - Updated main GKE cluster version
+    - `docs/guides/gke-version-management.md` - NEW comprehensive guide created
+  - **Impact**: Users can now successfully deploy GKE examples without version errors, with clear guidance for staying current
+- **CRITICAL: Fixed GKE Autopilot Caddy JSON Marshaling Error (2025-10-17)** - Resolved Pulumi output marshaling issue causing deployment failures
+  - **✅ Problem Identified**: `sc provision --preview -s pay-space` failing with "json: error calling MarshalJSON for type pulumi.BoolPtrOutput: Outputs can not be marshaled to JSON"
+    - **Root Cause**: Code in `pkg/clouds/pulumi/kubernetes/caddy.go` was attempting to marshal entire `CaddyDeployment` struct to JSON
+    - **Issue**: `CaddyDeployment.ClusterResource` field contains Pulumi resources with outputs (`pulumi.BoolPtrOutput`) that cannot be JSON marshaled
+  - **✅ Technical Fix Applied**:
+    - **Selective Marshaling**: Changed `json.Marshal(caddy)` to `json.Marshal(caddy.CaddyConfig)` on line 211
+    - **Safe Export**: Only marshal the configuration data, not Pulumi resource dependencies
+    - **Preserved Functionality**: Caddy configuration still properly exported while avoiding resource marshaling
+  - **✅ Files Modified**:
+    - `pkg/clouds/pulumi/kubernetes/caddy.go` - Fixed JSON marshaling to exclude Pulumi outputs
+  - **Impact**: GKE Autopilot deployments with caddy now complete successfully without marshaling errors
+- **SETUP: Fixed Deployment Type Detection for Full-Stack Applications (2025-10-15)** - Enhanced setup command to correctly identify deployment types for complex projects
+  - **✅ Problem Identified**: Setup was incorrectly suggesting "static" deployment for full-stack applications with frontend directories
+    - **Root Cause**: Priority order checked static indicators (build/dist/public dirs) before docker-compose.yaml 
+    - **Issue**: Projects like education-os with frontend/public + docker-compose.yml were classified as static
+  - **✅ Technical Improvements Applied**:
+    - **Reordered Detection Priority**: docker-compose.yaml now has highest priority for deployment type detection
+    - **Full-Stack Detection**: Added `isFullStackApplication()` to detect frontend + backend combinations  
+    - **Static-Only Validation**: Enhanced `isStaticOnlyProject()` to exclude projects with backend components
+    - **Container Fallback**: Dockerfile-only projects default to single-image deployment
+  - **✅ Enhanced Detection Logic**:
+    ```go
+    // PRIORITY 1: docker-compose.yaml → cloud-compose (highest)
+    // PRIORITY 2: Full-stack structure → cloud-compose  
+    // PRIORITY 3: Serverless patterns → single-image
+    // PRIORITY 4: Dockerfile only → single-image
+    // PRIORITY 5: Static-only → static (lowest)
+    ```
+  - **✅ Files Modified**:
+    - `pkg/assistant/modes/developer.go` - Enhanced deployment type detection with priority-based logic
+  - **Impact**: Full-stack applications now correctly identified as cloud-compose, enabling proper multi-container setup
+- **DOCKER-COMPOSE: Enhanced Multi-Service Generation with Dependencies (2025-10-15)** - Comprehensive docker-compose.yaml generation improvements
+  - **✅ Problem Identified**: Generated docker-compose.yaml files contained multiple critical issues
+    - **False Positive Services**: Elasticsearch, AWS SQS services from inaccurate resource detection
+    - **Invalid Placeholders**: `${secret:jwt-secret}`, `${resource:mongo-url}` only work in client.yaml, not docker-compose.yaml
+    - **Hallucinated Placeholders**: `${aws:access:key:id}`, `${gcs:project:id}` don't exist in Simple Container
+    - **Missing Service Dependencies**: No `depends_on` configuration for proper startup order
+  - **✅ Technical Improvements Applied**:
+    - **Resource Filtering**: Added `filterValidDatabases()` and `filterValidQueues()` to remove false positives
+    - **Placeholder Validation**: Added critical LLM guidance prohibiting Simple Container placeholders in docker-compose
+    - **Standard Environment Variables**: Enforced standard docker-compose syntax (NODE_ENV: staging)
+    - **Service Dependencies**: Added `depends_on` configuration for proper startup order
+    - **Complete Multi-Service Setup**: Fallback template includes all detected services with proper networking
+  - **✅ Before/After Comparison**:
+    ```yaml
+    # BEFORE (Problematic):
+    services:
+      elasticsearch:           # ❌ False positive
+      app:
+        environment:
+          AWS_SQS_URL: ${aws:sqs:url}          # ❌ Invalid placeholder
+          JWT_SECRET: ${secret:jwt-secret}      # ❌ Invalid placeholder  
+          GCS_PROJECT_ID: ${gcs:project:id}     # ❌ Hallucinated placeholder
+    
+    # AFTER (Complete Multi-Service):
+    services:
+      app:                     # ✅ Complete main service
+        environment:
+          NODE_ENV: staging    # ✅ Standard docker-compose syntax
+          MONGODB_URI: mongodb://mongo:27017/app  # ✅ Service connections
+          REDIS_URL: redis://redis:6379           # ✅ Proper connection strings
+        depends_on:            # ✅ Proper startup order
+          - mongo
+          - redis
+          - rabbitmq
+      mongo:                   # ✅ Detected database service
+        image: mongo:latest
+      redis:                   # ✅ Detected cache service
+        image: redis:latest
+      rabbitmq:                # ✅ Detected queue service
+        image: rabbitmq:management
+    ```
+  - **✅ Files Modified**:
+    - `pkg/assistant/modes/developer.go` - Enhanced docker-compose generation with filtering and placeholder validation
+  - **Impact**: Clean, production-ready docker-compose.yaml files with no false services or invalid syntax
+- **ANALYSIS: Improved Project Analysis Accuracy (2025-10-15)** - Fixed false positive resource detection in project analysis
+  - **✅ Problem Identified**: Project analysis was incorrectly detecting Elasticsearch and AWS SQS in projects that don't use them
+    - **Elasticsearch False Positive**: "AWS ElastiCache" in services.json being detected as Elasticsearch usage
+    - **AWS SQS False Positive**: "esquery" package name in package-lock.json being detected as AWS SQS usage
+  - **✅ Technical Improvements Applied**:
+    - **Specific Regex Patterns**: Updated Elasticsearch detection to use `(?i)\belasticsearch\b(?![\w])|elasticsearch[\.\-_]|elastic[\s]+search|elastic\.co`
+    - **AWS SQS Context Filtering**: Limited AWS SQS patterns to AWS-specific contexts, excluding package dependency files
+    - **Enhanced File Filtering**: Added package-lock.json, yarn.lock, pnpm-lock.yaml exclusions for queue detection
+    - **Context-Aware Detection**: Added filtering logic to skip false positive patterns in specific file types
+  - **✅ Files Modified**:
+    - `pkg/assistant/analysis/resource_detectors.go` - Enhanced regex patterns and filtering logic
+  - **Impact**: More accurate resource detection reduces confusion and provides better deployment recommendations
+- **SECURITY: Protected Analysis Cache from Credential Leaks (2025-10-15)** - Added .sc/analysis-cache.json to .gitignore to prevent committing potentially sensitive project information
+  - **✅ Problem Identified**: The analysis cache file can contain project paths, metadata, and potentially reference sensitive files like .env during project analysis
+  - **✅ Security Fix Applied**: 
+    - Added `.sc/analysis-cache.json` to .gitignore with explanatory comment
+    - Removed existing file from Git tracking using `git rm --cached`
+    - Prevents credential leakage through analysis cache commits
+  - **✅ Technical Details**:
+    - **File Protected**: `.sc/analysis-cache.json` - Project analysis cache that may contain sensitive metadata
+    - **Risk Mitigated**: Prevents inadvertent exposure of project structure, file paths, and analysis data that could reference credentials
+    - **Location**: Added to .gitignore under "AI Assistant analysis cache" section
+  - **Impact**: Project analysis cache files remain local-only, preventing potential credential exposure through version control
+  - **✅ Enhanced Implementation**: Modified analyze command to automatically add analysis cache to .gitignore whenever analysis is performed
+    - **Simple Container Git Integration**: Uses `pkg/api/git` utilities instead of custom implementation for consistency
+    - **Automatic Protection**: `SaveAnalysisCache()` function now calls `ensureCacheInGitignore()` using SC's git API
+    - **Repository-Aware**: Properly detects git root directory and handles repository initialization
+    - **Simplified Logic**: Leverages existing `AddFileToIgnore()` method from Simple Container's proven git utilities
+    - **Graceful Handling**: Non-blocking operation with warning if .gitignore update fails
+    - **Future-Proof**: All analyze command usage now automatically protects against credential leaks using established SC patterns
 - **SECURITY: Implemented Comprehensive Credential Obfuscation for LLM Protection (2025-01-09)** - Enhanced all file reading operations to automatically mask sensitive credentials before exposing content to LLM
   - **✅ Problem Identified**: Configuration files (especially secrets.yaml) containing actual credentials could be exposed to LLM during chat commands, analysis, and file reading operations
   - **✅ Comprehensive Security Implementation**: 

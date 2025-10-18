@@ -35,7 +35,7 @@ func (c *ChatInterface) registerStackCommands() {
 
 	c.commands["modifystack"] = &ChatCommand{
 		Name:        "modifystack",
-		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, Lambda memory (config.maxMemory), scaling, etc. IMPORTANT: For memory changes use 'config.maxMemory', NOT 'config.scale.max'! To remove secrets/databases: use dotted notation like 'config.secrets.SECRET_NAME=' with empty value.",
+		Description: "Modify existing stack environment configuration in client.yaml files (not for changing deployment preferences - use /switch for that). Use this to modify environment properties like parent stack references, resource usage, memory, scaling, etc. MEMORY CONFIG: For single-image deployments use 'config.maxMemory' (Lambda memory), for cloud-compose deployments use 'config.size.memory' (container memory). To remove secrets/databases: use dotted notation like 'config.secrets.SECRET_NAME=' with empty value.",
 		Usage:       "/modifystack <stack_name> <environment_name> <key=value> [key=value...]",
 		Handler:     c.handleModifyStack,
 		Args: []CommandArg{
@@ -45,7 +45,8 @@ func (c *ChatInterface) registerStackCommands() {
 			{Name: "parentEnv", Type: "string", Required: false, Description: "Parent environment to map to (e.g. 'staging', 'prod', 'shared')"},
 			{Name: "type", Type: "string", Required: false, Description: "Deployment type (cloud-compose, static, single-image)"},
 			{Name: "config.uses", Type: "string", Required: false, Description: "Comma-separated list of resources the stack should use (e.g. 'postgres,redis' or empty '' to remove all)"},
-			{Name: "config.maxMemory", Type: "string", Required: false, Description: "Lambda function memory allocation in MB (e.g. '512', '1024', '2048') - USE THIS FOR MEMORY CHANGES"},
+			{Name: "config.maxMemory", Type: "string", Required: false, Description: "Lambda function memory allocation in MB (e.g. '512', '1024', '2048') - ONLY for single-image deployments"},
+			{Name: "config.size.memory", Type: "string", Required: false, Description: "Container memory allocation in MB (e.g. '512', '1024', '2048') - ONLY for cloud-compose deployments"},
 			{Name: "config.timeout", Type: "string", Required: false, Description: "Lambda function timeout in seconds"},
 			{Name: "config.scale.min", Type: "string", Required: false, Description: "Minimum number of container instances (NOT memory!)"},
 			{Name: "config.scale.max", Type: "string", Required: false, Description: "Maximum number of container instances (NOT memory!)"},

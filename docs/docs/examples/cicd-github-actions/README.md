@@ -71,7 +71,9 @@ cicd:
       staging: { type: staging, auto-deploy: true }
       production: { type: production, protection: true }
     notifications:
-      slack: "${secret:slack-webhook-url}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
 ```
 
 ### Secrets Configuration (`secrets.yaml`)
@@ -89,8 +91,8 @@ values:
   aws-secret-key: your-aws-secret-key-here
   slack-webhook-url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
   discord-webhook-url: "https://discord.com/api/webhooks/YOUR/WEBHOOK/URL"
+  telegram-bot-token: your-telegram-bot-token-here
   telegram-chat-id: your-telegram-chat-id-here
-  telegram-token: your-telegram-bot-token-here
 ```
 
 ### GitHub Secrets Setup

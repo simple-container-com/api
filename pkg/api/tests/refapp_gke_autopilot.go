@@ -11,7 +11,7 @@ var RefappGkeAutopilotServerResources = map[string]api.ResourceDescriptor{
 		Config: api.Config{
 			Config: &gcloud.GkeAutopilotResource{
 				Credentials:   CommonGcpCredentials,
-				GkeMinVersion: "1.26.5-gke.1200",
+				GkeMinVersion: "1.33.4-gke.1245000",
 				Location:      "europe-west3",
 			},
 		},
@@ -76,7 +76,7 @@ var ResolvedRefappGkeAutopilotServerResources = map[string]api.ResourceDescripto
 		Config: api.Config{
 			Config: &gcloud.GkeAutopilotResource{
 				Credentials:   ResolvedCommonGcpCredentials,
-				GkeMinVersion: "1.26.5-gke.1200",
+				GkeMinVersion: "1.33.4-gke.1245000",
 				Location:      "europe-west3",
 			},
 		},

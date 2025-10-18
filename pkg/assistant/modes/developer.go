@@ -1437,18 +1437,20 @@ func (d *DeveloperMode) determineDeploymentTypeWithOptions(analysis *analysis.Pr
 		return "cloud-compose" // Default fallback
 	}
 
-	// Check for static site indicators
-	staticIndicators := []string{"build", "dist", "public", "_site", "out"}
-	for _, dir := range staticIndicators {
-		if _, err := os.Stat(dir); err == nil {
-			// Check if it contains web assets
-			if d.containsStaticAssets(dir) {
-				return "static"
-			}
-		}
+	// PRIORITY 1: Check for docker-compose.yaml (strongest multi-container indicator)
+	if _, err := os.Stat("docker-compose.yaml"); err == nil {
+		return "cloud-compose"
+	}
+	if _, err := os.Stat("docker-compose.yml"); err == nil {
+		return "cloud-compose"
 	}
 
-	// Check for single-image indicators (serverless/lambda patterns)
+	// PRIORITY 2: Check for full-stack application structure
+	if d.isFullStackApplication() {
+		return "cloud-compose"
+	}
+
+	// PRIORITY 3: Check for single-image indicators (serverless/lambda patterns)
 	if analysis.PrimaryStack != nil {
 		// Check for AWS Lambda indicators
 		if analysis.PrimaryStack.Language == "javascript" || analysis.PrimaryStack.Language == "python" || analysis.PrimaryStack.Language == "go" {
@@ -1462,16 +1464,129 @@ func (d *DeveloperMode) determineDeploymentTypeWithOptions(analysis *analysis.Pr
 		}
 	}
 
-	// Check for docker-compose.yaml (multi-container)
-	if _, err := os.Stat("docker-compose.yaml"); err == nil {
-		return "cloud-compose"
-	}
-	if _, err := os.Stat("docker-compose.yml"); err == nil {
-		return "cloud-compose"
+	// PRIORITY 4: Check for containerized backend applications
+	if _, err := os.Stat("Dockerfile"); err == nil {
+		// If there's a Dockerfile but not docker-compose, assume single container for backend
+		return "single-image"
 	}
 
-	// Default to cloud-compose for containerized applications
+	// PRIORITY 5: Check for static site indicators (only if no backend detected)
+	if d.isStaticOnlyProject() {
+		return "static"
+	}
+
+	// Default to cloud-compose for complex applications
 	return "cloud-compose"
+}
+
+// isFullStackApplication checks if this is a full-stack application (frontend + backend)
+func (d *DeveloperMode) isFullStackApplication() bool {
+	// Check for typical full-stack directory structures
+	frontendDirs := []string{"frontend", "client", "web", "ui", "app", "public", "www"}
+	backendDirs := []string{"backend", "server", "api", "src", "lib", "services"}
+
+	hasFrontend := false
+	hasBackend := false
+
+	// Check for frontend directories
+	for _, dir := range frontendDirs {
+		if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
+			hasFrontend = true
+			break
+		}
+	}
+
+	// Check for backend directories
+	for _, dir := range backendDirs {
+		if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
+			hasBackend = true
+			break
+		}
+	}
+
+	// If both frontend and backend detected, it's full-stack
+	if hasFrontend && hasBackend {
+		return true
+	}
+
+	// Check for backend frameworks/files that suggest server-side application
+	backendFiles := []string{
+		// Node.js backend
+		"package.json", // if has both package.json and frontend dir
+		"server.js", "app.js", "index.js", "main.js",
+		// NestJS
+		"nest-cli.json",
+		// Python backends
+		"requirements.txt", "Pipfile", "pyproject.toml",
+		"app.py", "main.py", "manage.py", "wsgi.py",
+		// Go backends
+		"go.mod", "main.go",
+		// Java backends
+		"pom.xml", "build.gradle", "Application.java",
+		// PHP backends
+		"composer.json", "index.php",
+		// Ruby backends
+		"Gemfile", "config.ru",
+		// Configuration files suggesting backend
+		"docker-compose.yml", "docker-compose.yaml",
+		"Dockerfile",
+	}
+
+	backendFileCount := 0
+	for _, file := range backendFiles {
+		if _, err := os.Stat(file); err == nil {
+			backendFileCount++
+		}
+	}
+
+	// If we have frontend directory + backend indicators, it's full-stack
+	if hasFrontend && backendFileCount > 0 {
+		return true
+	}
+
+	return false
+}
+
+// isStaticOnlyProject checks if this is purely a static website project
+func (d *DeveloperMode) isStaticOnlyProject() bool {
+	// Check for static site indicators
+	staticIndicators := []string{"build", "dist", "public", "_site", "out"}
+	hasStaticAssets := false
+
+	for _, dir := range staticIndicators {
+		if _, err := os.Stat(dir); err == nil {
+			// Check if it contains web assets
+			if d.containsStaticAssets(dir) {
+				hasStaticAssets = true
+				break
+			}
+		}
+	}
+
+	if !hasStaticAssets {
+		return false
+	}
+
+	// Check for backend indicators - if any exist, it's NOT static-only
+	backendIndicators := []string{
+		// Backend directories
+		"src", "lib", "server", "backend", "api", "services",
+		// Backend files
+		"package.json", "requirements.txt", "go.mod", "pom.xml",
+		"Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+		"server.js", "app.js", "main.py", "main.go",
+		// Backend config
+		"nest-cli.json", "tsconfig.json",
+	}
+
+	for _, indicator := range backendIndicators {
+		if _, err := os.Stat(indicator); err == nil {
+			return false // Has backend components, not static-only
+		}
+	}
+
+	// Only static assets found, no backend indicators
+	return true
 }
 
 // containsStaticAssets checks if a directory contains typical static web assets
@@ -1808,66 +1923,80 @@ func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysi
 		}
 	}
 
-	// Add detected resources for docker-compose generation
+	// Add validated resources for docker-compose generation (filter false positives)
 	if analysis != nil && analysis.Resources != nil {
-		prompt.WriteString("\n🎯 DETECTED PROJECT RESOURCES (MUST include as services):\n")
+		validDatabases := d.filterValidDatabases(analysis.Resources.Databases)
+		validQueues := d.filterValidQueues(analysis.Resources.Queues)
 
-		// Databases - add as services
-		if len(analysis.Resources.Databases) > 0 {
-			prompt.WriteString("Databases to add as services:\n")
-			for _, db := range analysis.Resources.Databases {
+		if len(validDatabases) > 0 || len(validQueues) > 0 {
+			prompt.WriteString("\n🎯 VERIFIED PROJECT RESOURCES (include as services):\n")
+
+			// Only include verified databases
+			if len(validDatabases) > 0 {
+				prompt.WriteString("Databases to add as services:\n")
+				for _, db := range validDatabases {
+					switch strings.ToLower(db.Type) {
+					case "mongodb":
+						prompt.WriteString("  • MongoDB service (use mongo:latest image)\n")
+					case "redis":
+						prompt.WriteString("  • Redis service (use redis:latest image)\n")
+					case "postgresql", "postgres":
+						prompt.WriteString("  • PostgreSQL service (use postgres:latest image)\n")
+					case "mysql":
+						prompt.WriteString("  • MySQL service (use mysql:latest image)\n")
+					}
+				}
+			}
+
+			// Only include verified queue systems
+			if len(validQueues) > 0 {
+				prompt.WriteString("Queue systems to add as services:\n")
+				for _, queue := range validQueues {
+					switch strings.ToLower(queue.Type) {
+					case "rabbitmq":
+						prompt.WriteString("  • RabbitMQ service (use rabbitmq:management image)\n")
+					case "kafka":
+						prompt.WriteString("  • Apache Kafka service (use confluentinc/cp-kafka image)\n")
+					case "redis_pubsub":
+						prompt.WriteString("  • Redis Pub/Sub (same as Redis database service)\n")
+					}
+				}
+			}
+		} else {
+			prompt.WriteString("\n🎯 MINIMAL SETUP: No complex external services detected - generating simple single-service compose\n")
+		}
+
+		// Environment variables guidance
+		if len(analysis.Resources.EnvironmentVars) > 0 {
+			prompt.WriteString(fmt.Sprintf("Environment variables: %d detected\n", len(analysis.Resources.EnvironmentVars)))
+		}
+
+		// Service dependency guidance
+		if len(validDatabases) > 0 || len(validQueues) > 0 {
+			prompt.WriteString("\n📋 CRITICAL SERVICE DEPENDENCIES:\n")
+			prompt.WriteString("Add depends_on to main app service to ensure proper startup order:\n")
+			prompt.WriteString("  app:\n")
+			prompt.WriteString("    depends_on:\n")
+			for _, db := range validDatabases {
 				switch strings.ToLower(db.Type) {
 				case "mongodb":
-					prompt.WriteString("  • MongoDB service (use mongo:latest image)\n")
+					prompt.WriteString("      - mongo\n")
 				case "redis":
-					prompt.WriteString("  • Redis service (use redis:latest image)\n")
+					prompt.WriteString("      - redis\n")
 				case "postgresql", "postgres":
-					prompt.WriteString("  • PostgreSQL service (use postgres:latest image)\n")
+					prompt.WriteString("      - postgres\n")
 				case "mysql":
-					prompt.WriteString("  • MySQL service (use mysql:latest image)\n")
-				default:
-					prompt.WriteString(fmt.Sprintf("  • %s service (find appropriate Docker image)\n", strings.ToUpper(db.Type)))
+					prompt.WriteString("      - mysql\n")
 				}
 			}
-		}
-
-		// Storage systems - add volumes or services if needed
-		if len(analysis.Resources.Storage) > 0 {
-			prompt.WriteString("Storage systems detected:\n")
-			for _, storage := range analysis.Resources.Storage {
-				switch strings.ToLower(storage.Type) {
-				case "s3":
-					prompt.WriteString("  • S3 storage (use environment variables for AWS credentials)\n")
-				case "gcs":
-					prompt.WriteString("  • Google Cloud Storage (use environment variables for GCS credentials)\n")
-				case "azure":
-					prompt.WriteString("  • Azure Blob Storage (use environment variables for Azure credentials)\n")
-				default:
-					prompt.WriteString(fmt.Sprintf("  • %s storage (configure via environment variables)\n", strings.ToUpper(storage.Type)))
-				}
-			}
-		}
-
-		// Queue systems - add as services
-		if len(analysis.Resources.Queues) > 0 {
-			prompt.WriteString("Queue systems to add as services:\n")
-			for _, queue := range analysis.Resources.Queues {
+			for _, queue := range validQueues {
 				switch strings.ToLower(queue.Type) {
 				case "rabbitmq":
-					prompt.WriteString("  • RabbitMQ service (use rabbitmq:management image)\n")
+					prompt.WriteString("      - rabbitmq\n")
 				case "kafka":
-					prompt.WriteString("  • Apache Kafka service (use confluentinc/cp-kafka image)\n")
-				case "redis":
-					prompt.WriteString("  • Redis Pub/Sub (same as Redis database service)\n")
-				default:
-					prompt.WriteString(fmt.Sprintf("  • %s queue service\n", strings.ToUpper(queue.Type)))
+					prompt.WriteString("      - kafka\n")
 				}
 			}
-		}
-
-		// Environment variables
-		if len(analysis.Resources.EnvironmentVars) > 0 {
-			prompt.WriteString(fmt.Sprintf("Environment variables: %d detected - configure these in your app service\n", len(analysis.Resources.EnvironmentVars)))
 		}
 	}
 
@@ -1893,12 +2022,20 @@ func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysi
 	prompt.WriteString("        \"simple-container.com/volume-storage-class\": \"gp3\"  # Optional: storage class\n")
 	prompt.WriteString("        \"simple-container.com/volume-access-modes\": \"ReadWriteOnce\"  # Optional: access mode\n")
 
+	prompt.WriteString("\n🚨 CRITICAL ENVIRONMENT VARIABLE RULES:\n")
+	prompt.WriteString("❌ ABSOLUTELY FORBIDDEN: ${secret:anything} or ${resource:anything} placeholders\n")
+	prompt.WriteString("❌ ABSOLUTELY FORBIDDEN: ${aws:anything} or ${gcs:anything} placeholders\n")
+	prompt.WriteString("❌ These placeholders ONLY work in client.yaml/server.yaml, NOT in docker-compose.yaml\n")
+	prompt.WriteString("✅ REQUIRED: Use direct values like NODE_ENV: development\n")
+	prompt.WriteString("✅ REQUIRED: Use service connection strings like MONGODB_URI: mongodb://mongo:27017/app\n")
+	prompt.WriteString("✅ For external .env file refs, use: ${MONGODB_URI} (from .env file)\n")
+
 	prompt.WriteString("\n📋 REQUIRED STRUCTURE:\n")
 	prompt.WriteString("- Use version: '3.8' or higher\n")
 	prompt.WriteString("- Main 'app' service with build context and Simple Container labels\n")
 	prompt.WriteString("- Create separate volumes block for ALL required volumes with labels\n")
 	prompt.WriteString("- Proper port mapping with ingress labels\n")
-	prompt.WriteString("- Environment variables for configuration\n")
+	prompt.WriteString("- Standard docker-compose environment variables (NO Simple Container placeholders)\n")
 	prompt.WriteString("- Volume mounts using the defined volumes\n")
 	prompt.WriteString("- Restart policies (restart: unless-stopped recommended)\n")
 	prompt.WriteString("- Include networks block if multiple services need communication\n")
@@ -1945,6 +2082,47 @@ func formatYAMLArray(items []string) string {
 	return result.String()
 }
 
+// filterValidDatabases removes false positive database detections
+func (d *DeveloperMode) filterValidDatabases(databases []analysis.Database) []analysis.Database {
+	var validDatabases []analysis.Database
+
+	for _, db := range databases {
+		// Skip known false positives
+		switch strings.ToLower(db.Type) {
+		case "elasticsearch":
+			// Skip - commonly false positive from ElastiCache references
+			continue
+		case "sqlite":
+			// Skip for docker-compose - not suitable for containerized services
+			continue
+		case "mongodb", "redis", "postgresql", "postgres", "mysql":
+			// Keep verified database types
+			validDatabases = append(validDatabases, db)
+		}
+	}
+
+	return validDatabases
+}
+
+// filterValidQueues removes false positive queue detections
+func (d *DeveloperMode) filterValidQueues(queues []analysis.Queue) []analysis.Queue {
+	var validQueues []analysis.Queue
+
+	for _, queue := range queues {
+		// Skip known false positives
+		switch strings.ToLower(queue.Type) {
+		case "aws_sqs":
+			// Skip - commonly false positive from package dependencies
+			continue
+		case "rabbitmq", "kafka", "redis_pubsub":
+			// Keep verified queue types
+			validQueues = append(validQueues, queue)
+		}
+	}
+
+	return validQueues
+}
+
 func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAnalysis) (string, error) {
 	// Build language-specific template
 	port := "3000"
@@ -1959,10 +2137,11 @@ func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAn
 		}
 	}
 
-	template := fmt.Sprintf(`version: '3.8'
+	var template strings.Builder
+	template.WriteString("version: '3.8'\n\nservices:\n")
 
-services:
-  app:
+	// Main app service
+	template.WriteString(fmt.Sprintf(`  app:
     build: .
     labels:
       "simple-container.com/ingress": "true"
@@ -1972,15 +2151,130 @@ services:
     ports:
       - "%s:%s"
     environment:
-      - NODE_ENV=development
-      - PORT=%s
+      NODE_ENV: development
+      PORT: %s`, port, port, port, port, port))
+
+	// Add verified services if available and collect filtered results
+	var hasServices bool
+	if analysis != nil && analysis.Resources != nil {
+		validDatabases := d.filterValidDatabases(analysis.Resources.Databases)
+		validQueues := d.filterValidQueues(analysis.Resources.Queues)
+		hasServices = len(validDatabases) > 0 || len(validQueues) > 0
+
+		// Add environment variables for detected services
+		if hasServices {
+			template.WriteString("\n      # Service connections")
+
+			for _, db := range validDatabases {
+				switch strings.ToLower(db.Type) {
+				case "mongodb":
+					template.WriteString("\n      MONGODB_URI: mongodb://mongo:27017/app")
+				case "redis":
+					template.WriteString("\n      REDIS_URL: redis://redis:6379")
+				case "postgresql", "postgres":
+					template.WriteString("\n      DATABASE_URL: postgresql://postgres:5432/app")
+				}
+			}
+
+			for _, queue := range validQueues {
+				switch strings.ToLower(queue.Type) {
+				case "rabbitmq":
+					template.WriteString("\n      RABBITMQ_URL: amqp://rabbitmq:5672")
+				}
+			}
+
+			// Add depends_on for service dependencies
+			template.WriteString("\n    depends_on:")
+
+			for _, db := range validDatabases {
+				switch strings.ToLower(db.Type) {
+				case "mongodb":
+					template.WriteString("\n      - mongo")
+				case "redis":
+					template.WriteString("\n      - redis")
+				case "postgresql", "postgres":
+					template.WriteString("\n      - postgres")
+				}
+			}
+
+			for _, queue := range validQueues {
+				switch strings.ToLower(queue.Type) {
+				case "rabbitmq":
+					template.WriteString("\n      - rabbitmq")
+				}
+			}
+		}
+
+		// Store filtered results for service generation below
+		// Re-filter for service definitions (since variables are scoped to if block)
+		template.WriteString(`
     volumes:
       - .:/app:delegated
       - app_data:/data
     restart: unless-stopped
     networks:
       - app_network
+`)
 
+		// Add detected services
+		for _, db := range validDatabases {
+			switch strings.ToLower(db.Type) {
+			case "mongodb":
+				template.WriteString(`
+  mongo:
+    image: mongo:latest
+    restart: unless-stopped
+    networks:
+      - app_network
+`)
+			case "redis":
+				template.WriteString(`
+  redis:
+    image: redis:latest
+    restart: unless-stopped
+    networks:
+      - app_network
+`)
+			case "postgresql", "postgres":
+				template.WriteString(`
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    restart: unless-stopped
+    networks:
+      - app_network
+`)
+			}
+		}
+
+		for _, queue := range validQueues {
+			switch strings.ToLower(queue.Type) {
+			case "rabbitmq":
+				template.WriteString(`
+  rabbitmq:
+    image: rabbitmq:management
+    restart: unless-stopped
+    networks:
+      - app_network
+`)
+			}
+		}
+	} else {
+		// No services detected, just add basic app configuration
+		template.WriteString(`
+    volumes:
+      - .:/app:delegated
+      - app_data:/data
+    restart: unless-stopped
+    networks:
+      - app_network
+`)
+	}
+
+	template.WriteString(`
 volumes:
   app_data:
     labels:
@@ -1990,9 +2284,9 @@ volumes:
 
 networks:
   app_network:
-    driver: bridge`, port, port, port, port, port)
+    driver: bridge`)
 
-	return template, nil
+	return template.String(), nil
 }
 
 func (d *DeveloperMode) GenerateDockerfileWithLLM(analysis *analysis.ProjectAnalysis) (string, error) {
@@ -2321,6 +2615,23 @@ func (d *DeveloperMode) validateDockerfileContent(content string) bool {
 
 // validateComposeContent checks docker-compose.yaml for best practices and Simple Container labels
 func (d *DeveloperMode) validateComposeContent(content string) bool {
+	// CRITICAL: Check for forbidden Simple Container placeholders
+	forbiddenPlaceholders := []string{
+		"${secret:",
+		"${resource:",
+		"${aws:",
+		"${gcs:",
+		"${gcp:",
+		"${azure:",
+	}
+
+	for _, placeholder := range forbiddenPlaceholders {
+		if strings.Contains(content, placeholder) {
+			fmt.Printf("⚠️  Found forbidden placeholder %s in docker-compose.yaml - these only work in client.yaml\n", placeholder)
+			return false
+		}
+	}
+
 	// Basic validation - check for required sections
 	requiredSections := []string{
 		"version:",

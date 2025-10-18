@@ -147,7 +147,7 @@ resources:
         gke-autopilot-res:
           type: gcp-gke-autopilot-cluster
           config:
-            gkeMinVersion: "1.27.16-gke.1296000"
+            gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=europe-west3
             projectId: "${auth:gcloud.projectId}"
             credentials: "${auth:gcloud}"
             location: europe-west3
