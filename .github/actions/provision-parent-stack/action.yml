@@ -30,15 +30,15 @@ inputs:
   token:
     description: 'GitHub token for repository access'
     required: false
-    default: ''
+    default: ${{ github.token }}
   repository:
     description: 'Repository name with owner (e.g., actions/checkout)'
     required: false
-    default: ''
+    default: ${{ github.repository }}
   ref:
     description: 'The branch, tag or SHA to checkout'
     required: false
-    default: ''
+    default: ${{ github.sha }}
 
 outputs:
   stack-name:
