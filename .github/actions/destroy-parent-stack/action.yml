@@ -42,3 +42,7 @@ runs:
     AUTO_CONFIRM: ${{ inputs.auto-confirm }}
     SKIP_BACKUP: ${{ inputs.skip-backup }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    GITHUB_TOKEN: ${{ github.token }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    GITHUB_SHA: ${{ github.sha }}
+    GITHUB_REF: ${{ github.ref }}

@@ -47,3 +47,7 @@ runs:
     DRY_RUN: ${{ inputs.dry-run }}
     SKIP_TESTS: ${{ inputs.skip-tests }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    GITHUB_TOKEN: ${{ github.token }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    GITHUB_SHA: ${{ github.sha }}
+    GITHUB_REF: ${{ github.ref }}

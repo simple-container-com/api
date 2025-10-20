@@ -25,6 +25,7 @@ This is the Simple Container API project with MkDocs documentation. The project 
     - ✅ **Smart Repository Cloning**: Enhanced git initialization to properly clone repository like `actions/checkout` when repository content is missing or incomplete
     - ✅ **Template Compatibility**: All workflow templates now properly aligned with action definitions
     - ✅ **Production-Grade Repository Handling**: Proper authentication with `GITHUB_TOKEN`, ref-specific checkout, and complete repository content cloning
+    - ✅ **Critical Authentication Fix**: Added missing GitHub environment variables (`GITHUB_TOKEN`, `GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_REF`) to all Docker action environments
 
 #### CI/CD Workflow Generation (In Progress)
 - **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration

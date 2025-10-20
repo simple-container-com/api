@@ -52,3 +52,7 @@ runs:
     SKIP_BACKUP: ${{ inputs.skip-backup }}
     PR_PREVIEW: ${{ inputs.pr-preview }}
     PR_NUMBER: ${{ inputs.pr-number }}
+    GITHUB_TOKEN: ${{ github.token }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    GITHUB_SHA: ${{ github.sha }}
+    GITHUB_REF: ${{ github.ref }}

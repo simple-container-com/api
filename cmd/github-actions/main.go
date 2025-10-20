@@ -182,10 +182,19 @@ func cloneRepository(ctx context.Context, log logger.Logger, workDir string) err
 		return fmt.Errorf("GITHUB_REPOSITORY environment variable not set")
 	}
 
-	// Get token for authentication
+	// Get token for authentication - check multiple sources
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
-		log.Warn(ctx, "GITHUB_TOKEN not set, attempting clone without authentication")
+		// Also check for GitHub Actions default token locations
+		if actionsToken := os.Getenv("GITHUB_ACTIONS_TOKEN"); actionsToken != "" {
+			token = actionsToken
+		}
+	}
+
+	if token == "" {
+		log.Error(ctx, "No GitHub token available (GITHUB_TOKEN not set)")
+		log.Error(ctx, "Private repository %s requires authentication", repository)
+		return fmt.Errorf("GITHUB_TOKEN environment variable required for private repository access")
 	}
 
 	// Get the ref to checkout (default to the current SHA)
@@ -197,15 +206,10 @@ func cloneRepository(ctx context.Context, log logger.Logger, workDir string) err
 		}
 	}
 
-	log.Info(ctx, "Cloning repository %s at ref %s", repository, ref)
+	log.Info(ctx, "Cloning repository %s at ref %s with authentication", repository, ref)
 
-	// Construct the clone URL
-	var repoURL string
-	if token != "" {
-		repoURL = fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", token, repository)
-	} else {
-		repoURL = fmt.Sprintf("https://github.com/%s.git", repository)
-	}
+	// Construct authenticated clone URL
+	repoURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", token, repository)
 
 	// Create a temporary directory for cloning
 	tempDir, err := os.MkdirTemp("", "github-actions-clone-")
@@ -238,22 +242,53 @@ func cloneRepository(ctx context.Context, log logger.Logger, workDir string) err
 	return copyRepositoryContents(tempDir, workDir)
 }
 
-// runGitCommand executes a git command with proper logging
+// runGitCommand executes a git command with proper logging and error handling
 func runGitCommand(ctx context.Context, log logger.Logger, dir string, args []string) error {
+	// Create a safe version of args for logging (mask tokens)
+	safeArgs := make([]string, len(args))
+	copy(safeArgs, args)
+	for i, arg := range safeArgs {
+		if strings.Contains(arg, "x-access-token:") {
+			// Replace token with masked version for logging
+			safeArgs[i] = strings.ReplaceAll(arg,
+				arg[strings.Index(arg, "x-access-token:"):strings.Index(arg, "@")],
+				"x-access-token:***")
+		}
+	}
+
+	log.Info(ctx, "Executing git command: %s", strings.Join(safeArgs, " "))
+
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no",
+		"GIT_ASKPASS=echo", // Prevent any password prompts
 	)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Error(ctx, "Git command failed: %s, output: %s", strings.Join(args, " "), string(output))
+		// Provide specific error context based on the output
+		outputStr := string(output)
+		if strings.Contains(outputStr, "could not read Username") {
+			log.Error(ctx, "Authentication failed - GITHUB_TOKEN may be invalid or missing")
+			return fmt.Errorf("git authentication failed: ensure GITHUB_TOKEN is set and valid for repository access")
+		} else if strings.Contains(outputStr, "repository not found") {
+			log.Error(ctx, "Repository not found - check repository name and access permissions")
+			return fmt.Errorf("git clone failed: repository not found or access denied")
+		} else if strings.Contains(outputStr, "permission denied") {
+			log.Error(ctx, "Permission denied - GITHUB_TOKEN may lack repository access")
+			return fmt.Errorf("git clone failed: permission denied, check token permissions")
+		}
+
+		// Generic error with masked output for logging
+		maskedOutput := strings.ReplaceAll(outputStr,
+			os.Getenv("GITHUB_TOKEN"), "***")
+		log.Error(ctx, "Git command failed: %s, output: %s", strings.Join(safeArgs, " "), maskedOutput)
 		return fmt.Errorf("git command failed: %w", err)
 	}
 
-	log.Info(ctx, "Git command successful: %s", strings.Join(args, " "))
+	log.Info(ctx, "Git command completed successfully")
 	return nil
 }
 
