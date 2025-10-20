@@ -69,6 +69,10 @@ jobs:
           validation-command: |
             {{ $env.ValidationCmd | indent 12 }}
           {{- end }}
+          # GitHub context for repository cloning
+          token: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+          repository: ${{ "{{" }} github.repository {{ "}}" }}
+          ref: ${{ "{{" }} github.sha {{ "}}" }}
           cc-on-start: "{{ $.Notifications.CCOnStart }}"
           
       {{- if $.Validation.Required }}
@@ -186,6 +190,10 @@ jobs:
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
           skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
+          # GitHub context for repository cloning
+          token: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+          repository: ${{ "{{" }} github.repository {{ "}}" }}
+          ref: ${{ "{{" }} github.sha {{ "}}" }}
 
 `
 
@@ -261,6 +269,10 @@ jobs:
           auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
           skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
           notify-on-completion: "true"
+          # GitHub context for repository cloning
+          token: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+          repository: ${{ "{{" }} github.repository {{ "}}" }}
+          ref: ${{ "{{" }} github.sha {{ "}}" }}
           # Notification webhooks automatically configured from SC secrets.yaml
           # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
 
@@ -318,6 +330,10 @@ jobs:
           dry-run: ${{ "{{" }} github.event_name == 'push' && 'false' || github.event.inputs.dry_run || 'true' {{ "}}" }}
           skip-tests: ${{ "{{" }} github.event.inputs.skip_tests || 'false' {{ "}}" }}
           notify-on-completion: "true"
+          # GitHub context for repository cloning
+          token: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+          repository: ${{ "{{" }} github.repository {{ "}}" }}
+          ref: ${{ "{{" }} github.sha {{ "}}" }}
           # Notification webhooks automatically configured from SC secrets.yaml
           # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
 
@@ -436,6 +452,10 @@ jobs:
           validation-command: |
             {{ (index .Environments $previewEnv).ValidationCmd | indent 12 }}
           {{- end }}
+          # GitHub context for repository cloning
+          token: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+          repository: ${{ "{{" }} github.repository {{ "}}" }}
+          ref: ${{ "{{" }} github.sha {{ "}}" }}
           
       - name: Comment PR with preview URL
         uses: actions/github-script@v7
@@ -469,6 +489,10 @@ jobs:
           pr-number: "${{ "{{" }} env.PR_NUMBER {{ "}}" }}"
           auto-confirm: "true"
           skip-backup: "true"
+          # GitHub context for repository cloning
+          token: ${{ "{{" }} secrets.GITHUB_TOKEN {{ "}}" }}
+          repository: ${{ "{{" }} github.repository {{ "}}" }}
+          ref: ${{ "{{" }} github.sha {{ "}}" }}
           
       - name: Comment PR cleanup
         uses: actions/github-script@v7

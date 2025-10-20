@@ -27,6 +27,18 @@ inputs:
     description: 'Send notifications when provisioning completes'
     required: false
     default: 'true'
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ''
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ''
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ''
 
 outputs:
   stack-name:
@@ -47,7 +59,7 @@ runs:
     DRY_RUN: ${{ inputs.dry-run }}
     SKIP_TESTS: ${{ inputs.skip-tests }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
-    GITHUB_TOKEN: ${{ github.token }}
-    GITHUB_REPOSITORY: ${{ github.repository }}
-    GITHUB_SHA: ${{ github.sha }}
-    GITHUB_REF: ${{ github.ref }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}

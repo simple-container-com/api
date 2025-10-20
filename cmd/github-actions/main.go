@@ -176,25 +176,30 @@ func isProperRepository(workDir string) bool {
 
 // cloneRepository performs a git clone similar to actions/checkout
 func cloneRepository(ctx context.Context, log logger.Logger, workDir string) error {
-	// Get required GitHub environment variables
+	// Get repository info - try input first, then fallback to GitHub Actions automatic env vars
 	repository := os.Getenv("GITHUB_REPOSITORY")
 	if repository == "" {
+		log.Error(ctx, "GITHUB_REPOSITORY not available - ensure workflow passes repository context")
 		return fmt.Errorf("GITHUB_REPOSITORY environment variable not set")
 	}
 
-	// Get token for authentication - check multiple sources
+	// Get token for authentication - try multiple sources following GitHub best practices
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
-		// Also check for GitHub Actions default token locations
+		// Check for other potential token locations
 		if actionsToken := os.Getenv("GITHUB_ACTIONS_TOKEN"); actionsToken != "" {
 			token = actionsToken
+			log.Info(ctx, "Using GITHUB_ACTIONS_TOKEN for authentication")
 		}
+	} else {
+		log.Info(ctx, "Using GITHUB_TOKEN for authentication")
 	}
 
 	if token == "" {
-		log.Error(ctx, "No GitHub token available (GITHUB_TOKEN not set)")
+		log.Error(ctx, "No GitHub token available for private repository access")
+		log.Error(ctx, "Ensure workflow passes token: ${{ secrets.GITHUB_TOKEN }} to action inputs")
 		log.Error(ctx, "Private repository %s requires authentication", repository)
-		return fmt.Errorf("GITHUB_TOKEN environment variable required for private repository access")
+		return fmt.Errorf("GitHub token required for repository authentication - check workflow configuration")
 	}
 
 	// Get the ref to checkout (default to the current SHA)

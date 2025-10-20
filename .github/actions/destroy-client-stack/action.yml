@@ -29,6 +29,18 @@ inputs:
   pr-number:
     description: 'Pull request number for preview environments'
     required: false
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ''
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ''
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ''
 
 outputs:
   environment:
@@ -52,7 +64,7 @@ runs:
     SKIP_BACKUP: ${{ inputs.skip-backup }}
     PR_PREVIEW: ${{ inputs.pr-preview }}
     PR_NUMBER: ${{ inputs.pr-number }}
-    GITHUB_TOKEN: ${{ github.token }}
-    GITHUB_REPOSITORY: ${{ github.repository }}
-    GITHUB_SHA: ${{ github.sha }}
-    GITHUB_REF: ${{ github.ref }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}
