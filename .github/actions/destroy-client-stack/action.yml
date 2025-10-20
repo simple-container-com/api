@@ -14,6 +14,21 @@ inputs:
   sc-config:
     description: 'Simple Container configuration (SC_CONFIG secret content)'
     required: true
+  auto-confirm:
+    description: 'Automatically confirm destruction without prompts'
+    required: false
+    default: 'false'
+  skip-backup:
+    description: 'Skip creating backups before destruction'
+    required: false
+    default: 'false'
+  pr-preview:
+    description: 'Destroy PR preview environment'
+    required: false
+    default: 'false'
+  pr-number:
+    description: 'Pull request number for preview environments'
+    required: false
 
 outputs:
   environment:
@@ -33,3 +48,7 @@ runs:
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
     SC_CONFIG: ${{ inputs.sc-config }}
+    AUTO_CONFIRM: ${{ inputs.auto-confirm }}
+    SKIP_BACKUP: ${{ inputs.skip-backup }}
+    PR_PREVIEW: ${{ inputs.pr-preview }}
+    PR_NUMBER: ${{ inputs.pr-number }}

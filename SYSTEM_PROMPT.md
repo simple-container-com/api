@@ -20,6 +20,11 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **GitHub workflow**: `.github/workflows/build-staging.yml` (builds staging image using welder commands)
   - **Fast development**: Push to `staging` branch triggers automatic staging image build
   - **Status**: ✅ **Production ready with perfect SC API integration + automated staging workflow**
+  - **Recent Fixes (2024-10-20)**:
+    - ✅ **Action Input Consistency**: Added missing inputs (`dry-run`, `skip-tests`, `notify-on-completion`, `auto-confirm`, `skip-backup`, `pr-preview`, `pr-number`) to all action.yml files 
+    - ✅ **Smart Repository Cloning**: Enhanced git initialization to properly clone repository like `actions/checkout` when repository content is missing or incomplete
+    - ✅ **Template Compatibility**: All workflow templates now properly aligned with action definitions
+    - ✅ **Production-Grade Repository Handling**: Proper authentication with `GITHUB_TOKEN`, ref-specific checkout, and complete repository content cloning
 
 #### CI/CD Workflow Generation (In Progress)
 - **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration

@@ -15,6 +15,18 @@ inputs:
     description: 'Target environment profile'
     required: false
     default: 'default'
+  dry-run:
+    description: 'Run in preview mode without making actual changes'
+    required: false
+    default: 'false'
+  skip-tests:
+    description: 'Skip running tests after provisioning'
+    required: false
+    default: 'false'
+  notify-on-completion:
+    description: 'Send notifications when provisioning completes'
+    required: false
+    default: 'true'
 
 outputs:
   stack-name:
@@ -32,3 +44,6 @@ runs:
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
     SC_CONFIG: ${{ inputs.sc-config }}
+    DRY_RUN: ${{ inputs.dry-run }}
+    SKIP_TESTS: ${{ inputs.skip-tests }}
+    NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
