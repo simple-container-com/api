@@ -153,6 +153,18 @@ func (e *Executor) reconfigureProvisionerWithKeys(ctx context.Context, scConfig 
 		return fmt.Errorf("failed to create new provisioner: %w", err)
 	}
 
+	// Initialize the new provisioner with the same parameters as the original
+	err = newProvisioner.Init(ctx, api.InitParams{
+		ProjectName:         os.Getenv("STACK_NAME"),
+		RootDir:             workDir,
+		SkipInitialCommit:   true,
+		SkipProfileCreation: true,
+		Profile:             os.Getenv("ENVIRONMENT"),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize new provisioner: %w", err)
+	}
+
 	// Replace existing provisioner
 	e.provisioner = newProvisioner
 	e.logger.Info(ctx, "✅ Successfully reconfigured provisioner with SSH keys")
