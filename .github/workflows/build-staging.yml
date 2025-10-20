@@ -1,0 +1,61 @@
+name: Build GitHub Actions Staging Image
+
+on:
+  push:
+    branches:
+      - github-actions-staging
+  workflow_dispatch:
+
+jobs:
+  build-staging:
+    name: Build Staging Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          
+      - name: Install Simple Container CLI
+        run: |
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+          
+      - name: Prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+          
+      - name: Build static sc binary with welder
+        run: |
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run build-github-actions-staging
+          
+      - name: Docker login using SC secrets
+        run: |
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+          
+      - name: Build and push Docker image with welder
+        run: |
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") docker build --push github-actions-staging
+          
+      - name: Image built successfully
+        run: |
+          echo "🎉 GitHub Actions staging image built successfully!"
+          echo ""
+          echo "🚀 The staging image is now available:"
+          echo "   simplecontainer/github-actions:github-actions-staging" 
+          echo "   simplecontainer/github-actions:${{ github.ref_name }}"
+          echo ""
+          echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
+          echo ""
+          echo "📝 Next steps:"
+          echo "   1. Test your GitHub Actions workflows"
+          echo "   2. Push changes to main when ready for production"

@@ -261,3 +261,18 @@ tasks:
       - welder run generate-schemas
       - if [ "${SKIP_EMBEDDINGS}" != 'true' ]; then welder run generate-embeddings; else echo "Skipping embeddings"; fi
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
+  build-github-actions-staging:
+    runOn: host
+    env:
+      CGO_ENABLED: "0"
+      GOOS: "linux"
+      GOARCH: "amd64"
+    script:
+      - echo "Building static sc binary for GitHub Actions staging (Alpine compatible)..."
+      - mkdir -p ${project:root}/bin
+      - |
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+          -ldflags "-s -w" \
+          -a -installsuffix cgo \
+          -o ${project:root}/bin/sc \
+          ./cmd/sc
