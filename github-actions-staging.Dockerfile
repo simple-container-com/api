@@ -21,5 +21,7 @@ COPY ./bin/github-actions ./github-actions
 # Make sure the binary is executable
 RUN chmod +x ./github-actions
 
-# Set the entrypoint to use the github-actions binary
-ENTRYPOINT ["./github-actions"]
+# Set the entrypoint to use the github-actions binary with absolute path
+# GitHub Actions runner overrides WORKDIR with --workdir /github/workspace
+# so we must use absolute path to avoid "./github-actions: no such file or directory"
+ENTRYPOINT ["/root/github-actions"]
