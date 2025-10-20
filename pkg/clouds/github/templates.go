@@ -189,9 +189,93 @@ jobs:
 
 `
 
+const destroyParentTemplate = `name: Destroy {{ .Organization.Name }} Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DESTROY-INFRASTRUCTURE to confirm'
+        required: true
+        type: string
+      auto_confirm:
+        description: 'Skip confirmation prompts'
+        required: false
+        type: boolean
+        default: false
+      skip_backup:
+        description: 'Skip infrastructure backup'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: destroy-infrastructure-{{ .StackName }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+
+env:
+  STACK_NAME: "{{ .StackName }}"
+
+jobs:
+  validate-destroy:
+    name: Validate Infrastructure Destruction
+    runs-on: ubuntu-latest
+    outputs:
+      confirmed: ${{ "{{" }} steps.validate.outputs.confirmed {{ "}}" }}
+    steps:
+      - name: Validate destruction request
+        id: validate
+        run: |
+          CONFIRMATION="${{ "{{" }} github.event.inputs.confirmation {{ "}}" }}"
+          
+          if [[ "$CONFIRMATION" != "DESTROY-INFRASTRUCTURE" ]]; then
+            echo "❌ Invalid confirmation. Please type 'DESTROY-INFRASTRUCTURE' to confirm."
+            exit 1
+          fi
+          
+          echo "⚠️  WARNING: This will destroy the entire infrastructure stack!"
+          echo "⚠️  This action affects all dependent applications and services."
+          echo "⚠️  Make sure all client applications are properly backed up."
+          
+          echo "confirmed=true" >> $GITHUB_OUTPUT
+          echo "✅ Infrastructure destruction request validated"
+
+  destroy-infrastructure:
+    name: Destroy Infrastructure Stack
+    needs: validate-destroy
+    environment: infrastructure
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}60{{ end }}
+    
+    steps:
+      - name: Destroy Parent Stack
+        uses: {{ if index .CustomActions "destroy" }}{{ index .CustomActions "destroy" }}{{ else }}{{ defaultAction "destroy-parent" .SCVersion }}{{ end }}
+        with:
+          stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
+          sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
+          auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
+          skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
+          notify-on-completion: "true"
+          # Notification webhooks automatically configured from SC secrets.yaml
+          # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
+
+`
+
 const provisionTemplate = `name: Provision {{ .Organization.Name }} Infrastructure
 
 on:
+  push:
+    branches: [{{ .Organization.DefaultBranch }}]
+    paths:
+      - '.sc/stacks/**'
+      - 'server.yaml'
+      - '*.yaml'
+      - '*.yml'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -230,7 +314,9 @@ jobs:
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
-          dry-run: ${{ "{{" }} github.event.inputs.dry_run {{ "}}" }}
+          # For push triggers: dry-run=false (deploy), for manual dispatch: use input (default=true)
+          dry-run: ${{ "{{" }} github.event_name == 'push' && 'false' || github.event.inputs.dry_run || 'true' {{ "}}" }}
+          skip-tests: ${{ "{{" }} github.event.inputs.skip_tests || 'false' {{ "}}" }}
           notify-on-completion: "true"
           # Notification webhooks automatically configured from SC secrets.yaml
           # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
@@ -239,7 +325,9 @@ jobs:
     name: Test Infrastructure
     needs: provision-infrastructure
     runs-on: ubuntu-latest
-    if: ${{ "{{" }} success() && !github.event.inputs.skip_tests && !github.event.inputs.dry_run {{ "}}" }}
+    # Run tests unless explicitly skipped or in dry-run mode
+    # For push: always run tests, for manual dispatch: respect user inputs
+    if: ${{ "{{" }} success() && (github.event_name == 'push' || (!github.event.inputs.skip_tests && !github.event.inputs.dry_run)) {{ "}}" }}
     
     steps:
       - name: Run infrastructure tests

@@ -23,6 +23,7 @@ type GenerateParams struct {
 	ConfigFile string
 	Force      bool
 	DryRun     bool
+	Parent     bool
 }
 
 // ValidateParams contains parameters for workflow validation
@@ -32,6 +33,7 @@ type ValidateParams struct {
 	WorkflowsDir string
 	ShowDiff     bool
 	Verbose      bool
+	Parent       bool
 }
 
 // PreviewParams contains parameters for workflow preview
@@ -39,6 +41,7 @@ type PreviewParams struct {
 	StackName   string
 	ConfigFile  string
 	ShowContent bool
+	Parent      bool
 }
 
 // SyncParams contains parameters for workflow synchronization
@@ -47,6 +50,7 @@ type SyncParams struct {
 	ConfigFile string
 	DryRun     bool
 	Force      bool
+	Parent     bool
 }
 
 // Result contains the result of a CI/CD operation
@@ -80,7 +84,7 @@ func (s *Service) GenerateWorkflows(params GenerateParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
 
 	// Set up output directory
 	outputDir := params.Output
@@ -165,7 +169,7 @@ func (s *Service) ValidateWorkflows(params ValidateParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
 
 	// Set up workflows directory
 	workflowsDir := params.WorkflowsDir
@@ -257,7 +261,7 @@ func (s *Service) PreviewWorkflows(params PreviewParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
 
 	// Generate preview
 	return s.previewGeneration(enhancedConfig, stackName, ".github/workflows/")
@@ -285,7 +289,7 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
 
 	workflowsDir := ".github/workflows/"
 

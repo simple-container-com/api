@@ -10,8 +10,138 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/github"
 )
 
+// ParentRepositoryInfo holds information about parent repository configuration
+type ParentRepositoryInfo struct {
+	IsParent        bool
+	ParentRepoURL   string
+	ParentStackPath string
+	HasParentConfig bool
+}
+
+// getParentRepositoryInfo determines if this is a parent repository and gathers parent configuration
+// This function is only called when --parent flag is NOT used, to determine if this is a client stack
+// that needs parent repository information for workflow generation
+func getParentRepositoryInfo(serverDesc *api.ServerDescriptor, stackName string) *ParentRepositoryInfo {
+	info := &ParentRepositoryInfo{}
+
+	// This stack is a client stack, check if it has parent repository configuration
+	parentConfig := checkParentRepositoryConfig(stackName)
+	if parentConfig != nil {
+		info.ParentRepoURL = parentConfig.ParentRepoURL
+		info.ParentStackPath = parentConfig.ParentStackPath
+		info.HasParentConfig = parentConfig.HasParentConfig
+		info.IsParent = false // This is a client stack, not a parent
+		return info
+	}
+
+	// No parent configuration found, this is likely a standalone stack
+	info.IsParent = false
+	return info
+}
+
+// checkParentRepositoryConfig reads SC configuration to find parent repository information
+// Follows SC's standard configuration reading patterns
+func checkParentRepositoryConfig(stackName string) *ParentRepositoryInfo {
+	// First, try to read SC configuration using standard profile system
+	config, err := api.ReadConfigFile(".", "default")
+	if err != nil {
+		// Try other profile if default fails (following SC standard practice)
+		profile := os.Getenv("SC_PROFILE")
+		if profile != "" && profile != "default" {
+			config, err = api.ReadConfigFile(".", profile)
+			if err != nil {
+				return nil
+			}
+		} else {
+			return nil
+		}
+	}
+
+	// Check if parent repository is configured
+	if config.ParentRepository == "" {
+		return nil
+	}
+
+	info := &ParentRepositoryInfo{
+		ParentRepoURL:   config.ParentRepository,
+		HasParentConfig: true,
+	}
+
+	// Read client.yaml for the specific stack to get parent stack path
+	clientPath := filepath.Join(".sc", "stacks", stackName, "client.yaml")
+	if _, err := os.Stat(clientPath); err == nil {
+		var clientConfig api.ClientDescriptor
+		if readConfig, err := api.ReadDescriptor(clientPath, &clientConfig); err == nil {
+			// Look for parent configuration in the stack's environments
+			for envStackName, stackConfig := range readConfig.Stacks {
+				// Match stack name (handle environment variants like "stack-staging")
+				if strings.HasPrefix(envStackName, stackName) || envStackName == stackName {
+					if stackConfig.ParentStack != "" {
+						info.ParentStackPath = stackConfig.ParentStack
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Check if parent stack is available locally or needs to be fetched from git
+	if info.ParentStackPath != "" {
+		// Try to find parent stack locally first
+		localParentPath := filepath.Join(".sc", "stacks", info.ParentStackPath, "server.yaml")
+		if _, err := os.Stat(localParentPath); err == nil {
+			// Parent stack is available locally
+			return info
+		}
+
+		// Parent stack not available locally, will need to be fetched from git
+		// This is handled by the workflow generation process
+	}
+
+	return info
+}
+
+// getConcurrencyGroup returns appropriate concurrency group based on repository type
+func getConcurrencyGroup(isParent bool, stackName string) string {
+	if isParent {
+		return "provision-" + stackName + "-${{ github.ref }}"
+	}
+	return "deploy-" + stackName + "-${{ github.ref }}"
+}
+
 // createEnhancedConfig converts server configuration to enhanced GitHub Actions config
-func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *github.EnhancedActionsCiCdConfig {
+func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, isParent bool) *github.EnhancedActionsCiCdConfig {
+	// Determine if this is a parent stack based on explicit flag or configuration
+	var isParentStack bool
+	if isParent {
+		// User explicitly specified --parent flag
+		isParentStack = true
+	} else {
+		// Check if this is a client stack that should use client workflows
+		parentInfo := getParentRepositoryInfo(serverDesc, stackName)
+		isParentStack = parentInfo.IsParent
+	}
+
+	// Choose templates based on repository type
+	var defaultTemplates []string
+	var defaultCustomActions map[string]string
+
+	if isParentStack {
+		// Parent repository workflows
+		defaultTemplates = []string{"provision", "destroy-parent"}
+		defaultCustomActions = map[string]string{
+			"provision":      "simple-container-com/api/.github/actions/provision-parent-stack@main",
+			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent-stack@main",
+		}
+	} else {
+		// Client repository workflows
+		defaultTemplates = []string{"deploy", "destroy"}
+		defaultCustomActions = map[string]string{
+			"deploy":  "simple-container-com/api/.github/actions/deploy-client-stack@main",
+			"destroy": "simple-container-com/api/.github/actions/destroy-client-stack@main",
+		}
+	}
+
 	// Use SC's standard conversion pattern to get strongly typed GitHub Actions configuration
 	convertedConfig, err := api.ConvertConfig(&serverDesc.CiCd.Config, &github.GitHubActionsCiCdConfig{})
 	if err != nil {
@@ -22,14 +152,10 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 				DefaultBranch: "main",
 			},
 			WorkflowGeneration: github.WorkflowGenerationConfig{
-				Enabled:   true,
-				Templates: []string{"deploy", "destroy"},
-				CustomActions: map[string]string{
-					"deploy":         "simple-container-com/api/.github/actions/deploy@main",
-					"destroy-client": "simple-container-com/api/.github/actions/destroy@main",
-					"provision":      "simple-container-com/api/.github/actions/provision@main",
-				},
-				SCVersion: "latest",
+				Enabled:       true,
+				Templates:     defaultTemplates,
+				CustomActions: defaultCustomActions,
+				SCVersion:     "latest",
 			},
 			Execution: github.ExecutionConfig{
 				DefaultTimeout: "30",
@@ -52,14 +178,10 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 				DefaultBranch: "main",
 			},
 			WorkflowGeneration: github.WorkflowGenerationConfig{
-				Enabled:   true,
-				Templates: []string{"deploy", "destroy"},
-				CustomActions: map[string]string{
-					"deploy":         "simple-container-com/api/.github/actions/deploy@main",
-					"destroy-client": "simple-container-com/api/.github/actions/destroy@main",
-					"provision":      "simple-container-com/api/.github/actions/provision@main",
-				},
-				SCVersion: "latest",
+				Enabled:       true,
+				Templates:     defaultTemplates,
+				CustomActions: defaultCustomActions,
+				SCVersion:     "latest",
 			},
 			Execution: github.ExecutionConfig{
 				DefaultTimeout: "30",
@@ -79,19 +201,15 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 			DefaultBranch: "main",
 		},
 		WorkflowGeneration: github.WorkflowGenerationConfig{
-			Enabled:   true,
-			Templates: []string{"deploy", "destroy"},
-			CustomActions: map[string]string{
-				"deploy":         "simple-container-com/api/.github/actions/deploy@main",
-				"destroy-client": "simple-container-com/api/.github/actions/destroy@main",
-				"provision":      "simple-container-com/api/.github/actions/provision@main",
-			},
-			SCVersion: "latest",
+			Enabled:       true,
+			Templates:     defaultTemplates,     // Use repository type-specific templates
+			CustomActions: defaultCustomActions, // Use repository type-specific actions
+			SCVersion:     "latest",
 		},
 		Execution: github.ExecutionConfig{
 			DefaultTimeout: "30",
 			Concurrency: github.ConcurrencyConfig{
-				Group:            "deploy-" + stackName + "-${{ github.ref }}",
+				Group:            getConcurrencyGroup(isParentStack, stackName),
 				CancelInProgress: false,
 			},
 		},
@@ -103,8 +221,11 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string) *g
 		},
 	}
 
-	// Override with user-provided config if available
-	if len(gitHubConfig.WorkflowGeneration.Templates) > 0 {
+	// Override with user-provided config if available, but respect explicit --parent flag
+	// When --parent flag is used, the explicit user intent takes precedence over server.yaml templates
+	if len(gitHubConfig.WorkflowGeneration.Templates) > 0 && !isParentStack {
+		// Only override templates if this is not a parent stack (either explicit --parent or detected)
+		// This ensures "sc cicd generate --parent" always generates parent workflows
 		config.WorkflowGeneration.Templates = gitHubConfig.WorkflowGeneration.Templates
 	}
 	if len(gitHubConfig.WorkflowGeneration.CustomActions) > 0 {

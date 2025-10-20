@@ -47,10 +47,11 @@ func NewWorkflowGenerator(config *EnhancedActionsCiCdConfig, stackName, outputPa
 // LoadTemplates loads workflow templates from embedded templates
 func (wg *WorkflowGenerator) LoadTemplates() error {
 	templates := map[string]string{
-		"deploy":     deployTemplate,
-		"destroy":    destroyTemplate,
-		"provision":  provisionTemplate,
-		"pr-preview": prPreviewTemplate,
+		"deploy":         deployTemplate,
+		"destroy":        destroyTemplate,
+		"destroy-parent": destroyParentTemplate,
+		"provision":      provisionTemplate,
+		"pr-preview":     prPreviewTemplate,
 	}
 
 	for name, tmplContent := range templates {
@@ -348,7 +349,7 @@ func SyncWorkflows(serverDesc *api.ServerDescriptor, stackName, workflowsPath st
 
 // GetWorkflowTemplateNames returns available workflow template names
 func GetWorkflowTemplateNames() []string {
-	return []string{"deploy", "destroy", "provision", "pr-preview"}
+	return []string{"deploy", "destroy", "destroy-parent", "provision", "pr-preview"}
 }
 
 // PreviewWorkflow generates a workflow without writing to file (for preview)

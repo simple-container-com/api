@@ -16,6 +16,7 @@ type ValidateParams struct {
 	WorkflowsDir string
 	ShowDiff     bool
 	Verbose      bool
+	Parent       bool
 }
 
 func NewValidateCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
@@ -50,6 +51,7 @@ Examples:
 	cmd.Flags().StringVarP(&params.WorkflowsDir, "workflows-dir", "w", params.WorkflowsDir, "GitHub workflows directory")
 	cmd.Flags().BoolVar(&params.ShowDiff, "show-diff", params.ShowDiff, "Show differences between expected and actual workflows")
 	cmd.Flags().BoolVarP(&params.Verbose, "verbose", "v", params.Verbose, "Verbose output")
+	cmd.Flags().BoolVar(&params.Parent, "parent", params.Parent, "Validate workflows for parent stack (infrastructure/provisioning)")
 
 	_ = cmd.MarkFlagRequired("stack")
 
@@ -68,6 +70,7 @@ func runValidate(rootCmd *root_cmd.RootCmd, params ValidateParams) error {
 		WorkflowsDir: params.WorkflowsDir,
 		ShowDiff:     params.ShowDiff,
 		Verbose:      params.Verbose,
+		Parent:       params.Parent,
 	}
 
 	result, err := service.ValidateWorkflows(serviceParams)

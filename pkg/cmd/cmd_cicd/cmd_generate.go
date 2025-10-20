@@ -16,6 +16,7 @@ type generateParams struct {
 	ConfigFile string
 	Force      bool
 	DryRun     bool
+	Parent     bool
 }
 
 // NewGenerateCmd creates the generate subcommand
@@ -64,6 +65,7 @@ Only workflows for templates specified in the CI/CD configuration will be genera
 	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", "", "Path to server.yaml file (default: auto-detect)")
 	cmd.Flags().BoolVar(&params.Force, "force", false, "Force overwrite existing workflow files")
 	cmd.Flags().BoolVar(&params.DryRun, "dry-run", false, "Show what would be generated without writing files")
+	cmd.Flags().BoolVar(&params.Parent, "parent", false, "Generate workflows for parent stack (infrastructure/provisioning)")
 
 	_ = cmd.MarkFlagRequired("stack")
 
@@ -87,6 +89,7 @@ func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
 		ConfigFile: params.ConfigFile,
 		Force:      params.Force,
 		DryRun:     params.DryRun,
+		Parent:     params.Parent,
 	}
 
 	result, err := service.GenerateWorkflows(serviceParams)

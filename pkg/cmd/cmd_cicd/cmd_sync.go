@@ -18,6 +18,7 @@ type SyncParams struct {
 	Force          bool
 	BackupExisting bool
 	Verbose        bool
+	Parent         bool
 }
 
 func NewSyncCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
@@ -58,6 +59,7 @@ Examples:
 	cmd.Flags().BoolVar(&params.Force, "force", params.Force, "Force sync without confirmation")
 	cmd.Flags().BoolVar(&params.BackupExisting, "backup", params.BackupExisting, "Backup existing files before modification")
 	cmd.Flags().BoolVar(&params.Verbose, "verbose", params.Verbose, "Verbose output")
+	cmd.Flags().BoolVar(&params.Parent, "parent", params.Parent, "Sync workflows for parent stack (infrastructure/provisioning)")
 
 	_ = cmd.MarkFlagRequired("stack")
 
@@ -75,6 +77,7 @@ func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 		ConfigFile: params.ConfigFile,
 		DryRun:     params.DryRun,
 		Force:      params.Force,
+		Parent:     params.Parent,
 	}
 
 	result, err := service.SyncWorkflows(serviceParams)
