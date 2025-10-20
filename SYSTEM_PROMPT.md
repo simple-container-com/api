@@ -15,8 +15,9 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Uses ONLY SC's internal APIs**: `pkg/api/logger`, `pkg/api/git`, `pkg/clouds/slack`, `pkg/clouds/discord`, `pkg/provisioner`
   - **Eliminated custom packages**: Removed `pkg/githubactions/common/notifications`, custom git, logging, config duplicates
   - **Zero Code Duplication**: Single source of truth using SC's proven APIs
-  - Single `github-actions.Dockerfile` in root, built via welder.yaml
-  - **Status**: ✅ **Production ready with perfect SC API integration**
+  - **Production image**: `github-actions.Dockerfile` (builds from source)
+  - **Staging image**: `github-actions-staging.Dockerfile` (uses pre-built `./bin/sc` for fast iteration)
+  - **Status**: ✅ **Production ready with perfect SC API integration + fast staging workflow**
 
 #### CI/CD Workflow Generation (In Progress)
 - **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration

@@ -52,6 +52,16 @@ modules:
         tags:
           - simplecontainer/caddy:latest
           - simplecontainer/caddy:${project:version}
+      - name: github-actions
+        dockerFile: ${project:root}/github-actions.Dockerfile
+        tags:
+          - simplecontainer/github-actions:latest
+          - simplecontainer/github-actions:${project:version}
+      - name: github-actions-staging
+        dockerFile: ${project:root}/github-actions-staging.Dockerfile
+        tags:
+          - simplecontainer/github-actions:staging
+          - simplecontainer/github-actions:staging-${project:version}
       - name: cloud-helpers-aws
         dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:
@@ -60,12 +70,6 @@ modules:
         runAfterPush:
           tasks:
             - tag-release
-      # GitHub Actions - Single Self-Contained Image
-      - name: github-actions
-        dockerFile: ${project:root}/github-actions.Dockerfile
-        tags:
-          - simplecontainer/github-actions:latest
-          - simplecontainer/github-actions:${project:version}
 tasks:
   clean:
     runOn: host
