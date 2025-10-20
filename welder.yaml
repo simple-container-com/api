@@ -60,8 +60,7 @@ modules:
       - name: github-actions-staging
         dockerFile: ${project:root}/github-actions-staging.Dockerfile
         tags:
-          - simplecontainer/github-actions:staging
-          - simplecontainer/github-actions:staging-${project:version}
+          - simplecontainer/github-actions:${git:branch}
       - name: cloud-helpers-aws
         dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:
