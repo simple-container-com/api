@@ -270,11 +270,4 @@ tasks:
     script:
       - echo "Building static github-actions binary for staging (Alpine compatible)..."
       - mkdir -p ${project:root}/bin
-      - |
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-          -ldflags "-s -w" \
-          -a -installsuffix cgo \
-          -o ${project:root}/bin/github-actions \
-          ./cmd/github-actions
-      - echo "Built static ./bin/github-actions for Alpine (MUSL) compatibility"
-      - echo "Run: welder docker build --push github-actions-staging"
+      - build -ldflags "-s -w" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
