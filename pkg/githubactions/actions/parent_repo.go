@@ -180,7 +180,6 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *S
 		secrets.WithProfile(profile),
 		secrets.WithGitRepo(parentGitRepo),
 	)
-
 	if err != nil {
 		e.logger.Warn(ctx, "Failed to create cryptor from parent repo config: %v", err)
 		e.logger.Info(ctx, "🔍 Parent repository may not be properly configured for SC")
