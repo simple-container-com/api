@@ -9,21 +9,21 @@ on:
 jobs:
   build-staging:
     name: Build Staging Image
-    runs-on: ubuntu-latest
-    
+    runs-on: blacksmith-32vcpu-ubuntu-2204
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
-          
+
       - name: Install Simple Container CLI
         run: |
           curl -s "https://dist.simple-container.com/sc.sh" | bash
-          
+
       - name: Prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -33,19 +33,19 @@ jobs:
           ${{ secrets.SC_CONFIG }}
           EOF
           sc secrets reveal
-          
+
       - name: Build static sc binary with welder
         run: |
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run build-github-actions-staging
-          
+
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-          
+
       - name: Build and push Docker image with welder
         run: |
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") docker build --push github-actions-staging
-          
+
       - name: Image built successfully
         run: |
           echo "🎉 GitHub Actions staging image built successfully!"
