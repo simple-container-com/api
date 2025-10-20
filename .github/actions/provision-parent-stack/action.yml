@@ -26,7 +26,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:github-actions-staging'
+  image: 'docker://simplecontainer/github-actions:staging'
   env:
     GITHUB_ACTION_TYPE: 'provision-parent-stack'
     STACK_NAME: ${{ inputs.stack-name }}

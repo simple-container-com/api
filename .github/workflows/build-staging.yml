@@ -3,7 +3,7 @@ name: Build GitHub Actions Staging Image
 on:
   push:
     branches:
-      - github-actions-staging
+      - staging
   workflow_dispatch:
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
           EOF
           sc secrets reveal
 
-      - name: Build static sc binary with welder
+      - name: Build static github-actions binary with welder
         run: |
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run build-github-actions-staging
 
@@ -51,7 +51,7 @@ jobs:
           echo "🎉 GitHub Actions staging image built successfully!"
           echo ""
           echo "🚀 The staging image is now available:"
-          echo "   simplecontainer/github-actions:github-actions-staging" 
+          echo "   simplecontainer/github-actions:staging" 
           echo "   simplecontainer/github-actions:${{ github.ref_name }}"
           echo ""
           echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
