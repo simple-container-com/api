@@ -8,12 +8,13 @@ import (
 
 	"gopkg.in/yaml.v2"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/provisioner"
 )
 
 // createSCConfigFile creates the Simple Container configuration file from SC_CONFIG
-func (e *Executor) createSCConfigFile(ctx context.Context, scConfig *SCConfig) error {
+func (e *Executor) createSCConfigFile(ctx context.Context, scConfig *api.ConfigFile) error {
 	e.logger.Info(ctx, "Creating Simple Container configuration file...")
 
 	// Ensure .sc directory exists
@@ -96,7 +97,7 @@ func (e *Executor) createSCConfigFromEnv(ctx context.Context) error {
 	}
 
 	// Parse SC_CONFIG YAML
-	var scConfig SCConfig
+	var scConfig api.ConfigFile
 	if err := yaml.Unmarshal([]byte(scConfigYAML), &scConfig); err != nil {
 		return fmt.Errorf("failed to parse SC_CONFIG: %w", err)
 	}
@@ -116,7 +117,7 @@ func (e *Executor) createSCConfigFromEnv(ctx context.Context) error {
 }
 
 // reconfigureProvisionerWithKeys creates a new provisioner with SSH keys from SC_CONFIG
-func (e *Executor) reconfigureProvisionerWithKeys(ctx context.Context, scConfig *SCConfig) error {
+func (e *Executor) reconfigureProvisionerWithKeys(ctx context.Context, scConfig *api.ConfigFile) error {
 	if scConfig.PrivateKey == "" || scConfig.PublicKey == "" {
 		e.logger.Info(ctx, "No SSH keys in SC_CONFIG, keeping existing provisioner configuration")
 		return nil

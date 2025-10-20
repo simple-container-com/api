@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 )
@@ -25,7 +26,7 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		return nil
 	}
 
-	var scConfig SCConfig
+	var scConfig api.ConfigFile
 	if err := yaml.Unmarshal([]byte(scConfigYAML), &scConfig); err != nil {
 		return fmt.Errorf("failed to parse SC_CONFIG: %w", err)
 	}
@@ -105,7 +106,7 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 
 // setupParentRepositorySecrets creates SC configuration in parent repository and reveals secrets there
 // Returns true if secrets were successfully revealed, false otherwise
-func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *SCConfig, devopsDir string) (bool, error) {
+func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *api.ConfigFile, devopsDir string) (bool, error) {
 	e.logger.Info(ctx, "🔑 Setting up parent repository secrets...")
 
 	// Save current working directory

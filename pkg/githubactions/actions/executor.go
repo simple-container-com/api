@@ -9,13 +9,6 @@ import (
 	"github.com/simple-container-com/api/pkg/provisioner"
 )
 
-// SCConfig represents the structure of SIMPLE_CONTAINER_CONFIG
-type SCConfig struct {
-	PrivateKey       string `yaml:"privateKey"`
-	PublicKey        string `yaml:"publicKey"`
-	ParentRepository string `yaml:"parentRepository"`
-}
-
 // Executor handles GitHub Actions using only SC's internal APIs
 type Executor struct {
 	provisioner    provisioner.Provisioner
