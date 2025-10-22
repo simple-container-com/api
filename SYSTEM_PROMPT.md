@@ -48,6 +48,27 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Files Updated**: `github-actions.Dockerfile`, `github-actions-staging.Dockerfile`
   - **Status**: ✅ **GitHub Actions containers now have all required dependencies**
 
+#### Dry-Run Mode Fix (2024-10-22)
+- **Critical Issue Resolved**: Dry-run mode now properly performs preview-only operations instead of actual provisioning
+  - **Fixed Preview Detection**: Added `DRY_RUN` environment variable to `isPreviewMode()` function
+  - **Fixed Provisioning**: Dry-run now calls `PreviewProvision()` instead of `Provision()` for parent stacks
+  - **Fixed Deployment**: Dry-run now calls `Preview()` instead of `Deploy()` for client stacks  
+  - **Fixed Destruction**: Dry-run now calls destroy methods with `previewMode=true` parameter
+  - **Added Refresh Skipping**: Dry-run mode automatically sets `SkipRefresh=true` to avoid state refreshes
+  - **Enhanced Logging**: Clear distinction between preview mode and actual operations in logs
+  - **Files Updated**: `pkg/githubactions/actions/operations.go`, `pkg/githubactions/actions/executor.go`
+  - **Status**: ✅ **Dry-run mode now safely previews without making actual changes**
+
+#### Docker Build Optimization (2024-10-22)
+- **Performance Issue Resolved**: GitHub Actions staging build now uses BuildKit with advanced caching
+  - **Replaced**: `welder docker build` with `docker buildx build` using BuildKit
+  - **Added Layer Caching**: `--cache-from type=gha --cache-to type=gha,mode=max` for GitHub Actions cache
+  - **Multi-platform Support**: `--platform linux/amd64` for consistent builds
+  - **Proper BuildKit Setup**: Uses `docker/setup-buildx-action@v3` instead of basic setup
+  - **Cache Strategy**: Dependencies cached separately from application binary for optimal layer reuse
+  - **Files Updated**: `.github/workflows/build-staging.yml`, `github-actions-staging.Dockerfile`
+  - **Status**: ✅ **Significantly faster Docker builds with proper layer caching**
+
 #### CI/CD Workflow Generation (In Progress)
 - **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration
   - New CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`

@@ -58,8 +58,12 @@ jobs:
           EOF
           sc secrets reveal
 
-      - name: Setup Docker Builder with caching
-        uses: useblacksmith/setup-docker-builder@v1
+      - name: Setup Docker Buildx with advanced caching
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
 
       - name: Build static github-actions binary with welder (cached Go modules)
         run: |
@@ -69,20 +73,34 @@ jobs:
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
 
-      - name: Build and push Docker image with welder
+      - name: Build and push Docker image with BuildKit caching
+        env:
+          DOCKER_BUILDKIT: 1
         run: |
-          welder docker build --push github-actions-staging
+          # Build and push with advanced caching using BuildKit
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file github-actions-staging.Dockerfile \
+            --tag simplecontainer/github-actions:staging \
+            --tag simplecontainer/github-actions:${{ github.ref_name }} \
+            --push \
+            .
 
       - name: Image built successfully
         run: |
-          echo "🎉 GitHub Actions staging image built successfully with Blacksmith caching!"
+          echo "🎉 GitHub Actions staging image built successfully with BuildKit + GitHub Actions caching!"
           echo ""
           echo "🚀 The staging image is now available:"
           echo "   simplecontainer/github-actions:staging" 
           echo "   simplecontainer/github-actions:${{ github.ref_name }}"
           echo ""
           echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
-          echo "⚡ Build was accelerated using Blacksmith's advanced caching!"
+          echo "⚡ Build was accelerated using:"
+          echo "   • Blacksmith runner caching (Go modules, CLI tools)"
+          echo "   • Docker BuildKit layer caching (GitHub Actions cache)"
+          echo "   • Multi-platform optimized build"
           echo ""
           echo "📝 Next steps:"
           echo "   1. Test your GitHub Actions workflows"
