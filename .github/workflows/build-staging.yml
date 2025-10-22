@@ -1,4 +1,4 @@
-name: Build GitHub Actions Staging Image
+name: Build GitHub Actions Staging Image (Blacksmith Optimized)
 
 on:
   push:
@@ -15,14 +15,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.24'
 
-      - name: Install Simple Container CLI
+      - name: Cache CLI tools (SC + Welder)
+        uses: actions/cache@v4  # Automatically uses Blacksmith cache on Blacksmith runners
+        with:
+          path: |
+            ~/.local/bin/sc
+            ~/.local/bin/welder
+          key: cli-tools-${{ runner.os }}-v1
+          restore-keys: |
+            cli-tools-${{ runner.os }}-
+
+      - name: Install CLI tools
         run: |
-          curl -s "https://dist.simple-container.com/sc.sh" | bash
+          # Install SC CLI if not cached
+          if ! command -v sc &> /dev/null; then
+            echo "Installing Simple Container CLI..."
+            curl -s "https://dist.simple-container.com/sc.sh" | bash
+          else
+            echo "✅ SC CLI already cached and available"
+          fi
+          
+          # Install Welder if not cached  
+          if ! command -v welder &> /dev/null; then
+            echo "Installing Welder..."
+            curl -Ls "https://welder.simple-container.com/welder.sh" | bash
+          else
+            echo "✅ Welder already cached and available"
+          fi
 
       - name: Prepare secrets for build
         run: |
@@ -34,9 +58,12 @@ jobs:
           EOF
           sc secrets reveal
 
-      - name: Build static github-actions binary with welder
+      - name: Setup Docker Builder with caching
+        uses: useblacksmith/setup-docker-builder@v1
+
+      - name: Build static github-actions binary with welder (cached Go modules)
         run: |
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run build-github-actions-staging
+          welder run build-github-actions-staging
 
       - name: Docker login using SC secrets
         run: |
@@ -44,17 +71,18 @@ jobs:
 
       - name: Build and push Docker image with welder
         run: |
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") docker build --push github-actions-staging
+          welder docker build --push github-actions-staging
 
       - name: Image built successfully
         run: |
-          echo "🎉 GitHub Actions staging image built successfully!"
+          echo "🎉 GitHub Actions staging image built successfully with Blacksmith caching!"
           echo ""
           echo "🚀 The staging image is now available:"
           echo "   simplecontainer/github-actions:staging" 
           echo "   simplecontainer/github-actions:${{ github.ref_name }}"
           echo ""
           echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
+          echo "⚡ Build was accelerated using Blacksmith's advanced caching!"
           echo ""
           echo "📝 Next steps:"
           echo "   1. Test your GitHub Actions workflows"

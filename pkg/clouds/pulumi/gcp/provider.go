@@ -34,11 +34,21 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	if credValue == "" {
 		log.Debug(ctx, "❌ GCP credentials are EMPTY!")
 	} else if credValue[0] == '$' {
-		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder: %s", credValue[:50])
+		// Safe substring to avoid panic
+		preview := credValue
+		if len(credValue) > 50 {
+			preview = credValue[:50]
+		}
+		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder: %s", preview)
 	} else if credValue[0] == '{' {
 		log.Debug(ctx, "✅ GCP credentials appear to be valid JSON")
 	} else {
-		log.Debug(ctx, "⚠️  GCP credentials format unknown, first 50 chars: %s", credValue[:50])
+		// Safe substring to avoid panic
+		preview := credValue
+		if len(credValue) > 50 {
+			preview = credValue[:50]
+		}
+		log.Debug(ctx, "⚠️  GCP credentials format unknown, first chars: %s", preview)
 	}
 
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)

@@ -16,6 +16,7 @@ import (
 )
 
 // cloneParentRepository clones the parent stack repository and copies stack configurations
+// For parent stack operations, it reveals secrets in the current repository instead of cloning
 func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	e.logger.Info(ctx, "📦 Setting up parent stack repository...")
 
@@ -31,9 +32,19 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		return fmt.Errorf("failed to parse SC_CONFIG: %w", err)
 	}
 
-	if scConfig.ParentRepository == "" {
+	// Detect if this is a parent stack operation
+	actionType := os.Getenv("GITHUB_ACTION_TYPE")
+	isParentOperation := strings.Contains(actionType, "parent")
+
+	if scConfig.ParentRepository == "" && !isParentOperation {
 		e.logger.Info(ctx, "No parent repository configured, skipping clone")
 		return nil
+	}
+
+	// Handle parent stack operations - reveal secrets in current repository
+	if isParentOperation && scConfig.ParentRepository == "" {
+		e.logger.Info(ctx, "🏗️ Parent stack operation detected - revealing secrets in current repository")
+		return e.revealCurrentRepositorySecrets(ctx, &scConfig)
 	}
 
 	// Extract and sanitize repository URL for logging
@@ -214,6 +225,87 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 	}
 
 	return secretsRevealed, nil
+}
+
+// revealCurrentRepositorySecrets reveals secrets in the current repository for parent stack operations
+func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig *api.ConfigFile) error {
+	e.logger.Info(ctx, "🔑 Revealing secrets in current repository (parent stack operation)...")
+
+	// Determine profile name from environment
+	profile := os.Getenv("ENVIRONMENT")
+	if profile == "" {
+		profile = "default"
+	}
+
+	// Set up SSH keys for git operations (needed for secret revelation)
+	if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
+		return fmt.Errorf("failed to setup SSH for git: %w", err)
+	}
+
+	// Initialize git repository context
+	currentGitRepo, err := git.New(git.WithDetectRootDir())
+	if err != nil {
+		e.logger.Warn(ctx, "Failed to initialize Git context: %v", err)
+		currentGitRepo = nil
+	} else {
+		e.logger.Info(ctx, "✅ Successfully initialized Git context")
+	}
+
+	// Create cryptor for current repository
+	e.logger.Info(ctx, "🔧 Creating cryptor for current repository...")
+	currentCryptor, err := secrets.NewCryptor(
+		".", // Current repository root
+		secrets.WithProfile(profile),
+		secrets.WithGitRepo(currentGitRepo),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create cryptor: %w", err)
+	}
+
+	e.logger.Info(ctx, "✅ Created cryptor for current repository")
+
+	// Configure cryptor with profile config (SSH keys)
+	e.logger.Info(ctx, "🔧 Configuring cryptor with profile config (SSH keys)...")
+	if err := currentCryptor.ReadProfileConfig(); err != nil {
+		e.logger.Warn(ctx, "Failed to read profile config: %v", err)
+		// Continue anyway - may work without profile config
+	} else {
+		e.logger.Info(ctx, "✅ Successfully loaded profile config")
+	}
+
+	// Load secrets.yaml file
+	e.logger.Info(ctx, "🔧 Loading secrets.yaml file into cryptor...")
+	if err := currentCryptor.ReadSecretFiles(); err != nil {
+		e.logger.Warn(ctx, "Failed to read secrets file: %v", err)
+		// Check if secrets.yaml exists
+		if _, err := os.Stat(".sc/secrets.yaml"); os.IsNotExist(err) {
+			e.logger.Info(ctx, "ℹ️  No .sc/secrets.yaml file found in current repository")
+			e.logger.Info(ctx, "🔍 This may be expected if secrets are managed elsewhere")
+			return nil // No secrets to reveal, but not an error
+		}
+		return fmt.Errorf("failed to load secrets: %w", err)
+	}
+	e.logger.Info(ctx, "✅ Successfully loaded secrets file")
+
+	// Reveal secrets in current repository
+	e.logger.Info(ctx, "🔍 Revealing secrets in current repository...")
+	e.logger.Info(ctx, "🔧 Calling DecryptAll(true) - same as 'sc secrets reveal --force'")
+
+	decryptErr := currentCryptor.DecryptAll(true) // forceReveal = true
+	if decryptErr != nil {
+		// Handle expected errors gracefully
+		if strings.Contains(decryptErr.Error(), "public key is not configured") ||
+			strings.Contains(decryptErr.Error(), "not found in secrets") {
+			e.logger.Warn(ctx, "Secret decryption failed: %v", decryptErr)
+			e.logger.Info(ctx, "🔍 Key mismatch detected - secrets encrypted with different keys than SC_CONFIG")
+			return fmt.Errorf("secret decryption failed - key mismatch: %w", decryptErr)
+		}
+		return fmt.Errorf("unexpected decryption error: %w", decryptErr)
+	}
+
+	e.logger.Info(ctx, "✅ DecryptAll completed successfully - secrets revealed in current repository")
+	e.logger.Info(ctx, "✅ Parent repository secret revelation completed successfully")
+	return nil
 }
 
 // revealAndVerifyParentSecrets attempts to reveal secrets using the exact same approach as SC CLI
