@@ -24,23 +24,42 @@ func (e *Executor) createSCConfigFile(ctx context.Context, scConfig *api.ConfigF
 
 	// Determine project name from parent repository if available
 	projectName := "github-actions-project"
+	e.logger.Debug(ctx, "❌ CRITICAL STATE MISMATCH DETECTED: Default project name hardcoded to 'github-actions-project'")
+	e.logger.Debug(ctx, "🔍 This will create different Pulumi stacks than your local environment!")
+	e.logger.Debug(ctx, "🔍 Parent Repository: %s", scConfig.ParentRepository)
+
 	if scConfig.ParentRepository != "" {
 		// Extract project name from repository URL
 		// e.g., git@github.com:alphamind-co/devops.git -> alphamind-co
 		repoURL := scConfig.ParentRepository
+		e.logger.Debug(ctx, "🔧 Attempting to extract project name from repository URL: %s", repoURL)
 		if strings.Contains(repoURL, ":") && strings.Contains(repoURL, "/") {
 			parts := strings.Split(repoURL, ":")
 			if len(parts) > 1 {
 				pathPart := parts[len(parts)-1] // get "alphamind-co/devops.git"
+				e.logger.Debug(ctx, "🔍 Repository path part: %s", pathPart)
 				if strings.Contains(pathPart, "/") {
 					orgName := strings.Split(pathPart, "/")[0]
 					if orgName != "" {
+						e.logger.Debug(ctx, "✅ Extracted organization name: %s", orgName)
 						projectName = orgName
+					} else {
+						e.logger.Debug(ctx, "❌ Failed to extract organization name from path")
 					}
+				} else {
+					e.logger.Debug(ctx, "❌ Repository path doesn't contain '/' separator")
 				}
+			} else {
+				e.logger.Debug(ctx, "❌ Repository URL doesn't contain ':' separator")
 			}
+		} else {
+			e.logger.Debug(ctx, "❌ Repository URL format not recognized")
 		}
+	} else {
+		e.logger.Debug(ctx, "❌ No parent repository configured - using hardcoded project name")
 	}
+
+	e.logger.Debug(ctx, "🔍 FINAL PROJECT NAME: %s (this determines Pulumi stack reference)", projectName)
 
 	// Create temporary SSH key files for SC CLI
 	sshDir := os.Getenv("HOME") + "/.ssh"

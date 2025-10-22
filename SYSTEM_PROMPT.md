@@ -59,6 +59,20 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Files Updated**: `pkg/githubactions/actions/operations.go`, `pkg/githubactions/actions/executor.go`
   - **Status**: ✅ **Dry-run mode now safely previews without making actual changes**
 
+#### CRITICAL: State Storage Mismatch Investigation (2024-10-22)
+- **State Inconsistency Issue Identified**: GitHub Actions creating resources that already exist locally
+  - **Root Cause**: Pulumi organization defaults to "organization" when not configured in server.yaml provisioner config
+  - **Project Name Issue**: GitHub Actions hardcodes project name to "github-actions-project" vs local environment
+  - **Stack Reference Mismatch**: `organization/github-actions-project/pay-space` vs local stack references
+  - **Result**: Same stack name but different Pulumi backends = resources appear as "create" instead of "same"
+  - **SC Concept Violation**: Different environments accessing different state storage backends breaks consistency
+  - **Debug Logging Added**: 
+    - `pkg/clouds/pulumi/login.go` - Shows organization, project, state storage config
+    - `pkg/clouds/pulumi/create_stack.go` - Identifies when stack exists but resources missing
+    - `pkg/githubactions/actions/config.go` - Shows project name derivation and hardcoded defaults
+  - **Investigation Status**: ✅ **Root cause identified with comprehensive debug logging**
+  - **Next Steps Required**: Configure proper organization in server.yaml and consistent project naming
+
 #### Docker Build Optimization (2024-10-22)
 - **Performance Issue Resolved**: GitHub Actions staging build now uses BuildKit with advanced caching
   - **Replaced**: `welder docker build` with `docker buildx build` using BuildKit

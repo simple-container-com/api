@@ -13,10 +13,12 @@ import (
 func (p *pulumi) createStackIfNotExists(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	s, err := p.selectStack(ctx, cfg, stack)
 	if s != nil {
-		p.logger.Debug(ctx, "found stack %q, not going to create", p.stackRef.FullyQualifiedName().String())
+		p.logger.Debug(ctx, "✅ Found stack %q, not going to create", p.stackRef.FullyQualifiedName().String())
+		p.logger.Debug(ctx, "🔍 IMPORTANT: Stack found but resources may be missing due to state storage backend differences")
+		p.logger.Debug(ctx, "🔍 If you see resources being 'created' instead of 'same', there's a state storage mismatch!")
 		return nil
 	} else if p.stackRef != nil && p.backend != nil {
-		p.logger.Debug(ctx, "stack %q not found, creating...", p.stackRef.FullyQualifiedName().String())
+		p.logger.Debug(ctx, "❌ Stack %q not found, creating...", p.stackRef.FullyQualifiedName().String())
 		s, err = p.backend.CreateStack(ctx, p.stackRef, "", nil, nil)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create stack %q", p.stackRef.FullyQualifiedName().String())
