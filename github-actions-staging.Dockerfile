@@ -9,8 +9,16 @@
 # Uses CGO_ENABLED=0 to build a static binary that works in Alpine (MUSL) environment
 FROM alpine:latest
 
-# Install runtime dependencies
-RUN apk --no-cache add ca-certificates git curl jq
+# Install runtime dependencies including Python (required for gcloud)
+RUN apk --no-cache add ca-certificates git curl jq bash python3 py3-pip
+
+# Install Pulumi CLI - Required for Simple Container provisioning
+RUN curl -fsSL https://get.pulumi.com | sh
+ENV PATH="/root/.pulumi/bin:${PATH}"
+
+# Install Google Cloud SDK (gcloud CLI) - Required for GCP provisioning
+RUN curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt
+ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
 
 WORKDIR /root/
 
@@ -20,6 +28,10 @@ COPY ./bin/github-actions ./github-actions
 
 # Make sure the binary is executable
 RUN chmod +x ./github-actions
+
+# Verify installations
+RUN pulumi version
+RUN gcloud version
 
 # Set the entrypoint to use the github-actions binary with absolute path
 # GitHub Actions runner overrides WORKDIR with --workdir /github/workspace

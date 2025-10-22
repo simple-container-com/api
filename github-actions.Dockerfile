@@ -21,13 +21,25 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o github-actions ./
 # Final stage - minimal runtime
 FROM alpine:latest
 
-# Install runtime dependencies
-RUN apk --no-cache add ca-certificates git curl jq
+# Install runtime dependencies including Python (required for gcloud)
+RUN apk --no-cache add ca-certificates git curl jq bash python3 py3-pip
+
+# Install Pulumi CLI - Required for Simple Container provisioning
+RUN curl -fsSL https://get.pulumi.com | sh
+ENV PATH="/root/.pulumi/bin:${PATH}"
+
+# Install Google Cloud SDK (gcloud CLI) - Required for GCP provisioning
+RUN curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt
+ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
 
 WORKDIR /root/
 
 # Copy the binary from builder stage
 COPY --from=builder /app/github-actions .
+
+# Verify installations
+RUN pulumi version
+RUN gcloud version
 
 # Set the entrypoint
 ENTRYPOINT ["./github-actions"]

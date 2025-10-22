@@ -33,9 +33,19 @@ This is the Simple Container API project with MkDocs documentation. The project 
 - **Security Vulnerability Resolved**: Eliminated credential leakage in verbose mode debug logging
   - **Fixed GCP Provider**: `pkg/clouds/pulumi/gcp/provider.go` - No longer logs raw GCP service account credentials
   - **Fixed SSH Key Logging**: `pkg/githubactions/actions/parent_repo.go` - No longer logs partial SSH public key values
+  - **Fixed MongoDB Password Logging**: `pkg/clouds/pulumi/mongodb/cluster.go` - No longer logs password objects in error messages
   - **Security Principle**: Never log credential values, use length/format detection for diagnostics
   - **Pattern Applied**: `log.Debug(ctx, "Credential length: %d", len(cred))` instead of `log.Debug(ctx, "Credential: %s", cred)`
   - **Status**: ✅ **All credential leakage eliminated - Safe for production verbose mode**
+
+#### GitHub Actions Dependencies Fix (2024-10-22)
+- **Missing Dependencies Resolved**: Added required CLI tools to GitHub Actions containers
+  - **Added Pulumi CLI**: Both production and staging Dockerfiles now install Pulumi for infrastructure provisioning
+  - **Added Google Cloud SDK**: Both containers now include gcloud CLI for GCP operations
+  - **Added Python Dependencies**: Required runtime for gcloud operations
+  - **Fixed Error**: Resolved `exec: "pulumi": executable file not found in $PATH` error
+  - **Files Updated**: `github-actions.Dockerfile`, `github-actions-staging.Dockerfile`
+  - **Status**: ✅ **GitHub Actions containers now have all required dependencies**
 
 #### CI/CD Workflow Generation (In Progress)
 - **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration
