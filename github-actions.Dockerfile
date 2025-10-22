@@ -32,6 +32,9 @@ ENV PATH="/root/.pulumi/bin:${PATH}"
 RUN curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt
 ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
 
+# Install GKE authentication plugin - Required for modern GKE cluster access
+RUN gcloud components install gke-gcloud-auth-plugin --quiet
+
 WORKDIR /root/
 
 # Copy the binary from builder stage
@@ -40,6 +43,7 @@ COPY --from=builder /app/github-actions .
 # Verify installations
 RUN pulumi version
 RUN gcloud version
+RUN gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin
 
 # Set the entrypoint
 ENTRYPOINT ["./github-actions"]
