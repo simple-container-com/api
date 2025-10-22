@@ -17,8 +17,8 @@ RUN apk --no-cache add ca-certificates git curl jq bash python3 py3-pip
 # Install Pulumi CLI - Required for Simple Container provisioning
 # Read version from go.mod to ensure consistency with Go dependencies
 COPY go.mod /tmp/go.mod
-RUN PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}') && \
-    echo "Installing Pulumi version: ${PULUMI_VERSION}" && \
+RUN PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//') && \
+    echo "Installing Pulumi version: ${PULUMI_VERSION} (extracted from go.mod)" && \
     curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION} && \
     rm /tmp/go.mod
 ENV PATH="/root/.pulumi/bin:${PATH}"
