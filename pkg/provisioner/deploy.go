@@ -73,11 +73,20 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 	}
 
 	// now we reconcile with parent references, if environment was specified
+	p.logger.Debug(ctx, "🔍 Reconciliation check: Environment=%s, Parent=%t", params.Environment, params.Parent)
+
 	if params.Environment != "" && !params.Parent {
+		p.logger.Debug(ctx, "🔧 Running reconciliation for client stack deployment...")
 		if stacks, err := p.stacks.ReconcileForDeploy(params); err != nil {
 			return nil, nil, nil, errors.Wrapf(err, "failed to reconcile stacks for %q in %q", params.StackName, params.Environment)
 		} else {
 			p.stacks = *stacks
+			p.logger.Debug(ctx, "✅ Reconciliation completed successfully")
+		}
+	} else {
+		p.logger.Debug(ctx, "⚠️  Skipping reconciliation - this is a parent stack or no environment specified")
+		if params.Parent {
+			p.logger.Debug(ctx, "🏗️  Parent stack - secrets should have been revealed during parent repository setup")
 		}
 	}
 

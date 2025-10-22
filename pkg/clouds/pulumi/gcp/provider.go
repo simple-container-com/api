@@ -27,9 +27,22 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 		return errors.Errorf("failed to convert gcloud state storage config to api.AuthConfig")
 	}
 	log.Info(ctx, "Initializing gcp statestore...")
+	log.Debug(ctx, "🔍 GCP Auth Debug - Raw credentials value: %s", authCfg.CredentialsValue())
+	log.Debug(ctx, "🔍 GCP Auth Debug - Credentials length: %d", len(authCfg.CredentialsValue()))
+
+	credValue := authCfg.CredentialsValue()
+	if credValue == "" {
+		log.Debug(ctx, "❌ GCP credentials are EMPTY!")
+	} else if credValue[0] == '$' {
+		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder: %s", credValue[:50])
+	} else if credValue[0] == '{' {
+		log.Debug(ctx, "✅ GCP credentials appear to be valid JSON")
+	} else {
+		log.Debug(ctx, "⚠️  GCP credentials format unknown, first 50 chars: %s", credValue[:50])
+	}
 
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
-	if err := os.Setenv("GOOGLE_CREDENTIALS", authCfg.CredentialsValue()); err != nil {
+	if err := os.Setenv("GOOGLE_CREDENTIALS", credValue); err != nil {
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
 

@@ -117,10 +117,12 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 	e.sendAlert(ctx, api.BuildStarted, "Provision Started", fmt.Sprintf("Started provisioning of parent stack %s", stackName), stackName, "infrastructure")
 
 	// Setup parent repository (includes secret revelation) - CRITICAL for parent operations
+	e.logger.Debug(ctx, "🔧 Setting up parent repository - this should reveal secrets...")
 	if err := e.cloneParentRepository(ctx); err != nil {
 		e.sendAlert(ctx, api.BuildFailed, "Provision Failed", fmt.Sprintf("Failed to setup parent repository for %s: %v", stackName, err), stackName, "infrastructure")
 		return fmt.Errorf("parent repository setup failed: %w", err)
 	}
+	e.logger.Debug(ctx, "✅ Parent repository setup completed - secrets should now be revealed")
 
 	// Ensure SC configuration file exists (MUST happen before revealing secrets)
 	if err := e.createSCConfigFromEnv(ctx); err != nil {
@@ -131,6 +133,22 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 	// Parent repository secrets should now be available after cloning and revelation
 	e.logger.Info(ctx, "📋 Using parent repository secrets (revealed during repository setup)")
 	e.logger.Info(ctx, "✅ Parent repository secrets available for provisioning")
+
+	// Debug: Check if secrets files exist
+	secretsPath := ".sc/stacks/" + stackName + "/secrets.yaml"
+	if _, err := os.Stat(secretsPath); err == nil {
+		e.logger.Debug(ctx, "✅ Found secrets.yaml at: %s", secretsPath)
+	} else {
+		e.logger.Debug(ctx, "❌ No secrets.yaml found at: %s (error: %v)", secretsPath, err)
+	}
+
+	// Debug: Check if server.yaml exists
+	serverPath := ".sc/stacks/" + stackName + "/server.yaml"
+	if _, err := os.Stat(serverPath); err == nil {
+		e.logger.Debug(ctx, "✅ Found server.yaml at: %s", serverPath)
+	} else {
+		e.logger.Debug(ctx, "❌ No server.yaml found at: %s (error: %v)", serverPath, err)
+	}
 
 	// Initialize notifications after secrets are revealed
 	e.initializeNotifications(ctx)
