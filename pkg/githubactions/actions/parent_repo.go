@@ -298,7 +298,22 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 			strings.Contains(decryptErr.Error(), "not found in secrets") {
 			e.logger.Warn(ctx, "Secret decryption failed: %v", decryptErr)
 			e.logger.Info(ctx, "🔍 Key mismatch detected - secrets encrypted with different keys than SC_CONFIG")
-			return fmt.Errorf("secret decryption failed - key mismatch: %w", decryptErr)
+			e.logger.Info(ctx, "")
+			e.logger.Info(ctx, "💡 This is expected in test environments. To fix:")
+			e.logger.Info(ctx, "   1. For PRODUCTION: Update SC_CONFIG secret with matching production keys")
+			e.logger.Info(ctx, "   2. For TESTING: Use 'sc secrets encrypt' with current keys to re-encrypt secrets")
+			e.logger.Info(ctx, "   3. Check that SC_CONFIG contains the correct keys for this environment")
+			e.logger.Info(ctx, "")
+			e.logger.Info(ctx, "🔍 Current SC_CONFIG public key: %s", currentCryptor.PublicKey()[:60]+"...")
+
+			// For DRY_RUN, this might be acceptable - let's not fail hard
+			if os.Getenv("DRY_RUN") == "true" {
+				e.logger.Info(ctx, "⚠️  DRY_RUN mode: Continuing without secret decryption (placeholders will remain unresolved)")
+				e.logger.Info(ctx, "⚠️  In production runs, ensure SC_CONFIG has matching keys")
+				return nil // Don't fail in dry run mode
+			}
+
+			return fmt.Errorf("secret decryption failed - key mismatch (see guidance above): %w", decryptErr)
 		}
 		return fmt.Errorf("unexpected decryption error: %w", decryptErr)
 	}
