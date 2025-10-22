@@ -269,6 +269,10 @@ on:
         options:
         - staging
         - production
+      verbose:
+        description: 'Enable verbose logging for debugging'
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -284,8 +288,20 @@ jobs:
       with:
         stack-name: myorg/infrastructure
         sc-config: ${{ secrets.SC_CONFIG }}
+        verbose: ${{ github.event.inputs.verbose || 'false' }}
         # Built-in notifications automatically configured via SC secrets
 ```
+
+**Available Inputs:**
+
+All Simple Container GitHub Actions support these common inputs:
+
+- **`stack-name`** *(required)* - Name of the stack to operate on
+- **`sc-config`** *(required)* - Simple Container configuration (use `${{ secrets.SC_CONFIG }}`)
+- **`environment`** - Target environment (e.g., `staging`, `production`)
+- **`verbose`** - Enable verbose logging for detailed debugging information (`true`/`false`, default: `false`)
+- **`dry-run`** - Run in preview mode without making actual changes (`true`/`false`, default: `false`)
+- **`notify-on-completion`** - Send notifications when operation completes (`true`/`false`, default: `true`)
 
 **Available Outputs:**
 - **`stack-name`** - Name of the deployed stack
@@ -391,6 +407,11 @@ on:
         description: 'Run in preview mode'
         type: boolean
         default: false
+      
+      verbose:
+        description: 'Enable verbose logging for detailed debugging'
+        type: boolean
+        default: false
 ```
 
 ## Best Practices
@@ -452,11 +473,30 @@ sc cicd preview --stack myorg/infrastructure --show-content
 
 ### Debugging Workflows
 
-1. **Enable debug logging** in GitHub Actions:
+1. **Enable verbose logging** in Simple Container GitHub Actions:
+   ```yaml
+   - name: Deploy with verbose logging
+     uses: simple-container-com/api/.github/actions/deploy-client-stack@main
+     with:
+       stack-name: "myapp"
+       environment: "staging"
+       sc-config: ${{ secrets.SC_CONFIG }}
+       verbose: 'true'  # Enable detailed debugging information
+   ```
+   
+   **Verbose logging provides:**
+   - Detailed environment variable information
+   - Step-by-step execution progress
+   - Parent repository cloning details
+   - Secret revelation process information
+   - Provisioner parameter debugging
+   - Git repository initialization details
+
+2. **Enable GitHub Actions debug logging** (additional system-level debugging):
    - Go to repository **Settings** → **Secrets**
    - Add secret `ACTIONS_STEP_DEBUG` with value `true`
 
-2. **Check workflow logs** in the Actions tab of your repository
+3. **Check workflow logs** in the Actions tab of your repository
 
 3. **Use workflow artifacts** to debug generated files:
    ```yaml

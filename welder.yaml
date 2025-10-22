@@ -271,3 +271,8 @@ tasks:
       - echo "Building static github-actions binary for staging (Alpine compatible)..."
       - mkdir -p ${project:root}/bin
       - go build -ldflags "-s -w" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
+  build-github-actions-staging-push:
+    runOn: host
+    script:
+      - welder run build-github-actions-staging
+      - welder docker build --push github-actions-staging

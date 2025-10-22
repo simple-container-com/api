@@ -176,6 +176,7 @@ config:
 - Confirm Simple Container configuration
 
 **Deployment failures:**
+- Enable verbose logging in GitHub Actions (add `verbose: 'true'` to action inputs)
 - Review workflow logs in GitHub Actions
 - Validate server.yaml configuration locally
 - Check resource availability and quotas

@@ -58,6 +58,20 @@ func main() {
 
 	// Initialize SC's internal logger
 	log := logger.New()
+
+	// Check for verbose mode and set debug logging if enabled
+	if os.Getenv("VERBOSE") == "true" {
+		ctx = log.SetLogLevel(ctx, logger.LogLevelDebug)
+		log.Debug(ctx, "🔍 Verbose mode enabled - debug logging activated")
+		log.Debug(ctx, "Environment variables:")
+		log.Debug(ctx, "  - GITHUB_REPOSITORY: %s", os.Getenv("GITHUB_REPOSITORY"))
+		log.Debug(ctx, "  - GITHUB_RUN_ID: %s", os.Getenv("GITHUB_RUN_ID"))
+		log.Debug(ctx, "  - GITHUB_ACTION_TYPE: %s", os.Getenv("GITHUB_ACTION_TYPE"))
+		log.Debug(ctx, "  - STACK_NAME: %s", os.Getenv("STACK_NAME"))
+		log.Debug(ctx, "  - ENVIRONMENT: %s", os.Getenv("ENVIRONMENT"))
+		log.Debug(ctx, "  - DRY_RUN: %s", os.Getenv("DRY_RUN"))
+	}
+
 	log.Info(ctx, "Starting Simple Container GitHub Action: %s", actionType)
 	log.Info(ctx, "Repository: %s, Run ID: %s", os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID"))
 
@@ -66,21 +80,26 @@ func main() {
 	workDir, _ := os.Getwd()
 
 	// Try to detect existing git repository with proper content first
+	log.Debug(ctx, "🔧 Attempting to detect git repository in: %s", workDir)
 	gitRepo, err := git.New(git.WithDetectRootDir())
 	if err != nil || !isProperRepository(workDir) {
 		if err != nil {
 			log.Warn(ctx, "No git repository detected: %v", err)
+			log.Debug(ctx, "🔍 Repository detection failed, will attempt cloning")
 		} else {
 			log.Warn(ctx, "Git repository exists but appears to be empty or incomplete")
+			log.Debug(ctx, "🔍 Repository incomplete, will attempt cloning")
 		}
 
 		// Clone the repository like actions/checkout does
+		log.Debug(ctx, "🔧 Starting repository cloning process...")
 		if err := cloneRepository(ctx, log, workDir); err != nil {
 			log.Error(ctx, "Failed to clone repository: %v", err)
 			os.Exit(1)
 		}
 
 		// Try to initialize git repo again after cloning
+		log.Debug(ctx, "🔧 Re-initializing git repository after successful clone...")
 		gitRepo, err = git.New(git.WithDetectRootDir())
 		if err != nil {
 			log.Error(ctx, "Failed to initialize git repository after cloning: %v", err)
@@ -90,6 +109,7 @@ func main() {
 		log.Info(ctx, "Successfully initialized git repository from clone")
 	} else {
 		log.Info(ctx, "Using existing git repository")
+		log.Debug(ctx, "🔍 Existing repository validated and ready")
 	}
 
 	// Initialize provisioner with SC's internal APIs

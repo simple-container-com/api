@@ -27,6 +27,10 @@ inputs:
     description: 'Send notifications when provisioning completes'
     required: false
     default: 'true'
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
   token:
     description: 'GitHub token for repository access'
     required: false
@@ -59,6 +63,7 @@ runs:
     DRY_RUN: ${{ inputs.dry-run }}
     SKIP_TESTS: ${{ inputs.skip-tests }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    VERBOSE: ${{ inputs.verbose }}
     GITHUB_TOKEN: ${{ inputs.token }}
     GITHUB_REPOSITORY: ${{ inputs.repository }}
     GITHUB_SHA: ${{ inputs.ref }}

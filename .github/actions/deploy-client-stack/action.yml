@@ -26,6 +26,10 @@ inputs:
   pr-number:
     description: 'Pull request number for preview deployments'
     required: false
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
   token:
     description: 'GitHub token for repository access'
     required: false
@@ -62,6 +66,7 @@ runs:
     VERSION: ${{ inputs.version }}
     PR_PREVIEW: ${{ inputs.pr-preview }}
     PR_NUMBER: ${{ inputs.pr-number }}
+    VERBOSE: ${{ inputs.verbose }}
     GITHUB_TOKEN: ${{ inputs.token }}
     GITHUB_REPOSITORY: ${{ inputs.repository }}
     GITHUB_SHA: ${{ inputs.ref }}

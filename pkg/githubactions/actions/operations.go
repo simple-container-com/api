@@ -105,10 +105,22 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 		stackName = "infrastructure" // Default for parent stacks
 	}
 
+	e.logger.Debug(ctx, "🔧 Provisioning parameters:")
+	e.logger.Debug(ctx, "  - Stack Name: %s", stackName)
+	e.logger.Debug(ctx, "  - Environment: %s", os.Getenv("ENVIRONMENT"))
+	e.logger.Debug(ctx, "  - DRY_RUN: %s", os.Getenv("DRY_RUN"))
+	e.logger.Debug(ctx, "  - Working Directory: %s", func() string { wd, _ := os.Getwd(); return wd }())
+
 	e.logger.Info(ctx, "Provisioning parent stack: %s", stackName)
 
 	// Send start notification
 	e.sendAlert(ctx, api.BuildStarted, "Provision Started", fmt.Sprintf("Started provisioning of parent stack %s", stackName), stackName, "infrastructure")
+
+	// Setup parent repository (includes secret revelation) - CRITICAL for parent operations
+	if err := e.cloneParentRepository(ctx); err != nil {
+		e.sendAlert(ctx, api.BuildFailed, "Provision Failed", fmt.Sprintf("Failed to setup parent repository for %s: %v", stackName, err), stackName, "infrastructure")
+		return fmt.Errorf("parent repository setup failed: %w", err)
+	}
 
 	// Ensure SC configuration file exists (MUST happen before revealing secrets)
 	if err := e.createSCConfigFromEnv(ctx); err != nil {
@@ -116,8 +128,8 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 		return fmt.Errorf("SC configuration creation failed: %w", err)
 	}
 
-	// Skip main cryptor DecryptAll for parent operations since parent secrets are already revealed
-	e.logger.Info(ctx, "📋 Using parent repository secrets (already revealed during setup)")
+	// Parent repository secrets should now be available after cloning and revelation
+	e.logger.Info(ctx, "📋 Using parent repository secrets (revealed during repository setup)")
 	e.logger.Info(ctx, "✅ Parent repository secrets available for provisioning")
 
 	// Initialize notifications after secrets are revealed
@@ -130,13 +142,20 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 		Stacks:    []string{stackName},
 	}
 
+	e.logger.Debug(ctx, "🔧 Provision parameters:")
+	e.logger.Debug(ctx, "  - StacksDir: %s", provisionParams.StacksDir)
+	e.logger.Debug(ctx, "  - Profile: %s", provisionParams.Profile)
+	e.logger.Debug(ctx, "  - Stacks: %v", provisionParams.Stacks)
+
 	// Execute provisioning
 	previewMode := e.isPreviewMode()
 	if previewMode {
 		e.logger.Info(ctx, "🔍 Executing provisioning in PREVIEW MODE (no real changes will be made)...")
+		e.logger.Debug(ctx, "Preview mode detected from environment variables")
 	}
 
 	e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
+	e.logger.Debug(ctx, "🚀 Calling provisioner.Provision() with parameters...")
 
 	if err := e.provisioner.Provision(ctx, provisionParams); err != nil {
 		duration := time.Since(startTime)

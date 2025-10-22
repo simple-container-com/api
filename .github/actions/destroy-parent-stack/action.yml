@@ -23,6 +23,10 @@ inputs:
     description: 'Send notifications when destruction completes'
     required: false
     default: 'true'
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
   token:
     description: 'GitHub token for repository access'
     required: false
@@ -54,6 +58,7 @@ runs:
     AUTO_CONFIRM: ${{ inputs.auto-confirm }}
     SKIP_BACKUP: ${{ inputs.skip-backup }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    VERBOSE: ${{ inputs.verbose }}
     GITHUB_TOKEN: ${{ inputs.token }}
     GITHUB_REPOSITORY: ${{ inputs.repository }}
     GITHUB_SHA: ${{ inputs.ref }}
