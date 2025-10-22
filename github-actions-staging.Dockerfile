@@ -15,8 +15,12 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates git curl jq bash python3 py3-pip
 
 # Install Pulumi CLI - Required for Simple Container provisioning
-# Use explicit version to avoid auto-detection failures
-RUN curl -fsSL https://get.pulumi.com | sh -s -- --version v3.185.0
+# Read version from go.mod to ensure consistency with Go dependencies
+COPY go.mod /tmp/go.mod
+RUN PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}') && \
+    echo "Installing Pulumi version: ${PULUMI_VERSION}" && \
+    curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION} && \
+    rm /tmp/go.mod
 ENV PATH="/root/.pulumi/bin:${PATH}"
 
 # Install Google Cloud SDK (gcloud CLI) - Required for GCP provisioning
