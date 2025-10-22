@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"gopkg.in/yaml.v2"
 
@@ -22,41 +21,19 @@ func (e *Executor) createSCConfigFile(ctx context.Context, scConfig *api.ConfigF
 		return fmt.Errorf("failed to create .sc directory: %w", err)
 	}
 
-	// Determine project name from parent repository if available
-	projectName := "github-actions-project"
-	e.logger.Debug(ctx, "❌ CRITICAL STATE MISMATCH DETECTED: Default project name hardcoded to 'github-actions-project'")
-	e.logger.Debug(ctx, "🔍 This will create different Pulumi stacks than your local environment!")
+	// Use project name from SC_CONFIG - CRITICAL for state storage consistency
+	projectName := scConfig.ProjectName
+	if projectName == "" {
+		return fmt.Errorf("projectName is required in SC_CONFIG to ensure state storage consistency - cannot proceed without it")
+	}
+	e.logger.Debug(ctx, "✅ Using project name from SC_CONFIG: %s", projectName)
 	e.logger.Debug(ctx, "🔍 Parent Repository: %s", scConfig.ParentRepository)
 
+	// Note: Parent repository URL is available for other operations if needed
 	if scConfig.ParentRepository != "" {
-		// Extract project name from repository URL
-		// e.g., git@github.com:alphamind-co/devops.git -> alphamind-co
-		repoURL := scConfig.ParentRepository
-		e.logger.Debug(ctx, "🔧 Attempting to extract project name from repository URL: %s", repoURL)
-		if strings.Contains(repoURL, ":") && strings.Contains(repoURL, "/") {
-			parts := strings.Split(repoURL, ":")
-			if len(parts) > 1 {
-				pathPart := parts[len(parts)-1] // get "alphamind-co/devops.git"
-				e.logger.Debug(ctx, "🔍 Repository path part: %s", pathPart)
-				if strings.Contains(pathPart, "/") {
-					orgName := strings.Split(pathPart, "/")[0]
-					if orgName != "" {
-						e.logger.Debug(ctx, "✅ Extracted organization name: %s", orgName)
-						projectName = orgName
-					} else {
-						e.logger.Debug(ctx, "❌ Failed to extract organization name from path")
-					}
-				} else {
-					e.logger.Debug(ctx, "❌ Repository path doesn't contain '/' separator")
-				}
-			} else {
-				e.logger.Debug(ctx, "❌ Repository URL doesn't contain ':' separator")
-			}
-		} else {
-			e.logger.Debug(ctx, "❌ Repository URL format not recognized")
-		}
+		e.logger.Debug(ctx, "🔗 Parent repository configured: %s", scConfig.ParentRepository)
 	} else {
-		e.logger.Debug(ctx, "❌ No parent repository configured - using hardcoded project name")
+		e.logger.Debug(ctx, "📁 No parent repository configured - standalone project")
 	}
 
 	e.logger.Debug(ctx, "🔍 FINAL PROJECT NAME: %s (this determines Pulumi stack reference)", projectName)
