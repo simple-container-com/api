@@ -25,7 +25,8 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates git curl jq bash python3 py3-pip
 
 # Install Pulumi CLI - Required for Simple Container provisioning
-RUN curl -fsSL https://get.pulumi.com | sh
+# Use explicit version to avoid auto-detection failures  
+RUN curl -fsSL https://get.pulumi.com | sh -s -- --version v3.185.0
 ENV PATH="/root/.pulumi/bin:${PATH}"
 
 # Install Google Cloud SDK (gcloud CLI) - Required for GCP provisioning

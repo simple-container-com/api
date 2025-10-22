@@ -42,11 +42,15 @@ This is the Simple Container API project with MkDocs documentation. The project 
 #### GitHub Actions Dependencies Fix (2024-10-22)
 - **Missing Dependencies Resolved**: Added required CLI tools to GitHub Actions containers
   - **Added Pulumi CLI**: Both production and staging Dockerfiles now install Pulumi for infrastructure provisioning
+  - **Fixed Pulumi Installation**: Uses `sh -s -- --version v3.185.0` instead of environment variable for reliable version specification
   - **Added Google Cloud SDK**: Both containers now include gcloud CLI for GCP operations
+  - **Added GKE Auth Plugin**: Both containers now include `gke-gcloud-auth-plugin` for modern GKE cluster authentication
   - **Added Python Dependencies**: Required runtime for gcloud operations
   - **Fixed Error**: Resolved `exec: "pulumi": executable file not found in $PATH` error
+  - **Fixed GKE Error**: Resolved `executable gke-gcloud-auth-plugin not found` error for Kubernetes operations
+  - **Fixed Pulumi Version Detection**: Resolved `could not determine latest version of Pulumi` error with explicit version passing
   - **Files Updated**: `github-actions.Dockerfile`, `github-actions-staging.Dockerfile`
-  - **Status**: ✅ **GitHub Actions containers now have all required dependencies**
+  - **Status**: ✅ **GitHub Actions containers now have all required dependencies with reliable installation**
 
 #### Dry-Run Mode Fix (2024-10-22)
 - **Critical Issue Resolved**: Dry-run mode now properly performs preview-only operations instead of actual provisioning
