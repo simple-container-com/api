@@ -237,10 +237,8 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 		profile = "default"
 	}
 
-	// Set up SSH keys for git operations (needed for secret revelation)
-	if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
-		return fmt.Errorf("failed to setup SSH for git: %w", err)
-	}
+	// SSH setup not needed - GitHub Actions already provides repository access
+	e.logger.Info(ctx, "ℹ️  Using GitHub Actions repository access (no SSH setup needed)")
 
 	// Initialize git repository context
 	currentGitRepo, err := git.New(git.WithDetectRootDir())
@@ -251,12 +249,14 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 		e.logger.Info(ctx, "✅ Successfully initialized Git context")
 	}
 
-	// Create cryptor for current repository
+	// Create cryptor for current repository with keys from SC_CONFIG
 	e.logger.Info(ctx, "🔧 Creating cryptor for current repository...")
 	currentCryptor, err := secrets.NewCryptor(
 		".", // Current repository root
 		secrets.WithProfile(profile),
 		secrets.WithGitRepo(currentGitRepo),
+		secrets.WithPrivateKey(scConfig.PrivateKey),
+		secrets.WithPublicKey(scConfig.PublicKey),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create cryptor: %w", err)
@@ -264,11 +264,11 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 
 	e.logger.Info(ctx, "✅ Created cryptor for current repository")
 
-	// Configure cryptor with profile config (SSH keys)
-	e.logger.Info(ctx, "🔧 Configuring cryptor with profile config (SSH keys)...")
+	// Configure cryptor with profile config
+	e.logger.Info(ctx, "🔧 Loading cryptor profile configuration...")
 	if err := currentCryptor.ReadProfileConfig(); err != nil {
 		e.logger.Warn(ctx, "Failed to read profile config: %v", err)
-		// Continue anyway - may work without profile config
+		// Continue anyway - cryptor already has keys from SC_CONFIG
 	} else {
 		e.logger.Info(ctx, "✅ Successfully loaded profile config")
 	}
