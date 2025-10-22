@@ -27,28 +27,18 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 		return errors.Errorf("failed to convert gcloud state storage config to api.AuthConfig")
 	}
 	log.Info(ctx, "Initializing gcp statestore...")
-	log.Debug(ctx, "🔍 GCP Auth Debug - Raw credentials value: %s", authCfg.CredentialsValue())
+	// SECURITY: Never log actual credential values
 	log.Debug(ctx, "🔍 GCP Auth Debug - Credentials length: %d", len(authCfg.CredentialsValue()))
 
 	credValue := authCfg.CredentialsValue()
 	if credValue == "" {
 		log.Debug(ctx, "❌ GCP credentials are EMPTY!")
 	} else if credValue[0] == '$' {
-		// Safe substring to avoid panic
-		preview := credValue
-		if len(credValue) > 50 {
-			preview = credValue[:50]
-		}
-		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder: %s", preview)
+		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder (starts with '$')")
 	} else if credValue[0] == '{' {
 		log.Debug(ctx, "✅ GCP credentials appear to be valid JSON")
 	} else {
-		// Safe substring to avoid panic
-		preview := credValue
-		if len(credValue) > 50 {
-			preview = credValue[:50]
-		}
-		log.Debug(ctx, "⚠️  GCP credentials format unknown, first chars: %s", preview)
+		log.Debug(ctx, "⚠️  GCP credentials format unknown (doesn't start with '{' or '$')")
 	}
 
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)

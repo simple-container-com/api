@@ -29,6 +29,14 @@ This is the Simple Container API project with MkDocs documentation. The project 
     - ✅ **Zero Configuration Required**: Actions work automatically without explicit GitHub context passing in workflows
     - ✅ **Perfect `actions/checkout` Pattern**: Docker actions with automatic GitHub context defaults for enterprise-grade authentication
 
+#### Critical Security Fix: Debug Logging (2024-10-22)
+- **Security Vulnerability Resolved**: Eliminated credential leakage in verbose mode debug logging
+  - **Fixed GCP Provider**: `pkg/clouds/pulumi/gcp/provider.go` - No longer logs raw GCP service account credentials
+  - **Fixed SSH Key Logging**: `pkg/githubactions/actions/parent_repo.go` - No longer logs partial SSH public key values
+  - **Security Principle**: Never log credential values, use length/format detection for diagnostics
+  - **Pattern Applied**: `log.Debug(ctx, "Credential length: %d", len(cred))` instead of `log.Debug(ctx, "Credential: %s", cred)`
+  - **Status**: ✅ **All credential leakage eliminated - Safe for production verbose mode**
+
 #### CI/CD Workflow Generation (In Progress)
 - **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration
   - New CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`

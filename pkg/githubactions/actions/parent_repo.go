@@ -304,7 +304,8 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 			e.logger.Info(ctx, "   2. For TESTING: Use 'sc secrets encrypt' with current keys to re-encrypt secrets")
 			e.logger.Info(ctx, "   3. Check that SC_CONFIG contains the correct keys for this environment")
 			e.logger.Info(ctx, "")
-			e.logger.Info(ctx, "🔍 Current SC_CONFIG public key: %s", currentCryptor.PublicKey()[:60]+"...")
+			// SECURITY: Never log actual key values, even public keys
+			e.logger.Info(ctx, "🔍 Current SC_CONFIG public key length: %d chars", len(currentCryptor.PublicKey()))
 
 			// For DRY_RUN, this might be acceptable - let's not fail hard
 			if os.Getenv("DRY_RUN") == "true" {

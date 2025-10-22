@@ -439,7 +439,8 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 		Special: sdk.Bool(false),
 	})
 	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to generate random password for user %q: %q", user.username, password)
+		// SECURITY: Never log actual password objects that might contain credential values
+		params.Log.Error(ctx.Context(), "failed to generate random password for user %q", user.username)
 		return nil, errors.Wrapf(err, "failed to generate random password for mongodb for user %q", user.username)
 	}
 
