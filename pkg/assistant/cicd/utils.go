@@ -3,8 +3,11 @@ package cicd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/github"
@@ -40,20 +43,24 @@ func getParentRepositoryInfo(serverDesc *api.ServerDescriptor, stackName string)
 }
 
 // checkParentRepositoryConfig reads SC configuration to find parent repository information
-// Follows SC's standard configuration reading patterns
+// Follows SC's standard configuration reading patterns, checking both SC_CONFIG env var and local files
 func checkParentRepositoryConfig(stackName string) *ParentRepositoryInfo {
-	// First, try to read SC configuration using standard profile system
-	config, err := api.ReadConfigFile(".", "default")
+	// First, try to read from SC_CONFIG environment variable (GitHub Actions scenario)
+	config, err := readConfigFromSCConfigEnv()
 	if err != nil {
-		// Try other profile if default fails (following SC standard practice)
-		profile := os.Getenv("SC_PROFILE")
-		if profile != "" && profile != "default" {
-			config, err = api.ReadConfigFile(".", profile)
-			if err != nil {
+		// Fall back to local configuration files
+		config, err = api.ReadConfigFile(".", "default")
+		if err != nil {
+			// Try other profile if default fails (following SC standard practice)
+			profile := os.Getenv("SC_PROFILE")
+			if profile != "" && profile != "default" {
+				config, err = api.ReadConfigFile(".", profile)
+				if err != nil {
+					return nil
+				}
+			} else {
 				return nil
 			}
-		} else {
-			return nil
 		}
 	}
 
@@ -288,6 +295,7 @@ func processStackName(stackName string) string {
 }
 
 // autoDetectConfigFile detects server.yaml file location based on stack name
+// Returns empty string if no server.yaml is found but parent repository config is available
 func autoDetectConfigFile(configFile, stackName string) (string, error) {
 	if configFile != "" && configFile != "server.yaml" {
 		return configFile, nil
@@ -305,11 +313,24 @@ func autoDetectConfigFile(configFile, stackName string) (string, error) {
 		return "server.yaml", nil
 	}
 
-	return "", fmt.Errorf("no server.yaml found. Checked: %s, server.yaml", stackServerYaml)
+	// Check if parent repository configuration is available as fallback
+	parentConfig := checkParentRepositoryConfig(stackName)
+	if parentConfig != nil && parentConfig.HasParentConfig {
+		// Return empty string to indicate parent repository configuration should be used
+		return "", nil
+	}
+
+	return "", fmt.Errorf("no server.yaml found and no parent repository configuration available. Checked: %s, server.yaml, .sc/cfg.default.yaml", stackServerYaml)
 }
 
 // validateAndLoadServerConfig loads and validates server configuration
+// If configFile is empty, attempts to create configuration from parent repository info
 func validateAndLoadServerConfig(configFile string) (*api.ServerDescriptor, error) {
+	// Handle parent repository configuration when no server.yaml is available
+	if configFile == "" {
+		return createServerDescriptorFromParentConfig()
+	}
+
 	serverDesc, err := readServerConfig(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read server configuration: %w", err)
@@ -416,4 +437,152 @@ func getEnvironmentNames(environments map[string]github.EnvironmentConfig) []str
 		names = append(names, name)
 	}
 	return names
+}
+
+// createServerDescriptorFromParentConfig reads the actual server.yaml from parent repository
+// instead of creating synthetic configuration
+func createServerDescriptorFromParentConfig() (*api.ServerDescriptor, error) {
+	// First, try to read from SC_CONFIG environment variable (GitHub Actions scenario)
+	config, err := readConfigFromSCConfigEnv()
+	if err != nil {
+		// Fall back to local configuration files
+		config, err = api.ReadConfigFile(".", "default")
+		if err != nil {
+			// Try other profile if default fails
+			profile := os.Getenv("SC_PROFILE")
+			if profile != "" && profile != "default" {
+				config, err = api.ReadConfigFile(".", profile)
+				if err != nil {
+					return nil, fmt.Errorf("no server.yaml found and no parent repository configuration available in SC_CONFIG, .sc/cfg.default.yaml or profile '%s'", profile)
+				}
+			} else {
+				return nil, fmt.Errorf("no server.yaml found and no parent repository configuration available in SC_CONFIG or .sc/cfg.default.yaml")
+			}
+		}
+	}
+
+	// Check if parent repository is configured
+	if config.ParentRepository == "" {
+		return nil, fmt.Errorf("no server.yaml found and no parentRepository configured in SC_CONFIG or .sc/cfg.default.yaml")
+	}
+
+	// Clone parent repository and read actual server.yaml configuration
+	serverDesc, err := cloneParentRepositoryAndReadServerConfig(config.ParentRepository, config.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CI/CD configuration from parent repository: %w", err)
+	}
+
+	return serverDesc, nil
+}
+
+// readConfigFromSCConfigEnv reads SC configuration from SC_CONFIG environment variable
+// Returns error if SC_CONFIG is not set or contains invalid YAML
+func readConfigFromSCConfigEnv() (*api.ConfigFile, error) {
+	// Get SC config from environment
+	scConfigYAML := os.Getenv("SC_CONFIG")
+	if scConfigYAML == "" {
+		return nil, fmt.Errorf("SC_CONFIG environment variable not set")
+	}
+
+	// Parse SC_CONFIG YAML
+	var scConfig api.ConfigFile
+	if err := yaml.Unmarshal([]byte(scConfigYAML), &scConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse SC_CONFIG: %w", err)
+	}
+
+	return &scConfig, nil
+}
+
+// cloneParentRepositoryAndReadServerConfig clones the parent repository and reads server.yaml
+// Reuses logic similar to parent repository operations in GitHub Actions
+func cloneParentRepositoryAndReadServerConfig(parentRepoURL, privateKey string) (*api.ServerDescriptor, error) {
+	devopsDir := ".devops-cicd-temp"
+
+	// Remove existing directory if it exists
+	if err := os.RemoveAll(devopsDir); err != nil {
+		return nil, fmt.Errorf("failed to remove existing temp directory: %w", err)
+	}
+
+	// Ensure cleanup happens
+	defer func() {
+		if err := os.RemoveAll(devopsDir); err != nil {
+			// Log warning but don't fail
+			fmt.Printf("Warning: failed to cleanup temp directory %s: %v\n", devopsDir, err)
+		}
+	}()
+
+	// Set up SSH for git operations if private key is available
+	if privateKey != "" {
+		if err := setupTempSSHForGit(privateKey); err != nil {
+			return nil, fmt.Errorf("failed to setup SSH for git: %w", err)
+		}
+	}
+
+	// Clone the repository (use git command for simplicity)
+	if err := executeGitClone(parentRepoURL, devopsDir); err != nil {
+		return nil, fmt.Errorf("failed to clone parent repository: %w", err)
+	}
+
+	// Read server.yaml from the cloned parent repository
+	parentServerYaml := filepath.Join(devopsDir, "server.yaml")
+	if _, err := os.Stat(parentServerYaml); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no server.yaml found in parent repository")
+	}
+
+	// Use SC's internal API to read server configuration
+	serverDesc, err := api.ReadServerDescriptor(parentServerYaml)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read server.yaml from parent repository: %w", err)
+	}
+
+	// Validate that CI/CD configuration exists in parent repository
+	if serverDesc.CiCd.Type == "" {
+		return nil, fmt.Errorf("no CI/CD configuration found in parent repository's server.yaml")
+	}
+
+	if serverDesc.CiCd.Type != "github-actions" {
+		return nil, fmt.Errorf("unsupported CI/CD type '%s' in parent repository. Only 'github-actions' is currently supported", serverDesc.CiCd.Type)
+	}
+
+	return serverDesc, nil
+}
+
+// setupTempSSHForGit sets up SSH configuration for git operations with temp files
+func setupTempSSHForGit(privateKey string) error {
+	// Create temporary SSH directory
+	sshDir := filepath.Join(os.TempDir(), "ssh-cicd-temp")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create SSH directory: %w", err)
+	}
+
+	// Write private key to temporary file
+	keyFile := filepath.Join(sshDir, "id_rsa")
+	if err := os.WriteFile(keyFile, []byte(privateKey), 0o600); err != nil {
+		return fmt.Errorf("failed to write SSH key: %w", err)
+	}
+
+	// Set GIT_SSH_COMMAND environment variable
+	gitSSHCommand := fmt.Sprintf("ssh -i %s -o StrictHostKeyChecking=no", keyFile)
+	if err := os.Setenv("GIT_SSH_COMMAND", gitSSHCommand); err != nil {
+		return fmt.Errorf("failed to set GIT_SSH_COMMAND: %w", err)
+	}
+
+	return nil
+}
+
+// executeGitClone executes git clone command using os/exec
+// Reuses the same approach as parent repository operations in GitHub Actions
+func executeGitClone(repoURL, destDir string) error {
+	// Create git clone command - use shallow clone for faster performance
+	cmd := exec.Command("git", "clone", "--depth", "1", repoURL, destDir)
+
+	// Set environment to use SSH configuration if available
+	cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+
+	// Execute git clone
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git clone failed: %w (output: %s)", err, string(output))
+	}
+
+	return nil
 }

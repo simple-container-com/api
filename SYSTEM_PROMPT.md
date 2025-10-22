@@ -87,14 +87,21 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Files Updated**: `.github/workflows/build-staging.yml`, `github-actions-staging.Dockerfile`
   - **Status**: ✅ **Significantly faster Docker builds with proper layer caching**
 
-#### CI/CD Workflow Generation (In Progress)
-- **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration
-  - New CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`
-  - Enhanced server.yaml schema with comprehensive CI/CD configuration support
-  - Location: `pkg/cmd/cmd_cicd/`, `pkg/clouds/github/enhanced_config.go`, `pkg/clouds/github/workflow_generator.go`
-  - Supports organizational-level workflow templates, environment-specific deployments, and notifications
-  - Internal API refactor plan documented for using SC internal APIs instead of shell commands
-  - Status: `sc cicd generate` command completed, other commands pending
+#### CI/CD Workflow Generation (✅ Enhanced with Parent Repository Support)
+- **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration OR parent repository configuration
+  - **CRITICAL FIX (2024-10-22)**: Fixed `generate_cicd` command to respect `parentRepository` configuration from `SC_CONFIG` and `.sc/cfg.default.yaml`
+  - **Enhanced Configuration Sources**: Now supports multiple configuration sources with smart fallbacks:
+    1. `SC_CONFIG` environment variable (GitHub Actions scenario)
+    2. `.sc/cfg.default.yaml` (local default profile)
+    3. Profile-specific config (based on `SC_PROFILE` env var)
+  - **Synthetic Server Configuration**: When no `server.yaml` exists but `parentRepository` is configured, creates synthetic server descriptor with proper organization detection
+  - **Zero Breaking Changes**: Existing `server.yaml` workflows continue to work unchanged
+  - **Client Repository Support**: Enables CI/CD generation in client repositories that depend on parent repository configurations
+  - CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`
+  - MCP Tools: `generate_cicd`, `validate_cicd`, `preview_cicd`, `sync_cicd`, `setup_cicd`
+  - Location: `pkg/cmd/cmd_cicd/`, `pkg/assistant/cicd/`, `pkg/clouds/github/enhanced_config.go`, `pkg/clouds/github/workflow_generator.go`
+  - **Files Modified**: `pkg/assistant/cicd/utils.go` - Enhanced configuration detection and synthetic server creation
+  - Status: ✅ **Production ready with complete parent repository configuration support**
 
 ## Important Guidelines
 
