@@ -36,6 +36,7 @@ func (e *Executor) isPreviewMode() bool {
 	// Check various environment variables that indicate preview mode
 	return os.Getenv("SC_PREVIEW") == "true" ||
 		os.Getenv("SC_DRY_RUN") == "true" ||
+		os.Getenv("DRY_RUN") == "true" ||
 		os.Getenv("SC_DEPLOY_PREVIEW") == "true" ||
 		os.Getenv("GITHUB_EVENT_NAME") == "pull_request"
 }

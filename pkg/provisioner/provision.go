@@ -101,7 +101,8 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
 			return err
 		} else if serverDesc != nil {
-			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
+			// SECURITY: Never log actual server descriptor content - may contain resolved secrets
+			p.log.Debug(ctx, "Successfully read server descriptor for stack: %s", stackName)
 			stack.Server = *serverDesc
 		} else {
 			p.log.Debug(ctx, "Server descriptor not found for %s", stackName)

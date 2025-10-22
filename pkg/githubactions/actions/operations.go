@@ -54,28 +54,40 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 	// Initialize notifications after secrets are revealed (allows reading from parent stack secrets.yaml)
 	e.initializeNotifications(ctx)
 
+	// Execute deployment
+	previewMode := e.isPreviewMode()
+
 	// Deploy using SC's provisioner API
 	deployParams := api.DeployParams{
 		StackParams: api.StackParams{
 			StackName:   stackName,
 			Environment: environment,
 			Version:     version,
+			SkipRefresh: previewMode, // Skip refresh in dry-run/preview mode
 		},
 	}
 
-	// Execute deployment
-	previewMode := e.isPreviewMode()
 	if previewMode {
 		e.logger.Info(ctx, "🔍 Executing deployment in PREVIEW MODE (no real changes will be made)...")
-	}
+		e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
+		e.logger.Info(ctx, "Deploy version: %s", version)
 
-	e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
-	e.logger.Info(ctx, "Deploy version: %s", version)
+		if _, err := e.provisioner.Preview(ctx, deployParams); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Deploy Preview Failed", fmt.Sprintf("Deployment preview of %s failed after %v: %v", stackName, duration, err), stackName, environment)
+			return fmt.Errorf("deployment preview failed: %w", err)
+		}
+		e.logger.Info(ctx, "✅ Preview completed - no actual deployment performed")
+	} else {
+		e.logger.Info(ctx, "🚀 Executing ACTUAL deployment (changes will be applied)...")
+		e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
+		e.logger.Info(ctx, "Deploy version: %s", version)
 
-	if err := e.provisioner.Deploy(ctx, deployParams); err != nil {
-		duration := time.Since(startTime)
-		e.sendAlert(ctx, api.BuildFailed, "Deploy Failed", fmt.Sprintf("Deployment of %s failed after %v: %v", stackName, duration, err), stackName, environment)
-		return fmt.Errorf("deployment preview failed: %w", err)
+		if err := e.provisioner.Deploy(ctx, deployParams); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Deploy Failed", fmt.Sprintf("Deployment of %s failed after %v: %v", stackName, duration, err), stackName, environment)
+			return fmt.Errorf("deployment failed: %w", err)
+		}
 	}
 
 	duration := time.Since(startTime)
@@ -153,11 +165,15 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 	// Initialize notifications after secrets are revealed
 	e.initializeNotifications(ctx)
 
+	// Execute provisioning
+	previewMode := e.isPreviewMode()
+
 	// Provision using SC's provisioner API
 	provisionParams := api.ProvisionParams{
-		StacksDir: ".sc/stacks",
-		Profile:   os.Getenv("ENVIRONMENT"),
-		Stacks:    []string{stackName},
+		StacksDir:   ".sc/stacks",
+		Profile:     os.Getenv("ENVIRONMENT"),
+		Stacks:      []string{stackName},
+		SkipRefresh: previewMode, // Skip refresh in dry-run/preview mode
 	}
 
 	e.logger.Debug(ctx, "🔧 Provision parameters:")
@@ -165,20 +181,28 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 	e.logger.Debug(ctx, "  - Profile: %s", provisionParams.Profile)
 	e.logger.Debug(ctx, "  - Stacks: %v", provisionParams.Stacks)
 
-	// Execute provisioning
-	previewMode := e.isPreviewMode()
 	if previewMode {
 		e.logger.Info(ctx, "🔍 Executing provisioning in PREVIEW MODE (no real changes will be made)...")
 		e.logger.Debug(ctx, "Preview mode detected from environment variables")
-	}
+		e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
+		e.logger.Debug(ctx, "🚀 Calling provisioner.PreviewProvision() with parameters...")
 
-	e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
-	e.logger.Debug(ctx, "🚀 Calling provisioner.Provision() with parameters...")
+		if _, err := e.provisioner.PreviewProvision(ctx, provisionParams); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Provision Preview Failed", fmt.Sprintf("Provisioning preview of %s failed after %v: %v", stackName, duration, err), stackName, "infrastructure")
+			return fmt.Errorf("provisioning preview failed: %w", err)
+		}
+		e.logger.Info(ctx, "✅ Preview completed - no actual provisioning performed")
+	} else {
+		e.logger.Info(ctx, "🚀 Executing ACTUAL provisioning (changes will be applied)...")
+		e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
+		e.logger.Debug(ctx, "🚀 Calling provisioner.Provision() with parameters...")
 
-	if err := e.provisioner.Provision(ctx, provisionParams); err != nil {
-		duration := time.Since(startTime)
-		e.sendAlert(ctx, api.BuildFailed, "Provision Failed", fmt.Sprintf("Provisioning of %s failed after %v: %v", stackName, duration, err), stackName, "infrastructure")
-		return fmt.Errorf("provisioning failed: %w", err)
+		if err := e.provisioner.Provision(ctx, provisionParams); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Provision Failed", fmt.Sprintf("Provisioning of %s failed after %v: %v", stackName, duration, err), stackName, "infrastructure")
+			return fmt.Errorf("provisioning failed: %w", err)
+		}
 	}
 
 	duration := time.Since(startTime)
@@ -238,26 +262,37 @@ func (e *Executor) DestroyClientStack(ctx context.Context) error {
 	// Initialize notifications after secrets are revealed (allows reading from parent stack secrets.yaml)
 	e.initializeNotifications(ctx)
 
+	// Execute destruction
+	previewMode := e.isPreviewMode()
+
 	// Destroy using SC's provisioner API
 	destroyParams := api.DestroyParams{
 		StackParams: api.StackParams{
 			StackName:   stackName,
 			Environment: environment,
+			SkipRefresh: previewMode, // Skip refresh in dry-run/preview mode
 		},
 	}
 
-	// Execute destruction
-	previewMode := e.isPreviewMode()
 	if previewMode {
 		e.logger.Info(ctx, "🔍 Executing destruction in PREVIEW MODE (no real changes will be made)...")
-	}
+		e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
+		// Note: For destroy operations, preview mode uses the same Destroy method with previewMode=true
+		if err := e.provisioner.Destroy(ctx, destroyParams, true); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Destroy Preview Failed", fmt.Sprintf("Destruction preview of %s failed after %v: %v", stackName, duration, err), stackName, environment)
+			return fmt.Errorf("destruction preview failed: %w", err)
+		}
+		e.logger.Info(ctx, "✅ Preview completed - no actual destruction performed")
+	} else {
+		e.logger.Info(ctx, "🚀 Executing ACTUAL destruction (changes will be applied)...")
+		e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
 
-	e.logger.Info(ctx, "Simple Container CLI version: %s", "latest")
-
-	if err := e.provisioner.Destroy(ctx, destroyParams, previewMode); err != nil {
-		duration := time.Since(startTime)
-		e.sendAlert(ctx, api.BuildFailed, "Destroy Failed", fmt.Sprintf("Destruction of %s failed after %v: %v", stackName, duration, err), stackName, environment)
-		return fmt.Errorf("destruction failed: %w", err)
+		if err := e.provisioner.Destroy(ctx, destroyParams, false); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Destroy Failed", fmt.Sprintf("Destruction of %s failed after %v: %v", stackName, duration, err), stackName, environment)
+			return fmt.Errorf("destruction failed: %w", err)
+		}
 	}
 
 	duration := time.Since(startTime)
@@ -304,23 +339,32 @@ func (e *Executor) DestroyParentStack(ctx context.Context) error {
 	// Initialize notifications after secrets are revealed
 	e.initializeNotifications(ctx)
 
+	// Execute parent destruction
+	previewMode := e.isPreviewMode()
+
 	// Destroy parent using SC's provisioner API
 	destroyParams := api.DestroyParams{
 		StackParams: api.StackParams{
-			StackName: stackName,
+			StackName:   stackName,
+			SkipRefresh: previewMode, // Skip refresh in dry-run/preview mode
 		},
 	}
 
-	// Execute parent destruction
-	previewMode := e.isPreviewMode()
 	if previewMode {
 		e.logger.Info(ctx, "🔍 Executing parent stack destruction in PREVIEW MODE (no real changes will be made)...")
-	}
-
-	if err := e.provisioner.DestroyParent(ctx, destroyParams, previewMode); err != nil {
-		duration := time.Since(startTime)
-		e.sendAlert(ctx, api.BuildFailed, "Destroy Parent Failed", fmt.Sprintf("Parent stack destruction of %s failed after %v: %v", stackName, duration, err), stackName, "infrastructure")
-		return fmt.Errorf("parent stack destruction failed: %w", err)
+		if err := e.provisioner.DestroyParent(ctx, destroyParams, true); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Destroy Parent Preview Failed", fmt.Sprintf("Parent stack destruction preview of %s failed after %v: %v", stackName, duration, err), stackName, "infrastructure")
+			return fmt.Errorf("parent stack destruction preview failed: %w", err)
+		}
+		e.logger.Info(ctx, "✅ Preview completed - no actual parent stack destruction performed")
+	} else {
+		e.logger.Info(ctx, "🚀 Executing ACTUAL parent stack destruction (changes will be applied)...")
+		if err := e.provisioner.DestroyParent(ctx, destroyParams, false); err != nil {
+			duration := time.Since(startTime)
+			e.sendAlert(ctx, api.BuildFailed, "Destroy Parent Failed", fmt.Sprintf("Parent stack destruction of %s failed after %v: %v", stackName, duration, err), stackName, "infrastructure")
+			return fmt.Errorf("parent stack destruction failed: %w", err)
+		}
 	}
 
 	duration := time.Since(startTime)
