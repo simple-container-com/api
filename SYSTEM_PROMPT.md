@@ -34,8 +34,9 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Fixed GCP Provider**: `pkg/clouds/pulumi/gcp/provider.go` - No longer logs raw GCP service account credentials
   - **Fixed SSH Key Logging**: `pkg/githubactions/actions/parent_repo.go` - No longer logs partial SSH public key values
   - **Fixed MongoDB Password Logging**: `pkg/clouds/pulumi/mongodb/cluster.go` - No longer logs password objects in error messages
-  - **Security Principle**: Never log credential values, use length/format detection for diagnostics
-  - **Pattern Applied**: `log.Debug(ctx, "Credential length: %d", len(cred))` instead of `log.Debug(ctx, "Credential: %s", cred)`
+  - **CRITICAL FIX - Secrets Descriptor Logging**: `pkg/provisioner/provision.go` - No longer logs entire secrets descriptor structures containing ALL credential values
+  - **Security Principle**: Never log credential values or descriptor structures, use stack-specific diagnostics
+  - **Pattern Applied**: `log.Debug(ctx, "Successfully read secrets descriptor for stack: %s", stackName)` instead of `log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)`
   - **Status**: ✅ **All credential leakage eliminated - Safe for production verbose mode**
 
 #### GitHub Actions Dependencies Fix (2024-10-22)

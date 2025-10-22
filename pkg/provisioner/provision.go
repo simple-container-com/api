@@ -110,7 +110,8 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		if clientDesc, err := p.readClientDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreClientMissing || lo.Contains(readOpts.RequireClientConfigs, stackName)) {
 			return err
 		} else if clientDesc != nil {
-			p.log.Debug(ctx, "Successfully read client descriptor: %q", clientDesc)
+			// SECURITY: Never log actual descriptor content that might contain credentials
+			p.log.Debug(ctx, "Successfully read client descriptor for stack: %s", stackName)
 			stack.Client = *clientDesc
 		} else {
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
@@ -119,7 +120,8 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
 			return err
 		} else if secretsDesc != nil {
-			p.log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
+			// SECURITY: Never log actual secrets descriptor content - contains credential values
+			p.log.Debug(ctx, "Successfully read secrets descriptor for stack: %s", stackName)
 			stack.Secrets = *secretsDesc
 		} else {
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
