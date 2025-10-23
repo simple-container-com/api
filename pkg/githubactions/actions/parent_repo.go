@@ -98,7 +98,28 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 			cmd.Args[2] = authenticatedURL // Replace the URL argument
 			e.logger.Info(ctx, "Using GITHUB_TOKEN for HTTPS authentication")
 		} else {
-			e.logger.Warn(ctx, "GITHUB_TOKEN not found - HTTPS clone may fail")
+			e.logger.Warn(ctx, "GITHUB_TOKEN not found - will try SSH fallback with SC_CONFIG private key")
+
+			// Fallback to SSH using private key from SC_CONFIG
+			if scConfig.PrivateKey != "" {
+				e.logger.Info(ctx, "🔑 Falling back to SSH authentication using SC_CONFIG private key")
+
+				// Convert HTTPS URL back to SSH format
+				sshURL := strings.Replace(cloneURL, "https://github.com/", "git@github.com:", 1)
+				cmd.Args[2] = sshURL // Replace the URL argument
+
+				// Set up SSH authentication using the private key from SC_CONFIG
+				if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
+					e.logger.Warn(ctx, "Failed to setup SSH authentication: %v", err)
+					return fmt.Errorf("failed to setup SSH authentication: %w", err)
+				}
+
+				cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+				e.logger.Info(ctx, "✅ SSH authentication configured using SC_CONFIG private key")
+			} else {
+				e.logger.Warn(ctx, "No GITHUB_TOKEN and no private key in SC_CONFIG - clone will likely fail")
+				return fmt.Errorf("no authentication method available: GITHUB_TOKEN missing and SC_CONFIG has no private key")
+			}
 		}
 	}
 
