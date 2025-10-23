@@ -21,8 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o github-actions ./
 # Final stage - minimal runtime
 FROM alpine:latest
 
-# Install runtime dependencies including Python (required for gcloud)
-RUN apk --no-cache add ca-certificates git curl jq bash python3 py3-pip
+# Install runtime dependencies including Python (required for gcloud) and SSH client (required for git SSH operations)
+RUN apk --no-cache add ca-certificates git openssh-client curl jq bash python3 py3-pip
 
 # Install Pulumi CLI - Required for Simple Container provisioning
 # Read version from go.mod to ensure consistency with Go dependencies
