@@ -20,6 +20,7 @@ type PreviewParams struct {
 	Format      string
 	Verbose     bool
 	Parent      bool
+	Staging     bool
 }
 
 func NewPreviewCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
@@ -60,6 +61,7 @@ Examples:
 	cmd.Flags().StringVar(&params.Format, "format", params.Format, "Output format: summary, detailed, json")
 	cmd.Flags().BoolVarP(&params.Verbose, "verbose", "v", params.Verbose, "Verbose output")
 	cmd.Flags().BoolVar(&params.Parent, "parent", params.Parent, "Preview workflows for parent stack (infrastructure/provisioning)")
+	cmd.Flags().BoolVar(&params.Staging, "staging", params.Staging, "Generate workflows optimized for staging branch instead of main")
 
 	_ = cmd.MarkFlagRequired("stack")
 
@@ -77,6 +79,7 @@ func runPreview(rootCmd *root_cmd.RootCmd, params PreviewParams) error {
 		ConfigFile:  params.ConfigFile,
 		ShowContent: params.ShowContent,
 		Parent:      params.Parent,
+		Staging:     params.Staging,
 	}
 
 	result, err := service.PreviewWorkflows(serviceParams)

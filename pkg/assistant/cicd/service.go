@@ -24,6 +24,7 @@ type GenerateParams struct {
 	Force      bool
 	DryRun     bool
 	Parent     bool
+	Staging    bool
 }
 
 // ValidateParams contains parameters for workflow validation
@@ -34,6 +35,7 @@ type ValidateParams struct {
 	ShowDiff     bool
 	Verbose      bool
 	Parent       bool
+	Staging      bool
 }
 
 // PreviewParams contains parameters for workflow preview
@@ -42,6 +44,7 @@ type PreviewParams struct {
 	ConfigFile  string
 	ShowContent bool
 	Parent      bool
+	Staging     bool
 }
 
 // SyncParams contains parameters for workflow synchronization
@@ -51,6 +54,7 @@ type SyncParams struct {
 	DryRun     bool
 	Force      bool
 	Parent     bool
+	Staging    bool
 }
 
 // Result contains the result of a CI/CD operation
@@ -84,7 +88,7 @@ func (s *Service) GenerateWorkflows(params GenerateParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	// Set up output directory
 	outputDir := params.Output
@@ -169,7 +173,7 @@ func (s *Service) ValidateWorkflows(params ValidateParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	// Set up workflows directory
 	workflowsDir := params.WorkflowsDir
@@ -261,7 +265,7 @@ func (s *Service) PreviewWorkflows(params PreviewParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	// Generate preview
 	return s.previewGeneration(enhancedConfig, stackName, ".github/workflows/")
@@ -289,7 +293,7 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	workflowsDir := ".github/workflows/"
 

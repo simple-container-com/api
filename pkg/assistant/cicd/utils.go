@@ -117,7 +117,7 @@ func getConcurrencyGroup(isParent bool, stackName string) string {
 }
 
 // createEnhancedConfig converts server configuration to enhanced GitHub Actions config
-func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, isParent bool) *github.EnhancedActionsCiCdConfig {
+func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, isParent bool, isStaging bool) *github.EnhancedActionsCiCdConfig {
 	// Determine if this is a parent stack based on explicit flag or configuration
 	var isParentStack bool
 	if isParent {
@@ -129,6 +129,14 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		isParentStack = parentInfo.IsParent
 	}
 
+	// Determine SC version and action version based on staging flag
+	scVersion := "latest" // Default to latest (which maps to @main)
+	actionVersion := "@main"
+	if isStaging {
+		scVersion = "staging" // Use staging branch for SC actions
+		actionVersion = "@staging"
+	}
+
 	// Choose templates based on repository type
 	var defaultTemplates []string
 	var defaultCustomActions map[string]string
@@ -137,17 +145,20 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		// Parent repository workflows
 		defaultTemplates = []string{"provision", "destroy-parent"}
 		defaultCustomActions = map[string]string{
-			"provision":      "simple-container-com/api/.github/actions/provision-parent-stack@main",
-			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent-stack@main",
+			"provision":      "simple-container-com/api/.github/actions/provision-parent-stack" + actionVersion,
+			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent-stack" + actionVersion,
 		}
 	} else {
 		// Client repository workflows
 		defaultTemplates = []string{"deploy", "destroy"}
 		defaultCustomActions = map[string]string{
-			"deploy":  "simple-container-com/api/.github/actions/deploy-client-stack@main",
-			"destroy": "simple-container-com/api/.github/actions/destroy-client-stack@main",
+			"deploy":  "simple-container-com/api/.github/actions/deploy-client-stack" + actionVersion,
+			"destroy": "simple-container-com/api/.github/actions/destroy-client-stack" + actionVersion,
 		}
 	}
+
+	// Default branch remains main for workflow triggers
+	defaultBranch := "main"
 
 	// Use SC's standard conversion pattern to get strongly typed GitHub Actions configuration
 	convertedConfig, err := api.ConvertConfig(&serverDesc.CiCd.Config, &github.GitHubActionsCiCdConfig{})
@@ -156,13 +167,13 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		return &github.EnhancedActionsCiCdConfig{
 			Organization: github.OrganizationConfig{
 				Name:          "simple-container-org",
-				DefaultBranch: "main",
+				DefaultBranch: defaultBranch,
 			},
 			WorkflowGeneration: github.WorkflowGenerationConfig{
 				Enabled:       true,
 				Templates:     defaultTemplates,
 				CustomActions: defaultCustomActions,
-				SCVersion:     "latest",
+				SCVersion:     scVersion, // Use staging or latest based on flag
 			},
 			Execution: github.ExecutionConfig{
 				DefaultTimeout: "30",
@@ -182,13 +193,13 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		return &github.EnhancedActionsCiCdConfig{
 			Organization: github.OrganizationConfig{
 				Name:          "simple-container-org",
-				DefaultBranch: "main",
+				DefaultBranch: defaultBranch,
 			},
 			WorkflowGeneration: github.WorkflowGenerationConfig{
 				Enabled:       true,
 				Templates:     defaultTemplates,
 				CustomActions: defaultCustomActions,
-				SCVersion:     "latest",
+				SCVersion:     scVersion, // Use staging or latest based on flag
 			},
 			Execution: github.ExecutionConfig{
 				DefaultTimeout: "30",
@@ -205,13 +216,13 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 	config := &github.EnhancedActionsCiCdConfig{
 		Organization: github.OrganizationConfig{
 			Name:          gitHubConfig.Organization,
-			DefaultBranch: "main",
+			DefaultBranch: defaultBranch,
 		},
 		WorkflowGeneration: github.WorkflowGenerationConfig{
 			Enabled:       true,
 			Templates:     defaultTemplates,     // Use repository type-specific templates
 			CustomActions: defaultCustomActions, // Use repository type-specific actions
-			SCVersion:     "latest",
+			SCVersion:     scVersion,            // Use staging or latest based on flag
 		},
 		Execution: github.ExecutionConfig{
 			DefaultTimeout: "30",
