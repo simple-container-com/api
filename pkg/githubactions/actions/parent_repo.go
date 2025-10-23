@@ -85,9 +85,21 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	e.logger.Info(ctx, "Executing git clone operation...")
 	cmd := exec.Command("git", "clone", cloneURL, devopsDir)
 
-	// Only set SSH command if we're using SSH
+	// Set up authentication based on URL type
 	if strings.HasPrefix(cloneURL, "git@") || strings.HasPrefix(cloneURL, "ssh://") {
+		// SSH authentication
 		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+	} else if strings.HasPrefix(cloneURL, "https://") && os.Getenv("GITHUB_ACTIONS") == "true" {
+		// HTTPS authentication for GitHub Actions
+		githubToken := os.Getenv("GITHUB_TOKEN")
+		if githubToken != "" {
+			// Insert token into HTTPS URL for authentication
+			authenticatedURL := strings.Replace(cloneURL, "https://github.com/", fmt.Sprintf("https://x-access-token:%s@github.com/", githubToken), 1)
+			cmd.Args[2] = authenticatedURL // Replace the URL argument
+			e.logger.Info(ctx, "Using GITHUB_TOKEN for HTTPS authentication")
+		} else {
+			e.logger.Warn(ctx, "GITHUB_TOKEN not found - HTTPS clone may fail")
+		}
 	}
 
 	if output, err := cmd.CombinedOutput(); err != nil {
