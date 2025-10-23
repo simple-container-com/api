@@ -114,7 +114,10 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 					return fmt.Errorf("failed to setup SSH authentication: %w", err)
 				}
 
-				cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+				// Get SSH config path for git command
+				homeDir, _ := os.UserHomeDir()
+				sshConfigPath := filepath.Join(homeDir, ".ssh", "config")
+				cmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath))
 				e.logger.Info(ctx, "✅ SSH authentication configured using SC_CONFIG private key")
 			} else {
 				e.logger.Warn(ctx, "No GITHUB_TOKEN and no private key in SC_CONFIG - clone will likely fail")
@@ -144,9 +147,13 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 				return fmt.Errorf("HTTPS clone failed and SSH setup failed: HTTPS error: %s, SSH setup error: %w", string(output), err)
 			}
 
-			// Create new SSH command
+			// Get SSH config path for git command
+			homeDir, _ := os.UserHomeDir()
+			sshConfigPath := filepath.Join(homeDir, ".ssh", "config")
+
+			// Create new SSH command with proper SSH config
 			sshCmd := exec.Command("git", "clone", sshURL, devopsDir)
-			sshCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+			sshCmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath))
 
 			e.logger.Info(ctx, "🚀 Executing SSH clone as fallback...")
 			if sshOutput, sshErr := sshCmd.CombinedOutput(); sshErr != nil {
