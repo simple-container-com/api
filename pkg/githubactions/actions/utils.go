@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,6 +13,19 @@ import (
 
 // setupSSHForGit sets up SSH keys for git operations
 func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error {
+	// Validate private key format
+	if privateKey == "" {
+		return fmt.Errorf("private key is empty")
+	}
+
+	// Check if private key has proper format
+	if !strings.Contains(privateKey, "BEGIN") || !strings.Contains(privateKey, "PRIVATE KEY") {
+		return fmt.Errorf("private key does not appear to be in valid format (missing BEGIN/PRIVATE KEY markers)")
+	}
+
+	e.logger.Info(ctx, "🔑 Setting up SSH key authentication...")
+	e.logger.Debug(ctx, "Private key length: %d characters", len(privateKey))
+
 	// Get user home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -27,31 +41,63 @@ func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error 
 	keyPath := filepath.Join(sshDir, fmt.Sprintf("github_actions_key_%d", time.Now().Unix()))
 	sshConfigPath := filepath.Join(sshDir, "config")
 
+	e.logger.Debug(ctx, "SSH key path: %s", keyPath)
+	e.logger.Debug(ctx, "SSH config path: %s", sshConfigPath)
+
 	// Ensure cleanup happens even if function returns early
 	var keyFileCreated bool
 	defer func() {
 		if keyFileCreated {
-			os.Remove(keyPath)
+			if err := os.Remove(keyPath); err != nil {
+				e.logger.Warn(ctx, "Failed to cleanup SSH key file: %v", err)
+			}
 		}
 	}()
 
+	// Ensure private key ends with newline (required for SSH keys)
+	keyContent := strings.TrimSpace(privateKey)
+	if !strings.HasSuffix(keyContent, "\n") {
+		keyContent += "\n"
+	}
+
 	// Write the private key
-	if err := os.WriteFile(keyPath, []byte(privateKey), 0o600); err != nil {
+	if err := os.WriteFile(keyPath, []byte(keyContent), 0o600); err != nil {
 		return fmt.Errorf("failed to write SSH private key: %w", err)
 	}
 	keyFileCreated = true
 
+	e.logger.Info(ctx, "✅ SSH private key written successfully")
+
 	// Configure SSH to use this key for GitHub
-	sshConfigContent := fmt.Sprintf(`
-Host github.com
+	sshConfigContent := fmt.Sprintf(`Host github.com
 	HostName github.com
 	User git
 	IdentityFile %s
 	StrictHostKeyChecking no
+	UserKnownHostsFile /dev/null
+	LogLevel ERROR
 `, keyPath)
 
 	if err := os.WriteFile(sshConfigPath, []byte(sshConfigContent), 0o644); err != nil {
 		return fmt.Errorf("failed to write SSH config: %w", err)
+	}
+
+	e.logger.Info(ctx, "✅ SSH config written successfully")
+
+	// Test SSH key by attempting to connect to GitHub (this will fail but show if key is recognized)
+	e.logger.Info(ctx, "🧪 Testing SSH key authentication...")
+	testCmd := exec.Command("ssh", "-T", "git@github.com")
+	testCmd.Env = os.Environ()
+	if output, err := testCmd.CombinedOutput(); err != nil {
+		e.logger.Debug(ctx, "SSH test output: %s", string(output))
+		// This is expected to fail, but we can check the error message
+		if strings.Contains(string(output), "successfully authenticated") {
+			e.logger.Info(ctx, "✅ SSH key authentication successful")
+		} else if strings.Contains(string(output), "Permission denied (publickey)") {
+			e.logger.Warn(ctx, "❌ SSH key authentication failed - key may not have access to repository")
+		} else {
+			e.logger.Debug(ctx, "SSH test result: %s", string(output))
+		}
 	}
 
 	return nil
