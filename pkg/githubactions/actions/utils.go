@@ -76,6 +76,7 @@ func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error 
 	StrictHostKeyChecking no
 	UserKnownHostsFile /dev/null
 	LogLevel ERROR
+	IdentitiesOnly yes
 `, keyPath)
 
 	if err := os.WriteFile(sshConfigPath, []byte(sshConfigContent), 0o644); err != nil {
@@ -86,7 +87,7 @@ func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error 
 
 	// Test SSH key by attempting to connect to GitHub (this will fail but show if key is recognized)
 	e.logger.Info(ctx, "🧪 Testing SSH key authentication...")
-	testCmd := exec.Command("ssh", "-T", "git@github.com")
+	testCmd := exec.Command("ssh", "-T", "-F", sshConfigPath, "git@github.com")
 	testCmd.Env = os.Environ()
 	if output, err := testCmd.CombinedOutput(); err != nil {
 		e.logger.Debug(ctx, "SSH test output: %s", string(output))
@@ -95,6 +96,8 @@ func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error 
 			e.logger.Info(ctx, "✅ SSH key authentication successful")
 		} else if strings.Contains(string(output), "Permission denied (publickey)") {
 			e.logger.Warn(ctx, "❌ SSH key authentication failed - key may not have access to repository")
+		} else if strings.Contains(string(output), "Host key verification failed") {
+			e.logger.Warn(ctx, "⚠️ SSH host key verification issue (but this should be handled by git)")
 		} else {
 			e.logger.Debug(ctx, "SSH test result: %s", string(output))
 		}
