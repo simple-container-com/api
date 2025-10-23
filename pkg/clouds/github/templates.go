@@ -22,7 +22,7 @@ on:
         default: false
 
 concurrency:
-  group: {{ if .Execution.Concurrency.Group }}{{ .Execution.Concurrency.Group }}{{ else }}deploy-{{ .StackName }}-${{ "{{" }} github.ref {{ "}}" }}{{ end }}
+  group: deploy-{{ .StackName }}-${{ "{{" }} github.event.inputs.environment || 'staging' {{ "}}" }}
   cancel-in-progress: {{ .Execution.Concurrency.CancelInProgress }}
 
 permissions:
@@ -35,65 +35,30 @@ env:
   STACK_NAME: "{{ .StackName }}"
 
 jobs:
-{{- range $envName, $env := .Environments }}
-{{- if ne $env.Type "preview" }}
-  deploy-{{ $envName }}:
-    name: Deploy to {{ title $envName }}
-    {{- if $env.Protection }}
-    environment: 
-      name: {{ $envName }}
-      {{- if $env.Reviewers }}
-      protection_rules:
-        required_reviewers: {{ $env.Reviewers | yamlList }}
-      {{- end }}
+  deploy:
+    name: Deploy {{ .StackName }}
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
+    {{- $autoDeployEnv := "" }}
+    {{- range $envName, $env := .Environments }}
+    {{- if and $env.AutoDeploy (ne $env.Type "preview") }}{{ $autoDeployEnv = $envName }}{{ end }}
     {{- end }}
-    runs-on: {{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}
-    timeout-minutes: {{ if $.Execution.DefaultTimeout }}{{ timeoutMinutes $.Execution.DefaultTimeout }}{{ else }}30{{ end }}
-    {{- if or (and (eq $.DefaultBranch "main") (not $env.AutoDeploy)) (eq $env.Type "production") }}
-    if: ${{ "{{" }} github.event_name == 'workflow_dispatch' && github.event.inputs.environment == '{{ $envName }}' {{ "}}" }}
-    {{- else if $env.AutoDeploy }}
-    if: ${{ "{{" }} github.ref == 'refs/heads/{{ $.DefaultBranch }}' {{ "}}" }}
+    {{- $hasProtectedEnvs := false }}
+    {{- range $envName, $env := .Environments }}
+    {{- if $env.Protection }}{{ $hasProtectedEnvs = true }}{{ end }}
+    {{- end }}
+    {{- if $hasProtectedEnvs }}
+    environment: ${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}
     {{- end }}
     
     steps:
-      - name: Deploy {{ $.StackName }} to {{ $envName }}
-        uses: {{ if index $.CustomActions "deploy" }}{{ index $.CustomActions "deploy" }}{{ else }}{{ defaultAction "deploy" $.SCVersion }}{{ end }}
+      - name: Deploy {{ .StackName }}
+        uses: {{ if index .CustomActions "deploy" }}{{ index .CustomActions "deploy" }}{{ else }}{{ defaultAction "deploy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
-          environment: "{{ $envName }}"
+          environment: "${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
-          {{- if $env.DeployFlags }}
-          sc-deploy-flags: "{{ $env.DeployFlags | join " " }}"
-          {{- end }}
-          {{- if $env.ValidationCmd }}
-          validation-command: |
-            {{ $env.ValidationCmd | indent 12 }}
-          {{- end }}
-          cc-on-start: "{{ $.Notifications.CCOnStart }}"
-          
-      {{- if $.Validation.Required }}
-      - name: Run validation tests
-        if: ${{ "{{" }} !github.event.inputs.skip_validation {{ "}}" }}
-        run: |
-          {{- if index $.Validation.Commands $envName }}
-          {{ index $.Validation.Commands $envName }}
-          {{- else }}
-          echo "No validation commands configured for {{ $envName }}"
-          {{- end }}
-      {{- end }}
-      
-      {{- if $.Validation.HealthChecks }}
-      - name: Health check
-        run: |
-          echo "Running health checks..."
-          {{- range $path, $description := $.Validation.HealthChecks }}
-          echo "Checking {{ $description }}"
-          curl -f "https://{{ $envName }}-api.{{ $.Organization.Name }}.com{{ $path }}" || exit 1
-          {{- end }}
-      {{- end }}
-
-{{- end }}
-{{- end }}`
+          cc-on-start: "{{ .Notifications.CCOnStart }}"`
 
 const destroyTemplate = `name: Destroy {{ .Organization.Name }} {{ .StackName }}
 

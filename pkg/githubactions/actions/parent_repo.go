@@ -47,13 +47,31 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		return e.revealCurrentRepositorySecrets(ctx, &scConfig)
 	}
 
+	// Convert SSH URL to HTTPS if we're in GitHub Actions
+	cloneURL := scConfig.ParentRepository
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		if strings.HasPrefix(cloneURL, "git@") {
+			// Convert git@github.com:owner/repo.git to https://github.com/owner/repo.git
+			cloneURL = strings.Replace(cloneURL, "git@github.com:", "https://github.com/", 1)
+			e.logger.Info(ctx, "Converted SSH URL to HTTPS for GitHub Actions: %s", cloneURL)
+		} else if strings.HasPrefix(cloneURL, "ssh://git@") {
+			// Convert ssh://git@github.com/owner/repo.git to https://github.com/owner/repo.git
+			cloneURL = strings.Replace(cloneURL, "ssh://git@github.com/", "https://github.com/", 1)
+			e.logger.Info(ctx, "Converted SSH URL to HTTPS for GitHub Actions: %s", cloneURL)
+		}
+	}
+
 	// Extract and sanitize repository URL for logging
-	repoURL := e.sanitizeRepoURL(scConfig.ParentRepository)
+	repoURL := e.sanitizeRepoURL(cloneURL)
 	e.logger.Info(ctx, "Cloning parent repository: %s", repoURL)
 
-	// Set up SSH keys for git operations
-	if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
-		return fmt.Errorf("failed to setup SSH for git: %w", err)
+	// Set up SSH keys for git operations only if using SSH
+	if strings.HasPrefix(cloneURL, "git@") || strings.HasPrefix(cloneURL, "ssh://") {
+		if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
+			return fmt.Errorf("failed to setup SSH for git: %w", err)
+		}
+	} else {
+		e.logger.Info(ctx, "Using HTTPS clone - skipping SSH setup")
 	}
 
 	devopsDir := ".devops"
@@ -65,8 +83,12 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 
 	// Clone the repository
 	e.logger.Info(ctx, "Executing git clone operation...")
-	cmd := exec.Command("git", "clone", scConfig.ParentRepository, devopsDir)
-	cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+	cmd := exec.Command("git", "clone", cloneURL, devopsDir)
+
+	// Only set SSH command if we're using SSH
+	if strings.HasPrefix(cloneURL, "git@") || strings.HasPrefix(cloneURL, "ssh://") {
+		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+	}
 
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to clone parent repository: %w (output: %s)", err, string(output))
