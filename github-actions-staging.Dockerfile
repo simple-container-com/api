@@ -39,11 +39,12 @@ RUN PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{
 
 ENV PATH="/root/.pulumi/bin:${PATH}"
 
-# Install Google Cloud SDK (gcloud CLI) - Minimal installation with aggressive cleanup
-RUN curl -sSL https://sdk.cloud.google.com | bash -s -- \
-    --disable-prompts \
-    --install-dir=/opt \
-    --additional-components="" && \
+# Install Google Cloud SDK (gcloud CLI) - Fixed installation with proper cleanup
+RUN cd /tmp && \
+    curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz -o gcloud.tar.gz && \
+    tar -xzf gcloud.tar.gz && \
+    mv google-cloud-sdk /opt/ && \
+    /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --bash-completion=false && \
     # Remove unnecessary components, documentation, and cache files
     rm -rf /opt/google-cloud-sdk/.install/.backup \
            /opt/google-cloud-sdk/.install/.download \
@@ -67,7 +68,8 @@ RUN curl -sSL https://sdk.cloud.google.com | bash -s -- \
     && find /opt/google-cloud-sdk -name "*.md" -delete \
     && find /opt/google-cloud-sdk -name "*.txt" -delete \
     && find /opt/google-cloud-sdk -name "COPYING*" -delete \
-    && find /opt/google-cloud-sdk -name "LICENSE*" -delete
+    && find /opt/google-cloud-sdk -name "LICENSE*" -delete \
+    && rm -rf /tmp/gcloud.tar.gz /tmp/google-cloud-sdk
 
 ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
 

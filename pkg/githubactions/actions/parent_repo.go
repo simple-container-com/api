@@ -124,7 +124,40 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	}
 
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to clone parent repository: %w (output: %s)", err, string(output))
+		// Check if this is a repository access issue with HTTPS and we can try SSH fallback
+		if strings.HasPrefix(cloneURL, "https://") &&
+			(strings.Contains(string(output), "Repository not found") ||
+				strings.Contains(string(output), "not found") ||
+				strings.Contains(string(output), "access denied")) &&
+			scConfig.PrivateKey != "" {
+
+			e.logger.Warn(ctx, "HTTPS clone failed with repository access error: %s", string(output))
+			e.logger.Info(ctx, "🔑 Attempting SSH fallback using SC_CONFIG private key...")
+
+			// Convert HTTPS URL back to SSH format
+			sshURL := strings.Replace(cloneURL, "https://github.com/", "git@github.com:", 1)
+			e.logger.Info(ctx, "Trying SSH URL: %s", e.sanitizeRepoURL(sshURL))
+
+			// Set up SSH authentication using the private key from SC_CONFIG
+			if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
+				e.logger.Warn(ctx, "Failed to setup SSH authentication: %v", err)
+				return fmt.Errorf("HTTPS clone failed and SSH setup failed: HTTPS error: %s, SSH setup error: %w", string(output), err)
+			}
+
+			// Create new SSH command
+			sshCmd := exec.Command("git", "clone", sshURL, devopsDir)
+			sshCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no")
+
+			e.logger.Info(ctx, "🚀 Executing SSH clone as fallback...")
+			if sshOutput, sshErr := sshCmd.CombinedOutput(); sshErr != nil {
+				e.logger.Error(ctx, "SSH fallback also failed: %s", string(sshOutput))
+				return fmt.Errorf("both HTTPS and SSH clone failed: HTTPS error: %s, SSH error: %w (output: %s)", string(output), sshErr, string(sshOutput))
+			}
+
+			e.logger.Info(ctx, "✅ SSH fallback clone successful!")
+		} else {
+			return fmt.Errorf("failed to clone parent repository: %w (output: %s)", err, string(output))
+		}
 	}
 
 	e.logger.Info(ctx, "Successfully cloned parent repository")
