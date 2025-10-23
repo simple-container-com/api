@@ -524,9 +524,30 @@ func cloneParentRepositoryAndReadServerConfig(parentRepoURL, privateKey string) 
 	}
 
 	// Read server.yaml from the cloned parent repository
+	// First try root server.yaml
 	parentServerYaml := filepath.Join(devopsDir, "server.yaml")
 	if _, err := os.Stat(parentServerYaml); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no server.yaml found in parent repository")
+		// If not found in root, look for server.yaml files in .sc/stacks/* directories
+		stacksDir := filepath.Join(devopsDir, ".sc", "stacks")
+		if _, scErr := os.Stat(stacksDir); scErr == nil {
+			if scEntries, scListErr := os.ReadDir(stacksDir); scListErr == nil {
+				for _, scEntry := range scEntries {
+					if scEntry.IsDir() {
+						stackServerYaml := filepath.Join(stacksDir, scEntry.Name(), "server.yaml")
+						if _, stackErr := os.Stat(stackServerYaml); stackErr == nil {
+							// Found server.yaml in a stack directory, use it
+							parentServerYaml = stackServerYaml
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// If still not found, return error
+		if _, finalErr := os.Stat(parentServerYaml); os.IsNotExist(finalErr) {
+			return nil, fmt.Errorf("no server.yaml found in parent repository root or .sc/stacks/* directories")
+		}
 	}
 
 	// Use SC's internal API to read server configuration
