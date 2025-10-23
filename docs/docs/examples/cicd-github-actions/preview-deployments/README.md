@@ -79,7 +79,7 @@ cicd:
         type: staging
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:  # Non-sensitive environment variables for GitHub Actions workflows
           ENVIRONMENT: "staging"
@@ -90,7 +90,7 @@ cicd:
         protection: true
         reviewers: ["senior-dev", "devops-team"]
         auto-deploy: false
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:  # Non-sensitive environment variables for GitHub Actions workflows
           ENVIRONMENT: "production"
@@ -101,7 +101,7 @@ cicd:
         type: preview
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:  # Non-sensitive environment variables for GitHub Actions workflows
           ENVIRONMENT: "preview"

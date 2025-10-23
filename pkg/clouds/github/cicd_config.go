@@ -22,7 +22,7 @@ type GitHubActionsCiCdConfig struct {
 // GitHubEnvironmentConfig defines environment-specific settings
 type GitHubEnvironmentConfig struct {
 	Type        string            `json:"type" yaml:"type"`
-	Runners     []string          `json:"runners" yaml:"runners"`
+	Runner      string            `json:"runner" yaml:"runner"`
 	Protection  bool              `json:"protection" yaml:"protection"`
 	Reviewers   []string          `json:"reviewers" yaml:"reviewers"`
 	Secrets     []string          `json:"secrets" yaml:"secrets"`

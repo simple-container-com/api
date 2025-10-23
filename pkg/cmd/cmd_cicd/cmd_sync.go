@@ -1,7 +1,10 @@
 package cmd_cicd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -89,15 +92,41 @@ func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 	}
 
 	if !result.Success {
-		// Handle specific error cases
-		if existingFiles, ok := result.Data["existing_files"].([]string); ok {
-			fmt.Printf("\n%s Existing workflow files found:\n", color.YellowString("⚠️"))
-			for _, file := range existingFiles {
-				fmt.Printf("  - %s\n", file)
+		// Handle interactive confirmation
+		if needsConfirmation, ok := result.Data["needs_confirmation"].(bool); ok && needsConfirmation {
+			fmt.Printf("\n%s\n", result.Message)
+
+			// Ask for confirmation
+			fmt.Print(color.YellowString("Continue with sync? [y/N]: "))
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Scan()
+			response := strings.ToLower(strings.TrimSpace(scanner.Text()))
+
+			if response == "y" || response == "yes" {
+				// User confirmed, retry with force
+				serviceParams.Force = true
+				result, err = service.SyncWorkflows(serviceParams)
+				if err != nil {
+					return fmt.Errorf("failed to sync CI/CD workflows: %w", err)
+				}
+				if !result.Success {
+					return fmt.Errorf("%s", result.Message)
+				}
+			} else {
+				fmt.Printf("%s Sync cancelled by user.\n", color.RedString("❌"))
+				return nil
 			}
-			fmt.Printf("\nUse --force to overwrite existing files\n")
+		} else {
+			// Handle other error cases
+			if existingFiles, ok := result.Data["existing_files"].([]string); ok {
+				fmt.Printf("\n%s Existing workflow files found:\n", color.YellowString("⚠️"))
+				for _, file := range existingFiles {
+					fmt.Printf("  - %s\n", file)
+				}
+				fmt.Printf("\nUse --force to overwrite existing files\n")
+			}
+			return fmt.Errorf("%s", result.Message)
 		}
-		return fmt.Errorf("%s", result.Message)
 	}
 
 	// Display basic info

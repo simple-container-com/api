@@ -47,7 +47,7 @@ jobs:
         required_reviewers: {{ $env.Reviewers | yamlList }}
       {{- end }}
     {{- end }}
-    runs-on: {{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if $.Execution.DefaultTimeout }}{{ timeoutMinutes $.Execution.DefaultTimeout }}{{ else }}30{{ end }}
     {{- if or (and (eq $.DefaultBranch "main") (not $env.AutoDeploy)) (eq $env.Type "production") }}
     if: ${{ "{{" }} github.event_name == 'workflow_dispatch' && github.event.inputs.environment == '{{ $envName }}' {{ "}}" }}
@@ -135,7 +135,7 @@ env:
 jobs:
   validate-destroy:
     name: Validate Destruction Request
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     outputs:
       environment: ${{ "{{" }} steps.validate.outputs.environment {{ "}}" }}
       confirmed: ${{ "{{" }} steps.validate.outputs.confirmed {{ "}}" }}
@@ -174,7 +174,7 @@ jobs:
     {{- if $hasProtectedEnvs }}
     environment: ${{ "{{" }} needs.validate-destroy.outputs.environment {{ "}}" }}
     {{- end }}
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
@@ -224,7 +224,7 @@ env:
 jobs:
   validate-destroy:
     name: Validate Infrastructure Destruction
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     outputs:
       confirmed: ${{ "{{" }} steps.validate.outputs.confirmed {{ "}}" }}
     steps:
@@ -249,7 +249,7 @@ jobs:
     name: Destroy Infrastructure Stack
     needs: validate-destroy
     environment: infrastructure
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}60{{ end }}
     
     steps:
@@ -305,7 +305,7 @@ jobs:
   provision-infrastructure:
     name: Provision Infrastructure
     environment: infrastructure
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
@@ -324,7 +324,7 @@ jobs:
   test-infrastructure:
     name: Test Infrastructure
     needs: provision-infrastructure
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     # Run tests unless explicitly skipped or in dry-run mode
     # For push: always run tests, for manual dispatch: respect user inputs
     if: ${{ "{{" }} success() && (github.event_name == 'push' || (!github.event.inputs.skip_tests && !github.event.inputs.dry_run)) {{ "}}" }}
@@ -377,7 +377,7 @@ env:
 jobs:
   check-deploy-label:
     name: Check Deploy Label
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     outputs:
       should-deploy: ${{ "{{" }} steps.check.outputs.should-deploy {{ "}}" }}
       preview-enabled: ${{ "{{" }} steps.check.outputs.preview-enabled {{ "}}" }}
@@ -411,7 +411,7 @@ jobs:
     name: Deploy PR Preview
     needs: check-deploy-label
     if: ${{ "{{" }} github.event.action != 'closed' && needs.check-deploy-label.outputs.should-deploy == 'true' && needs.check-deploy-label.outputs.preview-enabled == 'true' {{ "}}" }}
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
@@ -455,7 +455,7 @@ jobs:
   destroy-preview:
     name: Destroy PR Preview
     if: ${{ "{{" }} github.event.action == 'closed' {{ "}}" }}
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: 15
     
     steps:

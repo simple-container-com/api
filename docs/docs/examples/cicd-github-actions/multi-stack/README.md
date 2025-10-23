@@ -93,7 +93,7 @@ cicd:
         type: staging
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:
           ENVIRONMENT: "staging"
@@ -103,7 +103,7 @@ cicd:
         protection: true
         reviewers: ["infrastructure-team", "senior-dev"]
         auto-deploy: false
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--timeout", "30m"]
         variables:
           ENVIRONMENT: "production"
@@ -177,7 +177,7 @@ cicd:
         type: staging
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:
           NODE_ENV: "staging"
@@ -188,7 +188,7 @@ cicd:
         protection: true
         reviewers: ["backend-team"]
         auto-deploy: false
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:
           NODE_ENV: "production"
@@ -225,7 +225,7 @@ cicd:
         type: staging
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:
           REACT_APP_ENV: "staging"
@@ -236,7 +236,7 @@ cicd:
         protection: true
         reviewers: ["frontend-team"]
         auto-deploy: false
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         variables:
           REACT_APP_ENV: "production"

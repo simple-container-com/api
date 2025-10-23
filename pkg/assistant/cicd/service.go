@@ -302,15 +302,27 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 		return s.previewGeneration(enhancedConfig, stackName, workflowsDir)
 	}
 
-	// Check for existing files
+	// Interactive mode - show differences and ask for confirmation
 	if !params.Force {
 		existingFiles := s.checkExistingWorkflows(enhancedConfig, stackName, workflowsDir)
 		if len(existingFiles) > 0 {
+			// Show preview of changes
+			preview, err := s.previewGeneration(enhancedConfig, stackName, workflowsDir)
+			if err != nil {
+				return &Result{
+					Success: false,
+					Message: fmt.Sprintf("Failed to generate preview: %v", err),
+				}, nil
+			}
+
+			// Return interactive prompt for confirmation
 			return &Result{
 				Success: false,
-				Message: "Workflow files already exist. Use --force to overwrite.",
+				Message: fmt.Sprintf("The following workflow files will be updated:\n%s\n\nProceed with sync? (Use --force to skip confirmation)", preview.Message),
 				Data: map[string]interface{}{
-					"existing_files": existingFiles,
+					"existing_files":     existingFiles,
+					"needs_confirmation": true,
+					"preview":            preview.Message,
 				},
 			}, nil
 		}

@@ -116,6 +116,39 @@ func getConcurrencyGroup(isParent bool, stackName string) string {
 	return "deploy-" + stackName + "-${{ github.ref }}"
 }
 
+// createDefaultEnhancedConfig creates a default configuration with logging
+func createDefaultEnhancedConfig(defaultBranch, defaultRunner string, defaultTemplates []string, defaultCustomActions map[string]string, scVersion string, reason string, isParentStack bool, stackName string) *github.EnhancedActionsCiCdConfig {
+	fmt.Printf("⚠️  WARNING: Using default CI/CD configuration for stack '%s' (reason: %s)\n", stackName, reason)
+	fmt.Printf("   → Using default runner: %s\n", defaultRunner)
+	fmt.Printf("   → Parent stack: %t\n", isParentStack)
+
+	return &github.EnhancedActionsCiCdConfig{
+		Organization: github.OrganizationConfig{
+			Name:          "simple-container-org",
+			DefaultBranch: defaultBranch,
+			DefaultRunner: defaultRunner,
+		},
+		WorkflowGeneration: github.WorkflowGenerationConfig{
+			Enabled:       true,
+			Templates:     defaultTemplates,
+			CustomActions: defaultCustomActions,
+			SCVersion:     scVersion,
+		},
+		Execution: github.ExecutionConfig{
+			DefaultTimeout: "30",
+			Concurrency: github.ConcurrencyConfig{
+				Group:            getConcurrencyGroup(isParentStack, stackName),
+				CancelInProgress: false,
+			},
+		},
+		Environments: map[string]github.EnvironmentConfig{
+			"staging":    {Type: "staging", Runner: "ubuntu-latest"},
+			"production": {Type: "production", Runner: "ubuntu-latest"},
+		},
+		Notifications: github.NotificationConfig{CCOnStart: false},
+	}
+}
+
 // createEnhancedConfig converts server configuration to enhanced GitHub Actions config
 func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, isParent bool, isStaging bool) *github.EnhancedActionsCiCdConfig {
 	// Determine if this is a parent stack based on explicit flag or configuration
@@ -163,53 +196,33 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 	// Use SC's standard conversion pattern to get strongly typed GitHub Actions configuration
 	convertedConfig, err := api.ConvertConfig(&serverDesc.CiCd.Config, &github.GitHubActionsCiCdConfig{})
 	if err != nil {
-		// Fallback to default configuration
-		return &github.EnhancedActionsCiCdConfig{
-			Organization: github.OrganizationConfig{
-				Name:          "simple-container-org",
-				DefaultBranch: defaultBranch,
-			},
-			WorkflowGeneration: github.WorkflowGenerationConfig{
-				Enabled:       true,
-				Templates:     defaultTemplates,
-				CustomActions: defaultCustomActions,
-				SCVersion:     scVersion, // Use staging or latest based on flag
-			},
-			Execution: github.ExecutionConfig{
-				DefaultTimeout: "30",
-			},
-			Environments: map[string]github.EnvironmentConfig{
-				"staging":    {Type: "staging", Runners: []string{"ubuntu-latest"}},
-				"production": {Type: "production", Runners: []string{"ubuntu-latest"}},
-			},
-			Notifications: github.NotificationConfig{CCOnStart: false},
-		}
+		// Fallback to default configuration with logging
+		return createDefaultEnhancedConfig(defaultBranch, "ubuntu-latest", defaultTemplates, defaultCustomActions, scVersion, fmt.Sprintf("config conversion failed: %v", err), isParentStack, stackName)
 	}
 
 	// Extract the strongly typed configuration
 	gitHubConfig, ok := convertedConfig.Config.(*github.GitHubActionsCiCdConfig)
 	if !ok {
 		// Fallback to default if type assertion fails
-		return &github.EnhancedActionsCiCdConfig{
-			Organization: github.OrganizationConfig{
-				Name:          "simple-container-org",
-				DefaultBranch: defaultBranch,
-			},
-			WorkflowGeneration: github.WorkflowGenerationConfig{
-				Enabled:       true,
-				Templates:     defaultTemplates,
-				CustomActions: defaultCustomActions,
-				SCVersion:     scVersion, // Use staging or latest based on flag
-			},
-			Execution: github.ExecutionConfig{
-				DefaultTimeout: "30",
-			},
-			Environments: map[string]github.EnvironmentConfig{
-				"staging":    {Type: "staging", Runners: []string{"ubuntu-latest"}},
-				"production": {Type: "production", Runners: []string{"ubuntu-latest"}},
-			},
-			Notifications: github.NotificationConfig{CCOnStart: false},
+		return createDefaultEnhancedConfig(defaultBranch, "ubuntu-latest", defaultTemplates, defaultCustomActions, scVersion, "type assertion failed - invalid configuration format", isParentStack, stackName)
+	}
+
+	// Successfully parsed server.yaml configuration
+	fmt.Printf("✅ Using CI/CD configuration from server.yaml for stack '%s'\n", stackName)
+	fmt.Printf("   → Organization: %s\n", gitHubConfig.Organization)
+	fmt.Printf("   → Environments: %d configured\n", len(gitHubConfig.Environments))
+	fmt.Printf("   → Parent stack: %t\n", isParentStack)
+
+	// Extract default runner from environments for auxiliary jobs
+	var defaultRunner string
+	for _, env := range gitHubConfig.Environments {
+		if env.Runner != "" {
+			defaultRunner = env.Runner
+			break // Use runner from first environment
 		}
+	}
+	if defaultRunner == "" {
+		defaultRunner = "ubuntu-latest"
 	}
 
 	// Convert to enhanced config with proper defaults
@@ -217,6 +230,7 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		Organization: github.OrganizationConfig{
 			Name:          gitHubConfig.Organization,
 			DefaultBranch: defaultBranch,
+			DefaultRunner: defaultRunner,
 		},
 		WorkflowGeneration: github.WorkflowGenerationConfig{
 			Enabled:       true,
@@ -258,21 +272,19 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 	// Convert environments with proper defaults and validation
 	for name, env := range gitHubConfig.Environments {
 		// Validate and fix runner names
-		runners := env.Runners
-		if len(runners) == 0 {
-			runners = []string{"ubuntu-latest"}
+		runner := env.Runner
+		if runner == "" {
+			runner = "ubuntu-latest"
 		} else {
 			// Fix invalid runner names
-			for i, runner := range runners {
-				if runner == "ubuntu-22" {
-					runners[i] = "ubuntu-latest"
-				}
+			if runner == "ubuntu-22" {
+				runner = "ubuntu-latest"
 			}
 		}
 
 		config.Environments[name] = github.EnvironmentConfig{
 			Type:        env.Type,
-			Runners:     runners,
+			Runner:      runner,
 			Variables:   env.Variables,
 			Protection:  env.Protection,
 			Reviewers:   env.Reviewers,

@@ -52,7 +52,7 @@ cicd:
         type: staging
         protection: false           # No approval required for staging
         auto-deploy: true          # Deploy automatically on main branch push
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]  # Skip preview for automated deployment
         secrets: ["DATABASE_URL", "API_KEY"]  # Which secrets from secrets.yaml are available
         variables:                 # Non-sensitive environment variables for workflows
@@ -64,7 +64,7 @@ cicd:
         protection: true           # Require approval for production
         reviewers: ["senior-dev", "devops-team"]
         auto-deploy: false         # Manual deployment only
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         secrets: ["DATABASE_URL", "API_KEY"]  # Which secrets from secrets.yaml are available
         variables:                 # Non-sensitive environment variables for workflows
@@ -107,7 +107,7 @@ cicd:
         type: staging
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         secrets: ["STAGING_DATABASE_URL", "STAGING_API_KEY"]
         variables:
           NODE_ENV: "staging"
@@ -119,7 +119,7 @@ cicd:
         protection: true
         reviewers: ["senior-dev", "devops-team"]
         auto-deploy: false
-        runners: ["self-hosted", "production"]
+        runner: "self-hosted"
         secrets: ["PRODUCTION_DATABASE_URL", "PRODUCTION_API_KEY"]
         variables:
           NODE_ENV: "production"
