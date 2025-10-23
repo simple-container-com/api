@@ -117,8 +117,11 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 				// Get SSH config path for git command
 				homeDir, _ := os.UserHomeDir()
 				sshConfigPath := filepath.Join(homeDir, ".ssh", "config")
-				cmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath))
+				gitSSHCommand := fmt.Sprintf("ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath)
+				cmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=%s", gitSSHCommand))
 				e.logger.Info(ctx, "✅ SSH authentication configured using SC_CONFIG private key")
+				e.logger.Debug(ctx, "Using GIT_SSH_COMMAND: %s", gitSSHCommand)
+				e.logger.Debug(ctx, "SSH config path: %s", sshConfigPath)
 			} else {
 				e.logger.Warn(ctx, "No GITHUB_TOKEN and no private key in SC_CONFIG - clone will likely fail")
 				return fmt.Errorf("no authentication method available: GITHUB_TOKEN missing and SC_CONFIG has no private key")
@@ -150,12 +153,15 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 			// Get SSH config path for git command
 			homeDir, _ := os.UserHomeDir()
 			sshConfigPath := filepath.Join(homeDir, ".ssh", "config")
+			gitSSHCommand := fmt.Sprintf("ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath)
 
 			// Create new SSH command with proper SSH config
 			sshCmd := exec.Command("git", "clone", sshURL, devopsDir)
-			sshCmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath))
+			sshCmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=%s", gitSSHCommand))
 
 			e.logger.Info(ctx, "🚀 Executing SSH clone as fallback...")
+			e.logger.Debug(ctx, "Using GIT_SSH_COMMAND: %s", gitSSHCommand)
+			e.logger.Debug(ctx, "SSH config path: %s", sshConfigPath)
 			if sshOutput, sshErr := sshCmd.CombinedOutput(); sshErr != nil {
 				e.logger.Error(ctx, "SSH fallback also failed: %s", string(sshOutput))
 				return fmt.Errorf("both HTTPS and SSH clone failed: HTTPS error: %s, SSH error: %w (output: %s)", string(output), sshErr, string(sshOutput))

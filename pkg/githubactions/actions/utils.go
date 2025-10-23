@@ -44,15 +44,8 @@ func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error 
 	e.logger.Debug(ctx, "SSH key path: %s", keyPath)
 	e.logger.Debug(ctx, "SSH config path: %s", sshConfigPath)
 
-	// Ensure cleanup happens even if function returns early
-	var keyFileCreated bool
-	defer func() {
-		if keyFileCreated {
-			if err := os.Remove(keyPath); err != nil {
-				e.logger.Warn(ctx, "Failed to cleanup SSH key file: %v", err)
-			}
-		}
-	}()
+	// Note: SSH key file cleanup is disabled to allow git operations to use the key
+	// The key will be cleaned up when the container terminates
 
 	// Ensure private key ends with newline (required for SSH keys)
 	keyContent := strings.TrimSpace(privateKey)
@@ -64,7 +57,6 @@ func (e *Executor) setupSSHForGit(ctx context.Context, privateKey string) error 
 	if err := os.WriteFile(keyPath, []byte(keyContent), 0o600); err != nil {
 		return fmt.Errorf("failed to write SSH private key: %w", err)
 	}
-	keyFileCreated = true
 
 	e.logger.Info(ctx, "✅ SSH private key written successfully")
 
