@@ -148,7 +148,10 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
 		}
 
-		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-caddy-cfg", stackName, input.StackParams.Environment, suffix), fullParentReference, kubernetes.ToCaddyConfigExport(clusterName), false)
+		caddyCfgExport := kubernetes.ToCaddyConfigExport(clusterName)
+		params.Log.Info(ctx.Context(), "Getting caddy config from parent stack %q (%s)", fullParentReference, caddyCfgExport)
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG: clusterName=%q, suffix=%q", clusterName, suffix)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-caddy-cfg", stackName, input.StackParams.Environment, suffix), fullParentReference, caddyCfgExport, false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
 		}

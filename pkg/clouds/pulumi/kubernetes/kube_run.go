@@ -49,6 +49,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		clusterName := ToClusterName(input, caddyResource)
 		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
 		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q (%s)", caddyResource, fullParentReference, suffix)
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG: caddyResource=%q, clusterName=%q, suffix=%q", caddyResource, clusterName, suffix)
 		caddyCfgExport := ToCaddyConfigExport(clusterName)
 		params.Log.Debug(ctx.Context(), "🔧 Reading Caddy config from parent's output: %v", caddyCfgExport)
 		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-stack-caddy-cfg", parentStack, suffix), fullParentReference, caddyCfgExport, false)
@@ -56,7 +57,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's %q resources for resource %q", fullParentReference, caddyResource)
 		}
 		if caddyConfigJson == "" {
-			return nil, errors.Errorf("parent stack's caddy config JSON is empty for stack %q", stackName)
+			return nil, errors.Errorf("parent stack's caddy config JSON is empty for stack %q. Looking for output '%s' in parent stack '%s'. This could indicate a naming mismatch between parent export and child import", stackName, caddyCfgExport, fullParentReference)
 		}
 		// DEBUG: Log caddy config JSON content and length for debugging
 		params.Log.Debug(ctx.Context(), "🔧 Caddy config JSON content: %q", caddyConfigJson)
