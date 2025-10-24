@@ -29,6 +29,17 @@ This is the Simple Container API project with MkDocs documentation. The project 
     - ✅ **Zero Configuration Required**: Actions work automatically without explicit GitHub context passing in workflows
     - ✅ **Perfect `actions/checkout` Pattern**: Docker actions with automatic GitHub context defaults for enterprise-grade authentication
 
+#### Kubernetes Volume Name Sanitization Fix (2024-10-24)
+- **Kubernetes Naming Compliance**: Fixed RFC 1123 subdomain naming violations in persistent volume names
+  - **Problem Resolved**: Volume names with underscores (e.g., `"app_data"`) caused PersistentVolumeClaim creation failures
+  - **Error Pattern**: `PersistentVolumeClaim "app_data" is invalid: metadata.name: Invalid value: "app_data": a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'`
+  - **Solution Applied**: Added `sanitizeK8sResourceName()` function in `pkg/clouds/pulumi/kubernetes/simple_container.go`
+  - **Naming Transformations**: `"app_data"` → `"app-data"`, `"Cache_Storage"` → `"cache-storage"`, `"my_volume_name"` → `"my-volume-name"`
+  - **Comprehensive Fix**: All volume references (PVC, volume spec, volume mounts) use consistent sanitized names
+  - **User Feedback**: Clear logging shows name transformations: `📝 Sanitized volume name "app_data" -> "app-data" for Kubernetes RFC 1123 compliance`
+  - **Compatibility**: Users can continue using underscore volume names in docker-compose.yaml - automatic conversion to Kubernetes-compliant names
+  - **Status**: ✅ **Full docker-compose to Kubernetes compatibility with RFC 1123 compliance**
+
 #### Critical Security Fix: Debug Logging (2024-10-22)
 - **Security Vulnerability Resolved**: Eliminated credential leakage in verbose mode debug logging
   - **Fixed GCP Provider**: `pkg/clouds/pulumi/gcp/provider.go` - No longer logs raw GCP service account credentials

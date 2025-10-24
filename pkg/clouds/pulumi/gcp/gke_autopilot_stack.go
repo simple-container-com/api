@@ -166,7 +166,8 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack: JSON was %q", caddyConfigJson)
 		}
 
-		_, err = kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
+		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
+		_, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
 			PatchName:   fmt.Sprintf("%s-%s", stackName, environment),
 			ServiceName: "caddy",
 			Namespace:   lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy"),
@@ -180,8 +181,9 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			},
 			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
+		if patchErr != nil {
+			// Log warning but continue - caddy annotation patch is not critical for deployment
+			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
 		}
 	}
 

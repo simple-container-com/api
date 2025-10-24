@@ -297,6 +297,15 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		if sanitizedName != pv.Name {
 			args.Log.Info(ctx.Context(), "📝 Sanitized volume name %q -> %q for Kubernetes RFC 1123 compliance", pv.Name, sanitizedName)
 		}
+
+		// Use default storage class for GKE when none specified
+		storageClass := pv.StorageClassName
+		if storageClass == nil {
+			// For GKE, use the default standard storage class if available
+			defaultSC := "standard-rwo"
+			storageClass = &defaultSC
+			args.Log.Info(ctx.Context(), "📦 Using default storage class %q for volume %q", defaultSC, sanitizedName)
+		}
 		_, err := corev1.NewPersistentVolumeClaim(ctx, sanitizedName, &corev1.PersistentVolumeClaimArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Name:        sdk.String(sanitizedName),
@@ -306,7 +315,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			},
 			Spec: &corev1.PersistentVolumeClaimSpecArgs{
 				AccessModes:      sdk.StringArray(accessModes),
-				StorageClassName: sdk.StringPtrFromPtr(pv.StorageClassName),
+				StorageClassName: sdk.StringPtrFromPtr(storageClass),
 				Resources: &corev1.VolumeResourceRequirementsArgs{
 					Requests: sdk.StringMap{
 						"storage": sdk.String(pv.Storage),

@@ -160,7 +160,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	}
 
 	if caddyConfig != nil {
-		_, err = PatchDeployment(ctx, &DeploymentPatchArgs{
+		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
+		_, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
 			PatchName:   fmt.Sprintf("%s-%s", stackName, environment),
 			ServiceName: "caddy",
 			Namespace:   lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
@@ -174,8 +175,9 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			},
 			Opts: []sdk.ResourceOption{sdk.Provider(params.Provider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
+		if patchErr != nil {
+			// Log warning but continue - caddy annotation patch is not critical for deployment
+			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
 		}
 	}
 
