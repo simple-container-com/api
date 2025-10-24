@@ -181,6 +181,25 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		return fmt.Errorf("failed to setup parent repository secrets: %w", err)
 	}
 
+	e.logger.Info(ctx, "🔍 Parent repository secrets revelation status: %v", secretsRevealed)
+	if !secretsRevealed {
+		e.logger.Warn(ctx, "⚠️  Parent repository secrets were NOT revealed - deployment may fail with encrypted values")
+		e.logger.Info(ctx, "💡 This can cause GCP credentials to contain unresolved placeholders like '$...'")
+
+		// List contents of parent repository .sc directory for debugging
+		parentScDir := filepath.Join(devopsDir, ".sc")
+		if entries, err := os.ReadDir(parentScDir); err == nil {
+			e.logger.Debug(ctx, "📁 Parent repository .sc directory contents:")
+			for _, entry := range entries {
+				if entry.IsDir() {
+					e.logger.Debug(ctx, "  📁 %s/", entry.Name())
+				} else {
+					e.logger.Debug(ctx, "  📄 %s", entry.Name())
+				}
+			}
+		}
+	}
+
 	// Copy .sc/stacks/* from parent repository to current workspace (including revealed secrets)
 	parentStacksDir := filepath.Join(devopsDir, ".sc", "stacks")
 	currentStacksDir := filepath.Join(".sc", "stacks")
@@ -211,6 +230,17 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		e.logger.Info(ctx, "✅ Parent repository setup completed WITH secret revelation")
 	} else {
 		e.logger.Info(ctx, "✅ Parent repository setup completed (no secrets revealed - may be expected)")
+	}
+
+	// For client operations with parent repository, reveal secrets in current workspace
+	if !isParentOperation && scConfig.ParentRepository != "" {
+		e.logger.Info(ctx, "🔑 Client stack with parent repository - revealing secrets in current workspace...")
+		if err := e.revealCurrentRepositorySecrets(ctx, &scConfig); err != nil {
+			e.logger.Warn(ctx, "Failed to reveal client secrets (may use parent secrets): %v", err)
+			// Don't fail the entire deployment - parent secrets might be sufficient
+		} else {
+			e.logger.Info(ctx, "✅ Client repository secrets revealed successfully")
+		}
 	}
 
 	return nil
@@ -431,10 +461,27 @@ func (e *Executor) revealAndVerifyParentSecrets(ctx context.Context, parentCrypt
 	secretsFile := ".sc/secrets.yaml"
 	if _, err := os.Stat(secretsFile); os.IsNotExist(err) {
 		e.logger.Info(ctx, "ℹ️  No secrets.yaml file found in parent repository")
+		e.logger.Debug(ctx, "🔍 Checked path: %s (from working directory: %s)", secretsFile, func() string {
+			if wd, err := os.Getwd(); err == nil {
+				return wd
+			} else {
+				return "unknown"
+			}
+		}())
 		return false, nil // No secrets to reveal, but not an error
 	}
 
 	e.logger.Info(ctx, "Found secrets.yaml in parent repository, attempting to reveal secrets...")
+
+	// Read and log first few bytes to confirm it's encrypted
+	if content, err := os.ReadFile(secretsFile); err == nil {
+		contentPreview := string(content)
+		if len(contentPreview) > 100 {
+			contentPreview = contentPreview[:100] + "..."
+		}
+		e.logger.Debug(ctx, "📄 secrets.yaml content preview: %s", contentPreview)
+	}
+
 	e.logger.Info(ctx, "🔧 Calling DecryptAll(true) - same as 'sc secrets reveal --force'")
 
 	// Use the same DecryptAll approach as the SC CLI
@@ -455,7 +502,37 @@ func (e *Executor) revealAndVerifyParentSecrets(ctx context.Context, parentCrypt
 		return false, fmt.Errorf("unexpected decryption error: %w", decryptErr)
 	}
 
-	// If DecryptAll succeeded, secrets were revealed successfully
-	e.logger.Info(ctx, "✅ DecryptAll completed successfully - secrets revealed")
+	// If DecryptAll succeeded, verify that secrets were actually revealed
+	e.logger.Info(ctx, "✅ DecryptAll completed successfully - verifying secrets were revealed...")
+
+	// Check if revealed secrets files exist in .sc/stacks directories
+	stacksDir := ".sc/stacks"
+	if entries, err := os.ReadDir(stacksDir); err == nil {
+		secretsFound := false
+		for _, entry := range entries {
+			if entry.IsDir() {
+				secretsPath := filepath.Join(stacksDir, entry.Name(), "secrets.yaml")
+				if _, err := os.Stat(secretsPath); err == nil {
+					e.logger.Info(ctx, "✅ Found revealed secrets.yaml for stack: %s", entry.Name())
+
+					// Preview the revealed content to confirm it's not encrypted
+					if content, err := os.ReadFile(secretsPath); err == nil {
+						contentPreview := string(content)
+						if len(contentPreview) > 200 {
+							contentPreview = contentPreview[:200] + "..."
+						}
+						e.logger.Debug(ctx, "📄 Revealed secrets preview for %s: %s", entry.Name(), contentPreview)
+					}
+					secretsFound = true
+				}
+			}
+		}
+
+		if !secretsFound {
+			e.logger.Warn(ctx, "⚠️  DecryptAll succeeded but no revealed secrets.yaml files found in .sc/stacks/")
+			e.logger.Debug(ctx, "🔍 This may indicate the secrets were not properly revealed to stack directories")
+		}
+	}
+
 	return true, nil
 }
