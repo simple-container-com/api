@@ -16,11 +16,6 @@ type DeploymentPatchArgs struct {
 }
 
 func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.DeploymentPatch, error) {
-	// Use server-side apply patch to avoid validation issues with incomplete deployments
-	patchOpts := append(args.Opts,
-		sdk.IgnoreChanges([]string{"spec.selector", "spec.template.metadata.labels", "spec.template.spec"}),
-	)
-
 	return appsv1.NewDeploymentPatch(ctx, args.PatchName, &appsv1.DeploymentPatchArgs{
 		Metadata: &metav1.ObjectMetaPatchArgs{
 			Namespace: sdk.String(args.Namespace),
@@ -33,5 +28,5 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 				},
 			},
 		},
-	}, patchOpts...)
+	}, args.Opts...)
 }

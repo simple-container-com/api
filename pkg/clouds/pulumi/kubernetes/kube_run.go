@@ -162,8 +162,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if caddyConfig != nil {
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
 		_, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
-			PatchName:   fmt.Sprintf("%s-%s", stackName, environment),
-			ServiceName: "caddy",
+			PatchName:   input.ToResName(stackName),
+			ServiceName: input.ToResName("caddy"), // Use helper to add environment suffix consistently
 			Namespace:   lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
