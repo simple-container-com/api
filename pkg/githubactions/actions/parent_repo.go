@@ -366,11 +366,13 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 		e.logger.Info(ctx, "✅ Successfully initialized Git context for parent repository")
 	}
 
-	// Create cryptor with proper context using environment-specific profile
+	// Create cryptor with proper context using environment-specific profile AND SC_CONFIG keys
 	parentCryptor, err := secrets.NewCryptor(
 		".", // Parent repository root (current directory after chdir)
 		secrets.WithProfile(profile),
 		secrets.WithGitRepo(parentGitRepo),
+		secrets.WithPrivateKey(scConfig.PrivateKey),
+		secrets.WithPublicKey(scConfig.PublicKey),
 	)
 	if err != nil {
 		e.logger.Warn(ctx, "Failed to create cryptor from parent repo config: %v", err)
@@ -385,9 +387,11 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 	if err := parentCryptor.ReadProfileConfig(); err != nil {
 		e.logger.Warn(ctx, "Failed to read profile config: %v", err)
 		e.logger.Info(ctx, "🔍 This is expected if parent repository has different configuration")
-		return false, nil // No profile loaded, but not an error
+		e.logger.Info(ctx, "🔑 Continuing with cryptor keys from SC_CONFIG (GitHub Actions environment)")
+		// Continue anyway - cryptor already has keys from SC_CONFIG
+	} else {
+		e.logger.Info(ctx, "✅ Successfully loaded profile config (SSH keys configured)")
 	}
-	e.logger.Info(ctx, "✅ Successfully loaded profile config (SSH keys configured)")
 
 	e.logger.Info(ctx, "🔧 Loading secrets.yaml file into cryptor...")
 	if err := parentCryptor.ReadSecretFiles(); err != nil {
@@ -395,7 +399,7 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 		e.logger.Info(ctx, "🔍 This is expected if parent repository has no secrets")
 		return false, nil // No secrets loaded, but not an error
 	}
-	e.logger.Info(ctx, "✅ Successfully loaded secrets file into cryptor")
+	e.logger.Info(ctx, "✅ Successfully loaded secrets file into cryptor - proceeding with decryption using SC_CONFIG keys")
 
 	// Reveal secrets in parent repository and verify success
 	e.logger.Info(ctx, "🔍 Revealing secrets in parent repository...")
