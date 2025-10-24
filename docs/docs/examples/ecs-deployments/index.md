@@ -25,11 +25,18 @@ stacks:
       dockerComposeFile: ${git:root}/docker-compose.yaml
       uses: [mongodb-shared, redis-cache]
       runs: [backend-service]
+      # Enhanced with new placeholder extensions in environment variables
       env:
         MONGODB_URL: "${resource:mongodb-shared.uri}"
         REDIS_HOST: "${resource:redis-cache.host}"
         REDIS_PORT: "${resource:redis-cache.port}"
         NODE_ENV: production
+        # Deployment tracking with new date and git placeholders
+        DEPLOYMENT_TIME: "${date:iso8601}"           # 2024-10-24T20:46:41Z
+        BUILD_VERSION: "${date:dateOnly}.${git:commit.short}"  # 2024-10-24.a1b2c3d
+        GIT_BRANCH: "${git:branch.clean}"            # Clean branch name
+        GIT_COMMIT: "${git:commit.short}"            # Short commit hash
+        BUILD_ID: "${git:branch}-${date:timestamp}"  # Unique build identifier
       alerts:
         slack:
           webhookUrl: ${secret:alerts-slack-webhook}

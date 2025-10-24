@@ -105,6 +105,53 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Files Modified**: `pkg/assistant/cicd/utils.go` - Added parent repository cloning and infrastructure pattern support
   - Status: ✅ **Production ready with complete infrastructure repository pattern support**
 
+#### CRITICAL: Parent Repository Secret Revelation Fix (2024-10-24)
+- **Parent Repository Secrets Issue Resolved**: Fixed secret revelation failure in GitHub Actions causing placeholder values in deployments
+  - **Root Cause**: Parent repository cryptor created without SC_CONFIG keys, causing `ReadProfileConfig()` failures in containerized environments
+  - **Critical Error Pattern**: `Failed to read profile config: failed to open private key file: "~/.ssh/id_rsa": no such file or directory`
+  - **Impact**: Parent repository secrets not revealed → GCP credentials contained `${auth:gcloud}` placeholders → deployment failures
+  - **Fix Applied**: Enhanced parent repository cryptor creation to include `secrets.WithPrivateKey(scConfig.PrivateKey)` and `secrets.WithPublicKey(scConfig.PublicKey)`
+  - **Graceful Profile Handling**: Continue secret revelation even if `ReadProfileConfig()` fails, using SC_CONFIG keys from GitHub Actions environment
+  - **Files Modified**: `pkg/githubactions/actions/parent_repo.go` - Fixed `setupParentRepositorySecrets()` function
+  - **Status**: ✅ **Parent repository secrets now properly revealed in GitHub Actions with SC_CONFIG keys**
+
+#### CRITICAL: Missing Project Placeholder Extension Fix (2024-10-24)
+- **Project Placeholder Resolution Issue Resolved**: Fixed `${project:root}` placeholders not being resolved, causing deployment failures
+  - **Root Cause**: Placeholders resolver missing `project` extension, causing `${project:root}` to remain as literal strings
+  - **Error Pattern**: `open /github/workspace/.sc/stacks/landing-stars-front/${project:root}/docker-compose.yaml: no such file or directory`
+  - **Impact**: Docker Compose file paths unresolved → file not found errors → stack deployment failures
+  - **Fix Applied**: Added `project` extension to placeholders resolver with smart root directory detection:
+    - Uses git working directory when available (consistent with `${git:root}`)
+    - Falls back to current working directory in non-git environments
+    - Provides proper error messages for debugging
+  - **Resolution Behavior**:
+    - GitHub Actions: `${project:root}` → `/github/workspace`
+    - Local development: `${project:root}` → Current project directory
+    - Git context: `${project:root}` → Git working directory
+  - **Files Modified**: `pkg/provisioner/placeholders/placeholders.go` - Added `tplProject()` function and project extension
+  - **Status**: ✅ **All project:root placeholders now properly resolved across all deployment environments**
+
+#### Enhanced Placeholder Extensions with Welder Compatibility (2024-10-24)
+- **Placeholder System Enhanced**: Added comprehensive placeholder extensions from welder for advanced template functionality
+  - **Enhanced Git Extension**: Now supports commit hashes and branch information for dynamic configurations:
+    - `${git:root}` - Git working directory
+    - `${git:commit.short}` - Short commit hash (7 characters) 
+    - `${git:commit.full}` - Full commit hash
+    - `${git:branch}` - Clean branch name (slashes → dashes)
+    - `${git:branch.raw}` - Raw branch name
+    - `${git:branch.clean}` - Clean branch name
+  - **New Date Extension**: Comprehensive date/time formatting for timestamped configurations:
+    - `${date:time}` - ISO-like: 2024-10-24T17:30:45
+    - `${date:dateOnly}` - Date: 2024-10-24
+    - `${date:timestamp}` - Unix timestamp
+    - `${date:iso8601}` - Full ISO 8601 format
+    - `${date:year}`, `${date:month}`, `${date:day}` - Individual components
+    - `${date:hour}`, `${date:minute}`, `${date:second}` - Time components
+  - **Use Cases**: Dynamic container tagging (`myapp:${git:branch}-${git:commit.short}`), timestamped deployments, CI/CD integration
+  - **Welder Compatibility**: Full compatibility with welder template extensions for seamless migration
+  - **Files Modified**: `pkg/provisioner/placeholders/placeholders.go` - Enhanced git and added date extensions
+  - **Status**: ✅ **Complete welder compatibility with enhanced configuration flexibility**
+
 ## Important Guidelines
 
 ### Documentation Requirements
