@@ -485,7 +485,7 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 			e.logger.Info(ctx, "")
 			e.logger.Info(ctx, "💡 This is expected in test environments. To fix:")
 			e.logger.Info(ctx, "   1. For PRODUCTION: Update SC_CONFIG secret with matching production keys")
-			e.logger.Info(ctx, "   2. For TESTING: Use 'sc secrets encrypt' with current keys to re-encrypt secrets")
+			e.logger.Info(ctx, "   2. For TESTING: Use 'sc secrets hide' with current keys to re-encrypt secrets")
 			e.logger.Info(ctx, "   3. Check that SC_CONFIG contains the correct keys for this environment")
 			e.logger.Info(ctx, "")
 			// SECURITY: Never log actual key values, even public keys
