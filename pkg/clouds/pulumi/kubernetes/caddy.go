@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -196,7 +197,14 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		return nil, errors.Wrapf(err, "failed to provision simple container for caddy in GKE cluster %q in %q",
 			input.Descriptor.Name, input.StackParams.Environment)
 	}
-	clusterName := ToClusterName(input, caddy.ClusterName)
+	// Smart cluster name handling: avoid double environment suffix
+	clusterName := caddy.ClusterName
+	env := input.StackParams.Environment
+	if env != "" && !strings.HasSuffix(clusterName, "--"+env) {
+		// ClusterName doesn't have environment suffix, add it (Case 2: CaddyResource)
+		clusterName = ToClusterName(input, caddy.ClusterName)
+	}
+	// Otherwise, use clusterName as-is (Case 1: GKE Autopilot - already has suffix)
 	ctx.Export(ToIngressIpExport(clusterName), sc.Service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
 		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
 			params.Log.Warn(ctx.Context(), "failed to export ingress IP: load balancer is nil and there is no ingress IP found")
