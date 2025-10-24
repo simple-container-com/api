@@ -152,10 +152,15 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
 		}
+		// DEBUG: Log caddy config JSON content and length for debugging
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG [GKE]: Caddy config JSON content: %q", caddyConfigJson)
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG [GKE]: Caddy config JSON length: %d", len(caddyConfigJson))
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG [GKE]: Caddy config JSON as bytes: %v", []byte(caddyConfigJson))
+
 		var caddyCfg k8s.CaddyConfig
 		err = json.Unmarshal([]byte(caddyConfigJson), &caddyCfg)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack")
+			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack: JSON was %q", caddyConfigJson)
 		}
 
 		_, err = kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
