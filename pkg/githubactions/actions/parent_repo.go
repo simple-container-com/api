@@ -182,22 +182,71 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	}
 
 	e.logger.Info(ctx, "🔍 Parent repository secrets revelation status: %v", secretsRevealed)
+
+	// Debug parent repository structure regardless of secret revelation status
+	e.logger.Debug(ctx, "🔍 Analyzing parent repository structure...")
+	parentScDir := filepath.Join(devopsDir, ".sc")
+	if entries, err := os.ReadDir(parentScDir); err == nil {
+		e.logger.Debug(ctx, "📁 Parent repository .sc directory contents:")
+		for _, entry := range entries {
+			if entry.IsDir() {
+				e.logger.Debug(ctx, "  📁 %s/", entry.Name())
+
+				// If it's the stacks directory, show detailed contents
+				if entry.Name() == "stacks" {
+					stacksDir := filepath.Join(parentScDir, "stacks")
+					if stackEntries, err := os.ReadDir(stacksDir); err == nil {
+						for _, stackEntry := range stackEntries {
+							if stackEntry.IsDir() {
+								e.logger.Debug(ctx, "    📁 stacks/%s/", stackEntry.Name())
+
+								// Show contents of each stack directory
+								stackPath := filepath.Join(stacksDir, stackEntry.Name())
+								if stackFiles, err := os.ReadDir(stackPath); err == nil {
+									for _, file := range stackFiles {
+										if file.IsDir() {
+											e.logger.Debug(ctx, "      📁 stacks/%s/%s/", stackEntry.Name(), file.Name())
+										} else {
+											// Show file size for important files
+											filePath := filepath.Join(stackPath, file.Name())
+											if info, err := os.Stat(filePath); err == nil {
+												e.logger.Debug(ctx, "      📄 stacks/%s/%s (%d bytes)", stackEntry.Name(), file.Name(), info.Size())
+
+												// Show preview of secrets.yaml files
+												if file.Name() == "secrets.yaml" {
+													if content, err := os.ReadFile(filePath); err == nil {
+														preview := string(content)
+														if len(preview) > 200 {
+															preview = preview[:200] + "..."
+														}
+														e.logger.Debug(ctx, "      📄 secrets.yaml preview: %s", preview)
+													}
+												}
+											} else {
+												e.logger.Debug(ctx, "      📄 stacks/%s/%s", stackEntry.Name(), file.Name())
+											}
+										}
+									}
+								}
+							} else {
+								e.logger.Debug(ctx, "    📄 stacks/%s", stackEntry.Name())
+							}
+						}
+					}
+				}
+			} else {
+				e.logger.Debug(ctx, "  📄 %s", entry.Name())
+			}
+		}
+	} else {
+		e.logger.Debug(ctx, "❌ Failed to read parent .sc directory: %v", err)
+	}
+
 	if !secretsRevealed {
 		e.logger.Warn(ctx, "⚠️  Parent repository secrets were NOT revealed - deployment may fail with encrypted values")
 		e.logger.Info(ctx, "💡 This can cause GCP credentials to contain unresolved placeholders like '$...'")
-
-		// List contents of parent repository .sc directory for debugging
-		parentScDir := filepath.Join(devopsDir, ".sc")
-		if entries, err := os.ReadDir(parentScDir); err == nil {
-			e.logger.Debug(ctx, "📁 Parent repository .sc directory contents:")
-			for _, entry := range entries {
-				if entry.IsDir() {
-					e.logger.Debug(ctx, "  📁 %s/", entry.Name())
-				} else {
-					e.logger.Debug(ctx, "  📄 %s", entry.Name())
-				}
-			}
-		}
+	} else {
+		e.logger.Info(ctx, "✅ Parent repository secrets revealed - credentials should be resolved")
 	}
 
 	// Copy .sc/stacks/* from parent repository to current workspace (including revealed secrets)
