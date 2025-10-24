@@ -28,7 +28,7 @@ resources:
           projectId: "${auth:gcloud.projectId}"
           credentials: "${auth:gcloud}"
           location: europe-west3
-          gkeMinVersion: "1.27"
+          gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=europe-west3
           
       main-registry:
         type: gcp-artifact-registry

@@ -52,6 +52,15 @@ modules:
         tags:
           - simplecontainer/caddy:latest
           - simplecontainer/caddy:${project:version}
+      - name: github-actions
+        dockerFile: ${project:root}/github-actions.Dockerfile
+        tags:
+          - simplecontainer/github-actions:latest
+          - simplecontainer/github-actions:${project:version}
+      - name: github-actions-staging
+        dockerFile: ${project:root}/github-actions-staging.Dockerfile
+        tags:
+          - simplecontainer/github-actions:staging
       - name: cloud-helpers-aws
         dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:
@@ -60,12 +69,6 @@ modules:
         runAfterPush:
           tasks:
             - tag-release
-      # GitHub Actions - Single Self-Contained Image
-      - name: github-actions
-        dockerFile: ${project:root}/github-actions.Dockerfile
-        tags:
-          - simplecontainer/github-actions:latest
-          - simplecontainer/github-actions:${project:version}
 tasks:
   clean:
     runOn: host
@@ -258,3 +261,18 @@ tasks:
       - welder run generate-schemas
       - if [ "${SKIP_EMBEDDINGS}" != 'true' ]; then welder run generate-embeddings; else echo "Skipping embeddings"; fi
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
+  build-github-actions-staging:
+    runOn: host
+    env:
+      CGO_ENABLED: "0"
+      GOOS: "linux"
+      GOARCH: "amd64"
+    script:
+      - echo "Building static github-actions binary for staging (Alpine compatible)..."
+      - mkdir -p ${project:root}/bin
+      - go build -ldflags "-s -w" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
+  build-github-actions-staging-push:
+    runOn: host
+    script:
+      - welder run build-github-actions-staging
+      - welder docker build --push github-actions-staging

@@ -2,6 +2,7 @@ package provisioner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -100,7 +101,8 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
 			return err
 		} else if serverDesc != nil {
-			p.log.Debug(ctx, "Successfully read server descriptor: %q", serverDesc)
+			// SECURITY: Never log actual server descriptor content - may contain resolved secrets
+			p.log.Debug(ctx, "Successfully read server descriptor for stack: %s", stackName)
 			stack.Server = *serverDesc
 		} else {
 			p.log.Debug(ctx, "Server descriptor not found for %s", stackName)
@@ -109,7 +111,8 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		if clientDesc, err := p.readClientDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreClientMissing || lo.Contains(readOpts.RequireClientConfigs, stackName)) {
 			return err
 		} else if clientDesc != nil {
-			p.log.Debug(ctx, "Successfully read client descriptor: %q", clientDesc)
+			// SECURITY: Never log actual descriptor content that might contain credentials
+			p.log.Debug(ctx, "Successfully read client descriptor for stack: %s", stackName)
 			stack.Client = *clientDesc
 		} else {
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
@@ -118,7 +121,8 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
 			return err
 		} else if secretsDesc != nil {
-			p.log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)
+			// SECURITY: Never log actual secrets descriptor content - contains credential values
+			p.log.Debug(ctx, "Successfully read secrets descriptor for stack: %s", stackName)
 			stack.Secrets = *secretsDesc
 		} else {
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
@@ -136,14 +140,36 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 }
 
 func (p *provisioner) resolvePlaceholders() error {
+	ctx := context.Background() // Create context for debug logging
+	p.log.Debug(ctx, "🔍 Starting placeholder resolution for %d stacks", len(p.stacks))
+
 	provisioners := map[string]api.Provisioner{}
 	for stackName, stack := range p.stacks {
 		provisioners[stackName] = stack.Server.Provisioner.GetProvisioner()
+
+		// Debug provisioner config before resolution
+		p.log.Debug(ctx, "🔍 Stack %s provisioner type: %s", stackName, stack.Server.Provisioner.Type)
+		p.log.Debug(ctx, "🔍 Stack %s provisioner config before resolution: %+v", stackName, stack.Server.Provisioner.Config)
 	}
 
+	p.log.Debug(ctx, "🔧 Calling phResolver.Resolve()...")
 	err := p.phResolver.Resolve(p.stacks)
 	if err != nil {
+		p.log.Debug(ctx, "❌ Placeholder resolution failed: %v", err)
 		return err
+	}
+	p.log.Debug(ctx, "✅ Placeholder resolution completed successfully")
+
+	// Debug provisioner config after resolution (without sensitive values)
+	for stackName, stack := range p.stacks {
+		// Only show structure, not actual credential values to avoid security leaks
+		p.log.Debug(ctx, "🔍 Stack %s provisioner config after resolution - checking if placeholders were resolved", stackName)
+		configStr := fmt.Sprintf("%+v", stack.Server.Provisioner.Config)
+		if strings.Contains(configStr, "${") {
+			p.log.Debug(ctx, "❌ Stack %s still has unresolved placeholders after resolution", stackName)
+		} else {
+			p.log.Debug(ctx, "✅ Stack %s placeholders appear to be resolved (no ${} found)", stackName)
+		}
 	}
 
 	p.stacks = lo.MapValues(p.stacks, func(stack api.Stack, name string) api.Stack {

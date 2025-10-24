@@ -4,6 +4,7 @@ on:
   push:
     branches-ignore:
       - 'main'
+      - 'staging'
 
 permissions:
   contents: write
@@ -18,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
-      - name: install sc tool (latest release) 
+      - name: install sc tool (latest release)
         shell: bash
         run: |-
           # Install latest SC release to get secrets for embeddings generation
@@ -32,7 +33,7 @@ jobs:
           ${{ secrets.SC_CONFIG }}
           EOF
           sc secrets reveal
-      - name: get openai key 
+      - name: get openai key
         id: get-openai-key
         run: |
           echo "openai-key=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo '')" >> $GITHUB_OUTPUT

@@ -24,6 +24,25 @@ stacks:
       errorDocument: index.html
 ```
 
+**Enhanced Example with Dynamic Placeholders:**
+```yaml
+# .sc/stacks/docs-site/client.yaml - Using new placeholders safely
+schemaVersion: 1.0
+stacks:
+  # Dynamic stack name based on git branch for branch-specific deployments
+  "${git:branch}":
+    type: static
+    parent: myorg/infrastructure
+    config:
+      bundleDir: ${git:root}/site
+      # Dynamic domain based on branch: main.docs.mycompany.com, staging.docs.mycompany.com
+      domain: "${git:branch}.docs.mycompany.com"
+      indexDocument: index.html
+      errorDocument: index.html
+      # Note: Avoid version field here as it causes CloudFront recreation
+      # Version tracking can be done in build process or deployment metadata
+```
+
 **Features:**
 
 - Automated MkDocs build and deployment

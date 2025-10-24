@@ -32,7 +32,7 @@ type EnhancedActionsCiCdConfig struct {
 // OrganizationConfig defines organization-wide CI/CD policies
 type OrganizationConfig struct {
 	Name             string   `json:"name" yaml:"name"`
-	DefaultRunners   []string `json:"default-runners" yaml:"default-runners"`
+	DefaultRunner    string   `json:"default-runner" yaml:"default-runner"`
 	RequiredSecrets  []string `json:"required-secrets" yaml:"required-secrets"`
 	BranchProtection bool     `json:"branch-protection" yaml:"branch-protection"`
 	Reviewers        []string `json:"reviewers" yaml:"reviewers"`
@@ -52,7 +52,7 @@ type WorkflowGenerationConfig struct {
 // EnvironmentConfig defines environment-specific deployment settings
 type EnvironmentConfig struct {
 	Type          string            `json:"type" yaml:"type"`
-	Runners       []string          `json:"runners" yaml:"runners"`
+	Runner        string            `json:"runner" yaml:"runner"`
 	Protection    bool              `json:"protection" yaml:"protection"`
 	Reviewers     []string          `json:"reviewers" yaml:"reviewers"`
 	Secrets       []string          `json:"secrets" yaml:"secrets"`
@@ -148,8 +148,8 @@ func (c *EnhancedActionsCiCdConfig) SetDefaults() {
 		c.Organization.DefaultBranch = "main"
 	}
 
-	if len(c.Organization.DefaultRunners) == 0 {
-		c.Organization.DefaultRunners = []string{"ubuntu-latest"}
+	if c.Organization.DefaultRunner == "" {
+		c.Organization.DefaultRunner = "ubuntu-latest"
 	}
 
 	if c.WorkflowGeneration.OutputPath == "" {
@@ -224,8 +224,8 @@ func (c *EnhancedActionsCiCdConfig) Validate() error {
 			return fmt.Errorf("environment %s: type is required", envName)
 		}
 
-		if len(env.Runners) == 0 {
-			return fmt.Errorf("environment %s: at least one runner is required", envName)
+		if env.Runner == "" {
+			return fmt.Errorf("environment %s: runner is required", envName)
 		}
 
 		if env.Protection && len(env.Reviewers) == 0 {

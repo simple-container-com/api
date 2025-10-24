@@ -52,7 +52,7 @@ cicd:
         type: staging
         protection: false           # No approval required for staging
         auto-deploy: true          # Deploy automatically on main branch push
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]  # Skip preview for automated deployment
         secrets: ["DATABASE_URL", "API_KEY"]  # Which secrets from secrets.yaml are available
         variables:                 # Non-sensitive environment variables for workflows
@@ -64,7 +64,7 @@ cicd:
         protection: true           # Require approval for production
         reviewers: ["senior-dev", "devops-team"]
         auto-deploy: false         # Manual deployment only
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         secrets: ["DATABASE_URL", "API_KEY"]  # Which secrets from secrets.yaml are available
         variables:                 # Non-sensitive environment variables for workflows
@@ -73,8 +73,16 @@ cicd:
     
     # Notification settings
     notifications:
-      slack: "${secret:slack-webhook-url}"
-      discord: "${secret:discord-webhook-url}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
+      discord:
+        webhook-url: "${secret:discord-webhook-url}"
+        enabled: true
+      telegram:
+        bot-token: "${secret:telegram-bot-token}"
+        chat-id: "${secret:telegram-chat-id}"
+        enabled: false
     
     # Workflow generation settings
     workflow-generation:
@@ -99,7 +107,7 @@ cicd:
         type: staging
         protection: false
         auto-deploy: true
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         secrets: ["STAGING_DATABASE_URL", "STAGING_API_KEY"]
         variables:
           NODE_ENV: "staging"
@@ -111,7 +119,7 @@ cicd:
         protection: true
         reviewers: ["senior-dev", "devops-team"]
         auto-deploy: false
-        runners: ["self-hosted", "production"]
+        runner: "self-hosted"
         secrets: ["PRODUCTION_DATABASE_URL", "PRODUCTION_API_KEY"]
         variables:
           NODE_ENV: "production"
@@ -119,10 +127,16 @@ cicd:
         deploy-flags: ["--timeout", "30m"]
     
     notifications:
-      slack: "${secret:slack-webhook-url}"
-      discord: "${secret:discord-webhook-url}"
-      telegram-chat-id: "${secret:telegram-chat-id}"
-      telegram-token: "${secret:telegram-token}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
+      discord:
+        webhook-url: "${secret:discord-webhook-url}"
+        enabled: true
+      telegram:
+        bot-token: "${secret:telegram-bot-token}"
+        chat-id: "${secret:telegram-chat-id}"
+        enabled: true
     
     workflow-generation:
       enabled: true
@@ -160,8 +174,8 @@ values:
   # Notification webhooks managed by Simple Container
   slack-webhook-url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
   discord-webhook-url: "https://discord.com/api/webhooks/YOUR/WEBHOOK/URL"
+  telegram-bot-token: your-telegram-bot-token-here
   telegram-chat-id: your-telegram-chat-id-here
-  telegram-token: your-telegram-bot-token-here
   
   # Application secrets for deployment
   staging-database-url: your-staging-database-connection-string
@@ -255,6 +269,10 @@ on:
         options:
         - staging
         - production
+      verbose:
+        description: 'Enable verbose logging for debugging'
+        type: boolean
+        default: false
 
 jobs:
   deploy:
@@ -270,8 +288,20 @@ jobs:
       with:
         stack-name: myorg/infrastructure
         sc-config: ${{ secrets.SC_CONFIG }}
+        verbose: ${{ github.event.inputs.verbose || 'false' }}
         # Built-in notifications automatically configured via SC secrets
 ```
+
+**Available Inputs:**
+
+All Simple Container GitHub Actions support these common inputs:
+
+- **`stack-name`** *(required)* - Name of the stack to operate on
+- **`sc-config`** *(required)* - Simple Container configuration (use `${{ secrets.SC_CONFIG }}`)
+- **`environment`** - Target environment (e.g., `staging`, `production`)
+- **`verbose`** - Enable verbose logging for detailed debugging information (`true`/`false`, default: `false`)
+- **`dry-run`** - Run in preview mode without making actual changes (`true`/`false`, default: `false`)
+- **`notify-on-completion`** - Send notifications when operation completes (`true`/`false`, default: `true`)
 
 **Available Outputs:**
 - **`stack-name`** - Name of the deployed stack
@@ -377,6 +407,11 @@ on:
         description: 'Run in preview mode'
         type: boolean
         default: false
+      
+      verbose:
+        description: 'Enable verbose logging for detailed debugging'
+        type: boolean
+        default: false
 ```
 
 ## Best Practices
@@ -438,11 +473,30 @@ sc cicd preview --stack myorg/infrastructure --show-content
 
 ### Debugging Workflows
 
-1. **Enable debug logging** in GitHub Actions:
+1. **Enable verbose logging** in Simple Container GitHub Actions:
+   ```yaml
+   - name: Deploy with verbose logging
+     uses: simple-container-com/api/.github/actions/deploy-client-stack@main
+     with:
+       stack-name: "myapp"
+       environment: "staging"
+       sc-config: ${{ secrets.SC_CONFIG }}
+       verbose: 'true'  # Enable detailed debugging information
+   ```
+   
+   **Verbose logging provides:**
+   - Detailed environment variable information
+   - Step-by-step execution progress
+   - Parent repository cloning details
+   - Secret revelation process information
+   - Provisioner parameter debugging
+   - Git repository initialization details
+
+2. **Enable GitHub Actions debug logging** (additional system-level debugging):
    - Go to repository **Settings** → **Secrets**
    - Add secret `ACTIONS_STEP_DEBUG` with value `true`
 
-2. **Check workflow logs** in the Actions tab of your repository
+3. **Check workflow logs** in the Actions tab of your repository
 
 3. **Use workflow artifacts** to debug generated files:
    ```yaml

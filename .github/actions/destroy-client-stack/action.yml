@@ -14,18 +14,37 @@ inputs:
   sc-config:
     description: 'Simple Container configuration (SC_CONFIG secret content)'
     required: true
-  slack-webhook-url:
-    description: 'Slack webhook URL for notifications (optional)'
+  auto-confirm:
+    description: 'Automatically confirm destruction without prompts'
     required: false
-  discord-webhook-url:
-    description: 'Discord webhook URL for notifications (optional)'
+    default: 'false'
+  skip-backup:
+    description: 'Skip creating backups before destruction'
     required: false
-  telegram-chat-id:
-    description: 'Telegram chat ID for notifications (optional)'
+    default: 'false'
+  pr-preview:
+    description: 'Destroy PR preview environment'
     required: false
-  telegram-token:
-    description: 'Telegram bot token for notifications (optional)'
+    default: 'false'
+  pr-number:
+    description: 'Pull request number for preview environments'
     required: false
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ${{ github.token }}
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ${{ github.sha }}
 
 outputs:
   environment:
@@ -39,13 +58,18 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:latest'
+  image: 'docker://simplecontainer/github-actions:staging'
   env:
     GITHUB_ACTION_TYPE: 'destroy-client-stack'
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
     SC_CONFIG: ${{ inputs.sc-config }}
-    SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
-    DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
-    TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
-    TELEGRAM_TOKEN: ${{ inputs.telegram-token }}
+    AUTO_CONFIRM: ${{ inputs.auto-confirm }}
+    SKIP_BACKUP: ${{ inputs.skip-backup }}
+    PR_PREVIEW: ${{ inputs.pr-preview }}
+    PR_NUMBER: ${{ inputs.pr-number }}
+    VERBOSE: ${{ inputs.verbose }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}

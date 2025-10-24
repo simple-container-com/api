@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -42,6 +43,19 @@ const (
 	LabelAppName = "appName"
 	LabelScEnv   = "appEnv"
 )
+
+// sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
+// Replaces underscores with hyphens and ensures it starts/ends with alphanumeric characters
+func sanitizeK8sResourceName(name string) string {
+	// Replace underscores with hyphens
+	sanitized := strings.ReplaceAll(name, "_", "-")
+	// Remove any invalid characters (keep only a-z, 0-9, -, .)
+	reg := regexp.MustCompile(`[^a-z0-9\-\.]`)
+	sanitized = reg.ReplaceAllString(strings.ToLower(sanitized), "")
+	// Ensure it starts and ends with alphanumeric (trim leading/trailing hyphens and dots)
+	sanitized = strings.Trim(sanitized, "-.")
+	return sanitized
+}
 
 type SimpleContainerArgs struct {
 	// required properties
@@ -278,16 +292,30 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 				return sdk.String(am)
 			})
 		}
-		_, err := corev1.NewPersistentVolumeClaim(ctx, pv.Name, &corev1.PersistentVolumeClaimArgs{
+		// Sanitize volume name for Kubernetes RFC 1123 compliance (no underscores allowed)
+		sanitizedName := sanitizeK8sResourceName(pv.Name)
+		if sanitizedName != pv.Name {
+			args.Log.Info(ctx.Context(), "📝 Sanitized volume name %q -> %q for Kubernetes RFC 1123 compliance", pv.Name, sanitizedName)
+		}
+
+		// Use default storage class for GKE when none specified
+		storageClass := pv.StorageClassName
+		if storageClass == nil {
+			// For GKE, use the default standard storage class if available
+			defaultSC := "standard-rwo"
+			storageClass = &defaultSC
+			args.Log.Info(ctx.Context(), "📦 Using default storage class %q for volume %q", defaultSC, sanitizedName)
+		}
+		_, err := corev1.NewPersistentVolumeClaim(ctx, sanitizedName, &corev1.PersistentVolumeClaimArgs{
 			Metadata: &metav1.ObjectMetaArgs{
-				Name:        sdk.String(pv.Name),
+				Name:        sdk.String(sanitizedName),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(appAnnotations),
 			},
 			Spec: &corev1.PersistentVolumeClaimSpecArgs{
 				AccessModes:      sdk.StringArray(accessModes),
-				StorageClassName: sdk.StringPtrFromPtr(pv.StorageClassName),
+				StorageClassName: sdk.StringPtrFromPtr(storageClass),
 				Resources: &corev1.VolumeResourceRequirementsArgs{
 					Requests: sdk.StringMap{
 						"storage": sdk.String(pv.Storage),
@@ -300,13 +328,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		}
 
 		volumes = append(volumes, corev1.VolumeArgs{
-			Name: sdk.String(pv.Name),
+			Name: sdk.String(sanitizedName),
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSourceArgs{
-				ClaimName: sdk.String(pv.Name),
+				ClaimName: sdk.String(sanitizedName),
 			},
 		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
-			Name:      sdk.String(pv.Name),
+			Name:      sdk.String(sanitizedName),
 			MountPath: sdk.String(pv.MountPath),
 		})
 	}

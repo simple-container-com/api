@@ -15,18 +15,34 @@ inputs:
     description: 'Target environment profile'
     required: false
     default: 'default'
-  slack-webhook-url:
-    description: 'Slack webhook URL for notifications (optional)'
+  dry-run:
+    description: 'Run in preview mode without making actual changes'
     required: false
-  discord-webhook-url:
-    description: 'Discord webhook URL for notifications (optional)'
+    default: 'false'
+  skip-tests:
+    description: 'Skip running tests after provisioning'
     required: false
-  telegram-chat-id:
-    description: 'Telegram chat ID for notifications (optional)'
+    default: 'false'
+  notify-on-completion:
+    description: 'Send notifications when provisioning completes'
     required: false
-  telegram-token:
-    description: 'Telegram bot token for notifications (optional)'
+    default: 'true'
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
     required: false
+    default: 'false'
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ${{ github.token }}
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ${{ github.sha }}
 
 outputs:
   stack-name:
@@ -38,13 +54,17 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:latest'
+  image: 'docker://simplecontainer/github-actions:staging'
   env:
     GITHUB_ACTION_TYPE: 'provision-parent-stack'
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
     SC_CONFIG: ${{ inputs.sc-config }}
-    SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
-    DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
-    TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
-    TELEGRAM_TOKEN: ${{ inputs.telegram-token }}
+    DRY_RUN: ${{ inputs.dry-run }}
+    SKIP_TESTS: ${{ inputs.skip-tests }}
+    NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    VERBOSE: ${{ inputs.verbose }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}

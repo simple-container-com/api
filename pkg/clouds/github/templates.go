@@ -22,7 +22,7 @@ on:
         default: false
 
 concurrency:
-  group: {{ if .Execution.Concurrency.Group }}{{ .Execution.Concurrency.Group }}{{ else }}deploy-{{ .StackName }}-${{ "{{" }} github.ref {{ "}}" }}{{ end }}
+  group: deploy-{{ .StackName }}-${{ "{{" }} github.event.inputs.environment || 'staging' {{ "}}" }}
   cancel-in-progress: {{ .Execution.Concurrency.CancelInProgress }}
 
 permissions:
@@ -35,65 +35,30 @@ env:
   STACK_NAME: "{{ .StackName }}"
 
 jobs:
-{{- range $envName, $env := .Environments }}
-{{- if ne $env.Type "preview" }}
-  deploy-{{ $envName }}:
-    name: Deploy to {{ title $envName }}
-    {{- if $env.Protection }}
-    environment: 
-      name: {{ $envName }}
-      {{- if $env.Reviewers }}
-      protection_rules:
-        required_reviewers: {{ $env.Reviewers | yamlList }}
-      {{- end }}
+  deploy:
+    name: Deploy {{ .StackName }}
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
+    {{- $autoDeployEnv := "" }}
+    {{- range $envName, $env := .Environments }}
+    {{- if and $env.AutoDeploy (ne $env.Type "preview") }}{{ $autoDeployEnv = $envName }}{{ end }}
     {{- end }}
-    runs-on: {{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}
-    timeout-minutes: {{ if $.Execution.DefaultTimeout }}{{ timeoutMinutes $.Execution.DefaultTimeout }}{{ else }}30{{ end }}
-    {{- if or (and (eq $.DefaultBranch "main") (not $env.AutoDeploy)) (eq $env.Type "production") }}
-    if: ${{ "{{" }} github.event_name == 'workflow_dispatch' && github.event.inputs.environment == '{{ $envName }}' {{ "}}" }}
-    {{- else if $env.AutoDeploy }}
-    if: ${{ "{{" }} github.ref == 'refs/heads/{{ $.DefaultBranch }}' {{ "}}" }}
+    {{- $hasProtectedEnvs := false }}
+    {{- range $envName, $env := .Environments }}
+    {{- if $env.Protection }}{{ $hasProtectedEnvs = true }}{{ end }}
+    {{- end }}
+    {{- if $hasProtectedEnvs }}
+    environment: ${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}
     {{- end }}
     
     steps:
-      - name: Deploy {{ $.StackName }} to {{ $envName }}
-        uses: {{ if index $.CustomActions "deploy" }}{{ index $.CustomActions "deploy" }}{{ else }}{{ defaultAction "deploy" $.SCVersion }}{{ end }}
+      - name: Deploy {{ .StackName }}
+        uses: {{ if index .CustomActions "deploy" }}{{ index .CustomActions "deploy" }}{{ else }}{{ defaultAction "deploy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
-          environment: "{{ $envName }}"
+          environment: "${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
-          {{- if $env.DeployFlags }}
-          sc-deploy-flags: "{{ $env.DeployFlags | join " " }}"
-          {{- end }}
-          {{- if $env.ValidationCmd }}
-          validation-command: |
-            {{ $env.ValidationCmd | indent 12 }}
-          {{- end }}
-          cc-on-start: "{{ $.Notifications.CCOnStart }}"
-          
-      {{- if $.Validation.Required }}
-      - name: Run validation tests
-        if: ${{ "{{" }} !github.event.inputs.skip_validation {{ "}}" }}
-        run: |
-          {{- if index $.Validation.Commands $envName }}
-          {{ index $.Validation.Commands $envName }}
-          {{- else }}
-          echo "No validation commands configured for {{ $envName }}"
-          {{- end }}
-      {{- end }}
-      
-      {{- if $.Validation.HealthChecks }}
-      - name: Health check
-        run: |
-          echo "Running health checks..."
-          {{- range $path, $description := $.Validation.HealthChecks }}
-          echo "Checking {{ $description }}"
-          curl -f "https://{{ $envName }}-api.{{ $.Organization.Name }}.com{{ $path }}" || exit 1
-          {{- end }}
-      {{- end }}
-
-{{- end }}
-{{- end }}`
+          cc-on-start: "{{ .Notifications.CCOnStart }}"`
 
 const destroyTemplate = `name: Destroy {{ .Organization.Name }} {{ .StackName }}
 
@@ -135,7 +100,7 @@ env:
 jobs:
   validate-destroy:
     name: Validate Destruction Request
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     outputs:
       environment: ${{ "{{" }} steps.validate.outputs.environment {{ "}}" }}
       confirmed: ${{ "{{" }} steps.validate.outputs.confirmed {{ "}}" }}
@@ -174,7 +139,7 @@ jobs:
     {{- if $hasProtectedEnvs }}
     environment: ${{ "{{" }} needs.validate-destroy.outputs.environment {{ "}}" }}
     {{- end }}
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
@@ -189,9 +154,93 @@ jobs:
 
 `
 
+const destroyParentTemplate = `name: Destroy {{ .Organization.Name }} Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DESTROY-INFRASTRUCTURE to confirm'
+        required: true
+        type: string
+      auto_confirm:
+        description: 'Skip confirmation prompts'
+        required: false
+        type: boolean
+        default: false
+      skip_backup:
+        description: 'Skip infrastructure backup'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: destroy-infrastructure-{{ .StackName }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+
+env:
+  STACK_NAME: "{{ .StackName }}"
+
+jobs:
+  validate-destroy:
+    name: Validate Infrastructure Destruction
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
+    outputs:
+      confirmed: ${{ "{{" }} steps.validate.outputs.confirmed {{ "}}" }}
+    steps:
+      - name: Validate destruction request
+        id: validate
+        run: |
+          CONFIRMATION="${{ "{{" }} github.event.inputs.confirmation {{ "}}" }}"
+          
+          if [[ "$CONFIRMATION" != "DESTROY-INFRASTRUCTURE" ]]; then
+            echo "❌ Invalid confirmation. Please type 'DESTROY-INFRASTRUCTURE' to confirm."
+            exit 1
+          fi
+          
+          echo "⚠️  WARNING: This will destroy the entire infrastructure stack!"
+          echo "⚠️  This action affects all dependent applications and services."
+          echo "⚠️  Make sure all client applications are properly backed up."
+          
+          echo "confirmed=true" >> $GITHUB_OUTPUT
+          echo "✅ Infrastructure destruction request validated"
+
+  destroy-infrastructure:
+    name: Destroy Infrastructure Stack
+    needs: validate-destroy
+    environment: infrastructure
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}60{{ end }}
+    
+    steps:
+      - name: Destroy Parent Stack
+        uses: {{ if index .CustomActions "destroy" }}{{ index .CustomActions "destroy" }}{{ else }}{{ defaultAction "destroy-parent" .SCVersion }}{{ end }}
+        with:
+          stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
+          sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
+          auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
+          skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
+          notify-on-completion: "true"
+          # Notification webhooks automatically configured from SC secrets.yaml
+          # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
+
+`
+
 const provisionTemplate = `name: Provision {{ .Organization.Name }} Infrastructure
 
 on:
+  push:
+    branches: [{{ .Organization.DefaultBranch }}]
+    paths:
+      - '.sc/stacks/**'
+      - 'server.yaml'
+      - '*.yaml'
+      - '*.yml'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -221,7 +270,7 @@ jobs:
   provision-infrastructure:
     name: Provision Infrastructure
     environment: infrastructure
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
@@ -230,7 +279,9 @@ jobs:
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
-          dry-run: ${{ "{{" }} github.event.inputs.dry_run {{ "}}" }}
+          # For push triggers: dry-run=false (deploy), for manual dispatch: use input (default=true)
+          dry-run: ${{ "{{" }} github.event_name == 'push' && 'false' || github.event.inputs.dry_run || 'true' {{ "}}" }}
+          skip-tests: ${{ "{{" }} github.event.inputs.skip_tests || 'false' {{ "}}" }}
           notify-on-completion: "true"
           # Notification webhooks automatically configured from SC secrets.yaml
           # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
@@ -238,8 +289,10 @@ jobs:
   test-infrastructure:
     name: Test Infrastructure
     needs: provision-infrastructure
-    runs-on: ubuntu-latest
-    if: ${{ "{{" }} success() && !github.event.inputs.skip_tests && !github.event.inputs.dry_run {{ "}}" }}
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
+    # Run tests unless explicitly skipped or in dry-run mode
+    # For push: always run tests, for manual dispatch: respect user inputs
+    if: ${{ "{{" }} success() && (github.event_name == 'push' || (!github.event.inputs.skip_tests && !github.event.inputs.dry_run)) {{ "}}" }}
     
     steps:
       - name: Run infrastructure tests
@@ -289,7 +342,7 @@ env:
 jobs:
   check-deploy-label:
     name: Check Deploy Label
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     outputs:
       should-deploy: ${{ "{{" }} steps.check.outputs.should-deploy {{ "}}" }}
       preview-enabled: ${{ "{{" }} steps.check.outputs.preview-enabled {{ "}}" }}
@@ -323,7 +376,7 @@ jobs:
     name: Deploy PR Preview
     needs: check-deploy-label
     if: ${{ "{{" }} github.event.action != 'closed' && needs.check-deploy-label.outputs.should-deploy == 'true' && needs.check-deploy-label.outputs.preview-enabled == 'true' {{ "}}" }}
-    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runners }}{{ index $env.Runners 0 }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
+    runs-on: {{ if .Environments }}{{ $firstEnv := "" }}{{ range $name, $env := .Environments }}{{ if eq $firstEnv "" }}{{ $firstEnv = $name }}{{ if $env.Runner }}{{ $env.Runner }}{{ else }}ubuntu-latest{{ end }}{{ end }}{{ end }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: {{ if .Execution.DefaultTimeout }}{{ timeoutMinutes .Execution.DefaultTimeout }}{{ else }}30{{ end }}
     
     steps:
@@ -367,7 +420,7 @@ jobs:
   destroy-preview:
     name: Destroy PR Preview
     if: ${{ "{{" }} github.event.action == 'closed' {{ "}}" }}
-    runs-on: ubuntu-latest
+    runs-on: {{ if .Organization.DefaultRunner }}{{ .Organization.DefaultRunner }}{{ else }}ubuntu-latest{{ end }}
     timeout-minutes: 15
     
     steps:

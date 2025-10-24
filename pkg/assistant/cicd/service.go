@@ -23,6 +23,8 @@ type GenerateParams struct {
 	ConfigFile string
 	Force      bool
 	DryRun     bool
+	Parent     bool
+	Staging    bool
 }
 
 // ValidateParams contains parameters for workflow validation
@@ -32,6 +34,8 @@ type ValidateParams struct {
 	WorkflowsDir string
 	ShowDiff     bool
 	Verbose      bool
+	Parent       bool
+	Staging      bool
 }
 
 // PreviewParams contains parameters for workflow preview
@@ -39,6 +43,8 @@ type PreviewParams struct {
 	StackName   string
 	ConfigFile  string
 	ShowContent bool
+	Parent      bool
+	Staging     bool
 }
 
 // SyncParams contains parameters for workflow synchronization
@@ -47,6 +53,8 @@ type SyncParams struct {
 	ConfigFile string
 	DryRun     bool
 	Force      bool
+	Parent     bool
+	Staging    bool
 }
 
 // Result contains the result of a CI/CD operation
@@ -80,7 +88,7 @@ func (s *Service) GenerateWorkflows(params GenerateParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	// Set up output directory
 	outputDir := params.Output
@@ -165,7 +173,7 @@ func (s *Service) ValidateWorkflows(params ValidateParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	// Set up workflows directory
 	workflowsDir := params.WorkflowsDir
@@ -257,7 +265,7 @@ func (s *Service) PreviewWorkflows(params PreviewParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	// Generate preview
 	return s.previewGeneration(enhancedConfig, stackName, ".github/workflows/")
@@ -285,7 +293,7 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 	}
 
 	// Create enhanced config
-	enhancedConfig := createEnhancedConfig(serverDesc, stackName)
+	enhancedConfig := createEnhancedConfig(serverDesc, stackName, params.Parent, params.Staging)
 
 	workflowsDir := ".github/workflows/"
 
@@ -294,15 +302,27 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 		return s.previewGeneration(enhancedConfig, stackName, workflowsDir)
 	}
 
-	// Check for existing files
+	// Interactive mode - show differences and ask for confirmation
 	if !params.Force {
 		existingFiles := s.checkExistingWorkflows(enhancedConfig, stackName, workflowsDir)
 		if len(existingFiles) > 0 {
+			// Show preview of changes
+			preview, err := s.previewGeneration(enhancedConfig, stackName, workflowsDir)
+			if err != nil {
+				return &Result{
+					Success: false,
+					Message: fmt.Sprintf("Failed to generate preview: %v", err),
+				}, nil
+			}
+
+			// Return interactive prompt for confirmation
 			return &Result{
 				Success: false,
-				Message: "Workflow files already exist. Use --force to overwrite.",
+				Message: fmt.Sprintf("The following workflow files will be updated:\n%s\n\nProceed with sync? (Use --force to skip confirmation)", preview.Message),
 				Data: map[string]interface{}{
-					"existing_files": existingFiles,
+					"existing_files":     existingFiles,
+					"needs_confirmation": true,
+					"preview":            preview.Message,
 				},
 			}, nil
 		}

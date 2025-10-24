@@ -148,19 +148,28 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
 		}
 
-		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-caddy-cfg", stackName, input.StackParams.Environment, suffix), fullParentReference, kubernetes.ToCaddyConfigExport(clusterName), false)
+		caddyCfgExport := kubernetes.ToCaddyConfigExport(clusterName)
+		params.Log.Info(ctx.Context(), "Getting caddy config from parent stack %q (%s)", fullParentReference, caddyCfgExport)
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG: clusterName=%q, suffix=%q", clusterName, suffix)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-caddy-cfg", stackName, input.StackParams.Environment, suffix), fullParentReference, caddyCfgExport, false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's resources")
 		}
+		// DEBUG: Log caddy config JSON content and length for debugging
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG [GKE]: Caddy config JSON content: %q", caddyConfigJson)
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG [GKE]: Caddy config JSON length: %d", len(caddyConfigJson))
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG [GKE]: Caddy config JSON as bytes: %v", []byte(caddyConfigJson))
+
 		var caddyCfg k8s.CaddyConfig
 		err = json.Unmarshal([]byte(caddyConfigJson), &caddyCfg)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack")
+			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack: JSON was %q", caddyConfigJson)
 		}
 
-		_, err = kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
-			PatchName:   fmt.Sprintf("%s-%s", stackName, environment),
-			ServiceName: "caddy",
+		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
+		_, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
+			PatchName:   input.ToResName(stackName),
+			ServiceName: input.ToResName("caddy"), // Use helper to add environment suffix consistently
 			Namespace:   lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy"),
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
@@ -172,8 +181,9 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			},
 			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
+		if patchErr != nil {
+			// Log warning but continue - caddy annotation patch is not critical for deployment
+			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
 		}
 	}
 

@@ -20,9 +20,6 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 		Metadata: &metav1.ObjectMetaPatchArgs{
 			Namespace: sdk.String(args.Namespace),
 			Name:      sdk.String(args.ServiceName),
-			Annotations: sdk.StringMap{
-				"pulumi.com/patchForce": sdk.String("true"),
-			},
 		},
 		Spec: &appsv1.DeploymentSpecPatchArgs{
 			Template: &v1.PodTemplateSpecPatchArgs{

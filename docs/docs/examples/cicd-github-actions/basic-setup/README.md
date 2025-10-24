@@ -77,7 +77,7 @@ cicd:
         type: staging
         protection: false           # No approval required
         auto-deploy: true          # Deploy automatically on main branch push
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]  # Skip preview for automated deployment
         secrets: ["DATABASE_URL", "API_KEY"]  # Which secrets from secrets.yaml are available to this environment
         variables:                               # Non-sensitive environment variables for GitHub Actions workflows
@@ -89,7 +89,7 @@ cicd:
         protection: true           # Require approval
         reviewers: ["senior-dev", "team-lead"]
         auto-deploy: false         # Manual deployment only
-        runners: ["ubuntu-latest"]
+        runner: "ubuntu-latest"
         deploy-flags: ["--skip-preview"]
         secrets: ["DATABASE_URL", "API_KEY"]  # Which secrets from secrets.yaml are available to this environment
         variables:                               # Non-sensitive environment variables for GitHub Actions workflows
@@ -98,7 +98,9 @@ cicd:
     
     # Notification settings
     notifications:
-      slack: "${secret:slack-webhook-url}"
+      slack:
+        webhook-url: "${secret:slack-webhook-url}"
+        enabled: true
     
     # Workflow generation settings
     workflow-generation:
@@ -540,7 +542,7 @@ environments:
     type: development
     protection: false
     auto-deploy: true
-    runners: ["ubuntu-latest"]
+    runner: "ubuntu-latest"
     variables:
       NODE_ENV: "development"
       LOG_LEVEL: "debug"

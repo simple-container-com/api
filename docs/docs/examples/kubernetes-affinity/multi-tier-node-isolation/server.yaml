@@ -23,7 +23,7 @@ templates:
       project: "${auth:gcp-us.projectId}"
       region: us-central1
       zone: us-central1-a
-      gkeMinVersion: "1.27"
+      gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=us-central1
       # Node pools will be created automatically by GKE Autopilot
       # but we can influence scheduling through affinity rules
 
@@ -38,7 +38,7 @@ resources:
           project: "${auth:gcp-us.projectId}"
           name: "mycompany-production"
           location: us-central1
-          gkeMinVersion: "1.27"
+          gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=us-central1
           
       # Artifact Registry for Container Images
       artifact-registry:
@@ -69,7 +69,7 @@ resources:
           
       # Redis Memorystore for Caching
       redis-memorystore:
-        type: gcp-memorystore-redis
+        type: gcp-redis
         config:
           credentials: "${auth:gcp-us}"
           project: "${auth:gcp-us.projectId}"
@@ -87,7 +87,7 @@ resources:
           project: "${auth:gcp-us.projectId}"
           name: "mycompany-staging"
           location: us-central1
-          gkeMinVersion: "1.27"
+          gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=us-central1
           
       artifact-registry:
         type: gcp-artifact-registry
@@ -113,7 +113,7 @@ resources:
           databaseName: "mycompany_staging"
           
       redis-memorystore:
-        type: gcp-memorystore-redis
+        type: gcp-redis
         config:
           credentials: "${auth:gcp-us}"
           project: "${auth:gcp-us.projectId}"

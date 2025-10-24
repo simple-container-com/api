@@ -31,11 +31,8 @@
               },
               "type": "array"
             },
-            "runners": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
+            "runner": {
+              "type": "string"
             },
             "secrets": {
               "items": {
@@ -58,7 +55,7 @@
             "deploy-flags",
             "protection",
             "reviewers",
-            "runners",
+            "runner",
             "secrets",
             "type",
             "variables"

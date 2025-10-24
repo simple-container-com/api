@@ -1,10 +1,12 @@
 package placeholders
 
 import (
+	"fmt"
 	os "os"
 	"os/user"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -66,13 +68,15 @@ func (p *placeholders) Resolve(stacks api.StacksMap) error {
 	for stackName, stack := range iterStacks {
 		opts := []Option{
 			WithExtensions(map[string]template.Extension{
-				"env":    p.extEnv,
-				"git":    p.tplGit(stackName),
-				"auth":   p.tplAuth(stackName, stack, stacks),
-				"secret": p.tplSecrets(stackName, stack, stacks),
-				"var":    p.tplVars(stackName, stack, stacks),
-				"stack":  p.tplStack(stackName, stack, stacks),
-				"user":   p.tplUser,
+				"env":     p.extEnv,
+				"git":     p.tplGit(stackName),
+				"project": p.tplProject(stackName), // Added project extension
+				"date":    p.extDate,               // Added date extension
+				"auth":    p.tplAuth(stackName, stack, stacks),
+				"secret":  p.tplSecrets(stackName, stack, stacks),
+				"var":     p.tplVars(stackName, stack, stacks),
+				"stack":   p.tplStack(stackName, stack, stacks),
+				"user":    p.tplUser,
 			}),
 		}
 		if err := p.Apply(&stack, opts...); err != nil {
@@ -99,6 +103,42 @@ func (p *placeholders) tplUser(noSubs, path string, value *string) (string, erro
 		return noSubs, err
 	}
 	return res.(string), nil
+}
+
+func (p *placeholders) extDate(noSubstitution, path string, defaultValue *string) (string, error) {
+	var res string
+	t := time.Now()
+
+	switch path {
+	case "time":
+		res = fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d", t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
+	case "dateOnly":
+		res = fmt.Sprintf("%d-%02d-%02d", t.Year(), t.Month(), t.Day())
+	case "timestamp":
+		res = fmt.Sprintf("%d", t.Unix())
+	case "iso8601":
+		res = t.Format(time.RFC3339)
+	case "rfc3339":
+		res = t.Format(time.RFC3339)
+	case "year":
+		res = fmt.Sprintf("%d", t.Year())
+	case "month":
+		res = fmt.Sprintf("%02d", t.Month())
+	case "day":
+		res = fmt.Sprintf("%02d", t.Day())
+	case "hour":
+		res = fmt.Sprintf("%02d", t.Hour())
+	case "minute":
+		res = fmt.Sprintf("%02d", t.Minute())
+	case "second":
+		res = fmt.Sprintf("%02d", t.Second())
+	default:
+		if defaultValue != nil {
+			return *defaultValue, nil
+		}
+		return noSubstitution, errors.Errorf("unknown date format %q (available: time, dateOnly, timestamp, iso8601, rfc3339, year, month, day, hour, minute, second)", path)
+	}
+	return res, nil
 }
 
 func (p *placeholders) tplStack(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
@@ -153,13 +193,59 @@ func (p *placeholders) extEnv(noSubstitution, path string, defaultValue *string)
 
 func (p *placeholders) tplGit(stackName string) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
+		if p.git == nil {
+			return noSubs, errors.Errorf("git context not available for stack %q", stackName)
+		}
+
+		// Enhanced git information following welder pattern
+		gitData := map[string]interface{}{
+			"root": p.git.Workdir(),
+		}
+
+		// Add commit information if available
+		if hash, err := p.git.Hash(); err == nil {
+			hashShort := hash
+			if len(hash) > 7 {
+				hashShort = hash[:7]
+			}
+			gitData["commit"] = map[string]string{
+				"short": hashShort,
+				"full":  hash,
+			}
+		}
+
+		// Add branch information if available
+		if branch, err := p.git.Branch(); err == nil {
+			branchClean := strings.ReplaceAll(branch, "/", "-")
+			gitData["branch"] = branchClean
+			gitData["branch.raw"] = branch
+			gitData["branch.clean"] = branchClean
+		}
+
+		res, err := util.GetValue(path, gitData)
+		if err != nil {
+			return noSubs, errors.Errorf("git value %q not found for stack %q: %v", path, stackName, err)
+		}
+		return res.(string), nil
+	}
+}
+
+func (p *placeholders) tplProject(stackName string) func(source string, path string, value *string) (string, error) {
+	return func(noSubs, path string, value *string) (string, error) {
 		vars := map[string]string{}
+
+		// Project root is the git working directory if available
 		if p.git != nil {
 			vars["root"] = p.git.Workdir()
+		} else {
+			// Fallback to current working directory
+			if wd, err := os.Getwd(); err == nil {
+				vars["root"] = wd
+			}
 		}
 
 		if val, found := vars[path]; !found {
-			return noSubs, errors.Errorf("value %q not found for stack %q", path, stackName)
+			return noSubs, errors.Errorf("value %q not found for project in stack %q", path, stackName)
 		} else {
 			return val, nil
 		}

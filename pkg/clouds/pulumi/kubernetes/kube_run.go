@@ -49,16 +49,24 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		clusterName := ToClusterName(input, caddyResource)
 		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
 		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q (%s)", caddyResource, fullParentReference, suffix)
-		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-stack-caddy-cfg", parentStack, suffix), fullParentReference, ToCaddyConfigExport(clusterName), false)
+		params.Log.Debug(ctx.Context(), "🔧 DEBUG: caddyResource=%q, clusterName=%q, suffix=%q", caddyResource, clusterName, suffix)
+		caddyCfgExport := ToCaddyConfigExport(clusterName)
+		params.Log.Debug(ctx.Context(), "🔧 Reading Caddy config from parent's output: %v", caddyCfgExport)
+		caddyConfigJson, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-stack-caddy-cfg", parentStack, suffix), fullParentReference, caddyCfgExport, false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get caddy config from parent stack's %q resources for resource %q", fullParentReference, caddyResource)
 		}
 		if caddyConfigJson == "" {
-			return nil, errors.Errorf("parent stack's registry url is empty for stack %q", stackName)
+			return nil, errors.Errorf("parent stack's caddy config JSON is empty for stack %q. Looking for output '%s' in parent stack '%s'. This could indicate a naming mismatch between parent export and child import", stackName, caddyCfgExport, fullParentReference)
 		}
+		// DEBUG: Log caddy config JSON content and length for debugging
+		params.Log.Debug(ctx.Context(), "🔧 Caddy config JSON content: %q", caddyConfigJson)
+		params.Log.Debug(ctx.Context(), "🔧 Caddy config JSON length: %d", len(caddyConfigJson))
+		params.Log.Debug(ctx.Context(), "🔧 Caddy config JSON as bytes: %v", []byte(caddyConfigJson))
+
 		err = json.Unmarshal([]byte(caddyConfigJson), &caddyConfig)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack")
+			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack: JSON was %q", caddyConfigJson)
 		}
 	}
 
@@ -152,9 +160,10 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	}
 
 	if caddyConfig != nil {
-		_, err = PatchDeployment(ctx, &DeploymentPatchArgs{
-			PatchName:   fmt.Sprintf("%s-%s", stackName, environment),
-			ServiceName: "caddy",
+		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
+		_, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
+			PatchName:   input.ToResName(stackName),
+			ServiceName: input.ToResName("caddy"), // Use helper to add environment suffix consistently
 			Namespace:   lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
@@ -166,8 +175,9 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			},
 			Opts: []sdk.ResourceOption{sdk.Provider(params.Provider), sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to patch caddy configuration")
+		if patchErr != nil {
+			// Log warning but continue - caddy annotation patch is not critical for deployment
+			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
 		}
 	}
 

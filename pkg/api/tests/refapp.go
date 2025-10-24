@@ -70,7 +70,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 			Environments: map[string]github.GitHubEnvironmentConfig{
 				"staging": {
 					Type:        "staging",
-					Runners:     nil,
+					Runner:      "",
 					Protection:  false,
 					Reviewers:   nil,
 					Secrets:     nil,
@@ -80,7 +80,7 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 				},
 				"production": {
 					Type:        "production",
-					Runners:     nil,
+					Runner:      "",
 					Protection:  false,
 					Reviewers:   nil,
 					Secrets:     nil,
@@ -201,7 +201,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 			Environments: map[string]github.GitHubEnvironmentConfig{
 				"staging": {
 					Type:        "staging",
-					Runners:     []string{},
+					Runner:      "",
 					Protection:  false,
 					Reviewers:   []string{},
 					Secrets:     []string{},
@@ -211,7 +211,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 				},
 				"production": {
 					Type:        "production",
-					Runners:     []string{},
+					Runner:      "",
 					Protection:  false,
 					Reviewers:   []string{},
 					Secrets:     []string{},

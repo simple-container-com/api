@@ -15,17 +15,168 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Uses ONLY SC's internal APIs**: `pkg/api/logger`, `pkg/api/git`, `pkg/clouds/slack`, `pkg/clouds/discord`, `pkg/provisioner`
   - **Eliminated custom packages**: Removed `pkg/githubactions/common/notifications`, custom git, logging, config duplicates
   - **Zero Code Duplication**: Single source of truth using SC's proven APIs
-  - Single `github-actions.Dockerfile` in root, built via welder.yaml
-  - **Status**: ✅ **Production ready with perfect SC API integration**
+  - **Production image**: `github-actions.Dockerfile` (builds from source)
+  - **Staging image**: `github-actions-staging.Dockerfile` (uses pre-built static `./bin/github-actions` for fast iteration)
+  - **GitHub workflow**: `.github/workflows/build-staging.yml` (builds staging image using welder commands)
+  - **Fast development**: Push to `staging` branch triggers automatic staging image build
+  - **Status**: ✅ **Production ready with perfect SC API integration + automated staging workflow**
+  - **Recent Fixes (2024-10-20)**:
+    - ✅ **Action Input Consistency**: Added missing inputs (`dry-run`, `skip-tests`, `notify-on-completion`, `auto-confirm`, `skip-backup`, `pr-preview`, `pr-number`) to all action.yml files 
+    - ✅ **Smart Repository Cloning**: Enhanced git initialization to properly clone repository like `actions/checkout` when repository content is missing or incomplete
+    - ✅ **Template Compatibility**: All workflow templates now properly aligned with action definitions
+    - ✅ **Production-Grade Repository Handling**: Proper authentication with `GITHUB_TOKEN`, ref-specific checkout, and complete repository content cloning
+    - ✅ **GitHub Best Practices Authentication**: Implemented proper `${{ github.token }}` defaults pattern exactly like `actions/checkout`
+    - ✅ **Zero Configuration Required**: Actions work automatically without explicit GitHub context passing in workflows
+    - ✅ **Perfect `actions/checkout` Pattern**: Docker actions with automatic GitHub context defaults for enterprise-grade authentication
 
-#### CI/CD Workflow Generation (In Progress)
-- **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration
-  - New CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`
-  - Enhanced server.yaml schema with comprehensive CI/CD configuration support
-  - Location: `pkg/cmd/cmd_cicd/`, `pkg/clouds/github/enhanced_config.go`, `pkg/clouds/github/workflow_generator.go`
-  - Supports organizational-level workflow templates, environment-specific deployments, and notifications
-  - Internal API refactor plan documented for using SC internal APIs instead of shell commands
-  - Status: `sc cicd generate` command completed, other commands pending
+#### Kubernetes Volume Name Sanitization Fix (2024-10-24)
+- **Kubernetes Naming Compliance**: Fixed RFC 1123 subdomain naming violations in persistent volume names
+  - **Problem Resolved**: Volume names with underscores (e.g., `"app_data"`) caused PersistentVolumeClaim creation failures
+  - **Error Pattern**: `PersistentVolumeClaim "app_data" is invalid: metadata.name: Invalid value: "app_data": a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'`
+  - **Solution Applied**: Added `sanitizeK8sResourceName()` function in `pkg/clouds/pulumi/kubernetes/simple_container.go`
+  - **Naming Transformations**: `"app_data"` → `"app-data"`, `"Cache_Storage"` → `"cache-storage"`, `"my_volume_name"` → `"my-volume-name"`
+  - **Comprehensive Fix**: All volume references (PVC, volume spec, volume mounts) use consistent sanitized names
+  - **User Feedback**: Clear logging shows name transformations: `📝 Sanitized volume name "app_data" -> "app-data" for Kubernetes RFC 1123 compliance`
+  - **Compatibility**: Users can continue using underscore volume names in docker-compose.yaml - automatic conversion to Kubernetes-compliant names
+  - **Status**: ✅ **Full docker-compose to Kubernetes compatibility with RFC 1123 compliance**
+
+#### Critical Security Fix: Debug Logging (2024-10-22)
+- **Security Vulnerability Resolved**: Eliminated credential leakage in verbose mode debug logging
+  - **Fixed GCP Provider**: `pkg/clouds/pulumi/gcp/provider.go` - No longer logs raw GCP service account credentials
+  - **Fixed SSH Key Logging**: `pkg/githubactions/actions/parent_repo.go` - No longer logs partial SSH public key values
+  - **Fixed MongoDB Password Logging**: `pkg/clouds/pulumi/mongodb/cluster.go` - No longer logs password objects in error messages
+  - **CRITICAL FIX - Secrets Descriptor Logging**: `pkg/provisioner/provision.go` - No longer logs entire secrets descriptor structures containing ALL credential values
+  - **Security Principle**: Never log credential values or descriptor structures, use stack-specific diagnostics
+  - **Pattern Applied**: `log.Debug(ctx, "Successfully read secrets descriptor for stack: %s", stackName)` instead of `log.Debug(ctx, "Successfully read secrets descriptor: %q", secretsDesc)`
+  - **Status**: ✅ **All credential leakage eliminated - Safe for production verbose mode**
+
+#### GitHub Actions Dependencies Fix (2024-10-22)
+- **Missing Dependencies Resolved**: Added required CLI tools to GitHub Actions containers
+  - **Added Pulumi CLI**: Both production and staging Dockerfiles now install Pulumi for infrastructure provisioning
+  - **Fixed Pulumi Installation**: Uses `sh -s -- --version` with dynamic version reading from go.mod for automatic consistency
+  - **Added Google Cloud SDK**: Both containers now include gcloud CLI for GCP operations
+  - **Added GKE Auth Plugin**: Both containers now include `gke-gcloud-auth-plugin` for modern GKE cluster authentication
+  - **Added Python Dependencies**: Required runtime for gcloud operations
+  - **Fixed Error**: Resolved `exec: "pulumi": executable file not found in $PATH` error
+  - **Fixed GKE Error**: Resolved `executable gke-gcloud-auth-plugin not found` error for Kubernetes operations
+  - **Fixed Pulumi Version Detection**: Resolved `could not determine latest version of Pulumi` error with explicit version passing
+  - **Files Updated**: `github-actions.Dockerfile`, `github-actions-staging.Dockerfile`
+  - **Status**: ✅ **GitHub Actions containers now have all required dependencies with reliable installation**
+
+#### Dry-Run Mode Fix (2024-10-22)
+- **Critical Issue Resolved**: Dry-run mode now properly performs preview-only operations instead of actual provisioning
+  - **Fixed Preview Detection**: Added `DRY_RUN` environment variable to `isPreviewMode()` function
+  - **Fixed Provisioning**: Dry-run now calls `PreviewProvision()` instead of `Provision()` for parent stacks
+  - **Fixed Deployment**: Dry-run now calls `Preview()` instead of `Deploy()` for client stacks  
+  - **Fixed Destruction**: Dry-run now calls destroy methods with `previewMode=true` parameter
+  - **Added Refresh Skipping**: Dry-run mode automatically sets `SkipRefresh=true` to avoid state refreshes
+  - **Enhanced Logging**: Clear distinction between preview mode and actual operations in logs
+  - **Files Updated**: `pkg/githubactions/actions/operations.go`, `pkg/githubactions/actions/executor.go`
+  - **Status**: ✅ **Dry-run mode now safely previews without making actual changes**
+
+#### CRITICAL: State Storage Mismatch Investigation (2024-10-22)
+- **State Inconsistency Issue Identified**: GitHub Actions creating resources that already exist locally
+  - **Root Cause**: Pulumi organization defaults to "organization" when not configured in server.yaml provisioner config
+  - **Project Name Issue**: GitHub Actions hardcodes project name to "github-actions-project" vs local environment
+  - **Stack Reference Mismatch**: `organization/github-actions-project/pay-space` vs local stack references
+  - **Result**: Same stack name but different Pulumi backends = resources appear as "create" instead of "same"
+  - **SC Concept Violation**: Different environments accessing different state storage backends breaks consistency
+  - **Debug Logging Added**: 
+    - `pkg/clouds/pulumi/login.go` - Shows organization, project, state storage config
+    - `pkg/clouds/pulumi/create_stack.go` - Identifies when stack exists but resources missing
+    - `pkg/githubactions/actions/config.go` - Shows project name derivation and hardcoded defaults
+  - **Investigation Status**: ✅ **Root cause identified with comprehensive debug logging**
+  - **Next Steps Required**: Configure proper organization in server.yaml and consistent project naming
+
+#### Docker Build Optimization (2024-10-22)
+- **Performance Issue Resolved**: GitHub Actions staging build now uses BuildKit with advanced caching
+  - **Replaced**: `welder docker build` with `docker buildx build` using BuildKit
+  - **Added Layer Caching**: `--cache-from type=gha --cache-to type=gha,mode=max` for GitHub Actions cache
+  - **Multi-platform Support**: `--platform linux/amd64` for consistent builds
+  - **Proper BuildKit Setup**: Uses `docker/setup-buildx-action@v3` instead of basic setup
+  - **Cache Strategy**: Dependencies cached separately from application binary for optimal layer reuse
+  - **Files Updated**: `.github/workflows/build-staging.yml`, `github-actions-staging.Dockerfile`
+  - **Status**: ✅ **Significantly faster Docker builds with proper layer caching**
+
+#### CI/CD Workflow Generation (✅ Complete with Infrastructure Repository Pattern Support)
+- **Dynamic GitHub Actions workflow generation** from `server.yaml` configuration OR parent repository configuration
+  - **CRITICAL FIX (2024-10-23)**: Fixed `generate_cicd` command to respect `parentRepository` configuration with full infrastructure repository pattern support
+  - **Enhanced Configuration Sources**: Now supports multiple configuration sources with smart fallbacks:
+    1. `SC_CONFIG` environment variable (GitHub Actions scenario)
+    2. `.sc/cfg.default.yaml` (local default profile)
+    3. Profile-specific config (based on `SC_PROFILE` env var)
+  - **Infrastructure Repository Pattern**: Reads actual CI/CD configuration from parent repositories, supporting both root server.yaml and `.sc/stacks/*` patterns
+  - **Production Tested**: Successfully tested with real parent repository `git@github.com:PAY-SPACE/infrastructure.git`
+  - **Authentic Configuration**: No synthetic configuration - reads actual environments, organization, and workflow settings from parent
+  - **Zero Breaking Changes**: Existing `server.yaml` workflows continue to work unchanged
+  - **Client Repository Support**: Full support for client repositories that depend on parent infrastructure configurations
+  - CLI commands: `sc cicd generate`, `sc cicd validate`, `sc cicd sync`, `sc cicd preview`
+  - MCP Tools: `generate_cicd`, `validate_cicd`, `preview_cicd`, `sync_cicd`, `setup_cicd`
+  - Location: `pkg/cmd/cmd_cicd/`, `pkg/assistant/cicd/`, `pkg/clouds/github/enhanced_config.go`, `pkg/clouds/github/workflow_generator.go`
+  - **Files Modified**: `pkg/assistant/cicd/utils.go` - Added parent repository cloning and infrastructure pattern support
+  - Status: ✅ **Production ready with complete infrastructure repository pattern support**
+
+#### CRITICAL: Parent Repository Secret Revelation Fix (2024-10-24)
+- **Parent Repository Secrets Issue Resolved**: Fixed secret revelation failure in GitHub Actions causing placeholder values in deployments
+  - **Root Cause**: Parent repository cryptor created without SC_CONFIG keys, causing `ReadProfileConfig()` failures in containerized environments
+  - **Critical Error Pattern**: `Failed to read profile config: failed to open private key file: "~/.ssh/id_rsa": no such file or directory`
+  - **Impact**: Parent repository secrets not revealed → GCP credentials contained `${auth:gcloud}` placeholders → deployment failures
+  - **Fix Applied**: Enhanced parent repository cryptor creation to include `secrets.WithPrivateKey(scConfig.PrivateKey)` and `secrets.WithPublicKey(scConfig.PublicKey)`
+  - **Graceful Profile Handling**: Continue secret revelation even if `ReadProfileConfig()` fails, using SC_CONFIG keys from GitHub Actions environment
+  - **Files Modified**: `pkg/githubactions/actions/parent_repo.go` - Fixed `setupParentRepositorySecrets()` function
+  - **Status**: ✅ **Parent repository secrets now properly revealed in GitHub Actions with SC_CONFIG keys**
+
+#### CRITICAL: Missing Project Placeholder Extension Fix (2024-10-24)
+- **Project Placeholder Resolution Issue Resolved**: Fixed `${project:root}` placeholders not being resolved, causing deployment failures
+  - **Root Cause**: Placeholders resolver missing `project` extension, causing `${project:root}` to remain as literal strings
+  - **Error Pattern**: `open /github/workspace/.sc/stacks/landing-stars-front/${project:root}/docker-compose.yaml: no such file or directory`
+  - **Impact**: Docker Compose file paths unresolved → file not found errors → stack deployment failures
+  - **Fix Applied**: Added `project` extension to placeholders resolver with smart root directory detection:
+    - Uses git working directory when available (consistent with `${git:root}`)
+    - Falls back to current working directory in non-git environments
+    - Provides proper error messages for debugging
+  - **Resolution Behavior**:
+    - GitHub Actions: `${project:root}` → `/github/workspace`
+    - Local development: `${project:root}` → Current project directory
+    - Git context: `${project:root}` → Git working directory
+  - **Files Modified**: `pkg/provisioner/placeholders/placeholders.go` - Added `tplProject()` function and project extension
+  - **Status**: ✅ **All project:root placeholders now properly resolved across all deployment environments**
+
+#### Enhanced Placeholder Extensions with Welder Compatibility (2024-10-24)
+- **Placeholder System Enhanced**: Added comprehensive placeholder extensions from welder for advanced template functionality
+  - **Enhanced Git Extension**: Now supports commit hashes and branch information for dynamic configurations:
+    - `${git:root}` - Git working directory
+    - `${git:commit.short}` - Short commit hash (7 characters) 
+    - `${git:commit.full}` - Full commit hash
+    - `${git:branch}` - Clean branch name (slashes → dashes)
+    - `${git:branch.raw}` - Raw branch name
+    - `${git:branch.clean}` - Clean branch name
+  - **New Date Extension**: Comprehensive date/time formatting for timestamped configurations:
+    - `${date:time}` - ISO-like: 2024-10-24T17:30:45
+    - `${date:dateOnly}` - Date: 2024-10-24
+    - `${date:timestamp}` - Unix timestamp
+    - `${date:iso8601}` - Full ISO 8601 format
+    - `${date:year}`, `${date:month}`, `${date:day}` - Individual components
+    - `${date:hour}`, `${date:minute}`, `${date:second}` - Time components
+  - **Use Cases**: Dynamic container tagging (`myapp:${git:branch}-${git:commit.short}`), timestamped deployments, CI/CD integration
+  - **Welder Compatibility**: Full compatibility with welder template extensions for seamless migration
+  - **Files Modified**: `pkg/provisioner/placeholders/placeholders.go` - Enhanced git and added date extensions
+  - **Status**: ✅ **Complete welder compatibility with enhanced configuration flexibility**
+
+#### Docker Compose Build Context Fix (2024-10-24)
+- **Docker Build Issue Resolved**: Fixed critical bug where `build: .` shorthand syntax in docker-compose.yaml caused deployment failures
+  - **Root Cause**: Simple Container wasn't applying Docker Compose defaults when `build: .` was used instead of explicit build configuration
+  - **Error Pattern**: `error hashing dockerfile "/github/workspace": could not copy file /github/workspace to hash: read /github/workspace: is a directory`
+  - **Impact**: Docker build process trying to use project root directory as dockerfile instead of `./Dockerfile`
+  - **Fix Applied**: Added Docker Compose default handling in cloud provider implementations:
+    - When `build.context` is set but `build.dockerfile` is empty, default to `"Dockerfile"`
+    - Maintains compatibility with explicit configurations while supporting shorthand syntax
+  - **Before**: `build: .` → context=`"."`, dockerfile=`""` → Docker build failure
+  - **After**: `build: .` → context=`"."`, dockerfile=`"Dockerfile"` → Successful build ✅
+  - **Files Modified**: 
+    - `pkg/clouds/aws/ecs_fargate.go` - Added dockerfile default for ECS Fargate
+    - `pkg/clouds/k8s/types.go` - Added dockerfile default for Kubernetes
+  - **Status**: ✅ **All docker-compose shorthand syntax now properly supported across all cloud providers**
 
 ## Important Guidelines
 
@@ -152,6 +303,143 @@ templates:
 - `/.sc/` - Simple Container configuration
 
 ## Recent Updates
+- **COMPREHENSIVE: Updated All GKE Documentation to Fix Outdated Versions (2025-10-18)** - Systematic cleanup of all GKE examples and documentation
+  - **✅ Problem Identified**: Examples used deprecated GKE versions like `1.27.16-gke.1296000` causing "Master version unsupported" errors
+    - **Root Cause**: GCP regularly deprecates old versions, but documentation had hardcoded outdated versions
+    - **Impact**: Users experienced deployment failures when trying to use example configurations
+    - **Regional Issues**: Different regions support different versions and update at different schedules
+  - **✅ Comprehensive Updates Applied**:
+    - **Version Updates**: Updated all examples to use `1.33.4-gke.1245000` with version checking commands
+    - **Comprehensive Setup**: Enhanced `/docs/examples/gke-autopilot/comprehensive-setup/` with detailed version management
+    - **Parent Stacks**: Fixed both europe-west3 and us-central1 examples in `/docs/examples/parent-stacks/index.md`
+    - **Kubernetes Affinity**: Updated all GKE clusters in `/docs/examples/kubernetes-affinity/multi-tier-node-isolation/`
+    - **GKE Index**: Fixed main GKE example in `/docs/examples/gke-autopilot/index.md`
+  - **✅ Schema Compliance Fixes**:
+    - **Fixed Fictional Resource Type**: `gcp-memorystore-redis` → `gcp-redis` (validated against actual schemas)
+    - **Verified Resource Types**: All resource types now match actual Simple Container support in `/docs/schemas/gcp/`
+    - **JSON Schema Validation**: Confirmed all examples use only real, supported resource properties
+  - **✅ New Documentation Created**:
+    - **GKE Version Management Guide**: `/docs/guides/gke-version-management.md` with comprehensive troubleshooting
+    - **Regional Considerations**: Detailed guidance for us-central1, europe-west3, asia-southeast1 differences  
+    - **Version Checking Commands**: Clear instructions for verifying current versions per region
+    - **Best Practices**: Monthly update schedules, version selection strategies, automation guidance
+  - **✅ Enhanced User Experience**:
+    - **Version Comments**: All examples now include verification commands: `# Check: gcloud container get-server-config --location=region`
+    - **Regional Guidance**: Clear documentation of which regions get updates first
+    - **Troubleshooting Workflow**: Step-by-step guide for resolving version errors
+    - **Automation Guidance**: Scripts and best practices for staying current
+  - **✅ Files Modified**:
+    - `docs/examples/gke-autopilot/comprehensive-setup/server.yaml` - Updated version + enhanced README
+    - `docs/examples/parent-stacks/index.md` - Fixed both production and data cluster versions
+    - `docs/examples/kubernetes-affinity/multi-tier-node-isolation/server.yaml` - Updated all 3 GKE clusters + fixed Redis type
+    - `docs/examples/gke-autopilot/index.md` - Updated main GKE cluster version
+    - `docs/guides/gke-version-management.md` - NEW comprehensive guide created
+  - **Impact**: Users can now successfully deploy GKE examples without version errors, with clear guidance for staying current
+- **CRITICAL: Fixed GKE Autopilot Caddy JSON Marshaling Error (2025-10-17)** - Resolved Pulumi output marshaling issue causing deployment failures
+  - **✅ Problem Identified**: `sc provision --preview -s pay-space` failing with "json: error calling MarshalJSON for type pulumi.BoolPtrOutput: Outputs can not be marshaled to JSON"
+    - **Root Cause**: Code in `pkg/clouds/pulumi/kubernetes/caddy.go` was attempting to marshal entire `CaddyDeployment` struct to JSON
+    - **Issue**: `CaddyDeployment.ClusterResource` field contains Pulumi resources with outputs (`pulumi.BoolPtrOutput`) that cannot be JSON marshaled
+  - **✅ Technical Fix Applied**:
+    - **Selective Marshaling**: Changed `json.Marshal(caddy)` to `json.Marshal(caddy.CaddyConfig)` on line 211
+    - **Safe Export**: Only marshal the configuration data, not Pulumi resource dependencies
+    - **Preserved Functionality**: Caddy configuration still properly exported while avoiding resource marshaling
+  - **✅ Files Modified**:
+    - `pkg/clouds/pulumi/kubernetes/caddy.go` - Fixed JSON marshaling to exclude Pulumi outputs
+  - **Impact**: GKE Autopilot deployments with caddy now complete successfully without marshaling errors
+- **SETUP: Fixed Deployment Type Detection for Full-Stack Applications (2025-10-15)** - Enhanced setup command to correctly identify deployment types for complex projects
+  - **✅ Problem Identified**: Setup was incorrectly suggesting "static" deployment for full-stack applications with frontend directories
+    - **Root Cause**: Priority order checked static indicators (build/dist/public dirs) before docker-compose.yaml 
+    - **Issue**: Projects like education-os with frontend/public + docker-compose.yml were classified as static
+  - **✅ Technical Improvements Applied**:
+    - **Reordered Detection Priority**: docker-compose.yaml now has highest priority for deployment type detection
+    - **Full-Stack Detection**: Added `isFullStackApplication()` to detect frontend + backend combinations  
+    - **Static-Only Validation**: Enhanced `isStaticOnlyProject()` to exclude projects with backend components
+    - **Container Fallback**: Dockerfile-only projects default to single-image deployment
+  - **✅ Enhanced Detection Logic**:
+    ```go
+    // PRIORITY 1: docker-compose.yaml → cloud-compose (highest)
+    // PRIORITY 2: Full-stack structure → cloud-compose  
+    // PRIORITY 3: Serverless patterns → single-image
+    // PRIORITY 4: Dockerfile only → single-image
+    // PRIORITY 5: Static-only → static (lowest)
+    ```
+  - **✅ Files Modified**:
+    - `pkg/assistant/modes/developer.go` - Enhanced deployment type detection with priority-based logic
+  - **Impact**: Full-stack applications now correctly identified as cloud-compose, enabling proper multi-container setup
+- **DOCKER-COMPOSE: Enhanced Multi-Service Generation with Dependencies (2025-10-15)** - Comprehensive docker-compose.yaml generation improvements
+  - **✅ Problem Identified**: Generated docker-compose.yaml files contained multiple critical issues
+    - **False Positive Services**: Elasticsearch, AWS SQS services from inaccurate resource detection
+    - **Invalid Placeholders**: `${secret:jwt-secret}`, `${resource:mongo-url}` only work in client.yaml, not docker-compose.yaml
+    - **Hallucinated Placeholders**: `${aws:access:key:id}`, `${gcs:project:id}` don't exist in Simple Container
+    - **Missing Service Dependencies**: No `depends_on` configuration for proper startup order
+  - **✅ Technical Improvements Applied**:
+    - **Resource Filtering**: Added `filterValidDatabases()` and `filterValidQueues()` to remove false positives
+    - **Placeholder Validation**: Added critical LLM guidance prohibiting Simple Container placeholders in docker-compose
+    - **Standard Environment Variables**: Enforced standard docker-compose syntax (NODE_ENV: staging)
+    - **Service Dependencies**: Added `depends_on` configuration for proper startup order
+    - **Complete Multi-Service Setup**: Fallback template includes all detected services with proper networking
+  - **✅ Before/After Comparison**:
+    ```yaml
+    # BEFORE (Problematic):
+    services:
+      elasticsearch:           # ❌ False positive
+      app:
+        environment:
+          AWS_SQS_URL: ${aws:sqs:url}          # ❌ Invalid placeholder
+          JWT_SECRET: ${secret:jwt-secret}      # ❌ Invalid placeholder  
+          GCS_PROJECT_ID: ${gcs:project:id}     # ❌ Hallucinated placeholder
+    
+    # AFTER (Complete Multi-Service):
+    services:
+      app:                     # ✅ Complete main service
+        environment:
+          NODE_ENV: staging    # ✅ Standard docker-compose syntax
+          MONGODB_URI: mongodb://mongo:27017/app  # ✅ Service connections
+          REDIS_URL: redis://redis:6379           # ✅ Proper connection strings
+        depends_on:            # ✅ Proper startup order
+          - mongo
+          - redis
+          - rabbitmq
+      mongo:                   # ✅ Detected database service
+        image: mongo:latest
+      redis:                   # ✅ Detected cache service
+        image: redis:latest
+      rabbitmq:                # ✅ Detected queue service
+        image: rabbitmq:management
+    ```
+  - **✅ Files Modified**:
+    - `pkg/assistant/modes/developer.go` - Enhanced docker-compose generation with filtering and placeholder validation
+  - **Impact**: Clean, production-ready docker-compose.yaml files with no false services or invalid syntax
+- **ANALYSIS: Improved Project Analysis Accuracy (2025-10-15)** - Fixed false positive resource detection in project analysis
+  - **✅ Problem Identified**: Project analysis was incorrectly detecting Elasticsearch and AWS SQS in projects that don't use them
+    - **Elasticsearch False Positive**: "AWS ElastiCache" in services.json being detected as Elasticsearch usage
+    - **AWS SQS False Positive**: "esquery" package name in package-lock.json being detected as AWS SQS usage
+  - **✅ Technical Improvements Applied**:
+    - **Specific Regex Patterns**: Updated Elasticsearch detection to use `(?i)\belasticsearch\b(?![\w])|elasticsearch[\.\-_]|elastic[\s]+search|elastic\.co`
+    - **AWS SQS Context Filtering**: Limited AWS SQS patterns to AWS-specific contexts, excluding package dependency files
+    - **Enhanced File Filtering**: Added package-lock.json, yarn.lock, pnpm-lock.yaml exclusions for queue detection
+    - **Context-Aware Detection**: Added filtering logic to skip false positive patterns in specific file types
+  - **✅ Files Modified**:
+    - `pkg/assistant/analysis/resource_detectors.go` - Enhanced regex patterns and filtering logic
+  - **Impact**: More accurate resource detection reduces confusion and provides better deployment recommendations
+- **SECURITY: Protected Analysis Cache from Credential Leaks (2025-10-15)** - Added .sc/analysis-cache.json to .gitignore to prevent committing potentially sensitive project information
+  - **✅ Problem Identified**: The analysis cache file can contain project paths, metadata, and potentially reference sensitive files like .env during project analysis
+  - **✅ Security Fix Applied**: 
+    - Added `.sc/analysis-cache.json` to .gitignore with explanatory comment
+    - Removed existing file from Git tracking using `git rm --cached`
+    - Prevents credential leakage through analysis cache commits
+  - **✅ Technical Details**:
+    - **File Protected**: `.sc/analysis-cache.json` - Project analysis cache that may contain sensitive metadata
+    - **Risk Mitigated**: Prevents inadvertent exposure of project structure, file paths, and analysis data that could reference credentials
+    - **Location**: Added to .gitignore under "AI Assistant analysis cache" section
+  - **Impact**: Project analysis cache files remain local-only, preventing potential credential exposure through version control
+  - **✅ Enhanced Implementation**: Modified analyze command to automatically add analysis cache to .gitignore whenever analysis is performed
+    - **Simple Container Git Integration**: Uses `pkg/api/git` utilities instead of custom implementation for consistency
+    - **Automatic Protection**: `SaveAnalysisCache()` function now calls `ensureCacheInGitignore()` using SC's git API
+    - **Repository-Aware**: Properly detects git root directory and handles repository initialization
+    - **Simplified Logic**: Leverages existing `AddFileToIgnore()` method from Simple Container's proven git utilities
+    - **Graceful Handling**: Non-blocking operation with warning if .gitignore update fails
+    - **Future-Proof**: All analyze command usage now automatically protects against credential leaks using established SC patterns
 - **SECURITY: Implemented Comprehensive Credential Obfuscation for LLM Protection (2025-01-09)** - Enhanced all file reading operations to automatically mask sensitive credentials before exposing content to LLM
   - **✅ Problem Identified**: Configuration files (especially secrets.yaml) containing actual credentials could be exposed to LLM during chat commands, analysis, and file reading operations
   - **✅ Comprehensive Security Implementation**: 

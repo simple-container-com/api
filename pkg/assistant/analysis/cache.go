@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/simple-container-com/api/pkg/api/git"
 )
 
 // AnalysisCache represents cached analysis data
@@ -61,12 +63,40 @@ func LoadAnalysisCache(projectPath string) (*AnalysisCache, error) {
 	return &cache, nil
 }
 
+// ensureCacheInGitignore ensures the analysis cache is added to .gitignore using Simple Container's git utilities
+func ensureCacheInGitignore(projectPath string) error {
+	// Create git repo instance
+	repo, err := git.New(git.WithDetectRootDir())
+	if err != nil {
+		return fmt.Errorf("failed to create git repo instance: %w", err)
+	}
+
+	// Open the repository at project path
+	if err := repo.InitOrOpen(projectPath); err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	// Add analysis cache to .gitignore
+	cacheEntry := ".sc/analysis-cache.json"
+	if err := repo.AddFileToIgnore(cacheEntry); err != nil {
+		return fmt.Errorf("failed to add %s to .gitignore: %w", cacheEntry, err)
+	}
+
+	return nil
+}
+
 // SaveAnalysisCache saves analysis to JSON cache file
 func SaveAnalysisCache(analysis *ProjectAnalysis, projectPath string) error {
 	// Ensure .sc directory exists
 	scDir := filepath.Join(projectPath, ".sc")
 	if err := os.MkdirAll(scDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create .sc directory: %w", err)
+	}
+
+	// Ensure cache is added to .gitignore for security
+	if err := ensureCacheInGitignore(projectPath); err != nil {
+		// Log warning but don't fail the entire operation
+		fmt.Printf("⚠️  Warning: Could not update .gitignore to protect analysis cache: %v\n", err)
 	}
 
 	// Create cache structure

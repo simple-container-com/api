@@ -260,6 +260,10 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		if svc.Build != nil {
 			context = svc.Build.Context
 			dockerFile = svc.Build.Dockerfile
+			// Apply docker-compose defaults: when context is set but dockerfile is empty, default to "Dockerfile"
+			if context != "" && dockerFile == "" {
+				dockerFile = "Dockerfile"
+			}
 			buildArgs = lo.MapValues(svc.Build.Args, func(value *string, _ string) string {
 				return lo.FromPtr(value)
 			})

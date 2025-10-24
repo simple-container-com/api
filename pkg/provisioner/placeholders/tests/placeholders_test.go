@@ -72,6 +72,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			initOpts: func(t *testing.T) []placeholders.InitOption {
 				gitMock := git_mocks.NewGitRepoMock(t)
 				gitMock.On("Workdir").Return("<root-dir>")
+				gitMock.On("Hash").Return("abc123", nil).Maybe()
+				gitMock.On("Branch").Return("main", nil).Maybe()
 				return []placeholders.InitOption{
 					placeholders.WithGitRepo(gitMock),
 				}
