@@ -152,6 +152,21 @@ This is the Simple Container API project with MkDocs documentation. The project 
   - **Files Modified**: `pkg/provisioner/placeholders/placeholders.go` - Enhanced git and added date extensions
   - **Status**: ✅ **Complete welder compatibility with enhanced configuration flexibility**
 
+#### Docker Compose Build Context Fix (2024-10-24)
+- **Docker Build Issue Resolved**: Fixed critical bug where `build: .` shorthand syntax in docker-compose.yaml caused deployment failures
+  - **Root Cause**: Simple Container wasn't applying Docker Compose defaults when `build: .` was used instead of explicit build configuration
+  - **Error Pattern**: `error hashing dockerfile "/github/workspace": could not copy file /github/workspace to hash: read /github/workspace: is a directory`
+  - **Impact**: Docker build process trying to use project root directory as dockerfile instead of `./Dockerfile`
+  - **Fix Applied**: Added Docker Compose default handling in cloud provider implementations:
+    - When `build.context` is set but `build.dockerfile` is empty, default to `"Dockerfile"`
+    - Maintains compatibility with explicit configurations while supporting shorthand syntax
+  - **Before**: `build: .` → context=`"."`, dockerfile=`""` → Docker build failure
+  - **After**: `build: .` → context=`"."`, dockerfile=`"Dockerfile"` → Successful build ✅
+  - **Files Modified**: 
+    - `pkg/clouds/aws/ecs_fargate.go` - Added dockerfile default for ECS Fargate
+    - `pkg/clouds/k8s/types.go` - Added dockerfile default for Kubernetes
+  - **Status**: ✅ **All docker-compose shorthand syntax now properly supported across all cloud providers**
+
 ## Important Guidelines
 
 ### Documentation Requirements

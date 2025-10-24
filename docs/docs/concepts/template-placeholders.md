@@ -578,11 +578,16 @@ region: "${env:AWS_REGION}"
 # Good - relative to project root (works in all environments)
 dockerComposeFile: docker-compose.yaml  # References ${project:root}/docker-compose.yaml
 image:
-  dockerfile: ${project:root}/Dockerfile
+  dockerfile: ${project:root}/Dockerfile  # ✅ Full path to file
+  context: ${project:root}                # ✅ Directory path
 
 # Also good - explicit git root for git-specific operations
 buildContext: ${git:root}/build
 
+# ❌ COMMON MISTAKE - Missing filename
+image:
+  dockerfile: ${project:root}  # ❌ This is a directory, not a file!
+  
 # Avoid - absolute paths that may not exist
 dockerComposeFile: /home/user/project/docker-compose.yaml
 ```
