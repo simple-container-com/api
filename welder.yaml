@@ -31,6 +31,7 @@ modules:
         - task: test
         - task: build-all
         - task: build-github-actions
+        - task: build-github-actions-staging
         - task: docker-login
         - task: build-cloud-helpers
         - task: build-docs
