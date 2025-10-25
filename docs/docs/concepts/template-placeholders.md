@@ -20,6 +20,7 @@ Simple Container provides a powerful template engine that allows you to use dyna
 All template placeholders use the syntax: `${extension:path}`
 
 Where:
+
 - `extension` is one of the 9 supported template extensions
 - `path` specifies what value to retrieve from that extension
 
@@ -90,6 +91,7 @@ stacks:
 Access comprehensive information about the current Git repository, including paths, commit details, and branch information.
 
 **Available Properties:**
+
 - `root` - Git repository root directory path
 - `commit.short` - Short commit hash (7 characters)
 - `commit.full` - Full commit hash
@@ -162,6 +164,7 @@ templates:
 Access project-specific paths and information. The project extension provides consistent path resolution across different environments.
 
 **Available Properties:**
+
 - `root` - Project root directory (uses git working directory when available, falls back to current directory)
 
 **Syntax:** `${project:root}`
@@ -200,6 +203,7 @@ stacks:
 ```
 
 **Environment Resolution:**
+
 - **GitHub Actions**: `${project:root}` → `/github/workspace`
 - **Local development**: `${project:root}` → Current project directory
 - **Git context**: `${project:root}` → Git working directory
@@ -209,6 +213,7 @@ stacks:
 Access current date and time information for timestamped configurations, versioning, and deployment tracking.
 
 **Available Formats:**
+
 - `time` - ISO-like format: 2024-10-24T20:46:41
 - `dateOnly` - Date only: 2024-10-24
 - `timestamp` - Unix timestamp: 1698167445
@@ -281,7 +286,8 @@ resources:
 
 Access authentication configurations defined in your secrets.yaml file.
 
-**Syntax:** 
+**Syntax:**
+
 - `${auth:auth_name}` - Get credentials value
 - `${auth:auth_name.projectId}` - Get project ID (for cloud providers)
 
@@ -411,6 +417,7 @@ resources:
 Access metadata about the current stack being processed.
 
 **Available Properties:**
+
 - `name` - Current stack name
 
 **Syntax:** `${stack:name}`
@@ -452,6 +459,7 @@ stacks:
 Access information about the current system user running Simple Container.
 
 **Available Properties:**
+
 - `homeDir` or `home` - User's home directory
 - `username` - Username
 - `id` - User ID

@@ -12,21 +12,20 @@ import (
 )
 
 type PreviewParams struct {
-	ConfigFile  string
-	StackName   string
+	CICDCommonParams
 	Output      string
 	ShowContent bool
 	ShowDiff    bool
 	Format      string
 	Verbose     bool
-	Parent      bool
-	Staging     bool
 }
 
 func NewPreviewCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	params := PreviewParams{
-		ConfigFile: "server.yaml",
-		Format:     "summary", // summary, detailed, json
+		CICDCommonParams: CICDCommonParams{
+			ConfigFile: "server.yaml",
+		},
+		Format: "summary", // summary, detailed, json
 	}
 
 	cmd := &cobra.Command{
@@ -53,17 +52,15 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&params.StackName, "stack", "s", "", "Stack name (required)")
-	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", params.ConfigFile, "Server config file path")
+	// Register common CI/CD flags
+	RegisterCICDCommonFlags(cmd, &params.CICDCommonParams, params.ConfigFile)
+
+	// Register preview-specific flags
 	cmd.Flags().StringVarP(&params.Output, "output", "o", params.Output, "Output file for preview (optional)")
 	cmd.Flags().BoolVar(&params.ShowContent, "show-content", params.ShowContent, "Show workflow file contents")
 	cmd.Flags().BoolVar(&params.ShowDiff, "show-diff", params.ShowDiff, "Show differences with existing files")
 	cmd.Flags().StringVar(&params.Format, "format", params.Format, "Output format: summary, detailed, json")
 	cmd.Flags().BoolVarP(&params.Verbose, "verbose", "v", params.Verbose, "Verbose output")
-	cmd.Flags().BoolVar(&params.Parent, "parent", params.Parent, "Preview workflows for parent stack (infrastructure/provisioning)")
-	cmd.Flags().BoolVar(&params.Staging, "staging", params.Staging, "Generate workflows optimized for staging branch instead of main")
-
-	_ = cmd.MarkFlagRequired("stack")
 
 	return cmd
 }

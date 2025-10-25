@@ -14,20 +14,19 @@ import (
 )
 
 type SyncParams struct {
-	ConfigFile     string
-	StackName      string
+	CICDCommonParams
 	WorkflowsDir   string
 	DryRun         bool
 	Force          bool
 	BackupExisting bool
 	Verbose        bool
-	Parent         bool
-	Staging        bool
 }
 
 func NewSyncCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	params := SyncParams{
-		ConfigFile:     "server.yaml",
+		CICDCommonParams: CICDCommonParams{
+			ConfigFile: "server.yaml",
+		},
 		WorkflowsDir:   ".github/workflows",
 		BackupExisting: true,
 	}
@@ -56,17 +55,15 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&params.StackName, "stack", "s", "", "Stack name (required)")
-	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", params.ConfigFile, "Server config file path")
+	// Register common CI/CD flags
+	RegisterCICDCommonFlags(cmd, &params.CICDCommonParams, params.ConfigFile)
+
+	// Register sync-specific flags
 	cmd.Flags().StringVarP(&params.WorkflowsDir, "workflows-dir", "w", params.WorkflowsDir, "GitHub workflows directory")
 	cmd.Flags().BoolVar(&params.DryRun, "dry-run", params.DryRun, "Preview changes without applying them")
 	cmd.Flags().BoolVar(&params.Force, "force", params.Force, "Force sync without confirmation")
 	cmd.Flags().BoolVar(&params.BackupExisting, "backup", params.BackupExisting, "Backup existing files before modification")
 	cmd.Flags().BoolVar(&params.Verbose, "verbose", params.Verbose, "Verbose output")
-	cmd.Flags().BoolVar(&params.Parent, "parent", params.Parent, "Sync workflows for parent stack (infrastructure/provisioning)")
-	cmd.Flags().BoolVar(&params.Staging, "staging", params.Staging, "Sync workflows optimized for staging branch instead of main")
-
-	_ = cmd.MarkFlagRequired("stack")
 
 	return cmd
 }
@@ -142,6 +139,27 @@ func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 
 	// Success - display result
 	fmt.Printf("\n%s\n", result.Message)
+
+	// Show additional details if verbose
+	if params.Verbose {
+		if files, ok := result.Data["synchronized_files"].([]string); ok && len(files) > 0 {
+			fmt.Printf("\n%s Files Synchronized:\n", color.BlueString("📄"))
+			for _, file := range files {
+				fmt.Printf("  - %s\n", file)
+			}
+		}
+
+		if templates, ok := result.Data["templates"].([]string); ok && len(templates) > 0 {
+			fmt.Printf("\n%s Templates:\n", color.BlueString("📋"))
+			for _, template := range templates {
+				fmt.Printf("  - %s\n", template)
+			}
+		}
+
+		if environments, ok := result.Data["environments"].([]string); ok && len(environments) > 0 {
+			fmt.Printf("\n%s Environments: %s\n", color.BlueString("🌐"), strings.Join(environments, ", "))
+		}
+	}
 
 	// Show next steps
 	fmt.Printf("\n%s Next steps:\n", color.BlueString("💡"))

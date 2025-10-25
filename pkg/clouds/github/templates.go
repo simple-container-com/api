@@ -226,9 +226,6 @@ jobs:
           auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
           skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
           notify-on-completion: "true"
-          # Notification webhooks automatically configured from SC secrets.yaml
-          # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
-
 `
 
 const provisionTemplate = `name: Provision {{ .Organization.Name }} Infrastructure
@@ -236,11 +233,6 @@ const provisionTemplate = `name: Provision {{ .Organization.Name }} Infrastructu
 on:
   push:
     branches: [{{ .Organization.DefaultBranch }}]
-    paths:
-      - '.sc/stacks/**'
-      - 'server.yaml'
-      - '*.yaml'
-      - '*.yml'
   workflow_dispatch:
     inputs:
       dry_run:

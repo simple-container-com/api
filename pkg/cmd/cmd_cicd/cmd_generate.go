@@ -11,13 +11,10 @@ import (
 )
 
 type generateParams struct {
-	StackName  string
-	Output     string
-	ConfigFile string
-	Force      bool
-	DryRun     bool
-	Parent     bool
-	Staging    bool
+	CICDCommonParams
+	Output string
+	Force  bool
+	DryRun bool
 }
 
 // NewGenerateCmd creates the generate subcommand
@@ -61,15 +58,13 @@ Only workflows for templates specified in the CI/CD configuration will be genera
 		},
 	}
 
-	cmd.Flags().StringVarP(&params.StackName, "stack", "s", "", "Stack name (required, format: org/name)")
+	// Register common CI/CD flags
+	RegisterCICDCommonFlags(cmd, &params.CICDCommonParams, "")
+
+	// Register generate-specific flags
 	cmd.Flags().StringVarP(&params.Output, "output", "o", ".github/workflows/", "Output directory for generated workflows")
-	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", "", "Path to server.yaml file (default: auto-detect)")
 	cmd.Flags().BoolVar(&params.Force, "force", false, "Force overwrite existing workflow files")
 	cmd.Flags().BoolVar(&params.DryRun, "dry-run", false, "Show what would be generated without writing files")
-	cmd.Flags().BoolVar(&params.Parent, "parent", false, "Generate workflows for parent stack (infrastructure/provisioning)")
-	cmd.Flags().BoolVar(&params.Staging, "staging", false, "Generate workflows optimized for staging branch instead of main")
-
-	_ = cmd.MarkFlagRequired("stack")
 
 	return cmd
 }
