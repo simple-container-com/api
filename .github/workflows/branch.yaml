@@ -1,4 +1,4 @@
-name: Build simple-container-com CLI in branch
+name: Build simple-container in branch
 on:
   workflow_dispatch:
   push:
