@@ -92,12 +92,35 @@ func (e *Executor) getRelevantParentStackName(ctx context.Context) string {
 		return keys
 	}())
 
-	stack, exists := stacks[stackName]
-	if !exists {
-		e.logger.Warn(ctx, "Stack %s not found in loaded stacks", stackName)
-		return ""
+	// Try exact match first
+	if stack, exists := stacks[stackName]; exists {
+		e.logger.Info(ctx, "Found exact stack match: %s", stackName)
+		return e.processStackForParentName(ctx, stackName, stack)
 	}
 
+	// If STACK_NAME is in format "org/project/stack", try just the stack part
+	if parts := strings.Split(stackName, "/"); len(parts) > 1 {
+		shortStackName := parts[len(parts)-1] // Get "pay-space" from "organization/infrastructure/pay-space"
+		if stack, exists := stacks[shortStackName]; exists {
+			e.logger.Info(ctx, "Found stack using short name: %s (from %s)", shortStackName, stackName)
+			return e.processStackForParentName(ctx, shortStackName, stack)
+		}
+	}
+
+	// Try to find any stack that ends with the stack name
+	for loadedStackName, stack := range stacks {
+		if strings.HasSuffix(stackName, loadedStackName) || strings.HasSuffix(loadedStackName, stackName) {
+			e.logger.Info(ctx, "Found stack by suffix match: %s (matches %s)", loadedStackName, stackName)
+			return e.processStackForParentName(ctx, loadedStackName, stack)
+		}
+	}
+
+	e.logger.Warn(ctx, "Stack %s not found in loaded stacks (tried exact match, short name, and suffix matching)", stackName)
+	return ""
+}
+
+// processStackForParentName processes a found stack to determine the parent stack name
+func (e *Executor) processStackForParentName(ctx context.Context, stackName string, stack api.Stack) string {
 	// Check if this is a client stack with a parent reference
 	if len(stack.Client.Stacks) > 0 {
 		// This is a client stack, find its parent
@@ -235,7 +258,26 @@ func (e *Executor) initializeNotifications(ctx context.Context) {
 	e.logger.Info(ctx, "🔍 Falling back to environment variables...")
 	e.initializeFromEnvironmentVariables(ctx)
 
-	e.logger.Info(ctx, "✅ Notification initialization completed")
+	// Final safety check - log what we initialized
+	notificationChannels := []string{}
+	if e.slackSender != nil {
+		notificationChannels = append(notificationChannels, "Slack")
+	}
+	if e.discordSender != nil {
+		notificationChannels = append(notificationChannels, "Discord")
+	}
+	if e.telegramSender != nil {
+		notificationChannels = append(notificationChannels, "Telegram")
+	}
+
+	if len(notificationChannels) > 0 {
+		e.logger.Info(ctx, "✅ Notification initialization completed - active channels: %v", notificationChannels)
+	} else {
+		e.logger.Warn(ctx, "❌ Notification initialization completed - NO active channels found")
+		e.logger.Info(ctx, "🔧 Check your CI/CD configuration or environment variables:")
+		e.logger.Info(ctx, "   - SLACK_WEBHOOK_URL, DISCORD_WEBHOOK_URL, TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID")
+		e.logger.Info(ctx, "   - Or ensure parent stack has GitHub Actions CI/CD config with notification settings")
+	}
 }
 
 // initializeFromConfig initializes notifications from a config object
