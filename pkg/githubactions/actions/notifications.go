@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
-	"gopkg.in/yaml.v2"
+	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
@@ -45,125 +46,250 @@ type ServerConfig struct {
 	CICD CICDConfig `yaml:"cicd"`
 }
 
-// loadNotificationConfigFromServerYaml reads notification configuration from server.yaml in parent stack
-func (e *Executor) loadNotificationConfigFromServerYaml(ctx context.Context) *CICDNotificationConfig {
-	// Find parent stack directories in .sc/stacks/
-	stacksDir := ".sc/stacks"
-	if _, err := os.Stat(stacksDir); os.IsNotExist(err) {
-		e.logger.Info(ctx, "No .sc/stacks directory found - using environment variables as fallback")
-		return nil
+// prepareProvisionerForSecretResolution prepares the provisioner for resolving placeholders (same pattern as 'sc provision')
+func (e *Executor) prepareProvisionerForSecretResolution(ctx context.Context) error {
+	// Read config file for current profile (same as provisioner.prepareForParentStack)
+	profile := os.Getenv("SC_PROFILE")
+	if profile == "" {
+		profile = "default"
 	}
 
-	// Read all stack directories to find server.yaml
-	entries, err := os.ReadDir(stacksDir)
+	cfg, err := api.ReadConfigFile(".", profile)
 	if err != nil {
-		e.logger.Warn(ctx, "Failed to read .sc/stacks directory: %v", err)
-		return nil
+		return errors.Wrapf(err, "failed to read config file for profile %q", profile)
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			stackName := entry.Name()
-			serverYamlPath := fmt.Sprintf(".sc/stacks/%s/server.yaml", stackName)
-
-			if _, err := os.Stat(serverYamlPath); err == nil {
-				e.logger.Info(ctx, "Found server.yaml at %s", serverYamlPath)
-
-				data, err := os.ReadFile(serverYamlPath)
-				if err != nil {
-					e.logger.Warn(ctx, "Failed to read server.yaml from %s: %v", serverYamlPath, err)
-					continue
-				}
-
-				var config ServerConfig
-				if err := yaml.Unmarshal(data, &config); err != nil {
-					e.logger.Warn(ctx, "Failed to parse server.yaml from %s: %v", serverYamlPath, err)
-					continue
-				}
-
-				if config.CICD.Type == "github-actions" {
-					e.logger.Info(ctx, "✅ Found GitHub Actions CI/CD configuration in %s", serverYamlPath)
-					return &config.CICD.Config.Notifications
-				}
-			}
-		}
+	// Create minimal provision params for reading stacks
+	params := api.ProvisionParams{
+		Profile: profile,
 	}
 
-	e.logger.Info(ctx, "No server.yaml with GitHub Actions CI/CD config found in stack directories - using environment variables as fallback")
+	// Read stacks into provisioner (this loads secrets and prepares for placeholder resolution)
+	if err := e.provisioner.ReadStacks(ctx, cfg, params, api.ReadIgnoreNoSecretsAndClientCfg); err != nil {
+		return errors.Wrapf(err, "failed to read stacks for secret resolution")
+	}
+
+	e.logger.Info(ctx, "✅ Stacks loaded - placeholder resolution should now work")
 	return nil
 }
 
-// initializeNotifications initializes notification senders from server.yaml or environment variables (fallback)
+// getRelevantParentStackName determines which parent stack to use for CI/CD configuration
+func (e *Executor) getRelevantParentStackName(ctx context.Context) string {
+	stackName := os.Getenv("STACK_NAME")
+	if stackName == "" {
+		e.logger.Info(ctx, "No STACK_NAME environment variable")
+		return ""
+	}
+
+	stacks := e.provisioner.Stacks()
+	stack, exists := stacks[stackName]
+	if !exists {
+		e.logger.Info(ctx, "Stack %s not found in loaded stacks", stackName)
+		return ""
+	}
+
+	// Check if this is a client stack with a parent reference
+	if len(stack.Client.Stacks) > 0 {
+		// This is a client stack, find its parent
+		for _, clientStack := range stack.Client.Stacks {
+			if clientStack.ParentStack != "" {
+				// Parent stack reference might be in format "<project>/<stack>", we only need "<stack>"
+				parentStackRef := clientStack.ParentStack
+				parentStackName := parentStackRef
+				if parts := strings.Split(parentStackRef, "/"); len(parts) > 1 {
+					parentStackName = parts[len(parts)-1] // Get the last part (stack name)
+				}
+				e.logger.Info(ctx, "Client stack %s references parent stack %s (resolved to: %s)",
+					stackName, parentStackRef, parentStackName)
+				return parentStackName
+			}
+		}
+	}
+
+	// This is a parent stack or no parent reference found, use the stack itself
+	e.logger.Info(ctx, "Using stack %s as parent stack", stackName)
+	return stackName
+}
+
+// getNotificationConfigFromLoadedStack extracts notification config from the loaded parent stack
+func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CICDNotificationConfig {
+	parentStackName := e.getRelevantParentStackName(ctx)
+	if parentStackName == "" {
+		e.logger.Info(ctx, "Could not determine parent stack name")
+		return nil
+	}
+
+	stacks := e.provisioner.Stacks()
+	parentStack, exists := stacks[parentStackName]
+	if !exists {
+		e.logger.Info(ctx, "Parent stack %s not found in loaded stacks", parentStackName)
+		return nil
+	}
+
+	// Check if this parent stack has GitHub Actions CI/CD configuration
+	if parentStack.Server.CiCd.Type != "github-actions" {
+		e.logger.Info(ctx, "Parent stack %s does not have GitHub Actions CI/CD configuration (type: %s)",
+			parentStackName, parentStack.Server.CiCd.Type)
+		return nil
+	}
+
+	e.logger.Info(ctx, "✅ Found GitHub Actions CI/CD configuration in parent stack %s (secrets already resolved)", parentStackName)
+
+	// Extract notification configuration from the loaded config
+	if parentStack.Server.CiCd.Config.Config == nil {
+		e.logger.Info(ctx, "CI/CD config is nil - no notification settings available")
+		return nil
+	}
+
+	// Convert the config interface{} to extract notification settings
+	if configMap, ok := parentStack.Server.CiCd.Config.Config.(map[string]interface{}); ok {
+		if notificationsRaw, exists := configMap["notifications"]; exists {
+			if notificationsMap, ok := notificationsRaw.(map[string]interface{}); ok {
+				e.logger.Info(ctx, "Found notifications configuration in loaded parent stack")
+
+				config := &CICDNotificationConfig{}
+
+				// Extract Slack config
+				if slackRaw, exists := notificationsMap["slack"]; exists {
+					if slackMap, ok := slackRaw.(map[string]interface{}); ok {
+						if webhookURL, ok := slackMap["webhook-url"].(string); ok {
+							config.Slack.WebhookURL = webhookURL
+						}
+						if enabled, ok := slackMap["enabled"].(bool); ok {
+							config.Slack.Enabled = enabled
+						}
+					}
+				}
+
+				// Extract Discord config
+				if discordRaw, exists := notificationsMap["discord"]; exists {
+					if discordMap, ok := discordRaw.(map[string]interface{}); ok {
+						if webhookURL, ok := discordMap["webhook-url"].(string); ok {
+							config.Discord.WebhookURL = webhookURL
+						}
+						if enabled, ok := discordMap["enabled"].(bool); ok {
+							config.Discord.Enabled = enabled
+						}
+					}
+				}
+
+				// Extract Telegram config
+				if telegramRaw, exists := notificationsMap["telegram"]; exists {
+					if telegramMap, ok := telegramRaw.(map[string]interface{}); ok {
+						if botToken, ok := telegramMap["bot-token"].(string); ok {
+							config.Telegram.BotToken = botToken
+						}
+						if chatID, ok := telegramMap["chat-id"].(string); ok {
+							config.Telegram.ChatID = chatID
+						}
+						if enabled, ok := telegramMap["enabled"].(bool); ok {
+							config.Telegram.Enabled = enabled
+						}
+					}
+				}
+
+				return config
+			}
+		}
+	}
+
+	e.logger.Info(ctx, "Could not extract notification configuration from loaded config")
+	return nil
+}
+
+// initializeNotifications initializes notification senders from loaded stack configuration or environment variables (fallback)
 func (e *Executor) initializeNotifications(ctx context.Context) {
-	// Try to load configuration from server.yaml first
-	notificationConfig := e.loadNotificationConfigFromServerYaml(ctx)
-
-	if notificationConfig != nil {
-		e.logger.Info(ctx, "🔧 Initializing notifications from server.yaml configuration")
-
-		// Initialize Slack from server.yaml
-		if notificationConfig.Slack.Enabled && notificationConfig.Slack.WebhookURL != "" {
-			if slackSender, err := slack.New(notificationConfig.Slack.WebhookURL); err == nil {
-				e.slackSender = slackSender
-				e.logger.Info(ctx, "✅ Slack notifications enabled (from server.yaml)")
-			} else {
-				e.logger.Warn(ctx, "Failed to initialize Slack notifications from server.yaml: %v", err)
-			}
-		}
-
-		// Initialize Discord from server.yaml
-		if notificationConfig.Discord.Enabled && notificationConfig.Discord.WebhookURL != "" {
-			if discordSender, err := discord.New(notificationConfig.Discord.WebhookURL); err == nil {
-				e.discordSender = discordSender
-				e.logger.Info(ctx, "✅ Discord notifications enabled (from server.yaml)")
-			} else {
-				e.logger.Warn(ctx, "Failed to initialize Discord notifications from server.yaml: %v", err)
-			}
-		}
-
-		// Initialize Telegram from server.yaml
-		if notificationConfig.Telegram.Enabled && notificationConfig.Telegram.BotToken != "" && notificationConfig.Telegram.ChatID != "" {
-			telegramSender := telegram.New(notificationConfig.Telegram.ChatID, notificationConfig.Telegram.BotToken)
-			e.telegramSender = telegramSender
-			e.logger.Info(ctx, "✅ Telegram notifications enabled (from server.yaml)")
-		}
+	// Step 1: Prepare provisioner for secret resolution (same pattern as 'sc provision')
+	e.logger.Info(ctx, "🔐 Preparing provisioner for secret resolution...")
+	if err := e.prepareProvisionerForSecretResolution(ctx); err != nil {
+		e.logger.Warn(ctx, "Failed to prepare provisioner for secret resolution: %v", err)
 	} else {
-		// Fallback to environment variables (legacy support)
-		e.logger.Info(ctx, "🔧 Initializing notifications from environment variables (fallback mode)")
+		e.logger.Info(ctx, "✅ Provisioner prepared successfully - secrets should be resolved")
 
-		// Slack notifications from environment
-		if slackWebhookURL := os.Getenv("SLACK_WEBHOOK_URL"); slackWebhookURL != "" {
-			if slackSender, err := slack.New(slackWebhookURL); err == nil {
-				e.slackSender = slackSender
-				e.logger.Info(ctx, "✅ Slack notifications enabled (from environment variables)")
-			} else {
-				e.logger.Warn(ctx, "Failed to initialize Slack notifications: %v", err)
-			}
+		// Step 2: Try to get notification config from loaded stack data (secrets already resolved!)
+		notificationConfig := e.getNotificationConfigFromLoadedStack(ctx)
+		if notificationConfig != nil {
+			e.initializeFromConfig(ctx, notificationConfig, "loaded parent stack")
+			return
 		}
 
-		// Discord notifications from environment
-		if discordWebhookURL := os.Getenv("DISCORD_WEBHOOK_URL"); discordWebhookURL != "" {
-			if discordSender, err := discord.New(discordWebhookURL); err == nil {
-				e.discordSender = discordSender
-				e.logger.Info(ctx, "✅ Discord notifications enabled (from environment variables)")
-			} else {
-				e.logger.Warn(ctx, "Failed to initialize Discord notifications: %v", err)
-			}
-		}
+		e.logger.Info(ctx, "No notification config found in loaded stacks")
+	}
 
-		// Telegram notifications from environment
-		if telegramBotToken := os.Getenv("TELEGRAM_BOT_TOKEN"); telegramBotToken != "" {
-			if telegramChatID := os.Getenv("TELEGRAM_CHAT_ID"); telegramChatID != "" {
-				telegramSender := telegram.New(telegramChatID, telegramBotToken)
-				e.telegramSender = telegramSender
-				e.logger.Info(ctx, "✅ Telegram notifications enabled (from environment variables)")
-			}
+	// Step 3: Fallback to environment variables
+	e.initializeFromEnvironmentVariables(ctx)
+}
+
+// initializeFromConfig initializes notifications from a config object
+func (e *Executor) initializeFromConfig(ctx context.Context, config *CICDNotificationConfig, source string) {
+	e.logger.Info(ctx, "🔧 Initializing notifications from %s", source)
+
+	// Initialize Slack
+	if config.Slack.Enabled && config.Slack.WebhookURL != "" {
+		if slackSender, err := slack.New(config.Slack.WebhookURL); err == nil {
+			e.slackSender = slackSender
+			e.logger.Info(ctx, "✅ Slack notifications enabled (from %s)", source)
+		} else {
+			e.logger.Warn(ctx, "Failed to initialize Slack notifications from %s: %v", source, err)
+		}
+	}
+
+	// Initialize Discord
+	if config.Discord.Enabled && config.Discord.WebhookURL != "" {
+		if discordSender, err := discord.New(config.Discord.WebhookURL); err == nil {
+			e.discordSender = discordSender
+			e.logger.Info(ctx, "✅ Discord notifications enabled (from %s)", source)
+		} else {
+			e.logger.Warn(ctx, "Failed to initialize Discord notifications from %s: %v", source, err)
+		}
+	}
+
+	// Initialize Telegram
+	if config.Telegram.Enabled && config.Telegram.BotToken != "" && config.Telegram.ChatID != "" {
+		// Fixed parameter order: New(chatId, token)
+		telegramSender := telegram.New(config.Telegram.ChatID, config.Telegram.BotToken)
+		e.telegramSender = telegramSender
+		e.logger.Info(ctx, "✅ Telegram notifications enabled (from %s)", source)
+	}
+}
+
+// initializeFromEnvironmentVariables initializes notifications from environment variables
+func (e *Executor) initializeFromEnvironmentVariables(ctx context.Context) {
+	e.logger.Info(ctx, "🔧 Initializing notifications from environment variables (fallback mode)")
+
+	// Slack notifications from environment
+	if slackWebhookURL := os.Getenv("SLACK_WEBHOOK_URL"); slackWebhookURL != "" {
+		if slackSender, err := slack.New(slackWebhookURL); err == nil {
+			e.slackSender = slackSender
+			e.logger.Info(ctx, "✅ Slack notifications enabled (from environment variables)")
+		} else {
+			e.logger.Warn(ctx, "Failed to initialize Slack notifications: %v", err)
+		}
+	}
+
+	// Discord notifications from environment
+	if discordWebhookURL := os.Getenv("DISCORD_WEBHOOK_URL"); discordWebhookURL != "" {
+		if discordSender, err := discord.New(discordWebhookURL); err == nil {
+			e.discordSender = discordSender
+			e.logger.Info(ctx, "✅ Discord notifications enabled (from environment variables)")
+		} else {
+			e.logger.Warn(ctx, "Failed to initialize Discord notifications: %v", err)
+		}
+	}
+
+	// Telegram notifications from environment
+	if telegramBotToken := os.Getenv("TELEGRAM_BOT_TOKEN"); telegramBotToken != "" {
+		if telegramChatID := os.Getenv("TELEGRAM_CHAT_ID"); telegramChatID != "" {
+			// Fixed parameter order: New(chatId, token)
+			telegramSender := telegram.New(telegramChatID, telegramBotToken)
+			e.telegramSender = telegramSender
+			e.logger.Info(ctx, "✅ Telegram notifications enabled (from environment variables)")
 		}
 	}
 
 	// Log notification status
 	if e.slackSender == nil && e.discordSender == nil && e.telegramSender == nil {
-		e.logger.Info(ctx, "No notification webhooks configured, skipping notifications")
+		e.logger.Info(ctx, "No notification channels configured")
 	}
 }
 
