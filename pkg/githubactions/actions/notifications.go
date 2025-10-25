@@ -10,6 +10,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
+	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/slack"
 	"github.com/simple-container-com/api/pkg/clouds/telegram"
 )
@@ -178,71 +179,50 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 	e.logger.Info(ctx, "🔍 CI/CD config type: %T", parentStack.Server.CiCd.Config.Config)
 	e.logger.Info(ctx, "🔍 CI/CD config content: %+v", parentStack.Server.CiCd.Config.Config)
 
-	// Convert the config interface{} to extract notification settings
-	if configMap, ok := parentStack.Server.CiCd.Config.Config.(map[string]interface{}); ok {
-		e.logger.Info(ctx, "🔍 Successfully cast CI/CD config to map[string]interface{}, keys: %v", func() []string {
-			keys := make([]string, 0, len(configMap))
-			for k := range configMap {
-				keys = append(keys, k)
-			}
-			return keys
-		}())
+	// Handle GitHub Actions CI/CD configuration struct directly
+	if githubConfig, ok := parentStack.Server.CiCd.Config.Config.(*github.GitHubActionsCiCdConfig); ok {
+		e.logger.Info(ctx, "🔍 Successfully cast CI/CD config to GitHubActionsCiCdConfig")
+		e.logger.Info(ctx, "🔍 GitHub notification config: %+v", githubConfig.Notifications)
 
-		if notificationsRaw, exists := configMap["notifications"]; exists {
-			e.logger.Info(ctx, "🔍 Found 'notifications' key, type: %T, value: %+v", notificationsRaw, notificationsRaw)
-			if notificationsMap, ok := notificationsRaw.(map[string]interface{}); ok {
-				e.logger.Info(ctx, "Found notifications configuration in loaded parent stack")
+		config := &CICDNotificationConfig{}
 
-				config := &CICDNotificationConfig{}
+		// Extract Slack config
+		if githubConfig.Notifications.SlackWebhook != "" {
+			config.Slack.WebhookURL = githubConfig.Notifications.SlackWebhook
+			config.Slack.Enabled = true
+			e.logger.Info(ctx, "✅ Found Slack webhook configuration")
+		}
 
-				// Extract Slack config
-				if slackRaw, exists := notificationsMap["slack"]; exists {
-					if slackMap, ok := slackRaw.(map[string]interface{}); ok {
-						if webhookURL, ok := slackMap["webhook-url"].(string); ok {
-							config.Slack.WebhookURL = webhookURL
-						}
-						if enabled, ok := slackMap["enabled"].(bool); ok {
-							config.Slack.Enabled = enabled
-						}
-					}
-				}
+		// Extract Discord config
+		if githubConfig.Notifications.DiscordWebhook != "" {
+			config.Discord.WebhookURL = githubConfig.Notifications.DiscordWebhook
+			config.Discord.Enabled = true
+			e.logger.Info(ctx, "✅ Found Discord webhook configuration")
+		}
 
-				// Extract Discord config
-				if discordRaw, exists := notificationsMap["discord"]; exists {
-					if discordMap, ok := discordRaw.(map[string]interface{}); ok {
-						if webhookURL, ok := discordMap["webhook-url"].(string); ok {
-							config.Discord.WebhookURL = webhookURL
-						}
-						if enabled, ok := discordMap["enabled"].(bool); ok {
-							config.Discord.Enabled = enabled
-						}
-					}
-				}
+		// Extract Telegram config
+		if githubConfig.Notifications.TelegramToken != "" && githubConfig.Notifications.TelegramChatID != "" {
+			config.Telegram.BotToken = githubConfig.Notifications.TelegramToken
+			config.Telegram.ChatID = githubConfig.Notifications.TelegramChatID
+			config.Telegram.Enabled = true
+			e.logger.Info(ctx, "✅ Found Telegram configuration")
+		}
 
-				// Extract Telegram config
-				if telegramRaw, exists := notificationsMap["telegram"]; exists {
-					if telegramMap, ok := telegramRaw.(map[string]interface{}); ok {
-						if botToken, ok := telegramMap["bot-token"].(string); ok {
-							config.Telegram.BotToken = botToken
-						}
-						if chatID, ok := telegramMap["chat-id"].(string); ok {
-							config.Telegram.ChatID = chatID
-						}
-						if enabled, ok := telegramMap["enabled"].(bool); ok {
-							config.Telegram.Enabled = enabled
-						}
-					}
-				}
-
-				return config
-			} else {
-				e.logger.Info(ctx, "🔍 Failed to cast notifications value to map[string]interface{}, type: %T", notificationsRaw)
-			}
+		// Check if any notifications were configured
+		if config.Slack.Enabled || config.Discord.Enabled || config.Telegram.Enabled {
+			e.logger.Info(ctx, "✅ Found notification configuration in GitHub Actions CI/CD config")
+			return config
 		} else {
-			e.logger.Info(ctx, "🔍 No 'notifications' key found in CI/CD config")
+			e.logger.Info(ctx, "📝 GitHub Actions CI/CD config found but no notification webhooks/tokens configured")
+			e.logger.Info(ctx, "💡 To enable notifications, add webhook URLs and tokens to your server.yaml:")
+			e.logger.Info(ctx, "   cicd.config.notifications.slack: 'your-slack-webhook-url'")
+			e.logger.Info(ctx, "   cicd.config.notifications.telegram-token: '${secret:TELEGRAM_BOT_TOKEN}'")
+			e.logger.Info(ctx, "   cicd.config.notifications.telegram-chat-id: 'your-chat-id'")
+			return nil
 		}
 	} else {
-		e.logger.Info(ctx, "🔍 Failed to cast CI/CD config to map[string]interface{}, type: %T", parentStack.Server.CiCd.Config.Config)
+		e.logger.Info(ctx, "🔍 CI/CD config is not GitHubActionsCiCdConfig, type: %T", parentStack.Server.CiCd.Config.Config)
+		e.logger.Info(ctx, "💡 Currently only GitHub Actions CI/CD configurations are supported for notifications")
 	}
 
 	e.logger.Info(ctx, "Could not extract notification configuration from loaded config")
