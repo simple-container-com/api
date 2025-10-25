@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -61,9 +62,29 @@ func (a *alertSender) Send(alert api.Alert) error {
 	}
 	defer resp.Body.Close()
 
-	// Check if the request was successful
+	// Check if the request was successful and provide detailed error info
 	if resp.StatusCode != http.StatusOK {
-		return errors.Errorf("Telegram API returned status %d", resp.StatusCode)
+		// Try to read response body for more details
+		var responseBody []byte
+		if resp.Body != nil {
+			responseBody, _ = io.ReadAll(resp.Body)
+		}
+
+		// Extract bot ID from token for debugging (safe to show)
+		botID := a.getBotID()
+
+		switch resp.StatusCode {
+		case 404:
+			return errors.Errorf("Telegram API returned 404 - Bot token is likely invalid or bot doesn't exist. Bot ID: %s, Token format should be like '123456789:AAE...' Response: %s", botID, string(responseBody))
+		case 400:
+			return errors.Errorf("Telegram API returned 400 - Bad request (check chat_id format). Bot ID: %s, Response: %s", botID, string(responseBody))
+		case 401:
+			return errors.Errorf("Telegram API returned 401 - Unauthorized (invalid bot token). Bot ID: %s, Response: %s", botID, string(responseBody))
+		case 403:
+			return errors.Errorf("Telegram API returned 403 - Bot blocked or chat not found. Bot ID: %s, Response: %s", botID, string(responseBody))
+		default:
+			return errors.Errorf("Telegram API returned status %d. Bot ID: %s, Response: %s", resp.StatusCode, botID, string(responseBody))
+		}
 	}
 
 	return nil
@@ -147,4 +168,57 @@ func New(chatId, token string) api.AlertSender {
 		chatId: chatId,
 		token:  token,
 	}
+}
+
+// ValidateConfiguration can be used to test the Telegram configuration
+func (a *alertSender) ValidateConfiguration() error {
+	if a.token == "" {
+		return errors.New("Telegram bot token is required")
+	}
+	if a.chatId == "" {
+		return errors.New("Telegram chat ID is required")
+	}
+
+	// Test the bot token format
+	if len(a.token) < 10 || !contains(a.token, ":") {
+		botID := a.getBotID()
+		return errors.Errorf("Invalid Telegram bot token format. Bot ID: %s, Should be like '123456789:AAE...'", botID)
+	}
+
+	return nil
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i < len(s)-len(substr)+1; i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// getBotID extracts the bot ID (part before colon) from token for debugging
+// This is safe to show as bot IDs are not sensitive
+func (a *alertSender) getBotID() string {
+	if a.token == "" {
+		return "empty"
+	}
+
+	colonIndex := -1
+	for i, c := range a.token {
+		if c == ':' {
+			colonIndex = i
+			break
+		}
+	}
+
+	if colonIndex > 0 {
+		return a.token[:colonIndex]
+	}
+
+	// If no colon found, show first 10 chars max
+	if len(a.token) > 10 {
+		return a.token[:10] + "..."
+	}
+	return a.token
 }
