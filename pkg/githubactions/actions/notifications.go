@@ -123,7 +123,7 @@ func (e *Executor) initializeNotifications(ctx context.Context) {
 
 		// Initialize Telegram from server.yaml
 		if notificationConfig.Telegram.Enabled && notificationConfig.Telegram.BotToken != "" && notificationConfig.Telegram.ChatID != "" {
-			telegramSender := telegram.New(notificationConfig.Telegram.BotToken, notificationConfig.Telegram.ChatID)
+			telegramSender := telegram.New(notificationConfig.Telegram.ChatID, notificationConfig.Telegram.BotToken)
 			e.telegramSender = telegramSender
 			e.logger.Info(ctx, "✅ Telegram notifications enabled (from server.yaml)")
 		}
@@ -154,7 +154,7 @@ func (e *Executor) initializeNotifications(ctx context.Context) {
 		// Telegram notifications from environment
 		if telegramBotToken := os.Getenv("TELEGRAM_BOT_TOKEN"); telegramBotToken != "" {
 			if telegramChatID := os.Getenv("TELEGRAM_CHAT_ID"); telegramChatID != "" {
-				telegramSender := telegram.New(telegramBotToken, telegramChatID)
+				telegramSender := telegram.New(telegramChatID, telegramBotToken)
 				e.telegramSender = telegramSender
 				e.logger.Info(ctx, "✅ Telegram notifications enabled (from environment variables)")
 			}
