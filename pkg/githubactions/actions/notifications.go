@@ -81,10 +81,20 @@ func (e *Executor) getRelevantParentStackName(ctx context.Context) string {
 		return ""
 	}
 
+	e.logger.Info(ctx, "STACK_NAME environment variable: %s", stackName)
+
 	stacks := e.provisioner.Stacks()
+	e.logger.Info(ctx, "Available stacks in provisioner: %v", func() []string {
+		keys := make([]string, 0, len(stacks))
+		for k := range stacks {
+			keys = append(keys, k)
+		}
+		return keys
+	}())
+
 	stack, exists := stacks[stackName]
 	if !exists {
-		e.logger.Info(ctx, "Stack %s not found in loaded stacks", stackName)
+		e.logger.Warn(ctx, "Stack %s not found in loaded stacks", stackName)
 		return ""
 	}
 
@@ -199,25 +209,33 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 
 // initializeNotifications initializes notification senders from loaded stack configuration or environment variables (fallback)
 func (e *Executor) initializeNotifications(ctx context.Context) {
+	e.logger.Info(ctx, "🚀 Starting notification initialization...")
+
 	// Step 1: Prepare provisioner for secret resolution (same pattern as 'sc provision')
 	e.logger.Info(ctx, "🔐 Preparing provisioner for secret resolution...")
 	if err := e.prepareProvisionerForSecretResolution(ctx); err != nil {
 		e.logger.Warn(ctx, "Failed to prepare provisioner for secret resolution: %v", err)
+		e.logger.Info(ctx, "🔍 Skipping loaded stack configuration, going to environment variables")
 	} else {
 		e.logger.Info(ctx, "✅ Provisioner prepared successfully - secrets should be resolved")
 
 		// Step 2: Try to get notification config from loaded stack data (secrets already resolved!)
+		e.logger.Info(ctx, "🔍 Looking for notification config in loaded stacks...")
 		notificationConfig := e.getNotificationConfigFromLoadedStack(ctx)
 		if notificationConfig != nil {
+			e.logger.Info(ctx, "✅ Found notification config in loaded stack")
 			e.initializeFromConfig(ctx, notificationConfig, "loaded parent stack")
 			return
 		}
 
-		e.logger.Info(ctx, "No notification config found in loaded stacks")
+		e.logger.Info(ctx, "❌ No notification config found in loaded stacks")
 	}
 
 	// Step 3: Fallback to environment variables
+	e.logger.Info(ctx, "🔍 Falling back to environment variables...")
 	e.initializeFromEnvironmentVariables(ctx)
+
+	e.logger.Info(ctx, "✅ Notification initialization completed")
 }
 
 // initializeFromConfig initializes notifications from a config object
