@@ -11,18 +11,17 @@ import (
 )
 
 type ValidateParams struct {
-	ConfigFile   string
-	StackName    string
+	CICDCommonParams
 	WorkflowsDir string
 	ShowDiff     bool
 	Verbose      bool
-	Parent       bool
-	Staging      bool
 }
 
 func NewValidateCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	params := ValidateParams{
-		ConfigFile:   "server.yaml",
+		CICDCommonParams: CICDCommonParams{
+			ConfigFile: "server.yaml",
+		},
 		WorkflowsDir: ".github/workflows",
 	}
 
@@ -47,15 +46,13 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&params.StackName, "stack", "s", "", "Stack name (required)")
-	cmd.Flags().StringVarP(&params.ConfigFile, "config", "c", params.ConfigFile, "Server config file path")
+	// Register common CI/CD flags
+	RegisterCICDCommonFlags(cmd, &params.CICDCommonParams, params.ConfigFile)
+
+	// Register validate-specific flags
 	cmd.Flags().StringVarP(&params.WorkflowsDir, "workflows-dir", "w", params.WorkflowsDir, "GitHub workflows directory")
 	cmd.Flags().BoolVar(&params.ShowDiff, "show-diff", params.ShowDiff, "Show differences between expected and actual workflows")
 	cmd.Flags().BoolVarP(&params.Verbose, "verbose", "v", params.Verbose, "Verbose output")
-	cmd.Flags().BoolVar(&params.Parent, "parent", params.Parent, "Validate workflows for parent stack (infrastructure/provisioning)")
-	cmd.Flags().BoolVar(&params.Staging, "staging", params.Staging, "Validate workflows optimized for staging branch instead of main")
-
-	_ = cmd.MarkFlagRequired("stack")
 
 	return cmd
 }
