@@ -174,9 +174,22 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 		return nil
 	}
 
+	// Debug: Log the actual config structure
+	e.logger.Info(ctx, "🔍 CI/CD config type: %T", parentStack.Server.CiCd.Config.Config)
+	e.logger.Info(ctx, "🔍 CI/CD config content: %+v", parentStack.Server.CiCd.Config.Config)
+
 	// Convert the config interface{} to extract notification settings
 	if configMap, ok := parentStack.Server.CiCd.Config.Config.(map[string]interface{}); ok {
+		e.logger.Info(ctx, "🔍 Successfully cast CI/CD config to map[string]interface{}, keys: %v", func() []string {
+			keys := make([]string, 0, len(configMap))
+			for k := range configMap {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
+
 		if notificationsRaw, exists := configMap["notifications"]; exists {
+			e.logger.Info(ctx, "🔍 Found 'notifications' key, type: %T, value: %+v", notificationsRaw, notificationsRaw)
 			if notificationsMap, ok := notificationsRaw.(map[string]interface{}); ok {
 				e.logger.Info(ctx, "Found notifications configuration in loaded parent stack")
 
@@ -222,8 +235,14 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 				}
 
 				return config
+			} else {
+				e.logger.Info(ctx, "🔍 Failed to cast notifications value to map[string]interface{}, type: %T", notificationsRaw)
 			}
+		} else {
+			e.logger.Info(ctx, "🔍 No 'notifications' key found in CI/CD config")
 		}
+	} else {
+		e.logger.Info(ctx, "🔍 Failed to cast CI/CD config to map[string]interface{}, type: %T", parentStack.Server.CiCd.Config.Config)
 	}
 
 	e.logger.Info(ctx, "Could not extract notification configuration from loaded config")
