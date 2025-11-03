@@ -112,6 +112,32 @@ func (e *Executor) createSCConfigFromEnv(ctx context.Context) error {
 	return nil
 }
 
+// loadStacksForNotifications loads stacks into the provisioner so notification config can be read
+func (e *Executor) loadStacksForNotifications(ctx context.Context) error {
+	e.logger.Info(ctx, "📚 Loading stacks for notification configuration...")
+
+	profile := os.Getenv("ENVIRONMENT")
+	if profile == "" {
+		profile = "default"
+	}
+
+	cfg, err := api.ReadConfigFile(".", profile)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	params := api.ProvisionParams{
+		Profile: profile,
+	}
+
+	if err := e.provisioner.ReadStacks(ctx, cfg, params, api.ReadIgnoreNoSecretsAndClientCfg); err != nil {
+		return fmt.Errorf("failed to load stacks: %w", err)
+	}
+
+	e.logger.Info(ctx, "✅ Stacks loaded - notification config should be available")
+	return nil
+}
+
 // reconfigureProvisionerWithKeys creates a new provisioner with SSH keys from SC_CONFIG
 func (e *Executor) reconfigureProvisionerWithKeys(ctx context.Context, scConfig *api.ConfigFile) error {
 	if scConfig.PrivateKey == "" || scConfig.PublicKey == "" {
