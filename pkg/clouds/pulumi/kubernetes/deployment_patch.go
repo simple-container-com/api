@@ -16,10 +16,22 @@ type DeploymentPatchArgs struct {
 }
 
 func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.DeploymentPatch, error) {
+	// Add SSA options to handle field manager conflicts
+	// This forces Pulumi to take ownership of conflicting fields
+	ssaOpts := []sdk.ResourceOption{
+		sdk.ReplaceOnChanges([]string{}), // Don't replace, just update
+	}
+
+	// Combine SSA options with user-provided options
+	allOpts := append(ssaOpts, args.Opts...)
+
 	return appsv1.NewDeploymentPatch(ctx, args.PatchName, &appsv1.DeploymentPatchArgs{
 		Metadata: &metav1.ObjectMetaPatchArgs{
 			Namespace: sdk.String(args.Namespace),
 			Name:      sdk.String(args.ServiceName),
+			Annotations: sdk.StringMap{
+				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
+			},
 		},
 		Spec: &appsv1.DeploymentSpecPatchArgs{
 			Template: &v1.PodTemplateSpecPatchArgs{
@@ -28,5 +40,5 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 				},
 			},
 		},
-	}, args.Opts...)
+	}, allOpts...)
 }

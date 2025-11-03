@@ -19,7 +19,7 @@ type PostgresGcpCloudsqlConfig struct {
 
 type ProvisionRuntimeConfig struct {
 	Type         string `json:"type" yaml:"type"`                 // type of provisioning runtime
-	ResourceName string `json:"resourceName" yaml:"resourceName"` // allows to run init db users jobs on kube jobs
+	ResourceName string `json:"resourceName" yaml:"resourceName"` // allows to run init db users jobs on kube jobs (must reference resource name where we can obtain kubeconfig from, e.g. gke-autopilot-cluster)
 }
 
 func PostgresqlGcpCloudsqlReadConfig(config *api.Config) (api.Config, error) {

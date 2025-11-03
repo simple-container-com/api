@@ -178,6 +178,22 @@ This is the Simple Container API project with MkDocs documentation. The project 
     - `pkg/clouds/k8s/types.go` - Added dockerfile default for Kubernetes
   - **Status**: ✅ **All docker-compose shorthand syntax now properly supported across all cloud providers**
 
+#### Kubernetes Server-Side Apply Conflict Resolution (2025-11-03)
+- **Field Manager Conflict Issue Resolved**: Fixed Pulumi Kubernetes DeploymentPatch SSA conflicts causing deployment failures
+  - **Root Cause**: Multiple Pulumi runs created different field manager identifiers competing for same annotation ownership
+  - **Error Pattern**: `Server-Side Apply field conflict detected... conflicts with "pulumi-kubernetes-01c9ef6d": .spec.template.metadata.annotations.simple-container.com/caddy-update-hash`
+  - **Impact**: Caddy deployment annotation patches failing with field manager conflicts between runs
+  - **Fix Applied**: Enhanced `PatchDeployment` function with SSA force options:
+    - Added `pulumi.com/patchForce: "true"` metadata annotation to force conflict resolution
+    - Added `ReplaceOnChanges` option to prefer updates over replacements
+    - Properly handles field manager ownership transitions
+  - **Technical Details**:
+    - Pulumi creates different field managers (e.g., `pulumi-kubernetes-bf6960c3`, `pulumi-kubernetes-01c9ef6d`) per deployment
+    - SSA force option tells Kubernetes to resolve conflicts by taking ownership
+    - Non-critical caddy annotation patches now succeed consistently
+  - **Files Modified**: `pkg/clouds/pulumi/kubernetes/deployment_patch.go` - Enhanced with SSA conflict resolution
+  - **Status**: ✅ **Kubernetes DeploymentPatch operations now handle field manager conflicts gracefully**
+
 ## Important Guidelines
 
 ### Documentation Requirements
