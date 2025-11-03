@@ -147,9 +147,11 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	}
 
 	// Namespace
-	namespace, err := corev1.NewNamespace(ctx, args.Namespace, &corev1.NamespaceArgs{
+	// Sanitize namespace name to comply with Kubernetes RFC 1123 requirements
+	sanitizedNamespace := sanitizeK8sName(args.Namespace)
+	namespace, err := corev1.NewNamespace(ctx, sanitizedNamespace, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
-			Name:        sdk.String(args.Namespace),
+			Name:        sdk.String(sanitizedNamespace),
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
@@ -480,7 +482,7 @@ ${proto}://${domain} {
 			"domain":    args.Domain,
 			"prefix":    args.Prefix,
 			"service":   args.Service,
-			"namespace": args.Namespace,
+			"namespace": sanitizedNamespace,
 			"port":      strconv.Itoa(lo.FromPtr(mainPort)),
 			"addHeaders": strings.Join(lo.Map(lo.Entries(lo.FromPtr(args.Headers)), func(h lo.Entry[string, string], _ int) string {
 				return fmt.Sprintf("header_down %s %s", h.Key, h.Value)
