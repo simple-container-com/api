@@ -33,10 +33,28 @@ type GitHubEnvironmentConfig struct {
 
 // GitHubNotificationConfig defines notification settings
 type GitHubNotificationConfig struct {
-	SlackWebhook   string `json:"slack" yaml:"slack"`
-	DiscordWebhook string `json:"discord" yaml:"discord"`
-	TelegramChatID string `json:"telegram-chat-id" yaml:"telegram-chat-id"`
-	TelegramToken  string `json:"telegram-token" yaml:"telegram-token"`
+	Slack    SlackNotificationConfig    `json:"slack" yaml:"slack"`
+	Discord  DiscordNotificationConfig  `json:"discord" yaml:"discord"`
+	Telegram TelegramNotificationConfig `json:"telegram" yaml:"telegram"`
+}
+
+// SlackNotificationConfig defines Slack notification settings
+type SlackNotificationConfig struct {
+	WebhookURL string `json:"webhook-url" yaml:"webhook-url"`
+	Enabled    bool   `json:"enabled" yaml:"enabled"`
+}
+
+// DiscordNotificationConfig defines Discord notification settings
+type DiscordNotificationConfig struct {
+	WebhookURL string `json:"webhook-url" yaml:"webhook-url"`
+	Enabled    bool   `json:"enabled" yaml:"enabled"`
+}
+
+// TelegramNotificationConfig defines Telegram notification settings
+type TelegramNotificationConfig struct {
+	BotToken string `json:"bot-token" yaml:"bot-token"`
+	ChatID   string `json:"chat-id" yaml:"chat-id"`
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
 }
 
 // GitHubWorkflowConfig defines workflow generation settings

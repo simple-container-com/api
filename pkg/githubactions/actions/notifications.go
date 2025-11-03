@@ -187,23 +187,23 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 		config := &CICDNotificationConfig{}
 
 		// Extract Slack config
-		if githubConfig.Notifications.SlackWebhook != "" {
-			config.Slack.WebhookURL = githubConfig.Notifications.SlackWebhook
+		if githubConfig.Notifications.Slack.Enabled && githubConfig.Notifications.Slack.WebhookURL != "" {
+			config.Slack.WebhookURL = githubConfig.Notifications.Slack.WebhookURL
 			config.Slack.Enabled = true
 			e.logger.Info(ctx, "✅ Found Slack webhook configuration")
 		}
 
 		// Extract Discord config
-		if githubConfig.Notifications.DiscordWebhook != "" {
-			config.Discord.WebhookURL = githubConfig.Notifications.DiscordWebhook
+		if githubConfig.Notifications.Discord.Enabled && githubConfig.Notifications.Discord.WebhookURL != "" {
+			config.Discord.WebhookURL = githubConfig.Notifications.Discord.WebhookURL
 			config.Discord.Enabled = true
 			e.logger.Info(ctx, "✅ Found Discord webhook configuration")
 		}
 
 		// Extract Telegram config
-		if githubConfig.Notifications.TelegramToken != "" && githubConfig.Notifications.TelegramChatID != "" {
-			config.Telegram.BotToken = githubConfig.Notifications.TelegramToken
-			config.Telegram.ChatID = githubConfig.Notifications.TelegramChatID
+		if githubConfig.Notifications.Telegram.Enabled && githubConfig.Notifications.Telegram.BotToken != "" && githubConfig.Notifications.Telegram.ChatID != "" {
+			config.Telegram.BotToken = githubConfig.Notifications.Telegram.BotToken
+			config.Telegram.ChatID = githubConfig.Notifications.Telegram.ChatID
 			config.Telegram.Enabled = true
 			e.logger.Info(ctx, "✅ Found Telegram configuration")
 		}
@@ -215,9 +215,11 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 		} else {
 			e.logger.Info(ctx, "📝 GitHub Actions CI/CD config found but no notification webhooks/tokens configured")
 			e.logger.Info(ctx, "💡 To enable notifications, add webhook URLs and tokens to your server.yaml:")
-			e.logger.Info(ctx, "   cicd.config.notifications.slack: 'your-slack-webhook-url'")
-			e.logger.Info(ctx, "   cicd.config.notifications.telegram-token: '${secret:TELEGRAM_BOT_TOKEN}'")
-			e.logger.Info(ctx, "   cicd.config.notifications.telegram-chat-id: 'your-chat-id'")
+			e.logger.Info(ctx, "   cicd.config.notifications.slack.webhook-url: '${secret:SLACK_WEBHOOK_URL}'")
+			e.logger.Info(ctx, "   cicd.config.notifications.slack.enabled: true")
+			e.logger.Info(ctx, "   cicd.config.notifications.telegram.bot-token: '${secret:TELEGRAM_BOT_TOKEN}'")
+			e.logger.Info(ctx, "   cicd.config.notifications.telegram.chat-id: 'your-chat-id'")
+			e.logger.Info(ctx, "   cicd.config.notifications.telegram.enabled: true")
 			return nil
 		}
 	} else {

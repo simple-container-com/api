@@ -90,10 +90,19 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 				},
 			},
 			Notifications: github.GitHubNotificationConfig{
-				SlackWebhook:   "",
-				DiscordWebhook: "",
-				TelegramChatID: "",
-				TelegramToken:  "",
+				Slack: github.SlackNotificationConfig{
+					WebhookURL: "",
+					Enabled:    false,
+				},
+				Discord: github.DiscordNotificationConfig{
+					WebhookURL: "",
+					Enabled:    false,
+				},
+				Telegram: github.TelegramNotificationConfig{
+					BotToken: "",
+					ChatID:   "",
+					Enabled:  false,
+				},
 			},
 			WorkflowGeneration: github.GitHubWorkflowConfig{
 				Enabled:       false,
@@ -221,10 +230,19 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 				},
 			},
 			Notifications: github.GitHubNotificationConfig{
-				SlackWebhook:   "",
-				DiscordWebhook: "",
-				TelegramChatID: "",
-				TelegramToken:  "",
+				Slack: github.SlackNotificationConfig{
+					WebhookURL: "",
+					Enabled:    false,
+				},
+				Discord: github.DiscordNotificationConfig{
+					WebhookURL: "",
+					Enabled:    false,
+				},
+				Telegram: github.TelegramNotificationConfig{
+					BotToken: "",
+					ChatID:   "",
+					Enabled:  false,
+				},
 			},
 			WorkflowGeneration: github.GitHubWorkflowConfig{
 				Enabled:       false,
