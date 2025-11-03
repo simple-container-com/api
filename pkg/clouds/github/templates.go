@@ -58,7 +58,9 @@ jobs:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
-          cc-on-start: "{{ .Notifications.CCOnStart }}"`
+          cc-on-start: "{{ .Notifications.CCOnStart }}"
+          commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
+          commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"`
 
 const destroyTemplate = `name: Destroy {{ .Organization.Name }} {{ .StackName }}
 
@@ -151,6 +153,8 @@ jobs:
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
           skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
+          commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
+          commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
 
 `
 
@@ -226,6 +230,8 @@ jobs:
           auto-confirm: ${{ "{{" }} github.event.inputs.auto_confirm {{ "}}" }}
           skip-backup: ${{ "{{" }} github.event.inputs.skip_backup {{ "}}" }}
           notify-on-completion: "true"
+          commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
+          commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
 `
 
 const provisionTemplate = `name: Provision {{ .Organization.Name }} Infrastructure
@@ -275,6 +281,8 @@ jobs:
           dry-run: ${{ "{{" }} github.event_name == 'push' && 'false' || github.event.inputs.dry_run || 'true' {{ "}}" }}
           skip-tests: ${{ "{{" }} github.event.inputs.skip_tests || 'false' {{ "}}" }}
           notify-on-completion: "true"
+          commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
+          commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
 
   test-infrastructure:
     name: Test Infrastructure
@@ -391,6 +399,8 @@ jobs:
           validation-command: |
             {{ (index .Environments $previewEnv).ValidationCmd | indent 12 }}
           {{- end }}
+          commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
+          commit-message: "${{ "{{" }} github.event.pull_request.title || '' {{ "}}" }}"
           
       - name: Comment PR with preview URL
         uses: actions/github-script@v7

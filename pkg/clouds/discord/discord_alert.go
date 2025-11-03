@@ -17,9 +17,35 @@ type alertSender struct {
 
 func (a *alertSender) Send(alert api.Alert) error {
 	icon := getIconForAlertType(alert.AlertType)
+
+	// Build message with commit information if available
+	message := fmt.Sprintf(" **%s** [%s](%s) for **%s** in *%s*",
+		alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv)
+
+	if alert.CommitAuthor != "" || alert.CommitMessage != "" {
+		message += "\n"
+		if alert.CommitAuthor != "" {
+			message += fmt.Sprintf("👤 Author: %s", alert.CommitAuthor)
+		}
+		if alert.CommitMessage != "" {
+			// Truncate long commit messages
+			commitMsg := alert.CommitMessage
+			if len(commitMsg) > 100 {
+				commitMsg = commitMsg[:97] + "..."
+			}
+			if alert.CommitAuthor != "" {
+				message += " • "
+			}
+			message += fmt.Sprintf("💬 %s", commitMsg)
+		}
+	}
+
+	if alert.Description != "" {
+		message += fmt.Sprintf("\n%s", alert.Description)
+	}
+
 	_, err := a.client.CreateMessage(discord.WebhookMessageCreate{
-		Content: icon + fmt.Sprintf(" **%s** [%s](%s) for **%s** in *%s* \n %s",
-			alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv, alert.Description),
+		Content: icon + message,
 	})
 	return err
 }

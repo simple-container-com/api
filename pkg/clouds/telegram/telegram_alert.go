@@ -154,6 +154,19 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 		message.WriteString(fmt.Sprintf("**Environment:** `%s`\n", alert.StackEnv))
 	}
 
+	if alert.CommitAuthor != "" {
+		message.WriteString(fmt.Sprintf("**Author:** %s\n", alert.CommitAuthor))
+	}
+
+	if alert.CommitMessage != "" {
+		// Truncate long commit messages to first line
+		commitMsg := alert.CommitMessage
+		if len(commitMsg) > 100 {
+			commitMsg = commitMsg[:97] + "..."
+		}
+		message.WriteString(fmt.Sprintf("**Commit:** %s\n", commitMsg))
+	}
+
 	if alert.DetailsUrl != "" {
 		message.WriteString(fmt.Sprintf("**Details:** %s\n", alert.DetailsUrl))
 	}

@@ -43,6 +43,14 @@ inputs:
     description: 'The branch, tag or SHA to checkout'
     required: false
     default: ${{ github.sha }}
+  commit-author:
+    description: 'Commit author name'
+    required: false
+    default: ${{ github.actor }}
+  commit-message:
+    description: 'Commit message'
+    required: false
+    default: ''
 
 outputs:
   stack-name:
@@ -68,3 +76,5 @@ runs:
     GITHUB_REPOSITORY: ${{ inputs.repository }}
     GITHUB_SHA: ${{ inputs.ref }}
     GITHUB_REF: ${{ inputs.ref }}
+    COMMIT_AUTHOR: ${{ inputs.commit-author }}
+    COMMIT_MESSAGE: ${{ inputs.commit-message }}

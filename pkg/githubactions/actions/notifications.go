@@ -320,14 +320,16 @@ func (e *Executor) initializeFromEnvironmentVariables(ctx context.Context) {
 func (e *Executor) sendAlert(ctx context.Context, alertType api.AlertType, title, description, stackName, stackEnv string) {
 	// Create alert payload using SC's alert structure
 	alert := api.Alert{
-		Name:        fmt.Sprintf("%s-%s", stackName, stackEnv),
-		Title:       title,
-		Reason:      fmt.Sprintf("GitHub Action: %s", os.Getenv("GITHUB_WORKFLOW")),
-		Description: description,
-		StackName:   stackName,
-		StackEnv:    stackEnv,
-		DetailsUrl:  fmt.Sprintf("https://github.com/%s/actions/runs/%s", os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")),
-		AlertType:   alertType,
+		Name:          fmt.Sprintf("%s-%s", stackName, stackEnv),
+		Title:         title,
+		Reason:        fmt.Sprintf("GitHub Action: %s", os.Getenv("GITHUB_WORKFLOW")),
+		Description:   description,
+		StackName:     stackName,
+		StackEnv:      stackEnv,
+		DetailsUrl:    fmt.Sprintf("https://github.com/%s/actions/runs/%s", os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")),
+		AlertType:     alertType,
+		CommitAuthor:  os.Getenv("COMMIT_AUTHOR"),
+		CommitMessage: os.Getenv("COMMIT_MESSAGE"),
 	}
 
 	// Send to all configured notification channels using SC's alert senders
