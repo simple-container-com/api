@@ -58,7 +58,6 @@ jobs:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
-          cc-on-start: "{{ .Notifications.CCOnStart }}"
           commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
           commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"`
 
