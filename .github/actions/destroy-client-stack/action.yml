@@ -12,7 +12,7 @@ inputs:
     description: 'Target environment (staging, prod, etc.)'
     required: true
   sc-config:
-    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
     required: true
   auto-confirm:
     description: 'Automatically confirm destruction without prompts'
@@ -63,7 +63,7 @@ runs:
     GITHUB_ACTION_TYPE: 'destroy-client-stack'
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
-    SC_CONFIG: ${{ inputs.sc-config }}
+    SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
     AUTO_CONFIRM: ${{ inputs.auto-confirm }}
     SKIP_BACKUP: ${{ inputs.skip-backup }}
     PR_PREVIEW: ${{ inputs.pr-preview }}

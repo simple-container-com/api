@@ -9,7 +9,7 @@ inputs:
     description: 'Name of the parent stack to destroy'
     required: true
   sc-config:
-    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
     required: true
   auto-confirm:
     description: 'Automatically confirm destruction without prompts'
@@ -54,7 +54,7 @@ runs:
   env:
     GITHUB_ACTION_TYPE: 'destroy-parent-stack'
     STACK_NAME: ${{ inputs.stack-name }}
-    SC_CONFIG: ${{ inputs.sc-config }}
+    SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
     AUTO_CONFIRM: ${{ inputs.auto-confirm }}
     SKIP_BACKUP: ${{ inputs.skip-backup }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}

@@ -116,9 +116,9 @@ func (e *Executor) setupRepositoryAndConfig(ctx context.Context, config Operatio
 		}
 	}
 
-	// Create SC configuration file (required for all operations)
-	if err := e.createSCConfigFromEnv(ctx); err != nil {
-		return fmt.Errorf("SC configuration creation failed: %w", err)
+	// Configure provisioner from SIMPLE_CONTAINER_CONFIG environment variable
+	if err := e.configureProvisionerFromEnv(ctx); err != nil {
+		return fmt.Errorf("provisioner configuration failed: %w", err)
 	}
 
 	return nil
@@ -146,11 +146,11 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 		if err := e.provisioner.Cryptor().DecryptAll(false); err != nil {
 			// Check if this is a key mismatch issue
 			if strings.Contains(err.Error(), "public key") && strings.Contains(err.Error(), "not found in secrets") {
-				e.logger.Warn(ctx, "⚠️  Key mismatch: secrets.yaml encrypted with different keys than SC_CONFIG")
+				e.logger.Warn(ctx, "⚠️  Key mismatch: secrets.yaml encrypted with different keys than SIMPLE_CONTAINER_CONFIG")
 				e.logger.Info(ctx, "")
 				e.logger.Info(ctx, "💡 This usually means:")
-				e.logger.Info(ctx, "   1. SC_CONFIG secret contains wrong keys for this environment")
-				e.logger.Info(ctx, "   2. secrets.yaml needs to be re-encrypted with SC_CONFIG keys")
+				e.logger.Info(ctx, "   1. SIMPLE_CONTAINER_CONFIG secret contains wrong keys for this environment")
+				e.logger.Info(ctx, "   2. secrets.yaml needs to be re-encrypted with SIMPLE_CONTAINER_CONFIG keys")
 				e.logger.Info(ctx, "   3. Use 'sc secrets hide' locally with correct keys to re-encrypt")
 				e.logger.Info(ctx, "")
 				return fmt.Errorf("secret decryption failed - key mismatch (see guidance above): %w", err)

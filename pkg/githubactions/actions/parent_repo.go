@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v2"
-
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/secrets"
@@ -20,16 +18,11 @@ import (
 func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	e.logger.Info(ctx, "📦 Setting up parent stack repository...")
 
-	// Get SC config from environment
-	scConfigYAML := os.Getenv("SC_CONFIG")
-	if scConfigYAML == "" {
-		e.logger.Info(ctx, "No SC_CONFIG found, skipping parent repository setup")
+	// Get config from SIMPLE_CONTAINER_CONFIG environment variable
+	scConfig, err := api.ReadConfigFile(".", "default")
+	if err != nil {
+		e.logger.Info(ctx, "No %s found, skipping parent repository setup", api.ScConfigEnvVariable)
 		return nil
-	}
-
-	var scConfig api.ConfigFile
-	if err := yaml.Unmarshal([]byte(scConfigYAML), &scConfig); err != nil {
-		return fmt.Errorf("failed to parse SC_CONFIG: %w", err)
 	}
 
 	// Detect if this is a parent stack operation
@@ -44,7 +37,7 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	// Handle parent stack operations - reveal secrets in current repository
 	if isParentOperation && scConfig.ParentRepository == "" {
 		e.logger.Info(ctx, "🏗️ Parent stack operation detected - revealing secrets in current repository")
-		return e.revealCurrentRepositorySecrets(ctx, &scConfig)
+		return e.revealCurrentRepositorySecrets(ctx, scConfig)
 	}
 
 	// Convert SSH URL to HTTPS if we're in GitHub Actions
@@ -98,17 +91,17 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 			cmd.Args[2] = authenticatedURL // Replace the URL argument
 			e.logger.Info(ctx, "Using GITHUB_TOKEN for HTTPS authentication")
 		} else {
-			e.logger.Warn(ctx, "GITHUB_TOKEN not found - will try SSH fallback with SC_CONFIG private key")
+			e.logger.Warn(ctx, "GITHUB_TOKEN not found - will try SSH fallback with SIMPLE_CONTAINER_CONFIG private key")
 
-			// Fallback to SSH using private key from SC_CONFIG
+			// Fallback to SSH using private key from SIMPLE_CONTAINER_CONFIG
 			if scConfig.PrivateKey != "" {
-				e.logger.Info(ctx, "🔑 Falling back to SSH authentication using SC_CONFIG private key")
+				e.logger.Info(ctx, "🔑 Falling back to SSH authentication using SIMPLE_CONTAINER_CONFIG private key")
 
 				// Convert HTTPS URL back to SSH format
 				sshURL := strings.Replace(cloneURL, "https://github.com/", "git@github.com:", 1)
 				cmd.Args[2] = sshURL // Replace the URL argument
 
-				// Set up SSH authentication using the private key from SC_CONFIG
+				// Set up SSH authentication using the private key from SIMPLE_CONTAINER_CONFIG
 				if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
 					e.logger.Warn(ctx, "Failed to setup SSH authentication: %v", err)
 					return fmt.Errorf("failed to setup SSH authentication: %w", err)
@@ -119,12 +112,12 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 				sshConfigPath := filepath.Join(homeDir, ".ssh", "config")
 				gitSSHCommand := fmt.Sprintf("ssh -F %s -o StrictHostKeyChecking=no", sshConfigPath)
 				cmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=%s", gitSSHCommand))
-				e.logger.Info(ctx, "✅ SSH authentication configured using SC_CONFIG private key")
+				e.logger.Info(ctx, "✅ SSH authentication configured using SIMPLE_CONTAINER_CONFIG private key")
 				e.logger.Debug(ctx, "Using GIT_SSH_COMMAND: %s", gitSSHCommand)
 				e.logger.Debug(ctx, "SSH config path: %s", sshConfigPath)
 			} else {
-				e.logger.Warn(ctx, "No GITHUB_TOKEN and no private key in SC_CONFIG - clone will likely fail")
-				return fmt.Errorf("no authentication method available: GITHUB_TOKEN missing and SC_CONFIG has no private key")
+				e.logger.Warn(ctx, "No GITHUB_TOKEN and no private key in SIMPLE_CONTAINER_CONFIG - clone will likely fail")
+				return fmt.Errorf("no authentication method available: GITHUB_TOKEN missing and SIMPLE_CONTAINER_CONFIG has no private key")
 			}
 		}
 	}
@@ -138,13 +131,13 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 			scConfig.PrivateKey != "" {
 
 			e.logger.Warn(ctx, "HTTPS clone failed with repository access error: %s", string(output))
-			e.logger.Info(ctx, "🔑 Attempting SSH fallback using SC_CONFIG private key...")
+			e.logger.Info(ctx, "🔑 Attempting SSH fallback using SIMPLE_CONTAINER_CONFIG private key...")
 
 			// Convert HTTPS URL back to SSH format
 			sshURL := strings.Replace(cloneURL, "https://github.com/", "git@github.com:", 1)
 			e.logger.Info(ctx, "Trying SSH URL: %s", e.sanitizeRepoURL(sshURL))
 
-			// Set up SSH authentication using the private key from SC_CONFIG
+			// Set up SSH authentication using the private key from SIMPLE_CONTAINER_CONFIG
 			if err := e.setupSSHForGit(ctx, scConfig.PrivateKey); err != nil {
 				e.logger.Warn(ctx, "Failed to setup SSH authentication: %v", err)
 				return fmt.Errorf("HTTPS clone failed and SSH setup failed: HTTPS error: %s, SSH setup error: %w", string(output), err)
@@ -176,7 +169,7 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	e.logger.Info(ctx, "Successfully cloned parent repository")
 
 	// Set up parent repository secrets with proper SC configuration
-	secretsRevealed, err := e.setupParentRepositorySecrets(ctx, &scConfig, devopsDir)
+	secretsRevealed, err := e.setupParentRepositorySecrets(ctx, scConfig, devopsDir)
 	if err != nil {
 		return fmt.Errorf("failed to setup parent repository secrets: %w", err)
 	}
@@ -284,7 +277,7 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	// For client operations with parent repository, reveal secrets in current workspace
 	if !isParentOperation && scConfig.ParentRepository != "" {
 		e.logger.Info(ctx, "🔑 Client stack with parent repository - revealing secrets in current workspace...")
-		if err := e.revealCurrentRepositorySecrets(ctx, &scConfig); err != nil {
+		if err := e.revealCurrentRepositorySecrets(ctx, scConfig); err != nil {
 			e.logger.Warn(ctx, "Failed to reveal client secrets (may use parent secrets): %v", err)
 			// Don't fail the entire deployment - parent secrets might be sufficient
 		} else {
@@ -366,7 +359,7 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 		e.logger.Info(ctx, "✅ Successfully initialized Git context for parent repository")
 	}
 
-	// Create cryptor with proper context using environment-specific profile AND SC_CONFIG keys
+	// Create cryptor with proper context using environment-specific profile AND SIMPLE_CONTAINER_CONFIG keys
 	parentCryptor, err := secrets.NewCryptor(
 		".", // Parent repository root (current directory after chdir)
 		secrets.WithProfile(profile),
@@ -387,8 +380,8 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 	if err := parentCryptor.ReadProfileConfig(); err != nil {
 		e.logger.Warn(ctx, "Failed to read profile config: %v", err)
 		e.logger.Info(ctx, "🔍 This is expected if parent repository has different configuration")
-		e.logger.Info(ctx, "🔑 Continuing with cryptor keys from SC_CONFIG (GitHub Actions environment)")
-		// Continue anyway - cryptor already has keys from SC_CONFIG
+		e.logger.Info(ctx, "🔑 Continuing with cryptor keys from SIMPLE_CONTAINER_CONFIG (GitHub Actions environment)")
+		// Continue anyway - cryptor already has keys from SIMPLE_CONTAINER_CONFIG
 	} else {
 		e.logger.Info(ctx, "✅ Successfully loaded profile config (SSH keys configured)")
 	}
@@ -399,7 +392,7 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 		e.logger.Info(ctx, "🔍 This is expected if parent repository has no secrets")
 		return false, nil // No secrets loaded, but not an error
 	}
-	e.logger.Info(ctx, "✅ Successfully loaded secrets file into cryptor - proceeding with decryption using SC_CONFIG keys")
+	e.logger.Info(ctx, "✅ Successfully loaded secrets file into cryptor - proceeding with decryption using SIMPLE_CONTAINER_CONFIG keys")
 
 	// Reveal secrets in parent repository and verify success
 	e.logger.Info(ctx, "🔍 Revealing secrets in parent repository...")
@@ -433,7 +426,7 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 		e.logger.Info(ctx, "✅ Successfully initialized Git context")
 	}
 
-	// Create cryptor for current repository with keys from SC_CONFIG
+	// Create cryptor for current repository with keys from SIMPLE_CONTAINER_CONFIG
 	e.logger.Info(ctx, "🔧 Creating cryptor for current repository...")
 	currentCryptor, err := secrets.NewCryptor(
 		".", // Current repository root
@@ -452,7 +445,7 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 	e.logger.Info(ctx, "🔧 Loading cryptor profile configuration...")
 	if err := currentCryptor.ReadProfileConfig(); err != nil {
 		e.logger.Warn(ctx, "Failed to read profile config: %v", err)
-		// Continue anyway - cryptor already has keys from SC_CONFIG
+		// Continue anyway - cryptor already has keys from SIMPLE_CONTAINER_CONFIG
 	} else {
 		e.logger.Info(ctx, "✅ Successfully loaded profile config")
 	}
@@ -481,20 +474,20 @@ func (e *Executor) revealCurrentRepositorySecrets(ctx context.Context, scConfig 
 		if strings.Contains(decryptErr.Error(), "public key is not configured") ||
 			strings.Contains(decryptErr.Error(), "not found in secrets") {
 			e.logger.Warn(ctx, "Secret decryption failed: %v", decryptErr)
-			e.logger.Info(ctx, "🔍 Key mismatch detected - secrets encrypted with different keys than SC_CONFIG")
+			e.logger.Info(ctx, "🔍 Key mismatch detected - secrets encrypted with different keys than SIMPLE_CONTAINER_CONFIG")
 			e.logger.Info(ctx, "")
 			e.logger.Info(ctx, "💡 This is expected in test environments. To fix:")
-			e.logger.Info(ctx, "   1. For PRODUCTION: Update SC_CONFIG secret with matching production keys")
+			e.logger.Info(ctx, "   1. For PRODUCTION: Update SIMPLE_CONTAINER_CONFIG secret with matching production keys")
 			e.logger.Info(ctx, "   2. For TESTING: Use 'sc secrets hide' with current keys to re-encrypt secrets")
-			e.logger.Info(ctx, "   3. Check that SC_CONFIG contains the correct keys for this environment")
+			e.logger.Info(ctx, "   3. Check that SIMPLE_CONTAINER_CONFIG contains the correct keys for this environment")
 			e.logger.Info(ctx, "")
 			// SECURITY: Never log actual key values, even public keys
-			e.logger.Info(ctx, "🔍 Current SC_CONFIG public key length: %d chars", len(currentCryptor.PublicKey()))
+			e.logger.Info(ctx, "🔍 Current SIMPLE_CONTAINER_CONFIG public key length: %d chars", len(currentCryptor.PublicKey()))
 
 			// For DRY_RUN, this might be acceptable - let's not fail hard
 			if os.Getenv("DRY_RUN") == "true" {
 				e.logger.Info(ctx, "⚠️  DRY_RUN mode: Continuing without secret decryption (placeholders will remain unresolved)")
-				e.logger.Info(ctx, "⚠️  In production runs, ensure SC_CONFIG has matching keys")
+				e.logger.Info(ctx, "⚠️  In production runs, ensure SIMPLE_CONTAINER_CONFIG has matching keys")
 				return nil // Don't fail in dry run mode
 			}
 
@@ -546,8 +539,8 @@ func (e *Executor) revealAndVerifyParentSecrets(ctx context.Context, parentCrypt
 			strings.Contains(decryptErr.Error(), "not found in secrets") {
 			e.logger.Warn(ctx, "Secret decryption failed: %v", decryptErr)
 			e.logger.Info(ctx, "🔍 Key mismatch detected (expected in test environments)")
-			e.logger.Info(ctx, "   - Parent repository secrets encrypted with different keys than SC_CONFIG")
-			e.logger.Info(ctx, "   - In production, SC_CONFIG will contain matching keys")
+			e.logger.Info(ctx, "   - Parent repository secrets encrypted with different keys than SIMPLE_CONTAINER_CONFIG")
+			e.logger.Info(ctx, "   - In production, SIMPLE_CONTAINER_CONFIG will contain matching keys")
 			e.logger.Info(ctx, "ℹ️  No secrets found in parent repository or secrets don't match current keys")
 			return false, nil // Expected in test environments
 		}

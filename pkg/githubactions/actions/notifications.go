@@ -205,7 +205,7 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 func (e *Executor) initializeNotifications(ctx context.Context) {
 	e.logger.Info(ctx, "🚀 Starting notification initialization...")
 
-	// In GitHub Actions, provisioner is already configured with SC_CONFIG and secrets are revealed
+	// In GitHub Actions, provisioner is already configured with SIMPLE_CONTAINER_CONFIG and secrets are revealed
 	// Try to get notification config from loaded stack data
 	e.logger.Info(ctx, "🔍 Looking for notification config in loaded stacks...")
 	notificationConfig := e.getNotificationConfigFromLoadedStack(ctx)
