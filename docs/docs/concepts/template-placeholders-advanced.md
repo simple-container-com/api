@@ -156,6 +156,7 @@ stacks:
 Similar to PostgreSQL but with MySQL-specific environment variables.
 
 **Auto-injected Environment Variables:**
+
 - `MYSQL_HOST` - Database host
 - `MYSQL_PORT` - Database port (3306)
 - `MYSQL_USER` - Database username (stack name)
@@ -168,6 +169,7 @@ Similar to PostgreSQL but with MySQL-specific environment variables.
 - `MYSQL_PASSWORD_<NAME>` - Named MySQL password
 
 **Template Placeholders:**
+
 - `${resource:mysql-name.host}` - Database host
 - `${resource:mysql-name.port}` - Database port
 - `${resource:mysql-name.user}` - Database username
@@ -187,6 +189,7 @@ Similar to PostgreSQL but with MySQL-specific environment variables.
 PostgreSQL database connection details similar to AWS RDS.
 
 **Auto-injected Environment Variables:**
+
 - `POSTGRES_HOST` - Database host (localhost via Cloud SQL Proxy)
 - `POSTGRES_PORT` - Database port (5432)
 - `POSTGRES_USERNAME` - Database username (stack name)
@@ -199,6 +202,7 @@ PostgreSQL database connection details similar to AWS RDS.
 - `PGPASSWORD` - PostgreSQL password
 
 **Template Placeholders:**
+
 - `${resource:postgres-name.host}` - Database host
 - `${resource:postgres-name.port}` - Database port
 - `${resource:postgres-name.user}` - Database username
@@ -211,6 +215,7 @@ PostgreSQL database connection details similar to AWS RDS.
 PostgreSQL database connections managed by Kubernetes operators.
 
 **Auto-injected Environment Variables:**
+
 - `POSTGRES_HOST` - PostgreSQL service host
 - `POSTGRES_PORT` - PostgreSQL service port (5432)
 - `POSTGRES_USERNAME` - Database username (stack name)
@@ -223,6 +228,7 @@ PostgreSQL database connections managed by Kubernetes operators.
 - `PGPASSWORD` - PostgreSQL password
 
 **Template Placeholders:**
+
 - `${resource:postgres-name.host}` - Database host
 - `${resource:postgres-name.port}` - Database port
 - `${resource:postgres-name.user}` - Database username
@@ -234,6 +240,7 @@ PostgreSQL database connections managed by Kubernetes operators.
 Message queue connection details and configuration.
 
 **Auto-injected Environment Variables:**
+
 - `RABBITMQ_HOST` - RabbitMQ service host
 - `RABBITMQ_PORT` - RabbitMQ service port
 - `RABBITMQ_USERNAME` - RabbitMQ username
@@ -241,6 +248,7 @@ Message queue connection details and configuration.
 - `RABBITMQ_URI` - Full AMQP connection string
 
 **Template Placeholders:**
+
 - `${resource:rabbitmq-name.host}` - RabbitMQ host
 - `${resource:rabbitmq-name.port}` - RabbitMQ port
 - `${resource:rabbitmq-name.user}` - Username
@@ -251,10 +259,12 @@ Message queue connection details and configuration.
 Redis cache connection details and configuration.
 
 **Auto-injected Environment Variables:**
+
 - `REDIS_HOST` - Redis service host
 - `REDIS_PORT` - Redis service port
 
 **Template Placeholders:**
+
 - `${resource:redis-name.host}` - Redis host
 - `${resource:redis-name.port}` - Redis port
 
@@ -262,6 +272,7 @@ Redis cache connection details and configuration.
 
 #### MongoDB Atlas Cluster
 **Auto-injected Environment Variables:**
+
 - `MONGO_USER` - Database username (stack name)
 - `MONGO_DATABASE` - Database name (stack name)
 - `MONGO_PASSWORD` - Database password (auto-generated)
@@ -271,6 +282,7 @@ Redis cache connection details and configuration.
 - `MONGO_DEP_<OWNER>_URI` - Dependency connection string (for dependency relationships)
 
 **Template Placeholders:**
+
 - `${resource:mongodb-name.uri}` - Full MongoDB connection string
 - `${resource:mongodb-name.user}` - Database username
 - `${resource:mongodb-name.password}` - Database password
