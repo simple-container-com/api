@@ -175,14 +175,13 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 		return nil
 	}
 
-	// Debug: Log the actual config structure
-	e.logger.Info(ctx, "🔍 CI/CD config type: %T", parentStack.Server.CiCd.Config.Config)
-	e.logger.Info(ctx, "🔍 CI/CD config content: %+v", parentStack.Server.CiCd.Config.Config)
-
 	// Handle GitHub Actions CI/CD configuration struct directly
 	if githubConfig, ok := parentStack.Server.CiCd.Config.Config.(*github.GitHubActionsCiCdConfig); ok {
 		e.logger.Info(ctx, "🔍 Successfully cast CI/CD config to GitHubActionsCiCdConfig")
-		e.logger.Info(ctx, "🔍 GitHub notification config: %+v", githubConfig.Notifications)
+		e.logger.Debug(ctx, "🔍 Notification channels - Slack enabled: %v, Discord enabled: %v, Telegram enabled: %v",
+			githubConfig.Notifications.Slack.Enabled,
+			githubConfig.Notifications.Discord.Enabled,
+			githubConfig.Notifications.Telegram.Enabled)
 
 		config := &CICDNotificationConfig{}
 
