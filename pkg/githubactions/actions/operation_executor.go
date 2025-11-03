@@ -141,12 +141,11 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 			e.logger.Info(ctx, "✅ Client secrets revealed successfully")
 		}
 	} else {
-		// For parent operations, we need to reveal secrets in the current (parent) repository
-		e.logger.Info(ctx, "📋 Revealing parent repository secrets...")
-		if err := e.provisioner.Cryptor().DecryptAll(false); err != nil {
-			return fmt.Errorf("failed to reveal parent repository secrets: %w", err)
-		}
-		e.logger.Info(ctx, "✅ Parent repository secrets revealed successfully")
+		// For parent operations, skip explicit secret revelation
+		// The Provision() method will resolve secret placeholders internally using the provisioner's cryptor
+		// This allows the provisioner to use the correct keys from .sc/cfg.yaml
+		e.logger.Info(ctx, "📋 Parent stack operation - secrets will be resolved during provisioning")
+		e.logger.Info(ctx, "✅ Provisioner configured with cryptor from SC_CONFIG")
 	}
 
 	return nil
