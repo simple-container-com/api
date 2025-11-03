@@ -67,7 +67,8 @@ func (e *Executor) executeOperation(ctx context.Context, config OperationConfig)
 	}
 
 	// Phase 5: Load stacks and initialize notifications
-	if err := e.loadStacksForNotifications(ctx); err != nil {
+	isClientOp := config.Scope == ScopeClient
+	if err := e.loadStacksForNotifications(ctx, config.StackName, config.Env, isClientOp); err != nil {
 		e.logger.Warn(ctx, "Failed to load stacks for notifications: %v", err)
 	}
 	e.initializeNotifications(ctx)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 
@@ -113,10 +114,11 @@ func (e *Executor) createSCConfigFromEnv(ctx context.Context) error {
 }
 
 // loadStacksForNotifications loads stacks into the provisioner so notification config can be read
-func (e *Executor) loadStacksForNotifications(ctx context.Context) error {
+// For client operations, it loads client.yaml to find parent stack, then loads the parent
+func (e *Executor) loadStacksForNotifications(ctx context.Context, stackName string, environment string, isClientOp bool) error {
 	e.logger.Info(ctx, "📚 Loading stacks for notification configuration...")
 
-	profile := os.Getenv("ENVIRONMENT")
+	profile := environment
 	if profile == "" {
 		profile = "default"
 	}
@@ -126,15 +128,92 @@ func (e *Executor) loadStacksForNotifications(ctx context.Context) error {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	params := api.ProvisionParams{
-		Profile: profile,
+	if isClientOp {
+		// Step 1: Load client stack to read its client.yaml and find parent reference
+		e.logger.Info(ctx, "📋 Loading client stack to determine parent...")
+		clientParams := api.ProvisionParams{
+			Profile:   profile,
+			StacksDir: ".sc/stacks",
+			Stacks:    []string{stackName},
+		}
+
+		// Load client with client.yaml required, but ignore missing server.yaml
+		clientOpts := api.ReadOpts{
+			IgnoreServerMissing:  true,
+			IgnoreSecretsMissing: true,
+			RequireClientConfigs: []string{stackName},
+		}
+
+		if err := e.provisioner.ReadStacks(ctx, cfg, clientParams, clientOpts); err != nil {
+			return fmt.Errorf("failed to load client stack: %w", err)
+		}
+
+		// Step 2: Extract parent stack name from client config
+		stacks := e.provisioner.Stacks()
+		clientStack, exists := stacks[stackName]
+		if !exists {
+			return fmt.Errorf("client stack %s not found after loading", stackName)
+		}
+
+		// Find the parent stack reference from environment config
+		envConfig, exists := clientStack.Client.Stacks[environment]
+		if !exists {
+			return fmt.Errorf("no configuration found for environment %s in client stack %s", environment, stackName)
+		}
+
+		parentStackName := envConfig.ParentStack
+		if parentStackName == "" {
+			return fmt.Errorf("no parent stack reference found for environment %s in client stack %s", environment, stackName)
+		}
+
+		// Parse parent stack name (handle "project/stack-name" format)
+		if parts := strings.Split(parentStackName, "/"); len(parts) > 1 {
+			parentStackName = parts[len(parts)-1] // Get the last part (stack name)
+		}
+
+		e.logger.Info(ctx, "✅ Found parent stack reference: %s", parentStackName)
+
+		// Step 3: Load only the parent stack with server.yaml required
+		parentParams := api.ProvisionParams{
+			Profile:   profile,
+			StacksDir: ".sc/stacks",
+			Stacks:    []string{parentStackName},
+		}
+
+		parentOpts := api.ReadOpts{
+			IgnoreClientMissing:  true,
+			IgnoreSecretsMissing: true,
+			RequireServerConfigs: []string{parentStackName},
+		}
+
+		e.logger.Info(ctx, "📚 Loading parent stack: %s", parentStackName)
+		if err := e.provisioner.ReadStacks(ctx, cfg, parentParams, parentOpts); err != nil {
+			return fmt.Errorf("failed to load parent stack: %w", err)
+		}
+
+		e.logger.Info(ctx, "✅ Parent stack loaded - notification config should be available")
+	} else {
+		// For parent operations, load the specific parent stack
+		params := api.ProvisionParams{
+			Profile:   profile,
+			StacksDir: ".sc/stacks",
+			Stacks:    []string{stackName},
+		}
+
+		opts := api.ReadOpts{
+			IgnoreClientMissing:  true,
+			IgnoreSecretsMissing: true,
+			RequireServerConfigs: []string{stackName},
+		}
+
+		e.logger.Info(ctx, "📚 Loading parent stack: %s", stackName)
+		if err := e.provisioner.ReadStacks(ctx, cfg, params, opts); err != nil {
+			return fmt.Errorf("failed to load parent stack: %w", err)
+		}
+
+		e.logger.Info(ctx, "✅ Parent stack loaded - notification config should be available")
 	}
 
-	if err := e.provisioner.ReadStacks(ctx, cfg, params, api.ReadIgnoreNoSecretsAndClientCfg); err != nil {
-		return fmt.Errorf("failed to load stacks: %w", err)
-	}
-
-	e.logger.Info(ctx, "✅ Stacks loaded - notification config should be available")
 	return nil
 }
 
