@@ -247,8 +247,10 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		},
 		Environments: make(map[string]github.EnvironmentConfig),
 		Notifications: github.NotificationConfig{
-			SlackWebhook:   gitHubConfig.Notifications.SlackWebhook,
-			DiscordWebhook: gitHubConfig.Notifications.DiscordWebhook,
+			SlackWebhook:   gitHubConfig.Notifications.Slack.WebhookURL,
+			DiscordWebhook: gitHubConfig.Notifications.Discord.WebhookURL,
+			TelegramChatID: gitHubConfig.Notifications.Telegram.ChatID,
+			TelegramToken:  gitHubConfig.Notifications.Telegram.BotToken,
 			CCOnStart:      false,
 		},
 	}

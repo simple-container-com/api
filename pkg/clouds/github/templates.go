@@ -275,8 +275,6 @@ jobs:
           dry-run: ${{ "{{" }} github.event_name == 'push' && 'false' || github.event.inputs.dry_run || 'true' {{ "}}" }}
           skip-tests: ${{ "{{" }} github.event.inputs.skip_tests || 'false' {{ "}}" }}
           notify-on-completion: "true"
-          # Notification webhooks automatically configured from SC secrets.yaml
-          # No individual GitHub repository secrets needed - SC_CONFIG provides all secrets
 
   test-infrastructure:
     name: Test Infrastructure

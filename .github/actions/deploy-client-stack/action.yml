@@ -13,7 +13,7 @@ inputs:
     required: true
     default: 'staging'
   sc-config:
-    description: 'Simple Container configuration (SC_CONFIG secret content)'
+    description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
     required: true
   version:
     description: 'Version to deploy'
@@ -62,7 +62,7 @@ runs:
     GITHUB_ACTION_TYPE: 'deploy-client-stack'
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
-    SC_CONFIG: ${{ inputs.sc-config }}
+    SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
     VERSION: ${{ inputs.version }}
     PR_PREVIEW: ${{ inputs.pr-preview }}
     PR_NUMBER: ${{ inputs.pr-number }}
