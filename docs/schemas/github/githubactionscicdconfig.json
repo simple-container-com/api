@@ -68,23 +68,62 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "discord": {
-            "type": "string"
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "webhook-url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "enabled",
+              "webhook-url"
+            ],
+            "type": "object"
           },
           "slack": {
-            "type": "string"
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "webhook-url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "enabled",
+              "webhook-url"
+            ],
+            "type": "object"
           },
-          "telegram-chat-id": {
-            "type": "string"
-          },
-          "telegram-token": {
-            "type": "string"
+          "telegram": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "bot-token": {
+                "type": "string"
+              },
+              "chat-id": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "bot-token",
+              "chat-id",
+              "enabled"
+            ],
+            "type": "object"
           }
         },
         "required": [
           "discord",
           "slack",
-          "telegram-chat-id",
-          "telegram-token"
+          "telegram"
         ],
         "type": "object"
       },
