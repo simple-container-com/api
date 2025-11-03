@@ -6,8 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
 	"github.com/simple-container-com/api/pkg/clouds/github"
@@ -45,33 +43,6 @@ type CICDConfig struct {
 // ServerConfig represents the relevant parts of server.yaml
 type ServerConfig struct {
 	CICD CICDConfig `yaml:"cicd"`
-}
-
-// prepareProvisionerForSecretResolution prepares the provisioner for resolving placeholders (same pattern as 'sc provision')
-func (e *Executor) prepareProvisionerForSecretResolution(ctx context.Context) error {
-	// Read config file for current profile (same as provisioner.prepareForParentStack)
-	profile := os.Getenv("SC_PROFILE")
-	if profile == "" {
-		profile = "default"
-	}
-
-	cfg, err := api.ReadConfigFile(".", profile)
-	if err != nil {
-		return errors.Wrapf(err, "failed to read config file for profile %q", profile)
-	}
-
-	// Create minimal provision params for reading stacks
-	params := api.ProvisionParams{
-		Profile: profile,
-	}
-
-	// Read stacks into provisioner (this loads secrets and prepares for placeholder resolution)
-	if err := e.provisioner.ReadStacks(ctx, cfg, params, api.ReadIgnoreNoSecretsAndClientCfg); err != nil {
-		return errors.Wrapf(err, "failed to read stacks for secret resolution")
-	}
-
-	e.logger.Info(ctx, "✅ Stacks loaded - placeholder resolution should now work")
-	return nil
 }
 
 // getRelevantParentStackName determines which parent stack to use for CI/CD configuration
@@ -234,25 +205,17 @@ func (e *Executor) getNotificationConfigFromLoadedStack(ctx context.Context) *CI
 func (e *Executor) initializeNotifications(ctx context.Context) {
 	e.logger.Info(ctx, "🚀 Starting notification initialization...")
 
-	// Step 1: Prepare provisioner for secret resolution (same pattern as 'sc provision')
-	e.logger.Info(ctx, "🔐 Preparing provisioner for secret resolution...")
-	if err := e.prepareProvisionerForSecretResolution(ctx); err != nil {
-		e.logger.Warn(ctx, "Failed to prepare provisioner for secret resolution: %v", err)
-		e.logger.Info(ctx, "🔍 Skipping loaded stack configuration, going to environment variables")
-	} else {
-		e.logger.Info(ctx, "✅ Provisioner prepared successfully - secrets should be resolved")
-
-		// Step 2: Try to get notification config from loaded stack data (secrets already resolved!)
-		e.logger.Info(ctx, "🔍 Looking for notification config in loaded stacks...")
-		notificationConfig := e.getNotificationConfigFromLoadedStack(ctx)
-		if notificationConfig != nil {
-			e.logger.Info(ctx, "✅ Found notification config in loaded stack")
-			e.initializeFromConfig(ctx, notificationConfig, "loaded parent stack")
-			return
-		}
-
-		e.logger.Info(ctx, "❌ No notification config found in loaded stacks")
+	// In GitHub Actions, provisioner is already configured with SC_CONFIG and secrets are revealed
+	// Try to get notification config from loaded stack data
+	e.logger.Info(ctx, "🔍 Looking for notification config in loaded stacks...")
+	notificationConfig := e.getNotificationConfigFromLoadedStack(ctx)
+	if notificationConfig != nil {
+		e.logger.Info(ctx, "✅ Found notification config in loaded stack")
+		e.initializeFromConfig(ctx, notificationConfig, "loaded parent stack")
+		return
 	}
+
+	e.logger.Info(ctx, "❌ No notification config found in loaded stacks")
 
 	// Step 3: Fallback to environment variables
 	e.logger.Info(ctx, "🔍 Falling back to environment variables...")
