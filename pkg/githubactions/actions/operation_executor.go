@@ -141,9 +141,12 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 			e.logger.Info(ctx, "✅ Client secrets revealed successfully")
 		}
 	} else {
-		// For parent operations, secrets are already revealed
-		e.logger.Info(ctx, "📋 Using parent repository secrets (revealed during repository setup)")
-		e.logger.Info(ctx, "✅ Parent repository secrets available")
+		// For parent operations, we need to reveal secrets in the current (parent) repository
+		e.logger.Info(ctx, "📋 Revealing parent repository secrets...")
+		if err := e.provisioner.Cryptor().DecryptAll(false); err != nil {
+			return fmt.Errorf("failed to reveal parent repository secrets: %w", err)
+		}
+		e.logger.Info(ctx, "✅ Parent repository secrets revealed successfully")
 	}
 
 	return nil
