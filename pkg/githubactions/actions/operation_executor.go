@@ -129,6 +129,17 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 	if config.Scope == ScopeClient {
 		// For client operations, try to reveal client secrets (optional)
 		e.logger.Info(ctx, "📋 Revealing client repository secrets...")
+
+		// First, load the secrets.yaml file into the cryptor
+		e.logger.Debug(ctx, "🔧 Loading secrets.yaml file into cryptor...")
+		if err := e.provisioner.Cryptor().ReadSecretFiles(); err != nil {
+			e.logger.Info(ctx, "ℹ️  No client secrets found - using parent repository secrets")
+			return nil // No secrets to reveal, will use parent secrets
+		}
+		e.logger.Debug(ctx, "✅ Secrets file loaded successfully")
+
+		// Now decrypt the secrets
+		e.logger.Debug(ctx, "🔓 Decrypting secrets...")
 		if err := e.provisioner.Cryptor().DecryptAll(false); err != nil {
 			// For client operations, missing secrets is OK if parent secrets are available
 			if strings.Contains(err.Error(), "not found in secrets") ||
@@ -143,6 +154,18 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 	} else {
 		// For parent operations, reveal secrets in the current (parent) repository
 		e.logger.Info(ctx, "📋 Revealing parent repository secrets...")
+
+		// First, load the secrets.yaml file into the cryptor
+		e.logger.Debug(ctx, "🔧 Loading secrets.yaml file into cryptor...")
+		if err := e.provisioner.Cryptor().ReadSecretFiles(); err != nil {
+			e.logger.Warn(ctx, "Failed to read secrets file: %v", err)
+			e.logger.Info(ctx, "🔍 This is expected if parent repository has no secrets")
+			return nil // No secrets to reveal
+		}
+		e.logger.Debug(ctx, "✅ Secrets file loaded successfully")
+
+		// Now decrypt the secrets
+		e.logger.Debug(ctx, "🔓 Decrypting secrets...")
 		if err := e.provisioner.Cryptor().DecryptAll(false); err != nil {
 			// Check if this is a key mismatch issue
 			if strings.Contains(err.Error(), "public key") && strings.Contains(err.Error(), "not found in secrets") {
