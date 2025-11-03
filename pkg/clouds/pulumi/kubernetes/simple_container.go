@@ -118,9 +118,13 @@ type SimpleContainer struct {
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	sc := &SimpleContainer{}
 
+	// Sanitize deployment and service names early to comply with Kubernetes RFC 1123 requirements
+	sanitizedDeployment := sanitizeK8sName(args.Deployment)
+	sanitizedService := sanitizeK8sName(args.Service)
+
 	appLabels := map[string]string{
 		LabelAppType: AppTypeSimpleContainer,
-		LabelAppName: args.Service,
+		LabelAppName: sanitizedService,
 		LabelScEnv:   args.ScEnv,
 	}
 
@@ -179,10 +183,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		secretVolumeToData[secretVolume.Name] = secretVolume.Content
 	}
 
-	volumesCfgName := ToConfigVolumesName(args.Deployment)
-	envSecretName := ToEnvConfigName(args.Deployment)
-	volumesSecretName := ToSecretVolumesName(args.Deployment)
-	imagePullSecretName := ToImagePullSecretName(args.Deployment)
+	volumesCfgName := ToConfigVolumesName(sanitizedDeployment)
+	envSecretName := ToEnvConfigName(sanitizedDeployment)
+	volumesSecretName := ToSecretVolumesName(sanitizedDeployment)
+	imagePullSecretName := ToImagePullSecretName(sanitizedDeployment)
 
 	var imagePullSecret *corev1.Secret
 	if args.ImagePullSecret != nil {
@@ -413,9 +417,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			},
 		}
 	}
-	deployment, err := v1.NewDeployment(ctx, args.Deployment, &v1.DeploymentArgs{
+	deployment, err := v1.NewDeployment(ctx, sanitizedDeployment, &v1.DeploymentArgs{
 		Metadata: &metav1.ObjectMetaArgs{
-			Name:        sdk.String(args.Deployment),
+			Name:        sdk.String(sanitizedDeployment),
 			Namespace:   namespace.Metadata.Name().Elem(),
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
@@ -481,7 +485,7 @@ ${proto}://${domain} {
 			"proto":     lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
 			"domain":    args.Domain,
 			"prefix":    args.Prefix,
-			"service":   args.Service,
+			"service":   sanitizedService,
 			"namespace": sanitizedNamespace,
 			"port":      strconv.Itoa(lo.FromPtr(mainPort)),
 			"addHeaders": strings.Join(lo.Map(lo.Entries(lo.FromPtr(args.Headers)), func(h lo.Entry[string, string], _ int) string {
@@ -512,9 +516,9 @@ ${proto}://${domain} {
 	}
 	var service *corev1.Service
 	if len(lo.FromPtr(args.IngressContainer).Ports) > 0 {
-		service, err = corev1.NewService(ctx, args.Service, &corev1.ServiceArgs{
+		service, err = corev1.NewService(ctx, sanitizedService, &corev1.ServiceArgs{
 			Metadata: &metav1.ObjectMetaArgs{
-				Name:        sdk.String(args.Service),
+				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(serviceAnnotations),
@@ -539,9 +543,9 @@ ${proto}://${domain} {
 		if args.UseSSL {
 			ingressAnnotations["ingress.kubernetes.io/ssl-redirect"] = "false" // do not need ssl redirect from kube
 		}
-		_, err = networkv1.NewIngress(ctx, args.Service, &networkv1.IngressArgs{
+		_, err = networkv1.NewIngress(ctx, sanitizedService, &networkv1.IngressArgs{
 			Metadata: &metav1.ObjectMetaArgs{
-				Name:        sdk.String(args.Service),
+				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(ingressAnnotations),
@@ -554,7 +558,7 @@ ${proto}://${domain} {
 								networkv1.HTTPIngressPathArgs{
 									Backend: networkv1.IngressBackendArgs{
 										Service: networkv1.IngressServiceBackendArgs{
-											Name: sdk.String(args.Service),
+											Name: sdk.String(sanitizedService),
 											Port: networkv1.ServiceBackendPortArgs{
 												Number: sdk.Int(*mainPort),
 											},
@@ -586,7 +590,7 @@ ${proto}://${domain} {
 		} else if args.PodDisruption.MaxUnavailable != nil {
 			pdbArgs.MaxUnavailable = sdk.IntPtrFromPtr(args.PodDisruption.MaxUnavailable)
 		}
-		_, err := policyv1.NewPodDisruptionBudget(ctx, fmt.Sprintf("%s-pdb", args.Deployment), &policyv1.PodDisruptionBudgetArgs{
+		_, err := policyv1.NewPodDisruptionBudget(ctx, fmt.Sprintf("%s-pdb", sanitizedDeployment), &policyv1.PodDisruptionBudgetArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
@@ -626,7 +630,7 @@ ${proto}://${domain} {
 		}
 	}
 
-	err = ctx.RegisterComponentResource("simple-container.com:k8s:SimpleContainer", args.Service, sc, opts...)
+	err = ctx.RegisterComponentResource("simple-container.com:k8s:SimpleContainer", sanitizedService, sc, opts...)
 	if err != nil {
 		return nil, err
 	}
