@@ -141,11 +141,23 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 			e.logger.Info(ctx, "✅ Client secrets revealed successfully")
 		}
 	} else {
-		// For parent operations, skip explicit secret revelation
-		// The Provision() method will resolve secret placeholders internally using the provisioner's cryptor
-		// This allows the provisioner to use the correct keys from .sc/cfg.yaml
-		e.logger.Info(ctx, "📋 Parent stack operation - secrets will be resolved during provisioning")
-		e.logger.Info(ctx, "✅ Provisioner configured with cryptor from SC_CONFIG")
+		// For parent operations, reveal secrets in the current (parent) repository
+		e.logger.Info(ctx, "📋 Revealing parent repository secrets...")
+		if err := e.provisioner.Cryptor().DecryptAll(false); err != nil {
+			// Check if this is a key mismatch issue
+			if strings.Contains(err.Error(), "public key") && strings.Contains(err.Error(), "not found in secrets") {
+				e.logger.Warn(ctx, "⚠️  Key mismatch: secrets.yaml encrypted with different keys than SC_CONFIG")
+				e.logger.Info(ctx, "")
+				e.logger.Info(ctx, "💡 This usually means:")
+				e.logger.Info(ctx, "   1. SC_CONFIG secret contains wrong keys for this environment")
+				e.logger.Info(ctx, "   2. secrets.yaml needs to be re-encrypted with SC_CONFIG keys")
+				e.logger.Info(ctx, "   3. Use 'sc secrets hide' locally with correct keys to re-encrypt")
+				e.logger.Info(ctx, "")
+				return fmt.Errorf("secret decryption failed - key mismatch (see guidance above): %w", err)
+			}
+			return fmt.Errorf("failed to reveal parent repository secrets: %w", err)
+		}
+		e.logger.Info(ctx, "✅ Parent repository secrets revealed successfully")
 	}
 
 	return nil
