@@ -12,7 +12,9 @@ import (
 )
 
 func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs) (*InitUserJob, error) {
-	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-mongo-db-user-init", stackName), 60, "-")
+	// Sanitize stack name to comply with Kubernetes RFC 1123 requirements (no underscores)
+	sanitizedStackName := SanitizeK8sName(stackName)
+	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-mongo-db-user-init", sanitizedStackName), 60, "-")
 	jobCredsName := util.TrimStringMiddle(fmt.Sprintf("%s-creds", jobName), 60, "-")
 
 	opts := args.Opts
