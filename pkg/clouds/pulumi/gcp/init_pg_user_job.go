@@ -11,6 +11,7 @@ import (
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 	"github.com/simple-container-com/api/pkg/util"
 )
 
@@ -44,7 +45,9 @@ type InitUserJob struct {
 }
 
 func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs) (*InitUserJob, error) {
-	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-db-user-init", stackName), 60, "-")
+	// Sanitize stack name to comply with Kubernetes RFC 1123 requirements (no underscores)
+	sanitizedStackName := kubernetes.SanitizeK8sName(stackName)
+	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-db-user-init", sanitizedStackName), 60, "-")
 	jobCredsName := util.TrimStringMiddle(fmt.Sprintf("%s-creds", jobName), 60, "-")
 
 	opts := args.Opts
