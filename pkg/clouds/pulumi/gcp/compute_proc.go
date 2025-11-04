@@ -309,8 +309,9 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			InstanceName: params.postgresName,
 			Region:       lo.FromPtr(params.config.Region),
 		}
-		cloudsqlProxyName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-")
-		namespace := params.input.StackParams.StackName
+		// Sanitize names to comply with Kubernetes RFC 1123 requirements (no underscores)
+		cloudsqlProxyName := kubernetes.SanitizeK8sName(util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-"))
+		namespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
 		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 			Name:         cloudsqlProxyName,
 			DBInstance:   dbInstanceArgs,
