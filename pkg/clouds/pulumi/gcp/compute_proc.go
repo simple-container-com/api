@@ -217,6 +217,8 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy, error) {
 	// Sanitize the name to comply with Kubernetes RFC 1123 requirements (no underscores)
 	cloudsqlProxyName := kubernetes.SanitizeK8sName(fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName))
+	// Sanitize namespace name as well
+	sanitizedNamespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
 	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 		Name: cloudsqlProxyName,
 		DBInstance: PostgresDBInstanceArgs{
@@ -226,7 +228,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 		},
 		GcpProvider:  params.gcpProvider,
 		KubeProvider: params.kubeProvider,
-		Metadata:     cloudsqlProxyMeta(params.input.StackParams.StackName, cloudsqlProxyName, params),
+		Metadata:     cloudsqlProxyMeta(sanitizedNamespace, cloudsqlProxyName, params),
 	})
 	if err != nil {
 		return nil, err
