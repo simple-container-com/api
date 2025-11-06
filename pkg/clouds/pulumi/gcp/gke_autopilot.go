@@ -87,7 +87,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		caddyfilePrefix := bucket.Name.ApplyT(func(bucketName string) string {
 			return fmt.Sprintf(`{
   storage gcs {
-    bucket %s
+    bucket-name %s
   }
 }`, bucketName)
 		}).(sdk.StringOutput)
