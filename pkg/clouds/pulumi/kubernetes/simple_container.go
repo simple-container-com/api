@@ -153,7 +153,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Namespace
 	// Sanitize namespace name to comply with Kubernetes RFC 1123 requirements
 	sanitizedNamespace := sanitizeK8sName(args.Namespace)
-	namespace, err := corev1.NewNamespace(ctx, sanitizedNamespace, &corev1.NamespaceArgs{
+	// Use deployment name as Pulumi resource name to ensure uniqueness across environments
+	// while keeping the actual K8s namespace name as specified by the user
+	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
+	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
 			Name:        sdk.String(sanitizedNamespace),
 			Labels:      sdk.ToStringMap(appLabels),
