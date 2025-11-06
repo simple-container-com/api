@@ -10,6 +10,12 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
+const (
+	// Discord's message content limit is 2000 characters
+	// We use 1900 to leave room for truncation indicator
+	maxDiscordMessageLength = 1900
+)
+
 type alertSender struct {
 	client     webhook.Client
 	webhookUrl string
@@ -44,8 +50,55 @@ func (a *alertSender) Send(alert api.Alert) error {
 		message += fmt.Sprintf("\n%s", alert.Description)
 	}
 
+	// Ensure message doesn't exceed Discord's limit
+	fullMessage := icon + message
+	if len(fullMessage) > maxDiscordMessageLength {
+		// Truncate description intelligently
+		truncationIndicator := "\n\n⚠️ **[Error details truncated - check GitHub Actions logs for full output]**"
+
+		// Calculate how much space we have for description
+		baseMessage := icon + fmt.Sprintf(" **%s** [%s](%s) for **%s** in *%s*",
+			alert.AlertType, alert.Title, alert.DetailsUrl, alert.StackName, alert.StackEnv)
+
+		if alert.CommitAuthor != "" || alert.CommitMessage != "" {
+			baseMessage += "\n"
+			if alert.CommitAuthor != "" {
+				baseMessage += fmt.Sprintf("👤 Author: %s", alert.CommitAuthor)
+			}
+			if alert.CommitMessage != "" {
+				commitMsg := alert.CommitMessage
+				if len(commitMsg) > 100 {
+					commitMsg = commitMsg[:97] + "..."
+				}
+				if alert.CommitAuthor != "" {
+					baseMessage += " • "
+				}
+				baseMessage += fmt.Sprintf("💬 %s", commitMsg)
+			}
+		}
+
+		availableSpace := maxDiscordMessageLength - len(baseMessage) - len(truncationIndicator) - 10 // safety margin
+
+		if availableSpace > 50 && alert.Description != "" {
+			// Truncate description to fit
+			truncatedDesc := alert.Description
+			if len(truncatedDesc) > availableSpace {
+				truncatedDesc = truncatedDesc[:availableSpace] + "..."
+			}
+			fullMessage = baseMessage + fmt.Sprintf("\n%s", truncatedDesc) + truncationIndicator
+		} else {
+			// Very little space, just send essentials
+			fullMessage = baseMessage + truncationIndicator
+		}
+
+		// Final safety check
+		if len(fullMessage) > maxDiscordMessageLength {
+			fullMessage = fullMessage[:maxDiscordMessageLength-3] + "..."
+		}
+	}
+
 	_, err := a.client.CreateMessage(discord.WebhookMessageCreate{
-		Content: icon + message,
+		Content: fullMessage,
 	})
 	return err
 }

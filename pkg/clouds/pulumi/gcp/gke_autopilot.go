@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"encoding/base64"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -215,8 +216,17 @@ func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, cluster
 
 	params.Log.Info(ctx.Context(), "✅ GCS bucket and service account provisioned successfully")
 
-	// Return bucket and service account key (credentials JSON)
-	return bucket, sa.ServiceAccountKey.PrivateKey, nil
+	// Decode base64-encoded service account key to get actual JSON credentials
+	// GCP's ServiceAccountKey.PrivateKey is base64-encoded, but we need the raw JSON
+	credentialsJSON := sa.ServiceAccountKey.PrivateKey.ApplyT(func(base64Key string) (string, error) {
+		decoded, err := base64.StdEncoding.DecodeString(base64Key)
+		if err != nil {
+			return "", errors.Wrapf(err, "failed to decode service account key")
+		}
+		return string(decoded), nil
+	}).(sdk.StringOutput)
+
+	return bucket, credentialsJSON, nil
 }
 
 func toKubeconfigExport(clusterName string) string {
