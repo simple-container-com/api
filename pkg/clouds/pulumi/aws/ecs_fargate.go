@@ -794,6 +794,110 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 			return errors.Wrapf(err, "failed to create max memory alert")
 		}
 	}
+
+	// ALB-specific alerts
+	lbType := aws.LoadBalancerTypeAlb
+	if lo.FromPtr(crInput.CloudExtras).LoadBalancerType != "" {
+		lbType = lo.FromPtr(crInput.CloudExtras).LoadBalancerType
+	}
+	if lbType == aws.LoadBalancerTypeAlb {
+		// Get ALB name using the same pattern as ALB creation
+		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+
+		// Server Errors (5XX) Alert
+		if alerts.ServerErrors != nil {
+			if err := createAlert(ctx, alertCfg{
+				name:           fmt.Sprintf("%s--%s", alerts.ServerErrors.AlertName, deployParams.Environment),
+				description:    alerts.ServerErrors.Description,
+				telegramConfig: alerts.Telegram,
+				discordConfig:  alerts.Discord,
+				slackConfig:    alerts.Slack,
+				deployParams:   deployParams,
+				secretSuffix:   crInput.Config.Version,
+				helpersImage:   helpersImage,
+				opts:           opts,
+				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+					ComparisonOperator: sdk.String("GreaterThanThreshold"),
+					EvaluationPeriods:  sdk.Int(2),
+					MetricName:         sdk.String("HTTPCode_ELB_5XX_Count"),
+					Namespace:          sdk.String("AWS/ApplicationELB"),
+					Threshold:          sdk.Float64(alerts.ServerErrors.Threshold),
+					Period:             sdk.Int(lo.If(alerts.ServerErrors.PeriodSec == 0, 300).Else(alerts.ServerErrors.PeriodSec)),
+					Statistic:          sdk.String("Sum"),
+					Dimensions: sdk.StringMap{
+						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+					},
+					AlarmDescription: sdk.String(alerts.ServerErrors.Description),
+					TreatMissingData: sdk.String("notBreaching"),
+				},
+			}); err != nil {
+				return errors.Wrapf(err, "failed to create server errors alert")
+			}
+		}
+
+		// Unhealthy Hosts Alert
+		if alerts.UnhealthyHosts != nil {
+			if err := createAlert(ctx, alertCfg{
+				name:           fmt.Sprintf("%s--%s", alerts.UnhealthyHosts.AlertName, deployParams.Environment),
+				description:    alerts.UnhealthyHosts.Description,
+				telegramConfig: alerts.Telegram,
+				discordConfig:  alerts.Discord,
+				slackConfig:    alerts.Slack,
+				deployParams:   deployParams,
+				secretSuffix:   crInput.Config.Version,
+				helpersImage:   helpersImage,
+				opts:           opts,
+				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+					ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
+					EvaluationPeriods:  sdk.Int(2),
+					MetricName:         sdk.String("UnHealthyHostCount"),
+					Namespace:          sdk.String("AWS/ApplicationELB"),
+					Threshold:          sdk.Float64(alerts.UnhealthyHosts.Threshold),
+					Period:             sdk.Int(lo.If(alerts.UnhealthyHosts.PeriodSec == 0, 300).Else(alerts.UnhealthyHosts.PeriodSec)),
+					Statistic:          sdk.String("Average"),
+					Dimensions: sdk.StringMap{
+						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+					},
+					AlarmDescription: sdk.String(alerts.UnhealthyHosts.Description),
+					TreatMissingData: sdk.String("notBreaching"),
+				},
+			}); err != nil {
+				return errors.Wrapf(err, "failed to create unhealthy hosts alert")
+			}
+		}
+
+		// Target Response Time Alert
+		if alerts.ResponseTime != nil {
+			if err := createAlert(ctx, alertCfg{
+				name:           fmt.Sprintf("%s--%s", alerts.ResponseTime.AlertName, deployParams.Environment),
+				description:    alerts.ResponseTime.Description,
+				telegramConfig: alerts.Telegram,
+				discordConfig:  alerts.Discord,
+				slackConfig:    alerts.Slack,
+				deployParams:   deployParams,
+				secretSuffix:   crInput.Config.Version,
+				helpersImage:   helpersImage,
+				opts:           opts,
+				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+					ComparisonOperator: sdk.String("GreaterThanThreshold"),
+					EvaluationPeriods:  sdk.Int(3),
+					MetricName:         sdk.String("TargetResponseTime"),
+					Namespace:          sdk.String("AWS/ApplicationELB"),
+					Threshold:          sdk.Float64(alerts.ResponseTime.Threshold),
+					Period:             sdk.Int(lo.If(alerts.ResponseTime.PeriodSec == 0, 300).Else(alerts.ResponseTime.PeriodSec)),
+					Statistic:          sdk.String("Average"),
+					Dimensions: sdk.StringMap{
+						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+					},
+					AlarmDescription: sdk.String(alerts.ResponseTime.Description),
+					TreatMissingData: sdk.String("notBreaching"),
+				},
+			}); err != nil {
+				return errors.Wrapf(err, "failed to create response time alert")
+			}
+		}
+	}
+
 	return nil
 }
 
