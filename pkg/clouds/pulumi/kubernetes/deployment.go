@@ -35,6 +35,8 @@ type Args struct {
 	Sidecars               []corev1.ContainerArgs
 	ComputeContext         pApi.ComputeContext
 	SecretVolumes          []k8s.SimpleTextVolume
+	SecretVolumeOutputs    []any
+	SecretEnvs             map[string]string
 	ImagePullSecret        *docker.RegistryCredentials
 	ProvisionIngress       bool
 	UseSSL                 bool
@@ -55,24 +57,19 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	}
 
 	// secret ENV
-	secretEnvs := make(map[string]string)
-	for _, v := range args.Params.ComputeContext.SecretEnvVariables() {
-		secretEnvs[v.Name] = v.Value
-	}
-	for k, v := range args.Deployment.StackConfig.Secrets {
-		secretEnvs[k] = v
-	}
+	contextSecretEnvs := lo.SliceToMap(args.Params.ComputeContext.SecretEnvVariables(), func(v pApi.ComputeEnvVariable) (string, string) {
+		return v.Name, v.Value
+	})
+	secretEnvs := lo.Assign(contextSecretEnvs, args.Deployment.StackConfig.Secrets)
 
 	// env
 	contextEnvVars := lo.Filter(args.Params.ComputeContext.EnvVariables(), func(v pApi.ComputeEnvVariable, _ int) bool {
 		_, exists := args.Deployment.StackConfig.Env[v.Name]
 		return !exists
 	})
-
-	envVars := make(map[string]string)
-	for _, v := range contextEnvVars {
-		envVars[v.Name] = v.Value
-	}
+	envVars := lo.SliceToMap(contextEnvVars, func(v pApi.ComputeEnvVariable) (string, string) {
+		return v.Name, v.Value
+	})
 
 	// persistent volumes
 	pvs := lo.FlatMap(args.Images, func(c *ContainerImage, _ int) []k8s.PersistentVolume {
@@ -83,23 +80,13 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		for _, w := range c.Container.Warnings {
 			args.Params.Log.Warn(ctx.Context(), "container %q warning: %s", c.Container.Name, w)
 		}
-		for k, v := range c.Container.Env {
-			if _, exists := secretEnvs[k]; !exists {
-				envVars[k] = v
-			}
-		}
-		for _, v := range contextEnvVars {
-			if _, exists := secretEnvs[v.Name]; !exists {
-				envVars[v.Name] = v.Value
-			}
-		}
-		for k, v := range args.Deployment.StackConfig.Env {
-			if _, exists := secretEnvs[k]; !exists {
-				envVars[k] = v
-			}
-		}
+		// Merge all env sources (container, context, stack config) and exclude secret env keys
+		containerEnvVars := lo.Assign(c.Container.Env, envVars, args.Deployment.StackConfig.Env)
+		containerEnvVars = lo.OmitByKeys(containerEnvVars, lo.Keys(secretEnvs))
+
+		// Convert to Kubernetes env var array
 		var env corev1.EnvVarArray
-		for k, v := range envVars {
+		for k, v := range containerEnvVars {
 			env = append(env, corev1.EnvVarArgs{
 				Name:  sdk.String(k),
 				Value: sdk.String(v),
@@ -174,6 +161,9 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		args.Params.Log.Warn(ctx.Context(), "failed to detect ingress container for %q in %q, service won't be exposed", stackName, stackEnv)
 	}
 
+	// Merge secret environment variables from Args with those from Deployment config
+	mergedSecretEnvs := lo.Assign(secretEnvs, args.SecretEnvs)
+
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
 		KubeProvider:           args.KubeProvider,
@@ -192,7 +182,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
 		Replicas:               replicas,
 		Headers:                args.Deployment.Headers,
-		SecretEnvs:             secretEnvs,
+		SecretEnvs:             mergedSecretEnvs,
 		LbConfig:               args.Deployment.StackConfig.LBConfig,
 		Volumes:                args.Deployment.TextVolumes,
 		PersistentVolumes:      pvs,
@@ -207,11 +197,12 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
-		RollingUpdate:   lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
-		SecurityContext: nil, // TODO
-		Log:             args.Params.Log,
-		SecretVolumes:   args.SecretVolumes,
-		ImagePullSecret: args.ImagePullSecret,
+		RollingUpdate:       lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
+		SecurityContext:     nil, // TODO
+		Log:                 args.Params.Log,
+		SecretVolumes:       args.SecretVolumes,
+		SecretVolumeOutputs: args.SecretVolumeOutputs,
+		ImagePullSecret:     args.ImagePullSecret,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
