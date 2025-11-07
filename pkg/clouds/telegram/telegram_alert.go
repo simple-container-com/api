@@ -137,19 +137,19 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 	message.WriteString(fmt.Sprintf("%s *%s*\n\n", emoji, title))
 
 	if alert.Name != "" {
-		message.WriteString(fmt.Sprintf("**Name:** %s\n", alert.Name))
+		message.WriteString(fmt.Sprintf("**Name:** %s\n", escapeMarkdown(alert.Name)))
 	}
 
 	if alert.Title != "" {
-		message.WriteString(fmt.Sprintf("**Title:** %s\n", alert.Title))
+		message.WriteString(fmt.Sprintf("**Title:** %s\n", escapeMarkdown(alert.Title)))
 	}
 
 	if alert.Description != "" {
-		message.WriteString(fmt.Sprintf("**Description:** %s\n", alert.Description))
+		message.WriteString(fmt.Sprintf("**Description:** %s\n", escapeMarkdown(alert.Description)))
 	}
 
 	if alert.Reason != "" {
-		message.WriteString(fmt.Sprintf("**Reason:** %s\n", alert.Reason))
+		message.WriteString(fmt.Sprintf("**Reason:** %s\n", escapeMarkdown(alert.Reason)))
 	}
 
 	if alert.AlertType != "" {
@@ -165,7 +165,7 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 	}
 
 	if alert.CommitAuthor != "" {
-		message.WriteString(fmt.Sprintf("**Author:** %s\n", alert.CommitAuthor))
+		message.WriteString(fmt.Sprintf("**Author:** %s\n", escapeMarkdown(alert.CommitAuthor)))
 	}
 
 	if alert.CommitMessage != "" {
@@ -174,7 +174,7 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 		if len(commitMsg) > 100 {
 			commitMsg = commitMsg[:97] + "..."
 		}
-		message.WriteString(fmt.Sprintf("**Commit:** %s\n", commitMsg))
+		message.WriteString(fmt.Sprintf("**Commit:** %s\n", escapeMarkdown(commitMsg)))
 	}
 
 	if alert.DetailsUrl != "" {
@@ -184,6 +184,32 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 	message.WriteString(fmt.Sprintf("\n⏰ *%s*", time.Now().Format("2006-01-02 15:04:05 MST")))
 
 	return message.String()
+}
+
+// escapeMarkdown escapes special Markdown characters to prevent parsing errors
+func escapeMarkdown(text string) string {
+	// Telegram Markdown special characters that need escaping
+	replacer := strings.NewReplacer(
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"~", "\\~",
+		"`", "\\`",
+		">", "\\>",
+		"#", "\\#",
+		"+", "\\+",
+		"-", "\\-",
+		"=", "\\=",
+		"|", "\\|",
+		"{", "\\{",
+		"}", "\\}",
+		".", "\\.",
+		"!", "\\!",
+	)
+	return replacer.Replace(text)
 }
 
 // truncateMessage ensures the message doesn't exceed Telegram's character limit
