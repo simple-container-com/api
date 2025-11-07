@@ -96,7 +96,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			// If user provided custom prefix, merge it
 			if gkeInput.Caddy.CaddyfilePrefix != nil && *gkeInput.Caddy.CaddyfilePrefix != "" {
 				// User prefix first, then GCS storage config
-				return fmt.Sprintf("%s\n\n%s", *gkeInput.Caddy.CaddyfilePrefix, gcsStorageConfig)
+				return fmt.Sprintf("%s\n\n%s", gcsStorageConfig, *gkeInput.Caddy.CaddyfilePrefix)
 			}
 
 			return gcsStorageConfig
