@@ -797,8 +797,8 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 
 	// ALB-specific alerts
 	lbType := aws.LoadBalancerTypeAlb
-	if lo.FromPtr(crInput.CloudExtras).LoadBalancerType != "" {
-		lbType = lo.FromPtr(crInput.CloudExtras).LoadBalancerType
+	if crInput.CloudExtras != nil && crInput.CloudExtras.LoadBalancerType != "" {
+		lbType = crInput.CloudExtras.LoadBalancerType
 	}
 	if lbType == aws.LoadBalancerTypeAlb {
 		// Get ALB name using the same pattern as ALB creation
