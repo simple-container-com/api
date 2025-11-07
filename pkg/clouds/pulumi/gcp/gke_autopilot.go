@@ -85,12 +85,21 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		}
 
 		// Build Caddyfile prefix with GCS storage configuration
+		// Merge with user-provided prefix if it exists
 		caddyfilePrefix := bucket.Name.ApplyT(func(bucketName string) string {
-			return fmt.Sprintf(`{
+			gcsStorageConfig := fmt.Sprintf(`{
   storage gcs {
     bucket-name %s
   }
 }`, bucketName)
+
+			// If user provided custom prefix, merge it
+			if gkeInput.Caddy.CaddyfilePrefix != nil && *gkeInput.Caddy.CaddyfilePrefix != "" {
+				// User prefix first, then GCS storage config
+				return fmt.Sprintf("%s\n\n%s", *gkeInput.Caddy.CaddyfilePrefix, gcsStorageConfig)
+			}
+
+			return gcsStorageConfig
 		}).(sdk.StringOutput)
 
 		// Prepare GCP credentials as a secret volume output (Pulumi output)
