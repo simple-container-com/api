@@ -86,14 +86,16 @@ const (
 )
 
 type Alert struct {
-	Name        string    `json:"name" yaml:"name"`
-	Title       string    `json:"title" yaml:"title"`
-	Reason      string    `json:"reason" yaml:"reason"`
-	Description string    `json:"description" yaml:"description"`
-	StackName   string    `json:"stackName" yaml:"stackName"`
-	StackEnv    string    `json:"stackEnv" yaml:"stackEnv"`
-	DetailsUrl  string    `json:"detailsUrl" yaml:"detailsUrl"`
-	AlertType   AlertType `json:"alertType" yaml:"alertType"`
+	Name          string    `json:"name" yaml:"name"`
+	Title         string    `json:"title" yaml:"title"`
+	Reason        string    `json:"reason" yaml:"reason"`
+	Description   string    `json:"description" yaml:"description"`
+	StackName     string    `json:"stackName" yaml:"stackName"`
+	StackEnv      string    `json:"stackEnv" yaml:"stackEnv"`
+	DetailsUrl    string    `json:"detailsUrl" yaml:"detailsUrl"`
+	AlertType     AlertType `json:"alertType" yaml:"alertType"`
+	CommitAuthor  string    `json:"commitAuthor,omitempty" yaml:"commitAuthor,omitempty"`
+	CommitMessage string    `json:"commitMessage,omitempty" yaml:"commitMessage,omitempty"`
 }
 
 type AlertSender interface {

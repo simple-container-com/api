@@ -6,11 +6,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
+)
+
+const (
+	// Telegram API limit is 4096 characters per message
+	// We use 4000 to leave room for truncation indicator
+	maxTelegramMessageLength = 4000
 )
 
 type alertSender struct {
@@ -35,6 +42,9 @@ func (a *alertSender) Send(alert api.Alert) error {
 
 	// Format the alert message with proper Telegram formatting
 	message := a.formatAlertMessage(alert)
+
+	// Ensure message doesn't exceed Telegram's limit
+	message = a.truncateMessage(message)
 
 	// Create the request payload
 	telegramMsg := TelegramMessage{
@@ -127,19 +137,19 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 	message.WriteString(fmt.Sprintf("%s *%s*\n\n", emoji, title))
 
 	if alert.Name != "" {
-		message.WriteString(fmt.Sprintf("**Name:** %s\n", alert.Name))
+		message.WriteString(fmt.Sprintf("**Name:** %s\n", escapeMarkdown(alert.Name)))
 	}
 
 	if alert.Title != "" {
-		message.WriteString(fmt.Sprintf("**Title:** %s\n", alert.Title))
+		message.WriteString(fmt.Sprintf("**Title:** %s\n", escapeMarkdown(alert.Title)))
 	}
 
 	if alert.Description != "" {
-		message.WriteString(fmt.Sprintf("**Description:** %s\n", alert.Description))
+		message.WriteString(fmt.Sprintf("**Description:** %s\n", escapeMarkdown(alert.Description)))
 	}
 
 	if alert.Reason != "" {
-		message.WriteString(fmt.Sprintf("**Reason:** %s\n", alert.Reason))
+		message.WriteString(fmt.Sprintf("**Reason:** %s\n", escapeMarkdown(alert.Reason)))
 	}
 
 	if alert.AlertType != "" {
@@ -154,6 +164,19 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 		message.WriteString(fmt.Sprintf("**Environment:** `%s`\n", alert.StackEnv))
 	}
 
+	if alert.CommitAuthor != "" {
+		message.WriteString(fmt.Sprintf("**Author:** %s\n", escapeMarkdown(alert.CommitAuthor)))
+	}
+
+	if alert.CommitMessage != "" {
+		// Truncate long commit messages to first line
+		commitMsg := alert.CommitMessage
+		if len(commitMsg) > 100 {
+			commitMsg = commitMsg[:97] + "..."
+		}
+		message.WriteString(fmt.Sprintf("**Commit:** %s\n", escapeMarkdown(commitMsg)))
+	}
+
 	if alert.DetailsUrl != "" {
 		message.WriteString(fmt.Sprintf("**Details:** %s\n", alert.DetailsUrl))
 	}
@@ -161,6 +184,159 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 	message.WriteString(fmt.Sprintf("\n⏰ *%s*", time.Now().Format("2006-01-02 15:04:05 MST")))
 
 	return message.String()
+}
+
+// escapeMarkdown escapes special Markdown characters to prevent parsing errors
+func escapeMarkdown(text string) string {
+	// Telegram Markdown special characters that need escaping
+	replacer := strings.NewReplacer(
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"~", "\\~",
+		"`", "\\`",
+		">", "\\>",
+		"#", "\\#",
+		"+", "\\+",
+		"-", "\\-",
+		"=", "\\=",
+		"|", "\\|",
+		"{", "\\{",
+		"}", "\\}",
+		".", "\\.",
+		"!", "\\!",
+	)
+	return replacer.Replace(text)
+}
+
+// truncateMessage ensures the message doesn't exceed Telegram's character limit
+// while preserving the most important information
+func (a *alertSender) truncateMessage(message string) string {
+	if len(message) <= maxTelegramMessageLength {
+		return message
+	}
+
+	// Message is too long, need to truncate intelligently
+	// Strategy: Keep header info, truncate Description/Reason, keep footer
+
+	lines := strings.Split(message, "\n")
+	if len(lines) < 3 {
+		// Simple truncation if message structure is unexpected
+		return message[:maxTelegramMessageLength-50] + "\n\n⚠️ *[Message truncated due to length]*"
+	}
+
+	// Find where Description and Reason fields are
+	var headerLines []string
+	var footerLines []string
+	var descriptionLines []string
+	var reasonLines []string
+
+	inDescription := false
+	inReason := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "**Description:**") {
+			inDescription = true
+			inReason = false
+			descriptionLines = append(descriptionLines, line)
+			continue
+		} else if strings.HasPrefix(trimmed, "**Reason:**") {
+			inDescription = false
+			inReason = true
+			reasonLines = append(reasonLines, line)
+			continue
+		} else if strings.HasPrefix(trimmed, "**Type:**") ||
+			strings.HasPrefix(trimmed, "**Stack:**") ||
+			strings.HasPrefix(trimmed, "**Environment:**") ||
+			strings.HasPrefix(trimmed, "**Details:**") ||
+			strings.HasPrefix(trimmed, "⏰") {
+			inDescription = false
+			inReason = false
+			footerLines = append(footerLines, line)
+			continue
+		}
+
+		if inDescription {
+			descriptionLines = append(descriptionLines, line)
+		} else if inReason {
+			reasonLines = append(reasonLines, line)
+		} else if i < len(lines)/2 {
+			// Lines before middle are probably header
+			headerLines = append(headerLines, line)
+		} else {
+			// Lines in second half go to footer
+			footerLines = append(footerLines, line)
+		}
+	}
+
+	// Calculate available space for Description and Reason
+	headerSize := len(strings.Join(headerLines, "\n"))
+	footerSize := len(strings.Join(footerLines, "\n"))
+	truncationIndicator := "\n\n⚠️ *[Error details truncated - check GitHub Actions logs for full output]*"
+
+	availableSpace := maxTelegramMessageLength - headerSize - footerSize - len(truncationIndicator) - 100 // safety margin
+
+	if availableSpace < 200 {
+		// Very little space, just keep essentials
+		essentialLines := []string{}
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "🚨") || strings.HasPrefix(trimmed, "❌") ||
+				strings.HasPrefix(trimmed, "✅") || strings.HasPrefix(trimmed, "🔨") ||
+				strings.HasPrefix(trimmed, "🎉") || strings.HasPrefix(trimmed, "⏸️") ||
+				strings.HasPrefix(trimmed, "**Name:**") ||
+				strings.HasPrefix(trimmed, "**Title:**") ||
+				strings.HasPrefix(trimmed, "**Type:**") ||
+				strings.HasPrefix(trimmed, "**Stack:**") ||
+				strings.HasPrefix(trimmed, "**Environment:**") ||
+				strings.HasPrefix(trimmed, "**Details:**") ||
+				strings.HasPrefix(trimmed, "⏰") {
+				essentialLines = append(essentialLines, line)
+			}
+		}
+		result := strings.Join(essentialLines, "\n") + truncationIndicator
+		if len(result) > maxTelegramMessageLength {
+			return result[:maxTelegramMessageLength-3] + "..."
+		}
+		return result
+	}
+
+	// Truncate Description and Reason to fit available space
+	var truncatedDetails []string
+
+	if len(descriptionLines) > 0 {
+		descText := strings.Join(descriptionLines, "\n")
+		if len(descText) > availableSpace/2 {
+			descText = descText[:availableSpace/2] + "..."
+		}
+		truncatedDetails = append(truncatedDetails, descText)
+	}
+
+	if len(reasonLines) > 0 {
+		reasonText := strings.Join(reasonLines, "\n")
+		if len(reasonText) > availableSpace/2 {
+			reasonText = reasonText[:availableSpace/2] + "..."
+		}
+		truncatedDetails = append(truncatedDetails, reasonText)
+	}
+
+	// Reconstruct message
+	result := strings.Join(headerLines, "\n") + "\n" +
+		strings.Join(truncatedDetails, "\n") +
+		truncationIndicator + "\n" +
+		strings.Join(footerLines, "\n")
+
+	// Final safety check
+	if len(result) > maxTelegramMessageLength {
+		return result[:maxTelegramMessageLength-3] + "..."
+	}
+
+	return result
 }
 
 func New(chatId, token string) api.AlertSender {

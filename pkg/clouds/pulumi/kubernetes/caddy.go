@@ -20,8 +20,20 @@ import (
 
 type CaddyDeployment struct {
 	*k8s.CaddyConfig
-	ClusterName     string
-	ClusterResource sdk.Resource
+	ClusterName        string
+	ClusterResource    sdk.Resource
+	CaddyfilePrefixOut sdk.StringOutput // Dynamic Caddyfile prefix for cloud storage (e.g., GCS config from GCP)
+	// Cloud-specific configuration (following SimpleContainer patterns)
+	SecretEnvs          map[string]string      // Secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS=/etc/gcp/credentials.json)
+	SecretVolumes       []k8s.SimpleTextVolume // Secret volumes to mount (e.g., GCP credentials)
+	SecretVolumeOutputs []any                  // Pulumi outputs for secret volumes
+}
+
+// isPulumiOutputSet checks if a Pulumi StringOutput has been initialized with a value
+// This is safer than directly checking ElementType() on potentially uninitialized outputs
+func isPulumiOutputSet(output sdk.StringOutput) bool {
+	// Check if the output's element type is set (indicates it was initialized)
+	return output.ElementType() != nil
 }
 
 func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -61,7 +73,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	namespace := lo.If(caddy.Namespace != nil, lo.FromPtr(caddy.Namespace)).Else(deploymentName)
 	caddyImage := lo.If(caddy.Image != nil, lo.FromPtr(caddy.Image)).Else(fmt.Sprintf("simplecontainer/caddy:%s", build.Version))
 
-	// TODO: provision private bucket for certs storage
+	// Prepare Caddy volumes (embedded config)
 	var caddyVolumes []k8s.SimpleTextVolume
 	caddyVolumes, err = EmbedFSToTextVolumes(caddyVolumes, Caddyconfig, "embed/caddy", "/etc/caddy")
 	if err != nil {
@@ -90,15 +102,14 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to crate service account for caddy")
 	}
+
+	// Build Caddy container configuration
 	caddyContainer := k8s.CloudRunContainer{
 		Name:    deploymentName,
 		Command: []string{"caddy", "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile"},
 		Image: api.ContainerImage{
 			Name:     caddyImage,
 			Platform: api.ImagePlatformLinuxAmd64,
-		},
-		Secrets: map[string]string{
-			"GOOGLE_APPLICATION_CREDENTIALS": "/gcp-credentials.json",
 		},
 		Ports:    []int{443, 80},
 		MainPort: lo.ToPtr(80),
@@ -117,23 +128,49 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 				SubPath:   sdk.String("Caddyfile"),
 			},
 		},
-		Env: corev1.EnvVarArray{
-			corev1.EnvVarArgs{
-				Name:  sdk.String("DEFAULT_ENTRY_START"),
-				Value: sdk.String(defaultCaddyFileEntryStart),
-			},
-			corev1.EnvVarArgs{
-				Name:  sdk.String("DEFAULT_ENTRY"),
-				Value: sdk.String(defaultCaddyFileEntry),
-			},
-			corev1.EnvVarArgs{
-				Name:  sdk.String("USE_PREFIXES"),
-				Value: sdk.String(fmt.Sprintf("%t", caddy.UsePrefixes)),
-			},
-		},
+		Env: func() corev1.EnvVarArray {
+			envVars := corev1.EnvVarArray{
+				corev1.EnvVarArgs{
+					Name:  sdk.String("DEFAULT_ENTRY_START"),
+					Value: sdk.String(defaultCaddyFileEntryStart),
+				},
+				corev1.EnvVarArgs{
+					Name:  sdk.String("DEFAULT_ENTRY"),
+					Value: sdk.String(defaultCaddyFileEntry),
+				},
+				corev1.EnvVarArgs{
+					Name:  sdk.String("USE_PREFIXES"),
+					Value: sdk.String(fmt.Sprintf("%t", caddy.UsePrefixes)),
+				},
+			}
+
+			// Add Caddyfile prefix - prefer dynamic output over static config
+			if isPulumiOutputSet(caddy.CaddyfilePrefixOut) {
+				// Use dynamic Caddyfile prefix from cloud provider (e.g., GCS storage config)
+				envVars = append(envVars, corev1.EnvVarArgs{
+					Name:  sdk.String("CADDYFILE_PREFIX"),
+					Value: caddy.CaddyfilePrefixOut.ToStringOutput(),
+				})
+			} else if caddy.CaddyfilePrefix != nil {
+				// Use static Caddyfile prefix from config
+				envVars = append(envVars, corev1.EnvVarArgs{
+					Name:  sdk.String("CADDYFILE_PREFIX"),
+					Value: sdk.String(lo.FromPtr(caddy.CaddyfilePrefix)),
+				})
+			}
+
+			return envVars
+		}(),
 		Command: sdk.ToStringArray([]string{"bash", "-c", `
 	      set -xe;
 	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
+	      
+	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
+	      if [ -n "$CADDYFILE_PREFIX" ]; then
+	        echo "$CADDYFILE_PREFIX" >> /tmp/Caddyfile
+	        echo "" >> /tmp/Caddyfile
+	      fi
+	      
 	      namespaces=$(kubectl get services --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' | uniq)
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
           if [ "$USE_PREFIXES" == "false" ]; then
@@ -158,27 +195,47 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	if caddy.ClusterResource != nil {
 		addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{caddy.ClusterResource}))
 	}
+
 	serviceType := lo.ToPtr("LoadBalancer")
 	if lo.FromPtr(caddy.CaddyConfig).ServiceType != nil {
 		serviceType = lo.FromPtr(caddy.CaddyConfig).ServiceType
 	}
-	sc, err := DeploySimpleContainer(ctx, Args{
-		ServiceType:        serviceType, // to provision external IP
-		ProvisionIngress:   caddy.ProvisionIngress,
-		UseSSL:             useSSL,
-		Namespace:          namespace,
-		DeploymentName:     deploymentName,
-		Input:              input,
-		ServiceAccountName: lo.ToPtr(serviceAccount.Name),
-		Deployment: k8s.DeploymentConfig{
-			StackConfig:      &api.StackConfigCompose{},
-			Containers:       []k8s.CloudRunContainer{caddyContainer},
-			IngressContainer: &caddyContainer,
-			Scale: &k8s.Scale{
-				Replicas: lo.If(caddy.Replicas != nil, lo.FromPtr(caddy.Replicas)).Else(1),
-			},
-			TextVolumes: caddyVolumes,
+
+	// Prepare deployment config
+	deploymentConfig := k8s.DeploymentConfig{
+		StackConfig:      &api.StackConfigCompose{Env: make(map[string]string)},
+		Containers:       []k8s.CloudRunContainer{caddyContainer},
+		IngressContainer: &caddyContainer,
+		Scale: &k8s.Scale{
+			Replicas: lo.If(caddy.Replicas != nil, lo.FromPtr(caddy.Replicas)).Else(1),
 		},
+		TextVolumes: caddyVolumes,
+	}
+
+	// Prepare secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS for GCP)
+	secretEnvs := make(map[string]string)
+	if len(caddy.SecretEnvs) > 0 {
+		// Log secret environment variable names (not values for security)
+		secretEnvNames := make([]string, 0, len(caddy.SecretEnvs))
+		for k, v := range caddy.SecretEnvs {
+			secretEnvs[k] = v
+			secretEnvNames = append(secretEnvNames, k)
+		}
+		params.Log.Info(ctx.Context(), "🔐 Adding %d secret environment variables to Caddy: %v", len(caddy.SecretEnvs), secretEnvNames)
+	}
+
+	sc, err := DeploySimpleContainer(ctx, Args{
+		ServiceType:         serviceType, // to provision external IP
+		ProvisionIngress:    caddy.ProvisionIngress,
+		UseSSL:              useSSL,
+		Namespace:           namespace,
+		DeploymentName:      deploymentName,
+		Input:               input,
+		ServiceAccountName:  lo.ToPtr(serviceAccount.Name),
+		Deployment:          deploymentConfig,
+		SecretVolumes:       caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
+		SecretVolumeOutputs: caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
+		SecretEnvs:          secretEnvs,                // Secret environment variables
 		Images: []*ContainerImage{
 			{
 				Container: caddyContainer,

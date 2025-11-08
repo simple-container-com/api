@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,11 +29,26 @@ type deployChartCfg struct {
 	values    map[string]any
 }
 
+// SanitizeK8sName sanitizes a name to comply with Kubernetes RFC 1123 label requirements.
+// RFC 1123 labels must consist of lowercase alphanumeric characters or '-',
+// and must start and end with an alphanumeric character.
+// Regex: [a-z0-9]([-a-z0-9]*[a-z0-9])?
+func SanitizeK8sName(name string) string {
+	// Replace underscores with hyphens to comply with RFC 1123
+	return strings.ReplaceAll(name, "_", "-")
+}
+
+// sanitizeK8sName is an internal helper that calls the exported function
+func sanitizeK8sName(name string) string {
+	return SanitizeK8sName(name)
+}
+
 func ensureNamespace(ctx *sdk.Context, input api.ResourceInput, params pApi.ProvisionParams, namespace string) (*corev1.Namespace, error) {
 	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
-	return corev1.NewNamespace(ctx, fmt.Sprintf("create-ns-%s-%s", namespace, input.ToResName(input.Descriptor.Name)), &corev1.NamespaceArgs{
+	sanitizedNamespace := sanitizeK8sName(namespace)
+	return corev1.NewNamespace(ctx, fmt.Sprintf("create-ns-%s-%s", sanitizedNamespace, input.ToResName(input.Descriptor.Name)), &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
-			Name: sdk.String(namespace),
+			Name: sdk.String(sanitizedNamespace),
 		},
 	}, opts...)
 }

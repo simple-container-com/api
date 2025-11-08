@@ -30,7 +30,8 @@ type DeploymentConfig struct {
 
 type CaddyConfig struct {
 	Enable           *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
-	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"` // TODO: support overwriting
+	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`             // TODO: support overwriting
+	CaddyfilePrefix  *string `json:"caddyfilePrefix,omitempty" yaml:"caddyfilePrefix,omitempty"` // custom content to inject at the top of Caddyfile (e.g., storage configuration)
 	Namespace        *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Image            *string `json:"image,omitempty" yaml:"image,omitempty"`
 	Replicas         *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`

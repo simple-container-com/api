@@ -23,7 +23,9 @@ type SimpleServiceAccount struct {
 
 func NewSimpleServiceAccount(ctx *sdk.Context, name string, args *SimpleServiceAccountArgs, opts ...sdk.ResourceOption) (*SimpleServiceAccount, error) {
 	account := &SimpleServiceAccount{}
-	err := ctx.RegisterComponentResource("pkg:k8s/extensions:simpleServiceAccount", name, account, opts...)
+	// Sanitize name to comply with Kubernetes RFC 1123 requirements (no underscores)
+	sanitizedName := SanitizeK8sName(name)
+	err := ctx.RegisterComponentResource("pkg:k8s/extensions:simpleServiceAccount", sanitizedName, account, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -32,12 +34,15 @@ func NewSimpleServiceAccount(ctx *sdk.Context, name string, args *SimpleServiceA
 	if namespace == "" {
 		namespace = "default"
 	}
+	// Also sanitize namespace
+	namespace = SanitizeK8sName(namespace)
 
 	// Create ServiceAccount
-	serviceAccount, err := corev1.NewServiceAccount(ctx, name, &corev1.ServiceAccountArgs{
+	serviceAccount, err := corev1.NewServiceAccount(ctx, sanitizedName, &corev1.ServiceAccountArgs{
 		AutomountServiceAccountToken: sdk.Bool(true),
 		Metadata: &metav1.ObjectMetaArgs{
 			Namespace: sdk.String(namespace),
+			Name:      sdk.String(sanitizedName),
 		},
 	}, opts...)
 	if err != nil {
@@ -55,8 +60,9 @@ func NewSimpleServiceAccount(ctx *sdk.Context, name string, args *SimpleServiceA
 		verbs = []string{"get", "list"}
 	}
 
-	saClusterRole, err := rbacv1.NewClusterRole(ctx, name, &rbacv1.ClusterRoleArgs{
+	saClusterRole, err := rbacv1.NewClusterRole(ctx, sanitizedName, &rbacv1.ClusterRoleArgs{
 		Metadata: &metav1.ObjectMetaArgs{
+			Name:      sdk.String(sanitizedName),
 			Namespace: serviceAccount.Metadata.Namespace().Elem(),
 		},
 		Rules: rbacv1.PolicyRuleArray{
@@ -72,7 +78,7 @@ func NewSimpleServiceAccount(ctx *sdk.Context, name string, args *SimpleServiceA
 	}
 
 	// Bind the ServiceAccount to the ClusterRole via ClusterRoleBinding
-	saRbacName, err := rbacv1.NewClusterRoleBinding(ctx, name, &rbacv1.ClusterRoleBindingArgs{
+	saRbacName, err := rbacv1.NewClusterRoleBinding(ctx, sanitizedName, &rbacv1.ClusterRoleBindingArgs{
 		RoleRef: &rbacv1.RoleRefArgs{
 			Kind:     sdk.String("ClusterRole"),
 			Name:     saClusterRole.Metadata.Name().Elem(),

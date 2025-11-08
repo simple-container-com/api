@@ -51,33 +51,61 @@ func (e *Executor) executeOperation(ctx context.Context, config OperationConfig)
 	// Phase 1: Setup and logging
 	e.logOperationStart(ctx, config)
 
-	// Phase 2: Send start notification
-	e.sendStartAlert(ctx, config)
-
-	// Phase 3: Repository and configuration setup
+	// Phase 2: Repository and configuration setup (needed for notifications)
 	if err := e.setupRepositoryAndConfig(ctx, config); err != nil {
-		e.sendFailureAlert(ctx, config, err, time.Since(startTime))
+		// Cannot send notifications yet - provisioner not configured
+		e.logger.Error(ctx, "Setup failed: %v", err)
 		return err
 	}
 
-	// Phase 4: Secret revelation
+	// Phase 3: Secret revelation (needed for notification credentials)
 	if err := e.revealSecrets(ctx, config); err != nil {
-		e.sendFailureAlert(ctx, config, err, time.Since(startTime))
+		// Cannot send notifications yet - secrets not revealed
+		e.logger.Error(ctx, "Secret revelation failed: %v", err)
 		return err
 	}
 
-	// Phase 5: Load stacks and initialize notifications
+	// Phase 4: Load stacks and initialize notifications
+	// CRITICAL: This must happen BEFORE sending any notifications
 	isClientOp := config.Scope == ScopeClient
 	if err := e.loadStacksForNotifications(ctx, config.StackName, config.Env, isClientOp); err != nil {
 		e.logger.Warn(ctx, "Failed to load stacks for notifications: %v", err)
 	}
 	e.initializeNotifications(ctx)
 
+	// Phase 5: Send start notification (now notifications are initialized)
+	e.sendStartAlert(ctx, config)
+
 	// Phase 6: Execute the actual operation
+	e.logger.Info(ctx, "🔧 Starting operation execution phase...")
 	if err := e.performOperation(ctx, config); err != nil {
+		e.logger.Error(ctx, "❌ Operation failed: %v", err)
+		e.logger.Info(ctx, "📢 Sending failure notification...")
+
+		// Debug: Check notification sender status
+		notificationStatus := []string{}
+		if e.slackSender != nil {
+			notificationStatus = append(notificationStatus, "Slack:✅")
+		} else {
+			notificationStatus = append(notificationStatus, "Slack:❌")
+		}
+		if e.discordSender != nil {
+			notificationStatus = append(notificationStatus, "Discord:✅")
+		} else {
+			notificationStatus = append(notificationStatus, "Discord:❌")
+		}
+		if e.telegramSender != nil {
+			notificationStatus = append(notificationStatus, "Telegram:✅")
+		} else {
+			notificationStatus = append(notificationStatus, "Telegram:❌")
+		}
+		e.logger.Info(ctx, "📊 Notification channels status: %v", notificationStatus)
+
 		e.sendFailureAlert(ctx, config, err, time.Since(startTime))
+		e.logger.Info(ctx, "✅ Failure notification sent (or attempted)")
 		return err
 	}
+	e.logger.Info(ctx, "✅ Operation completed successfully")
 
 	// Phase 7: Success notification and outputs
 	duration := time.Since(startTime)

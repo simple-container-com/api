@@ -184,7 +184,10 @@ func createArtifactRegistryServiceAccount(ctx *sdk.Context, args arServiceAccoun
 	params.Log.Info(ctx.Context(), "configure service account for %s access to %q...", args.saType, registryName)
 
 	// need to generate SA name that matches GCP rules
-	saName := fmt.Sprintf("%s-%s-sa", args.saType, strings.ReplaceAll(registryName, "-", ""))
+	// GCP service account IDs must match: ^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$
+	// Replace underscores with hyphens to comply with GCP naming requirements
+	sanitizedRegistryName := strings.ReplaceAll(strings.ReplaceAll(registryName, "_", "-"), "-", "")
+	saName := fmt.Sprintf("%s-%s-sa", args.saType, sanitizedRegistryName)
 	saName = strings.ReplaceAll(util.TrimStringMiddle(saName, 28, "-"), "--", "-")
 
 	sa, err := serviceaccount.NewAccount(ctx, saName, &serviceaccount.AccountArgs{

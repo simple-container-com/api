@@ -318,34 +318,68 @@ func (e *Executor) initializeFromEnvironmentVariables(ctx context.Context) {
 
 // sendAlert sends notifications using SC's internal alert system
 func (e *Executor) sendAlert(ctx context.Context, alertType api.AlertType, title, description, stackName, stackEnv string) {
+	e.logger.Debug(ctx, "🔔 sendAlert called - Type: %s, Title: %s", alertType, title)
+
 	// Create alert payload using SC's alert structure
 	alert := api.Alert{
-		Name:        fmt.Sprintf("%s-%s", stackName, stackEnv),
-		Title:       title,
-		Reason:      fmt.Sprintf("GitHub Action: %s", os.Getenv("GITHUB_WORKFLOW")),
-		Description: description,
-		StackName:   stackName,
-		StackEnv:    stackEnv,
-		DetailsUrl:  fmt.Sprintf("https://github.com/%s/actions/runs/%s", os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")),
-		AlertType:   alertType,
+		Name:          fmt.Sprintf("%s-%s", stackName, stackEnv),
+		Title:         title,
+		Reason:        fmt.Sprintf("GitHub Action: %s", os.Getenv("GITHUB_WORKFLOW")),
+		Description:   description,
+		StackName:     stackName,
+		StackEnv:      stackEnv,
+		DetailsUrl:    fmt.Sprintf("https://github.com/%s/actions/runs/%s", os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")),
+		AlertType:     alertType,
+		CommitAuthor:  os.Getenv("COMMIT_AUTHOR"),
+		CommitMessage: os.Getenv("COMMIT_MESSAGE"),
 	}
+
+	sentCount := 0
+	attemptedCount := 0
 
 	// Send to all configured notification channels using SC's alert senders
 	if e.slackSender != nil {
+		attemptedCount++
+		e.logger.Debug(ctx, "📤 Attempting to send Slack notification...")
 		if err := e.slackSender.Send(alert); err != nil {
 			e.logger.Warn(ctx, "Failed to send Slack notification: %v", err)
+		} else {
+			sentCount++
+			e.logger.Debug(ctx, "✅ Slack notification sent successfully")
 		}
+	} else {
+		e.logger.Debug(ctx, "⏭️  Skipping Slack - sender is nil")
 	}
 
 	if e.discordSender != nil {
+		attemptedCount++
+		e.logger.Debug(ctx, "📤 Attempting to send Discord notification...")
 		if err := e.discordSender.Send(alert); err != nil {
 			e.logger.Warn(ctx, "Failed to send Discord notification: %v", err)
+		} else {
+			sentCount++
+			e.logger.Debug(ctx, "✅ Discord notification sent successfully")
 		}
+	} else {
+		e.logger.Debug(ctx, "⏭️  Skipping Discord - sender is nil")
 	}
 
 	if e.telegramSender != nil {
+		attemptedCount++
+		e.logger.Debug(ctx, "📤 Attempting to send Telegram notification...")
 		if err := e.telegramSender.Send(alert); err != nil {
 			e.logger.Warn(ctx, "Failed to send Telegram notification: %v", err)
+		} else {
+			sentCount++
+			e.logger.Debug(ctx, "✅ Telegram notification sent successfully")
 		}
+	} else {
+		e.logger.Debug(ctx, "⏭️  Skipping Telegram - sender is nil")
+	}
+
+	e.logger.Info(ctx, "📊 Notification summary: %d sent / %d attempted / %d configured", sentCount, attemptedCount, attemptedCount)
+
+	if attemptedCount == 0 {
+		e.logger.Warn(ctx, "⚠️  No notification channels configured - alert not sent!")
 	}
 }
