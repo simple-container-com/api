@@ -28,3 +28,5 @@ pkg/clouds/pulumi/testdata/secrets/mongodb-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/docker-creds.yaml
 .windsurf
 .claude
+
+.sc/stacks/test-ed25519-stack/secrets.yaml
