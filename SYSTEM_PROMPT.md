@@ -1442,3 +1442,16 @@ templates:
   - ✅ `TestLLMEnhancement`: Both LLM tests passing (without LLM provider, with mock LLM provider interface)
 - **Impact**: CI/CD pipeline now passes consistently, analyzer provides correct resource recommendations, and LLM integration handles all response formats properly
 - **Status**: ✅ **PRODUCTION READY** - All analyzer integration tests passing with enhanced functionality
+
+### **ed25519 SSH Key Support Fix (2025-11-08)**
+- **Problem**: Simple Container secrets management could encrypt secrets using ed25519 SSH keys but failed during decryption with error `unsupported private key type: *ed25519.PrivateKey`
+- **Root Cause**: Type assertion mismatch in `pkg/api/secrets/management.go` - code was checking for `ed25519.PrivateKey` (value type) but `ssh.ParseRawPrivateKey()` returns `*ed25519.PrivateKey` (pointer type) for ed25519 keys
+- **Investigation**: Created debug script revealing that `ssh.ParseRawPrivateKey()` returns pointer types for both RSA (`*rsa.PrivateKey`) and ed25519 (`*ed25519.PrivateKey`) keys
+- **Solution Applied**: Fixed type assertion and pointer dereferencing in lines 435-436:
+  - **Before**: `rawKey.(ed25519.PrivateKey)` → `ciphers.DecryptLargeStringWithEd25519(ed25519Key, encryptedData)`
+  - **After**: `rawKey.(*ed25519.PrivateKey)` → `ciphers.DecryptLargeStringWithEd25519(*ed25519Key, encryptedData)`
+- **Testing Results**: Complete workflow verified - key generation, SC configuration, encryption (`sc secrets add`), storage, and decryption (`sc secrets reveal`) all working with ed25519 keys
+- **Impact**: Enables full ed25519 SSH key support providing users with modern, secure, and efficient cryptographic options alongside existing RSA support
+- **Benefits**: ed25519 keys offer better security properties, better performance, and smaller key size compared to RSA keys
+- **Files Modified**: `pkg/api/secrets/management.go` - Fixed ed25519 key type assertion and pointer handling
+- **Status**: ✅ **PRODUCTION READY** - Complete Simple Container secrets workflow now supports both RSA and ed25519 SSH keys seamlessly
