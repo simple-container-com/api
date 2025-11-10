@@ -1,0 +1,69 @@
+# Mixed Configuration Example
+# This example shows how you can mix legacy and new configuration approaches
+
+schemaVersion: "1.0"
+stacks:
+  production:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Mixed approach: some explicit, some legacy, some defaults
+      size:
+        name: "mixed"
+        
+        # Legacy CPU field (used as limit)
+        cpu: "2000"      # CPU limit: 2000m = 2 CPU cores
+        
+        # Explicit memory configuration
+        limits:
+          memory: "4096" # Memory limit: 4GB
+        requests:
+          cpu: "500"     # CPU request: 0.5 CPU cores (overrides 50% default)
+          memory: "1024" # Memory request: 1GB
+        
+        # Result:
+        # - CPU: limit=2000m (from legacy), request=500m (explicit)
+        # - Memory: limit=4096MB (explicit), request=1024MB (explicit)
+
+  staging:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Another mixed example
+      size:
+        name: "partial"
+        
+        # Legacy fields as fallback
+        cpu: "1000"      # CPU limit fallback
+        memory: "2048"   # Memory limit fallback
+        
+        # Override only limits, let requests use 50% default
+        limits:
+          cpu: "1500"    # Override CPU limit to 1.5 cores
+          # memory limit uses legacy value: 2048MB
+        
+        # No explicit requests - will use 50% of limits:
+        # - CPU request: 750m (50% of 1500m)
+        # - Memory request: 1024MB (50% of 2048MB)
+
+  development:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Minimal explicit configuration
+      size:
+        name: "dev"
+        requests:
+          cpu: "100"     # Only specify what we need guaranteed
+          memory: "256"  # Minimal memory request
+        
+        # No limits specified - will use defaults:
+        # - CPU limit: 256m (default)
+        # - Memory limit: 512MB (default)
+        # But our explicit requests take precedence

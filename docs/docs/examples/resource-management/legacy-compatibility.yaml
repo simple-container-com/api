@@ -1,0 +1,37 @@
+# Legacy Compatibility Example
+# This example shows how existing configurations continue to work unchanged
+
+schemaVersion: "1.0"
+stacks:
+  production:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Legacy configuration (still fully supported)
+      # These values are used as limits, with requests set to 50% automatically
+      size:
+        name: "medium"
+        cpu: "1000"      # Used as limit: 1000m = 1 CPU core
+                         # Request automatically set to: 500m = 0.5 CPU cores
+        memory: "2048"   # Used as limit: 2048MB = 2GB
+                         # Request automatically set to: 1024MB = 1GB
+        ephemeral: "1024" # Used as limit: 1GB ephemeral storage
+                         # Request automatically set to: 512MB
+
+  staging:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Another legacy configuration example
+      size:
+        name: "small"
+        cpu: "500"       # Limit: 0.5 CPU cores, Request: 0.25 CPU cores (50%)
+        memory: "1024"   # Limit: 1GB, Request: 512MB (50%)
+
+# Result: 
+# - production: limits(cpu: 1000m, memory: 2Gi), requests(cpu: 500m, memory: 1Gi)
+# - staging: limits(cpu: 500m, memory: 1Gi), requests(cpu: 250m, memory: 512Mi)

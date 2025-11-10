@@ -1,6 +1,7 @@
 package cicd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,30 +46,54 @@ func getParentRepositoryInfo(serverDesc *api.ServerDescriptor, stackName string)
 // checkParentRepositoryConfig reads SC configuration to find parent repository information
 // Follows SC's standard configuration reading patterns, checking both SC_CONFIG env var and local files
 func checkParentRepositoryConfig(stackName string) *ParentRepositoryInfo {
+	return checkParentRepositoryConfigWithLogging(context.Background(), nil, stackName)
+}
+
+// checkParentRepositoryConfigWithLogging reads SC configuration with debug logging
+func checkParentRepositoryConfigWithLogging(ctx context.Context, logger Logger, stackName string) *ParentRepositoryInfo {
+	// Use logger if available
+	logDebug := func(format string, args ...interface{}) {
+		if logger != nil {
+			logger.Debug(ctx, format, args...)
+		}
+	}
+
+	logDebug("checkParentRepositoryConfig called for stack: %s", stackName)
+
 	// First, try to read from SC_CONFIG environment variable (GitHub Actions scenario)
+	logDebug("Trying to read from SC_CONFIG environment variable")
 	config, err := readConfigFromSCConfigEnv()
 	if err != nil {
+		logDebug("SC_CONFIG failed: %v, falling back to local config files", err)
 		// Fall back to local configuration files
+		logDebug("Trying to read local config file with default profile")
 		config, err = api.ReadConfigFile(".", "default")
 		if err != nil {
+			logDebug("Default profile failed: %v, trying SC_PROFILE", err)
 			// Try other profile if default fails (following SC standard practice)
 			profile := os.Getenv("SC_PROFILE")
 			if profile != "" && profile != "default" {
+				logDebug("Trying profile: %s", profile)
 				config, err = api.ReadConfigFile(".", profile)
 				if err != nil {
+					logDebug("Profile %s failed: %v", profile, err)
 					return nil
 				}
 			} else {
+				logDebug("No SC_PROFILE set, no configuration found")
 				return nil
 			}
 		}
 	}
 
 	// Check if parent repository is configured
+	logDebug("Checking if parent repository is configured: '%s'", config.ParentRepository)
 	if config.ParentRepository == "" {
+		logDebug("No parent repository configured")
 		return nil
 	}
 
+	logDebug("Found parent repository: %s", config.ParentRepository)
 	info := &ParentRepositoryInfo{
 		ParentRepoURL:   config.ParentRepository,
 		HasParentConfig: true,
@@ -322,29 +347,51 @@ func processStackName(stackName string) string {
 // autoDetectConfigFile detects server.yaml file location based on stack name
 // Returns empty string if no server.yaml is found but parent repository config is available
 func autoDetectConfigFile(configFile, stackName string) (string, error) {
+	return autoDetectConfigFileWithLogging(context.Background(), nil, configFile, stackName)
+}
+
+// autoDetectConfigFileWithLogging detects server.yaml file location with debug logging
+func autoDetectConfigFileWithLogging(ctx context.Context, logger Logger, configFile, stackName string) (string, error) {
+	// Use logger if available
+	logDebug := func(format string, args ...interface{}) {
+		if logger != nil {
+			logger.Debug(ctx, format, args...)
+		}
+	}
+
+	logDebug("autoDetectConfigFile called with configFile='%s', stackName='%s'", configFile, stackName)
+
 	if configFile != "" && configFile != "server.yaml" {
+		logDebug("Using provided config file: %s", configFile)
 		return configFile, nil
 	}
 
 	// Try stack-specific server.yaml first
 	stackDir := filepath.Join(".sc", "stacks", stackName)
 	stackServerYaml := filepath.Join(stackDir, "server.yaml")
+	logDebug("Checking stack-specific server.yaml: %s", stackServerYaml)
 	if _, err := os.Stat(stackServerYaml); err == nil {
+		logDebug("Found stack-specific server.yaml: %s", stackServerYaml)
 		return stackServerYaml, nil
 	}
 
 	// Fall back to root server.yaml
+	logDebug("Checking root server.yaml")
 	if _, err := os.Stat("server.yaml"); err == nil {
+		logDebug("Found root server.yaml")
 		return "server.yaml", nil
 	}
 
 	// Check if parent repository configuration is available as fallback
-	parentConfig := checkParentRepositoryConfig(stackName)
+	logDebug("Checking parent repository configuration for stack: %s", stackName)
+	parentConfig := checkParentRepositoryConfigWithLogging(ctx, logger, stackName)
 	if parentConfig != nil && parentConfig.HasParentConfig {
+		logDebug("Found parent repository configuration, using parent config")
 		// Return empty string to indicate parent repository configuration should be used
 		return "", nil
 	}
 
+	logDebug("No configuration found anywhere")
 	return "", fmt.Errorf("no server.yaml found and no parent repository configuration available. Checked: %s, server.yaml, .sc/cfg.default.yaml", stackServerYaml)
 }
 

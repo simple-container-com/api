@@ -323,11 +323,43 @@
           "ephemeral": {
             "type": "string"
           },
+          "limits": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "cpu": {
+                "type": "string"
+              },
+              "ephemeral": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "memory": {
             "type": "string"
           },
           "name": {
             "type": "string"
+          },
+          "requests": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "cpu": {
+                "type": "string"
+              },
+              "ephemeral": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
           }
         },
         "required": [

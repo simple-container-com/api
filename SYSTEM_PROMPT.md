@@ -8,6 +8,30 @@ This is the Simple Container API project with MkDocs documentation. The project 
 
 ### Recent Major Additions
 
+#### Kubernetes Resource Requests and Limits Support (2024-11-08)
+- **Enhanced Resource Management**: Added comprehensive support for separate CPU and memory requests and limits in Kubernetes deployments
+  - **Problem Resolved**: Previously, Simple Container set identical values for both resource requests and limits, which is not optimal for Kubernetes resource management
+  - **New Configuration Structure**: Extended `StackConfigComposeSize` with optional `requests` and `limits` fields
+  - **Backward Compatibility**: Legacy `cpu` and `memory` fields still work (used as limits with 50% request fallback)
+  - **Smart Fallback Logic**: When requests not specified, automatically uses 50% of limits (Kubernetes best practice)
+  - **Priority System**: 
+    1. Explicit `size.limits.cpu`/`size.requests.cpu` (highest priority)
+    2. Legacy `size.cpu` field (used as limit)
+    3. Docker compose `deploy.resources` (lowest priority)
+  - **Example Configuration**:
+    ```yaml
+    size:
+      limits:
+        cpu: "2000"    # 2 CPU cores limit
+        memory: "4096" # 4GB memory limit
+      requests:
+        cpu: "500"     # 0.5 CPU cores request
+        memory: "1024" # 1GB memory request
+    ```
+  - **Files Modified**: `pkg/api/client.go`, `pkg/clouds/k8s/types.go`
+  - **Documentation**: Complete examples in `docs/docs/examples/resource-management/`
+  - **Status**: ✅ **Production ready with full Kubernetes resource optimization**
+
 #### GitHub Actions Implementation (Zero Duplication ✅)
 - **Completely refactored to eliminate ALL duplicate implementations** 
   - Location: `cmd/github-actions/`, `pkg/githubactions/actions/`, `.github/actions/`
