@@ -3,12 +3,13 @@ package actions
 import (
 	"context"
 	"os"
+	"strings"
 )
 
 // DeployClientStack deploys a client stack using SC's internal APIs
 func (e *Executor) DeployClientStack(ctx context.Context) error {
-	// Generate CalVer version if not provided
-	version := os.Getenv("VERSION")
+	// Generate CalVer version if not provided or empty
+	version := strings.TrimSpace(os.Getenv("VERSION"))
 	if version == "" {
 		var err error
 		version, err = e.generateCalVerVersion(ctx)
