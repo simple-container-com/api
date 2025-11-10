@@ -369,7 +369,11 @@ type MCPHandler interface {
 
 	// CI/CD pipeline management methods
 	GenerateCICD(ctx context.Context, stackName, configFile string) (*core.CommandResult, error)
+	GenerateCICDWithStaging(ctx context.Context, stackName, configFile string, staging bool) (*core.CommandResult, error)
+	GenerateCICDWithStagingAndLogger(ctx context.Context, logger *MCPLogger, stackName, configFile string, staging bool) (*core.CommandResult, error)
 	ValidateCICD(ctx context.Context, stackName, configFile string, showDiff bool) (*core.CommandResult, error)
+	ValidateCICDWithStaging(ctx context.Context, stackName, configFile string, showDiff bool, staging bool) (*core.CommandResult, error)
+	ValidateCICDWithStagingAndLogger(ctx context.Context, logger *MCPLogger, stackName, configFile string, showDiff bool, staging bool) (*core.CommandResult, error)
 	PreviewCICD(ctx context.Context, stackName, configFile string, showContent bool) (*core.CommandResult, error)
 	SyncCICD(ctx context.Context, stackName, configFile string, dryRun bool) (*core.CommandResult, error)
 
