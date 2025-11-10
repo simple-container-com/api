@@ -196,16 +196,60 @@ func (e *Executor) generateCalVerVersion(ctx context.Context) (string, error) {
 	now := time.Now()
 	dateVersion := now.Format("2006.01.02")
 
-	// Get current commit hash (short form)
-	cmd := exec.Command("git", "rev-parse", "--short=7", "HEAD")
-	output, err := cmd.Output()
+	// Check if we're in a git repository and get working directory info
+	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("failed to get git commit hash: %w", err)
+		e.logger.Warn(ctx, "⚠️  Failed to get working directory: %v", err)
+	} else {
+		e.logger.Debug(ctx, "📁 Working directory: %s", wd)
+	}
+
+	// Check if .git directory exists
+	gitDir := ".git"
+	if wd != "" {
+		gitDir = filepath.Join(wd, ".git")
+	}
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		e.logger.Warn(ctx, "⚠️  No .git directory found at %s", gitDir)
+		// Fallback to date-only version when not in a git repository
+		fallbackVersion := fmt.Sprintf("%s-nogit", dateVersion)
+		e.logger.Info(ctx, "📅 Using fallback CalVer version (no git): %s", fallbackVersion)
+		return fallbackVersion, nil
+	}
+
+	// Try to get commit hash from GitHub Actions environment variables first
+	githubSha := os.Getenv("GITHUB_SHA")
+	if githubSha != "" && len(githubSha) >= 7 {
+		commitHash := githubSha[:7] // Take first 7 characters
+		e.logger.Debug(ctx, "🔗 Using commit hash from GITHUB_SHA: %s", commitHash)
+		version := fmt.Sprintf("%s-%s", dateVersion, commitHash)
+		e.logger.Info(ctx, "✅ Generated CalVer version (from GITHUB_SHA): %s", version)
+		return version, nil
+	}
+
+	// Get current commit hash (short form) using git command
+	e.logger.Debug(ctx, "🔍 Executing: git rev-parse --short=7 HEAD")
+	cmd := exec.Command("git", "rev-parse", "--short=7", "HEAD")
+	cmd.Dir = wd                        // Ensure we're running in the correct directory
+	output, err := cmd.CombinedOutput() // Use CombinedOutput to capture stderr too
+	if err != nil {
+		e.logger.Error(ctx, "❌ Git command failed: %v, output: %s", err, string(output))
+		// Fallback to date-only version when git command fails
+		fallbackVersion := fmt.Sprintf("%s-gitfail", dateVersion)
+		e.logger.Warn(ctx, "⚠️  Using fallback CalVer version (git command failed): %s", fallbackVersion)
+		return fallbackVersion, nil
 	}
 
 	commitHash := strings.TrimSpace(string(output))
+	e.logger.Debug(ctx, "🔗 Raw git output: '%s'", string(output))
+	e.logger.Debug(ctx, "🔗 Trimmed commit hash: '%s'", commitHash)
+
 	if commitHash == "" {
-		return "", fmt.Errorf("git commit hash is empty")
+		e.logger.Error(ctx, "❌ Git commit hash is empty after trimming")
+		// Fallback to date-only version when commit hash is empty
+		fallbackVersion := fmt.Sprintf("%s-nohash", dateVersion)
+		e.logger.Warn(ctx, "⚠️  Using fallback CalVer version (empty commit hash): %s", fallbackVersion)
+		return fallbackVersion, nil
 	}
 
 	// Generate CalVer version: YYYY.MM.DD-{commit_hash}
