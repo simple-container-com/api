@@ -41,10 +41,11 @@ type EcrLifecycleRule struct {
 
 type EcrLifecyclePolicySelection struct {
 	TagStatus      string   `json:"tagStatus" yaml:"tagStatus"`
+	TagPatternList []string `json:"tagPatternList,omitempty" yaml:"tagPatternList,omitempty"`
+	TagPrefixList  []string `json:"tagPrefixList,omitempty" yaml:"tagPrefixList,omitempty"`
 	CountType      string   `json:"countType" yaml:"countType"`
 	CountNumber    int      `json:"countNumber" yaml:"countNumber"`
-	TagPatternList []string `json:"tagPatternList" yaml:"tagPatternList"`
-	TagPrefixList  []string `json:"tagPrefixList" yaml:"tagPrefixList"`
+	CountUnit      string   `json:"countUnit,omitempty" yaml:"countUnit,omitempty"`
 }
 
 type EcrLifecyclePolicyAction struct {
