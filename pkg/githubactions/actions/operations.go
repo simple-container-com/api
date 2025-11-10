@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"strings"
+
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 // DeployClientStack deploys a client stack using SC's internal APIs
@@ -22,13 +24,23 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 		}
 	}
 
-	// Execute the deployment
-	err := e.executeOperation(ctx, OperationConfig{
-		Type:      OperationDeploy,
-		Scope:     ScopeClient,
-		StackName: os.Getenv("STACK_NAME"),
-		Env:       os.Getenv("ENVIRONMENT"),
-		Version:   version,
+	// Create deployment parameters
+	deployParams := api.DeployParams{
+		StackParams: api.StackParams{
+			StackName:   os.Getenv("STACK_NAME"),
+			Environment: os.Getenv("ENVIRONMENT"),
+		},
+	}
+
+	// Wrap the deployment with signal handling and panic recovery
+	err := e.signalHandler.WithSignalHandling(ctx, opTypeDeploy, deployParams, func(opCtx context.Context) error {
+		return e.executeOperation(opCtx, OperationConfig{
+			Type:      OperationDeploy,
+			Scope:     ScopeClient,
+			StackName: deployParams.StackName,
+			Env:       deployParams.Environment,
+			Version:   version,
+		})
 	})
 
 	// Only tag the repository if deployment succeeded and we generated a version
@@ -48,10 +60,18 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 		stackName = "infrastructure" // Default for parent stacks
 	}
 
-	return e.executeOperation(ctx, OperationConfig{
-		Type:      OperationProvision,
-		Scope:     ScopeParent,
-		StackName: stackName,
+	// Create provision parameters
+	provisionParams := api.ProvisionParams{
+		Stacks: []string{stackName},
+	}
+
+	// Wrap the provision with signal handling and panic recovery
+	return e.signalHandler.WithSignalHandling(ctx, opTypeProvision, provisionParams, func(opCtx context.Context) error {
+		return e.executeOperation(opCtx, OperationConfig{
+			Type:      OperationProvision,
+			Scope:     ScopeParent,
+			StackName: stackName,
+		})
 	})
 }
 
