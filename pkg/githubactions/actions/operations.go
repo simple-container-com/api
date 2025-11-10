@@ -10,6 +10,7 @@ import (
 func (e *Executor) DeployClientStack(ctx context.Context) error {
 	// Generate CalVer version if not provided or empty
 	version := strings.TrimSpace(os.Getenv("VERSION"))
+	generatedVersion := false
 	if version == "" {
 		var err error
 		version, err = e.generateCalVerVersion(ctx)
@@ -17,20 +18,27 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 			e.logger.Warn(ctx, "Failed to generate CalVer version: %v, using 'latest'", err)
 			version = "latest"
 		} else {
-			// Tag the repository with the generated version
-			if err := e.tagRepository(ctx, version); err != nil {
-				e.logger.Warn(ctx, "Failed to tag repository with version %s: %v", version, err)
-			}
+			generatedVersion = true
 		}
 	}
 
-	return e.executeOperation(ctx, OperationConfig{
+	// Execute the deployment
+	err := e.executeOperation(ctx, OperationConfig{
 		Type:      OperationDeploy,
 		Scope:     ScopeClient,
 		StackName: os.Getenv("STACK_NAME"),
 		Env:       os.Getenv("ENVIRONMENT"),
 		Version:   version,
 	})
+
+	// Only tag the repository if deployment succeeded and we generated a version
+	if err == nil && generatedVersion {
+		if tagErr := e.tagRepository(ctx, version); tagErr != nil {
+			e.logger.Warn(ctx, "Failed to tag repository with version %s: %v", version, tagErr)
+		}
+	}
+
+	return err
 }
 
 // ProvisionParentStack provisions a parent stack using SC's internal APIs
