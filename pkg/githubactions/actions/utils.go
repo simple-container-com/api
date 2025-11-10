@@ -187,3 +187,68 @@ func (e *Executor) setGitHubOutputs(outputs map[string]string) {
 		}
 	}
 }
+
+// generateCalVerVersion generates a CalVer version in format YYYY.MM.DD-{commit_hash}
+func (e *Executor) generateCalVerVersion(ctx context.Context) (string, error) {
+	e.logger.Info(ctx, "📅 Generating CalVer version...")
+
+	// Get current date in YYYY.MM.DD format
+	now := time.Now()
+	dateVersion := now.Format("2006.01.02")
+
+	// Get current commit hash (short form)
+	cmd := exec.Command("git", "rev-parse", "--short=7", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git commit hash: %w", err)
+	}
+
+	commitHash := strings.TrimSpace(string(output))
+	if commitHash == "" {
+		return "", fmt.Errorf("git commit hash is empty")
+	}
+
+	// Generate CalVer version: YYYY.MM.DD-{commit_hash}
+	version := fmt.Sprintf("%s-%s", dateVersion, commitHash)
+
+	e.logger.Info(ctx, "✅ Generated CalVer version: %s", version)
+	return version, nil
+}
+
+// tagRepository tags the current repository with the given version and pushes the tag
+func (e *Executor) tagRepository(ctx context.Context, version string) error {
+	e.logger.Info(ctx, "🏷️  Tagging repository with version: %s", version)
+
+	// Create the git tag
+	tagCmd := exec.Command("git", "tag", version)
+	if output, err := tagCmd.CombinedOutput(); err != nil {
+		// Check if tag already exists
+		if strings.Contains(string(output), "already exists") {
+			e.logger.Info(ctx, "ℹ️  Tag %s already exists, skipping tag creation", version)
+		} else {
+			return fmt.Errorf("failed to create git tag %s: %w, output: %s", version, err, string(output))
+		}
+	} else {
+		e.logger.Info(ctx, "✅ Created git tag: %s", version)
+	}
+
+	// Push the tag to remote repository
+	pushCmd := exec.Command("git", "push", "origin", version)
+	if output, err := pushCmd.CombinedOutput(); err != nil {
+		// Check if tag already exists on remote
+		if strings.Contains(string(output), "already exists") {
+			e.logger.Info(ctx, "ℹ️  Tag %s already exists on remote, skipping push", version)
+		} else {
+			return fmt.Errorf("failed to push git tag %s: %w, output: %s", version, err, string(output))
+		}
+	} else {
+		e.logger.Info(ctx, "✅ Pushed git tag to remote: %s", version)
+	}
+
+	// Set GitHub Action output for the version
+	e.setGitHubOutputs(map[string]string{
+		"version": version,
+	})
+
+	return nil
+}
