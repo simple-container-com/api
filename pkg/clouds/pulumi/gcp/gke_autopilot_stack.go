@@ -138,11 +138,17 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 		}
 
+		// Determine if domain should be proxied - defaults to true if not explicitly set to false
+		domainProxied := true
+		if gkeAutopilotInput.Deployment.StackConfig.DomainProxied != nil {
+			domainProxied = *gkeAutopilotInput.Deployment.StackConfig.DomainProxied
+		}
+
 		_, err = params.Registrar.NewRecord(ctx, api.DnsRecord{
 			Name:    domain,
 			Type:    "A",
 			Value:   clusterIPAddress,
-			Proxied: true,
+			Proxied: domainProxied,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
