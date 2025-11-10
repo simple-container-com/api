@@ -8,6 +8,60 @@ This is the Simple Container API project with MkDocs documentation. The project 
 
 ### Recent Major Additions
 
+#### CRITICAL: Comprehensive Panic Recovery Enhancement (2024-11-10)
+- **Multi-Layer Panic Prevention**: Enhanced GitHub Actions operations with comprehensive panic recovery at multiple levels
+  - **Root Cause**: Panics in deploy operations were not being caught properly, causing operations to crash without proper cleanup
+  - **Impact**: GitHub Actions operations failing with unrecovered panics, potentially leaving orphaned cloud resources
+  - **Multi-Layer Solution Applied**:
+    1. **Placeholder Resolution Fix**: Fixed critical index out of bounds panic in `pkg/clouds/pulumi/api/compute_context.go`
+       - Added bounds checking for dependency and resource placeholder parsing
+       - `${dependency:name.resource.property}` (3 parts required) and `${resource:name.property}` (2 parts required)
+    2. **Operation-Level Panic Recovery**: Added panic recovery in `executeOperation` method
+       - Catches panics at the top level of all GitHub Actions operations
+       - Sends failure alerts and returns structured errors instead of crashing
+    3. **Provisioner-Level Panic Recovery**: Added panic recovery in individual operation executors
+       - `executeDeploy`, `executeProvision`, `executeDestroy`, `executeDestroyParent` all have panic recovery
+       - Catches panics in provisioner calls (Deploy, Provision, Destroy, etc.)
+    4. **Complete Signal Handler Coverage**: Extended signal handling to all operations
+       - Added `opTypeDestroy` operation type with proper cancellation logic
+       - All operations now wrapped with `WithSignalHandling` for panic recovery and signal handling
+  - **Technical Implementation**:
+    ```go
+    // Top-level panic recovery in executeOperation
+    func (e *Executor) executeOperation(ctx context.Context, config OperationConfig) (err error) {
+        defer func() {
+            if r := recover(); r != nil {
+                e.logger.Error(ctx, "🚨 Panic occurred in executeOperation for %s %s: %v", config.Scope, config.Type, r)
+                e.sendFailureAlert(ctx, config, fmt.Errorf("operation panicked: %v", r), time.Since(startTime))
+                err = fmt.Errorf("operation panicked: %v", r)
+            }
+        }()
+        // ... operation logic
+    }
+    
+    // Provisioner-level panic recovery
+    func (e *Executor) executeDeploy(ctx context.Context, config OperationConfig, previewMode bool) (err error) {
+        defer func() {
+            if r := recover(); r != nil {
+                e.logger.Error(ctx, "🚨 Panic occurred in executeDeploy for %s: %v", config.StackName, r)
+                err = fmt.Errorf("deployment panicked: %v", r)
+            }
+        }()
+        // ... provisioner calls
+    }
+    ```
+  - **Complete Coverage**: All GitHub Actions operations now have comprehensive panic recovery:
+    - **DeployClientStack**: ✅ Signal handling + multi-layer panic recovery
+    - **ProvisionParentStack**: ✅ Signal handling + multi-layer panic recovery  
+    - **DestroyClientStack**: ✅ Signal handling + multi-layer panic recovery
+    - **DestroyParentStack**: ✅ Signal handling + multi-layer panic recovery
+  - **Files Modified**: 
+    - `pkg/clouds/pulumi/api/compute_context.go` - Fixed placeholder bounds checking
+    - `pkg/githubactions/actions/operation_executor.go` - Added multi-layer panic recovery
+    - `pkg/githubactions/actions/operations.go` - Extended signal handling to destroy operations
+    - `pkg/githubactions/actions/signal_handler.go` - Added destroy operation type and handling
+  - **Status**: ✅ **Comprehensive panic recovery system - All GitHub Actions operations now crash-resistant with proper cleanup**
+
 #### Kubernetes Resource Requests and Limits Support (2024-11-08)
 - **Enhanced Resource Management**: Added comprehensive support for separate CPU and memory requests and limits in Kubernetes deployments
   - **Problem Resolved**: Previously, Simple Container set identical values for both resource requests and limits, which is not optimal for Kubernetes resource management

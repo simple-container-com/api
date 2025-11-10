@@ -35,6 +35,7 @@ type operationType int
 const (
 	opTypeDeploy operationType = iota
 	opTypeProvision
+	opTypeDestroy
 )
 
 // NewSignalHandler creates a new signal handler for GitHub Actions
@@ -135,6 +136,16 @@ func (sh *SignalHandler) registerOperation(opID string, ctx context.Context, can
 				return sh.provisioner.CancelParent(ctx, stackParams)
 			}
 		}
+	case opTypeDestroy:
+		if destroyParams, ok := params.(api.DestroyParams); ok {
+			cancelFunc = func(ctx context.Context) error {
+				// For destroy operations, use Cancel for client stacks, CancelParent for parent stacks
+				if destroyParams.StackParams.Parent {
+					return sh.provisioner.CancelParent(ctx, destroyParams.StackParams)
+				}
+				return sh.provisioner.Cancel(ctx, destroyParams.StackParams)
+			}
+		}
 	}
 
 	sh.activeOps[opID] = &activeOperation{
@@ -222,6 +233,15 @@ func (sh *SignalHandler) generateOperationID(opType operationType, params interf
 				identifier = "multi-stacks"
 			} else {
 				identifier = "all-stacks"
+			}
+		}
+	case opTypeDestroy:
+		opTypeStr = "ga-destroy"
+		if destroyParams, ok := params.(api.DestroyParams); ok {
+			if destroyParams.Environment != "" {
+				identifier = destroyParams.StackName + "-" + destroyParams.Environment
+			} else {
+				identifier = destroyParams.StackName
 			}
 		}
 	default:

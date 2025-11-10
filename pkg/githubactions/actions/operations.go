@@ -77,11 +77,22 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 
 // DestroyClientStack destroys a client stack using SC's internal APIs
 func (e *Executor) DestroyClientStack(ctx context.Context) error {
-	return e.executeOperation(ctx, OperationConfig{
-		Type:      OperationDestroy,
-		Scope:     ScopeClient,
-		StackName: os.Getenv("STACK_NAME"),
-		Env:       os.Getenv("ENVIRONMENT"),
+	// Create destroy parameters
+	destroyParams := api.DestroyParams{
+		StackParams: api.StackParams{
+			StackName:   os.Getenv("STACK_NAME"),
+			Environment: os.Getenv("ENVIRONMENT"),
+		},
+	}
+
+	// Wrap the destroy with signal handling and panic recovery
+	return e.signalHandler.WithSignalHandling(ctx, opTypeDestroy, destroyParams, func(opCtx context.Context) error {
+		return e.executeOperation(opCtx, OperationConfig{
+			Type:      OperationDestroy,
+			Scope:     ScopeClient,
+			StackName: destroyParams.StackName,
+			Env:       destroyParams.Environment,
+		})
 	})
 }
 
@@ -92,9 +103,20 @@ func (e *Executor) DestroyParentStack(ctx context.Context) error {
 		stackName = "infrastructure" // Default for parent stacks
 	}
 
-	return e.executeOperation(ctx, OperationConfig{
-		Type:      OperationDestroy,
-		Scope:     ScopeParent,
-		StackName: stackName,
+	// Create destroy parameters
+	destroyParams := api.DestroyParams{
+		StackParams: api.StackParams{
+			StackName: stackName,
+			Parent:    true, // Mark as parent operation for proper cancellation
+		},
+	}
+
+	// Wrap the destroy with signal handling and panic recovery
+	return e.signalHandler.WithSignalHandling(ctx, opTypeDestroy, destroyParams, func(opCtx context.Context) error {
+		return e.executeOperation(opCtx, OperationConfig{
+			Type:      OperationDestroy,
+			Scope:     ScopeParent,
+			StackName: stackName,
+		})
 	})
 }
