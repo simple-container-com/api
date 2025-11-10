@@ -127,6 +127,105 @@
             ],
             "type": "object"
           },
+          "serverErrors": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "alertName": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "periodSec": {
+                    "type": "integer"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "alertName",
+                  "description",
+                  "periodSec",
+                  "threshold"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              ""
+            ],
+            "type": "object"
+          },
+          "unhealthyHosts": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "alertName": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "periodSec": {
+                    "type": "integer"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "alertName",
+                  "description",
+                  "periodSec",
+                  "threshold"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              ""
+            ],
+            "type": "object"
+          },
+          "responseTime": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "alertName": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "periodSec": {
+                    "type": "integer"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "alertName",
+                  "description",
+                  "periodSec",
+                  "threshold"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              ""
+            ],
+            "type": "object"
+          },
           "slack": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
