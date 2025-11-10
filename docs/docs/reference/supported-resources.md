@@ -1333,6 +1333,92 @@ alerts:
     chatId: "${env:TELEGRAM_CHAT_ID}"
 ```
 
+### **CloudWatch Monitoring Alerts**
+
+Monitoring alerts for ECS services and Application Load Balancers with CloudWatch integration.
+
+**ECS Service Monitoring:**
+```yaml
+alerts:
+  maxCPU:
+    alertName: "High CPU Usage"
+    description: "ECS service CPU usage exceeded threshold"
+    threshold: 80.0
+    periodSec: 300
+  maxMemory:
+    alertName: "High Memory Usage"
+    description: "ECS service memory usage exceeded threshold"
+    threshold: 85.0
+    periodSec: 300
+  maxErrors:
+    alertName: "High Error Rate"
+    description: "Application error rate exceeded threshold"
+    threshold: 10.0
+    periodSec: 60
+    errorLogMessageRegexp: "ERROR|FATAL|Exception"
+```
+
+**Application Load Balancer Monitoring:**
+```yaml
+alerts:
+  serverErrors:
+    alertName: "ALB Server Errors"
+    description: "5XX error rate exceeded threshold"
+    threshold: 10.0
+    periodSec: 300
+  unhealthyHosts:
+    alertName: "ALB Unhealthy Hosts"
+    description: "Unhealthy host count exceeded threshold"
+    threshold: 1
+    periodSec: 300
+  responseTime:
+    alertName: "ALB High Response Time"
+    description: "Response time exceeded threshold"
+    threshold: 5.0
+    periodSec: 300
+```
+
+**Complete Monitoring Configuration:**
+```yaml
+alerts:
+  # Notification channels
+  slack:
+    webhookUrl: "${secret:SLACK_WEBHOOK_URL}"
+  discord:
+    webhookUrl: "${secret:DISCORD_WEBHOOK_URL}"
+  
+  # ECS monitoring
+  maxCPU:
+    alertName: "prod-high-cpu"
+    description: "Production CPU usage too high"
+    threshold: 70.0
+    periodSec: 300
+  maxMemory:
+    alertName: "prod-high-memory"
+    description: "Production memory usage too high"
+    threshold: 80.0
+    periodSec: 300
+  
+  # Load balancer monitoring
+  serverErrors:
+    alertName: "prod-server-errors"
+    description: "Production server error rate too high"
+    threshold: 5.0
+    periodSec: 300
+  responseTime:
+    alertName: "prod-slow-response"
+    description: "Production response time too slow"
+    threshold: 2.0
+    periodSec: 300
+```
+
+**Alert Configuration Properties:**
+- **`alertName`** - Unique identifier for the CloudWatch alarm
+- **`description`** - Human-readable description of the alert
+- **`threshold`** - Numeric threshold value that triggers the alarm
+- **`periodSec`** - Evaluation period in seconds (60-86400)
+- **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
+
 ---
 
 ## **Complete Example: Multi-Cloud Parent Stack**

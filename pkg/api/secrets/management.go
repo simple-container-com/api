@@ -432,6 +432,11 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to decrypt secret with RSA key")
 		}
+	} else if ed25519Key, ok := rawKey.(*ed25519.PrivateKey); ok {
+		decrypted, err = ciphers.DecryptLargeStringWithEd25519(*ed25519Key, encryptedData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret with ed25519 key")
+		}
 	} else if ed25519Key, ok := rawKey.(ed25519.PrivateKey); ok {
 		decrypted, err = ciphers.DecryptLargeStringWithEd25519(ed25519Key, encryptedData)
 		if err != nil {
