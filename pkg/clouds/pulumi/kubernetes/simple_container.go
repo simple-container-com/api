@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,19 @@ const (
 	LabelScEnv   = "appEnv"
 )
 
+// sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
+// Replaces underscores with hyphens and ensures it starts/ends with alphanumeric characters
+func sanitizeK8sResourceName(name string) string {
+	// Replace underscores with hyphens
+	sanitized := strings.ReplaceAll(name, "_", "-")
+	// Remove any invalid characters (keep only a-z, 0-9, -, .)
+	reg := regexp.MustCompile(`[^a-z0-9\-\.]`)
+	sanitized = reg.ReplaceAllString(strings.ToLower(sanitized), "")
+	// Ensure it starts and ends with alphanumeric (trim leading/trailing hyphens and dots)
+	sanitized = strings.Trim(sanitized, "-.")
+	return sanitized
+}
+
 type SimpleContainerArgs struct {
 	// required properties
 	Namespace              string  `json:"namespace" yaml:"namespace"`
@@ -63,6 +77,7 @@ type SimpleContainerArgs struct {
 	SecretEnvs        map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
 	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
 	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
 	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
@@ -103,9 +118,13 @@ type SimpleContainer struct {
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	sc := &SimpleContainer{}
 
+	// Sanitize deployment and service names early to comply with Kubernetes RFC 1123 requirements
+	sanitizedDeployment := sanitizeK8sName(args.Deployment)
+	sanitizedService := sanitizeK8sName(args.Service)
+
 	appLabels := map[string]string{
 		LabelAppType: AppTypeSimpleContainer,
-		LabelAppName: args.Service,
+		LabelAppName: sanitizedService,
 		LabelScEnv:   args.ScEnv,
 	}
 
@@ -132,9 +151,14 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	}
 
 	// Namespace
-	namespace, err := corev1.NewNamespace(ctx, args.Namespace, &corev1.NamespaceArgs{
+	// Sanitize namespace name to comply with Kubernetes RFC 1123 requirements
+	sanitizedNamespace := sanitizeK8sName(args.Namespace)
+	// Use deployment name as Pulumi resource name to ensure uniqueness across environments
+	// while keeping the actual K8s namespace name as specified by the user
+	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
+	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
-			Name:        sdk.String(args.Namespace),
+			Name:        sdk.String(sanitizedNamespace),
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
@@ -162,10 +186,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		secretVolumeToData[secretVolume.Name] = secretVolume.Content
 	}
 
-	volumesCfgName := ToConfigVolumesName(args.Deployment)
-	envSecretName := ToEnvConfigName(args.Deployment)
-	volumesSecretName := ToSecretVolumesName(args.Deployment)
-	imagePullSecretName := ToImagePullSecretName(args.Deployment)
+	volumesCfgName := ToConfigVolumesName(sanitizedDeployment)
+	envSecretName := ToEnvConfigName(sanitizedDeployment)
+	volumesSecretName := ToSecretVolumesName(sanitizedDeployment)
+	imagePullSecretName := ToImagePullSecretName(sanitizedDeployment)
 
 	var imagePullSecret *corev1.Secret
 	if args.ImagePullSecret != nil {
@@ -271,15 +295,36 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	// Persistent volumes
 	for _, pv := range args.PersistentVolumes {
-		_, err := corev1.NewPersistentVolumeClaim(ctx, pv.Name, &corev1.PersistentVolumeClaimArgs{
+		accessModes := []sdk.StringInput{sdk.String("ReadWriteOnce")}
+		if len(pv.AccessModes) > 0 {
+			accessModes = lo.Map(pv.AccessModes, func(am string, _ int) sdk.StringInput {
+				return sdk.String(am)
+			})
+		}
+		// Sanitize volume name for Kubernetes RFC 1123 compliance (no underscores allowed)
+		sanitizedName := sanitizeK8sResourceName(pv.Name)
+		if sanitizedName != pv.Name {
+			args.Log.Info(ctx.Context(), "📝 Sanitized volume name %q -> %q for Kubernetes RFC 1123 compliance", pv.Name, sanitizedName)
+		}
+
+		// Use default storage class for GKE when none specified
+		storageClass := pv.StorageClassName
+		if storageClass == nil {
+			// For GKE, use the default standard storage class if available
+			defaultSC := "standard-rwo"
+			storageClass = &defaultSC
+			args.Log.Info(ctx.Context(), "📦 Using default storage class %q for volume %q", defaultSC, sanitizedName)
+		}
+		_, err := corev1.NewPersistentVolumeClaim(ctx, sanitizedName, &corev1.PersistentVolumeClaimArgs{
 			Metadata: &metav1.ObjectMetaArgs{
-				Name:        sdk.String(pv.Name),
+				Name:        sdk.String(sanitizedName),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(appAnnotations),
 			},
 			Spec: &corev1.PersistentVolumeClaimSpecArgs{
-				AccessModes: sdk.StringArray([]sdk.StringInput{sdk.String("ReadWriteOnce")}),
+				AccessModes:      sdk.StringArray(accessModes),
+				StorageClassName: sdk.StringPtrFromPtr(storageClass),
 				Resources: &corev1.VolumeResourceRequirementsArgs{
 					Requests: sdk.StringMap{
 						"storage": sdk.String(pv.Storage),
@@ -292,13 +337,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		}
 
 		volumes = append(volumes, corev1.VolumeArgs{
-			Name: sdk.String(pv.Name),
+			Name: sdk.String(sanitizedName),
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSourceArgs{
-				ClaimName: sdk.String(pv.Name),
+				ClaimName: sdk.String(sanitizedName),
 			},
 		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
-			Name:      sdk.String(pv.Name),
+			Name:      sdk.String(sanitizedName),
 			MountPath: sdk.String(pv.MountPath),
 		})
 	}
@@ -346,6 +391,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Deployment
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
+		Affinity:     convertAffinityRulesToKubernetes(args.Affinity),
 		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
 			for _, c := range scOuts {
 				initContainers = append(initContainers, c.(corev1.ContainerInput))
@@ -374,9 +420,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			},
 		}
 	}
-	deployment, err := v1.NewDeployment(ctx, args.Deployment, &v1.DeploymentArgs{
+	deployment, err := v1.NewDeployment(ctx, sanitizedDeployment, &v1.DeploymentArgs{
 		Metadata: &metav1.ObjectMetaArgs{
-			Name:        sdk.String(args.Deployment),
+			Name:        sdk.String(sanitizedDeployment),
 			Namespace:   namespace.Metadata.Name().Elem(),
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
@@ -442,8 +488,8 @@ ${proto}://${domain} {
 			"proto":     lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
 			"domain":    args.Domain,
 			"prefix":    args.Prefix,
-			"service":   args.Service,
-			"namespace": args.Namespace,
+			"service":   sanitizedService,
+			"namespace": sanitizedNamespace,
 			"port":      strconv.Itoa(lo.FromPtr(mainPort)),
 			"addHeaders": strings.Join(lo.Map(lo.Entries(lo.FromPtr(args.Headers)), func(h lo.Entry[string, string], _ int) string {
 				return fmt.Sprintf("header_down %s %s", h.Key, h.Value)
@@ -473,9 +519,9 @@ ${proto}://${domain} {
 	}
 	var service *corev1.Service
 	if len(lo.FromPtr(args.IngressContainer).Ports) > 0 {
-		service, err = corev1.NewService(ctx, args.Service, &corev1.ServiceArgs{
+		service, err = corev1.NewService(ctx, sanitizedService, &corev1.ServiceArgs{
 			Metadata: &metav1.ObjectMetaArgs{
-				Name:        sdk.String(args.Service),
+				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(serviceAnnotations),
@@ -500,9 +546,9 @@ ${proto}://${domain} {
 		if args.UseSSL {
 			ingressAnnotations["ingress.kubernetes.io/ssl-redirect"] = "false" // do not need ssl redirect from kube
 		}
-		_, err = networkv1.NewIngress(ctx, args.Service, &networkv1.IngressArgs{
+		_, err = networkv1.NewIngress(ctx, sanitizedService, &networkv1.IngressArgs{
 			Metadata: &metav1.ObjectMetaArgs{
-				Name:        sdk.String(args.Service),
+				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(ingressAnnotations),
@@ -515,7 +561,7 @@ ${proto}://${domain} {
 								networkv1.HTTPIngressPathArgs{
 									Backend: networkv1.IngressBackendArgs{
 										Service: networkv1.IngressServiceBackendArgs{
-											Name: sdk.String(args.Service),
+											Name: sdk.String(sanitizedService),
 											Port: networkv1.ServiceBackendPortArgs{
 												Number: sdk.Int(*mainPort),
 											},
@@ -547,7 +593,7 @@ ${proto}://${domain} {
 		} else if args.PodDisruption.MaxUnavailable != nil {
 			pdbArgs.MaxUnavailable = sdk.IntPtrFromPtr(args.PodDisruption.MaxUnavailable)
 		}
-		_, err := policyv1.NewPodDisruptionBudget(ctx, fmt.Sprintf("%s-pdb", args.Deployment), &policyv1.PodDisruptionBudgetArgs{
+		_, err := policyv1.NewPodDisruptionBudget(ctx, fmt.Sprintf("%s-pdb", sanitizedDeployment), &policyv1.PodDisruptionBudgetArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
@@ -587,7 +633,7 @@ ${proto}://${domain} {
 		}
 	}
 
-	err = ctx.RegisterComponentResource("simple-container.com:k8s:SimpleContainer", args.Service, sc, opts...)
+	err = ctx.RegisterComponentResource("simple-container.com:k8s:SimpleContainer", sanitizedService, sc, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -646,4 +692,263 @@ func addVolumeMountsFromOutputs(volumeName string, volumes []any, volumeMounts *
 			}
 		}).(corev1.VolumeMountOutput))
 	}
+}
+
+// convertAffinityRulesToKubernetes converts Simple Container affinity rules to Kubernetes affinity
+func convertAffinityRulesToKubernetes(affinity *k8s.AffinityRules) *corev1.AffinityArgs {
+	if affinity == nil {
+		return nil
+	}
+
+	kubeAffinity := &corev1.AffinityArgs{}
+
+	// Convert node affinity
+	if affinity.NodeAffinity != nil {
+		kubeAffinity.NodeAffinity = convertNodeAffinity(affinity.NodeAffinity)
+	}
+
+	// Convert pod affinity
+	if affinity.PodAffinity != nil {
+		kubeAffinity.PodAffinity = convertPodAffinity(affinity.PodAffinity)
+	}
+
+	// Convert pod anti-affinity
+	if affinity.PodAntiAffinity != nil {
+		kubeAffinity.PodAntiAffinity = convertPodAntiAffinity(affinity.PodAntiAffinity)
+	}
+
+	// Handle Space Pay specific rules for exclusive node pool
+	if affinity.ExclusiveNodePool != nil && *affinity.ExclusiveNodePool && affinity.NodePool != nil {
+		// Create node affinity to require the specific node pool
+		if kubeAffinity.NodeAffinity == nil {
+			kubeAffinity.NodeAffinity = &corev1.NodeAffinityArgs{}
+		}
+
+		nodePoolRequirement := corev1.NodeSelectorRequirementArgs{
+			Key:      sdk.String("cloud.google.com/gke-nodepool"),
+			Operator: sdk.String("In"),
+			Values:   sdk.StringArray{sdk.String(*affinity.NodePool)},
+		}
+
+		// Create a new node affinity with the exclusive node pool requirement
+		nodeAffinityArgs := &corev1.NodeAffinityArgs{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelectorArgs{
+				NodeSelectorTerms: corev1.NodeSelectorTermArray{
+					corev1.NodeSelectorTermArgs{
+						MatchExpressions: corev1.NodeSelectorRequirementArray{nodePoolRequirement},
+					},
+				},
+			},
+		}
+
+		// Override existing node affinity with exclusive node pool requirement
+		kubeAffinity.NodeAffinity = nodeAffinityArgs
+	}
+
+	return kubeAffinity
+}
+
+// convertNodeAffinity converts Simple Container node affinity to Kubernetes node affinity
+func convertNodeAffinity(nodeAffinity *k8s.NodeAffinity) *corev1.NodeAffinityArgs {
+	if nodeAffinity == nil {
+		return nil
+	}
+
+	kubeNodeAffinity := &corev1.NodeAffinityArgs{}
+
+	// Convert required node affinity
+	if nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+		kubeNodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = convertNodeSelector(nodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution)
+	}
+
+	// Convert preferred node affinity
+	if len(nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.PreferredSchedulingTermArray, len(nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range nodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.PreferredSchedulingTermArgs{
+				Weight:     sdk.Int(int(term.Weight)),
+				Preference: convertNodeSelectorTerm(term.Preference),
+			}
+		}
+		kubeNodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubeNodeAffinity
+}
+
+// convertNodeSelector converts Simple Container node selector to Kubernetes node selector
+func convertNodeSelector(nodeSelector *k8s.NodeSelector) *corev1.NodeSelectorArgs {
+	if nodeSelector == nil {
+		return nil
+	}
+
+	terms := make(corev1.NodeSelectorTermArray, len(nodeSelector.NodeSelectorTerms))
+	for i, term := range nodeSelector.NodeSelectorTerms {
+		terms[i] = convertNodeSelectorTerm(term)
+	}
+
+	return &corev1.NodeSelectorArgs{
+		NodeSelectorTerms: terms,
+	}
+}
+
+// convertNodeSelectorTerm converts Simple Container node selector term to Kubernetes node selector term
+func convertNodeSelectorTerm(term k8s.NodeSelectorTerm) corev1.NodeSelectorTermArgs {
+	kubeTerm := corev1.NodeSelectorTermArgs{}
+
+	// Convert match expressions
+	if len(term.MatchExpressions) > 0 {
+		matchExpressions := make(corev1.NodeSelectorRequirementArray, len(term.MatchExpressions))
+		for i, expr := range term.MatchExpressions {
+			values := make(sdk.StringArray, len(expr.Values))
+			for j, val := range expr.Values {
+				values[j] = sdk.String(val)
+			}
+			matchExpressions[i] = corev1.NodeSelectorRequirementArgs{
+				Key:      sdk.String(expr.Key),
+				Operator: sdk.String(expr.Operator),
+				Values:   values,
+			}
+		}
+		kubeTerm.MatchExpressions = matchExpressions
+	}
+
+	// Convert match fields
+	if len(term.MatchFields) > 0 {
+		matchFields := make(corev1.NodeSelectorRequirementArray, len(term.MatchFields))
+		for i, field := range term.MatchFields {
+			values := make(sdk.StringArray, len(field.Values))
+			for j, val := range field.Values {
+				values[j] = sdk.String(val)
+			}
+			matchFields[i] = corev1.NodeSelectorRequirementArgs{
+				Key:      sdk.String(field.Key),
+				Operator: sdk.String(field.Operator),
+				Values:   values,
+			}
+		}
+		kubeTerm.MatchFields = matchFields
+	}
+
+	return kubeTerm
+}
+
+// convertPodAffinity converts Simple Container pod affinity to Kubernetes pod affinity
+func convertPodAffinity(podAffinity *k8s.PodAffinity) *corev1.PodAffinityArgs {
+	if podAffinity == nil {
+		return nil
+	}
+
+	kubePodAffinity := &corev1.PodAffinityArgs{}
+
+	// Convert required pod affinity
+	if len(podAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+		requiredTerms := make(corev1.PodAffinityTermArray, len(podAffinity.RequiredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+			requiredTerms[i] = convertPodAffinityTerm(term)
+		}
+		kubePodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = requiredTerms
+	}
+
+	// Convert preferred pod affinity
+	if len(podAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.WeightedPodAffinityTermArray, len(podAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.WeightedPodAffinityTermArgs{
+				Weight:          sdk.Int(int(term.Weight)),
+				PodAffinityTerm: convertPodAffinityTerm(term.PodAffinityTerm),
+			}
+		}
+		kubePodAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubePodAffinity
+}
+
+// convertPodAntiAffinity converts Simple Container pod anti-affinity to Kubernetes pod anti-affinity
+func convertPodAntiAffinity(podAntiAffinity *k8s.PodAffinity) *corev1.PodAntiAffinityArgs {
+	if podAntiAffinity == nil {
+		return nil
+	}
+
+	kubePodAntiAffinity := &corev1.PodAntiAffinityArgs{}
+
+	// Convert required pod anti-affinity
+	if len(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) > 0 {
+		requiredTerms := make(corev1.PodAffinityTermArray, len(podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+			requiredTerms[i] = convertPodAffinityTerm(term)
+		}
+		kubePodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution = requiredTerms
+	}
+
+	// Convert preferred pod anti-affinity
+	if len(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) > 0 {
+		preferredTerms := make(corev1.WeightedPodAffinityTermArray, len(podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution))
+		for i, term := range podAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			preferredTerms[i] = corev1.WeightedPodAffinityTermArgs{
+				Weight:          sdk.Int(int(term.Weight)),
+				PodAffinityTerm: convertPodAffinityTerm(term.PodAffinityTerm),
+			}
+		}
+		kubePodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution = preferredTerms
+	}
+
+	return kubePodAntiAffinity
+}
+
+// convertPodAffinityTerm converts Simple Container pod affinity term to Kubernetes pod affinity term
+func convertPodAffinityTerm(term k8s.PodAffinityTerm) corev1.PodAffinityTermArgs {
+	kubeTerm := corev1.PodAffinityTermArgs{
+		TopologyKey: sdk.String(term.TopologyKey),
+	}
+
+	// Convert label selector
+	if term.LabelSelector != nil {
+		kubeTerm.LabelSelector = convertLabelSelector(term.LabelSelector)
+	}
+
+	// Convert namespaces
+	if len(term.Namespaces) > 0 {
+		namespaces := make(sdk.StringArray, len(term.Namespaces))
+		for i, ns := range term.Namespaces {
+			namespaces[i] = sdk.String(ns)
+		}
+		kubeTerm.Namespaces = namespaces
+	}
+
+	return kubeTerm
+}
+
+// convertLabelSelector converts Simple Container label selector to Kubernetes label selector
+func convertLabelSelector(labelSelector *k8s.LabelSelector) *metav1.LabelSelectorArgs {
+	if labelSelector == nil {
+		return nil
+	}
+
+	kubeLabelSelector := &metav1.LabelSelectorArgs{}
+
+	// Convert match labels
+	if len(labelSelector.MatchLabels) > 0 {
+		kubeLabelSelector.MatchLabels = sdk.ToStringMap(labelSelector.MatchLabels)
+	}
+
+	// Convert match expressions
+	if len(labelSelector.MatchExpressions) > 0 {
+		matchExpressions := make(metav1.LabelSelectorRequirementArray, len(labelSelector.MatchExpressions))
+		for i, expr := range labelSelector.MatchExpressions {
+			values := make(sdk.StringArray, len(expr.Values))
+			for j, val := range expr.Values {
+				values[j] = sdk.String(val)
+			}
+			matchExpressions[i] = metav1.LabelSelectorRequirementArgs{
+				Key:      sdk.String(expr.Key),
+				Operator: sdk.String(expr.Operator),
+				Values:   values,
+			}
+		}
+		kubeLabelSelector.MatchExpressions = matchExpressions
+	}
+
+	return kubeLabelSelector
 }

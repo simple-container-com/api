@@ -58,8 +58,9 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	var kubeProvider *sdkK8s.Provider
 	if pgCfg.UsersProvisionRuntime.Type == "gke" {
 		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
-		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q (%s)", clusterName, fullParentReference, suffix)
-		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-kubeconfig", postgresName, suffix), fullParentReference, toKubeconfigExport(clusterName), true)
+		outputName := toKubeconfigExport(clusterName)
+		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q (outputName=%q, suffix=%q)", clusterName, fullParentReference, outputName, suffix)
+		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-kubeconfig", postgresName, suffix), fullParentReference, outputName, true)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 		}
@@ -214,7 +215,10 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 }
 
 func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy, error) {
-	cloudsqlProxyName := fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName)
+	// Sanitize the name to comply with Kubernetes RFC 1123 requirements (no underscores)
+	cloudsqlProxyName := kubernetes.SanitizeK8sName(fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName))
+	// Sanitize namespace name as well
+	sanitizedNamespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
 	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 		Name: cloudsqlProxyName,
 		DBInstance: PostgresDBInstanceArgs{
@@ -224,7 +228,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 		},
 		GcpProvider:  params.gcpProvider,
 		KubeProvider: params.kubeProvider,
-		Metadata:     cloudsqlProxyMeta(params.input.StackParams.StackName, cloudsqlProxyName, params),
+		Metadata:     cloudsqlProxyMeta(sanitizedNamespace, cloudsqlProxyName, params),
 	})
 	if err != nil {
 		return nil, err
@@ -305,8 +309,9 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			InstanceName: params.postgresName,
 			Region:       lo.FromPtr(params.config.Region),
 		}
-		cloudsqlProxyName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-")
-		namespace := params.input.StackParams.StackName
+		// Sanitize names to comply with Kubernetes RFC 1123 requirements (no underscores)
+		cloudsqlProxyName := kubernetes.SanitizeK8sName(util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-"))
+		namespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
 		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 			Name:         cloudsqlProxyName,
 			DBInstance:   dbInstanceArgs,

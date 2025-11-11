@@ -1,16 +1,19 @@
 package gcp
 
 import (
+	"encoding/base64"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/container"
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/storage"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -75,11 +78,60 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	ctx.Export(toKubeconfigExport(clusterName), kubeconfig)
 
 	if gkeInput.Caddy != nil {
-		caddyConfig := kubernetes.CaddyDeployment{
-			CaddyConfig:     gkeInput.Caddy,
-			ClusterName:     clusterName,
-			ClusterResource: cluster,
+		// Provision GCS bucket and service account for Caddy ACME certificate storage
+		bucket, credentialsJSON, err := provisionCaddyACMEStorage(ctx, clusterName, gkeInput.ProjectId, location, opts, params)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision ACME storage for Caddy in cluster %q", clusterName)
 		}
+
+		// Build Caddyfile prefix with GCS storage configuration
+		// Merge with user-provided prefix if it exists
+		caddyfilePrefix := bucket.Name.ApplyT(func(bucketName string) string {
+			gcsStorageConfig := fmt.Sprintf(`{
+  storage gcs {
+    bucket-name %s
+  }
+}`, bucketName)
+
+			// If user provided custom prefix, merge it
+			if gkeInput.Caddy.CaddyfilePrefix != nil && *gkeInput.Caddy.CaddyfilePrefix != "" {
+				// User prefix first, then GCS storage config
+				return fmt.Sprintf("%s\n\n%s", gcsStorageConfig, *gkeInput.Caddy.CaddyfilePrefix)
+			}
+
+			return gcsStorageConfig
+		}).(sdk.StringOutput)
+
+		// Prepare GCP credentials as a secret volume output (Pulumi output)
+		// SimpleContainer will create the Kubernetes Secret automatically
+		// Note: With SubPath mounting, the file is mounted directly at MountPath (not MountPath/Name)
+		credentialsMountPath := "/etc/gcp-credentials/credentials.json"
+		gcpCredentialsVolume := credentialsJSON.ApplyT(func(creds string) interface{} {
+			return k8s.SimpleTextVolume{
+				TextVolume: api.TextVolume{
+					Name:      "credentials.json",   // Filename within the Kubernetes secret
+					Content:   creds,                // GCP service account JSON
+					MountPath: credentialsMountPath, // File will be mounted directly here (SubPath behavior)
+				},
+			}
+		})
+
+		params.Log.Info(ctx.Context(), "🔐 Preparing GCP credentials secret volume for Caddy ACME storage at %s", credentialsMountPath)
+
+		// Build Caddy deployment configuration with GCS storage
+		caddyConfig := kubernetes.CaddyDeployment{
+			CaddyConfig:        gkeInput.Caddy,
+			ClusterName:        clusterName,
+			ClusterResource:    cluster,
+			CaddyfilePrefixOut: caddyfilePrefix, // Caddyfile with GCS storage config
+			// Pass GCP credentials as secret volume output (SimpleContainer will create the K8s Secret)
+			SecretVolumeOutputs: []any{gcpCredentialsVolume},
+			// Set environment variable pointing to mounted credentials
+			SecretEnvs: map[string]string{
+				"GOOGLE_APPLICATION_CREDENTIALS": credentialsMountPath,
+			},
+		}
+
 		caddy, err := kubernetes.DeployCaddyService(ctx, caddyConfig, input, params, kubeconfig)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create caddy deployment for cluster %q in %q", clusterName, input.StackParams.Environment)
@@ -88,6 +140,102 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	}
 
 	return &api.ResourceOutput{Ref: out}, nil
+}
+
+// convertClusterLocationToBucketLocation converts GKE cluster location to GCS bucket location
+// GKE locations can be zones (us-central1-a) or regions (us-central1)
+// GCS buckets should use regions for single-region buckets
+func convertClusterLocationToBucketLocation(clusterLocation string) string {
+	// Check if location is a zone (has zone suffix like -a, -b, -c)
+	// Zones follow pattern: {region}-{zone} (e.g., us-central1-a)
+	// Regions follow pattern: {continent}-{area}{number} (e.g., us-central1, europe-west1)
+
+	// Count dashes to determine if it's a zone or region
+	// Region: 2 dashes (us-central1, europe-west1)
+	// Zone: 3 dashes (us-central1-a, europe-west1-b)
+	lastDashIndex := -1
+	dashCount := 0
+	for i := len(clusterLocation) - 1; i >= 0; i-- {
+		if clusterLocation[i] == '-' {
+			dashCount++
+			if lastDashIndex == -1 {
+				lastDashIndex = i
+			}
+		}
+	}
+
+	// If it's a zone (has zone suffix), extract the region part
+	if dashCount >= 2 && lastDashIndex > 0 && lastDashIndex < len(clusterLocation)-1 {
+		// Check if the part after the last dash is a single letter (zone indicator)
+		zonePart := clusterLocation[lastDashIndex+1:]
+		if len(zonePart) == 1 && zonePart >= "a" && zonePart <= "z" {
+			// It's a zone, return the region part (everything before the last dash)
+			return clusterLocation[:lastDashIndex]
+		}
+	}
+
+	// It's already a region or a multi-region location, return as-is
+	return clusterLocation
+}
+
+// provisionCaddyACMEStorage provisions a GCS bucket and service account for Caddy ACME certificate storage
+func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, clusterLocation string, opts []sdk.ResourceOption, params pApi.ProvisionParams) (*storage.Bucket, sdk.StringOutput, error) {
+	bucketName := fmt.Sprintf("%s-caddy-acme", clusterName)
+
+	// Convert cluster location to GCS bucket location
+	// GKE location can be a zone (e.g., "us-central1-a") or region (e.g., "us-central1")
+	// GCS buckets need a region or multi-region location
+	bucketLocation := convertClusterLocationToBucketLocation(clusterLocation)
+
+	params.Log.Info(ctx.Context(), "📦 Provisioning GCS bucket %q in location %q for Caddy ACME certificate storage", bucketName, bucketLocation)
+
+	// Provision GCS bucket for ACME data
+	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
+		Name:     sdk.String(bucketName),
+		Location: sdk.String(bucketLocation),
+		LifecycleRules: storage.BucketLifecycleRuleArray{
+			&storage.BucketLifecycleRuleArgs{
+				Action: &storage.BucketLifecycleRuleActionArgs{
+					Type: sdk.String("Delete"),
+				},
+				Condition: &storage.BucketLifecycleRuleConditionArgs{
+					Age: sdk.Int(90), // Delete old certificate data after 90 days
+				},
+			},
+		},
+	}, opts...)
+	if err != nil {
+		return nil, sdk.StringOutput{}, errors.Wrapf(err, "failed to provision GCS bucket for Caddy ACME storage")
+	}
+
+	params.Log.Info(ctx.Context(), "🔐 Creating service account for Caddy GCS bucket access")
+
+	// Create service account for Caddy to access GCS bucket
+	saName := fmt.Sprintf("%s-caddy-sa", clusterName)
+	sa, err := NewServiceAccount(ctx, saName, ServiceAccountArgs{
+		Project:     projectID,
+		Description: "Service account for Caddy to access GCS bucket for ACME certificate storage",
+		Roles: []string{
+			"roles/storage.objectAdmin", // Full access to bucket objects
+		},
+	}, opts...)
+	if err != nil {
+		return nil, sdk.StringOutput{}, errors.Wrapf(err, "failed to create service account for Caddy")
+	}
+
+	params.Log.Info(ctx.Context(), "✅ GCS bucket and service account provisioned successfully")
+
+	// Decode base64-encoded service account key to get actual JSON credentials
+	// GCP's ServiceAccountKey.PrivateKey is base64-encoded, but we need the raw JSON
+	credentialsJSON := sa.ServiceAccountKey.PrivateKey.ApplyT(func(base64Key string) (string, error) {
+		decoded, err := base64.StdEncoding.DecodeString(base64Key)
+		if err != nil {
+			return "", errors.Wrapf(err, "failed to decode service account key")
+		}
+		return string(decoded), nil
+	}).(sdk.StringOutput)
+
+	return bucket, credentialsJSON, nil
 }
 
 func toKubeconfigExport(clusterName string) string {

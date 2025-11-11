@@ -257,6 +257,8 @@ func Test_Provision(t *testing.T) {
 			var err error
 			gitRepoMock := git_mocks.NewGitRepoMock(t)
 			gitRepoMock.On("Workdir").Return("testdata")
+			gitRepoMock.On("Hash").Return("abc123", nil).Maybe()
+			gitRepoMock.On("Branch").Return("main", nil).Maybe()
 
 			if tt.init != nil {
 				p, err = tt.init(t, ctx, gitRepoMock)
@@ -377,6 +379,8 @@ func Test_Deploy(t *testing.T) {
 
 			gitRepoMock := git_mocks.NewGitRepoMock(t)
 			gitRepoMock.On("Workdir").Return("testdata")
+			gitRepoMock.On("Hash").Return("abc123", nil).Maybe()
+			gitRepoMock.On("Branch").Return("main", nil).Maybe()
 			pulumiMock := pulumi_mocks.NewPulumiMock(t)
 			if tt.setExpectations {
 				pulumiMock.On("DeployStack", ctx, mock.Anything, mock.Anything, mock.Anything).

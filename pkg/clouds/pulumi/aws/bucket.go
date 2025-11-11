@@ -7,8 +7,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/s3"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/s3"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -18,12 +18,13 @@ import (
 )
 
 type S3BucketInput struct {
-	Name       string
-	Log        logger.Logger
-	Provider   sdk.ProviderResource
-	Registrar  pApi.Registrar
-	StaticSite *api.StaticSiteConfig
-	Stack      api.Stack
+	Name           string
+	Log            logger.Logger
+	Provider       sdk.ProviderResource
+	Registrar      pApi.Registrar
+	StaticSite     *api.StaticSiteConfig
+	Stack          api.Stack
+	AllowOnlyHttps bool
 }
 
 type PrivateBucketOutput struct {
@@ -51,12 +52,13 @@ func S3Bucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		bucketName, input.StackParams.StackName, input.StackParams.Environment)
 
 	res, err := createS3Bucket(ctx, S3BucketInput{
-		Name:       bucketName,
-		Provider:   params.Provider,
-		Registrar:  params.Registrar,
-		Stack:      stack,
-		Log:        params.Log,
-		StaticSite: bucketCfg.StaticSiteConfig,
+		Name:           bucketName,
+		Provider:       params.Provider,
+		Registrar:      params.Registrar,
+		Stack:          stack,
+		Log:            params.Log,
+		StaticSite:     bucketCfg.StaticSiteConfig,
+		AllowOnlyHttps: bucketCfg.AllowOnlyHttps,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision private bucket")
@@ -161,7 +163,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	input.Log.Info(ctx.Context(), "configure access key for user having access to s3 bucket...")
 	accessKey, err := iam.NewAccessKey(ctx, fmt.Sprintf("%s-access-key", input.Name), &iam.AccessKeyArgs{
 		User: user.ID(),
-	}, opts...)
+	}, opts...) // TODO: figure out how to handle access key rotation
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision access key for bucket %q", input.Name)
 	}
@@ -193,6 +195,21 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 					"Principal": "*",
 					"Action":    []string{"s3:GetObject"},
 					"Resource":  []string{bucketArn + "/*"},
+				})
+			}
+			// Add the HTTPS-only policy if AllowOnlyHttps is true
+			if input.AllowOnlyHttps {
+				statement = append(statement, map[string]any{
+					"Sid":       "DenyNonSecureTransport",
+					"Effect":    "Deny",
+					"Principal": "*",
+					"Action":    "s3:*",
+					"Resource":  []string{bucketArn + "/*"},
+					"Condition": map[string]any{
+						"Bool": map[string]any{
+							"aws:SecureTransport": "false",
+						},
+					},
 				})
 			}
 			policy := map[string]interface{}{

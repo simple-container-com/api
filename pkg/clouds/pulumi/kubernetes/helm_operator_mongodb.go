@@ -56,6 +56,8 @@ func HelmMongodbOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 
 	opts = append(opts, sdk.DependsOn([]sdk.Resource{operator}))
 	namespace := lo.If(cfg.Namespace() != nil, lo.FromPtr(cfg.Namespace())).Else("default")
+	// Sanitize namespace to comply with Kubernetes RFC 1123 requirements (no underscores)
+	namespace = SanitizeK8sName(namespace)
 	rootPasswordSecretName := fmt.Sprintf("%s-root-password", input.ToResName(input.Descriptor.Name))
 	rootPasswordSecretNameScram := fmt.Sprintf("%s-root-password-scram", input.ToResName(input.Descriptor.Name))
 	rootPassword, err := random.NewRandomPassword(ctx, fmt.Sprintf("%s-root-generated-password", rootPasswordSecretName), &random.RandomPasswordArgs{

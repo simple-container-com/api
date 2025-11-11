@@ -1,0 +1,32 @@
+blog.example.com {
+    reverse_proxy blog:2368
+    encode gzip
+    
+    # Security headers
+    header {
+        # Enable HSTS
+        Strict-Transport-Security max-age=31536000;
+        # Prevent MIME sniffing
+        X-Content-Type-Options nosniff
+        # Prevent clickjacking
+        X-Frame-Options DENY
+        # XSS protection
+        X-XSS-Protection "1; mode=block"
+        # Referrer policy
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+    
+    # Handle static assets
+    @static {
+        path *.css *.js *.png *.jpg *.jpeg *.gif *.ico *.svg *.woff *.woff2
+    }
+    header @static Cache-Control "public, max-age=31536000"
+    
+    # Logging
+    log {
+        output file /var/log/caddy/blog.log {
+            roll_size 100mb
+            roll_keep 5
+        }
+    }
+}

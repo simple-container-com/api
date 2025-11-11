@@ -8,12 +8,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/simple-container-com/api/pkg/util"
+
 	"github.com/samber/lo"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
-	"github.com/simple-container-com/welder/pkg/exec"
-	"github.com/simple-container-com/welder/pkg/util"
 
 	. "github.com/onsi/gomega"
 )
@@ -106,14 +106,14 @@ func Test_CreateKubernetesParentStack(t *testing.T) {
 func startK3dCluster(ctx context.Context) (string, func()) {
 	clusterName := tmpResName("kube-e2e-test")
 
-	k3d := exec.NewExec(ctx, util.NewStdoutLogger(os.Stdout, os.Stderr))
-	err := k3d.ProxyExec(fmt.Sprintf("k3d cluster create %s", clusterName), exec.Opts{})
+	k3d := util.NewExec(ctx, util.NewStdoutLogger(os.Stdout, os.Stderr))
+	err := k3d.ProxyExec(fmt.Sprintf("k3d cluster create %s", clusterName), util.ExecOpts{})
 	Expect(err).To(BeNil())
 
-	kubeconfig, err := k3d.ExecCommand(fmt.Sprintf("k3d kubeconfig get %s", clusterName), exec.Opts{})
+	kubeconfig, err := k3d.ExecCommand(fmt.Sprintf("k3d kubeconfig get %s", clusterName), util.ExecOpts{})
 	Expect(err).To(BeNil())
 
 	return kubeconfig, func() {
-		_ = k3d.ProxyExec(fmt.Sprintf("k3d cluster delete %s", clusterName), exec.Opts{})
+		_ = k3d.ProxyExec(fmt.Sprintf("k3d cluster delete %s", clusterName), util.ExecOpts{})
 	}
 }

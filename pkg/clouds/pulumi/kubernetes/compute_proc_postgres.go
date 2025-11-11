@@ -45,6 +45,11 @@ func HelmPostgresOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 	} else if pgURL == "" {
 		return nil, errors.Errorf("failed to get postgres URL (empty) from parent stack for %q", postgresName)
 	}
+	initSQLExport := toPostgresInitSQLExport(postgresName)
+	initSQL, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-pg-init-sql", postgresName, suffix), fullParentReference, initSQLExport, true)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get postgres initSQL from parent stack for %q", postgresName)
+	}
 
 	appendContextParams := postgresAppendParams{
 		stack:           stack,
@@ -56,6 +61,7 @@ func HelmPostgresOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, inp
 		pgURL:           pgURL,
 		provisionParams: params,
 		suffix:          suffix,
+		initSQL:         initSQL,
 	}
 	if params.ParentStack.UsesResource {
 		if err := appendUsesPostgresResourceContext(ctx, appendContextParams); err != nil {
@@ -87,6 +93,7 @@ type postgresAppendParams struct {
 	postgresName    string
 	pgURL           string
 	suffix          string
+	initSQL         string
 }
 
 func appendUsesPostgresResourceContext(ctx *sdk.Context, params postgresAppendParams) error {
@@ -213,6 +220,7 @@ func createPostgresUserForDatabase(ctx *sdk.Context, userName, dbName string, pa
 				Username: userName,
 				Password: password.Result,
 			},
+			InitSQL:      params.initSQL,
 			RootUser:     params.rootUser,
 			RootPassword: params.rootPassword,
 			Host:         parsedPgURL.Hostname(),

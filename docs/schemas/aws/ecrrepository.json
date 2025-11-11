@@ -1,0 +1,121 @@
+{
+  "name": "EcrRepository",
+  "type": "resource",
+  "provider": "aws",
+  "description": "AWS ecrrepository configuration",
+  "goPackage": "pkg/clouds/aws/",
+  "goStruct": "EcrRepository",
+  "resourceType": "ecr-repository",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accessKey": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "accessKey",
+          "account",
+          "region",
+          "secretAccessKey"
+        ],
+        "type": "object"
+      },
+      "lifecyclePolicy": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "rules": {
+            "items": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "action": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "rulePriority": {
+                  "type": "integer"
+                },
+                "selection": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "countNumber": {
+                      "type": "integer"
+                    },
+                    "countType": {
+                      "type": "string"
+                    },
+                    "tagStatus": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "countNumber",
+                    "countType",
+                    "tagStatus"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "action",
+                "description",
+                "rulePriority",
+                "selection"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "type": "object"
+      },
+      "name": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "lifecyclePolicy"
+    ],
+    "type": "object"
+  }
+}

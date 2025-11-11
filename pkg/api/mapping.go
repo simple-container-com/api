@@ -115,6 +115,24 @@ func RegisterCloudHelper(mapping CloudHelpersRegisterMap) {
 	cloudHelpersConfigMapping = lo.Assign(cloudHelpersConfigMapping, mapping)
 }
 
+// GetRegisteredProviderConfigs returns all registered provider configurations
+// Used by schema generator to automatically discover all resource types
+func GetRegisteredProviderConfigs() ConfigRegisterMap {
+	return providerConfigMapping
+}
+
+// GetRegisteredProvisionerFieldConfigs returns all registered provisioner field configurations
+// Used by schema generator to automatically discover provisioner resource types
+func GetRegisteredProvisionerFieldConfigs() ProvisionerFieldConfigRegister {
+	return provisionerFieldConfigMapping
+}
+
+// GetRegisteredCloudHelpers returns all registered cloud helper configurations
+// Used by schema generator to automatically discover cloud helper types
+func GetRegisteredCloudHelpers() CloudHelpersRegisterMap {
+	return cloudHelpersConfigMapping
+}
+
 type CloudHelper interface {
 	Run() error
 	SetLogger(l logger.Logger)

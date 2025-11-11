@@ -1,0 +1,112 @@
+schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: gcp-bucket
+      config:
+        credentials: "${auth:gcloud}"
+        projectId: "${auth:gcloud.projectId}"
+        provision: true
+        bucketName: example-company-state
+        location: europe-west3
+    secrets-provider:
+      type: gcp-kms
+      config:
+        provision: true
+        projectId: "${auth:gcloud.projectId}"
+        keyName: example-company-kms-key
+        keyLocation: global
+        credentials: "${auth:gcloud}"
+
+templates:
+  static-website:
+    type: gcp-static-website
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+  stack-per-app-gke:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+      gkeClusterResource: gke-autopilot-res
+      artifactRegistryResource: artifact-registry-res
+
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: 87152c65fca76d443751a37a91a77c17
+      zoneName: example.com
+  resources:
+    staging:
+      template: stack-per-app-gke
+      resources: &resources
+        mongodb:
+          type: mongodb-atlas
+          config:
+            admins: [ "admin" ]
+            developers: [ ]
+            instanceSize: "M0"
+            orgId: 5b89110a4e6581562623c59c
+            region: "WESTERN_EUROPE"
+            cloudProvider: GCP
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+        redis:
+          type: gcp-redis
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            memorySizeGb: 2
+            region: europe-west3
+            redisConfig:
+              maxmemory-policy: noeviction
+        gke-autopilot-res:
+          type: gcp-gke-autopilot-cluster
+          config:
+            gkeMinVersion: 1.33.4-gke.1245000  # Check current versions: gcloud container get-server-config --location=europe-west3
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: europe-west3
+            caddy:
+              enable: true
+              namespace: caddy
+              replicas: 2
+        artifact-registry-res:
+          type: gcp-artifact-registry
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: europe-west3
+            docker:
+              immutableTags: false
+        pubsub-res:
+          type: gcp-pubsub
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            labels:
+              env: dev
+            subscriptions:
+              - ackDeadlineSec: 600
+                exactlyOnceDelivery: true
+                messageRetentionDuration: '86400s'
+                name: workers.image-generator.sub
+                topic: workers.image-generator
+              - exactlyOnceDelivery: true
+                messageRetentionDuration: '86400s'
+                name: workers.data-processor.sub
+                topic: workers.data-processor
+            topics:
+              - name: workers.image-generator
+                labels:
+                  type: worker
+              - name: workers.data-processor
+                labels:
+                  type: worker
+    prod:
+      template: stack-per-app-gke
+      resources: *resources

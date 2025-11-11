@@ -1,0 +1,55 @@
+{
+  "name": "TemplateConfig",
+  "type": "template",
+  "provider": "aws",
+  "description": "AWS deployment template configuration",
+  "goPackage": "pkg/clouds/aws/",
+  "goStruct": "TemplateConfig",
+  "resourceType": "aws-static-website",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accessKey": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "accessKey",
+          "account",
+          "region",
+          "secretAccessKey"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      ""
+    ],
+    "type": "object"
+  }
+}

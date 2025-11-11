@@ -1,0 +1,123 @@
+# Multi-Tier Infrastructure - Parent Stack Configuration
+# File: .sc/stacks/infrastructure/server.yaml
+
+schemaVersion: 1.0
+
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      bucketName: mycompany-sc-state
+      region: us-central1
+    secrets-provider:
+      type: gcp-kms
+      keyId: mycompany-sc-kms-key
+      region: us-central1
+
+templates:
+  gke-autopilot-us:
+    type: gcp-gke-autopilot
+    config:
+      credentials: "${auth:gcp-us}"
+      project: "${auth:gcp-us.projectId}"
+      region: us-central1
+      zone: us-central1-a
+      gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=us-central1
+      # Node pools will be created automatically by GKE Autopilot
+      # but we can influence scheduling through affinity rules
+
+resources:
+  resources:
+    production:
+      # GKE Autopilot Cluster
+      gke-cluster:
+        type: gcp-gke-autopilot-cluster
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          name: "mycompany-production"
+          location: us-central1
+          gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=us-central1
+          
+      # Artifact Registry for Container Images
+      artifact-registry:
+        type: gcp-artifact-registry
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          location: us-central1
+          name: "mycompany-images"
+          public: false
+          docker:
+            immutableTags: true
+            
+      # Shared Cloud SQL PostgreSQL Database
+      cloud-sql-postgres:
+        type: gcp-cloudsql-postgres
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          name: "mycompany-production-db"
+          region: us-central1
+          instanceClass: "db-f1-micro"  # Phase 1: Small instance
+          allocateStorage: 100
+          engineVersion: "14"
+          username: "mycompany"
+          password: "${secret:postgres-password}"
+          databaseName: "mycompany_production"
+          
+      # Redis Memorystore for Caching
+      redis-memorystore:
+        type: gcp-redis
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          name: "mycompany-redis"
+          region: us-central1
+          memorySizeGb: 1  # Phase 1: 1GB instance
+          tier: "BASIC"    # Cost-optimized for Phase 1
+
+    staging:
+      # Staging environment with smaller resources
+      gke-cluster:
+        type: gcp-gke-autopilot-cluster
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          name: "mycompany-staging"
+          location: us-central1
+          gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=us-central1
+          
+      artifact-registry:
+        type: gcp-artifact-registry
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          location: us-central1
+          name: "mycompany-staging-images"
+          public: false
+          
+      cloud-sql-postgres:
+        type: gcp-cloudsql-postgres
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          name: "mycompany-staging-db"
+          region: us-central1
+          instanceClass: "db-f1-micro"
+          allocateStorage: 20
+          engineVersion: "14"
+          username: "mycompany"
+          password: "${secret:postgres-staging-password}"
+          databaseName: "mycompany_staging"
+          
+      redis-memorystore:
+        type: gcp-redis
+        config:
+          credentials: "${auth:gcp-us}"
+          project: "${auth:gcp-us.projectId}"
+          name: "mycompany-staging-redis"
+          region: us-central1
+          memorySizeGb: 1
+          tier: "BASIC"

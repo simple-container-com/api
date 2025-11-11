@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/registry"
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/util"
@@ -71,7 +71,7 @@ type ResponseMessageV2 struct {
 }
 
 func EncodeDockerAuthHeader(username, password string) (string, error) {
-	encodedJSON, err := json.Marshal(types.AuthConfig{
+	encodedJSON, err := json.Marshal(registry.AuthConfig{
 		Username: username,
 		Password: password,
 		Auth:     base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, password))),

@@ -1,0 +1,29 @@
+schemaVersion: 1.0
+stacks:
+  staging: &staging
+    type: cloud-compose
+    parent: mycompany/mycompany
+    config: &config
+      domain: staging-vectordb.example.com
+      domainProxied: false
+      size: &staging-size
+        cpu: 1024
+        memory: 2048
+      scale:
+        max: 3
+        min: 1
+        policy:
+          cpu:
+            max: 70
+      dockerComposeFile: ${git:root}/docker-compose.yaml
+      cloudExtras:
+        loadBalancerType: "nlb"
+      runs:
+        - vectordb
+      env: {}
+      secrets: {}
+  prod:
+    <<: *staging
+    config:
+      <<: *config
+      domain: vectordb.example.com

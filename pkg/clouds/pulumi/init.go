@@ -6,8 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
-
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
@@ -43,7 +41,7 @@ func init() {
 		}
 
 		// hackily set access token env variable, so that lm can access it
-		if err := os.Setenv(httpstate.AccessTokenEnvVar, authCfg.CredentialsValue()); err != nil {
+		if err := os.Setenv("PULUMI_ACCESS_TOKEN", authCfg.CredentialsValue()); err != nil {
 			return err
 		}
 		return nil

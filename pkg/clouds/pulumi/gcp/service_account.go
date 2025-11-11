@@ -24,7 +24,10 @@ type ServiceAccountArgs struct {
 }
 
 func NewServiceAccount(ctx *sdk.Context, name string, args ServiceAccountArgs, opts ...sdk.ResourceOption) (*CloudSQLAccount, error) {
-	accountName := strings.ReplaceAll(util.TrimStringMiddle(name, 28, "-"), "--", "-")
+	// GCP service account IDs must match: ^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$
+	// Replace underscores with hyphens to comply with GCP naming requirements
+	sanitizedName := strings.ReplaceAll(name, "_", "-")
+	accountName := strings.ReplaceAll(util.TrimStringMiddle(sanitizedName, 28, "-"), "--", "-")
 
 	serviceAccount, err := serviceaccount.NewAccount(ctx, accountName, &serviceaccount.AccountArgs{
 		AccountId:   sdk.String(accountName),

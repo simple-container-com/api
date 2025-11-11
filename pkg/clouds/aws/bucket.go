@@ -8,6 +8,7 @@ type S3Bucket struct {
 	AccountConfig         `json:",inline" yaml:",inline"`
 	*api.StaticSiteConfig `json:",inline,omitempty" yaml:",inline,omitempty"`
 	Name                  string `json:"name,omitempty" yaml:"name,omitempty"`
+	AllowOnlyHttps        bool   `json:"allowOnlyHttps" yaml:"allowOnlyHttps"`
 }
 
 func S3BucketReadConfig(config *api.Config) (api.Config, error) {

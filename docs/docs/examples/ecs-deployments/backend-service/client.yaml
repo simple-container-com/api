@@ -1,0 +1,46 @@
+schemaVersion: 1.0
+stacks:
+  staging: &staging
+    type: cloud-compose
+    parent: mycompany/mycompany
+    config: &staging-cfg
+      domain: staging-api.example.com
+      size:
+        cpu: 1024
+        memory: 2048
+      scale: &scale
+        max: 3 # max number of instances
+        min: 2 # min number of instances
+        policy:
+          cpu:
+            max: 45 # CPU utilization > 45% triggers scale up
+      dockerComposeFile: ${git:root}/docker-compose.yaml
+      uses:
+        - mongodb
+      runs:
+        - backend-service
+      env: &staging-env
+        BASE_URI: https://staging-api.example.com
+        NODE_ENV: production
+        GRAPHQL_API: https://staging-accounts.example.com/graphql
+      secrets: &staging-secrets
+        MONGO_URL: ${resource:mongodb.uri}
+        PRIVATE_FOR_METATX: ${secret:staging-backend-private-for-metax}
+        ADMIN_LOGIN: ${secret:staging-backend-admin-login}
+        API_KEY: ${secret:staging-backend-api-key}
+        BREVO_API_KEY: ${secret:staging-backend-brevo-api-key}
+        TELEGRAM_BOT_TOKEN: ${secret:staging-backend-tg-bot-token}
+  prod:
+    <<: *staging
+    config:
+      <<: *staging-cfg
+      domain: api.example.com
+      env:
+        <<: *staging-env
+        BASE_URI: https://api.example.com
+        GRAPHQL_API: https://accounts.example.com/graphql
+      secrets:
+        <<: *staging-secrets
+        MONGO_URL: ${resource:mongodb.uri}
+        PRIVATE_FOR_METATX: ${secret:prod-backend-private-for-metax}
+        ADMIN_LOGIN: ${secret:prod-backend-admin-login}

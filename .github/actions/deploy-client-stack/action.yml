@@ -1,0 +1,83 @@
+name: 'Deploy Simple Container Client Stack'
+description: 'Deploy a Simple Container client stack using internal SC APIs'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  stack-name:
+    description: 'Name of the stack to deploy'
+    required: true
+  environment:
+    description: 'Target environment (staging, prod, etc.)'
+    required: true
+    default: 'staging'
+  sc-config:
+    description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
+    required: true
+  version:
+    description: 'Version to deploy'
+    required: false
+    default: 'latest'
+  pr-preview:
+    description: 'Deploy as PR preview environment'
+    required: false
+    default: 'false'
+  pr-number:
+    description: 'Pull request number for preview deployments'
+    required: false
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ${{ github.token }}
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ${{ github.sha }}
+  commit-author:
+    description: 'Commit author name'
+    required: false
+    default: ${{ github.actor }}
+  commit-message:
+    description: 'Commit message'
+    required: false
+    default: ''
+
+outputs:
+  version:
+    description: 'Version that was deployed'
+  environment:
+    description: 'Environment that was deployed to'
+  stack-name:
+    description: 'Stack name that was deployed'
+  duration:
+    description: 'Deployment duration'
+  status:
+    description: 'Deployment status (success/failure)'
+
+runs:
+  using: 'docker'
+  image: 'docker://simplecontainer/github-actions:staging'
+  env:
+    GITHUB_ACTION_TYPE: 'deploy-client-stack'
+    STACK_NAME: ${{ inputs.stack-name }}
+    ENVIRONMENT: ${{ inputs.environment }}
+    SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
+    VERSION: ${{ inputs.version }}
+    PR_PREVIEW: ${{ inputs.pr-preview }}
+    PR_NUMBER: ${{ inputs.pr-number }}
+    VERBOSE: ${{ inputs.verbose }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}
+    COMMIT_AUTHOR: ${{ inputs.commit-author }}
+    COMMIT_MESSAGE: ${{ inputs.commit-message }}

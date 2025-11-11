@@ -1,0 +1,82 @@
+{
+  "name": "ClientDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Simple Container client.yaml configuration file schema",
+  "goPackage": "pkg/api/client.go",
+  "goStruct": "ClientDescriptor",
+  "resourceType": "client-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "defaults": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
+        },
+        "type": "object"
+      },
+      "schemaVersion": {
+        "type": "string"
+      },
+      "stacks": {
+        "additionalProperties": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "config": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "object",
+                    "array",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "config"
+              ],
+              "type": "object"
+            },
+            "parent": {
+              "type": "string"
+            },
+            "parentEnv": {
+              "type": "string"
+            },
+            "template": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "",
+            "parent",
+            "parentEnv",
+            "template",
+            "type"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      }
+    },
+    "required": [
+      "schemaVersion",
+      "stacks"
+    ],
+    "type": "object"
+  }
+}

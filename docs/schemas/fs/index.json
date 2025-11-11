@@ -1,0 +1,26 @@
+{
+  "description": "JSON Schema definitions for Fs resources and templates",
+  "provider": "fs",
+  "resources": [
+    {
+      "name": "FileSystemStateStorage",
+      "type": "provisioner",
+      "provider": "fs",
+      "description": "FS filesystemstatestorage configuration",
+      "goPackage": "pkg/clouds/fs/",
+      "goStruct": "FileSystemStateStorage",
+      "resourceType": "fs",
+      "schema": {}
+    },
+    {
+      "name": "PassphraseSecretsProvider",
+      "type": "provisioner",
+      "provider": "fs",
+      "description": "FS passphrasesecretsprovider configuration",
+      "goPackage": "pkg/clouds/fs/",
+      "goStruct": "PassphraseSecretsProvider",
+      "resourceType": "passphrase",
+      "schema": {}
+    }
+  ]
+}

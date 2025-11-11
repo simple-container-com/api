@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/go-git/go-billy/v5"
@@ -18,7 +19,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
-	"github.com/simple-container-com/welder/pkg/util"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 func (c *cryptor) ReadProfileConfig() error {
@@ -39,14 +40,17 @@ func (c *cryptor) ReadSecretFiles() error {
 func (c *cryptor) GetAndDecryptFileContent(relPath string) ([]byte, error) {
 	defer c.withReadLock()()
 
-	if f, found := c.secrets.Secrets[c.currentPublicKey]; !found {
+	// Normalize the current public key to ensure it matches how keys are stored in secrets map
+	normalizedCurrentKey := TrimPubKey(c.currentPublicKey)
+
+	if f, found := c.secrets.Secrets[normalizedCurrentKey]; !found {
 		return nil, errors.Errorf("secret file %q not found", relPath)
 	} else if encrypted, found := lo.Find(f.Files, func(item EncryptedSecretFile) bool {
 		return item.Path == relPath
 	}); !found {
 		return nil, errors.Errorf("encrypted secret file %q not found", relPath)
 	} else if content, err := c.decryptSecretData(encrypted.EncryptedData); err != nil {
-		return nil, errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", relPath, c.currentPublicKey)
+		return nil, errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", relPath, normalizedCurrentKey)
 	} else {
 		return content, nil
 	}
@@ -146,6 +150,11 @@ func (c *cryptor) unmarshalSecretsFile() error {
 		return errors.Wrapf(err, "failed to unmarshal secrets file: %q", secretsFilePath)
 	} else {
 		c.secrets = *res
+		// Normalize all public keys to ensure consistency (remove aliases/comments)
+		// This handles legacy keys that were stored with aliases before normalization was implemented
+		c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
+			return TrimPubKey(key)
+		})
 	}
 	return nil
 }
@@ -179,13 +188,17 @@ func (c *cryptor) DecryptAll(forceChanged bool) error {
 		return errors.New("public key is not configured")
 	}
 
-	if _, ok := c.secrets.Secrets[c.currentPublicKey]; !ok {
-		return errors.Errorf("current public key (%s) is not found in secrets: no decryption can be made", c.currentPublicKey)
+	// Normalize the current public key to ensure it matches how keys are stored in secrets map
+	// Keys in secrets.Secrets are always normalized (aliases removed) by EncryptChanged()
+	normalizedCurrentKey := TrimPubKey(c.currentPublicKey)
+
+	if _, ok := c.secrets.Secrets[normalizedCurrentKey]; !ok {
+		return errors.Errorf("current public key (%s) is not found in secrets: no decryption can be made", normalizedCurrentKey)
 	}
 
-	for _, sFile := range c.secrets.Secrets[c.currentPublicKey].Files {
+	for _, sFile := range c.secrets.Secrets[normalizedCurrentKey].Files {
 		if _, err := c.decryptSecretDataToFile(sFile.EncryptedData, sFile.Path, forceChanged); err != nil {
-			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, c.currentPublicKey)
+			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, normalizedCurrentKey)
 		}
 	}
 
@@ -193,6 +206,9 @@ func (c *cryptor) DecryptAll(forceChanged bool) error {
 }
 
 func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
+	// Normalize the current public key to ensure it matches how keys are stored in secrets map
+	normalizedCurrentKey := TrimPubKey(c.currentPublicKey)
+
 	c.secrets.Secrets = lo.MapKeys(c.secrets.Secrets, func(_ EncryptedSecrets, key string) string {
 		return TrimPubKey(key)
 	})
@@ -210,7 +226,7 @@ func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to read secret file %q", relFilePath)
 		}
-		secrets := c.secrets.Secrets[c.currentPublicKey]
+		secrets := c.secrets.Secrets[normalizedCurrentKey]
 
 		currentContent, _ := c.decryptSecretData(secrets.GetEncryptedContent(relFilePath))
 		if currentContent != nil && string(secretData) == string(currentContent) && !force {
@@ -242,7 +258,7 @@ func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 			c.secrets.Secrets[publicKey] = pKeySecrets
 		}
 
-		sFile, err := c.encryptSecretsFileWith(c.currentPublicKey, relFilePath)
+		sFile, err := c.encryptSecretsFileWith(normalizedCurrentKey, relFilePath)
 		if err != nil {
 			return err
 		}
@@ -256,7 +272,7 @@ func (c *cryptor) EncryptChanged(force bool, forceChanged bool) error {
 			secrets.RemoveFile(sFile)
 		}
 		secrets.AddFileIfNotExist(sFile)
-		c.secrets.Secrets[c.currentPublicKey] = secrets
+		c.secrets.Secrets[normalizedCurrentKey] = secrets
 	}
 	return nil
 }
@@ -381,7 +397,6 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 		return nil, errors.New("private key is not configured")
 	}
 
-	var key *rsa.PrivateKey
 	var err error
 
 	if _, err := ssh.ParseRawPrivateKey([]byte(c.currentPrivateKey)); errors.As(err, new(*ssh.PassphraseMissingError)) && c.privateKeyPassphrase == "" {
@@ -408,15 +423,27 @@ func (c *cryptor) decryptSecretData(encryptedData []string) ([]byte, error) {
 		return nil, errors.Wrapf(err, "failed to parse private key with passphrase (did you configure privateKeyPassword?)")
 	} else if err != nil {
 		return nil, errors.Wrapf(err, "failed to parse private key")
-	} else if castedKey, ok := rawKey.(*rsa.PrivateKey); !ok {
-		return nil, errors.Errorf("unsupported private key type: %T", rawKey)
-	} else {
-		key = castedKey
 	}
 
-	decrypted, err := ciphers.DecryptLargeString(key, encryptedData)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to decrypt secret")
+	var decrypted []byte
+	// Handle different key types
+	if rsaKey, ok := rawKey.(*rsa.PrivateKey); ok {
+		decrypted, err = ciphers.DecryptLargeString(rsaKey, encryptedData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret with RSA key")
+		}
+	} else if ed25519Key, ok := rawKey.(*ed25519.PrivateKey); ok {
+		decrypted, err = ciphers.DecryptLargeStringWithEd25519(*ed25519Key, encryptedData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret with ed25519 key")
+		}
+	} else if ed25519Key, ok := rawKey.(ed25519.PrivateKey); ok {
+		decrypted, err = ciphers.DecryptLargeStringWithEd25519(ed25519Key, encryptedData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to decrypt secret with ed25519 key")
+		}
+	} else {
+		return nil, errors.Errorf("unsupported private key type: %T", rawKey)
 	}
 	return decrypted, nil
 }
@@ -525,6 +552,37 @@ func (c *cryptor) GenerateKeyPairWithProfile(projectName string, profile string)
 	mPubKey, err := ciphers.MarshalPublicKey(pubKey)
 	if err != nil {
 		return errors.Wrapf(err, "failed to serialize public key")
+	}
+
+	c.currentPublicKey = TrimPubKey(string(mPubKey))
+
+	config := &api.ConfigFile{
+		ProjectName: projectName,
+		PrivateKey:  c.currentPrivateKey,
+		PublicKey:   c.currentPublicKey,
+	}
+	if err := config.WriteConfigFile(c.workDir, c.profile); err != nil {
+		return errors.Wrapf(err, "failed to write config file")
+	}
+	return nil
+}
+
+func (c *cryptor) GenerateEd25519KeyPairWithProfile(projectName string, profile string) error {
+	c.profile = profile
+	privKey, pubKey, err := ciphers.GenerateEd25519KeyPair()
+	if err != nil {
+		return errors.Wrapf(err, "failed to generate ed25519 key pair")
+	}
+
+	privKeyPem, err := ciphers.MarshalEd25519PrivateKey(privKey)
+	if err != nil {
+		return errors.Wrapf(err, "failed to marshal ed25519 private key")
+	}
+	c.currentPrivateKey = privKeyPem
+
+	mPubKey, err := ciphers.MarshalEd25519PublicKey(pubKey)
+	if err != nil {
+		return errors.Wrapf(err, "failed to serialize ed25519 public key")
 	}
 
 	c.currentPublicKey = TrimPubKey(string(mPubKey))

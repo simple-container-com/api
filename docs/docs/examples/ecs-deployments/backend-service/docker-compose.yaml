@@ -1,0 +1,25 @@
+services:
+  backend-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    labels:
+      "simple-container.com/ingress": true
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - app_data:/app/data
+
+volumes:
+  app_data:
+    labels:
+      "simple-container.com/volume-size": "10Gi"

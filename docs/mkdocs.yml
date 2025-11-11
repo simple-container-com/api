@@ -1,6 +1,52 @@
 site_name: Simple Container
 theme:
   name: material
+  logo: images/sc-logo.png
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Overview: getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+  - Core Concepts:
+    - Main Concepts: concepts/main-concepts.md
+    - Template Placeholders: concepts/template-placeholders.md
+    - Advanced Template Placeholders: concepts/template-placeholders-advanced.md
+    - Why Simple Container: concepts/motivation.md
+  - Guides:
+    - Deployment Guides: guides/index.md
+    - ECS Fargate: guides/parent-ecs-fargate.md
+    - GKE Autopilot: guides/parent-gcp-gke-autopilot.md
+    - Pure Kubernetes: guides/parent-pure-kubernetes.md
+    - Secrets Management: guides/secrets-management.md
+    - Migration: guides/migration.md
+  - Examples:
+    - Overview: examples/README.md
+    - Static Websites: examples/static-websites/index.md
+    - ECS Deployments: examples/ecs-deployments/index.md
+    - Lambda Functions: examples/lambda-functions/index.md
+    - GKE Autopilot: examples/gke-autopilot/index.md
+    - Kubernetes Native: examples/kubernetes-native/index.md
+    - Advanced Configs: examples/advanced-configs/index.md
+    - Parent Stacks: examples/parent-stacks/index.md
+  - Reference:
+    - Supported Resources: reference/supported-resources.md
+    - Deployment Schemas: reference/service-available-deployment-schemas.md
+    - Use Cases: reference/use-cases.md
+  - Advanced:
+    - Scaling Advantages: advanced/scaling-advantages.md
+    - Tool Comparisons: advanced/compare-with-other-tools.md
+    - Best Practices: advanced/best-practices.md
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -8,7 +54,14 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+
+plugins:
+  - search
+  - mermaid2

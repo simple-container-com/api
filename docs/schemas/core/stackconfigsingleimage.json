@@ -1,0 +1,130 @@
+{
+  "name": "StackConfigSingleImage",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Simple Container single-image stack configuration schema",
+  "goPackage": "pkg/api/client.go",
+  "goStruct": "StackConfigSingleImage",
+  "resourceType": "stack-config-single-image",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "baseDnsZone": {
+        "type": "string"
+      },
+      "basePath": {
+        "type": "string"
+      },
+      "cloudExtras": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "object",
+          "array",
+          "null"
+        ]
+      },
+      "domain": {
+        "type": "string"
+      },
+      "env": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "image": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "build": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "args": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "args"
+            ],
+            "type": "object"
+          },
+          "context": {
+            "type": "string"
+          },
+          "dockerfile": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "build",
+          "context",
+          "dockerfile",
+          "name",
+          "platform"
+        ],
+        "type": "object"
+      },
+      "max": {
+        "type": "integer"
+      },
+      "maxEphemeralStorage": {
+        "type": "integer"
+      },
+      "maxMemory": {
+        "type": "integer"
+      },
+      "min": {
+        "type": "integer"
+      },
+      "secrets": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "staticEgressIP": {
+        "type": "boolean"
+      },
+      "timeout": {
+        "type": "integer"
+      },
+      "uses": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "baseDnsZone",
+      "basePath",
+      "cloudExtras",
+      "domain",
+      "env",
+      "image",
+      "max",
+      "maxEphemeralStorage",
+      "maxMemory",
+      "min",
+      "secrets",
+      "staticEgressIP",
+      "timeout",
+      "uses",
+      "version"
+    ],
+    "type": "object"
+  }
+}

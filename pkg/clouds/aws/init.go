@@ -19,6 +19,9 @@ func init() {
 		// bucket
 		ResourceTypeS3Bucket: S3BucketReadConfig,
 
+		// ecr
+		ResourceTypeEcrRepository: EcrRepositoryReadConfig,
+
 		// rds
 		ResourceTypeRdsPostgres: ReadRdsPostgresConfig,
 		ResourceTypeRdsMysql:    ReadRdsMysqlConfig,

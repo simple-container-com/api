@@ -30,12 +30,15 @@ var ComputeEnv = ComputeEnvVariables{
 }
 
 type AlertsConfig struct {
-	MaxCPU    *MaxCPUConfig    `json:"maxCPU,omitempty" yaml:"maxCPU,omitempty"`
-	MaxMemory *MaxMemoryConfig `json:"maxMemory,omitempty" yaml:"maxMemory,omitempty"`
-	MaxErrors *MaxErrorConfig  `json:"maxErrors,omitempty" yaml:"maxErrors,omitempty"`
-	Discord   *DiscordCfg      `json:"discord,omitempty" yaml:"discord,omitempty"`
-	Slack     *SlackCfg        `json:"slack,omitempty" yaml:"slack,omitempty"`
-	Telegram  *TelegramCfg     `json:"telegram,omitempty" yaml:"telegram,omitempty"`
+	MaxCPU         *MaxCPUConfig         `json:"maxCPU,omitempty" yaml:"maxCPU,omitempty"`
+	MaxMemory      *MaxMemoryConfig      `json:"maxMemory,omitempty" yaml:"maxMemory,omitempty"`
+	MaxErrors      *MaxErrorConfig       `json:"maxErrors,omitempty" yaml:"maxErrors,omitempty"`
+	ServerErrors   *ServerErrorsConfig   `json:"serverErrors,omitempty" yaml:"serverErrors,omitempty"`
+	UnhealthyHosts *UnhealthyHostsConfig `json:"unhealthyHosts,omitempty" yaml:"unhealthyHosts,omitempty"`
+	ResponseTime   *ResponseTimeConfig   `json:"responseTime,omitempty" yaml:"responseTime,omitempty"`
+	Discord        *DiscordCfg           `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack          *SlackCfg             `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Telegram       *TelegramCfg          `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 }
 
 type CommonAlertConfig struct {
@@ -71,22 +74,44 @@ type MaxErrorConfig struct {
 	ErrorLogMessageRegexp string `json:"errorLogMessageRegexp" yaml:"errorLogMessageRegexp"`
 }
 
+// ALB-specific alert configurations
+type ServerErrorsConfig struct {
+	CommonAlertConfig `json:",inline" yaml:",inline"`
+}
+
+type UnhealthyHostsConfig struct {
+	CommonAlertConfig `json:",inline" yaml:",inline"`
+}
+
+type ResponseTimeConfig struct {
+	CommonAlertConfig `json:",inline" yaml:",inline"`
+}
+
 type AlertType string
 
 const (
+	// Monitoring Alert Types
 	AlertTriggered AlertType = "TRIGGERED"
 	AlertResolved  AlertType = "RESOLVED"
+
+	// Build/Deployment Notification Types
+	BuildStarted   AlertType = "BUILD_STARTED"
+	BuildSucceeded AlertType = "BUILD_SUCCEEDED"
+	BuildFailed    AlertType = "BUILD_FAILED"
+	BuildCancelled AlertType = "BUILD_CANCELLED"
 )
 
 type Alert struct {
-	Name        string    `json:"name" yaml:"name"`
-	Title       string    `json:"title" yaml:"title"`
-	Reason      string    `json:"reason" yaml:"reason"`
-	Description string    `json:"description" yaml:"description"`
-	StackName   string    `json:"stackName" yaml:"stackName"`
-	StackEnv    string    `json:"stackEnv" yaml:"stackEnv"`
-	DetailsUrl  string    `json:"detailsUrl" yaml:"detailsUrl"`
-	AlertType   AlertType `json:"alertType" yaml:"alertType"`
+	Name          string    `json:"name" yaml:"name"`
+	Title         string    `json:"title" yaml:"title"`
+	Reason        string    `json:"reason" yaml:"reason"`
+	Description   string    `json:"description" yaml:"description"`
+	StackName     string    `json:"stackName" yaml:"stackName"`
+	StackEnv      string    `json:"stackEnv" yaml:"stackEnv"`
+	DetailsUrl    string    `json:"detailsUrl" yaml:"detailsUrl"`
+	AlertType     AlertType `json:"alertType" yaml:"alertType"`
+	CommitAuthor  string    `json:"commitAuthor,omitempty" yaml:"commitAuthor,omitempty"`
+	CommitMessage string    `json:"commitMessage,omitempty" yaml:"commitMessage,omitempty"`
 }
 
 type AlertSender interface {

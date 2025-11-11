@@ -1,0 +1,180 @@
+{
+  "name": "GitHubActionsCiCdConfig",
+  "type": "resource",
+  "provider": "github",
+  "description": "GITHUB githubactionscicd configuration",
+  "goPackage": "pkg/clouds/github/",
+  "goStruct": "GitHubActionsCiCdConfig",
+  "resourceType": "github-actions",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "environments": {
+        "additionalProperties": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "auto-deploy": {
+              "type": "boolean"
+            },
+            "deploy-flags": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "protection": {
+              "type": "boolean"
+            },
+            "reviewers": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "runner": {
+              "type": "string"
+            },
+            "secrets": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "type": "string"
+            },
+            "variables": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "auto-deploy",
+            "deploy-flags",
+            "protection",
+            "reviewers",
+            "runner",
+            "secrets",
+            "type",
+            "variables"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "notifications": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "discord": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "webhook-url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "enabled",
+              "webhook-url"
+            ],
+            "type": "object"
+          },
+          "slack": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "webhook-url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "enabled",
+              "webhook-url"
+            ],
+            "type": "object"
+          },
+          "telegram": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "bot-token": {
+                "type": "string"
+              },
+              "chat-id": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "bot-token",
+              "chat-id",
+              "enabled"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "discord",
+          "slack",
+          "telegram"
+        ],
+        "type": "object"
+      },
+      "organization": {
+        "type": "string"
+      },
+      "workflow-generation": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "auto-update": {
+            "type": "boolean"
+          },
+          "custom-actions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "output-path": {
+            "type": "string"
+          },
+          "sc-version": {
+            "type": "string"
+          },
+          "templates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "auto-update",
+          "custom-actions",
+          "enabled",
+          "output-path",
+          "sc-version",
+          "templates"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "environments",
+      "notifications",
+      "organization",
+      "workflow-generation"
+    ],
+    "type": "object"
+  }
+}

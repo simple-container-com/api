@@ -1,0 +1,16 @@
+schemaVersion: 1.0
+stacks:
+  staging: &staging
+    type: static
+    parent: mycompany/mycompany
+    template: static-site
+    config: &staging-cfg
+      bundleDir: ${git:root}/build
+      domain: staging-admin.example.com
+      indexDocument: index.html
+      errorDocument: index.html
+  prod:
+    <<: *staging
+    config:
+      <<: *staging-cfg
+      domain: admin.example.com

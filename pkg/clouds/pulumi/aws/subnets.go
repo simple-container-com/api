@@ -6,9 +6,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	ec2V5 "github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
+	ec2V6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -89,8 +89,8 @@ func LookupSubnetsInAccount(ctx *sdk.Context, account aws.AccountConfig, provide
 	// Create default subnet in each availability zone
 	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (LookedupSubnet, error) {
 		// Try to look up the default subnet in the specified availability zone
-		subnet, err := ec2V5.LookupSubnet(ctx, &ec2V5.LookupSubnetArgs{
-			Filters: []ec2V5.GetSubnetFilter{
+		subnet, err := ec2V6.LookupSubnet(ctx, &ec2V6.LookupSubnetArgs{
+			Filters: []ec2V6.GetSubnetFilter{
 				{
 					Name:   "availability-zone",
 					Values: []string{zone},
@@ -129,7 +129,7 @@ func createDefaultSubnetsInRegionV5(ctx *sdk.Context, account aws.AccountConfig,
 	// Create default subnet in each availability zone
 	subnets, err := util.MapErr(availabilityZones.Names, func(zone string, _ int) (Subnet, error) {
 		subnetName := fmt.Sprintf("default-subnet-%s-%s", env, zone)
-		subnet, err := ec2V5.NewDefaultSubnet(ctx, subnetName, &ec2V5.DefaultSubnetArgs{
+		subnet, err := ec2V6.NewDefaultSubnet(ctx, subnetName, &ec2V6.DefaultSubnetArgs{
 			AvailabilityZone: sdk.String(zone),
 		}, sdk.Provider(params.Provider))
 		if err != nil {

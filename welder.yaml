@@ -9,6 +9,10 @@ default:
       ld-flags: "-s -w -X=${arg:package}/internal/build.Version=${project:version}"
 profiles:
   skip-tools:
+  skip-embeddings:
+    build:
+      env:
+        SKIP_EMBEDDINGS: "true"
   skip-test:
     activation:
       skip-tests: true
@@ -21,10 +25,13 @@ modules:
       steps:
         - task: clean
         - task: tools
+        - task: generate-schemas
         - task: linters
         - task: fmt
         - task: test
         - task: build-all
+        - task: build-github-actions
+        - task: build-github-actions-staging
         - task: docker-login
         - task: build-cloud-helpers
         - task: build-docs
@@ -36,11 +43,25 @@ modules:
         - task: rebuild
         - task: deploy
     dockerImages:
+      - name: kubectl
+        dockerFile: ${project:root}/kubectl.Dockerfile
+        tags:
+          - simplecontainer/kubectl:latest
+          - simplecontainer/kubectl:${project:version}
       - name: caddy
         dockerFile: ${project:root}/caddy.Dockerfile
         tags:
           - simplecontainer/caddy:latest
           - simplecontainer/caddy:${project:version}
+      - name: github-actions
+        dockerFile: ${project:root}/github-actions.Dockerfile
+        tags:
+          - simplecontainer/github-actions:latest
+          - simplecontainer/github-actions:${project:version}
+      - name: github-actions-staging
+        dockerFile: ${project:root}/github-actions-staging.Dockerfile
+        tags:
+          - simplecontainer/github-actions:staging
       - name: cloud-helpers-aws
         dockerFile: ${project:root}/cloud-helpers.aws.Dockerfile
         tags:
@@ -59,6 +80,8 @@ tasks:
       - rm -fR ${project:root}/.sc/stacks/dist/bundle/*
       - mkdir -p ${project:root}/docs/site
       - rm -fR ${project:root}/docs/site/*
+      - mkdir -p ${project:root}/docs/schemas
+      - rm -fR ${project:root}/docs/schemas/*
   tools:
     runOn: host
     runIf: "!${profile:skip-tools.active}"
@@ -72,11 +95,11 @@ tasks:
     script:
       - go mod tidy
       - ${project:root}/bin/gofumpt -l -w ./
-      - ${project:root}/bin/golangci-lint run --fix --timeout 3m
+      - ${project:root}/bin/golangci-lint run --fix --timeout 3m -v
   linters:
     runOn: host
     script:
-      - ${project:root}/bin/golangci-lint run --fast --timeout 5m
+      - ${project:root}/bin/golangci-lint run --fast --timeout 5m -v
   build-all:
     runOn: host
     script:
@@ -100,10 +123,100 @@ tasks:
     runOn: host
     script:
       - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
+  build-github-actions:
+    runOn: host
+    script:
+      - echo "Building GitHub Actions binary..."
+      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/github-actions ./cmd/github-actions
+      - echo "✅ GitHub Actions binary built successfully"
   test:
     runOn: host
     script:
       - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
+  generate-schemas:
+    runOn: host
+    script:
+      - echo "Generating JSON Schema files for Simple Container resources..."
+      - go build -o ${project:root}/bin/schema-gen ./cmd/schema-gen
+      - ${project:root}/bin/schema-gen ${project:root}/docs/schemas
+      - echo "Successfully generated JSON Schema files in docs/schemas/"
+  generate-embeddings:
+    runOn: host
+    script:
+      - echo "🚀 Generating OpenAI embeddings for AI Assistant..."
+      - mkdir -p ${project:root}/pkg/assistant/embeddings/vectors
+      - |
+        # Build the embeddings generator tool
+        echo "🔨 Building embeddings generator..."
+        cd ${project:root}
+        mkdir -p bin
+        go mod download
+        go build -o ${project:root}/bin/generate-embeddings ${project:root}/cmd/generate-embeddings
+        
+        # Check if build succeeded
+        if [ ! -f "${project:root}/bin/generate-embeddings" ]; then
+          echo "❌ Failed to build embeddings generator binary"
+          exit 1
+        fi
+        echo "✅ Successfully built embeddings generator"
+        
+        # Get OpenAI API key from secrets or environment (build-time)  
+        echo "🔑 Retrieving OpenAI API key..."
+        OPENAI_KEY=""
+        
+        # Try to get from Simple Container secrets - use pre-installed sc first, then local build
+        if command -v sc >/dev/null 2>&1; then
+          echo "🔍 Using pre-installed sc command to retrieve OpenAI key..."
+          OPENAI_KEY=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo "")
+        elif [ -f "${project:root}/bin/sc" ]; then
+          echo "🔍 Using locally built sc binary to retrieve OpenAI key..."
+          OPENAI_KEY=$(${project:root}/bin/sc stack secret-get -s dist openai-api-key 2>/dev/null || echo "")
+        fi
+        
+        # Fall back to environment variable
+        if [ -z "$OPENAI_KEY" ]; then
+          echo "🔍 No OpenAI key found in secrets, checking environment variable..."
+          OPENAI_KEY=$OPENAI_API_KEY
+        fi
+        
+        # Set embedding model from environment variable or use default
+        EMBEDDING_MODEL=${SIMPLE_CONTAINER_EMBEDDING_MODEL:-text-embedding-3-small}
+        
+        if [ -n "$OPENAI_KEY" ]; then
+          echo "✨ Generating OpenAI embeddings using model: $EMBEDDING_MODEL"
+          if ! ${project:root}/bin/generate-embeddings \
+            -openai-key "$OPENAI_KEY" \
+            -model "$EMBEDDING_MODEL" \
+            -output ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings_openai.json \
+            -verbose; then
+            echo "❌ Failed to generate OpenAI embeddings"
+            exit 1
+          fi
+          
+          echo "🏠 Generating local embeddings as fallback..."
+          if ! ${project:root}/bin/generate-embeddings \
+            -local \
+            -output ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json \
+            -verbose; then
+            echo "❌ Failed to generate local embeddings"
+            exit 1
+          fi
+          echo "✅ Generated both OpenAI and local embeddings for optimal reliability"
+        else
+          echo "⚠️  OpenAI API key not found in secrets or environment"
+          echo "🏠 Generating local embeddings only..."
+          if ! ${project:root}/bin/generate-embeddings \
+            -local \
+            -output ${project:root}/pkg/assistant/embeddings/vectors/prebuilt_embeddings_local.json \
+            -verbose; then
+            echo "❌ Failed to generate local embeddings"
+            exit 1
+          fi
+          echo "💡 To enable OpenAI embeddings: sc secrets add openai-api-key or export OPENAI_API_KEY=your-key"
+          echo "💡 Set embedding model with: export SIMPLE_CONTAINER_EMBEDDING_MODEL=text-embedding-3-large"
+        fi
+        
+        echo "✅ Embeddings generation completed"
   build:
     runOn: host
     env:
@@ -121,8 +234,8 @@ tasks:
     runOn: host
     script:
       - ${project:root}/bin/sc secrets reveal
-      - ${project:root}/bin/sc deploy -s dist -e prod
-      - ${project:root}/bin/sc deploy -s docs -e prod
+      - ${project:root}/bin/sc deploy -s dist -e prod --skip-refresh
+      - ${project:root}/bin/sc deploy -s docs -e prod --skip-refresh
   tag-release:
     runOn: host
     script:
@@ -146,4 +259,21 @@ tasks:
   rebuild:
     runOn: host
     script:
+      - welder run generate-schemas
+      - if [ "${SKIP_EMBEDDINGS}" != 'true' ]; then welder run generate-embeddings; else echo "Skipping embeddings"; fi
       - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
+  build-github-actions-staging:
+    runOn: host
+    env:
+      CGO_ENABLED: "0"
+      GOOS: "linux"
+      GOARCH: "amd64"
+    script:
+      - echo "Building static github-actions binary for staging (Alpine compatible)..."
+      - mkdir -p ${project:root}/bin
+      - go build -ldflags "-s -w" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
+  build-github-actions-staging-push:
+    runOn: host
+    script:
+      - welder run build-github-actions-staging
+      - welder docker build --push github-actions-staging

@@ -1,0 +1,63 @@
+{
+  "name": "RedisConfig",
+  "type": "resource",
+  "provider": "gcp",
+  "description": "Google Cloud Platform redis configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "RedisConfig",
+  "resourceType": "gcp-redis",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "memorySizeGb": {
+        "type": "integer"
+      },
+      "project": {
+        "type": "string"
+      },
+      "redisConfig": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "region": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "memorySizeGb",
+      "project",
+      "redisConfig",
+      "region",
+      "version"
+    ],
+    "type": "object"
+  }
+}

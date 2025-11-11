@@ -38,9 +38,11 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 
 	var organization string
 	if provisionerCfg.Organization == "" {
-		p.logger.Debug(ctx, "pulumi organization is empty, assuming 'organization'")
+		p.logger.Debug(ctx, "❌ CRITICAL: Pulumi organization is empty, defaulting to 'organization' - this may cause state storage mismatch!")
+		p.logger.Debug(ctx, "🔍 This means your server.yaml provisioner config is missing the 'organization' field")
 		organization = "organization"
 	} else {
+		p.logger.Debug(ctx, "✅ Using configured Pulumi organization: %s", provisionerCfg.Organization)
 		organization = provisionerCfg.Organization
 	}
 
@@ -67,6 +69,11 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	project := &workspace.Project{
 		Name: tokens.PackageName(cfg.ProjectName),
 	}
+	p.logger.Debug(ctx, "🔍 Pulumi Project Configuration:")
+	p.logger.Debug(ctx, "  - Organization: %s", organization)
+	p.logger.Debug(ctx, "  - Project Name: %s", cfg.ProjectName)
+	p.logger.Debug(ctx, "  - Stack Name: %s", stack.Name)
+	p.logger.Debug(ctx, "  - Full Stack Reference: %s/%s/%s", organization, cfg.ProjectName, stack.Name)
 
 	var be backend.Backend
 	stateStorageCfg, ok := provisionerCfg.StateStorage.Config.Config.(api.StateStorageConfig)
@@ -86,18 +93,32 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		return errors.Wrapf(err, "failed to init state storage for provider %q", authCfg.ProviderType())
 	}
 
+	p.logger.Debug(ctx, "🔍 State Storage Configuration:")
+	p.logger.Debug(ctx, "  - Type: %s", provisionerCfg.StateStorage.Type)
+	p.logger.Debug(ctx, "  - Storage URL: %s", stateStorageCfg.StorageUrl())
+	p.logger.Debug(ctx, "  - Credentials Length: %d", len(creds))
+
 	switch provisionerCfg.StateStorage.Type {
 	case BackendTypePulumiCloud:
 		cloudUrl := "https://api.pulumi.com"
+		p.logger.Debug(ctx, "🔧 Logging into Pulumi Cloud at %s", cloudUrl)
 		_, err = httpstate.NewLoginManager().Login(ctx, cloudUrl, false, "pulumi", "Pulumi stacks", httpstate.WelcomeUser, true /*current*/, display.Options{
 			Color: cmdutil.GetGlobalColorization(),
 		})
 		if err != nil {
+			p.logger.Debug(ctx, "❌ Failed to login to Pulumi Cloud: %v", err)
 			return err
 		}
-		be, err = httpstate.New(cmdutil.Diag(), cloudUrl, project, false)
+		p.logger.Debug(ctx, "✅ Successfully logged into Pulumi Cloud")
+		be, err = httpstate.New(ctx, cmdutil.Diag(), cloudUrl, project, false)
 	default:
+		p.logger.Debug(ctx, "🔧 Using DIY backend with storage URL: %s", stateStorageCfg.StorageUrl())
 		be, err = diy.Login(ctx, cmdutil.Diag(), stateStorageCfg.StorageUrl(), project)
+		if err != nil {
+			p.logger.Debug(ctx, "❌ Failed to login to DIY backend: %v", err)
+		} else {
+			p.logger.Debug(ctx, "✅ Successfully logged into DIY backend")
+		}
 	}
 	if err != nil {
 		return err

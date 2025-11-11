@@ -1,0 +1,40 @@
+schemaVersion: 1.0
+stacks:
+  # staging environment
+  staging: &staging
+    type: cloud-compose
+    parent: mycompany
+    config: &staging-cfg
+      dockerComposeFile: ./docker-compose.yaml
+      domain: streams.example.com
+      clusterIPAddress: 10.0.1.100 # hardcoded cluster IP for external cluster reference
+      runs:
+        - streams
+      env: &staging-env
+        DB_POSTGRESDB_USER: streams
+        DB_POSTGRESDB_DATABASE: streams
+        DB_POSTGRESDB_PASSWORD: streams
+        DB_POSTGRESDB_HOST: 10.120.0.3 # private IP address for shared PostgreSQL
+        DB_TYPE: postgresdb
+        AUTH_URL: https://auth.example.com
+        AUTH_API_URL: https://auth-api.example.com
+        N8N_DISABLED_MODULES: insights,external-secrets
+        ANALYTICS_SERVICE_HOST: https://analytics.example.com
+      secrets: &staging-secrets
+        DB_POSTGRESDB_PASSWORD: ${secret:postgres-password}
+        ANALYTICS_SERVICE_SECRET: ${secret:analytics-service-secret}
+        ANALYTICS_SERVICE_PUBLIC: ${secret:analytics-service-public}
+        RMQ_URI: ${secret:rmq-uri}
+      cloudExtras:
+        disruptionBudget:
+          minAvailable: 0
+        rollingUpdate:
+          maxSurge: 0
+
+  prod:
+    <<: *staging
+    config:
+      <<: *staging-cfg
+      baseDnsZone: example.com
+      domain: streams.example.com
+      clusterIPAddress: 10.0.2.100 # different IP for production cluster

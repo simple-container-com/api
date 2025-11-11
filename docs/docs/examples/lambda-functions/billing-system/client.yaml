@@ -1,0 +1,47 @@
+schemaVersion: 1.0
+stacks:
+  staging: &stack
+    type: single-image
+    template: lambda-eu
+    parent: mycompany/mycompany
+    config: &config
+      domain: staging-billing.example.com
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      timeout: 300
+      maxMemory: 512
+      uses:
+        - mongodb
+      cloudExtras:
+        lambdaRoutingType: function-url
+      env: &env
+        HOME: /tmp
+        HOST: staging-billing.example.com
+        REQUEST_DEBUG: "false"
+      secrets:
+        API_KEY: ${secret:billing-api-key}
+  test:
+    <<: *stack
+    config:
+      <<: *config
+      domain: test-billing.example.com
+      env:
+        <<: *env
+        HOST: test-billing.example.com
+  beta:
+    <<: *stack
+    parentEnv: prod
+    config:
+      <<: *config
+      domain: beta-billing.example.com
+      env:
+        <<: *env
+        HOST: beta-billing.example.com
+  prod:
+    <<: *stack
+    config:
+      <<: *config
+      domain: billing.example.com
+      env:
+        <<: *env
+        HOST: billing.example.com

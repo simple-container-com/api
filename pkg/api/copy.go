@@ -142,6 +142,7 @@ func (s *Stack) ChildStack(name string) Stack {
 func (s *ClientDescriptor) Copy() ClientDescriptor {
 	return ClientDescriptor{
 		SchemaVersion: s.SchemaVersion,
+		Defaults:      lo.Assign(map[string]interface{}{}, s.Defaults),
 		Stacks: lo.MapValues(s.Stacks, func(v StackClientDescriptor, k string) StackClientDescriptor {
 			return v.Copy()
 		}),
@@ -181,5 +182,6 @@ func (s *StackConfigCompose) Copy() any {
 		CloudExtras:       s.CloudExtras,
 		StaticEgressIP:    s.StaticEgressIP,
 		ImagePullPolicy:   s.ImagePullPolicy,
+		ClusterIPAddress:  s.ClusterIPAddress,
 	}
 }

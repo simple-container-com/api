@@ -1,0 +1,94 @@
+schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      config:
+        credentials: "${auth:aws-eu}"
+        provision: false
+        account: "${auth:aws.projectId}"
+        bucketName: example-company-sc-state
+    secrets-provider:
+      type: aws-kms
+      config:
+        credentials: "${auth:aws-eu}"
+        provision: true
+        keyName: example-company-kms-key
+
+templates:
+  # ECS Fargate templates - IMPORTANT: Always require authentication configuration
+  # Required config: credentials (AWS auth) and account (AWS project ID)
+  stack-per-app-eu:
+    type: ecs-fargate
+    config: &aws-eu-cfg
+      credentials: "${auth:aws-eu}"        # Required: AWS authentication
+      account: "${auth:aws-eu.projectId}"  # Required: AWS account/project ID
+  stack-per-app-us:
+    type: ecs-fargate
+    config: &aws-us-cfg
+      credentials: "${auth:aws-us}"        # Required: AWS authentication  
+      account: "${auth:aws-us.projectId}"  # Required: AWS account/project ID
+  static-eu:
+    type: aws-static-website
+    config: *aws-eu-cfg
+  lambda-eu:
+    type: aws-lambda
+    config: *aws-eu-cfg
+
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: 23c5ca78cfb4721d9a603ed695a2623e
+      zoneName: example.com
+      dnsRecords:
+        - name: "@"
+          type: TXT
+          value: v=spf1 include:_spf.google.com ~all
+          proxied: false
+        - name: "@"
+          type: TXT
+          value: include:143683367.spf06.hubspotemail.net
+          proxied: false
+        - name: "dkim._domainkey"
+          type: TXT
+          value: "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC..."
+          proxied: false
+
+  resources:
+    staging:
+      template: stack-per-app-eu
+      resources: &staging-resources
+        media-storage:
+          type: s3-bucket
+          config:
+            credentials: "${auth:aws-eu}"
+        mongodb:
+          type: mongodb-atlas
+          config: &mongo-config
+            admins: [ "admin", "devops" ]
+            developers: [ ]
+            instanceSize: "M10"
+            orgId: 67bc72f86e5ef36f7584d7d0
+            region: "EU_CENTRAL_1"
+            cloudProvider: AWS
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+            backup:
+              every: 4h
+              retention: 24h
+    prod:
+      template: stack-per-app-us
+      resources:
+        <<: *staging-resources
+        mongodb:
+          type: mongodb-atlas
+          config:
+            <<: *mongo-config
+            instanceSize: "M30"
+            region: "US_EAST_1"
+            backup:
+              every: 1h
+              retention: 168h

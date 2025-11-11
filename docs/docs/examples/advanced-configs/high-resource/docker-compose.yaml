@@ -1,0 +1,40 @@
+services:
+  code-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    labels:
+      "simple-container.com/ingress": true
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - LOCAL_DEBUG_MODE=false
+      - LLM_MODEL=claude-sonnet-4-20250514
+      - BASE_RUNTIME_URL=https://code.example.com
+      - IMAGE_NAME=docker.example.com/wize-code:2025.7.1-pre.8ed0777aa
+      - RUNTIME_POD_START_TIMEOUT=10m
+      - RUNTIME_VOLUME_SIZE=10Gi
+      - RUNTIME_MEMORY_LIMIT=32Gi
+      - RUNTIME_MEMORY_REQUEST=32Gi
+      - RUNTIME_CPU_LIMIT=16
+      - RUNTIME_CPU_REQUEST=16
+      - RUNTIME_EPHEMERAL_STORAGE_LIMIT=10Gi
+      - LLM_BASE_URL=https://llm-proxy.example.com/v1
+      - GITHUB_REDIRECT_URI=https://code.example.com/api/auth/github/callback
+      - KUBERNETES_NAMESPACE=code-gateway
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - kubeconfig:/root/.kube
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  kubeconfig:
+    labels:
+      "simple-container.com/volume-size": "1Gi"

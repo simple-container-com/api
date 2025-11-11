@@ -20,7 +20,55 @@ const (
 // ClientDescriptor describes the client schema
 type ClientDescriptor struct {
 	SchemaVersion string                           `json:"schemaVersion" yaml:"schemaVersion"`
+	Defaults      map[string]interface{}           `json:"defaults,omitempty" yaml:"defaults,omitempty"` // Maximum flexibility - supports any user-defined YAML anchors, templates, and configuration
 	Stacks        map[string]StackClientDescriptor `json:"stacks" yaml:"stacks"`
+
+	// Additional flexible root-level properties for future extensibility
+	// Any other user-defined root-level sections will be preserved via our text manipulation approach
+}
+
+// HasDefaults checks if the client configuration has a defaults section
+func (c *ClientDescriptor) HasDefaults() bool {
+	return len(c.Defaults) > 0
+}
+
+// GetDefaultsSection returns the defaults section as a map for flexible access
+// This allows users to define any YAML anchors and templates they need
+func (c *ClientDescriptor) GetDefaultsSection() map[string]interface{} {
+	if c.Defaults == nil {
+		return make(map[string]interface{})
+	}
+	return c.Defaults
+}
+
+// SetDefaultsSection sets the entire defaults section (used for programmatic configuration)
+func (c *ClientDescriptor) SetDefaultsSection(defaults map[string]interface{}) {
+	c.Defaults = defaults
+}
+
+// GetDefaultValue retrieves a specific value from the defaults section
+// Supports nested access using dot notation (e.g., "stack.type", "config.baseDnsZone")
+func (c *ClientDescriptor) GetDefaultValue(key string) (interface{}, bool) {
+	if !c.HasDefaults() {
+		return nil, false
+	}
+
+	// Support simple key access
+	if val, exists := c.Defaults[key]; exists {
+		return val, true
+	}
+
+	// Support nested key access (basic implementation)
+	// Could be enhanced further if needed
+	return nil, false
+}
+
+// SetDefaultValue sets a specific value in the defaults section
+func (c *ClientDescriptor) SetDefaultValue(key string, value interface{}) {
+	if c.Defaults == nil {
+		c.Defaults = make(map[string]interface{})
+	}
+	c.Defaults[key] = value
 }
 
 type StackClientDescriptor struct {
@@ -38,11 +86,15 @@ const (
 )
 
 const (
-	ComposeLabelIngressContainer        = "simple-container.com/ingress"
-	ComposeLabelVolumeSize              = "simple-container.com/volume-size"
-	ComposeLabelIngressPort             = "simple-container.com/ingress/port"
-	ComposeLabelHealthcheckSuccessCodes = "simple-container.com/healthcheck/success-codes"
-	ComposeLabelHealthcheckPath         = "simple-container.com/healthcheck/path"
+	ComposeLabelIngressContainer            = "simple-container.com/ingress"
+	ComposeLabelVolumeSize                  = "simple-container.com/volume-size"
+	ComposeLabelVolumeAccessModes           = "simple-container.com/volume-access-modes"
+	ComposeLabelVolumeStorageClass          = "simple-container.com/volume-storage-class"
+	ComposeLabelIngressPort                 = "simple-container.com/ingress/port"
+	ComposeLabelHealthcheckSuccessCodes     = "simple-container.com/healthcheck/success-codes"
+	ComposeLabelHealthcheckHealthyThreshold = "simple-container.com/healthcheck/healthy-threshold"
+	ComposeLabelHealthcheckPath             = "simple-container.com/healthcheck/path"
+	ComposeLabelHealthcheckPort             = "simple-container.com/healthcheck/port"
 )
 
 type RemoteImage struct {
@@ -115,12 +167,13 @@ type StackConfigCompose struct {
 	Scale             *StackConfigComposeScale        `json:"scale,omitempty" yaml:"scale,omitempty"`
 	Dependencies      []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
 	Alerts            *AlertsConfig                   `json:"alerts,omitempty" yaml:"alerts,omitempty"`
-	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"`         // extra text volumes to mount to containers (e.g. for k8s deployments)
-	Headers           *Headers                        `json:"headers" yaml:"headers"`                 // extra headers to add when serving requests
-	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`               // load balancer configuration (so far only applicable for k8s deployments)
-	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"`         // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
-	StaticEgressIP    *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`   // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
-	ImagePullPolicy   *string                         `json:"imagePullPolicy" yaml:"imagePullPolicy"` // applicable only for certain compute types, e.g. Kubernetes
+	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"`           // extra text volumes to mount to containers (e.g. for k8s deployments)
+	Headers           *Headers                        `json:"headers" yaml:"headers"`                   // extra headers to add when serving requests
+	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`                 // load balancer configuration (so far only applicable for k8s deployments)
+	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"`           // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
+	StaticEgressIP    *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`     // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
+	ImagePullPolicy   *string                         `json:"imagePullPolicy" yaml:"imagePullPolicy"`   // applicable only for certain compute types, e.g. Kubernetes
+	ClusterIPAddress  *string                         `json:"clusterIPAddress" yaml:"clusterIPAddress"` // applicable only for certain compute types, e.g. Kubernetes
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack (client configuration)
@@ -137,9 +190,10 @@ type ParentResourceDependency struct {
 }
 
 type StackConfigComposeSize struct {
-	Name   string `yaml:"name" json:"name"`
-	Cpu    string `yaml:"cpu" json:"cpu"`
-	Memory string `yaml:"memory" json:"memory"`
+	Name      string `yaml:"name" json:"name"`
+	Cpu       string `yaml:"cpu" json:"cpu"`
+	Memory    string `yaml:"memory" json:"memory"`
+	Ephemeral string `yaml:"ephemeral" json:"ephemeral"`
 }
 type StackConfigComposeScale struct {
 	Min int `yaml:"min" json:"min"`

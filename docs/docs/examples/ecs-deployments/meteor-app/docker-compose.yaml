@@ -1,0 +1,22 @@
+services:
+  meteor-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    labels:
+      "simple-container.com/ingress": true
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - ROOT_URL=https://example.com
+      - PORT=3000
+      - METEOR_SETTINGS=${METEOR_SETTINGS}
+      - MONGO_URL=${MONGO_URL}
+      - MAIL_URL=${MAIL_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

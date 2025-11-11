@@ -6,13 +6,14 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api/git"
-	"github.com/simple-container-com/welder/pkg/util"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
 
 type Cryptor interface {
 	GenerateKeyPairWithProfile(projectName, profile string) error
+	GenerateEd25519KeyPairWithProfile(projectName, profile string) error
 	ReadProfileConfig() error
 	AddFile(path string) error
 	RemoveFile(path string) error

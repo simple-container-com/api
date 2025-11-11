@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -210,6 +210,19 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			}
 			out.PrivateLinkEndpointService = linkEndpointService
 
+		} else if networkConfig.AllowCidrs != nil {
+			for _, cidrBlock := range lo.FromPtr(networkConfig.AllowCidrs) {
+				params.Log.Info(ctx.Context(), "configure MongoDB Atlas to allow cidr block %q for cluster %q in stack %q in %q",
+					cidrBlock, clusterName, input.StackParams.StackName, input.StackParams.Environment)
+				_, err := mongodbatlas.NewProjectIpAccessList(ctx, fmt.Sprintf("%s-cidr-block-%s", clusterName, cidrBlock), &mongodbatlas.ProjectIpAccessListArgs{
+					CidrBlock: sdk.StringPtr(cidrBlock),
+					Comment:   sdk.Sprintf("Allow cidr %s explicitly", cidrBlock),
+					ProjectId: projectId,
+				}, opts...)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to create mongodb cidr block %q stack %q", cidrBlock, stack.Name)
+				}
+			}
 		} else {
 			return nil, errors.Errorf("network configuration for MongoDB Atlas cluster %q is provided but not supported", clusterName)
 		}
@@ -426,7 +439,8 @@ func createDatabaseUser(ctx *sdk.Context, user dbUserInput, params pApi.Provisio
 		Special: sdk.Bool(false),
 	})
 	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to generate random password for user %q: %q", user.username, password)
+		// SECURITY: Never log actual password objects that might contain credential values
+		params.Log.Error(ctx.Context(), "failed to generate random password for user %q", user.username)
 		return nil, errors.Wrapf(err, "failed to generate random password for mongodb for user %q", user.username)
 	}
 

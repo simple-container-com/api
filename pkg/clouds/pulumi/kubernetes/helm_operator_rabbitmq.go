@@ -38,9 +38,26 @@ func HelmRabbitmqOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 		name:      "oci://registry-1.docker.io/bitnamicharts/rabbitmq-cluster-operator",
 		defaultNS: "operators",
 		version:   lo.ToPtr("4.4.1"),
-		values: map[string]any{
+		values: fields{
 			"commonAnnotations": annotations,
 			"commonLabels":      labels,
+			// Use bitnamilegacy repositories for compatibility
+			"clusterOperator": fields{
+				"image": fields{
+					"repository": "bitnamilegacy/rabbitmq-cluster-operator",
+				},
+			},
+			"msgTopologyOperator": fields{
+				"image": fields{
+					"repository": "bitnamilegacy/rmq-messaging-topology-operator",
+				},
+			},
+			"rabbitmqImage": fields{
+				"repository": "bitnamilegacy/rabbitmq",
+			},
+			"credentialUpdaterImage": fields{
+				"repository": "bitnamilegacy/rmq-default-credential-updater",
+			},
 		},
 	})
 	if err != nil {

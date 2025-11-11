@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -17,11 +18,12 @@ const (
 )
 
 type EcsFargateConfig struct {
-	api.Credentials `json:",inline" yaml:",inline"`
-	AccountConfig   `json:",inline" yaml:",inline"`
-	Cpu             int    `json:"cpu" yaml:"cpu"`
-	Memory          int    `json:"memory" yaml:"memory"`
-	Version         string `json:"version" yaml:"version"`
+	api.Credentials    `json:",inline" yaml:",inline"`
+	AccountConfig      `json:",inline" yaml:",inline"`
+	Cpu                int    `json:"cpu" yaml:"cpu"`
+	Memory             int    `json:"memory" yaml:"memory"`
+	EphemeralStorageGB int    `json:"ephemeralStorageGB" yaml:"ephemeralStorageGB"`
+	Version            string `json:"version" yaml:"version"`
 }
 
 type EcsFargateProbe struct {
@@ -39,9 +41,10 @@ type EcsFargateResources struct {
 }
 
 type ProbeHttpGet struct {
-	Path         string `json:"path" yaml:"path"`
-	Port         int    `json:"port" yaml:"port"`
-	SuccessCodes string `json:"successCodes" yaml:"successCodes"`
+	Path             string `json:"path" yaml:"path"`
+	Port             int    `json:"port" yaml:"port"`
+	SuccessCodes     string `json:"successCodes" yaml:"successCodes"`
+	HealthyThreshold int    `json:"healthyThreshold" yaml:"healthyThreshold"`
 }
 
 type EcsFargateContainer struct {
@@ -168,6 +171,15 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		if res.Config.Memory, err = strconv.Atoi(stackCfg.Size.Memory); err != nil {
 			return nil, errors.Wrapf(err, "failed to convert memory size %q to ECS fargate memory size: must be a number (e.g. 512)", stackCfg.Size.Memory)
 		}
+		if stackCfg.Size.Ephemeral != "" {
+			if ephemeral, err := strconv.Atoi(stackCfg.Size.Ephemeral); err != nil {
+				return nil, errors.Wrapf(err, "failed to convert ephemeral storage size %q to ECS fargate ephemeral size: must be a number (e.g. 22548578304 (min 21GB))", stackCfg.Size.Ephemeral)
+			} else if bytesInGB := bytesToGB(ephemeral); bytesInGB < 21 {
+				return nil, errors.Wrapf(err, "ephemeral storage size %q in ECS fargate : must be above 21GB", stackCfg.Size.Ephemeral)
+			} else {
+				res.Config.EphemeralStorageGB = bytesInGB
+			}
+		}
 	}
 	if stackCfg.Scale != nil {
 		res.Scale = EcsFargateScale{
@@ -248,6 +260,10 @@ func ToEcsFargateConfig(tpl any, composeCfg compose.Config, stackCfg *api.StackC
 		if svc.Build != nil {
 			context = svc.Build.Context
 			dockerFile = svc.Build.Dockerfile
+			// Apply docker-compose defaults: when context is set but dockerfile is empty, default to "Dockerfile"
+			if context != "" && dockerFile == "" {
+				dockerFile = "Dockerfile"
+			}
 			buildArgs = lo.MapValues(svc.Build.Args, func(value *string, _ string) string {
 				return lo.FromPtr(value)
 			})
@@ -336,6 +352,10 @@ func toDependsOn(on types.DependsOnConfig) []EcsFargateDependsOn {
 				lo.If(value.Condition == "service_started", "START").Else("HEALTHY")),
 		}
 	})
+}
+
+func bytesToGB(size int) int {
+	return size / 1024 / 1024 / 1024
 }
 
 func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int, error) {
@@ -432,11 +452,25 @@ func (p *EcsFargateProbe) FromHealthCheck(svc types.ServiceConfig, port int) {
 				Port: port,
 			}
 		}
+		if ht, ok := svc.Labels[api.ComposeLabelHealthcheckHealthyThreshold]; ok {
+			if htInt, err := strconv.Atoi(ht); err != nil {
+				fmt.Printf("Healthcheck healthy threshold label error: %d: %v\n", htInt, err)
+			} else {
+				p.HttpGet.HealthyThreshold = htInt
+			}
+		}
 		if sc, ok := svc.Labels[api.ComposeLabelHealthcheckSuccessCodes]; ok {
 			p.HttpGet.SuccessCodes = sc
 		}
 		if path, ok := svc.Labels[api.ComposeLabelHealthcheckPath]; ok {
 			p.HttpGet.Path = path
+		}
+		if hcPortString, ok := svc.Labels[api.ComposeLabelHealthcheckPort]; ok {
+			if hcPort, err := strconv.Atoi(hcPortString); err != nil {
+				fmt.Printf("Healthcheck port from label error: %d: %v\n", hcPort, err)
+			} else {
+				p.HttpGet.Port = hcPort
+			}
 		}
 
 	}

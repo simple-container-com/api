@@ -13,7 +13,9 @@ import (
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_assistant"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_cicd"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
@@ -71,6 +73,7 @@ func main() {
 	rootCmd.SetVersionTemplate("{{printf \"%s\\n\" .Version}}")
 
 	rootCmd.AddCommand(
+		cmd_assistant.NewAssistantCmd(rootCmdInstance),
 		cmd_secrets.NewSecretsCmd(rootCmdInstance),
 		cmd_init.NewInitCmd(rootCmdInstance),
 		cmd_provision.NewProvisionCmd(rootCmdInstance),
@@ -79,6 +82,7 @@ func main() {
 		cmd_destroy.NewDestroyCmd(rootCmdInstance),
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 		cmd_stack.NewStackCmd(rootCmdInstance),
+		cmd_cicd.NewCicdCmd(rootCmdInstance),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

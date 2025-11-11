@@ -1,0 +1,66 @@
+{
+  "description": "JSON Schema definitions for Core resources and templates",
+  "provider": "core",
+  "resources": [
+    {
+      "name": "ClientDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container client.yaml configuration file schema",
+      "goPackage": "pkg/api/client.go",
+      "goStruct": "ClientDescriptor",
+      "resourceType": "client-config",
+      "schema": {}
+    },
+    {
+      "name": "ConfigFile",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container project configuration file schema",
+      "goPackage": "pkg/api/config.go",
+      "goStruct": "ConfigFile",
+      "resourceType": "project-config",
+      "schema": {}
+    },
+    {
+      "name": "ServerDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container server.yaml configuration file schema",
+      "goPackage": "pkg/api/server.go",
+      "goStruct": "ServerDescriptor",
+      "resourceType": "server-config",
+      "schema": {}
+    },
+    {
+      "name": "StackConfigCompose",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container cloud-compose stack configuration schema",
+      "goPackage": "pkg/api/client.go",
+      "goStruct": "StackConfigCompose",
+      "resourceType": "stack-config-compose",
+      "schema": {}
+    },
+    {
+      "name": "StackConfigSingleImage",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container single-image stack configuration schema",
+      "goPackage": "pkg/api/client.go",
+      "goStruct": "StackConfigSingleImage",
+      "resourceType": "stack-config-single-image",
+      "schema": {}
+    },
+    {
+      "name": "StackConfigStatic",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Simple Container static site stack configuration schema",
+      "goPackage": "pkg/api/client.go",
+      "goStruct": "StackConfigStatic",
+      "resourceType": "stack-config-static",
+      "schema": {}
+    }
+  ]
+}

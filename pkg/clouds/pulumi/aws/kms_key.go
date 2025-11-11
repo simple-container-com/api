@@ -5,7 +5,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/kms"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/kms"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -29,6 +29,7 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 		Tags: sdk.StringMap{
 			"stack": sdk.String(stack.Name),
 		},
+		EnableKeyRotation: sdk.Bool(true),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to provision KMS key")

@@ -1,0 +1,106 @@
+{
+  "name": "GkeAutopilotResource",
+  "type": "resource",
+  "provider": "gcp",
+  "description": "Google Cloud Platform gkeautopilotresource configuration",
+  "goPackage": "pkg/clouds/gcp/",
+  "goStruct": "GkeAutopilotResource",
+  "resourceType": "gcp-gke-autopilot-cluster",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "projectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "projectId"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "",
+          ""
+        ],
+        "type": "object"
+      },
+      "caddy": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "caddyfile": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "image": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "provisionIngress": {
+            "type": "boolean"
+          },
+          "replicas": {
+            "type": "integer"
+          },
+          "serviceType": {
+            "type": "string"
+          },
+          "usePrefixes": {
+            "type": "boolean"
+          },
+          "useSSL": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "gkeMinVersion": {
+        "type": "string"
+      },
+      "location": {
+        "type": "string"
+      },
+      "timeouts": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "create": {
+            "type": "string"
+          },
+          "delete": {
+            "type": "string"
+          },
+          "update": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "create",
+          "delete",
+          "update"
+        ],
+        "type": "object"
+      },
+      "zone": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "gkeMinVersion",
+      "location",
+      "zone"
+    ],
+    "type": "object"
+  }
+}

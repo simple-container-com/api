@@ -1,7 +1,6 @@
 package aws
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -12,14 +11,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/appautoscaling"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/cloudwatch"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecr"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/efs"
-	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/iam"
+	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecr"
 	ecsV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ecs"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/efs"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	lbV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lb"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/ecs"
@@ -450,14 +449,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 		var lbHC *lbV6.TargetGroupHealthCheckArgs
 		liveProbe := iContainer.LivenessProbe
-		if liveProbe.HttpGet.Path != "" || liveProbe.HttpGet.SuccessCodes != "" {
-			lbHC = &lbV6.TargetGroupHealthCheckArgs{
-				Port:     sdk.StringPtr(strconv.Itoa(iContainer.Port)),
-				Path:     sdk.StringPtr(liveProbe.HttpGet.Path),
-				Matcher:  sdk.StringPtr(liveProbe.HttpGet.SuccessCodes),
-				Timeout:  sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(30)),
-				Interval: sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(10)),
-			}
+		lbHC = &lbV6.TargetGroupHealthCheckArgs{
+			Port:               sdk.StringPtr(lo.If(liveProbe.HttpGet.Port > 0, strconv.Itoa(liveProbe.HttpGet.Port)).Else(strconv.Itoa(iContainer.Port))),
+			Path:               sdk.StringPtr(lo.If(liveProbe.HttpGet.Path != "", liveProbe.HttpGet.Path).Else("/")),
+			Matcher:            sdk.StringPtr(lo.If(liveProbe.HttpGet.SuccessCodes != "", liveProbe.HttpGet.SuccessCodes).Else("200")),
+			Timeout:            sdk.IntPtr(lo.If(liveProbe.TimeoutSeconds > 2, liveProbe.TimeoutSeconds).Else(6)),
+			Interval:           sdk.IntPtr(lo.If(liveProbe.IntervalSeconds > 0, liveProbe.IntervalSeconds).Else(30)),
+			HealthyThreshold:   sdk.IntPtr(lo.If(liveProbe.HttpGet.HealthyThreshold > 0, liveProbe.HttpGet.HealthyThreshold).Else(3)),
+			UnhealthyThreshold: sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(3)),
 		}
 		loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 			Name:      sdk.String(loadBalancerName),
@@ -555,6 +554,40 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ctx.Export(fmt.Sprintf("%s-arn", ecsSimpleClusterName), cluster.Arn)
 	ctx.Export(fmt.Sprintf("%s-name", ecsSimpleClusterName), cluster.Name)
 
+	awsCloudExtras := &aws.CloudExtras{}
+	if crInput.CloudExtras != nil {
+		var err error
+		awsCloudExtras, err = api.ConvertDescriptor(crInput.CloudExtras, awsCloudExtras)
+		if err != nil {
+			return errors.Wrapf(err, "failed to convert cloudExtras field to AWS Cloud extras format")
+		}
+	}
+	policyActions := []string{
+		"ssm:StartSession",
+		"ssmmessages:CreateControlChannel",
+		"ssmmessages:CreateDataChannel",
+		"ssmmessages:OpenControlChannel",
+		"ssmmessages:OpenDataChannel",
+		"secretsmanager:GetSecretValue",
+		"ecr:GetAuthorizationToken",
+		"ecr:DescribeImages",
+		"ecr:DescribeRepositories",
+		"ecr:BatchGetImage",
+		"ecr:BatchCheckLayerAvailability",
+		"ecr:GetDownloadUrlForLayer",
+		"logs:CreateLogStream",
+		"logs:CreateLogGroup",
+		"logs:DescribeLogStreams",
+		"logs:PutLogEvents",
+		"elasticfilesystem:ClientMount",
+		"elasticfilesystem:ClientWrite",
+		"elasticfilesystem:DescribeMountTargets",
+		"elasticfilesystem:DescribeFileSystems",
+	}
+
+	params.Log.Info(ctx.Context(), "adding extra roles %q for lambda %q...", strings.Join(awsCloudExtras.AwsRoles, ","), stack.Name)
+	policyActions = append(policyActions, awsCloudExtras.AwsRoles...)
+
 	ccPolicyName := fmt.Sprintf("%s-policy", ecsSimpleClusterName)
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
@@ -567,28 +600,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					{
 						"Effect":   "Allow",
 						"Resource": "*",
-						"Action": []string{
-							"ssm:StartSession",
-							"ssmmessages:CreateControlChannel",
-							"ssmmessages:CreateDataChannel",
-							"ssmmessages:OpenControlChannel",
-							"ssmmessages:OpenDataChannel",
-							"secretsmanager:GetSecretValue",
-							"ecr:GetAuthorizationToken",
-							"ecr:DescribeImages",
-							"ecr:DescribeRepositories",
-							"ecr:BatchGetImage",
-							"ecr:BatchCheckLayerAvailability",
-							"ecr:GetDownloadUrlForLayer",
-							"logs:CreateLogStream",
-							"logs:CreateLogGroup",
-							"logs:DescribeLogStreams",
-							"logs:PutLogEvents",
-							"elasticfilesystem:ClientMount",
-							"elasticfilesystem:ClientWrite",
-							"elasticfilesystem:DescribeMountTargets",
-							"elasticfilesystem:DescribeFileSystems",
-						},
+						"Action":   policyActions,
 					},
 				},
 			}
@@ -616,9 +628,13 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		DeploymentMinimumHealthyPercent: sdk.IntPtr(lo.If(crInput.Scale.Update.MinHealthyPercent == 0, 100).Else(crInput.Scale.Update.MinHealthyPercent)),
 		ContinueBeforeSteadyState:       sdk.BoolPtr(false),
 		TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
-			Family:     sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
-			Cpu:        sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
-			Memory:     sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
+			Family: sdk.String(fmt.Sprintf("%s-%s", stack.Name, deployParams.Environment)),
+			Cpu:    sdk.String(lo.If(crInput.Config.Cpu == 0, "256").Else(strconv.Itoa(crInput.Config.Cpu))),
+			Memory: sdk.String(lo.If(crInput.Config.Memory == 0, "512").Else(strconv.Itoa(crInput.Config.Memory))),
+			EphemeralStorage: lo.If[ecsV6.TaskDefinitionEphemeralStoragePtrInput](crInput.Config.EphemeralStorageGB == 0, nil).
+				Else(&ecsV6.TaskDefinitionEphemeralStorageArgs{
+					SizeInGib: sdk.Int(crInput.Config.EphemeralStorageGB),
+				}),
 			Containers: containers,
 			Volumes:    volumes,
 			ExecutionRole: &awsx.DefaultRoleWithPolicyArgs{
@@ -778,6 +794,110 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 			return errors.Wrapf(err, "failed to create max memory alert")
 		}
 	}
+
+	// ALB-specific alerts
+	lbType := aws.LoadBalancerTypeAlb
+	if crInput.CloudExtras != nil && crInput.CloudExtras.LoadBalancerType != "" {
+		lbType = crInput.CloudExtras.LoadBalancerType
+	}
+	if lbType == aws.LoadBalancerTypeAlb {
+		// Get ALB name using the same pattern as ALB creation
+		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+
+		// Server Errors (5XX) Alert
+		if alerts.ServerErrors != nil {
+			if err := createAlert(ctx, alertCfg{
+				name:           fmt.Sprintf("%s--%s", alerts.ServerErrors.AlertName, deployParams.Environment),
+				description:    alerts.ServerErrors.Description,
+				telegramConfig: alerts.Telegram,
+				discordConfig:  alerts.Discord,
+				slackConfig:    alerts.Slack,
+				deployParams:   deployParams,
+				secretSuffix:   crInput.Config.Version,
+				helpersImage:   helpersImage,
+				opts:           opts,
+				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+					ComparisonOperator: sdk.String("GreaterThanThreshold"),
+					EvaluationPeriods:  sdk.Int(2),
+					MetricName:         sdk.String("HTTPCode_ELB_5XX_Count"),
+					Namespace:          sdk.String("AWS/ApplicationELB"),
+					Threshold:          sdk.Float64(alerts.ServerErrors.Threshold),
+					Period:             sdk.Int(lo.If(alerts.ServerErrors.PeriodSec == 0, 300).Else(alerts.ServerErrors.PeriodSec)),
+					Statistic:          sdk.String("Sum"),
+					Dimensions: sdk.StringMap{
+						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+					},
+					AlarmDescription: sdk.String(alerts.ServerErrors.Description),
+					TreatMissingData: sdk.String("notBreaching"),
+				},
+			}); err != nil {
+				return errors.Wrapf(err, "failed to create server errors alert")
+			}
+		}
+
+		// Unhealthy Hosts Alert
+		if alerts.UnhealthyHosts != nil {
+			if err := createAlert(ctx, alertCfg{
+				name:           fmt.Sprintf("%s--%s", alerts.UnhealthyHosts.AlertName, deployParams.Environment),
+				description:    alerts.UnhealthyHosts.Description,
+				telegramConfig: alerts.Telegram,
+				discordConfig:  alerts.Discord,
+				slackConfig:    alerts.Slack,
+				deployParams:   deployParams,
+				secretSuffix:   crInput.Config.Version,
+				helpersImage:   helpersImage,
+				opts:           opts,
+				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+					ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
+					EvaluationPeriods:  sdk.Int(2),
+					MetricName:         sdk.String("UnHealthyHostCount"),
+					Namespace:          sdk.String("AWS/ApplicationELB"),
+					Threshold:          sdk.Float64(alerts.UnhealthyHosts.Threshold),
+					Period:             sdk.Int(lo.If(alerts.UnhealthyHosts.PeriodSec == 0, 300).Else(alerts.UnhealthyHosts.PeriodSec)),
+					Statistic:          sdk.String("Average"),
+					Dimensions: sdk.StringMap{
+						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+					},
+					AlarmDescription: sdk.String(alerts.UnhealthyHosts.Description),
+					TreatMissingData: sdk.String("notBreaching"),
+				},
+			}); err != nil {
+				return errors.Wrapf(err, "failed to create unhealthy hosts alert")
+			}
+		}
+
+		// Target Response Time Alert
+		if alerts.ResponseTime != nil {
+			if err := createAlert(ctx, alertCfg{
+				name:           fmt.Sprintf("%s--%s", alerts.ResponseTime.AlertName, deployParams.Environment),
+				description:    alerts.ResponseTime.Description,
+				telegramConfig: alerts.Telegram,
+				discordConfig:  alerts.Discord,
+				slackConfig:    alerts.Slack,
+				deployParams:   deployParams,
+				secretSuffix:   crInput.Config.Version,
+				helpersImage:   helpersImage,
+				opts:           opts,
+				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
+					ComparisonOperator: sdk.String("GreaterThanThreshold"),
+					EvaluationPeriods:  sdk.Int(3),
+					MetricName:         sdk.String("TargetResponseTime"),
+					Namespace:          sdk.String("AWS/ApplicationELB"),
+					Threshold:          sdk.Float64(alerts.ResponseTime.Threshold),
+					Period:             sdk.Int(lo.If(alerts.ResponseTime.PeriodSec == 0, 300).Else(alerts.ResponseTime.PeriodSec)),
+					Statistic:          sdk.String("Average"),
+					Dimensions: sdk.StringMap{
+						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+					},
+					AlarmDescription: sdk.String(alerts.ResponseTime.Description),
+					TreatMissingData: sdk.String("notBreaching"),
+				},
+			}); err != nil {
+				return errors.Wrapf(err, "failed to create response time alert")
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -891,72 +1011,6 @@ func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}
 
 	return nil
-}
-
-func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, imageName string) (EcsFargateRepository, error) {
-	res := EcsFargateRepository{}
-	ecrRepoName := fmt.Sprintf("%s-%s", stack.Name, imageName)
-	params.Log.Info(ctx.Context(), "configure ECR repository %q for stack %q in %q...", ecrRepoName, stack.Name, deployParams.Environment)
-	ecrRepo, err := ecr.NewRepository(ctx, ecrRepoName, &ecr.RepositoryArgs{
-		ForceDelete: sdk.BoolPtr(true),
-		Name:        sdk.String(awsResName(ecrRepoName, "ecr")),
-	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
-	if err != nil {
-		return res, errors.Wrapf(err, "failed to provision ECR repository %q for stack %q in %q", ecrRepoName, stack.Name, deployParams.Environment)
-	}
-	res.Repository = ecrRepo
-	ctx.Export(fmt.Sprintf("%s-url", ecrRepoName), ecrRepo.RepositoryUrl)
-	ctx.Export(fmt.Sprintf("%s-id", ecrRepoName), ecrRepo.RegistryId)
-
-	lifecyclePolicyDocument, err := json.Marshal(map[string][]map[string]interface{}{
-		"rules": {
-			{
-				"rulePriority": 1,
-				"description":  "Keep only 3 last images",
-				"selection": map[string]interface{}{
-					"tagStatus":   "any",
-					"countType":   "imageCountMoreThan",
-					"countNumber": 3,
-				},
-				"action": map[string]interface{}{
-					"type": "expire",
-				},
-			},
-		},
-	})
-	if err != nil {
-		return res, errors.Wrapf(err, "failed to marshal ecr lifecycle policy for ecr registry %s", ecrRepoName)
-	}
-
-	// Apply the lifecycle policy to the ECR repository.
-	_, err = ecr.NewLifecyclePolicy(ctx, fmt.Sprintf("%s-lc-policy", ecrRepoName), &ecr.LifecyclePolicyArgs{
-		Repository: ecrRepo.Name,
-		Policy:     sdk.String(lifecyclePolicyDocument),
-	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
-	if err != nil {
-		return res, errors.Wrapf(err, "failed to create ecr lifecycle policy for ecr registry %s", ecrRepoName)
-	}
-
-	registryPassword := ecrRepo.RegistryId.ApplyT(func(registryId string) (string, error) {
-		// Fetch the auth token for the registry
-		creds, err := ecr.GetCredentials(ctx, &ecr.GetCredentialsArgs{
-			RegistryId: registryId,
-		}, sdk.Provider(params.Provider))
-		if err != nil {
-			return "", err
-		}
-
-		decodedCreds, err := base64.StdEncoding.DecodeString(creds.AuthorizationToken)
-		if err != nil {
-			return "", errors.Wrapf(err, "failed to decode auth token for ECR registry %q", ecrRepoName)
-		}
-		return strings.TrimPrefix(string(decodedCreds), "AWS:"), nil
-	}).(sdk.StringOutput)
-
-	res.Password = registryPassword
-	ctx.Export(fmt.Sprintf("%s-password", ecrRepoName), sdk.ToSecret(registryPassword))
-
-	return res, nil
 }
 
 func awsResName(name string, suffix string) string {

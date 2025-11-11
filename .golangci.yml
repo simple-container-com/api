@@ -1,5 +1,7 @@
 run:
-  skip-files: []
+  skip-files: [ ]
+  timeout: 5m
+  concurrency: 4
 
 linters:
   disable-all: true

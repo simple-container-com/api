@@ -1,0 +1,38 @@
+schemaVersion: 1.0
+stacks:
+  staging: &staging
+    type: single-image
+    template: lambda-eu
+    parent: mycompany/mycompany
+    config: &config
+      domain: staging-ai-gateway.example.com
+      image:
+        dockerfile: ${git:root}/src/Dockerfile
+        context: ${git:root}/src
+      timeout: 60
+      cloudExtras: &extras
+        lambdaRoutingType: function-url
+        lambdaInvokeMode: RESPONSE_STREAM
+        awsRoles:
+          - "bedrock:InvokeModel"
+          - "bedrock:InvokeModelWithResponseStream"
+          - "bedrock:CreateModelInvocationJob"
+      env: &env
+        HOME: /tmp
+        DEBUG: "false"
+        DEFAULT_MODEL: "anthropic.claude-3-sonnet-20240229-v1:0"
+        DEFAULT_EMBEDDING_MODEL: cohere.embed-multilingual-v3
+        ENABLE_CROSS_REGION_INFERENCE: "true"
+      secrets:
+        API_KEY_SECRET_ARN: |
+          {
+            "api_key": "ExampleCompany"
+          }
+  prod:
+    <<: *staging
+    config:
+      <<: *config
+      domain: ai-gateway.example.com
+      env:
+        <<: *env
+        DEBUG: "false"

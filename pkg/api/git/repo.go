@@ -4,11 +4,13 @@ import (
 	"io"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/filesystem"
@@ -42,6 +44,9 @@ type Repo interface {
 	Log() []Commit
 	Workdir() string
 	Gitdir() string
+
+	Branch() (string, error)
+	Hash() (string, error)
 }
 
 type Commit struct {
@@ -284,4 +289,51 @@ func (r *repo) Log() []Commit {
 		}
 	}
 	return res
+}
+
+func (r *repo) Branch() (string, error) {
+	h, err := r.gitRepo.Head()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get HEAD reference")
+	}
+
+	// Check if HEAD is detached
+	if h.Name().IsBranch() {
+		return strings.TrimPrefix(h.Name().String(), "refs/heads/"), nil
+	}
+
+	// If HEAD is detached, try to find the current branch
+	refs, err := r.gitRepo.References()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get references")
+	}
+
+	var currentBranch string
+	var errStop error = errors.New("stop")
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Hash() == h.Hash() && ref.Name().IsBranch() {
+			currentBranch = strings.TrimPrefix(ref.Name().String(), "refs/heads/")
+			return errStop
+		}
+		return nil
+	})
+
+	if err != nil && !errors.Is(err, errStop) {
+		return "", errors.Wrap(err, "failed to iterate over references")
+	}
+
+	if currentBranch == "" {
+		return "", errors.New("unable to determine current branch")
+	}
+
+	return currentBranch, nil
+}
+
+// Hash returns full latest commit id
+func (r *repo) Hash() (string, error) {
+	h, err := r.gitRepo.Head()
+	if err != nil {
+		return "", err
+	}
+	return h.Hash().String(), nil
 }

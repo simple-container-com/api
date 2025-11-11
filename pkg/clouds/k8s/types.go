@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/compose-spec/compose-go/types"
@@ -21,11 +22,16 @@ type DeploymentConfig struct {
 	Scale            *Scale                  `json:"replicas" yaml:"replicas"`
 	Headers          *Headers                `json:"headers" yaml:"headers"`
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
+	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate    *RollingUpdate          `json:"rollingUpdate" yaml:"rollingUpdate"`
+	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
 }
 
 type CaddyConfig struct {
 	Enable           *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
-	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"` // TODO: support overwriting
+	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`             // TODO: support overwriting
+	CaddyfilePrefix  *string `json:"caddyfilePrefix,omitempty" yaml:"caddyfilePrefix,omitempty"` // custom content to inject at the top of Caddyfile (e.g., storage configuration)
 	Namespace        *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Image            *string `json:"image,omitempty" yaml:"image,omitempty"`
 	Replicas         *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
@@ -40,6 +46,11 @@ type DisruptionBudget struct {
 	MinAvailable   *int `json:"minAvailable" yaml:"minAvailable"`
 }
 
+type RollingUpdate struct {
+	MaxSurge       *int `json:"maxSurge" yaml:"maxSurge"`
+	MaxUnavailable *int `json:"maxUnavailable" yaml:"maxUnavailable"`
+}
+
 type Headers = map[string]string
 
 type Resources struct {
@@ -52,9 +63,11 @@ type SimpleTextVolume struct {
 }
 
 type PersistentVolume struct {
-	Name      string `json:"name" yaml:"name"`
-	MountPath string `json:"mountPath" yaml:"mountPath"`
-	Storage   string `json:"storage" yaml:"storage"`
+	Name             string   `json:"name" yaml:"name"`
+	MountPath        string   `json:"mountPath" yaml:"mountPath"`
+	Storage          string   `json:"storage" yaml:"storage"`
+	AccessModes      []string `json:"accessModes" yaml:"accessModes"`
+	StorageClassName *string  `json:"storageClassName" yaml:"storageClassName"`
 }
 
 type Scale struct {
@@ -197,6 +210,12 @@ func ToPersistentVolumes(svc types.ServiceConfig, cfg compose.Config) []Persiste
 			if size, ok := volCfg.Labels[api.ComposeLabelVolumeSize]; ok {
 				pv.Storage = size
 			}
+			if accessModes, ok := volCfg.Labels[api.ComposeLabelVolumeAccessModes]; ok {
+				pv.AccessModes = strings.Split(accessModes, ",")
+			}
+			if storageClass, ok := volCfg.Labels[api.ComposeLabelVolumeStorageClass]; ok {
+				pv.StorageClassName = lo.ToPtr(storageClass)
+			}
 		}
 		volumes = append(volumes, pv)
 	}
@@ -239,6 +258,10 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 		if svc.Build != nil {
 			context = svc.Build.Context
 			dockerFile = svc.Build.Dockerfile
+			// Apply docker-compose defaults: when context is set but dockerfile is empty, default to "Dockerfile"
+			if context != "" && dockerFile == "" {
+				dockerFile = "Dockerfile"
+			}
 			buildArgs = lo.MapValues(svc.Build.Args, func(value *string, _ string) string {
 				return lo.FromPtr(value)
 			})
@@ -304,11 +327,13 @@ func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContai
 	if !found {
 		return nil, nil
 	}
-	if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
-		if mainPort, err := strconv.Atoi(portLabel); err != nil {
-			iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
-		} else {
-			iContainer.MainPort = lo.ToPtr(mainPort)
+	if len(iContainers) == 1 {
+		if portLabel, ok := iContainers[0].Labels[api.ComposeLabelIngressPort]; ok {
+			if mainPort, err := strconv.Atoi(portLabel); err != nil {
+				iContainer.Warnings = append(iContainer.Warnings, fmt.Sprintf("%q label is specified for container, but failed to convert to int: %v", api.ComposeLabelIngressPort, err.Error()))
+			} else {
+				iContainer.MainPort = lo.ToPtr(mainPort)
+			}
 		}
 	}
 	if iContainer.MainPort == nil && len(iContainer.Ports) == 1 {

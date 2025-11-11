@@ -1,0 +1,107 @@
+name: Build GitHub Actions Staging Image (Blacksmith Optimized)
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+jobs:
+  build-staging:
+    name: Build Staging Image
+    runs-on: blacksmith-32vcpu-ubuntu-2204
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Cache CLI tools (SC + Welder)
+        uses: actions/cache@v4  # Automatically uses Blacksmith cache on Blacksmith runners
+        with:
+          path: |
+            ~/.local/bin/sc
+            ~/.local/bin/welder
+          key: cli-tools-${{ runner.os }}-v1
+          restore-keys: |
+            cli-tools-${{ runner.os }}-
+
+      - name: Install CLI tools
+        run: |
+          # Install SC CLI if not cached
+          if ! command -v sc &> /dev/null; then
+            echo "Installing Simple Container CLI..."
+            curl -s "https://dist.simple-container.com/sc.sh" | bash
+          else
+            echo "✅ SC CLI already cached and available"
+          fi
+          
+          # Install Welder if not cached  
+          if ! command -v welder &> /dev/null; then
+            echo "Installing Welder..."
+            curl -Ls "https://welder.simple-container.com/welder.sh" | bash
+          else
+            echo "✅ Welder already cached and available"
+          fi
+
+      - name: Prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+
+      - name: Setup Docker Buildx with advanced caching
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
+
+      - name: Build static github-actions binary with welder (cached Go modules)
+        run: |
+          welder run build-github-actions-staging
+
+      - name: Docker login using SC secrets
+        run: |
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+
+      - name: Build and push Docker image with BuildKit caching
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          # Build and push with advanced caching using BuildKit
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file github-actions-staging.Dockerfile \
+            --tag simplecontainer/github-actions:staging \
+            --tag simplecontainer/github-actions:${{ github.ref_name }} \
+            --push \
+            .
+
+      - name: Image built successfully
+        run: |
+          echo "🎉 GitHub Actions staging image built successfully with BuildKit + GitHub Actions caching!"
+          echo ""
+          echo "🚀 The staging image is now available:"
+          echo "   simplecontainer/github-actions:staging" 
+          echo "   simplecontainer/github-actions:${{ github.ref_name }}"
+          echo ""
+          echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
+          echo "⚡ Build was accelerated using:"
+          echo "   • Blacksmith runner caching (Go modules, CLI tools)"
+          echo "   • Docker BuildKit layer caching (GitHub Actions cache)"
+          echo "   • Multi-platform optimized build"
+          echo ""
+          echo "📝 Next steps:"
+          echo "   1. Test your GitHub Actions workflows"
+          echo "   2. Push changes to main when ready for production"

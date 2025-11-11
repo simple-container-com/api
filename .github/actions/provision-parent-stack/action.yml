@@ -1,0 +1,80 @@
+name: 'Provision Simple Container Parent Stack'
+description: 'Provision a Simple Container parent stack using internal SC APIs'
+branding:
+  icon: 'layers'
+  color: 'blue'
+
+inputs:
+  stack-name:
+    description: 'Name of the parent stack to provision'
+    required: true
+  sc-config:
+    description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
+    required: true
+  environment:
+    description: 'Target environment profile'
+    required: false
+    default: 'default'
+  dry-run:
+    description: 'Run in preview mode without making actual changes'
+    required: false
+    default: 'false'
+  skip-tests:
+    description: 'Skip running tests after provisioning'
+    required: false
+    default: 'false'
+  notify-on-completion:
+    description: 'Send notifications when provisioning completes'
+    required: false
+    default: 'true'
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ${{ github.token }}
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ${{ github.sha }}
+  commit-author:
+    description: 'Commit author name'
+    required: false
+    default: ${{ github.actor }}
+  commit-message:
+    description: 'Commit message'
+    required: false
+    default: ''
+
+outputs:
+  stack-name:
+    description: 'Parent stack name that was provisioned'
+  duration:
+    description: 'Provisioning duration'
+  status:
+    description: 'Provisioning status (success/failure)'
+
+runs:
+  using: 'docker'
+  image: 'docker://simplecontainer/github-actions:staging'
+  env:
+    GITHUB_ACTION_TYPE: 'provision-parent-stack'
+    STACK_NAME: ${{ inputs.stack-name }}
+    ENVIRONMENT: ${{ inputs.environment }}
+    SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
+    DRY_RUN: ${{ inputs.dry-run }}
+    SKIP_TESTS: ${{ inputs.skip-tests }}
+    NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    VERBOSE: ${{ inputs.verbose }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}
+    COMMIT_AUTHOR: ${{ inputs.commit-author }}
+    COMMIT_MESSAGE: ${{ inputs.commit-message }}

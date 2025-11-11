@@ -1,0 +1,47 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    type: single-image
+    template: lambda-eu
+    parent: mycompany/mycompany
+    config:
+      domain: staging-storage-service.example.com
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      timeout: 120
+      maxMemory: 512
+      uses:
+        - object-storage
+        - mongodb
+      cloudExtras:
+        lambdaRoutingType: function-url
+        lambdaInvokeMode: RESPONSE_STREAM
+        lambdaSchedules:
+          - name: cleanup
+            expression: "cron(0 * * * ? *)" # every hour
+            request: |-
+              {
+                  "requestId": "cleanup",
+                  "requestTime": "23/Jun/2024:15:48:12 +0000",
+                  "httpMethod": "POST",
+                  "path": "/api/cleanup",
+                  "requestContext": {
+                    "http": {
+                      "path": "/api/cleanup",
+                      "method": "POST",
+                      "protocol": "HTTP/1.1"
+                    }
+                  },
+                  "body": "{}",
+                  "headers": {
+                    "Authorization": "Bearer ${secret:staging-storage-service-api-key}"
+                  }
+              }
+      env:
+        ENV: staging
+        HOME: /tmp
+        REQUEST_DEBUG: "true"
+        HOST: staging-storage-service.example.com
+      secrets:
+        API_KEY: ${secret:staging-storage-service-api-key}
+        STORAGE_PROXY_HOST: ${secret:storage-proxy-url}

@@ -1,0 +1,44 @@
+schemaVersion: 1.0
+stacks:
+  staging: &staging
+    type: cloud-compose
+    parent: devops/mycompany
+    config: &cfg
+      domain: staging-blog.example.com
+      dockerComposeFile: ./docker-compose.yaml
+      size:
+        cpu: 1024
+        memory: 2048
+      uses:
+        - mysql
+      runs:
+        - caddy
+        - blog
+      env: &env
+        url: "https://staging-blog.example.com/"
+        DB_URL: mysql://${resource:mysql.user}:${resource:mysql.password}@${resource:mysql.host}:${resource:mysql.port}/${resource:mysql.database}
+        BLOG_HOST: "staging-blog.example.com"
+        database__connection__host: "${resource:mysql.host}"
+        database__connection__user: "${resource:mysql.user}"
+        database__connection__database: "${resource:mysql.database}"
+        database__connection__port: "${resource:mysql.port}"
+        mail__from: "'Example Blog' <no-reply@example.com>"
+        mail__options__service: "Gmail"
+        mail__options__secure: "true"
+        mail__options__secureConnection: "true"
+        mail__options__host: "smtp.gmail.com"
+        mail__options__port: "465"
+        mail__options__auth__user: "example.com"
+      secrets:
+        database__connection__password: "${resource:mysql.password}"
+        mail__options__auth__pass: "${secret:staging-blog-gmail-password}"
+
+  prod:
+    <<: *staging
+    config:
+      <<: *cfg
+      domain: blog.example.com
+      env:
+        <<: *env
+        url: "https://blog.example.com/"
+        BLOG_HOST: "blog.example.com"

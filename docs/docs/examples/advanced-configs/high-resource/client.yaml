@@ -1,0 +1,40 @@
+schemaVersion: 1.0
+stacks:
+  # staging environment
+  staging: &staging
+    type: cloud-compose
+    parent: mycompany
+    config: &staging-cfg
+      dockerComposeFile: ./docker-compose.yaml
+      domain: code.example.com
+      clusterIPAddress: 10.0.1.100 # hardcoded cluster IP for external cluster reference
+      size:
+        cpu: 16384  # 16 CPU cores
+        memory: 32768 # 32 GB RAM
+        ephemeral: 42949672960 # 40GB ephemeral storage
+      runs:
+        - code-gateway
+      env: &staging-env
+        LOCAL_DEBUG_MODE: false # in kube cluster we don't use local debug mode
+        LLM_MODEL: claude-sonnet-4-20250514
+        BASE_RUNTIME_URL: https://code.example.com
+        IMAGE_NAME: docker.example.com/wize-code:2025.7.1-pre.8ed0777aa
+        RUNTIME_POD_START_TIMEOUT: 10m
+        RUNTIME_VOLUME_SIZE: 10Gi
+        RUNTIME_MEMORY_LIMIT: "32Gi"
+        RUNTIME_MEMORY_REQUEST: "32Gi"
+        RUNTIME_CPU_LIMIT: "16"
+        RUNTIME_CPU_REQUEST: "16"
+        RUNTIME_EPHEMERAL_STORAGE_LIMIT: "10Gi"
+        LLM_BASE_URL: https://llm-proxy.example.com/v1
+        GITHUB_REDIRECT_URI: https://code.example.com/api/auth/github/callback
+        KUBERNETES_NAMESPACE: code-gateway
+      secrets: &staging-secrets
+        GITHUB_CLIENT_ID: ${secret:github-client-id}
+        GITHUB_CLIENT_SECRET: ${secret:github-client-secret}
+        KUBECONFIG_CONTENT: ${secret:code-gateway-kubeconfig}
+        DOCKER_USERNAME: ${secret:docker-registry-username}
+        DOCKER_PASSWORD: ${secret:docker-registry-password}
+        AUTH_SECRET_KEY: ${secret:auth-secret-key}
+  production:
+    <<: *staging

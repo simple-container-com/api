@@ -25,6 +25,7 @@ type ConfigFile struct {
 	PrivateKeyPassword string `yaml:"privateKeyPassword,omitempty" json:"privateKeyPassword,omitempty"`
 	PublicKey          string `yaml:"publicKey,omitempty" json:"publicKey,omitempty"`
 	StacksDir          string `yaml:"stacksDir,omitempty" json:"stacksDir,omitempty"`
+	ParentRepository   string `yaml:"parentRepository,omitempty" json:"parentRepository,omitempty"`
 }
 
 type InitParams struct {

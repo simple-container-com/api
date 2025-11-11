@@ -10,7 +10,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
-	"github.com/simple-container-com/welder/pkg/util"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type Option struct {
@@ -107,6 +107,16 @@ func WithGeneratedKeys(projectName, profile string) Option {
 			c.profile = profile
 			c.projectName = projectName
 			return c.GenerateKeyPairWithProfile(c.projectName, c.profile)
+		},
+	}
+}
+
+func WithGeneratedEd25519Keys(projectName, profile string) Option {
+	return Option{
+		f: func(c *cryptor) error {
+			c.profile = profile
+			c.projectName = projectName
+			return c.GenerateEd25519KeyPairWithProfile(c.projectName, c.profile)
 		},
 	}
 }
