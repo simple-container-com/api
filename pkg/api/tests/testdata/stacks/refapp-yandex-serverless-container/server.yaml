@@ -1,0 +1,23 @@
+schemaVersion: 1.0
+provisioner:
+  inherit: common
+secrets:
+  inherit: common
+cicd:
+  inherit: common
+templates:
+  func-per-app:
+    type: yandex-serverless-container
+    config:
+      credentials: "${auth:yandex}"
+      cloudId: "${auth:yandex.projectId}"
+resources:
+  registrar:
+    inherit: common
+  resources:
+    staging:
+      template: func-per-app
+      resources: &resources
+    prod:
+      template: func-per-app
+      resources: *resources
