@@ -31,6 +31,11 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		return nil, errors.Errorf("failed to convert kubernetes run config for %q", input.Descriptor.Type)
 	}
 
+	// Debug logging at the very start to see what we receive
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: KubeRun function called")
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment: %+v", kubeRunInput.Deployment)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.Affinity at start: %+v", kubeRunInput.Deployment.Affinity)
+
 	environment := input.StackParams.Environment
 	stackName := input.StackParams.StackName
 	parentStack := lo.FromPtr(params.ParentStack).StackName
