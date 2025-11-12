@@ -96,13 +96,17 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	useSSL := kubeRunInput.UseSSL == nil || *kubeRunInput.UseSSL
 
 	var nodeSelector map[string]string
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras: %+v", kubeRunInput.Deployment.StackConfig.CloudExtras)
 	if kubeRunInput.Deployment.StackConfig.CloudExtras != nil {
 		if cExtras, err := api.ConvertDescriptor(kubeRunInput.Deployment.StackConfig.CloudExtras, &k8s.CloudExtras{}); err != nil {
 			params.Log.Error(ctx.Context(), "failed to convert cloud extras to k8s.CloudExtras: %v", err)
 		} else {
 			params.Log.Info(ctx.Context(), "using node selector from cloudExtras: %v", cExtras.NodeSelector)
+			params.Log.Info(ctx.Context(), "🔍 DEBUG: cExtras.Affinity from CloudExtras conversion: %+v", cExtras.Affinity)
 			nodeSelector = cExtras.NodeSelector
 		}
+	} else {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras is nil")
 	}
 
 	// Debug logging for affinity rules
