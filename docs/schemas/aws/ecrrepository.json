@@ -80,6 +80,18 @@
                     "countType": {
                       "type": "string"
                     },
+                    "tagPatternList": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "tagPrefixList": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
                     "tagStatus": {
                       "type": "string"
                     }
@@ -87,6 +99,8 @@
                   "required": [
                     "countNumber",
                     "countType",
+                    "tagPatternList",
+                    "tagPrefixList",
                     "tagStatus"
                   ],
                   "type": "object"

@@ -133,7 +133,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 		var resources corev1.ResourceRequirementsArgs
 		if c.Container.Resources != nil {
-			args.Params.Log.Info(ctx.Context(), "container %q configure resources: %s", c.Container.Name, c.Container.Resources)
+			args.Params.Log.Info(ctx.Context(), "container %q configure resources: %v", c.Container.Name, c.Container.Resources)
 
 			resources.Limits = sdk.ToStringMap(c.Container.Resources.Limits)
 			resources.Requests = sdk.ToStringMap(c.Container.Resources.Requests)

@@ -56,6 +56,12 @@ This directory contains production-tested Simple Container configurations based 
 - **high-availability**: Zone anti-affinity and pod distribution patterns
 - **performance-optimization**: Resource-specific scheduling and optimization
 
+### Resource Management (`resource-management/`)
+- **basic-resource-config**: Explicit CPU and memory limits and requests configuration
+- **legacy-compatibility**: How existing configurations continue to work unchanged
+- **mixed-configuration**: Combining new explicit and legacy configuration approaches
+- **production-optimized**: Production-ready configurations with optimal resource allocation
+
 ## Usage
 
 Each example directory contains:
@@ -78,3 +84,4 @@ All examples use anonymized domains like `example.com`, `mycompany.com`, etc., a
 - **Blockchain**: Smart contract integration patterns
 - **Kubernetes Affinity**: Node pool isolation, pod scheduling, performance optimization
 - **Enterprise Scheduling**: Multi-tier architectures with workload separation
+- **Resource Management**: CPU and memory requests/limits optimization, backward compatibility

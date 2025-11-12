@@ -233,6 +233,12 @@ resources:
             allowOnlyHttps: true                  # Force HTTPS-only access
 ```
 
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for S3 bucket access.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS S3 Bucket](../concepts/template-placeholders-advanced.md#s3-bucket)
+
 #### **ECR Repository** (`ecr-repository`)
 
 Creates and manages AWS Elastic Container Registry repositories.
@@ -297,6 +303,12 @@ resources:
             databaseName: "myapp"               # Initial database name
 ```
 
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for PostgreSQL database connection.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS PostgreSQL](../concepts/template-placeholders-advanced.md#rds-postgresql)
+
 #### **RDS MySQL** (`aws-rds-mysql`)
 
 Creates and manages AWS RDS MySQL databases.
@@ -326,6 +338,12 @@ resources:
             databaseName: "myapp"               # Initial database name
             engineName: "mysql"                 # Engine name (optional)
 ```
+
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for MySQL database connection.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
 
 ### **Authentication** (`AuthType` → `auth` section in `secrets.yaml`)
 
@@ -742,6 +760,12 @@ resources:
               resourceName: "postgres-job-runner"
 ```
 
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for PostgreSQL connection details.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP PostgreSQL Cloud SQL](../concepts/template-placeholders-advanced.md#postgresql-cloud-sql)
+
 #### **Redis** (`gcp-redis`)
 
 Creates and manages Google Cloud Memorystore Redis instances.
@@ -773,6 +797,12 @@ resources:
               maxmemory-policy: "allkeys-lru"
               timeout: "300"
 ```
+
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for Redis connection details.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Redis Memorystore](../concepts/template-placeholders-advanced.md#redis-memorystore)
 
 ### **Messaging Resources**
 
@@ -1115,6 +1145,12 @@ resources:
               every: 1h                                   # More frequent backups
               retention: 168h                             # Longer retention (1 week)
 ```
+
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for MongoDB Atlas database connection.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - MongoDB Atlas Cluster](../concepts/template-placeholders-advanced.md#mongodb-atlas-cluster)
 
 **See Also:**
 

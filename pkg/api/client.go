@@ -190,11 +190,20 @@ type ParentResourceDependency struct {
 }
 
 type StackConfigComposeSize struct {
-	Name      string `yaml:"name" json:"name"`
-	Cpu       string `yaml:"cpu" json:"cpu"`
-	Memory    string `yaml:"memory" json:"memory"`
-	Ephemeral string `yaml:"ephemeral" json:"ephemeral"`
+	Name      string                       `yaml:"name" json:"name"`
+	Cpu       string                       `yaml:"cpu" json:"cpu"`
+	Memory    string                       `yaml:"memory" json:"memory"`
+	Ephemeral string                       `yaml:"ephemeral" json:"ephemeral"`
+	Requests  *StackConfigComposeResources `yaml:"requests,omitempty" json:"requests,omitempty"`
+	Limits    *StackConfigComposeResources `yaml:"limits,omitempty" json:"limits,omitempty"`
 }
+
+type StackConfigComposeResources struct {
+	Cpu       string `yaml:"cpu,omitempty" json:"cpu,omitempty"`
+	Memory    string `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Ephemeral string `yaml:"ephemeral,omitempty" json:"ephemeral,omitempty"`
+}
+
 type StackConfigComposeScale struct {
 	Min int `yaml:"min" json:"min"`
 	Max int `yaml:"max" json:"max"`

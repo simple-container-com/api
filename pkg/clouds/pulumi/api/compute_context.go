@@ -42,6 +42,9 @@ func (c *Collector) ResolvePlaceholders(obj any) error {
 		"dependency": func(noSubs string, path string, defaultValue *string) (string, error) {
 			// e.g. ${dependency:<name>.<resource>.uri}
 			pathParts := strings.SplitN(path, ".", 3)
+			if len(pathParts) < 3 {
+				return noSubs, fmt.Errorf("dependency placeholder requires format ${dependency:name.resource.property}, got: %s", path)
+			}
 			depName := pathParts[0]
 			refResName := pathParts[1]
 			refValue := pathParts[2]
@@ -55,6 +58,9 @@ func (c *Collector) ResolvePlaceholders(obj any) error {
 		"resource": func(noSubs string, path string, defaultValue *string) (string, error) {
 			// e.g. ${resource:<resource>.uri}
 			pathParts := strings.SplitN(path, ".", 2)
+			if len(pathParts) < 2 {
+				return noSubs, fmt.Errorf("resource placeholder requires format ${resource:name.property}, got: %s", path)
+			}
 			refResName := pathParts[0]
 			refValue := pathParts[1]
 			if values, ok := c.resTplExtensions[refResName]; ok {

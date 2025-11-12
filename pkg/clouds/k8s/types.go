@@ -123,29 +123,51 @@ func ToSimpleTextVolumes(cfg *api.StackConfigCompose) []SimpleTextVolume {
 }
 
 func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resources, error) {
-	cpuInt, err := toCpu(cfg, svc)
+	// Get limits
+	cpuLimitInt, err := toCpuLimit(cfg, svc)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert CPU limits")
 	}
-	memInt, err := toMemory(cfg, svc)
+	memLimitInt, err := toMemoryLimit(cfg, svc)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory limits")
 	}
+
+	// Get requests (with fallback to limits if not specified)
+	cpuRequestInt, err := toCpuRequest(cfg, svc, cpuLimitInt)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert CPU requests")
+	}
+	memRequestInt, err := toMemoryRequest(cfg, svc, memLimitInt)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to convert memory requests")
+	}
+
 	return &Resources{
-		// TODO: separate limits from requests
 		Limits: map[string]string{
-			"memory": bytesSizeToHuman(memInt * 1024 * 1024), // must be in MB
-			"cpu":    fmt.Sprintf("%dm", cpuInt),
+			"memory": bytesSizeToHuman(memLimitInt * 1024 * 1024), // must be in MB
+			"cpu":    fmt.Sprintf("%dm", cpuLimitInt),
 		},
 		Requests: map[string]string{
-			"memory": bytesSizeToHuman(memInt * 1024 * 1024), // must be in MB
-			"cpu":    fmt.Sprintf("%dm", cpuInt),
+			"memory": bytesSizeToHuman(memRequestInt * 1024 * 1024), // must be in MB
+			"cpu":    fmt.Sprintf("%dm", cpuRequestInt),
 		},
 	}, nil
 }
 
-func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) {
-	if len(cfg.Runs) == 1 && cfg.Size != nil {
+// toCpuLimit extracts CPU limits from configuration
+func toCpuLimit(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) {
+	// Priority 1: Explicit limits in size configuration
+	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Limits != nil && cfg.Size.Limits.Cpu != "" {
+		if v, err := strconv.Atoi(cfg.Size.Limits.Cpu); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse cpu limit specified for stack: %q", cfg.Size.Limits.Cpu)
+		} else {
+			return int64(v), nil
+		}
+	}
+
+	// Priority 2: Legacy size.cpu field (used as limit)
+	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Cpu != "" {
 		if v, err := strconv.Atoi(cfg.Size.Cpu); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse cpu value specified for stack: %q", cfg.Size.Cpu)
 		} else {
@@ -153,6 +175,7 @@ func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) 
 		}
 	}
 
+	// Priority 3: Docker compose deploy resources
 	if svc.Deploy != nil && svc.Deploy.Resources.Limits != nil {
 		if f, err := strconv.ParseFloat(svc.Deploy.Resources.Limits.NanoCPUs, 32); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse cpu limit: %q for service %q", svc.Deploy.Resources.Limits.NanoCPUs, svc.Name)
@@ -160,12 +183,48 @@ func toCpu(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) 
 			return int64(1024.0 * f), nil
 		}
 	}
-	// TODO: change default if necessary
+
+	// Default CPU limit
 	return 256, nil
 }
 
-func toMemory(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) {
-	if len(cfg.Runs) == 1 && cfg.Size != nil {
+// toCpuRequest extracts CPU requests from configuration, with fallback to limits
+func toCpuRequest(cfg *api.StackConfigCompose, svc types.ServiceConfig, cpuLimit int64) (int64, error) {
+	// Priority 1: Explicit requests in size configuration
+	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Requests != nil && cfg.Size.Requests.Cpu != "" {
+		if v, err := strconv.Atoi(cfg.Size.Requests.Cpu); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse cpu request specified for stack: %q", cfg.Size.Requests.Cpu)
+		} else {
+			return int64(v), nil
+		}
+	}
+
+	// Priority 2: Docker compose deploy resources
+	if svc.Deploy != nil && svc.Deploy.Resources.Reservations != nil {
+		if f, err := strconv.ParseFloat(svc.Deploy.Resources.Reservations.NanoCPUs, 32); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse cpu request: %q for service %q", svc.Deploy.Resources.Reservations.NanoCPUs, svc.Name)
+		} else {
+			return int64(1024.0 * f), nil
+		}
+	}
+
+	// Fallback: Use 50% of limit as request (Kubernetes best practice)
+	return cpuLimit / 2, nil
+}
+
+// toMemoryLimit extracts memory limits from configuration
+func toMemoryLimit(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) {
+	// Priority 1: Explicit limits in size configuration
+	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Limits != nil && cfg.Size.Limits.Memory != "" {
+		if v, err := strconv.Atoi(cfg.Size.Limits.Memory); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse memory limit specified for stack: %q", cfg.Size.Limits.Memory)
+		} else {
+			return int64(v), nil
+		}
+	}
+
+	// Priority 2: Legacy size.memory field (used as limit)
+	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Memory != "" {
 		if v, err := strconv.Atoi(cfg.Size.Memory); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse memory value specified for stack: %q", cfg.Size.Memory)
 		} else {
@@ -173,11 +232,33 @@ func toMemory(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, erro
 		}
 	}
 
+	// Priority 3: Docker compose deploy resources
 	if svc.Deploy != nil && svc.Deploy.Resources.Limits != nil {
 		return int64(svc.Deploy.Resources.Limits.MemoryBytes), nil
 	}
-	// TODO: change default if necessary
+
+	// Default memory limit
 	return 512, nil
+}
+
+// toMemoryRequest extracts memory requests from configuration, with fallback to limits
+func toMemoryRequest(cfg *api.StackConfigCompose, svc types.ServiceConfig, memoryLimit int64) (int64, error) {
+	// Priority 1: Explicit requests in size configuration
+	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Requests != nil && cfg.Size.Requests.Memory != "" {
+		if v, err := strconv.Atoi(cfg.Size.Requests.Memory); err != nil {
+			return 0, errors.Wrapf(err, "failed to parse memory request specified for stack: %q", cfg.Size.Requests.Memory)
+		} else {
+			return int64(v), nil
+		}
+	}
+
+	// Priority 2: Docker compose deploy resources
+	if svc.Deploy != nil && svc.Deploy.Resources.Reservations != nil {
+		return int64(svc.Deploy.Resources.Reservations.MemoryBytes), nil
+	}
+
+	// Fallback: Use 50% of limit as request (Kubernetes best practice)
+	return memoryLimit / 2, nil
 }
 
 func ToHeaders(headers *api.Headers) Headers {

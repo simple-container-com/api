@@ -2795,15 +2795,26 @@ func (p *CustomConfigVersionProvider) GetFromLocal(stackName, configType, filePa
 
 // GenerateCICD generates CI/CD workflows for GitHub Actions
 func (h *UnifiedCommandHandler) GenerateCICD(ctx context.Context, stackName, configFile string) (*CommandResult, error) {
+	return h.GenerateCICDWithStaging(ctx, stackName, configFile, false)
+}
+
+// GenerateCICDWithStaging generates CI/CD workflows for GitHub Actions with staging support
+func (h *UnifiedCommandHandler) GenerateCICDWithStaging(ctx context.Context, stackName, configFile string, staging bool) (*CommandResult, error) {
+	return h.GenerateCICDWithStagingAndLogger(ctx, nil, stackName, configFile, staging)
+}
+
+// GenerateCICDWithStagingAndLogger generates CI/CD workflows for GitHub Actions with staging support and logging
+func (h *UnifiedCommandHandler) GenerateCICDWithStagingAndLogger(ctx context.Context, logger cicd.Logger, stackName, configFile string, staging bool) (*CommandResult, error) {
 	params := cicd.GenerateParams{
 		StackName:  stackName,
 		ConfigFile: configFile,
 		Output:     "", // Use default output directory
 		Force:      false,
 		DryRun:     false,
+		Staging:    staging,
 	}
 
-	result, err := h.cicdService.GenerateWorkflows(params)
+	result, err := h.cicdService.GenerateWorkflowsWithContext(ctx, logger, params)
 	if err != nil {
 		return &CommandResult{
 			Success: false,
@@ -2821,15 +2832,26 @@ func (h *UnifiedCommandHandler) GenerateCICD(ctx context.Context, stackName, con
 
 // ValidateCICD validates CI/CD configuration in server.yaml
 func (h *UnifiedCommandHandler) ValidateCICD(ctx context.Context, stackName, configFile string, showDiff bool) (*CommandResult, error) {
+	return h.ValidateCICDWithStaging(ctx, stackName, configFile, showDiff, false)
+}
+
+// ValidateCICDWithStaging validates CI/CD configuration in server.yaml with staging support
+func (h *UnifiedCommandHandler) ValidateCICDWithStaging(ctx context.Context, stackName, configFile string, showDiff bool, staging bool) (*CommandResult, error) {
+	return h.ValidateCICDWithStagingAndLogger(ctx, nil, stackName, configFile, showDiff, staging)
+}
+
+// ValidateCICDWithStagingAndLogger validates CI/CD configuration in server.yaml with staging support and logging
+func (h *UnifiedCommandHandler) ValidateCICDWithStagingAndLogger(ctx context.Context, logger cicd.Logger, stackName, configFile string, showDiff bool, staging bool) (*CommandResult, error) {
 	params := cicd.ValidateParams{
 		StackName:    stackName,
 		ConfigFile:   configFile,
 		WorkflowsDir: "", // Use default
 		ShowDiff:     showDiff,
 		Verbose:      false,
+		Staging:      staging,
 	}
 
-	result, err := h.cicdService.ValidateWorkflows(params)
+	result, err := h.cicdService.ValidateWorkflowsWithContext(ctx, logger, params)
 	if err != nil {
 		return &CommandResult{
 			Success: false,

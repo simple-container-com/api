@@ -37,6 +37,9 @@
           "caddyfile": {
             "type": "string"
           },
+          "caddyfilePrefix": {
+            "type": "string"
+          },
           "enable": {
             "type": "boolean"
           },

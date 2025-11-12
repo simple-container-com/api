@@ -1,12 +1,18 @@
 package cicd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/simple-container-com/api/pkg/clouds/github"
 )
+
+// Logger interface for debug logging during CI/CD operations
+type Logger interface {
+	Debug(ctx context.Context, format string, args ...interface{})
+}
 
 // Service provides core CI/CD functionality that can be shared across CLI, MCP, and chat interfaces
 type Service struct{}
@@ -68,9 +74,13 @@ type Result struct {
 
 // GenerateWorkflows generates GitHub Actions workflows from server.yaml configuration
 func (s *Service) GenerateWorkflows(params GenerateParams) (*Result, error) {
+	return s.GenerateWorkflowsWithContext(context.Background(), nil, params)
+}
+
+func (s *Service) GenerateWorkflowsWithContext(ctx context.Context, logger Logger, params GenerateParams) (*Result, error) {
 	// Process stack name and auto-detect config file
 	stackName := processStackName(params.StackName)
-	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
+	configFile, err := autoDetectConfigFileWithLogging(ctx, logger, params.ConfigFile, stackName)
 	if err != nil {
 		return &Result{
 			Success: false,
@@ -153,9 +163,13 @@ func (s *Service) GenerateWorkflows(params GenerateParams) (*Result, error) {
 
 // ValidateWorkflows validates existing workflow files against server.yaml configuration
 func (s *Service) ValidateWorkflows(params ValidateParams) (*Result, error) {
+	return s.ValidateWorkflowsWithContext(context.Background(), nil, params)
+}
+
+func (s *Service) ValidateWorkflowsWithContext(ctx context.Context, logger Logger, params ValidateParams) (*Result, error) {
 	// Process stack name and auto-detect config file
 	stackName := processStackName(params.StackName)
-	configFile, err := autoDetectConfigFile(params.ConfigFile, stackName)
+	configFile, err := autoDetectConfigFileWithLogging(ctx, logger, params.ConfigFile, stackName)
 	if err != nil {
 		return &Result{
 			Success: false,

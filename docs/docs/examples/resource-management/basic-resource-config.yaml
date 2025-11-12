@@ -1,0 +1,58 @@
+# Basic Resource Configuration Example
+# This example shows the new explicit resource configuration with separate limits and requests
+
+schemaVersion: "1.0"
+stacks:
+  production:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # New explicit resource configuration
+      size:
+        name: "optimized"
+        
+        # Resource limits - maximum resources the container can use
+        limits:
+          cpu: "2000"      # 2000m = 2 CPU cores maximum
+          memory: "4096"   # 4096MB = 4GB memory maximum
+          ephemeral: "2048" # 2GB ephemeral storage maximum
+          
+        # Resource requests - guaranteed resources for the container
+        requests:
+          cpu: "500"       # 500m = 0.5 CPU cores guaranteed
+          memory: "1024"   # 1024MB = 1GB memory guaranteed
+          ephemeral: "512" # 512MB ephemeral storage guaranteed
+
+  staging:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Staging environment with lower resource allocation
+      size:
+        name: "staging"
+        limits:
+          cpu: "1000"      # 1 CPU core maximum
+          memory: "2048"   # 2GB memory maximum
+        requests:
+          cpu: "250"       # 0.25 CPU cores guaranteed
+          memory: "512"    # 512MB memory guaranteed
+
+  development:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Development environment with minimal resources
+      size:
+        name: "minimal"
+        limits:
+          cpu: "500"       # 0.5 CPU cores maximum
+          memory: "1024"   # 1GB memory maximum
+        requests:
+          cpu: "100"       # 0.1 CPU cores guaranteed
+          memory: "256"    # 256MB memory guaranteed

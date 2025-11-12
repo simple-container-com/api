@@ -111,23 +111,25 @@ stacks:
 ### AWS Resources
 
 #### S3 Bucket
+AWS S3 bucket connection details and credentials.
+
 **Auto-injected Environment Variables:**
 
-- `S3_<BUCKET>_REGION` - Bucket region
-- `S3_<BUCKET>_BUCKET` - Bucket name
-- `S3_<BUCKET>_ACCESS_KEY` - Access key (secret)
-- `S3_<BUCKET>_SECRET_KEY` - Secret key (secret)
+- `S3_<BUCKET_NAME>_REGION` - Bucket region (specific bucket)
+- `S3_<BUCKET_NAME>_BUCKET` - Bucket name (specific bucket)
+- `S3_<BUCKET_NAME>_ACCESS_KEY` - Access key ID (specific bucket, secret)
+- `S3_<BUCKET_NAME>_SECRET_KEY` - Secret access key (specific bucket, secret)
 - `S3_REGION` - Generic bucket region
 - `S3_BUCKET` - Generic bucket name
-- `S3_ACCESS_KEY` - Generic access key (secret)
-- `S3_SECRET_KEY` - Generic secret key (secret)
+- `S3_ACCESS_KEY` - Generic access key ID (secret)
+- `S3_SECRET_KEY` - Generic secret access key (secret)
 
 **Template Placeholders:**
 
 - `${resource:bucket-name.bucket}` - Bucket name
 - `${resource:bucket-name.region}` - Bucket region
-- `${resource:bucket-name.access-key}` - Access key
-- `${resource:bucket-name.secret-key}` - Secret key
+- `${resource:bucket-name.access-key}` - Access key ID
+- `${resource:bucket-name.secret-key}` - Secret access key
 
 #### RDS PostgreSQL
 **Auto-injected Environment Variables:**
@@ -153,20 +155,20 @@ stacks:
 - `${resource:postgres-name.password}` - Database password
 
 #### RDS MySQL
-Similar to PostgreSQL but with MySQL-specific environment variables.
+AWS RDS MySQL database connection details and credentials.
 
 **Auto-injected Environment Variables:**
 
-- `MYSQL_HOST` - Database host
-- `MYSQL_PORT` - Database port (3306)
-- `MYSQL_USER` - Database username (stack name)
-- `MYSQL_DB` - Database name (stack name)
-- `MYSQL_PASSWORD` - Database password (auto-generated)
-- `MYSQL_HOST_<NAME>` - Named MySQL host (where `<NAME>` is the resource name)
-- `MYSQL_USER_<NAME>` - Named MySQL username
-- `MYSQL_PORT_<NAME>` - Named MySQL port
-- `MYSQL_DB_<NAME>` - Named MySQL database
-- `MYSQL_PASSWORD_<NAME>` - Named MySQL password
+- `MYSQL_HOST_<NAME>` - Database host (specific database)
+- `MYSQL_USER_<NAME>` - Database username (specific database)
+- `MYSQL_PORT_<NAME>` - Database port (specific database)
+- `MYSQL_DB_<NAME>` - Database name (specific database)
+- `MYSQL_PASSWORD_<NAME>` - Database password (specific database, secret)
+- `MYSQL_HOST` - Generic database host
+- `MYSQL_USER` - Generic database username
+- `MYSQL_PORT` - Generic database port
+- `MYSQL_DB` - Generic database name
+- `MYSQL_PASSWORD` - Generic database password (secret)
 
 **Template Placeholders:**
 
@@ -175,7 +177,7 @@ Similar to PostgreSQL but with MySQL-specific environment variables.
 - `${resource:mysql-name.user}` - Database username
 - `${resource:mysql-name.database}` - Database name
 - `${resource:mysql-name.password}` - Database password
-- `${resource:mysql-name.url}` - Full MySQL connection string
+- `${resource:mysql-name.url}` - Database endpoint URL
 
 ### GCP Resources
 
@@ -208,6 +210,19 @@ PostgreSQL database connection details similar to AWS RDS.
 - `${resource:postgres-name.user}` - Database username
 - `${resource:postgres-name.database}` - Database name
 - `${resource:postgres-name.password}` - Database password
+
+#### Redis Memorystore
+Redis cache connection details for Google Cloud Memorystore.
+
+**Auto-injected Environment Variables:**
+
+- `REDIS_HOST` - Redis instance host
+- `REDIS_PORT` - Redis instance port (defaults to 6379 if not available)
+
+**Template Placeholders:**
+
+- `${resource:redis-name.host}` - Redis host
+- `${resource:redis-name.port}` - Redis port
 
 ### Kubernetes Resources
 
@@ -271,15 +286,17 @@ Redis cache connection details and configuration.
 ### MongoDB Atlas
 
 #### MongoDB Atlas Cluster
+MongoDB Atlas database cluster connection details and credentials.
+
 **Auto-injected Environment Variables:**
 
 - `MONGO_USER` - Database username (stack name)
 - `MONGO_DATABASE` - Database name (stack name)
-- `MONGO_PASSWORD` - Database password (auto-generated)
-- `MONGO_URI` - Full MongoDB connection string with authentication
+- `MONGO_PASSWORD` - Database password (auto-generated, secret)
+- `MONGO_URI` - Full MongoDB connection string with authentication (secret)
 - `MONGO_DEP_<OWNER>_USER` - Dependency username (for dependency relationships)
-- `MONGO_DEP_<OWNER>_PASSWORD` - Dependency password (for dependency relationships)
-- `MONGO_DEP_<OWNER>_URI` - Dependency connection string (for dependency relationships)
+- `MONGO_DEP_<OWNER>_PASSWORD` - Dependency password (for dependency relationships, secret)
+- `MONGO_DEP_<OWNER>_URI` - Dependency connection string (for dependency relationships, secret)
 
 **Template Placeholders:**
 
@@ -288,6 +305,13 @@ Redis cache connection details and configuration.
 - `${resource:mongodb-name.password}` - Database password
 - `${resource:mongodb-name.dbName}` - Database name
 - `${resource:mongodb-name.oplogUri}` - MongoDB oplog connection string
+
+**For Dependencies** (when used via `dependencies` section):
+- `${dependency:dep-name.uri}` - Full MongoDB connection string for dependency
+- `${dependency:dep-name.user}` - Database username for dependency
+- `${dependency:dep-name.password}` - Database password for dependency
+- `${dependency:dep-name.dbName}` - Database name for dependency
+- `${dependency:dep-name.oplogUri}` - MongoDB oplog connection string for dependency
 
 ## Practical Examples
 
@@ -387,7 +411,7 @@ stacks:
         # Custom environment variables using template placeholders
         DATABASE_URL: "postgresql://${resource:main-db.user}:${resource:main-db.password}@${resource:main-db.host}:${resource:main-db.port}/${resource:main-db.database}"
         DB_HOST: "${resource:main-db.host}"
-        REDIS_URL: "${resource:redis-cache.url}"
+        REDIS_URL: "redis://${resource:redis-cache.host}:${resource:redis-cache.port}"
       secrets:
         # Custom secrets using template placeholders
         API_SECRET_KEY: "${resource:main-db.password}"

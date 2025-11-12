@@ -740,6 +740,11 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 						"type":        "string",
 						"description": "Path to server.yaml configuration file (optional)",
 					},
+					"staging": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Use staging optimizations instead of production",
+						"default":     false,
+					},
 				},
 			},
 		},
@@ -760,6 +765,11 @@ func (s *MCPServer) handleListTools(ctx context.Context, req *MCPRequest) *MCPRe
 					"show_diff": map[string]interface{}{
 						"type":        "boolean",
 						"description": "Show differences between current and expected configuration",
+						"default":     false,
+					},
+					"staging": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Use staging optimizations instead of production",
 						"default":     false,
 					},
 				},
@@ -1549,8 +1559,12 @@ func (s *MCPServer) executeToolCall(ctx context.Context, req *MCPRequest, toolNa
 	case "generate_cicd":
 		stackName, _ := arguments["stack_name"].(string)
 		configFile, _ := arguments["config_file"].(string)
+		staging := false
+		if s, ok := arguments["staging"].(bool); ok {
+			staging = s
+		}
 
-		result, err := s.handler.GenerateCICD(ctx, stackName, configFile)
+		result, err := s.handler.GenerateCICDWithStagingAndLogger(ctx, s.logger, stackName, configFile, staging)
 		if err != nil {
 			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to generate CI/CD workflows", err.Error())
 		}
@@ -1572,8 +1586,12 @@ func (s *MCPServer) executeToolCall(ctx context.Context, req *MCPRequest, toolNa
 		if d, ok := arguments["show_diff"].(bool); ok {
 			showDiff = d
 		}
+		staging := false
+		if s, ok := arguments["staging"].(bool); ok {
+			staging = s
+		}
 
-		result, err := s.handler.ValidateCICD(ctx, stackName, configFile, showDiff)
+		result, err := s.handler.ValidateCICDWithStagingAndLogger(ctx, s.logger, stackName, configFile, showDiff, staging)
 		if err != nil {
 			return NewMCPError(req.ID, ErrorCodeAnalysisError, "Failed to validate CI/CD configuration", err.Error())
 		}
@@ -2878,9 +2896,29 @@ func (h *DefaultMCPHandler) GenerateCICD(ctx context.Context, stackName, configF
 	return h.commandHandler.GenerateCICD(ctx, stackName, configFile)
 }
 
+// GenerateCICDWithStaging generates CI/CD workflows for GitHub Actions with staging support
+func (h *DefaultMCPHandler) GenerateCICDWithStaging(ctx context.Context, stackName, configFile string, staging bool) (*core.CommandResult, error) {
+	return h.commandHandler.GenerateCICDWithStaging(ctx, stackName, configFile, staging)
+}
+
+// GenerateCICDWithStagingAndLogger generates CI/CD workflows for GitHub Actions with staging support and logging
+func (h *DefaultMCPHandler) GenerateCICDWithStagingAndLogger(ctx context.Context, logger *MCPLogger, stackName, configFile string, staging bool) (*core.CommandResult, error) {
+	return h.commandHandler.GenerateCICDWithStagingAndLogger(ctx, logger, stackName, configFile, staging)
+}
+
 // ValidateCICD validates CI/CD configuration in server.yaml
 func (h *DefaultMCPHandler) ValidateCICD(ctx context.Context, stackName, configFile string, showDiff bool) (*core.CommandResult, error) {
 	return h.commandHandler.ValidateCICD(ctx, stackName, configFile, showDiff)
+}
+
+// ValidateCICDWithStaging validates CI/CD configuration in server.yaml with staging support
+func (h *DefaultMCPHandler) ValidateCICDWithStaging(ctx context.Context, stackName, configFile string, showDiff bool, staging bool) (*core.CommandResult, error) {
+	return h.commandHandler.ValidateCICDWithStaging(ctx, stackName, configFile, showDiff, staging)
+}
+
+// ValidateCICDWithStagingAndLogger validates CI/CD configuration in server.yaml with staging support and logging
+func (h *DefaultMCPHandler) ValidateCICDWithStagingAndLogger(ctx context.Context, logger *MCPLogger, stackName, configFile string, showDiff bool, staging bool) (*core.CommandResult, error) {
+	return h.commandHandler.ValidateCICDWithStagingAndLogger(ctx, logger, stackName, configFile, showDiff, staging)
 }
 
 // PreviewCICD previews CI/CD workflows that would be generated

@@ -1,0 +1,93 @@
+# Production-Optimized Resource Configuration
+# This example shows production-ready configurations with optimal resource allocation
+
+schemaVersion: "1.0"
+stacks:
+  production:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app, worker, cache]
+      
+      # High-performance web application
+      size:
+        name: "high-performance"
+        limits:
+          cpu: "4000"      # 4 CPU cores for handling traffic spikes
+          memory: "8192"   # 8GB for large datasets and caching
+          ephemeral: "4096" # 4GB for temporary files and logs
+        requests:
+          cpu: "1000"      # 1 CPU core guaranteed (25% of limit)
+          memory: "4096"   # 4GB guaranteed (50% of limit)
+          ephemeral: "1024" # 1GB guaranteed (25% of limit)
+
+  production-worker:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [background-worker]
+      
+      # CPU-intensive background worker
+      size:
+        name: "cpu-intensive"
+        limits:
+          cpu: "6000"      # 6 CPU cores for heavy processing
+          memory: "4096"   # 4GB memory
+        requests:
+          cpu: "2000"      # 2 CPU cores guaranteed (33% of limit)
+          memory: "2048"   # 2GB guaranteed (50% of limit)
+
+  production-cache:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [redis-cache]
+      
+      # Memory-intensive cache service
+      size:
+        name: "memory-intensive"
+        limits:
+          cpu: "2000"      # 2 CPU cores
+          memory: "16384"  # 16GB for large cache
+        requests:
+          cpu: "500"       # 0.5 CPU cores guaranteed (25% of limit)
+          memory: "12288"  # 12GB guaranteed (75% of limit - cache needs consistent memory)
+
+  staging:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Staging environment - production-like but smaller
+      size:
+        name: "staging-optimized"
+        limits:
+          cpu: "2000"      # 2 CPU cores
+          memory: "4096"   # 4GB
+        requests:
+          cpu: "500"       # 0.5 CPU cores guaranteed
+          memory: "2048"   # 2GB guaranteed
+
+  load-testing:
+    type: cloud-compose
+    parent: myorg/infrastructure
+    config:
+      runs: [web-app]
+      
+      # Load testing environment - can burst high but minimal guarantees
+      size:
+        name: "burstable"
+        limits:
+          cpu: "8000"      # 8 CPU cores for load testing
+          memory: "16384"  # 16GB for handling high load
+        requests:
+          cpu: "250"       # Minimal CPU guarantee (3% of limit)
+          memory: "512"    # Minimal memory guarantee (3% of limit)
+
+# Best Practices Demonstrated:
+# 1. Web apps: 25% CPU requests, 50% memory requests (CPU more variable)
+# 2. Workers: 33% CPU requests, 50% memory requests (CPU-bound workloads)
+# 3. Caches: 25% CPU requests, 75% memory requests (memory-bound workloads)
+# 4. Load testing: Low requests, high limits (burstable workloads)
+# 5. Staging: Production-like ratios but smaller absolute values

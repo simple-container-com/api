@@ -17,6 +17,7 @@ type Executor struct {
 	slackSender    api.AlertSender
 	discordSender  api.AlertSender
 	telegramSender api.AlertSender
+	signalHandler  *SignalHandler
 }
 
 // NewExecutor creates a new GitHub Actions executor using only SC's internal APIs
@@ -26,6 +27,9 @@ func NewExecutor(prov provisioner.Provisioner, log logger.Logger, gitRepo git.Re
 		logger:      log,
 		gitRepo:     gitRepo,
 	}
+
+	// Initialize signal handler
+	executor.signalHandler = NewSignalHandler(log, prov)
 
 	// Notification initialization will be done after secrets are revealed
 	return executor

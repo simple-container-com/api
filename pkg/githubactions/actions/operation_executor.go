@@ -45,8 +45,21 @@ func capitalize(s string) string {
 }
 
 // executeOperation is the unified operation executor that handles all stack operations
-func (e *Executor) executeOperation(ctx context.Context, config OperationConfig) error {
+func (e *Executor) executeOperation(ctx context.Context, config OperationConfig) (err error) {
 	startTime := time.Now()
+
+	// Add panic recovery at the top level of executeOperation
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error(ctx, "🚨 Panic occurred in executeOperation for %s %s: %v", config.Scope, config.Type, r)
+
+			// Send failure alert for the panic
+			e.sendFailureAlert(ctx, config, fmt.Errorf("operation panicked: %v", r), time.Since(startTime))
+
+			// Return the panic as an error
+			err = fmt.Errorf("operation panicked: %v", r)
+		}
+	}()
 
 	// Phase 1: Setup and logging
 	e.logOperationStart(ctx, config)
@@ -234,7 +247,15 @@ func (e *Executor) performOperation(ctx context.Context, config OperationConfig)
 }
 
 // executeDeploy performs a deployment operation
-func (e *Executor) executeDeploy(ctx context.Context, config OperationConfig, previewMode bool) error {
+func (e *Executor) executeDeploy(ctx context.Context, config OperationConfig, previewMode bool) (err error) {
+	// Add panic recovery for provisioner calls
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error(ctx, "🚨 Panic occurred in executeDeploy for %s: %v", config.StackName, r)
+			err = fmt.Errorf("deployment panicked: %v", r)
+		}
+	}()
+
 	deployParams := api.DeployParams{
 		StackParams: api.StackParams{
 			StackName:   config.StackName,
@@ -268,7 +289,15 @@ func (e *Executor) executeDeploy(ctx context.Context, config OperationConfig, pr
 }
 
 // executeProvision performs a provisioning operation
-func (e *Executor) executeProvision(ctx context.Context, config OperationConfig, previewMode bool) error {
+func (e *Executor) executeProvision(ctx context.Context, config OperationConfig, previewMode bool) (err error) {
+	// Add panic recovery for provisioner calls
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error(ctx, "🚨 Panic occurred in executeProvision for %s: %v", config.StackName, r)
+			err = fmt.Errorf("provisioning panicked: %v", r)
+		}
+	}()
+
 	profile := os.Getenv("ENVIRONMENT")
 	if profile == "" {
 		profile = "default"
@@ -303,7 +332,15 @@ func (e *Executor) executeProvision(ctx context.Context, config OperationConfig,
 }
 
 // executeDestroy performs a client stack destruction operation
-func (e *Executor) executeDestroy(ctx context.Context, config OperationConfig, previewMode bool) error {
+func (e *Executor) executeDestroy(ctx context.Context, config OperationConfig, previewMode bool) (err error) {
+	// Add panic recovery for provisioner calls
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error(ctx, "🚨 Panic occurred in executeDestroy for %s: %v", config.StackName, r)
+			err = fmt.Errorf("destruction panicked: %v", r)
+		}
+	}()
+
 	destroyParams := api.DestroyParams{
 		StackParams: api.StackParams{
 			StackName:   config.StackName,
@@ -334,7 +371,15 @@ func (e *Executor) executeDestroy(ctx context.Context, config OperationConfig, p
 }
 
 // executeDestroyParent performs a parent stack destruction operation
-func (e *Executor) executeDestroyParent(ctx context.Context, config OperationConfig, previewMode bool) error {
+func (e *Executor) executeDestroyParent(ctx context.Context, config OperationConfig, previewMode bool) (err error) {
+	// Add panic recovery for provisioner calls
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error(ctx, "🚨 Panic occurred in executeDestroyParent for %s: %v", config.StackName, r)
+			err = fmt.Errorf("parent stack destruction panicked: %v", r)
+		}
+	}()
+
 	destroyParams := api.DestroyParams{
 		StackParams: api.StackParams{
 			StackName:   config.StackName,
