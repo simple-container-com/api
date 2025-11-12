@@ -96,12 +96,15 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 				deployCfg.NodeSelector = make(map[string]string)
 			}
 
-			// Apply nodePool and computeClass to NodeSelector for GKE compatibility
+			// Apply nodePool and computeClass to NodeSelector for GKE Autopilot compatibility
+			// Note: GKE Autopilot doesn't support custom node pools, so we map nodePool to compute-class
 			if k8sCloudExtras.Affinity.NodePool != nil {
-				deployCfg.NodeSelector["cloud.google.com/gke-nodepool"] = *k8sCloudExtras.Affinity.NodePool
+				// For GKE Autopilot, nodePool is mapped to compute-class since custom node pools aren't supported
+				deployCfg.NodeSelector["cloud.google.com/compute-class"] = *k8sCloudExtras.Affinity.NodePool
 			}
 			if k8sCloudExtras.Affinity.ComputeClass != nil {
-				deployCfg.NodeSelector["node.kubernetes.io/instance-type"] = *k8sCloudExtras.Affinity.ComputeClass
+				// Use the GKE Autopilot-compatible compute-class label
+				deployCfg.NodeSelector["cloud.google.com/compute-class"] = *k8sCloudExtras.Affinity.ComputeClass
 			}
 
 			// For exclusive node pool, anti-affinity rules are handled in simple_container.go
