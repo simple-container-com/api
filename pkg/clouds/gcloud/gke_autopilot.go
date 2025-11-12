@@ -68,11 +68,49 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	if templateCfg == nil {
 		return nil, errors.Errorf("template config is nil")
 	}
+	deployCfg := k8s.DeploymentConfig{
+		StackConfig: stackCfg,
+		Scale:       k8s.ToScale(stackCfg),
+	}
+
+	// Process CloudExtras for affinity rules, node selector, etc.
+	if stackCfg.CloudExtras != nil {
+		k8sCloudExtras := &k8s.CloudExtras{}
+		var err error
+		k8sCloudExtras, err = api.ConvertDescriptor(stackCfg.CloudExtras, k8sCloudExtras)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloudExtras field to Kubernetes Cloud extras format")
+		}
+
+		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
+		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
+		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
+
+		// Process affinity rules and merge with existing NodeSelector if needed
+		if k8sCloudExtras.Affinity != nil {
+			// Store the full affinity configuration for advanced usage
+			deployCfg.Affinity = k8sCloudExtras.Affinity
+
+			// Merge Space Pay style affinity rules with existing NodeSelector
+			if deployCfg.NodeSelector == nil {
+				deployCfg.NodeSelector = make(map[string]string)
+			}
+
+			// Apply nodePool and computeClass to NodeSelector for GKE compatibility
+			if k8sCloudExtras.Affinity.NodePool != nil {
+				deployCfg.NodeSelector["cloud.google.com/gke-nodepool"] = *k8sCloudExtras.Affinity.NodePool
+			}
+			if k8sCloudExtras.Affinity.ComputeClass != nil {
+				deployCfg.NodeSelector["node.kubernetes.io/instance-type"] = *k8sCloudExtras.Affinity.ComputeClass
+			}
+
+			// For exclusive node pool, anti-affinity rules are handled in simple_container.go
+		}
+	}
+
 	res := &GkeAutopilotInput{
 		GkeAutopilotTemplate: *templateCfg,
-		Deployment: k8s.DeploymentConfig{
-			StackConfig: stackCfg,
-		},
+		Deployment:           deployCfg,
 	}
 
 	containers, err := k8s.ConvertComposeToContainers(composeCfg, stackCfg)
@@ -86,7 +124,6 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	res.Deployment.Containers = containers
 	res.Deployment.IngressContainer = iContainer
 	res.Deployment.Headers = lo.ToPtr(k8s.ToHeaders(stackCfg.Headers))
-	res.Deployment.Scale = k8s.ToScale(stackCfg)
 	res.Deployment.TextVolumes = k8s.ToSimpleTextVolumes(stackCfg)
 
 	return res, nil
