@@ -105,6 +105,17 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		}
 	}
 
+	// Debug logging for affinity rules
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.Affinity: %+v", kubeRunInput.Deployment.Affinity)
+	if kubeRunInput.Deployment.Affinity != nil {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: Affinity details - NodePool: %v, ComputeClass: %v, ExclusiveNodePool: %v",
+			kubeRunInput.Deployment.Affinity.NodePool,
+			kubeRunInput.Deployment.Affinity.ComputeClass,
+			kubeRunInput.Deployment.Affinity.ExclusiveNodePool)
+	} else {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.Affinity is nil")
+	}
+
 	kubeArgs := Args{
 		Input:                  input,
 		Deployment:             kubeRunInput.Deployment,
@@ -120,6 +131,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		NodeSelector: nodeSelector,
 		Affinity:     kubeRunInput.Deployment.Affinity,
 	}
+
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
 
 	if kubeRunInput.RegistryRequiresAuth() {
 		kubeArgs.ImagePullSecret = lo.ToPtr(kubeRunInput.RegistryCredentials)
