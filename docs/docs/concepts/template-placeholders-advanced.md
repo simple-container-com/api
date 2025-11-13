@@ -182,7 +182,44 @@ AWS RDS MySQL database connection details and credentials.
 ### GCP Resources
 
 #### GCP Bucket
-**Note:** GCP Bucket compute processor is currently not implemented. No environment variables are automatically injected for GCP Bucket resources at this time.
+Google Cloud Storage bucket with S3-compatible access via HMAC keys.
+
+**Auto-injected Environment Variables:**
+
+**Bucket-Specific Variables** (where `BUCKET_NAME` is the sanitized bucket name):
+- `GCS_<BUCKET_NAME>_BUCKET` - Bucket name
+- `GCS_<BUCKET_NAME>_LOCATION` - Bucket location/region
+- `GCS_<BUCKET_NAME>_ACCESS_KEY` - HMAC access key ID (secret)
+- `GCS_<BUCKET_NAME>_SECRET_KEY` - HMAC secret key (secret)
+- `GCS_<BUCKET_NAME>_ENDPOINT` - GCS S3-compatible endpoint
+
+**S3-Compatible Variables** (for applications expecting AWS S3):
+- `S3_<BUCKET_NAME>_BUCKET` - Bucket name
+- `S3_<BUCKET_NAME>_REGION` - Bucket location/region
+- `S3_<BUCKET_NAME>_ACCESS_KEY` - HMAC access key ID (secret)
+- `S3_<BUCKET_NAME>_SECRET_KEY` - HMAC secret key (secret)
+- `S3_<BUCKET_NAME>_ENDPOINT` - GCS S3-compatible endpoint
+
+**Generic Variables** (when only one bucket is used):
+- `GCS_BUCKET` - Bucket name
+- `GCS_LOCATION` - Bucket location
+- `GCS_ACCESS_KEY` - HMAC access key ID (secret)
+- `GCS_SECRET_KEY` - HMAC secret key (secret)
+- `GCS_ENDPOINT` - GCS S3-compatible endpoint
+
+**AWS SDK Compatible Variables** (for seamless AWS SDK integration):
+- `AWS_ACCESS_KEY_ID` - HMAC access key ID (secret)
+- `AWS_SECRET_ACCESS_KEY` - HMAC secret key (secret)
+- `S3_ENDPOINT` - GCS S3-compatible endpoint
+- `S3_BUCKET` - Bucket name
+- `S3_REGION` - Bucket location
+
+**Template Placeholders:**
+- `${resource:bucket-name.bucket}` - Bucket name
+- `${resource:bucket-name.location}` - Bucket location
+- `${resource:bucket-name.access-key}` - HMAC access key ID
+- `${resource:bucket-name.secret-key}` - HMAC secret key
+- `${resource:bucket-name.endpoint}` - S3-compatible endpoint
 
 #### GKE Autopilot
 **Note:** GKE Autopilot compute processor is currently not implemented. No environment variables are automatically injected for GKE Autopilot resources at this time.

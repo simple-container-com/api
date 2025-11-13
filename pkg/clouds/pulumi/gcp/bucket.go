@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -47,8 +48,13 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	params.Log.Info(ctx.Context(), "creating service account for bucket %q", bucketName)
 
 	// Create a service account for S3-compatible access
-	sa, err := serviceaccount.NewAccount(ctx, fmt.Sprintf("%s-sa", bucketName), &serviceaccount.AccountArgs{
-		AccountId:   sdk.String(fmt.Sprintf("%s-sa", bucketName)),
+	saName := fmt.Sprintf("%s-sa", bucketName)
+	// Use the same sanitization logic as the service_account.go helper
+	sanitizedName := strings.ReplaceAll(saName, "_", "-")
+	saAccountId := strings.ReplaceAll(util.TrimStringMiddle(sanitizedName, 28, "-"), "--", "-")
+
+	sa, err := serviceaccount.NewAccount(ctx, saName, &serviceaccount.AccountArgs{
+		AccountId:   sdk.String(saAccountId),
 		DisplayName: sdk.String(fmt.Sprintf("Service Account for %s", bucketName)),
 	}, opts...)
 	if err != nil {
