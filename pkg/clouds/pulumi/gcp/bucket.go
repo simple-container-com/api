@@ -26,7 +26,7 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
-	bucketName := input.ToResName(bucketCfg.Name)
+	bucketName := input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name))
 	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
 
 	params.Log.Info(ctx.Context(), "creating GCS bucket %q with S3 interoperability", bucketName)
