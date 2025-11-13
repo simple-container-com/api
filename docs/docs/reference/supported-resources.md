@@ -1378,11 +1378,11 @@ alerts:
     periodSec: 300
 ```
 
-**Email Notifications via SNS:**
+**Email Notifications:**
 ```yaml
 alerts:
-  sns:
-    emailSubscriptions:
+  email:
+    addresses:
       - "team-alerts@company.com"
       - "oncall@company.com" 
       - "devops-team@company.com"
@@ -1405,8 +1405,8 @@ alerts:
     webhookUrl: "${secret:SLACK_WEBHOOK_URL}"
   discord:
     webhookUrl: "${secret:DISCORD_WEBHOOK_URL}"
-  sns:
-    emailSubscriptions:
+  email:
+    addresses:
       - "alerts@company.com"
       - "devops@company.com"
   
@@ -1443,7 +1443,7 @@ alerts:
 - **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
 
 **Notification Channel Properties:**
-- **`sns.emailSubscriptions`** - Array of email addresses for SNS notifications
+- **`email.addresses`** - Array of email addresses for email notifications (cloud-agnostic)
 - **`slack.webhookUrl`** - Slack webhook URL (use secrets management)
 - **`discord.webhookUrl`** - Discord webhook URL (use secrets management)
 - **`telegram.chatID`** & **`telegram.token`** - Telegram bot configuration

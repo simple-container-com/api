@@ -805,9 +805,9 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Get ALB name using the same pattern as ALB creation
 		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 
-		// Create SNS topic and subscriptions only if email subscriptions are configured
+		// Create SNS topic and subscriptions only if email addresses are configured
 		var snsTopic *sns.Topic
-		if alerts.SNS != nil && len(alerts.SNS.EmailSubscriptions) > 0 {
+		if alerts.Email != nil && len(alerts.Email.Addresses) > 0 {
 			snsTopicName := fmt.Sprintf("%s-%s-alb-alerts", stack.Name, deployParams.Environment)
 			topic, err := createSNSTopicForAlerts(ctx, snsTopicName, opts...)
 			if err != nil {
@@ -815,7 +815,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 			}
 			snsTopic = topic
 
-			if err := createSNSEmailSubscriptions(ctx, snsTopic, alerts.SNS.EmailSubscriptions, snsTopicName, opts...); err != nil {
+			if err := createSNSEmailSubscriptions(ctx, snsTopic, alerts.Email.Addresses, snsTopicName, opts...); err != nil {
 				return errors.Wrapf(err, "failed to create SNS email subscriptions")
 			}
 		}
