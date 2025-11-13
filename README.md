@@ -15,7 +15,7 @@ ensuring **scalability, security, and reliability across multi-cloud environment
 3. **Built-in Secrets Management** – Securely store and inject credentials using **AWS Secrets Manager, GCP Secret Manager, or Kubernetes Secrets**.
 4. **Multi-Cloud & Kubernetes Support** – Seamlessly deploy to **AWS ECS, Google Cloud Run, Kubernetes clusters**, and more.
 5. **Built-in CI/CD & Automated Rollbacks** – Deploy, monitor, and rollback services **without external CI/CD pipelines**.
-6. **Comprehensive CloudWatch Monitoring** – Built-in alerts for ECS services and Application Load Balancers with **Slack, Discord, and Telegram** notifications.
+6. **Comprehensive CloudWatch Monitoring** – Built-in alerts for ECS services and Application Load Balancers with **Email, Slack, Discord, and Telegram** notifications.
 
 ---
 

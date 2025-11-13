@@ -20,6 +20,7 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/efs"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	lbV6 "github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lb"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/sns"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/awsx"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/lb"
@@ -804,6 +805,21 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Get ALB name using the same pattern as ALB creation
 		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
 
+		// Create SNS topic and subscriptions only if email addresses are configured
+		var snsTopic *sns.Topic
+		if alerts.Email != nil && len(alerts.Email.Addresses) > 0 {
+			snsTopicName := fmt.Sprintf("%s-%s-alb-alerts", stack.Name, deployParams.Environment)
+			topic, err := createSNSTopicForAlerts(ctx, snsTopicName, opts...)
+			if err != nil {
+				return errors.Wrapf(err, "failed to create SNS topic for ALB alerts")
+			}
+			snsTopic = topic
+
+			if err := createSNSEmailSubscriptions(ctx, snsTopic, alerts.Email.Addresses, snsTopicName, opts...); err != nil {
+				return errors.Wrapf(err, "failed to create SNS email subscriptions")
+			}
+		}
+
 		// Server Errors (5XX) Alert
 		if alerts.ServerErrors != nil {
 			if err := createAlert(ctx, alertCfg{
@@ -815,6 +831,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				deployParams:   deployParams,
 				secretSuffix:   crInput.Config.Version,
 				helpersImage:   helpersImage,
+				snsTopic:       snsTopic,
 				opts:           opts,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
@@ -846,6 +863,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				deployParams:   deployParams,
 				secretSuffix:   crInput.Config.Version,
 				helpersImage:   helpersImage,
+				snsTopic:       snsTopic,
 				opts:           opts,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
@@ -877,6 +895,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				deployParams:   deployParams,
 				secretSuffix:   crInput.Config.Version,
 				helpersImage:   helpersImage,
+				snsTopic:       snsTopic,
 				opts:           opts,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),

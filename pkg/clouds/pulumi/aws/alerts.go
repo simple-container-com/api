@@ -12,6 +12,7 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
+	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/sns"
 	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -32,6 +33,7 @@ type alertCfg struct {
 	opts            []sdk.ResourceOption
 	metricAlarmArgs cloudwatch.MetricAlarmArgs
 	helpersImage    *docker.Image
+	snsTopic        *sns.Topic
 }
 
 type helperCfg struct {
@@ -226,12 +228,17 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		return errors.Wrapf(err, "failed to create lambda function")
 	}
 
-	cfg.metricAlarmArgs.AlarmActions = sdk.Array{
-		lambdaFunc.Arn,
+	alarmActions := sdk.Array{lambdaFunc.Arn}
+	okActions := sdk.Array{lambdaFunc.Arn}
+
+	// Add SNS topic to actions if provided
+	if cfg.snsTopic != nil {
+		alarmActions = append(alarmActions, cfg.snsTopic.Arn)
+		okActions = append(okActions, cfg.snsTopic.Arn)
 	}
-	cfg.metricAlarmArgs.OkActions = sdk.Array{
-		lambdaFunc.Arn,
-	}
+
+	cfg.metricAlarmArgs.AlarmActions = alarmActions
+	cfg.metricAlarmArgs.OkActions = okActions
 	alarm, err := cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-metric-alarm", cfg.name), &cfg.metricAlarmArgs, cfg.opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create metric alarm")
@@ -250,5 +257,32 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 
 	// Output the Lambda function's ARN
 	ctx.Export(fmt.Sprintf("%s-lambda-arn", cfg.name), lambdaFunc.Arn)
+	return nil
+}
+
+func createSNSTopicForAlerts(ctx *sdk.Context, topicName string, opts ...sdk.ResourceOption) (*sns.Topic, error) {
+	topic, err := sns.NewTopic(ctx, fmt.Sprintf("%s-sns-topic", topicName), &sns.TopicArgs{
+		Name:        sdk.String(topicName),
+		DisplayName: sdk.String(fmt.Sprintf("ALB Alerts Topic - %s", topicName)),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create SNS topic")
+	}
+
+	ctx.Export(fmt.Sprintf("%s-sns-topic-arn", topicName), topic.Arn)
+	return topic, nil
+}
+
+func createSNSEmailSubscriptions(ctx *sdk.Context, topic *sns.Topic, emails []string, topicName string, opts ...sdk.ResourceOption) error {
+	for i, email := range emails {
+		_, err := sns.NewTopicSubscription(ctx, fmt.Sprintf("%s-email-subscription-%d", topicName, i), &sns.TopicSubscriptionArgs{
+			Topic:    topic.Arn,
+			Protocol: sdk.String("email"),
+			Endpoint: sdk.String(email),
+		}, opts...)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create email subscription for %s", email)
+		}
+	}
 	return nil
 }
