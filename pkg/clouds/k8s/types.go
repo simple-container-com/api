@@ -26,6 +26,7 @@ type DeploymentConfig struct {
 	RollingUpdate    *RollingUpdate          `json:"rollingUpdate" yaml:"rollingUpdate"`
 	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
+	Tolerations      []Toleration            `json:"tolerations" yaml:"tolerations"`
 }
 
 type CaddyConfig struct {
@@ -49,6 +50,14 @@ type DisruptionBudget struct {
 type RollingUpdate struct {
 	MaxSurge       *int `json:"maxSurge" yaml:"maxSurge"`
 	MaxUnavailable *int `json:"maxUnavailable" yaml:"maxUnavailable"`
+}
+
+// Toleration represents a Kubernetes toleration for pod scheduling
+type Toleration struct {
+	Key      string `json:"key" yaml:"key"`
+	Operator string `json:"operator,omitempty" yaml:"operator,omitempty"` // Equal or Exists
+	Value    string `json:"value,omitempty" yaml:"value,omitempty"`
+	Effect   string `json:"effect,omitempty" yaml:"effect,omitempty"` // NoSchedule, PreferNoSchedule, NoExecute
 }
 
 type Headers = map[string]string

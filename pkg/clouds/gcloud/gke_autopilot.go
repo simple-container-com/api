@@ -85,6 +85,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
+		deployCfg.Tolerations = k8sCloudExtras.Tolerations
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {
@@ -96,14 +97,29 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 				deployCfg.NodeSelector = make(map[string]string)
 			}
 
-			// Apply nodePool and computeClass to NodeSelector for GKE Autopilot compatibility
-			// Note: GKE Autopilot doesn't support custom node pools, so we map nodePool to compute-class
+			// GKE Autopilot supports custom nodeSelector labels for workload separation!
+			// When you specify a custom nodeSelector + toleration, GKE automatically creates
+			// separate nodes with those labels and taints.
+
+			// Handle nodePool as a custom workload separation label
 			if k8sCloudExtras.Affinity.NodePool != nil {
-				// For GKE Autopilot, nodePool is mapped to compute-class since custom node pools aren't supported
-				deployCfg.NodeSelector["cloud.google.com/compute-class"] = *k8sCloudExtras.Affinity.NodePool
+				nodePoolValue := *k8sCloudExtras.Affinity.NodePool
+				// Use custom label for workload separation (not system labels)
+				deployCfg.NodeSelector["workload-group"] = nodePoolValue
+
+				// Automatically add corresponding toleration for GKE Autopilot workload separation
+				workloadToleration := k8s.Toleration{
+					Key:      "workload-group",
+					Operator: "Equal",
+					Value:    nodePoolValue,
+					Effect:   "NoSchedule",
+				}
+				deployCfg.Tolerations = append(deployCfg.Tolerations, workloadToleration)
 			}
+
+			// Handle computeClass - require exact GKE Autopilot values
+			// Valid values: Accelerator, Balanced, Performance, Scale-Out, autopilot, autopilot-spot
 			if k8sCloudExtras.Affinity.ComputeClass != nil {
-				// Use the GKE Autopilot-compatible compute-class label
 				deployCfg.NodeSelector["cloud.google.com/compute-class"] = *k8sCloudExtras.Affinity.ComputeClass
 			}
 

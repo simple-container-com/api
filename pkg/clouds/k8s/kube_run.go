@@ -17,6 +17,7 @@ type CloudExtras struct {
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget" yaml:"disruptionBudget"`
 	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
 	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
+	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation

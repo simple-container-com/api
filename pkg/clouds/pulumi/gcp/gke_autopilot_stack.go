@@ -134,6 +134,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		},
 		NodeSelector: gkeAutopilotInput.Deployment.NodeSelector,
 		Affinity:     gkeAutopilotInput.Deployment.Affinity,
+		Tolerations:  gkeAutopilotInput.Deployment.Tolerations,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
