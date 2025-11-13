@@ -59,7 +59,20 @@ jobs:
           environment: "${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
-          commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"`
+          commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
+      
+      - name: Emergency Cleanup on Cancellation
+        if: always() && cancelled()
+        uses: {{ if index .CustomActions "cancel" }}{{ index .CustomActions "cancel" }}{{ else }}{{ defaultAction "cancel-stack" .SCVersion }}{{ end }}
+        with:
+          stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
+          stack-type: "client"
+          environment: "${{ "{{" }} github.event.inputs.environment || '{{ if $autoDeployEnv }}{{ $autoDeployEnv }}{{ else }}staging{{ end }}' {{ "}}" }}"
+          sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
+          cleanup-timeout: "300"
+          force-cancel: "true"
+          verbose: "true"
+          notify-on-completion: "true"`
 
 const destroyTemplate = `name: Destroy {{ .Organization.Name }} {{ .StackName }}
 
@@ -282,6 +295,19 @@ jobs:
           notify-on-completion: "true"
           commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
           commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
+      
+      - name: Emergency Cleanup on Cancellation
+        if: always() && cancelled()
+        uses: {{ if index .CustomActions "cancel" }}{{ index .CustomActions "cancel" }}{{ else }}{{ defaultAction "cancel-stack" .SCVersion }}{{ end }}
+        with:
+          stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
+          stack-type: "parent"
+          sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
+          cleanup-timeout: "600"
+          preserve-resources: "true"
+          force-cancel: "false"
+          verbose: "true"
+          notify-on-completion: "true"
 
   test-infrastructure:
     name: Test Infrastructure

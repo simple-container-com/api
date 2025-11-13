@@ -2,8 +2,11 @@ package actions
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -119,4 +122,102 @@ func (e *Executor) DestroyParentStack(ctx context.Context) error {
 			StackName: stackName,
 		})
 	})
+}
+
+// CancelStack cancels a running stack operation using SC's internal APIs
+func (e *Executor) CancelStack(ctx context.Context) error {
+	stackType := os.Getenv("STACK_TYPE")
+	stackName := os.Getenv("STACK_NAME")
+	environment := os.Getenv("ENVIRONMENT")
+	operationID := os.Getenv("OPERATION_ID")
+	forceCancel := os.Getenv("FORCE_CANCEL") == "true"
+
+	e.logger.Info(ctx, "🛑 Starting stack cancellation: type=%s, stack=%s, env=%s", stackType, stackName, environment)
+
+	if operationID != "" {
+		e.logger.Info(ctx, "🎯 Targeting specific operation: %s", operationID)
+	} else {
+		e.logger.Info(ctx, "🔄 Will cancel all active operations for stack")
+	}
+
+	// Validate stack type
+	if stackType != "client" && stackType != "parent" {
+		return fmt.Errorf("invalid stack type: %s (must be 'client' or 'parent')", stackType)
+	}
+
+	// Initialize notifications for cancellation alerts
+	e.logger.Info(ctx, "📢 Initializing notifications for cancellation alerts...")
+	if err := e.setupNotificationsForCancellation(ctx, stackName, environment, stackType == "client"); err != nil {
+		e.logger.Warn(ctx, "Failed to setup notifications: %v", err)
+	}
+
+	// Send cancellation start notification
+	e.sendCancellationStartAlert(ctx, stackType, stackName, environment, operationID, forceCancel)
+
+	// Execute cancellation with timeout
+	cleanupTimeoutStr := os.Getenv("CLEANUP_TIMEOUT")
+	cleanupTimeout, err := time.ParseDuration(cleanupTimeoutStr + "s")
+	if err != nil {
+		cleanupTimeout = 5 * time.Minute // Default 5 minutes
+	}
+
+	e.logger.Info(ctx, "⏱️ Cleanup timeout set to: %v", cleanupTimeout)
+
+	// Create cancellation context with timeout
+	cancelCtx, cancelFunc := context.WithTimeout(ctx, cleanupTimeout)
+	defer cancelFunc()
+
+	// Perform the actual cancellation
+	startTime := time.Now()
+
+	if forceCancel {
+		e.logger.Warn(ctx, "⚠️ Force cancellation enabled - will terminate operations aggressively")
+	}
+
+	// Call the appropriate cancellation method based on stack type
+	var cancelErr error
+	switch stackType {
+	case "parent":
+		e.logger.Info(ctx, "📋 Cancelling parent stack operation")
+		cancelErr = e.provisioner.CancelParent(cancelCtx, api.StackParams{
+			StackName: stackName,
+			Parent:    true,
+		})
+	case "client":
+		e.logger.Info(ctx, "📋 Cancelling client stack operation")
+		cancelErr = e.provisioner.Cancel(cancelCtx, api.StackParams{
+			StackName:   stackName,
+			Environment: environment,
+		})
+	}
+
+	duration := time.Since(startTime)
+
+	if cancelErr != nil {
+		// Send failure notification
+		e.sendCancellationFailureAlert(ctx, stackType, stackName, environment, cancelErr, duration)
+
+		if errors.Is(cancelErr, context.DeadlineExceeded) {
+			e.logger.Error(ctx, "⏰ Cancellation timed out after %v", duration)
+			return fmt.Errorf("stack cancellation timed out after %v: %w", duration, cancelErr)
+		}
+		e.logger.Error(ctx, "❌ Cancellation failed after %v: %v", duration, cancelErr)
+		return fmt.Errorf("stack cancellation failed: %w", cancelErr)
+	}
+
+	// Send success notification
+	e.sendCancellationSuccessAlert(ctx, stackType, stackName, environment, duration)
+
+	e.logger.Info(ctx, "✅ Stack cancellation completed successfully in %v", duration)
+
+	// Set outputs for GitHub Actions
+	if err := e.setActionOutput("duration", duration.String()); err != nil {
+		e.logger.Warn(ctx, "Failed to set duration output: %v", err)
+	}
+
+	if err := e.setActionOutput("cleanup-status", "completed"); err != nil {
+		e.logger.Warn(ctx, "Failed to set cleanup-status output: %v", err)
+	}
+
+	return nil
 }

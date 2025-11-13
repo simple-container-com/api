@@ -48,11 +48,12 @@ func main() {
 		"provision-parent-stack": true,
 		"destroy-client-stack":   true,
 		"destroy-parent-stack":   true,
+		"cancel-stack":           true,
 	}
 
 	if !validActions[actionType] {
 		fmt.Fprintf(os.Stderr, "Unknown action type: %s\n", actionType)
-		fmt.Fprintf(os.Stderr, "Valid actions: deploy-client-stack, provision-parent-stack, destroy-client-stack, destroy-parent-stack\n")
+		fmt.Fprintf(os.Stderr, "Valid actions: deploy-client-stack, provision-parent-stack, destroy-client-stack, destroy-parent-stack, cancel-stack\n")
 		os.Exit(1)
 	}
 
@@ -151,6 +152,9 @@ func main() {
 
 	case "destroy-parent-stack":
 		execErr = executor.DestroyParentStack(ctx)
+
+	case "cancel-stack":
+		execErr = executor.CancelStack(ctx)
 	}
 
 	// Handle execution result

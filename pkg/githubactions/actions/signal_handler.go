@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -102,12 +103,22 @@ func (sh *SignalHandler) WithSignalHandling(ctx context.Context, opType operatio
 			sh.logger.Error(cancelCtx, "❌ Failed to cancel operation %s: %v", opID, cancelErr)
 		}
 
-		// Wait for operation to complete or timeout
+		// Wait for operation to complete with explicit timeout for cancellation
+		// GitHub Actions only gives us ~10 seconds total (7.5s + 2.5s) before force kill
+		// So we set a shorter timeout to work within GitHub's constraints
+		cancelTimeout := 8 * time.Second
+		cancelCtxWithTimeout, cancelTimeoutFunc := context.WithTimeout(context.Background(), cancelTimeout)
+		defer cancelTimeoutFunc()
+
+		sh.logger.Info(cancelCtx, "⏳ Waiting up to %v for cancellation to complete...", cancelTimeout)
+
 		select {
 		case err := <-resultChan:
+			sh.logger.Info(cancelCtx, "✅ Operation cancelled successfully")
 			return errors.Wrapf(err, "GitHub Actions operation cancelled due to signal %v", sig)
-		case <-opCtx.Done():
-			return errors.Errorf("GitHub Actions operation %s cancelled due to signal %v", opID, sig)
+		case <-cancelCtxWithTimeout.Done():
+			sh.logger.Warn(cancelCtx, "⚠️ Cancellation timeout reached after %v, forcing termination", cancelTimeout)
+			return errors.Errorf("GitHub Actions operation %s cancellation timed out after %v due to signal %v", opID, cancelTimeout, sig)
 		}
 	case <-opCtx.Done():
 		return opCtx.Err()
