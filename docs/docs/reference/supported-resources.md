@@ -1395,7 +1395,7 @@ alerts:
     periodSec: 300
 ```
 
-> **📧 Email Integration**: When SNS email subscriptions are configured, an SNS topic is automatically created and CloudWatch alarms will send notifications to both webhook channels (Slack, Discord, Telegram) AND email addresses. Email subscribers will receive confirmation emails that must be confirmed to activate the subscription. If no email subscriptions are configured, no SNS topic is created.
+> **📧 Email Integration**: Each notification channel works independently. When email addresses are configured, email notifications are sent alongside any configured webhook channels. Email recipients must confirm their subscription to receive notifications.
 
 **Complete Monitoring Configuration:**
 ```yaml
@@ -1443,7 +1443,7 @@ alerts:
 - **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
 
 **Notification Channel Properties:**
-- **`email.addresses`** - Array of email addresses for email notifications (cloud-agnostic)
+- **`email.addresses`** - Array of email addresses for email notifications
 - **`slack.webhookUrl`** - Slack webhook URL (use secrets management)
 - **`discord.webhookUrl`** - Discord webhook URL (use secrets management)
 - **`telegram.chatID`** & **`telegram.token`** - Telegram bot configuration
