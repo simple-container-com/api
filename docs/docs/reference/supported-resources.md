@@ -670,9 +670,11 @@ resources:
 
 #### **GCP Bucket** (`gcp-bucket`)
 
-Creates and manages Google Cloud Storage buckets.
+Creates and manages Google Cloud Storage buckets with S3-compatible access via HMAC keys.
 
 **Golang Struct Reference:** `pkg/clouds/gcloud/bucket.go:GcpBucket`
+
+**JSON Schema:** [GcpBucket Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/gcpbucket.json)
 
 ```yaml
 # server.yaml - Parent Stack
@@ -688,9 +690,15 @@ resources:
             credentials: "${auth:gcloud}"
             
             # GCP Bucket specific properties (from GcpBucket struct)
-            name: "my-application-storage"           # Bucket name
+            name: "my-application-storage"           # Bucket name (optional, defaults to resource name)
             location: "US"                           # Bucket location
 ```
+
+**Client Access:**
+
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for GCS bucket access with S3-compatible HMAC authentication.
+
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Bucket](../concepts/template-placeholders-advanced.md#gcp-bucket)
 
 #### **Artifact Registry** (`gcp-artifact-registry`)
 

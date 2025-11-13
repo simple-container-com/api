@@ -68,11 +68,68 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	if templateCfg == nil {
 		return nil, errors.Errorf("template config is nil")
 	}
+	deployCfg := k8s.DeploymentConfig{
+		StackConfig: stackCfg,
+		Scale:       k8s.ToScale(stackCfg),
+	}
+
+	// Process CloudExtras for affinity rules, node selector, etc.
+	if stackCfg.CloudExtras != nil {
+		k8sCloudExtras := &k8s.CloudExtras{}
+		var err error
+		k8sCloudExtras, err = api.ConvertDescriptor(stackCfg.CloudExtras, k8sCloudExtras)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloudExtras field to Kubernetes Cloud extras format")
+		}
+
+		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
+		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
+		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
+		deployCfg.Tolerations = k8sCloudExtras.Tolerations
+
+		// Process affinity rules and merge with existing NodeSelector if needed
+		if k8sCloudExtras.Affinity != nil {
+			// Store the full affinity configuration for advanced usage
+			deployCfg.Affinity = k8sCloudExtras.Affinity
+
+			// Merge Space Pay style affinity rules with existing NodeSelector
+			if deployCfg.NodeSelector == nil {
+				deployCfg.NodeSelector = make(map[string]string)
+			}
+
+			// GKE Autopilot supports custom nodeSelector labels for workload separation!
+			// When you specify a custom nodeSelector + toleration, GKE automatically creates
+			// separate nodes with those labels and taints.
+
+			// Handle nodePool as a custom workload separation label
+			if k8sCloudExtras.Affinity.NodePool != nil {
+				nodePoolValue := *k8sCloudExtras.Affinity.NodePool
+				// Use custom label for workload separation (not system labels)
+				deployCfg.NodeSelector["workload-group"] = nodePoolValue
+
+				// Automatically add corresponding toleration for GKE Autopilot workload separation
+				workloadToleration := k8s.Toleration{
+					Key:      "workload-group",
+					Operator: "Equal",
+					Value:    nodePoolValue,
+					Effect:   "NoSchedule",
+				}
+				deployCfg.Tolerations = append(deployCfg.Tolerations, workloadToleration)
+			}
+
+			// Handle computeClass - require exact GKE Autopilot values
+			// Valid values: Accelerator, Balanced, Performance, Scale-Out, autopilot, autopilot-spot
+			if k8sCloudExtras.Affinity.ComputeClass != nil {
+				deployCfg.NodeSelector["cloud.google.com/compute-class"] = *k8sCloudExtras.Affinity.ComputeClass
+			}
+
+			// For exclusive node pool, anti-affinity rules are handled in simple_container.go
+		}
+	}
+
 	res := &GkeAutopilotInput{
 		GkeAutopilotTemplate: *templateCfg,
-		Deployment: k8s.DeploymentConfig{
-			StackConfig: stackCfg,
-		},
+		Deployment:           deployCfg,
 	}
 
 	containers, err := k8s.ConvertComposeToContainers(composeCfg, stackCfg)
@@ -86,7 +143,6 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	res.Deployment.Containers = containers
 	res.Deployment.IngressContainer = iContainer
 	res.Deployment.Headers = lo.ToPtr(k8s.ToHeaders(stackCfg.Headers))
-	res.Deployment.Scale = k8s.ToScale(stackCfg)
 	res.Deployment.TextVolumes = k8s.ToSimpleTextVolumes(stackCfg)
 
 	return res, nil

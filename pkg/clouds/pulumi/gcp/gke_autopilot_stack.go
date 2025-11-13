@@ -110,6 +110,17 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
 	domain := gkeAutopilotInput.Deployment.StackConfig.Domain
 
+	// Debug logging for affinity rules
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity: %+v", gkeAutopilotInput.Deployment.Affinity)
+	if gkeAutopilotInput.Deployment.Affinity != nil {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: GKE Affinity details - NodePool: %v, ComputeClass: %v, ExclusiveNodePool: %v",
+			gkeAutopilotInput.Deployment.Affinity.NodePool,
+			gkeAutopilotInput.Deployment.Affinity.ComputeClass,
+			gkeAutopilotInput.Deployment.Affinity.ExclusiveNodePool)
+	} else {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity is nil")
+	}
+
 	kubeArgs := kubernetes.Args{
 		Input:                  input,
 		Deployment:             gkeAutopilotInput.Deployment,
@@ -121,7 +132,12 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
+		NodeSelector: gkeAutopilotInput.Deployment.NodeSelector,
+		Affinity:     gkeAutopilotInput.Deployment.Affinity,
+		Tolerations:  gkeAutopilotInput.Deployment.Tolerations,
 	}
+
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
 
 	sc, err := kubernetes.DeploySimpleContainer(ctx, kubeArgs)
 	if err != nil {

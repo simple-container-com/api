@@ -23,6 +23,7 @@ type Args struct {
 	Annotations            map[string]string
 	NodeSelector           map[string]string
 	Affinity               *k8s.AffinityRules
+	Tolerations            []k8s.Toleration
 	Input                  api.ResourceInput
 	Deployment             k8s.DeploymentConfig
 	Images                 []*ContainerImage

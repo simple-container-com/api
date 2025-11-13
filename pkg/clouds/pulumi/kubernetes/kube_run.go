@@ -31,6 +31,11 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		return nil, errors.Errorf("failed to convert kubernetes run config for %q", input.Descriptor.Type)
 	}
 
+	// Debug logging at the very start to see what we receive
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: KubeRun function called")
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment: %+v", kubeRunInput.Deployment)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.Affinity at start: %+v", kubeRunInput.Deployment.Affinity)
+
 	environment := input.StackParams.Environment
 	stackName := input.StackParams.StackName
 	parentStack := lo.FromPtr(params.ParentStack).StackName
@@ -96,13 +101,28 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	useSSL := kubeRunInput.UseSSL == nil || *kubeRunInput.UseSSL
 
 	var nodeSelector map[string]string
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras: %+v", kubeRunInput.Deployment.StackConfig.CloudExtras)
 	if kubeRunInput.Deployment.StackConfig.CloudExtras != nil {
 		if cExtras, err := api.ConvertDescriptor(kubeRunInput.Deployment.StackConfig.CloudExtras, &k8s.CloudExtras{}); err != nil {
 			params.Log.Error(ctx.Context(), "failed to convert cloud extras to k8s.CloudExtras: %v", err)
 		} else {
 			params.Log.Info(ctx.Context(), "using node selector from cloudExtras: %v", cExtras.NodeSelector)
+			params.Log.Info(ctx.Context(), "🔍 DEBUG: cExtras.Affinity from CloudExtras conversion: %+v", cExtras.Affinity)
 			nodeSelector = cExtras.NodeSelector
 		}
+	} else {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras is nil")
+	}
+
+	// Debug logging for affinity rules
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.Affinity: %+v", kubeRunInput.Deployment.Affinity)
+	if kubeRunInput.Deployment.Affinity != nil {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: Affinity details - NodePool: %v, ComputeClass: %v, ExclusiveNodePool: %v",
+			kubeRunInput.Deployment.Affinity.NodePool,
+			kubeRunInput.Deployment.Affinity.ComputeClass,
+			kubeRunInput.Deployment.Affinity.ExclusiveNodePool)
+	} else {
+		params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.Affinity is nil")
 	}
 
 	kubeArgs := Args{
@@ -120,6 +140,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		NodeSelector: nodeSelector,
 		Affinity:     kubeRunInput.Deployment.Affinity,
 	}
+
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
 
 	if kubeRunInput.RegistryRequiresAuth() {
 		kubeArgs.ImagePullSecret = lo.ToPtr(kubeRunInput.RegistryCredentials)

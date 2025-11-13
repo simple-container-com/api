@@ -205,13 +205,15 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		defaultCustomActions = map[string]string{
 			"provision":      "simple-container-com/api/.github/actions/provision-parent-stack" + actionVersion,
 			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent-stack" + actionVersion,
+			"cancel-stack":   "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	} else {
 		// Client repository workflows
 		defaultTemplates = []string{"deploy", "destroy"}
 		defaultCustomActions = map[string]string{
-			"deploy":  "simple-container-com/api/.github/actions/deploy-client-stack" + actionVersion,
-			"destroy": "simple-container-com/api/.github/actions/destroy-client-stack" + actionVersion,
+			"deploy":       "simple-container-com/api/.github/actions/deploy-client-stack" + actionVersion,
+			"destroy":      "simple-container-com/api/.github/actions/destroy-client-stack" + actionVersion,
+			"cancel-stack": "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	}
 

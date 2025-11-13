@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
@@ -382,4 +383,83 @@ func (e *Executor) sendAlert(ctx context.Context, alertType api.AlertType, title
 	if attemptedCount == 0 {
 		e.logger.Warn(ctx, "⚠️  No notification channels configured - alert not sent!")
 	}
+}
+
+// setupNotificationsForCancellation initializes notifications specifically for cancellation operations
+func (e *Executor) setupNotificationsForCancellation(ctx context.Context, stackName, environment string, isClientOp bool) error {
+	// For cancellation, we need to load the stack configuration to get notification settings
+	if err := e.loadStacksForNotifications(ctx, stackName, environment, isClientOp); err != nil {
+		e.logger.Warn(ctx, "Failed to load stacks for notifications: %v", err)
+	}
+
+	// Initialize notifications
+	e.initializeNotifications(ctx)
+	return nil
+}
+
+// sendCancellationStartAlert sends notification when cancellation starts
+func (e *Executor) sendCancellationStartAlert(ctx context.Context, stackType, stackName, environment, operationID string, forceCancel bool) {
+	var title, description string
+
+	if stackType == "parent" {
+		title = "🛑 Infrastructure Cancellation Started"
+		description = fmt.Sprintf("Cancelling infrastructure provisioning for stack '%s'", stackName)
+	} else {
+		title = "🛑 Deployment Cancellation Started"
+		description = fmt.Sprintf("Cancelling deployment of '%s' to '%s' environment", stackName, environment)
+	}
+
+	if operationID != "" {
+		description += fmt.Sprintf("\nOperation ID: %s", operationID)
+	}
+
+	if forceCancel {
+		description += "\n⚠️ Force cancellation enabled - aggressive termination"
+	}
+
+	description += fmt.Sprintf("\nWorkflow: %s", os.Getenv("GITHUB_WORKFLOW"))
+	description += fmt.Sprintf("\nTriggered by: %s", os.Getenv("GITHUB_ACTOR"))
+
+	e.sendAlert(ctx, api.BuildCancelled, title, description, stackName, environment)
+}
+
+// sendCancellationSuccessAlert sends notification when cancellation completes successfully
+func (e *Executor) sendCancellationSuccessAlert(ctx context.Context, stackType, stackName, environment string, duration time.Duration) {
+	var title, description string
+
+	if stackType == "parent" {
+		title = "✅ Infrastructure Cancellation Completed"
+		description = fmt.Sprintf("Successfully cancelled infrastructure provisioning for stack '%s'", stackName)
+	} else {
+		title = "✅ Deployment Cancellation Completed"
+		description = fmt.Sprintf("Successfully cancelled deployment of '%s' to '%s' environment", stackName, environment)
+	}
+
+	description += fmt.Sprintf("\nCancellation duration: %v", duration)
+	description += fmt.Sprintf("\nWorkflow: %s", os.Getenv("GITHUB_WORKFLOW"))
+	description += fmt.Sprintf("\nTriggered by: %s", os.Getenv("GITHUB_ACTOR"))
+	description += "\n\n🧹 Resources have been properly cleaned up"
+
+	e.sendAlert(ctx, api.BuildCancelled, title, description, stackName, environment)
+}
+
+// sendCancellationFailureAlert sends notification when cancellation fails
+func (e *Executor) sendCancellationFailureAlert(ctx context.Context, stackType, stackName, environment string, err error, duration time.Duration) {
+	var title, description string
+
+	if stackType == "parent" {
+		title = "❌ Infrastructure Cancellation Failed"
+		description = fmt.Sprintf("Failed to cancel infrastructure provisioning for stack '%s'", stackName)
+	} else {
+		title = "❌ Deployment Cancellation Failed"
+		description = fmt.Sprintf("Failed to cancel deployment of '%s' to '%s' environment", stackName, environment)
+	}
+
+	description += fmt.Sprintf("\nError: %v", err)
+	description += fmt.Sprintf("\nDuration before failure: %v", duration)
+	description += fmt.Sprintf("\nWorkflow: %s", os.Getenv("GITHUB_WORKFLOW"))
+	description += fmt.Sprintf("\nTriggered by: %s", os.Getenv("GITHUB_ACTOR"))
+	description += "\n\n⚠️ Manual cleanup may be required"
+
+	e.sendAlert(ctx, api.BuildFailed, title, description, stackName, environment)
 }

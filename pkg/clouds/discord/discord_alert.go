@@ -2,6 +2,7 @@ package discord
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/webhook"
@@ -80,10 +81,10 @@ func (a *alertSender) Send(alert api.Alert) error {
 		availableSpace := maxDiscordMessageLength - len(baseMessage) - len(truncationIndicator) - 10 // safety margin
 
 		if availableSpace > 50 && alert.Description != "" {
-			// Truncate description to fit
+			// Use intelligent truncation to show both beginning and end
 			truncatedDesc := alert.Description
 			if len(truncatedDesc) > availableSpace {
-				truncatedDesc = truncatedDesc[:availableSpace] + "..."
+				truncatedDesc = intelligentTruncate(truncatedDesc, availableSpace)
 			}
 			fullMessage = baseMessage + fmt.Sprintf("\n%s", truncatedDesc) + truncationIndicator
 		} else {
@@ -122,6 +123,50 @@ func getIconForAlertType(alertType api.AlertType) string {
 	default:
 		return "ℹ️"
 	}
+}
+
+// intelligentTruncate truncates long text to show both beginning and end
+// since the most important information (actual error) is usually at the end
+func intelligentTruncate(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
+	}
+
+	// For long text, show beginning and end with separator
+	// This ensures we capture both context (beginning) and the actual error (end)
+
+	// Reserve space for the separator
+	separator := "\n\n[... truncated ...]\n\n"
+	separatorLen := len(separator)
+
+	// Calculate space for beginning and end portions
+	availableSpace := maxLength - separatorLen
+	beginningLen := availableSpace / 3      // 1/3 for beginning
+	endLen := availableSpace - beginningLen // 2/3 for end (more important)
+
+	// Ensure minimum lengths
+	if beginningLen < 50 {
+		beginningLen = 50
+		endLen = availableSpace - beginningLen
+	}
+	if endLen < 100 {
+		endLen = 100
+		beginningLen = availableSpace - endLen
+	}
+
+	// Extract beginning and end portions
+	beginning := text[:beginningLen]
+	end := text[len(text)-endLen:]
+
+	// Try to break at line boundaries for cleaner truncation
+	if lastNewline := strings.LastIndex(beginning, "\n"); lastNewline > beginningLen-100 {
+		beginning = beginning[:lastNewline]
+	}
+	if firstNewline := strings.Index(end, "\n"); firstNewline < 100 && firstNewline > 0 {
+		end = end[firstNewline+1:]
+	}
+
+	return beginning + separator + end
 }
 
 func New(webhookUrl string) (api.AlertSender, error) {

@@ -123,6 +123,7 @@ func (wg *WorkflowGenerator) prepareTemplateData() *WorkflowTemplateData {
 			"deploy":         "simple-container-com/api/.github/actions/deploy" + actionVersion,
 			"destroy-client": "simple-container-com/api/.github/actions/destroy" + actionVersion,
 			"provision":      "simple-container-com/api/.github/actions/provision" + actionVersion,
+			"cancel-stack":   "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	}
 

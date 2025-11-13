@@ -271,7 +271,7 @@ tasks:
     script:
       - echo "Building static github-actions binary for staging (Alpine compatible)..."
       - mkdir -p ${project:root}/bin
-      - go build -ldflags "-s -w" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
+      - go build -ldflags "${arg:ld-flags}" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
   build-github-actions-staging-push:
     runOn: host
     script:

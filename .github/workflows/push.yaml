@@ -106,6 +106,14 @@ jobs:
             ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
           EOF
           message="$(cat /tmp/commit_message.txt | tr -d '\n')"
+          
+          # Truncate message if too long for Telegram (max ~200 chars to leave room for other content)
+          if [ ${#message} -gt 200 ]; then
+            # Take first 80 chars and last 80 chars with separator
+            truncated_message="${message:0:80}...${message: -80}"
+            message="$truncated_message"
+          fi
+          
           echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
           echo "message=$message" >> $GITHUB_OUTPUT
           echo "author=$GITHUB_ACTOR" >> $GITHUB_OUTPUT

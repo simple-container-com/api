@@ -17,6 +17,7 @@ type CloudExtras struct {
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget" yaml:"disruptionBudget"`
 	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
 	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
+	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -126,6 +127,7 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to convert cloudExtras field to Kubernetes Cloud extras format")
 		}
+
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector

@@ -307,12 +307,13 @@ func (a *alertSender) truncateMessage(message string) string {
 	}
 
 	// Truncate Description and Reason to fit available space
+	// Use intelligent truncation that shows both beginning and end
 	var truncatedDetails []string
 
 	if len(descriptionLines) > 0 {
 		descText := strings.Join(descriptionLines, "\n")
 		if len(descText) > availableSpace/2 {
-			descText = descText[:availableSpace/2] + "..."
+			descText = a.intelligentTruncate(descText, availableSpace/2)
 		}
 		truncatedDetails = append(truncatedDetails, descText)
 	}
@@ -320,7 +321,7 @@ func (a *alertSender) truncateMessage(message string) string {
 	if len(reasonLines) > 0 {
 		reasonText := strings.Join(reasonLines, "\n")
 		if len(reasonText) > availableSpace/2 {
-			reasonText = reasonText[:availableSpace/2] + "..."
+			reasonText = a.intelligentTruncate(reasonText, availableSpace/2)
 		}
 		truncatedDetails = append(truncatedDetails, reasonText)
 	}
@@ -337,6 +338,50 @@ func (a *alertSender) truncateMessage(message string) string {
 	}
 
 	return result
+}
+
+// intelligentTruncate truncates long text to show both beginning and end
+// since the most important information (actual error) is usually at the end
+func (a *alertSender) intelligentTruncate(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
+	}
+
+	// For long text, show beginning and end with separator
+	// This ensures we capture both context (beginning) and the actual error (end)
+
+	// Reserve space for the separator
+	separator := "\n\n[... truncated ...]\n\n"
+	separatorLen := len(separator)
+
+	// Calculate space for beginning and end portions
+	availableSpace := maxLength - separatorLen
+	beginningLen := availableSpace / 3      // 1/3 for beginning
+	endLen := availableSpace - beginningLen // 2/3 for end (more important)
+
+	// Ensure minimum lengths
+	if beginningLen < 50 {
+		beginningLen = 50
+		endLen = availableSpace - beginningLen
+	}
+	if endLen < 100 {
+		endLen = 100
+		beginningLen = availableSpace - endLen
+	}
+
+	// Extract beginning and end portions
+	beginning := text[:beginningLen]
+	end := text[len(text)-endLen:]
+
+	// Try to break at line boundaries for cleaner truncation
+	if lastNewline := strings.LastIndex(beginning, "\n"); lastNewline > beginningLen-100 {
+		beginning = beginning[:lastNewline]
+	}
+	if firstNewline := strings.Index(end, "\n"); firstNewline < 100 && firstNewline > 0 {
+		end = end[firstNewline+1:]
+	}
+
+	return beginning + separator + end
 }
 
 func New(chatId, token string) api.AlertSender {

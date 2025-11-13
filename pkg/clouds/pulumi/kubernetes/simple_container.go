@@ -389,9 +389,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	volumeOutputs := lo.Map(args.VolumeOutputs, func(o corev1.VolumeOutput, _ int) any { return o })
 	initContainerOutputs := lo.Map(args.InitContainerOutputs, func(o corev1.ContainerOutput, _ int) any { return o })
 	// Deployment
+	args.Log.Info(ctx.Context(), "🔍 DEBUG: About to convert affinity rules - args.Affinity: %+v", args.Affinity)
+	convertedAffinity := convertAffinityRulesToKubernetes(args.Affinity)
+	args.Log.Info(ctx.Context(), "🔍 DEBUG: Converted affinity result: %+v", convertedAffinity)
+
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
-		Affinity:     convertAffinityRulesToKubernetes(args.Affinity),
+		Affinity:     convertedAffinity,
 		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
 			for _, c := range scOuts {
 				initContainers = append(initContainers, c.(corev1.ContainerInput))

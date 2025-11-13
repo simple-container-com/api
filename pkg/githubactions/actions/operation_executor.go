@@ -469,10 +469,57 @@ func (e *Executor) getFailureMessage(config OperationConfig, err error, duration
 		scope = "parent stack "
 	}
 
+	// Get intelligently truncated error message
+	errorMsg := e.truncateErrorMessage(err.Error(), 1500) // Leave room for prefix
+
 	if duration > 0 {
-		return fmt.Sprintf("%s of %s%s failed after %v: %v", action, scope, config.StackName, duration, err)
+		return fmt.Sprintf("%s of %s%s failed after %v: %s", action, scope, config.StackName, duration, errorMsg)
 	}
-	return fmt.Sprintf("Failed to setup %s%s: %v", scope, config.StackName, err)
+	return fmt.Sprintf("Failed to setup %s%s: %s", scope, config.StackName, errorMsg)
+}
+
+// truncateErrorMessage intelligently truncates long error messages to show both
+// the beginning and end, since the most important information is usually at the end
+func (e *Executor) truncateErrorMessage(errorMsg string, maxLength int) string {
+	if len(errorMsg) <= maxLength {
+		return errorMsg
+	}
+
+	// For long error messages, show beginning and end with separator
+	// This ensures we capture both context (beginning) and the actual error (end)
+
+	// Reserve space for the separator
+	separator := "\n\n[... middle of error truncated ...]\n\n"
+	separatorLen := len(separator)
+
+	// Calculate space for beginning and end portions
+	availableSpace := maxLength - separatorLen
+	beginningLen := availableSpace / 3      // 1/3 for beginning
+	endLen := availableSpace - beginningLen // 2/3 for end (more important)
+
+	// Ensure minimum lengths
+	if beginningLen < 100 {
+		beginningLen = 100
+		endLen = availableSpace - beginningLen
+	}
+	if endLen < 200 {
+		endLen = 200
+		beginningLen = availableSpace - endLen
+	}
+
+	// Extract beginning and end portions
+	beginning := errorMsg[:beginningLen]
+	end := errorMsg[len(errorMsg)-endLen:]
+
+	// Try to break at word boundaries for cleaner truncation
+	if lastSpace := strings.LastIndex(beginning, " "); lastSpace > beginningLen-50 {
+		beginning = beginning[:lastSpace]
+	}
+	if firstSpace := strings.Index(end, " "); firstSpace < 50 && firstSpace > 0 {
+		end = end[firstSpace+1:]
+	}
+
+	return beginning + separator + end
 }
 
 func (e *Executor) getEnvName(config OperationConfig) string {

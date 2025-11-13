@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -74,9 +75,10 @@ func (sh *SignalHandler) WithSignalHandling(ctx context.Context, opType operatio
 			if r := recover(); r != nil {
 				sh.logger.Error(opCtx, "🚨 Panic occurred during GitHub Actions operation %s: %v", opID, r)
 
-				// Cancel the operation on panic
-				if err := sh.cancelOperation(opCtx, opID); err != nil {
-					sh.logger.Error(opCtx, "❌ Failed to cancel operation %s after panic: %v", opID, err)
+				// Cancel the operation on panic - use a fresh context to avoid cancellation issues
+				cancelCtx := context.WithoutCancel(opCtx)
+				if err := sh.cancelOperation(cancelCtx, opID); err != nil {
+					sh.logger.Error(cancelCtx, "❌ Failed to cancel operation %s after panic: %v", opID, err)
 				}
 
 				resultChan <- errors.Errorf("GitHub Actions operation panicked: %v", r)
@@ -95,17 +97,28 @@ func (sh *SignalHandler) WithSignalHandling(ctx context.Context, opType operatio
 	case sig := <-sigChan:
 		sh.logger.Info(opCtx, "🛑 Received signal %v, cancelling GitHub Actions operation %s", sig, opID)
 
-		// Cancel the operation
-		if cancelErr := sh.cancelOperation(opCtx, opID); cancelErr != nil {
-			sh.logger.Error(opCtx, "❌ Failed to cancel operation %s: %v", opID, cancelErr)
+		// Cancel the operation - use a fresh context to avoid cancellation issues
+		cancelCtx := context.WithoutCancel(opCtx)
+		if cancelErr := sh.cancelOperation(cancelCtx, opID); cancelErr != nil {
+			sh.logger.Error(cancelCtx, "❌ Failed to cancel operation %s: %v", opID, cancelErr)
 		}
 
-		// Wait for operation to complete or timeout
+		// Wait for operation to complete with explicit timeout for cancellation
+		// GitHub Actions only gives us ~10 seconds total (7.5s + 2.5s) before force kill
+		// So we set a shorter timeout to work within GitHub's constraints
+		cancelTimeout := 8 * time.Second
+		cancelCtxWithTimeout, cancelTimeoutFunc := context.WithTimeout(context.Background(), cancelTimeout)
+		defer cancelTimeoutFunc()
+
+		sh.logger.Info(cancelCtx, "⏳ Waiting up to %v for cancellation to complete...", cancelTimeout)
+
 		select {
 		case err := <-resultChan:
+			sh.logger.Info(cancelCtx, "✅ Operation cancelled successfully")
 			return errors.Wrapf(err, "GitHub Actions operation cancelled due to signal %v", sig)
-		case <-opCtx.Done():
-			return errors.Errorf("GitHub Actions operation %s cancelled due to signal %v", opID, sig)
+		case <-cancelCtxWithTimeout.Done():
+			sh.logger.Warn(cancelCtx, "⚠️ Cancellation timeout reached after %v, forcing termination", cancelTimeout)
+			return errors.Errorf("GitHub Actions operation %s cancellation timed out after %v due to signal %v", opID, cancelTimeout, sig)
 		}
 	case <-opCtx.Done():
 		return opCtx.Err()
@@ -183,9 +196,12 @@ func (sh *SignalHandler) cancelOperation(ctx context.Context, opID string) error
 	// Cancel the context first
 	op.cancel()
 
-	// Call the appropriate cancel function
+	// Call the appropriate cancel function with a fresh context
+	// Use WithoutCancel to ensure cancellation operations can complete
+	// even if the original context was cancelled due to signal
 	if op.cancelFunc != nil {
-		return op.cancelFunc(ctx)
+		cancelCtx := context.WithoutCancel(ctx)
+		return op.cancelFunc(cancelCtx)
 	}
 
 	return nil
@@ -202,9 +218,12 @@ func (sh *SignalHandler) CancelAllOperations(ctx context.Context) {
 
 	sh.logger.Info(ctx, "🛑 Cancelling %d active GitHub Actions operations", len(ops))
 
+	// Use a fresh context to ensure cancellation operations can complete
+	// even if the original context was cancelled
+	cancelCtx := context.WithoutCancel(ctx)
 	for opID := range ops {
-		if err := sh.cancelOperation(ctx, opID); err != nil {
-			sh.logger.Error(ctx, "❌ Failed to cancel GitHub Actions operation %s: %v", opID, err)
+		if err := sh.cancelOperation(cancelCtx, opID); err != nil {
+			sh.logger.Error(cancelCtx, "❌ Failed to cancel GitHub Actions operation %s: %v", opID, err)
 		}
 	}
 }
