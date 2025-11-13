@@ -61,10 +61,10 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Wrapf(err, "failed to create service account for bucket %q", bucketName)
 	}
 
-	params.Log.Info(ctx.Context(), "granting storage.objectAdmin role to service account for bucket %q", bucketName)
+	params.Log.Info(ctx.Context(), "granting storage permissions to service account for bucket %q", bucketName)
 
 	// Grant storage.objectAdmin role to the service account on the bucket
-	_, err = storage.NewBucketIAMMember(ctx, fmt.Sprintf("%s-iam", bucketName), &storage.BucketIAMMemberArgs{
+	_, err = storage.NewBucketIAMMember(ctx, fmt.Sprintf("%s-iam-object", bucketName), &storage.BucketIAMMemberArgs{
 		Bucket: bucket.Name,
 		Role:   sdk.String("roles/storage.objectAdmin"),
 		Member: sa.Email.ApplyT(func(email string) string {
@@ -72,7 +72,19 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		}).(sdk.StringOutput),
 	}, opts...)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to grant permissions to service account for bucket %q", bucketName)
+		return nil, errors.Wrapf(err, "failed to grant object permissions to service account for bucket %q", bucketName)
+	}
+
+	// Grant storage.legacyBucketReader role for S3-compatible bucket operations (like GetBucketAcl)
+	_, err = storage.NewBucketIAMMember(ctx, fmt.Sprintf("%s-iam-bucket", bucketName), &storage.BucketIAMMemberArgs{
+		Bucket: bucket.Name,
+		Role:   sdk.String("roles/storage.legacyBucketReader"),
+		Member: sa.Email.ApplyT(func(email string) string {
+			return fmt.Sprintf("serviceAccount:%s", email)
+		}).(sdk.StringOutput),
+	}, opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to grant bucket permissions to service account for bucket %q", bucketName)
 	}
 
 	params.Log.Info(ctx.Context(), "generating HMAC keys for S3-compatible access to bucket %q", bucketName)
@@ -154,7 +166,8 @@ func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resourc
 	}
 
 	collector.AddOutput(ctx, parentRef.Name.ApplyT(func(refName any) any {
-		// S3-compatible endpoint for GCS
+		// S3-compatible endpoint for GCS - use the correct S3 interoperability endpoint
+		// GCS S3-compatible API uses storage.googleapis.com with path-style access
 		s3Endpoint := "https://storage.googleapis.com"
 
 		// Add bucket-specific environment variables
@@ -203,6 +216,18 @@ func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resourc
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_BUCKET"), resBucketName,
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("S3_REGION"), resBucketLocation,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+
+		// Add AWS CLI specific configuration for GCS compatibility
+		// Convert GCS location to lowercase for AWS CLI compatibility
+		awsRegion := strings.ToLower(resBucketLocation)
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_DEFAULT_REGION"), awsRegion,
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		// Force AWS CLI to use signature version 4 for GCS compatibility
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_S3_SIGNATURE_VERSION"), "s3v4",
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		// Force path-style URLs for GCS compatibility (required for some bucket names)
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_S3_ADDRESSING_STYLE"), "path",
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 
 		// Add resource template extension for programmatic access
