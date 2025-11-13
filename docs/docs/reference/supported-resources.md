@@ -1378,6 +1378,25 @@ alerts:
     periodSec: 300
 ```
 
+**Email Notifications via SNS:**
+```yaml
+alerts:
+  sns:
+    emailSubscriptions:
+      - "team-alerts@company.com"
+      - "oncall@company.com" 
+      - "devops-team@company.com"
+  
+  # Your alert configurations (serverErrors, unhealthyHosts, etc.)
+  serverErrors:
+    alertName: "production-server-errors"
+    description: "High 5XX error rate detected"
+    threshold: 5.0
+    periodSec: 300
+```
+
+> **📧 Email Integration**: When SNS email subscriptions are configured, an SNS topic is automatically created and CloudWatch alarms will send notifications to both webhook channels (Slack, Discord, Telegram) AND email addresses. Email subscribers will receive confirmation emails that must be confirmed to activate the subscription. If no email subscriptions are configured, no SNS topic is created.
+
 **Complete Monitoring Configuration:**
 ```yaml
 alerts:
@@ -1386,6 +1405,10 @@ alerts:
     webhookUrl: "${secret:SLACK_WEBHOOK_URL}"
   discord:
     webhookUrl: "${secret:DISCORD_WEBHOOK_URL}"
+  sns:
+    emailSubscriptions:
+      - "alerts@company.com"
+      - "devops@company.com"
   
   # ECS monitoring
   maxCPU:
@@ -1418,6 +1441,12 @@ alerts:
 - **`threshold`** - Numeric threshold value that triggers the alarm
 - **`periodSec`** - Evaluation period in seconds (60-86400)
 - **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
+
+**Notification Channel Properties:**
+- **`sns.emailSubscriptions`** - Array of email addresses for SNS notifications
+- **`slack.webhookUrl`** - Slack webhook URL (use secrets management)
+- **`discord.webhookUrl`** - Discord webhook URL (use secrets management)
+- **`telegram.chatID`** & **`telegram.token`** - Telegram bot configuration
 
 ---
 

@@ -39,6 +39,7 @@ type AlertsConfig struct {
 	Discord        *DiscordCfg           `json:"discord,omitempty" yaml:"discord,omitempty"`
 	Slack          *SlackCfg             `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Telegram       *TelegramCfg          `json:"telegram,omitempty" yaml:"telegram,omitempty"`
+	SNS            *SNSCfg               `json:"sns,omitempty" yaml:"sns,omitempty"`
 }
 
 type CommonAlertConfig struct {
@@ -67,6 +68,10 @@ type DiscordCfg struct {
 
 type SlackCfg struct {
 	WebhookUrl string `json:"webhookUrl" yaml:"webhookUrl"`
+}
+
+type SNSCfg struct {
+	EmailSubscriptions []string `json:"emailSubscriptions,omitempty" yaml:"emailSubscriptions,omitempty"`
 }
 
 type MaxErrorConfig struct {
