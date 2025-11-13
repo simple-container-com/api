@@ -674,6 +674,8 @@ Creates and manages Google Cloud Storage buckets with S3-compatible access via H
 
 **Golang Struct Reference:** `pkg/clouds/gcloud/bucket.go:GcpBucket`
 
+**JSON Schema:** [GcpBucket Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/gcpbucket.json)
+
 ```yaml
 # server.yaml - Parent Stack
 resources:
@@ -692,44 +694,11 @@ resources:
             location: "US"                           # Bucket location
 ```
 
-**Generated Environment Variables:**
+**Client Access:**
 
-When consumed by client stacks, this resource automatically provides:
+When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for GCS bucket access with S3-compatible HMAC authentication.
 
-**Bucket-Specific Variables** (where `BUCKET_NAME` is the sanitized bucket name):
-- `GCS_BUCKET_NAME_BUCKET` - Bucket name
-- `GCS_BUCKET_NAME_LOCATION` - Bucket location/region
-- `GCS_BUCKET_NAME_ACCESS_KEY` - HMAC access key ID (secret)
-- `GCS_BUCKET_NAME_SECRET_KEY` - HMAC secret key (secret)
-- `GCS_BUCKET_NAME_ENDPOINT` - GCS S3-compatible endpoint
-
-**S3-Compatible Variables** (for applications expecting AWS S3):
-- `S3_BUCKET_NAME_BUCKET` - Bucket name
-- `S3_BUCKET_NAME_REGION` - Bucket location/region
-- `S3_BUCKET_NAME_ACCESS_KEY` - HMAC access key ID (secret)
-- `S3_BUCKET_NAME_SECRET_KEY` - HMAC secret key (secret)
-- `S3_BUCKET_NAME_ENDPOINT` - GCS S3-compatible endpoint
-
-**Generic Variables** (when only one bucket is used):
-- `GCS_BUCKET` - Bucket name
-- `GCS_LOCATION` - Bucket location
-- `GCS_ACCESS_KEY` - HMAC access key ID (secret)
-- `GCS_SECRET_KEY` - HMAC secret key (secret)
-- `GCS_ENDPOINT` - GCS S3-compatible endpoint
-
-**AWS SDK Compatible Variables** (for seamless AWS SDK integration):
-- `AWS_ACCESS_KEY_ID` - HMAC access key ID (secret)
-- `AWS_SECRET_ACCESS_KEY` - HMAC secret key (secret)
-- `S3_ENDPOINT` - GCS S3-compatible endpoint
-- `S3_BUCKET` - Bucket name
-- `S3_REGION` - Bucket location
-
-**Template Placeholders:**
-- `${resources.my-gcp-bucket.bucket}` - Bucket name
-- `${resources.my-gcp-bucket.location}` - Bucket location
-- `${resources.my-gcp-bucket.access-key}` - HMAC access key ID
-- `${resources.my-gcp-bucket.secret-key}` - HMAC secret key
-- `${resources.my-gcp-bucket.endpoint}` - S3-compatible endpoint
+📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Bucket](../concepts/template-placeholders-advanced.md#gcp-bucket)
 
 #### **Artifact Registry** (`gcp-artifact-registry`)
 
