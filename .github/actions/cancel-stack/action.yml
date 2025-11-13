@@ -1,0 +1,90 @@
+name: 'Cancel Simple Container Stack'
+description: 'Cancel a running Simple Container stack operation (client or parent)'
+branding:
+  icon: 'x-circle'
+  color: 'red'
+
+inputs:
+  stack-name:
+    description: 'Name of the stack to cancel'
+    required: true
+  stack-type:
+    description: 'Type of stack to cancel'
+    required: true
+    type: choice
+    options: ['client', 'parent']
+    default: 'client'
+  environment:
+    description: 'Target environment (staging, prod, etc.) - only for client stacks'
+    required: false
+    default: 'staging'
+  sc-config:
+    description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
+    required: true
+  operation-id:
+    description: 'Operation ID to cancel (optional - will cancel all if not specified)'
+    required: false
+  force-cancel:
+    description: 'Force cancellation even if operation is in critical state'
+    required: false
+    default: 'false'
+  cleanup-timeout:
+    description: 'Maximum time to wait for cleanup (in seconds)'
+    required: false
+    default: '300'
+  preserve-resources:
+    description: 'Preserve infrastructure resources during cancellation (parent stacks only)'
+    required: false
+    default: 'true'
+  verbose:
+    description: 'Enable verbose logging for detailed debugging information'
+    required: false
+    default: 'false'
+  notify-on-completion:
+    description: 'Send notifications when cancellation completes'
+    required: false
+    default: 'true'
+  token:
+    description: 'GitHub token for repository access'
+    required: false
+    default: ${{ github.token }}
+  repository:
+    description: 'Repository name with owner (e.g., actions/checkout)'
+    required: false
+    default: ${{ github.repository }}
+  ref:
+    description: 'The branch, tag or SHA to checkout'
+    required: false
+    default: ${{ github.sha }}
+
+outputs:
+  cancelled-operations:
+    description: 'List of operations that were cancelled'
+  cleanup-status:
+    description: 'Status of cleanup operations'
+  duration:
+    description: 'Cancellation duration'
+  resources-cleaned:
+    description: 'List of resources that were cleaned up'
+  stack-state:
+    description: 'Final state of stack after cancellation'
+
+runs:
+  using: 'docker'
+  image: 'docker://simplecontainer/github-actions:staging'
+  env:
+    GITHUB_ACTION_TYPE: 'cancel-stack'
+    STACK_NAME: ${{ inputs.stack-name }}
+    STACK_TYPE: ${{ inputs.stack-type }}
+    ENVIRONMENT: ${{ inputs.environment }}
+    SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
+    OPERATION_ID: ${{ inputs.operation-id }}
+    FORCE_CANCEL: ${{ inputs.force-cancel }}
+    CLEANUP_TIMEOUT: ${{ inputs.cleanup-timeout }}
+    PRESERVE_RESOURCES: ${{ inputs.preserve-resources }}
+    VERBOSE: ${{ inputs.verbose }}
+    NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
+    GITHUB_TOKEN: ${{ inputs.token }}
+    GITHUB_REPOSITORY: ${{ inputs.repository }}
+    GITHUB_SHA: ${{ inputs.ref }}
+    GITHUB_REF: ${{ inputs.ref }}
