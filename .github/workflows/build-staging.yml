@@ -20,6 +20,12 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Set version for build
+        run: |
+          VERSION="staging-${{ github.run_number }}-$(date -u +%Y%m%d-%H%M%S)"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "🏷️ Set VERSION: $VERSION"
+
       - name: Cache CLI tools (SC + Welder)
         uses: actions/cache@v4  # Automatically uses Blacksmith cache on Blacksmith runners
         with:
@@ -67,6 +73,7 @@ jobs:
 
       - name: Build static github-actions binary with welder (cached Go modules)
         run: |
+          echo "Building with VERSION: $VERSION"
           welder run build-github-actions-staging
 
       - name: Docker login using SC secrets
@@ -96,6 +103,7 @@ jobs:
           echo "   simplecontainer/github-actions:staging" 
           echo "   simplecontainer/github-actions:${{ github.ref_name }}"
           echo ""
+          echo "📦 Built with version: $VERSION"
           echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
           echo "⚡ Build was accelerated using:"
           echo "   • Blacksmith runner caching (Go modules, CLI tools)"
