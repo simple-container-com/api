@@ -75,10 +75,10 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Wrapf(err, "failed to grant object permissions to service account for bucket %q", bucketName)
 	}
 
-	// Grant storage.legacyBucketReader role for S3-compatible bucket operations (like GetBucketAcl)
+	// Grant storage.legacyBucketWriter role for S3-compatible bucket operations (includes read and write)
 	_, err = storage.NewBucketIAMMember(ctx, fmt.Sprintf("%s-iam-bucket", bucketName), &storage.BucketIAMMemberArgs{
 		Bucket: bucket.Name,
-		Role:   sdk.String("roles/storage.legacyBucketReader"),
+		Role:   sdk.String("roles/storage.legacyBucketWriter"),
 		Member: sa.Email.ApplyT(func(email string) string {
 			return fmt.Sprintf("serviceAccount:%s", email)
 		}).(sdk.StringOutput),
