@@ -187,27 +187,17 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 }
 
 // escapeMarkdown escapes special Markdown characters to prevent parsing errors
+// Only escapes characters that actually break Telegram's Markdown parsing
 func escapeMarkdown(text string) string {
-	// Telegram Markdown special characters that need escaping
+	// Telegram Markdown special characters that actually need escaping
+	// Based on Telegram Bot API documentation for Markdown format
 	replacer := strings.NewReplacer(
-		"_", "\\_",
-		"*", "\\*",
-		"[", "\\[",
-		"]", "\\]",
-		"(", "\\(",
-		")", "\\)",
-		"~", "\\~",
-		"`", "\\`",
-		">", "\\>",
-		"#", "\\#",
-		"+", "\\+",
-		"-", "\\-",
-		"=", "\\=",
-		"|", "\\|",
-		"{", "\\{",
-		"}", "\\}",
-		".", "\\.",
-		"!", "\\!",
+		"_", "\\_", // Italic formatting
+		"*", "\\*", // Bold formatting
+		"[", "\\[", // Link opening
+		"]", "\\]", // Link closing
+		"`", "\\`", // Code formatting
+		"\\", "\\\\", // Backslash itself needs escaping
 	)
 	return replacer.Replace(text)
 }
