@@ -219,15 +219,22 @@ func BucketComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resourc
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 
 		// Add AWS CLI specific configuration for GCS compatibility
-		// Convert GCS location to lowercase for AWS CLI compatibility
-		awsRegion := strings.ToLower(resBucketLocation)
-		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_DEFAULT_REGION"), awsRegion,
+		// Use "auto" region for GCS S3-compatible API signature calculation
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_DEFAULT_REGION"), "auto",
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		// Force AWS CLI to use signature version 4 for GCS compatibility
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_S3_SIGNATURE_VERSION"), "s3v4",
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 		// Force path-style URLs for GCS compatibility (required for some bucket names)
 		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_S3_ADDRESSING_STYLE"), "path",
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		// Disable payload signing for GCS compatibility (GCS uses x-goog-content-sha256 instead of x-amz-content-sha256)
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_S3_PAYLOAD_SIGNING_ENABLED"), "false",
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		// Fix AWS CLI checksum behavior for GCS compatibility (AWS changed defaults in 2024/2025)
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_REQUEST_CHECKSUM_CALCULATION"), "when_required",
+			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
+		collector.AddEnvVariableIfNotExist(util.ToEnvVariableName("AWS_RESPONSE_CHECKSUM_VALIDATION"), "when_required",
 			input.Descriptor.Type, input.Descriptor.Name, parentStackName)
 
 		// Add resource template extension for programmatic access
