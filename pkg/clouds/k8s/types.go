@@ -137,7 +137,7 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert CPU limits")
 	}
-	memLimitInt, err := toMemoryLimit(cfg, svc)
+	memLimitInBytesInt, err := toMemoryLimit(cfg, svc)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory limits")
 	}
@@ -147,18 +147,18 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert CPU requests")
 	}
-	memRequestInt, err := toMemoryRequest(cfg, svc, memLimitInt)
+	memRequestInBytesInt, err := toMemoryRequest(cfg, svc, memLimitInBytesInt)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory requests")
 	}
 
 	return &Resources{
 		Limits: map[string]string{
-			"memory": bytesSizeToHuman(memLimitInt * 1024 * 1024), // must be in MB
+			"memory": bytesSizeToHuman(memLimitInBytesInt), // must be in MB
 			"cpu":    fmt.Sprintf("%dm", cpuLimitInt),
 		},
 		Requests: map[string]string{
-			"memory": bytesSizeToHuman(memRequestInt * 1024 * 1024), // must be in MB
+			"memory": bytesSizeToHuman(memRequestInBytesInt), // must be in MB
 			"cpu":    fmt.Sprintf("%dm", cpuRequestInt),
 		},
 	}, nil
@@ -319,6 +319,13 @@ func bytesSizeToHuman(size int64) string {
 
 	units := []string{"", "K", "M", "G", "T"}
 	i := math.Floor(math.Log(float64(size)) / math.Log(1024))
+
+	// Ensure index doesn't exceed available units array bounds
+	maxIndex := len(units) - 1
+	if int(i) > maxIndex {
+		i = float64(maxIndex)
+	}
+
 	humanSize := float64(size) / math.Pow(1024, i)
 
 	return fmt.Sprintf("%d%s", int64(humanSize), units[int(i)])
