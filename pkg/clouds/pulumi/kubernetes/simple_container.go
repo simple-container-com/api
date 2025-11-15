@@ -16,6 +16,7 @@ import (
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	networkv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/networking/v1"
 	policyv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/policy/v1"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/yaml"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -43,6 +44,17 @@ const (
 	LabelAppName = "appName"
 	LabelScEnv   = "appEnv"
 )
+
+const vpaTemplate = `apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: ${vpaName}
+  namespace: ${namespace}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ${deploymentName}${updatePolicy}${resourcePolicy}`
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
 // Replaces underscores with hyphens and ensures it starts/ends with alphanumeric characters
@@ -85,6 +97,7 @@ type SimpleContainerArgs struct {
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
 
 	Log logger.Logger
 	// ...
@@ -642,6 +655,13 @@ ${proto}://${domain} {
 		return nil, err
 	}
 
+	// Create VPA if enabled
+	if args.VPA != nil && args.VPA.Enabled {
+		if err := createVPA(ctx, args, sanitizedDeployment, sanitizedNamespace, opts...); err != nil {
+			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", sanitizedDeployment)
+		}
+	}
+
 	err = ctx.RegisterResourceOutputs(sc, sdk.Map{
 		"servicePublicIP": sc.ServicePublicIP,
 		"serviceName":     sc.ServiceName,
@@ -655,6 +675,94 @@ ${proto}://${domain} {
 	}
 
 	return sc, nil
+}
+
+func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, opts ...sdk.ResourceOption) error {
+	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
+
+	// Build template data
+	data := placeholders.MapData{
+		"vpaName":        vpaName,
+		"namespace":      namespace,
+		"deploymentName": deploymentName,
+	}
+
+	// Build update policy section
+	updatePolicy := ""
+	if args.VPA.UpdateMode != nil {
+		updatePolicy = fmt.Sprintf(`
+  updatePolicy:
+    updateMode: %s`, lo.FromPtr(args.VPA.UpdateMode))
+	}
+	data["updatePolicy"] = updatePolicy
+
+	// Build resource policy section
+	resourcePolicy := ""
+	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 {
+		resourcePolicy = `
+  resourcePolicy:`
+
+		if len(args.VPA.ControlledResources) > 0 {
+			resourcePolicy += `
+    controlledResources:`
+			for _, resource := range args.VPA.ControlledResources {
+				resourcePolicy += fmt.Sprintf(`
+    - %s`, resource)
+			}
+		}
+
+		resourcePolicy += `
+    containerPolicies:
+    - containerName: "*"`
+
+		if args.VPA.MinAllowed != nil {
+			if args.VPA.MinAllowed.CPU != nil || args.VPA.MinAllowed.Memory != nil {
+				resourcePolicy += `
+      minAllowed:`
+				if args.VPA.MinAllowed.CPU != nil {
+					resourcePolicy += fmt.Sprintf(`
+        cpu: %s`, lo.FromPtr(args.VPA.MinAllowed.CPU))
+				}
+				if args.VPA.MinAllowed.Memory != nil {
+					resourcePolicy += fmt.Sprintf(`
+        memory: %s`, lo.FromPtr(args.VPA.MinAllowed.Memory))
+				}
+			}
+		}
+
+		if args.VPA.MaxAllowed != nil {
+			if args.VPA.MaxAllowed.CPU != nil || args.VPA.MaxAllowed.Memory != nil {
+				resourcePolicy += `
+      maxAllowed:`
+				if args.VPA.MaxAllowed.CPU != nil {
+					resourcePolicy += fmt.Sprintf(`
+        cpu: %s`, lo.FromPtr(args.VPA.MaxAllowed.CPU))
+				}
+				if args.VPA.MaxAllowed.Memory != nil {
+					resourcePolicy += fmt.Sprintf(`
+        memory: %s`, lo.FromPtr(args.VPA.MaxAllowed.Memory))
+				}
+			}
+		}
+	}
+	data["resourcePolicy"] = resourcePolicy
+
+	// Apply template
+	vpaYaml := vpaTemplate
+	if err := placeholders.New().Apply(&vpaYaml, placeholders.WithData(data)); err != nil {
+		return errors.Wrapf(err, "failed to apply placeholders on VPA template")
+	}
+
+	// Create VPA resource
+	_, err := yaml.NewConfigFile(ctx, vpaName, &yaml.ConfigFileArgs{
+		File: vpaYaml,
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create VPA resource")
+	}
+
+	args.Log.Info(ctx.Context(), "Created VPA %s for deployment %s", vpaName, deploymentName)
+	return nil
 }
 
 func ToImagePullSecretName(deploymentName string) string {

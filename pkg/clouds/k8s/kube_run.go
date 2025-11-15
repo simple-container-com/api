@@ -18,6 +18,7 @@ type CloudExtras struct {
 	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
 	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
 	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
+	VPA              *VPAConfig        `json:"vpa" yaml:"vpa"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -96,6 +97,26 @@ type LabelSelectorRequirement struct {
 	Key      string   `json:"key" yaml:"key"`
 	Operator string   `json:"operator" yaml:"operator"`
 	Values   []string `json:"values" yaml:"values"`
+}
+
+// VPAConfig defines Vertical Pod Autoscaler configuration
+type VPAConfig struct {
+	// Enabled controls whether VPA should be created for the deployment
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// UpdateMode specifies how VPA should update pods (Off, Initial, Recreation, Auto)
+	UpdateMode *string `json:"updateMode" yaml:"updateMode"`
+	// MinAllowed specifies minimum allowed resources
+	MinAllowed *VPAResourceRequirements `json:"minAllowed" yaml:"minAllowed"`
+	// MaxAllowed specifies maximum allowed resources
+	MaxAllowed *VPAResourceRequirements `json:"maxAllowed" yaml:"maxAllowed"`
+	// ControlledResources specifies which resources VPA should control
+	ControlledResources []string `json:"controlledResources" yaml:"controlledResources"`
+}
+
+// VPAResourceRequirements defines resource requirements for VPA
+type VPAResourceRequirements struct {
+	CPU    *string `json:"cpu" yaml:"cpu"`
+	Memory *string `json:"memory" yaml:"memory"`
 }
 
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {

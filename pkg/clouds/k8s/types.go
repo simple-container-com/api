@@ -30,16 +30,17 @@ type DeploymentConfig struct {
 }
 
 type CaddyConfig struct {
-	Enable           *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
-	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`             // TODO: support overwriting
-	CaddyfilePrefix  *string `json:"caddyfilePrefix,omitempty" yaml:"caddyfilePrefix,omitempty"` // custom content to inject at the top of Caddyfile (e.g., storage configuration)
-	Namespace        *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
-	Image            *string `json:"image,omitempty" yaml:"image,omitempty"`
-	Replicas         *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
-	UsePrefixes      bool    `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
-	ServiceType      *string `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
-	ProvisionIngress bool    `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
-	UseSSL           *bool   `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
+	Enable           *bool      `json:"enable,omitempty" yaml:"enable,omitempty"`
+	Caddyfile        *string    `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`             // TODO: support overwriting
+	CaddyfilePrefix  *string    `json:"caddyfilePrefix,omitempty" yaml:"caddyfilePrefix,omitempty"` // custom content to inject at the top of Caddyfile (e.g., storage configuration)
+	Namespace        *string    `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Image            *string    `json:"image,omitempty" yaml:"image,omitempty"`
+	Replicas         *int       `json:"replicas,omitempty" yaml:"replicas,omitempty"`
+	Resources        *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`               // CPU and memory limits/requests for Caddy container
+	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
+	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
+	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
+	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 }
 
 type DisruptionBudget struct {
