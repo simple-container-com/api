@@ -139,6 +139,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		},
 		NodeSelector: nodeSelector,
 		Affinity:     kubeRunInput.Deployment.Affinity,
+		VPA:          kubeRunInput.Deployment.VPA, // Pass VPA configuration from DeploymentConfig
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)

@@ -55,6 +55,28 @@
           "replicas": {
             "type": "integer"
           },
+          "resources": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "limits": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "requests": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "limits",
+              "requests"
+            ],
+            "type": "object"
+          },
           "serviceType": {
             "type": "string"
           },
@@ -63,6 +85,63 @@
           },
           "useSSL": {
             "type": "boolean"
+          },
+          "vpa": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "controlledResources": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "maxAllowed": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "cpu": {
+                    "type": "string"
+                  },
+                  "memory": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cpu",
+                  "memory"
+                ],
+                "type": "object"
+              },
+              "minAllowed": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "cpu": {
+                    "type": "string"
+                  },
+                  "memory": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cpu",
+                  "memory"
+                ],
+                "type": "object"
+              },
+              "updateMode": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "controlledResources",
+              "enabled",
+              "maxAllowed",
+              "minAllowed",
+              "updateMode"
+            ],
+            "type": "object"
           }
         },
         "required": [],

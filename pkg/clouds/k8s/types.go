@@ -27,6 +27,7 @@ type DeploymentConfig struct {
 	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
 	Tolerations      []Toleration            `json:"tolerations" yaml:"tolerations"`
+	VPA              *VPAConfig              `json:"vpa" yaml:"vpa"` // Vertical Pod Autoscaler configuration
 }
 
 type CaddyConfig struct {
@@ -37,6 +38,7 @@ type CaddyConfig struct {
 	Image            *string    `json:"image,omitempty" yaml:"image,omitempty"`
 	Replicas         *int       `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 	Resources        *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`               // CPU and memory limits/requests for Caddy container
+	VPA              *VPAConfig `json:"vpa,omitempty" yaml:"vpa,omitempty"`                           // Vertical Pod Autoscaler configuration for Caddy
 	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
 	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
 	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)

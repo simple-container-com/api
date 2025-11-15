@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  web-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: mongodb://mongodb:27017/vpa-demo
+      LOG_LEVEL: debug
+    depends_on:
+      - mongodb
+    labels:
+      "simple-container.com/ingress": "true"
+
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: vpa-demo
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  mongodb_data:
+    labels:
+      "simple-container.com/volume-size": "10Gi"

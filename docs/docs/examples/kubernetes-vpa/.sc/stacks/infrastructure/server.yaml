@@ -1,0 +1,191 @@
+# VPA Infrastructure - Parent Stack Configuration
+# File: .sc/stacks/infrastructure/server.yaml
+
+schemaVersion: 1.0
+
+# Infrastructure provisioning configuration
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: gcp-bucket
+      config:
+        credentials: "${auth:gcloud}"
+        projectId: "${auth:gcloud.projectId}"
+        bucketName: vpa-demo-sc-state
+        location: us-central1
+    secrets-provider:
+      type: gcp-kms
+      config:
+        credentials: "${auth:gcloud}"
+        keyId: vpa-demo-sc-kms-key
+        region: us-central1
+
+# Deployment templates
+templates:
+  gke-autopilot:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+      gkeClusterResource: gke-cluster
+      artifactRegistryResource: artifact-registry
+
+# Infrastructure resources
+resources:
+  production:
+    resources:
+      # GKE Autopilot cluster with Caddy VPA
+      gke-cluster:
+        type: gcp-gke-autopilot-cluster
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+          gkeMinVersion: "1.33.4-gke.1245000"
+          caddy:
+            enable: true
+            namespace: caddy
+            replicas: 2
+            # VPA Configuration for Caddy ingress controller
+            vpa:
+              enabled: true
+              updateMode: "Recreation"  # Recommended for ingress controllers
+              minAllowed:
+                cpu: "50m"
+                memory: "64Mi"
+              maxAllowed:
+                cpu: "1"
+                memory: "1Gi"
+              controlledResources: ["cpu", "memory"]
+            # Optional: Manual resource limits alongside VPA
+            resources:
+              limits:
+                cpu: "500m"
+                memory: "512Mi"
+              requests:
+                cpu: "100m"
+                memory: "128Mi"
+      
+      # Artifact Registry
+      artifact-registry:
+        type: gcp-artifact-registry
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+      
+      # MongoDB Atlas for production
+      mongodb:
+        type: mongodb-atlas-cluster
+        config:
+          projectId: "${secret:mongodb-atlas-project-id}"
+          publicKey: "${secret:mongodb-atlas-public-key}"
+          privateKey: "${secret:mongodb-atlas-private-key}"
+          clusterName: "vpa-demo-prod"
+          instanceSize: "M10"
+          region: "US_CENTRAL_1"
+
+  staging:
+    resources:
+      # Staging GKE cluster with reduced Caddy VPA limits
+      gke-cluster:
+        type: gcp-gke-autopilot-cluster
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+          gkeMinVersion: "1.33.4-gke.1245000"
+          caddy:
+            enable: true
+            namespace: caddy
+            replicas: 1
+            # Conservative VPA settings for staging
+            vpa:
+              enabled: true
+              updateMode: "Initial"
+              minAllowed:
+                cpu: "25m"
+                memory: "32Mi"
+              maxAllowed:
+                cpu: "500m"
+                memory: "512Mi"
+              controlledResources: ["cpu", "memory"]
+            resources:
+              limits:
+                cpu: "250m"
+                memory: "256Mi"
+              requests:
+                cpu: "50m"
+                memory: "64Mi"
+      
+      # Shared Artifact Registry
+      artifact-registry:
+        type: gcp-artifact-registry
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+      
+      # MongoDB Atlas for staging
+      mongodb:
+        type: mongodb-atlas-cluster
+        config:
+          projectId: "${secret:mongodb-atlas-project-id}"
+          publicKey: "${secret:mongodb-atlas-public-key}"
+          privateKey: "${secret:mongodb-atlas-private-key}"
+          clusterName: "vpa-demo-staging"
+          instanceSize: "M0"  # Free tier for staging
+          region: "US_CENTRAL_1"
+
+  development:
+    resources:
+      # Development GKE cluster with VPA in recommendation mode
+      gke-cluster:
+        type: gcp-gke-autopilot-cluster
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+          gkeMinVersion: "1.33.4-gke.1245000"
+          caddy:
+            enable: true
+            namespace: caddy
+            replicas: 1
+            # VPA in recommendation-only mode for development
+            vpa:
+              enabled: true
+              updateMode: "Off"  # Only recommendations
+              minAllowed:
+                cpu: "25m"
+                memory: "32Mi"
+              maxAllowed:
+                cpu: "250m"
+                memory: "256Mi"
+              controlledResources: ["cpu", "memory"]
+            resources:
+              limits:
+                cpu: "125m"
+                memory: "128Mi"
+              requests:
+                cpu: "25m"
+                memory: "32Mi"
+      
+      # Shared Artifact Registry
+      artifact-registry:
+        type: gcp-artifact-registry
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+      
+      # MongoDB Atlas for development
+      mongodb:
+        type: mongodb-atlas-cluster
+        config:
+          projectId: "${secret:mongodb-atlas-project-id}"
+          publicKey: "${secret:mongodb-atlas-public-key}"
+          privateKey: "${secret:mongodb-atlas-private-key}"
+          clusterName: "vpa-demo-dev"
+          instanceSize: "M0"  # Free tier for development
+          region: "US_CENTRAL_1"

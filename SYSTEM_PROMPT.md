@@ -206,7 +206,14 @@ Client Stack: Receives GCS_BUCKET_NAME, GCS_ACCESS_KEY, etc.
 - **Placeholder parsing**: Validate bounds for `${dependency:name.resource.property}` patterns
 - **Notification system**: Integrate with existing Slack/Discord/Telegram alert system
 
-### 11. Memory Management
+### 11. VPA (Vertical Pod Autoscaler) Support
+- **Application VPA**: Configure via `cloudExtras.vpa` in client.yaml for automatic resource optimization
+- **Infrastructure VPA**: Configure via resource config (e.g., `caddy.vpa`) in server.yaml for infrastructure components
+- **Update modes**: Off (recommendations only), Initial (pod creation), Recreation (pod restart), Auto (in-place)
+- **Resource boundaries**: Always set `minAllowed` and `maxAllowed` to prevent resource starvation or runaway costs
+- **Documentation**: VPA concepts in `docs/docs/concepts/vertical-pod-autoscaler.md`, examples in `docs/docs/examples/kubernetes-vpa/`
+
+### 12. Memory Management
 - **Create memories**: Use `create_memory` tool to preserve important context
 - **Update SYSTEM_PROMPT.md**: Add new essential instructions when patterns emerge
 - **Keep instructions current**: Remove outdated information, focus on actionable guidance

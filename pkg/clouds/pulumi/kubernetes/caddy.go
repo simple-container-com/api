@@ -237,6 +237,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		SecretVolumes:       caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
 		SecretVolumeOutputs: caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
 		SecretEnvs:          secretEnvs,                // Secret environment variables
+		VPA:                 caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
 		Images: []*ContainerImage{
 			{
 				Container: caddyContainer,

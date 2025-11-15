@@ -41,6 +41,7 @@ type Args struct {
 	ImagePullSecret        *docker.RegistryCredentials
 	ProvisionIngress       bool
 	UseSSL                 bool
+	VPA                    *k8s.VPAConfig // Vertical Pod Autoscaler configuration
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -195,6 +196,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		NodeSelector:           args.NodeSelector,
 		Affinity:               args.Affinity,
 		Sidecars:               args.Sidecars,
+		VPA:                    args.VPA, // Pass VPA configuration to SimpleContainer
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),

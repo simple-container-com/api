@@ -234,7 +234,103 @@ sc deploy -s myservice -e staging
 
 ---
 
-# **6️⃣ Summary**
+# **6️⃣ Advanced Configuration: Vertical Pod Autoscaler (VPA)**
+
+GKE Autopilot supports **Vertical Pod Autoscaler (VPA)** for automatic resource optimization. Simple Container provides built-in VPA support for both **application deployments** and **Caddy ingress controllers**.
+
+## **VPA for Application Deployments**
+
+Add VPA configuration to your `client.yaml` using `cloudExtras`:
+
+```yaml
+# File: "myproject/.sc/stacks/myservice/client.yaml"
+stacks:
+  staging:
+    type: cloud-compose
+    parent: myproject/devops
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      uses: [mongodb]
+      runs: [myservice]
+      # VPA Configuration for automatic resource optimization
+      cloudExtras:
+        vpa:
+          enabled: true
+          updateMode: "Auto"  # Off, Initial, Recreation, Auto
+          minAllowed:
+            cpu: "100m"
+            memory: "128Mi"
+          maxAllowed:
+            cpu: "2"
+            memory: "4Gi"
+          controlledResources: ["cpu", "memory"]
+```
+
+## **VPA for Caddy Ingress Controller**
+
+Configure VPA for the Caddy ingress controller in your `server.yaml`:
+
+```yaml
+# File: "myproject/.sc/stacks/devops/server.yaml"
+resources:
+  staging:
+    resources:
+      gke-cluster:
+        type: gcp-gke-autopilot-cluster
+        config:
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: "us-central1"
+          gkeMinVersion: "1.33.4-gke.1245000"
+          # Caddy configuration as part of GKE Autopilot cluster
+          caddy:
+            enable: true
+            namespace: caddy
+            replicas: 2
+            # VPA Configuration for Caddy ingress controller
+            vpa:
+              enabled: true
+              updateMode: "Recreation"  # Recommended for ingress controllers
+              minAllowed:
+                cpu: "50m"
+                memory: "64Mi"
+              maxAllowed:
+                cpu: "1"
+                memory: "1Gi"
+            # Optional: Manual resource limits alongside VPA
+            resources:
+              limits:
+                cpu: "500m"
+                memory: "512Mi"
+              requests:
+                cpu: "100m"
+                memory: "128Mi"
+```
+
+## **VPA Update Modes**
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Off** | Only provides recommendations | Testing and analysis |
+| **Initial** | Sets resources only at pod creation | Conservative approach |
+| **Recreation** | Updates by recreating pods | Recommended for stateless apps |
+| **Auto** | Updates resources in-place | Advanced use (may cause brief interruptions) |
+
+## **VPA Best Practices for GKE Autopilot**
+
+✅ **Use `Recreation` mode** for ingress controllers like Caddy to avoid service interruptions
+
+✅ **Set appropriate `minAllowed`** to prevent resource starvation
+
+✅ **Set reasonable `maxAllowed`** to control costs
+
+✅ **Monitor VPA recommendations** before enabling automatic updates
+
+✅ **Combine with manual resource limits** for fine-grained control
+
+---
+
+# **7️⃣ Summary**
 | Step                | Command                             | Purpose                                 |
 |---------------------|-------------------------------------|-----------------------------------------|
 | **Define Secrets**  | `secrets.yaml`                      | Stores GCP credentials                  |
