@@ -76,7 +76,7 @@ stacks:
       cloudExtras:
         vpa:
           enabled: true
-          updateMode: "Auto"  # Off, Initial, Recreation, Auto
+          updateMode: "Auto"  # Off, Initial, Auto, InPlaceOrRecreate
           minAllowed:
             cpu: "100m"
             memory: "128Mi"
@@ -129,7 +129,7 @@ resources:
             # VPA Configuration for Caddy ingress controller
             vpa:
               enabled: true
-              updateMode: "Recreation"  # Recommended for ingress controllers
+              updateMode: "Auto"  # Recommended for ingress controllers (recreates pods)
               minAllowed:
                 cpu: "50m"
                 memory: "64Mi"
@@ -172,8 +172,8 @@ resources:
 |------|-------------|----------|----------|
 | **Off** | Only provides recommendations | Testing and analysis | No automatic changes |
 | **Initial** | Sets resources only at pod creation | Conservative approach | One-time resource setting |
-| **Recreation** | Updates by recreating pods | Recommended for stateless apps | Pod restart required |
-| **Auto** | Updates resources in-place | Advanced use | May cause brief interruptions |
+| **Auto** | Updates by recreating pods | Recommended for stateless apps | Pod restart required |
+| **InPlaceOrRecreate** | Updates resources in-place or recreates | Advanced use (preview) | May cause brief interruptions |
 
 ## 📊 **VPA Best Practices**
 
@@ -204,7 +204,7 @@ cloudExtras:
 # For critical services (like ingress controllers)
 caddy:
   vpa:
-    updateMode: "Recreation"  # Safer pod recreation
+    updateMode: "Auto"  # Safer pod recreation
 ```
 
 ### **3. Combining VPA with Manual Limits**

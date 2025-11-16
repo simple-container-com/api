@@ -17,7 +17,7 @@ stacks:
       cloudExtras:
         vpa:
           enabled: true
-          updateMode: "Auto"  # Off, Initial, Recreation, Auto
+          updateMode: "Auto"  # Off, Initial, Auto, InPlaceOrRecreate
           minAllowed:
             cpu: "100m"
             memory: "128Mi"

@@ -72,7 +72,7 @@ resources:
           caddy:
             vpa:
               enabled: true
-              updateMode: "Recreation"
+              updateMode: "Auto"
               minAllowed:
                 cpu: "50m"
                 memory: "64Mi"
@@ -100,21 +100,21 @@ vpa:
 - **Use case**: Conservative approach for critical applications
 - **Impact**: New pods get optimized resources, existing pods unchanged
 
-### **Recreation Mode**
-```yaml
-vpa:
-  updateMode: "Recreation"
-```
-- **Behavior**: Updates resources by recreating pods
-- **Use case**: Recommended for stateless applications and ingress controllers
-- **Impact**: Brief service interruption during pod recreation
-
 ### **Auto Mode**
 ```yaml
 vpa:
   updateMode: "Auto"
 ```
-- **Behavior**: Updates resources in-place when possible
+- **Behavior**: Updates resources by recreating pods (equivalent to Recreate mode)
+- **Use case**: Recommended for stateless applications and ingress controllers
+- **Impact**: Brief service interruption during pod recreation
+
+### **InPlaceOrRecreate Mode** (Preview)
+```yaml
+vpa:
+  updateMode: "InPlaceOrRecreate"
+```
+- **Behavior**: Updates resources in-place when possible, recreates if needed
 - **Use case**: Advanced scenarios with minimal disruption tolerance
 - **Impact**: May cause brief interruptions for some resource changes
 
@@ -209,7 +209,7 @@ For critical infrastructure like Caddy ingress controllers:
 caddy:
   vpa:
     enabled: true
-    updateMode: "Recreation"  # Safer for ingress controllers
+    updateMode: "Auto"  # Safer for ingress controllers
     minAllowed:
       cpu: "50m"              # Ensure minimum availability
       memory: "64Mi"
@@ -267,7 +267,7 @@ background-worker:
   cloudExtras:
     vpa:
       enabled: true
-      updateMode: "Recreation"
+      updateMode: "Auto"
       maxAllowed:
         cpu: "2"
         memory: "4Gi"

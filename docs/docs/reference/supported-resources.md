@@ -578,7 +578,7 @@ resources:
               # VPA Configuration for Caddy ingress controller
               vpa:
                 enabled: true
-                updateMode: "Recreation"  # Off, Initial, Recreation, Auto
+                updateMode: "Auto"  # Off, Initial, Auto, InPlaceOrRecreate
                 minAllowed:
                   cpu: "50m"
                   memory: "64Mi"
@@ -971,7 +971,7 @@ resources:
             # VPA Configuration for automatic resource optimization (optional)
             vpa:
               enabled: true                         # Enable VPA for Caddy (optional)
-              updateMode: "Recreation"              # VPA update mode: Off, Initial, Recreation, Auto (optional)
+              updateMode: "Auto"              # VPA update mode: Off, Initial, Auto, InPlaceOrRecreate (optional)
               minAllowed:                           # Minimum allowed resources (optional)
                 cpu: "50m"
                 memory: "64Mi"

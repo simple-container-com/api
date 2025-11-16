@@ -256,7 +256,7 @@ stacks:
       cloudExtras:
         vpa:
           enabled: true
-          updateMode: "Auto"  # Off, Initial, Recreation, Auto
+          updateMode: "Auto"  # Off, Initial, Auto, InPlaceOrRecreate
           minAllowed:
             cpu: "100m"
             memory: "128Mi"
@@ -290,7 +290,7 @@ resources:
             # VPA Configuration for Caddy ingress controller
             vpa:
               enabled: true
-              updateMode: "Recreation"  # Recommended for ingress controllers
+              updateMode: "Auto"  # Recommended for ingress controllers (recreates pods)
               minAllowed:
                 cpu: "50m"
                 memory: "64Mi"
@@ -313,12 +313,12 @@ resources:
 |------|-------------|----------|
 | **Off** | Only provides recommendations | Testing and analysis |
 | **Initial** | Sets resources only at pod creation | Conservative approach |
-| **Recreation** | Updates by recreating pods | Recommended for stateless apps |
-| **Auto** | Updates resources in-place | Advanced use (may cause brief interruptions) |
+| **Auto** | Updates by recreating pods | Recommended for stateless apps |
+| **InPlaceOrRecreate** | Updates resources in-place or recreates | Advanced use (preview feature) |
 
 ## **VPA Best Practices for GKE Autopilot**
 
-✅ **Use `Recreation` mode** for ingress controllers like Caddy to avoid service interruptions
+✅ **Use `Auto` mode** for ingress controllers like Caddy to ensure proper resource scaling
 
 ✅ **Set appropriate `minAllowed`** to prevent resource starvation
 
