@@ -320,7 +320,7 @@ func bytesSizeToHuman(size int64) string {
 		return "0"
 	}
 
-	units := []string{"", "K", "M", "G", "T"}
+	units := []string{"", "Ki", "Mi", "Gi", "Ti"}
 	i := math.Floor(math.Log(float64(size)) / math.Log(1024))
 
 	// Ensure index doesn't exceed available units array bounds
