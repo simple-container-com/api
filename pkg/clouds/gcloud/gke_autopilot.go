@@ -86,6 +86,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
 		deployCfg.Tolerations = k8sCloudExtras.Tolerations
+		deployCfg.VPA = k8sCloudExtras.VPA // Extract VPA configuration from CloudExtras
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {
