@@ -11,12 +11,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	networkv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/networking/v1"
 	policyv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/policy/v1"
-	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/yaml"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -44,17 +45,6 @@ const (
 	LabelAppName = "appName"
 	LabelScEnv   = "appEnv"
 )
-
-const vpaTemplate = `apiVersion: autoscaling.k8s.io/v1
-kind: VerticalPodAutoscaler
-metadata:
-  name: ${vpaName}
-  namespace: ${namespace}
-spec:
-  targetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: ${deploymentName}${updatePolicy}${resourcePolicy}`
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
 // Replaces underscores with hyphens and ensures it starts/ends with alphanumeric characters
@@ -680,82 +670,75 @@ ${proto}://${domain} {
 func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
 
-	// Build template data
-	data := placeholders.MapData{
-		"vpaName":        vpaName,
-		"namespace":      namespace,
-		"deploymentName": deploymentName,
+	// Build VPA spec as UntypedArgs (map[string]interface{})
+	spec := kubernetes.UntypedArgs{
+		"targetRef": map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"name":       deploymentName,
+		},
 	}
 
-	// Build update policy section
-	updatePolicy := ""
+	// Add update policy if specified
 	if args.VPA.UpdateMode != nil {
-		updatePolicy = fmt.Sprintf(`
-  updatePolicy:
-    updateMode: %s`, lo.FromPtr(args.VPA.UpdateMode))
+		spec["updatePolicy"] = map[string]interface{}{
+			"updateMode": lo.FromPtr(args.VPA.UpdateMode),
+		}
 	}
-	data["updatePolicy"] = updatePolicy
 
-	// Build resource policy section
-	resourcePolicy := ""
+	// Add resource policy if specified
 	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 {
-		resourcePolicy = `
-  resourcePolicy:`
+		resourcePolicy := map[string]interface{}{}
 
+		// Add controlled resources
 		if len(args.VPA.ControlledResources) > 0 {
-			resourcePolicy += `
-    controlledResources:`
-			for _, resource := range args.VPA.ControlledResources {
-				resourcePolicy += fmt.Sprintf(`
-    - %s`, resource)
-			}
+			resourcePolicy["controlledResources"] = args.VPA.ControlledResources
 		}
 
-		resourcePolicy += `
-    containerPolicies:
-    - containerName: "*"`
+		// Add container policies
+		containerPolicy := map[string]interface{}{
+			"containerName": "*",
+		}
 
 		if args.VPA.MinAllowed != nil {
-			if args.VPA.MinAllowed.CPU != nil || args.VPA.MinAllowed.Memory != nil {
-				resourcePolicy += `
-      minAllowed:`
-				if args.VPA.MinAllowed.CPU != nil {
-					resourcePolicy += fmt.Sprintf(`
-        cpu: %s`, lo.FromPtr(args.VPA.MinAllowed.CPU))
-				}
-				if args.VPA.MinAllowed.Memory != nil {
-					resourcePolicy += fmt.Sprintf(`
-        memory: %s`, lo.FromPtr(args.VPA.MinAllowed.Memory))
-				}
+			minAllowed := map[string]interface{}{}
+			if args.VPA.MinAllowed.CPU != nil {
+				minAllowed["cpu"] = lo.FromPtr(args.VPA.MinAllowed.CPU)
+			}
+			if args.VPA.MinAllowed.Memory != nil {
+				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
+			}
+			if len(minAllowed) > 0 {
+				containerPolicy["minAllowed"] = minAllowed
 			}
 		}
 
 		if args.VPA.MaxAllowed != nil {
-			if args.VPA.MaxAllowed.CPU != nil || args.VPA.MaxAllowed.Memory != nil {
-				resourcePolicy += `
-      maxAllowed:`
-				if args.VPA.MaxAllowed.CPU != nil {
-					resourcePolicy += fmt.Sprintf(`
-        cpu: %s`, lo.FromPtr(args.VPA.MaxAllowed.CPU))
-				}
-				if args.VPA.MaxAllowed.Memory != nil {
-					resourcePolicy += fmt.Sprintf(`
-        memory: %s`, lo.FromPtr(args.VPA.MaxAllowed.Memory))
-				}
+			maxAllowed := map[string]interface{}{}
+			if args.VPA.MaxAllowed.CPU != nil {
+				maxAllowed["cpu"] = lo.FromPtr(args.VPA.MaxAllowed.CPU)
+			}
+			if args.VPA.MaxAllowed.Memory != nil {
+				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
+			}
+			if len(maxAllowed) > 0 {
+				containerPolicy["maxAllowed"] = maxAllowed
 			}
 		}
-	}
-	data["resourcePolicy"] = resourcePolicy
 
-	// Apply template
-	vpaYaml := vpaTemplate
-	if err := placeholders.New().Apply(&vpaYaml, placeholders.WithData(data)); err != nil {
-		return errors.Wrapf(err, "failed to apply placeholders on VPA template")
+		resourcePolicy["containerPolicies"] = []interface{}{containerPolicy}
+		spec["resourcePolicy"] = resourcePolicy
 	}
 
-	// Create VPA resource
-	_, err := yaml.NewConfigFile(ctx, vpaName, &yaml.ConfigFileArgs{
-		File: vpaYaml,
+	// Create VPA custom resource
+	_, err := apiextensions.NewCustomResource(ctx, vpaName, &apiextensions.CustomResourceArgs{
+		ApiVersion: sdk.String("autoscaling.k8s.io/v1"),
+		Kind:       sdk.String("VerticalPodAutoscaler"),
+		Metadata: &metav1.ObjectMetaArgs{
+			Name:      sdk.String(vpaName),
+			Namespace: sdk.String(namespace),
+		},
+		OtherFields: spec,
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create VPA resource")
