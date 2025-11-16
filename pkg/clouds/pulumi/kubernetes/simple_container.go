@@ -670,8 +670,8 @@ ${proto}://${domain} {
 func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
 
-	// Build VPA spec as UntypedArgs (map[string]interface{})
-	spec := kubernetes.UntypedArgs{
+	// Build VPA spec content
+	vpaSpec := map[string]interface{}{
 		"targetRef": map[string]interface{}{
 			"apiVersion": "apps/v1",
 			"kind":       "Deployment",
@@ -681,7 +681,7 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 
 	// Add update policy if specified
 	if args.VPA.UpdateMode != nil {
-		spec["updatePolicy"] = map[string]interface{}{
+		vpaSpec["updatePolicy"] = map[string]interface{}{
 			"updateMode": lo.FromPtr(args.VPA.UpdateMode),
 		}
 	}
@@ -727,7 +727,12 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 		}
 
 		resourcePolicy["containerPolicies"] = []interface{}{containerPolicy}
-		spec["resourcePolicy"] = resourcePolicy
+		vpaSpec["resourcePolicy"] = resourcePolicy
+	}
+
+	// Build the complete VPA resource with proper spec nesting
+	spec := kubernetes.UntypedArgs{
+		"spec": vpaSpec,
 	}
 
 	// Create VPA custom resource
