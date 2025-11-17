@@ -24,6 +24,19 @@
             ],
             "type": "object"
           },
+          "email": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "addresses": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "maxCPU": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {

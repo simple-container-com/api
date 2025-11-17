@@ -1,6 +1,10 @@
 package api
 
 import (
+	"reflect"
+
+	"gopkg.in/yaml.v3"
+
 	"github.com/samber/lo"
 )
 
@@ -179,9 +183,31 @@ func (s *StackConfigCompose) Copy() any {
 		TextVolumes:       s.TextVolumes,
 		Headers:           s.Headers,
 		LBConfig:          s.LBConfig,
-		CloudExtras:       s.CloudExtras,
+		CloudExtras:       MustClone(s.CloudExtras),
 		StaticEgressIP:    s.StaticEgressIP,
 		ImagePullPolicy:   s.ImagePullPolicy,
 		ClusterIPAddress:  s.ClusterIPAddress,
 	}
+}
+
+// MustClone creates a deep copy of any value using YAML marshaling/unmarshaling
+// This generic function works with any type T and handles complex nested structures automatically
+// It is nil-safe and will return the zero value for nil inputs
+func MustClone[T any](original T) T {
+	var dst T
+
+	// Handle nil pointers gracefully
+	if reflect.ValueOf(original).Kind() == reflect.Ptr && reflect.ValueOf(original).IsNil() {
+		return dst // Return zero value for nil pointers
+	}
+
+	dstValue := reflect.ValueOf(&dst).Elem()
+	if dstValue.Kind() == reflect.Ptr {
+		structType := dstValue.Type().Elem()
+		newValue := reflect.New(structType) // *MyStruct
+		dstValue.Set(newValue)
+	}
+	bytes, _ := yaml.Marshal(original)
+	_ = yaml.Unmarshal(bytes, &dst)
+	return dst
 }

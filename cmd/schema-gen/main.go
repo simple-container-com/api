@@ -15,6 +15,8 @@ import (
 
 	// Core API package for registration maps and configuration structs
 	"github.com/simple-container-com/api/pkg/api"
+	// Import cloud provider packages directly to access their CloudExtras types
+	"github.com/simple-container-com/api/pkg/clouds/aws"
 	// Import all cloud provider packages to trigger init() functions
 	_ "github.com/simple-container-com/api/pkg/clouds/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/cloudflare"
@@ -24,7 +26,7 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/fs"
 	_ "github.com/simple-container-com/api/pkg/clouds/gcloud"
 	_ "github.com/simple-container-com/api/pkg/clouds/github"
-	_ "github.com/simple-container-com/api/pkg/clouds/k8s"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	_ "github.com/simple-container-com/api/pkg/clouds/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
@@ -127,8 +129,15 @@ func (sg *SchemaGenerator) Generate() error {
 		return fmt.Errorf("failed to generate configuration schemas: %w", err)
 	}
 
-	// Combine resources and configuration schemas for directory creation
+	// Generate CloudExtras schemas for different providers
+	cloudExtrasSchemas, err := sg.generateCloudExtrasSchemas()
+	if err != nil {
+		return fmt.Errorf("failed to generate CloudExtras schemas: %w", err)
+	}
+
+	// Combine resources, configuration schemas, and CloudExtras schemas for directory creation
 	allSchemas := append(resources, configSchemas...)
+	allSchemas = append(allSchemas, cloudExtrasSchemas...)
 
 	// Create output directory structure based on all discovered providers
 	if err := sg.createDirectories(allSchemas); err != nil {
@@ -149,12 +158,21 @@ func (sg *SchemaGenerator) Generate() error {
 		}
 	}
 
+	// Generate schema files for CloudExtras
+	for _, cloudExtrasSchema := range cloudExtrasSchemas {
+		if err := sg.generateSchemaFile(cloudExtrasSchema); err != nil {
+			return fmt.Errorf("failed to generate CloudExtras schema for %s: %w", cloudExtrasSchema.Name, err)
+		}
+	}
+
 	// Generate index files
 	if err := sg.generateIndexFiles(allSchemas); err != nil {
 		return fmt.Errorf("failed to generate index files: %w", err)
 	}
 
-	fmt.Printf("Successfully generated JSON Schema files for %d resources in %s\n", len(resources), sg.outputDir)
+	totalSchemas := len(resources) + len(configSchemas) + len(cloudExtrasSchemas)
+	fmt.Printf("Successfully generated JSON Schema files for %d total schemas (%d resources, %d config schemas, %d CloudExtras schemas) in %s\n",
+		totalSchemas, len(resources), len(configSchemas), len(cloudExtrasSchemas), sg.outputDir)
 	return nil
 }
 
@@ -332,6 +350,41 @@ func (sg *SchemaGenerator) generateConfigurationSchemas() ([]ResourceDefinition,
 
 	fmt.Printf("Generated %d configuration file schemas\n", len(configSchemas))
 	return configSchemas, nil
+}
+
+// generateCloudExtrasSchemas creates schemas for CloudExtras structures from different providers
+func (sg *SchemaGenerator) generateCloudExtrasSchemas() ([]ResourceDefinition, error) {
+	var cloudExtrasSchemas []ResourceDefinition
+
+	// Use the actual CloudExtras types from imported packages
+	// This ensures we use the single source of truth from each package
+
+	// AWS CloudExtras - use the actual type from aws package
+	cloudExtrasSchemas = append(cloudExtrasSchemas, ResourceDefinition{
+		Name:         "AWSCloudExtras",
+		Type:         "cloudextras",
+		Provider:     "aws",
+		Description:  "AWS-specific cloudExtras configuration for Simple Container deployments including Lambda scheduling, security groups, and load balancer settings",
+		GoPackage:    "pkg/clouds/aws/",
+		GoStruct:     "CloudExtras",
+		ResourceType: "aws-cloudextras",
+		Schema:       reflect.TypeOf(aws.CloudExtras{}),
+	})
+
+	// Kubernetes CloudExtras - use the actual type from k8s package
+	cloudExtrasSchemas = append(cloudExtrasSchemas, ResourceDefinition{
+		Name:         "KubernetesCloudExtras",
+		Type:         "cloudextras",
+		Provider:     "kubernetes",
+		Description:  "Kubernetes-specific cloudExtras configuration for Simple Container deployments including probes, VPA, affinity, node selection, and pod disruption budgets",
+		GoPackage:    "pkg/clouds/k8s/",
+		GoStruct:     "CloudExtras",
+		ResourceType: "kubernetes-cloudextras",
+		Schema:       reflect.TypeOf(k8s.CloudExtras{}),
+	})
+
+	fmt.Printf("Generated %d CloudExtras schemas\n", len(cloudExtrasSchemas))
+	return cloudExtrasSchemas, nil
 }
 
 func (sg *SchemaGenerator) createDirectories(resources []ResourceDefinition) error {

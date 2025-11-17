@@ -2,7 +2,7 @@
   "description": "JSON Schema definitions for all Simple Container resources and templates",
   "providers": {
     "aws": {
-      "count": 12,
+      "count": 13,
       "description": "Aws cloud provider resources and templates"
     },
     "cloudflare": {
@@ -26,7 +26,7 @@
       "description": "Github cloud provider resources and templates"
     },
     "kubernetes": {
-      "count": 6,
+      "count": 7,
       "description": "Kubernetes cloud provider resources and templates"
     },
     "mongodb": {

@@ -50,7 +50,7 @@ func (a *alertSender) Send(alert api.Alert) error {
 	telegramMsg := TelegramMessage{
 		ChatID:    a.chatId,
 		Text:      message,
-		ParseMode: "Markdown",
+		ParseMode: "HTML",
 	}
 
 	// Convert to JSON
@@ -100,7 +100,7 @@ func (a *alertSender) Send(alert api.Alert) error {
 	return nil
 }
 
-// formatAlertMessage formats the alert into a readable Telegram message with Markdown formatting
+// formatAlertMessage formats the alert into a readable Telegram message with HTML formatting
 func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 	var message bytes.Buffer
 
@@ -134,38 +134,38 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 		title = "Simple Container Notification"
 	}
 
-	message.WriteString(fmt.Sprintf("%s *%s*\n\n", emoji, title))
+	message.WriteString(fmt.Sprintf("%s <b>%s</b>\n\n", emoji, title))
 
 	if alert.Name != "" {
-		message.WriteString(fmt.Sprintf("**Name:** %s\n", escapeMarkdown(alert.Name)))
+		message.WriteString(fmt.Sprintf("<b>Name:</b> %s\n", escapeHTML(alert.Name)))
 	}
 
 	if alert.Title != "" {
-		message.WriteString(fmt.Sprintf("**Title:** %s\n", escapeMarkdown(alert.Title)))
+		message.WriteString(fmt.Sprintf("<b>Title:</b> %s\n", escapeHTML(alert.Title)))
 	}
 
 	if alert.Description != "" {
-		message.WriteString(fmt.Sprintf("**Description:** %s\n", escapeMarkdown(alert.Description)))
+		message.WriteString(fmt.Sprintf("<b>Description:</b> %s\n", escapeHTML(alert.Description)))
 	}
 
 	if alert.Reason != "" {
-		message.WriteString(fmt.Sprintf("**Reason:** %s\n", escapeMarkdown(alert.Reason)))
+		message.WriteString(fmt.Sprintf("<b>Reason:</b> %s\n", escapeHTML(alert.Reason)))
 	}
 
 	if alert.AlertType != "" {
-		message.WriteString(fmt.Sprintf("**Type:** `%s`\n", alert.AlertType))
+		message.WriteString(fmt.Sprintf("<b>Type:</b> <code>%s</code>\n", escapeHTML(string(alert.AlertType))))
 	}
 
 	if alert.StackName != "" {
-		message.WriteString(fmt.Sprintf("**Stack:** `%s`\n", alert.StackName))
+		message.WriteString(fmt.Sprintf("<b>Stack:</b> <code>%s</code>\n", escapeHTML(alert.StackName)))
 	}
 
 	if alert.StackEnv != "" {
-		message.WriteString(fmt.Sprintf("**Environment:** `%s`\n", alert.StackEnv))
+		message.WriteString(fmt.Sprintf("<b>Environment:</b> <code>%s</code>\n", escapeHTML(alert.StackEnv)))
 	}
 
 	if alert.CommitAuthor != "" {
-		message.WriteString(fmt.Sprintf("**Author:** %s\n", escapeMarkdown(alert.CommitAuthor)))
+		message.WriteString(fmt.Sprintf("<b>Author:</b> %s\n", escapeHTML(alert.CommitAuthor)))
 	}
 
 	if alert.CommitMessage != "" {
@@ -174,40 +174,42 @@ func (a *alertSender) formatAlertMessage(alert api.Alert) string {
 		if len(commitMsg) > 100 {
 			commitMsg = commitMsg[:97] + "..."
 		}
-		message.WriteString(fmt.Sprintf("**Commit:** %s\n", escapeMarkdown(commitMsg)))
+		message.WriteString(fmt.Sprintf("<b>Commit:</b> %s\n", escapeHTML(commitMsg)))
 	}
 
 	if alert.DetailsUrl != "" {
-		message.WriteString(fmt.Sprintf("**Details:** %s\n", alert.DetailsUrl))
+		message.WriteString(fmt.Sprintf("<b>Details:</b> %s\n", alert.DetailsUrl))
 	}
 
-	message.WriteString(fmt.Sprintf("\n⏰ *%s*", time.Now().Format("2006-01-02 15:04:05 MST")))
+	message.WriteString(fmt.Sprintf("\n⏰ <i>%s</i>", time.Now().Format("2006-01-02 15:04:05 MST")))
 
 	return message.String()
 }
 
-// escapeMarkdown escapes special Markdown characters to prevent parsing errors
-func escapeMarkdown(text string) string {
-	// Telegram Markdown special characters that need escaping
+// escapeHTML escapes HTML special characters to prevent parsing errors in HTML mode
+func escapeHTML(text string) string {
+	// HTML special characters that need escaping for Telegram HTML parse mode
 	replacer := strings.NewReplacer(
-		"_", "\\_",
-		"*", "\\*",
-		"[", "\\[",
-		"]", "\\]",
-		"(", "\\(",
-		")", "\\)",
-		"~", "\\~",
-		"`", "\\`",
-		">", "\\>",
-		"#", "\\#",
-		"+", "\\+",
-		"-", "\\-",
-		"=", "\\=",
-		"|", "\\|",
-		"{", "\\{",
-		"}", "\\}",
-		".", "\\.",
-		"!", "\\!",
+		"&", "&amp;", // Ampersand must be first
+		"<", "&lt;", // Less than
+		">", "&gt;", // Greater than
+		"\"", "&quot;", // Double quote (for attributes)
+	)
+	return replacer.Replace(text)
+}
+
+// escapeMarkdown escapes special Markdown characters to prevent parsing errors
+// Only escapes characters that actually break Telegram's Markdown parsing
+func escapeMarkdown(text string) string {
+	// Telegram Markdown special characters that actually need escaping
+	// Based on Telegram Bot API documentation for Markdown format
+	replacer := strings.NewReplacer(
+		"_", "\\_", // Italic formatting
+		"*", "\\*", // Bold formatting
+		"[", "\\[", // Link opening
+		"]", "\\]", // Link closing
+		"`", "\\`", // Code formatting
+		"\\", "\\\\", // Backslash itself needs escaping
 	)
 	return replacer.Replace(text)
 }

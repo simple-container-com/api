@@ -113,6 +113,70 @@ Simple Container uses a three-file configuration pattern:
 - **Linting**: Included in `welder run fmt`
 - **Schema validation**: Validate JSON schemas against examples
 
+#### Testing Framework and Assertions
+Simple Container uses **Gomega** for BDD-style assertions in unit tests:
+
+**Required Setup**:
+```go
+import (
+    "testing"
+    . "github.com/onsi/gomega"  // Import Gomega matchers
+)
+
+func TestExample(t *testing.T) {
+    RegisterTestingT(t)  // Required for Gomega integration
+    // ... test code
+}
+```
+
+**Table-Driven Test Pattern** (preferred approach):
+```go
+tests := []struct {
+    name     string
+    input    SomeType
+    validate func(original, result SomeType)
+}{
+    {
+        name: "descriptive test case name",
+        input: SomeType{Field: "value"},
+        validate: func(original, result SomeType) {
+            Expect(result.Field).To(Equal(original.Field))
+        },
+    },
+}
+
+for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+        result := functionUnderTest(tt.input)
+        tt.validate(tt.input, result)
+    })
+}
+```
+
+**Common Gomega Matchers**:
+- **Equality**: `Expect(actual).To(Equal(expected))`
+- **Nil checks**: `Expect(value).To(BeNil())` / `Expect(value).ToNot(BeNil())`
+- **Identity**: `Expect(obj1).ToNot(BeIdenticalTo(obj2))` (different memory addresses)
+- **Length**: `Expect(slice).To(HaveLen(3))`
+- **Boolean**: `Expect(condition).To(BeTrue())` / `Expect(condition).To(BeFalse())`
+- **Negation**: Use `ToNot()` instead of `To()` for negative assertions
+
+**YAML Serialization Testing Notes**:
+When testing `MustClone` or similar functions that use YAML marshaling, be aware of type conversions:
+- `struct` → `map[string]interface{}`
+- `[]string` → `[]interface{}`
+- `map[string]string` → `map[string]interface{}`
+
+Handle these conversions in test validations:
+```go
+// Instead of direct comparison
+clone := cloned.(map[string]interface{})
+clonedTags := clone["tags"].([]interface{})
+for i, tag := range original.Tags {
+    Expect(clonedTags[i]).To(Equal(tag))
+}
+```
+
 ### 8. Common Development Tasks
 
 #### Adding a New Resource Type
@@ -206,7 +270,14 @@ Client Stack: Receives GCS_BUCKET_NAME, GCS_ACCESS_KEY, etc.
 - **Placeholder parsing**: Validate bounds for `${dependency:name.resource.property}` patterns
 - **Notification system**: Integrate with existing Slack/Discord/Telegram alert system
 
-### 11. Memory Management
+### 11. VPA (Vertical Pod Autoscaler) Support
+- **Application VPA**: Configure via `cloudExtras.vpa` in client.yaml for automatic resource optimization
+- **Infrastructure VPA**: Configure via resource config (e.g., `caddy.vpa`) in server.yaml for infrastructure components
+- **Update modes**: Off (recommendations only), Initial (pod creation), Recreation (pod restart), Auto (in-place)
+- **Resource boundaries**: Always set `minAllowed` and `maxAllowed` to prevent resource starvation or runaway costs
+- **Documentation**: VPA concepts in `docs/docs/concepts/vertical-pod-autoscaler.md`, examples in `docs/docs/examples/kubernetes-vpa/`
+
+### 12. Memory Management
 - **Create memories**: Use `create_memory` tool to preserve important context
 - **Update SYSTEM_PROMPT.md**: Add new essential instructions when patterns emerge
 - **Keep instructions current**: Remove outdated information, focus on actionable guidance

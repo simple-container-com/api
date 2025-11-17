@@ -19,7 +19,7 @@ type DeploymentConfig struct {
 	StackConfig      *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
 	Containers       []CloudRunContainer     `json:"containers" yaml:"containers"`
 	IngressContainer *CloudRunContainer      `json:"ingressContainer" yaml:"ingressContainer"`
-	Scale            *Scale                  `json:"replicas" yaml:"replicas"`
+	Scale            *Scale                  `json:"scale" yaml:"replicas"`
 	Headers          *Headers                `json:"headers" yaml:"headers"`
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
 	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
@@ -27,19 +27,24 @@ type DeploymentConfig struct {
 	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
 	Tolerations      []Toleration            `json:"tolerations" yaml:"tolerations"`
+	VPA              *VPAConfig              `json:"vpa" yaml:"vpa"`                       // Vertical Pod Autoscaler configuration
+	ReadinessProbe   *CloudRunProbe          `json:"readinessProbe" yaml:"readinessProbe"` // Global readiness probe configuration
+	LivenessProbe    *CloudRunProbe          `json:"livenessProbe" yaml:"livenessProbe"`   // Global liveness probe configuration
 }
 
 type CaddyConfig struct {
-	Enable           *bool   `json:"enable,omitempty" yaml:"enable,omitempty"`
-	Caddyfile        *string `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`             // TODO: support overwriting
-	CaddyfilePrefix  *string `json:"caddyfilePrefix,omitempty" yaml:"caddyfilePrefix,omitempty"` // custom content to inject at the top of Caddyfile (e.g., storage configuration)
-	Namespace        *string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
-	Image            *string `json:"image,omitempty" yaml:"image,omitempty"`
-	Replicas         *int    `json:"replicas,omitempty" yaml:"replicas,omitempty"`
-	UsePrefixes      bool    `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
-	ServiceType      *string `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
-	ProvisionIngress bool    `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
-	UseSSL           *bool   `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
+	Enable           *bool      `json:"enable,omitempty" yaml:"enable,omitempty"`
+	Caddyfile        *string    `json:"caddyfile,omitempty" yaml:"caddyfile,omitempty"`             // TODO: support overwriting
+	CaddyfilePrefix  *string    `json:"caddyfilePrefix,omitempty" yaml:"caddyfilePrefix,omitempty"` // custom content to inject at the top of Caddyfile (e.g., storage configuration)
+	Namespace        *string    `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Image            *string    `json:"image,omitempty" yaml:"image,omitempty"`
+	Replicas         *int       `json:"replicas,omitempty" yaml:"replicas,omitempty"`
+	Resources        *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`               // CPU and memory limits/requests for Caddy container
+	VPA              *VPAConfig `json:"vpa,omitempty" yaml:"vpa,omitempty"`                           // Vertical Pod Autoscaler configuration for Caddy
+	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
+	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
+	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
+	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 }
 
 type DisruptionBudget struct {
@@ -109,6 +114,7 @@ type CloudRunContainer struct {
 	Ports           []int              `json:"ports" yaml:"ports"`
 	MainPort        *int               `json:"mainPort" yaml:"mainPort"`
 	ReadinessProbe  *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
+	LivenessProbe   *CloudRunProbe     `json:"livenessProbe" yaml:"livenessProbe"`
 	StartupProbe    *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
 	ComposeDir      string             `json:"composeDir" yaml:"composeDir"`
 	Resources       *Resources         `json:"resources" yaml:"resources"`
@@ -137,7 +143,7 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert CPU limits")
 	}
-	memLimitInt, err := toMemoryLimit(cfg, svc)
+	memLimitInBytesInt, err := toMemoryLimit(cfg, svc)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory limits")
 	}
@@ -147,18 +153,18 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert CPU requests")
 	}
-	memRequestInt, err := toMemoryRequest(cfg, svc, memLimitInt)
+	memRequestInBytesInt, err := toMemoryRequest(cfg, svc, memLimitInBytesInt)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory requests")
 	}
 
 	return &Resources{
 		Limits: map[string]string{
-			"memory": bytesSizeToHuman(memLimitInt * 1024 * 1024), // must be in MB
+			"memory": bytesSizeToHuman(memLimitInBytesInt), // must be in MB
 			"cpu":    fmt.Sprintf("%dm", cpuLimitInt),
 		},
 		Requests: map[string]string{
-			"memory": bytesSizeToHuman(memRequestInt * 1024 * 1024), // must be in MB
+			"memory": bytesSizeToHuman(memRequestInBytesInt), // must be in MB
 			"cpu":    fmt.Sprintf("%dm", cpuRequestInt),
 		},
 	}, nil
@@ -317,8 +323,15 @@ func bytesSizeToHuman(size int64) string {
 		return "0"
 	}
 
-	units := []string{"", "K", "M", "G", "T"}
+	units := []string{"", "Ki", "Mi", "Gi", "Ti"}
 	i := math.Floor(math.Log(float64(size)) / math.Log(1024))
+
+	// Ensure index doesn't exceed available units array bounds
+	maxIndex := len(units) - 1
+	if int(i) > maxIndex {
+		i = float64(maxIndex)
+	}
+
 	humanSize := float64(size) / math.Pow(1024, i)
 
 	return fmt.Sprintf("%d%s", int64(humanSize), units[int(i)])

@@ -3,6 +3,16 @@
   "provider": "aws",
   "resources": [
     {
+      "name": "AWSCloudExtras",
+      "type": "cloudextras",
+      "provider": "aws",
+      "description": "AWS-specific cloudExtras configuration for Simple Container deployments including Lambda scheduling, security groups, and load balancer settings",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "CloudExtras",
+      "resourceType": "aws-cloudextras",
+      "schema": {}
+    },
+    {
       "name": "AccountConfig",
       "type": "auth",
       "provider": "aws",

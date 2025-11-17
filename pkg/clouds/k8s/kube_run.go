@@ -18,6 +18,9 @@ type CloudExtras struct {
 	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
 	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
 	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
+	VPA              *VPAConfig        `json:"vpa" yaml:"vpa"`
+	ReadinessProbe   *CloudRunProbe    `json:"readinessProbe" yaml:"readinessProbe"`
+	LivenessProbe    *CloudRunProbe    `json:"livenessProbe" yaml:"livenessProbe"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -98,6 +101,26 @@ type LabelSelectorRequirement struct {
 	Values   []string `json:"values" yaml:"values"`
 }
 
+// VPAConfig defines Vertical Pod Autoscaler configuration
+type VPAConfig struct {
+	// Enabled controls whether VPA should be created for the deployment
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// UpdateMode specifies how VPA should update pods (Off, Initial, Recreation, Auto)
+	UpdateMode *string `json:"updateMode" yaml:"updateMode"`
+	// MinAllowed specifies minimum allowed resources
+	MinAllowed *VPAResourceRequirements `json:"minAllowed" yaml:"minAllowed"`
+	// MaxAllowed specifies maximum allowed resources
+	MaxAllowed *VPAResourceRequirements `json:"maxAllowed" yaml:"maxAllowed"`
+	// ControlledResources specifies which resources VPA should control
+	ControlledResources []string `json:"controlledResources" yaml:"controlledResources"`
+}
+
+// VPAResourceRequirements defines resource requirements for VPA
+type VPAResourceRequirements struct {
+	CPU    *string `json:"cpu" yaml:"cpu"`
+	Memory *string `json:"memory" yaml:"memory"`
+}
+
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {
 	return i.Deployment.StackConfig.Dependencies
 }
@@ -131,6 +154,9 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
+		deployCfg.VPA = k8sCloudExtras.VPA                       // Extract VPA configuration from CloudExtras
+		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe // Extract global readiness probe configuration
+		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe   // Extract global liveness probe configuration
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {

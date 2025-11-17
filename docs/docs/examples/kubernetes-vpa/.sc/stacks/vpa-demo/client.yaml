@@ -1,0 +1,100 @@
+# VPA Demo Application - Client Stack Configuration
+# File: .sc/stacks/vpa-demo/client.yaml
+
+schemaVersion: 1.0
+
+stacks:
+  # Production deployment with VPA enabled
+  production:
+    type: cloud-compose
+    parent: infrastructure
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      uses: [mongodb]
+      runs: [web-app]
+      
+      # VPA Configuration for automatic resource optimization
+      cloudExtras:
+        vpa:
+          enabled: true
+          updateMode: "Auto"  # Off, Initial, Auto, InPlaceOrRecreate
+          minAllowed:
+            cpu: "100m"
+            memory: "128Mi"
+          maxAllowed:
+            cpu: "2"
+            memory: "4Gi"
+          controlledResources: ["cpu", "memory"]
+      
+      env:
+        DATABASE_URL: "${resource:mongodb.uri}"
+        NODE_ENV: "production"
+        LOG_LEVEL: "info"
+      
+      scale:
+        min: 2
+        max: 10
+
+  # Staging deployment with conservative VPA settings
+  staging:
+    type: cloud-compose
+    parent: infrastructure
+    parentEnv: staging
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      uses: [mongodb]
+      runs: [web-app]
+      
+      # Conservative VPA configuration for staging
+      cloudExtras:
+        vpa:
+          enabled: true
+          updateMode: "Initial"  # Only set resources at pod creation
+          minAllowed:
+            cpu: "50m"
+            memory: "64Mi"
+          maxAllowed:
+            cpu: "1"
+            memory: "2Gi"
+          controlledResources: ["cpu", "memory"]
+      
+      env:
+        DATABASE_URL: "${resource:mongodb.uri}"
+        NODE_ENV: "staging"
+        LOG_LEVEL: "debug"
+      
+      scale:
+        min: 1
+        max: 5
+
+  # Development deployment with VPA in recommendation mode
+  development:
+    type: cloud-compose
+    parent: infrastructure
+    parentEnv: development
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      uses: [mongodb]
+      runs: [web-app]
+      
+      # VPA in recommendation-only mode for development
+      cloudExtras:
+        vpa:
+          enabled: true
+          updateMode: "Off"  # Only provide recommendations, no automatic changes
+          minAllowed:
+            cpu: "50m"
+            memory: "64Mi"
+          maxAllowed:
+            cpu: "500m"
+            memory: "1Gi"
+          controlledResources: ["cpu", "memory"]
+      
+      env:
+        DATABASE_URL: "${resource:mongodb.uri}"
+        NODE_ENV: "development"
+        LOG_LEVEL: "debug"
+      
+      scale:
+        min: 1
+        max: 2

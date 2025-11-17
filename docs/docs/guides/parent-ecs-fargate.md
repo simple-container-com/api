@@ -197,6 +197,178 @@ stacks:
         DATABASE_PASSWORD: "${resource:mongodb.password}"
 ```
 
+### **Advanced Configuration: AWS CloudExtras**
+
+For advanced AWS ECS Fargate deployments, you can use `cloudExtras` to configure AWS-specific features:
+
+```yaml
+stacks:
+  staging:
+    type: cloud-compose
+    parent: myproject/devops
+    config:
+      # ... basic configuration above
+      cloudExtras:
+        # AWS IAM roles for the ECS task
+        awsRoles:
+          - "arn:aws:iam::123456789012:role/MyServiceRole"
+          - "arn:aws:iam::123456789012:role/S3AccessRole"
+        
+        # Lambda scheduling for background tasks
+        lambdaSchedule:
+          expression: "rate(5 minutes)"
+          timezone: "America/New_York"
+        
+        # Multiple Lambda schedules with request payloads
+        lambdaSchedules:
+          - name: "daily-report"
+            expression: "cron(0 9 * * ? *)"  # Daily at 9 AM
+            timezone: "UTC"
+            request: |-
+              {
+                "requestId": "daily-report",
+                "requestTime": "23/Jun/2024:09:00:00 +0000",
+                "httpMethod": "POST",
+                "path": "/api/reports/daily",
+                "requestContext": {
+                  "http": {
+                    "path": "/api/reports/daily",
+                    "method": "POST",
+                    "protocol": "HTTP/1.1"
+                  }
+                },
+                "body": "{\"type\":\"daily\",\"format\":\"pdf\"}",
+                "headers": {
+                  "Authorization": "Bearer ${secret:api-key}",
+                  "Content-Type": "application/json"
+                }
+              }
+          - name: "hourly-cleanup"
+            expression: "rate(1 hour)"       # Every hour
+            timezone: "America/Los_Angeles"
+            request: |-
+              {
+                "requestId": "hourly-cleanup",
+                "httpMethod": "POST",
+                "path": "/api/cleanup",
+                "body": "{\"action\":\"cleanup\",\"maxAge\":3600}",
+                "headers": {
+                  "Authorization": "Bearer ${secret:cleanup-api-key}"
+                }
+              }
+        
+        # Lambda routing and invoke configuration
+        lambdaRoutingType: "weighted"  # or "simple"
+        lambdaInvokeMode: "async"      # or "sync"
+        
+        # Security group configuration
+        securityGroup:
+          ingress:
+            allowOnlyCloudflare: true    # Restrict to Cloudflare IPs
+            cidrBlocks:                  # Additional CIDR blocks
+              - "10.0.0.0/8"
+              - "192.168.0.0/16"
+            ipv6CidrBlocks:              # IPv6 CIDR blocks
+              - "2001:db8::/32"
+        
+        # Load balancer type
+        loadBalancerType: "alb"  # Application Load Balancer (default)
+        # loadBalancerType: "nlb"  # Network Load Balancer
+```
+
+#### **CloudExtras Field Reference**
+
+| Field               | Type       | Description                                     | Example                                                              |
+|---------------------|------------|-------------------------------------------------|----------------------------------------------------------------------|
+| `awsRoles`          | `[]string` | IAM roles to attach to ECS tasks                | `["arn:aws:iam::123:role/MyRole"]`                                   |
+| `lambdaSchedule`    | `object`   | Single Lambda schedule configuration            | `{expression: "rate(5 minutes)"}`                                    |
+| `lambdaSchedules`   | `[]object` | Multiple Lambda schedules with request payloads | `[{name: "daily", expression: "cron(0 9 * * ? *)", request: "..."}]` |
+| `lambdaRoutingType` | `string`   | Lambda routing strategy                         | `"weighted"` or `"simple"`                                           |
+| `lambdaInvokeMode`  | `string`   | Lambda invocation mode                          | `"async"` or `"sync"`                                                |
+| `securityGroup`     | `object`   | Security group ingress rules                    | See security group configuration                                     |
+| `loadBalancerType`  | `string`   | Load balancer type                              | `"alb"` or `"nlb"`                                                   |
+
+**LambdaSchedules Object Fields:**
+| Field        | Type     | Description                          | Required |
+|--------------|----------|--------------------------------------|----------|
+| `name`       | `string` | Unique identifier for the schedule   | ✅ Yes   |
+| `expression` | `string` | Cron or rate expression              | ✅ Yes   |
+| `timezone`   | `string` | Timezone for execution               | ❌ Optional |
+| `request`    | `string` | Complete HTTP request payload (JSON) | ✅ Yes   |
+
+#### **Security Group Configuration**
+
+```yaml
+securityGroup:
+  ingress:
+    allowOnlyCloudflare: true      # Automatically allow Cloudflare IP ranges
+    cidrBlocks:                    # Custom IPv4 CIDR blocks
+      - "10.0.0.0/8"              # Private network
+      - "203.0.113.0/24"          # Specific public range
+    ipv6CidrBlocks:                # Custom IPv6 CIDR blocks
+      - "2001:db8::/32"           # IPv6 range
+```
+
+#### **Lambda Schedule Examples**
+
+```yaml
+# Single schedule (simple)
+lambdaSchedule:
+  expression: "rate(5 minutes)"
+  timezone: "America/New_York"
+
+# Multiple schedules with full request payloads
+lambdaSchedules:
+  - name: "every-minute-health-check"
+    expression: "cron(* * * * ? *)"    # Every minute
+    timezone: "UTC"
+    request: |-
+      {
+        "requestId": "health-check",
+        "requestTime": "23/Jun/2024:15:48:12 +0000",
+        "httpMethod": "POST",
+        "path": "/api/health",
+        "requestContext": {
+          "http": {
+            "path": "/api/health",
+            "method": "POST",
+            "protocol": "HTTP/1.1"
+          }
+        },
+        "body": "{\"check\":\"all\"}",
+        "headers": {
+          "Authorization": "Bearer ${secret:health-check-api-key}",
+          "Content-Type": "application/json"
+        }
+      }
+  - name: "monthly-billing"
+    expression: "cron(0 0 1 * ? *)"    # First day of every month
+    timezone: "America/New_York"
+    request: |-
+      {
+        "requestId": "monthly-billing",
+        "httpMethod": "POST",
+        "path": "/api/billing/process",
+        "body": "{\"period\":\"monthly\",\"notify\":true}",
+        "headers": {
+          "Authorization": "Bearer ${secret:billing-api-key}"
+        }
+      }
+```
+
+**Lambda Schedule Request Structure:**
+- `name`: Unique identifier for the schedule
+- `expression`: Cron or rate expression for timing
+- `timezone`: Timezone for schedule execution (optional)
+- `request`: Complete HTTP request payload sent to your Lambda function
+  - `requestId`: Unique request identifier
+  - `requestTime`: Timestamp of the request
+  - `httpMethod`: HTTP method (GET, POST, etc.)
+  - `path`: API endpoint path
+  - `requestContext`: Additional request context
+  - `body`: JSON request body (as string)
+  - `headers`: HTTP headers including authentication
+
 ## **Step 2: Deploy the Service**
 ```sh
 sc deploy -s myservice -e staging

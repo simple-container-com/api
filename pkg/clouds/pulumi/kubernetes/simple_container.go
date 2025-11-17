@@ -11,6 +11,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
 	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
@@ -85,6 +87,7 @@ type SimpleContainerArgs struct {
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
 
 	Log logger.Logger
 	// ...
@@ -642,6 +645,13 @@ ${proto}://${domain} {
 		return nil, err
 	}
 
+	// Create VPA if enabled
+	if args.VPA != nil && args.VPA.Enabled {
+		if err := createVPA(ctx, args, sanitizedDeployment, sanitizedNamespace, opts...); err != nil {
+			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", sanitizedDeployment)
+		}
+	}
+
 	err = ctx.RegisterResourceOutputs(sc, sdk.Map{
 		"servicePublicIP": sc.ServicePublicIP,
 		"serviceName":     sc.ServiceName,
@@ -655,6 +665,92 @@ ${proto}://${domain} {
 	}
 
 	return sc, nil
+}
+
+func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, opts ...sdk.ResourceOption) error {
+	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
+
+	// Build VPA spec content
+	vpaSpec := map[string]interface{}{
+		"targetRef": map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"name":       deploymentName,
+		},
+	}
+
+	// Add update policy if specified
+	if args.VPA.UpdateMode != nil {
+		vpaSpec["updatePolicy"] = map[string]interface{}{
+			"updateMode": lo.FromPtr(args.VPA.UpdateMode),
+		}
+	}
+
+	// Add resource policy if specified
+	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 {
+		resourcePolicy := map[string]interface{}{}
+
+		// Add controlled resources
+		if len(args.VPA.ControlledResources) > 0 {
+			resourcePolicy["controlledResources"] = args.VPA.ControlledResources
+		}
+
+		// Add container policies
+		containerPolicy := map[string]interface{}{
+			"containerName": "*",
+		}
+
+		if args.VPA.MinAllowed != nil {
+			minAllowed := map[string]interface{}{}
+			if args.VPA.MinAllowed.CPU != nil {
+				minAllowed["cpu"] = lo.FromPtr(args.VPA.MinAllowed.CPU)
+			}
+			if args.VPA.MinAllowed.Memory != nil {
+				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
+			}
+			if len(minAllowed) > 0 {
+				containerPolicy["minAllowed"] = minAllowed
+			}
+		}
+
+		if args.VPA.MaxAllowed != nil {
+			maxAllowed := map[string]interface{}{}
+			if args.VPA.MaxAllowed.CPU != nil {
+				maxAllowed["cpu"] = lo.FromPtr(args.VPA.MaxAllowed.CPU)
+			}
+			if args.VPA.MaxAllowed.Memory != nil {
+				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
+			}
+			if len(maxAllowed) > 0 {
+				containerPolicy["maxAllowed"] = maxAllowed
+			}
+		}
+
+		resourcePolicy["containerPolicies"] = []interface{}{containerPolicy}
+		vpaSpec["resourcePolicy"] = resourcePolicy
+	}
+
+	// Build the complete VPA resource with proper spec nesting
+	spec := kubernetes.UntypedArgs{
+		"spec": vpaSpec,
+	}
+
+	// Create VPA custom resource
+	_, err := apiextensions.NewCustomResource(ctx, vpaName, &apiextensions.CustomResourceArgs{
+		ApiVersion: sdk.String("autoscaling.k8s.io/v1"),
+		Kind:       sdk.String("VerticalPodAutoscaler"),
+		Metadata: &metav1.ObjectMetaArgs{
+			Name:      sdk.String(vpaName),
+			Namespace: sdk.String(namespace),
+		},
+		OtherFields: spec,
+	}, opts...)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create VPA resource")
+	}
+
+	args.Log.Info(ctx.Context(), "Created VPA %s for deployment %s", vpaName, deploymentName)
+	return nil
 }
 
 func ToImagePullSecretName(deploymentName string) string {

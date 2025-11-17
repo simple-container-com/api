@@ -16,22 +16,22 @@ func Test_toMebibytesFormat(t *testing.T) {
 		{
 			name: "kilobytes",
 			size: 100 * 1024,
-			want: "100K",
+			want: "100Ki",
 		},
 		{
 			name: "megabytes",
 			size: 100 * 1024 * 1024,
-			want: "100M",
+			want: "100Mi",
 		},
 		{
 			name: "gigabytes",
 			size: 100 * 1024 * 1024 * 1024,
-			want: "100G",
+			want: "100Gi",
 		},
 		{
 			name: "terabytes",
 			size: 100 * 1024 * 1024 * 1024 * 1024,
-			want: "100T",
+			want: "100Ti",
 		},
 	}
 	for _, tt := range tests {

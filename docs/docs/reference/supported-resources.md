@@ -575,6 +575,25 @@ resources:
               enable: true
               namespace: caddy
               replicas: 2
+              # VPA Configuration for Caddy ingress controller
+              vpa:
+                enabled: true
+                updateMode: "Auto"  # Off, Initial, Auto, InPlaceOrRecreate
+                minAllowed:
+                  cpu: "50m"
+                  memory: "64Mi"
+                maxAllowed:
+                  cpu: "1"
+                  memory: "1Gi"
+                controlledResources: ["cpu", "memory"]
+              # Optional: Manual resource limits alongside VPA
+              resources:
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
         my-artifact-registry:
           type: gcp-artifact-registry
           config:
@@ -948,6 +967,27 @@ resources:
             useSSL: true                            # Use SSL by default (optional, default: true)
             usePrefixes: false                      # Use prefixes instead of domains (optional, default: false)
             provisionIngress: false                 # Provision ingress for Caddy (optional, default: false)
+            
+            # VPA Configuration for automatic resource optimization (optional)
+            vpa:
+              enabled: true                         # Enable VPA for Caddy (optional)
+              updateMode: "Auto"              # VPA update mode: Off, Initial, Auto, InPlaceOrRecreate (optional)
+              minAllowed:                           # Minimum allowed resources (optional)
+                cpu: "50m"
+                memory: "64Mi"
+              maxAllowed:                           # Maximum allowed resources (optional)
+                cpu: "1"
+                memory: "1Gi"
+              controlledResources: ["cpu", "memory"] # Resources VPA should control (optional)
+            
+            # Manual resource limits (optional, can be used alongside VPA)
+            resources:
+              limits:
+                cpu: "500m"
+                memory: "512Mi"
+              requests:
+                cpu: "100m"
+                memory: "128Mi"
 ```
 
 ### **Database Operators (Helm Charts)**
