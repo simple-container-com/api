@@ -19,6 +19,8 @@ type CloudExtras struct {
 	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
 	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
 	VPA              *VPAConfig        `json:"vpa" yaml:"vpa"`
+	ReadinessProbe   *CloudRunProbe    `json:"readinessProbe" yaml:"readinessProbe"`
+	LivenessProbe    *CloudRunProbe    `json:"livenessProbe" yaml:"livenessProbe"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -152,7 +154,9 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
-		deployCfg.VPA = k8sCloudExtras.VPA // Extract VPA configuration from CloudExtras
+		deployCfg.VPA = k8sCloudExtras.VPA                       // Extract VPA configuration from CloudExtras
+		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe // Extract global readiness probe configuration
+		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe   // Extract global liveness probe configuration
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {

@@ -137,9 +137,11 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
-		NodeSelector: nodeSelector,
-		Affinity:     kubeRunInput.Deployment.Affinity,
-		VPA:          kubeRunInput.Deployment.VPA, // Pass VPA configuration from DeploymentConfig
+		NodeSelector:   nodeSelector,
+		Affinity:       kubeRunInput.Deployment.Affinity,
+		VPA:            kubeRunInput.Deployment.VPA,            // Pass VPA configuration from DeploymentConfig
+		ReadinessProbe: kubeRunInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
+		LivenessProbe:  kubeRunInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)

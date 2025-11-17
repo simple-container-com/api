@@ -41,7 +41,9 @@ type Args struct {
 	ImagePullSecret        *docker.RegistryCredentials
 	ProvisionIngress       bool
 	UseSSL                 bool
-	VPA                    *k8s.VPAConfig // Vertical Pod Autoscaler configuration
+	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
+	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
+	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -104,6 +106,11 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			})
 		}
 		cReadyProbe := c.Container.ReadinessProbe
+		// Use global readiness probe if container doesn't have one
+		if cReadyProbe == nil && args.ReadinessProbe != nil {
+			cReadyProbe = args.ReadinessProbe
+		}
+
 		if cReadyProbe == nil && len(c.Container.Ports) == 1 {
 			readinessProbe = &corev1.ProbeArgs{
 				TcpSocket: corev1.TCPSocketActionArgs{
@@ -124,6 +131,18 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			readinessProbe = toProbeArgs(c, cReadyProbe)
 		} else if len(c.Container.Ports) > 1 {
 			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
+		}
+
+		// Handle liveness probe
+		var livenessProbe *corev1.ProbeArgs
+		cLivenessProbe := c.Container.LivenessProbe
+		// Use global liveness probe if container doesn't have one
+		if cLivenessProbe == nil && args.LivenessProbe != nil {
+			cLivenessProbe = args.LivenessProbe
+		}
+
+		if cLivenessProbe != nil {
+			livenessProbe = toProbeArgs(c, cLivenessProbe)
 		}
 
 		var startupProbe *corev1.ProbeArgs
@@ -148,7 +167,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			Image:           c.ImageName,
 			ImagePullPolicy: sdk.String(lo.If(c.Container.ImagePullPolicy != nil, lo.FromPtr(c.Container.ImagePullPolicy)).Else("IfNotPresent")),
 			Lifecycle:       nil, // TODO
-			LivenessProbe:   nil, // TODO
+			LivenessProbe:   livenessProbe,
 			Name:            sdk.String(c.Container.Name),
 			Ports:           ports,
 			ReadinessProbe:  readinessProbe,

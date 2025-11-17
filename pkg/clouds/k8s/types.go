@@ -19,7 +19,7 @@ type DeploymentConfig struct {
 	StackConfig      *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
 	Containers       []CloudRunContainer     `json:"containers" yaml:"containers"`
 	IngressContainer *CloudRunContainer      `json:"ingressContainer" yaml:"ingressContainer"`
-	Scale            *Scale                  `json:"replicas" yaml:"replicas"`
+	Scale            *Scale                  `json:"scale" yaml:"replicas"`
 	Headers          *Headers                `json:"headers" yaml:"headers"`
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
 	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
@@ -27,7 +27,9 @@ type DeploymentConfig struct {
 	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
 	Tolerations      []Toleration            `json:"tolerations" yaml:"tolerations"`
-	VPA              *VPAConfig              `json:"vpa" yaml:"vpa"` // Vertical Pod Autoscaler configuration
+	VPA              *VPAConfig              `json:"vpa" yaml:"vpa"`                       // Vertical Pod Autoscaler configuration
+	ReadinessProbe   *CloudRunProbe          `json:"readinessProbe" yaml:"readinessProbe"` // Global readiness probe configuration
+	LivenessProbe    *CloudRunProbe          `json:"livenessProbe" yaml:"livenessProbe"`   // Global liveness probe configuration
 }
 
 type CaddyConfig struct {
@@ -112,6 +114,7 @@ type CloudRunContainer struct {
 	Ports           []int              `json:"ports" yaml:"ports"`
 	MainPort        *int               `json:"mainPort" yaml:"mainPort"`
 	ReadinessProbe  *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
+	LivenessProbe   *CloudRunProbe     `json:"livenessProbe" yaml:"livenessProbe"`
 	StartupProbe    *CloudRunProbe     `json:"startupProbe" yaml:"startupProbe"`
 	ComposeDir      string             `json:"composeDir" yaml:"composeDir"`
 	Resources       *Resources         `json:"resources" yaml:"resources"`

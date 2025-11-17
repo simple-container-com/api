@@ -132,10 +132,12 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
-		NodeSelector: gkeAutopilotInput.Deployment.NodeSelector,
-		Affinity:     gkeAutopilotInput.Deployment.Affinity,
-		Tolerations:  gkeAutopilotInput.Deployment.Tolerations,
-		VPA:          gkeAutopilotInput.Deployment.VPA, // Pass VPA configuration to Kubernetes deployment
+		NodeSelector:   gkeAutopilotInput.Deployment.NodeSelector,
+		Affinity:       gkeAutopilotInput.Deployment.Affinity,
+		Tolerations:    gkeAutopilotInput.Deployment.Tolerations,
+		VPA:            gkeAutopilotInput.Deployment.VPA,            // Pass VPA configuration to Kubernetes deployment
+		ReadinessProbe: gkeAutopilotInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
+		LivenessProbe:  gkeAutopilotInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
