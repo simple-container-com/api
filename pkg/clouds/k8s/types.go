@@ -19,7 +19,7 @@ type DeploymentConfig struct {
 	StackConfig      *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
 	Containers       []CloudRunContainer     `json:"containers" yaml:"containers"`
 	IngressContainer *CloudRunContainer      `json:"ingressContainer" yaml:"ingressContainer"`
-	Scale            *Scale                  `json:"scale" yaml:"replicas"`
+	Scale            *Scale                  `json:"scale" yaml:"scale"`
 	Headers          *Headers                `json:"headers" yaml:"headers"`
 	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
 	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
