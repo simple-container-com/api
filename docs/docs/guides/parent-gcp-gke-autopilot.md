@@ -309,11 +309,11 @@ resources:
 
 ## **VPA Update Modes**
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| **Off** | Only provides recommendations | Testing and analysis |
-| **Initial** | Sets resources only at pod creation | Conservative approach |
-| **Auto** | Updates by recreating pods | Recommended for stateless apps |
+| Mode                  | Description                             | Use Case                       |
+|-----------------------|-----------------------------------------|--------------------------------|
+| **Off**               | Only provides recommendations           | Testing and analysis           |
+| **Initial**           | Sets resources only at pod creation     | Conservative approach          |
+| **Auto**              | Updates by recreating pods              | Recommended for stateless apps |
 | **InPlaceOrRecreate** | Updates resources in-place or recreates | Advanced use (preview feature) |
 
 ## **VPA Best Practices for GKE Autopilot**
@@ -327,6 +327,233 @@ resources:
 ✅ **Monitor VPA recommendations** before enabling automatic updates
 
 ✅ **Combine with manual resource limits** for fine-grained control
+
+---
+
+# **6️⃣ Advanced Configuration: Kubernetes CloudExtras**
+
+Beyond VPA, Simple Container supports comprehensive Kubernetes configuration through `cloudExtras`. This section covers all available options for fine-tuning your GKE Autopilot deployments.
+
+## **Complete CloudExtras Reference**
+
+```yaml
+# File: "myproject/.sc/stacks/myservice/client.yaml"
+stacks:
+  staging:
+    type: cloud-compose
+    parent: myproject/devops
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      uses: [mongodb]
+      runs: [myservice]
+      
+      # Comprehensive Kubernetes configuration
+      cloudExtras:
+        # Node selection and placement
+        nodeSelector:
+          workload-group: "high-memory"
+          environment: "staging"
+          
+        # Pod disruption budget for high availability
+        disruptionBudget:
+          minAvailable: 2          # Keep at least 2 pods running
+          # maxUnavailable: 1      # Alternative: max 1 pod down
+          
+        # Rolling update strategy
+        rollingUpdate:
+          maxSurge: 2              # Add up to 2 extra pods during update
+          maxUnavailable: 1        # Max 1 pod unavailable during update
+          
+        # Pod affinity and anti-affinity rules
+        affinity:
+          nodePool: "high-memory-pool"     # Target specific node pool
+          exclusiveNodePool: true          # Only run on this node pool
+          computeClass: "Performance"      # GKE compute class
+          
+        # Pod tolerations for tainted nodes
+        tolerations:
+          - key: "workload-group"
+            operator: "Equal"
+            value: "high-memory"
+            effect: "NoSchedule"
+          - key: "environment"
+            operator: "Equal"
+            value: "staging"
+            effect: "NoExecute"
+            
+        # Vertical Pod Autoscaler (covered in detail above)
+        vpa:
+          enabled: true
+          updateMode: "Auto"
+          minAllowed:
+            cpu: "100m"
+            memory: "128Mi"
+          maxAllowed:
+            cpu: "4"
+            memory: "8Gi"
+          controlledResources: ["cpu", "memory"]
+          
+        # Global readiness probe configuration
+        readinessProbe:
+          httpGet:
+            path: "/health"
+            port: 8080
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 15
+          failureThreshold: 5
+          successThreshold: 1
+          
+        # Global liveness probe configuration
+        livenessProbe:
+          httpGet:
+            path: "/health"
+            port: 8080
+          initialDelaySeconds: 30
+          timeoutSeconds: 10
+          periodSeconds: 30
+          failureThreshold: 3
+```
+
+## **CloudExtras Field Reference**
+
+| Field              | Type                | Description                    | GKE Autopilot Support      |
+|--------------------|---------------------|--------------------------------|----------------------------|
+| `nodeSelector`     | `map[string]string` | Node selection labels          | ✅ Custom labels supported  |
+| `disruptionBudget` | `object`            | Pod disruption budget for HA   | ✅ Full support             |
+| `rollingUpdate`    | `object`            | Rolling update strategy        | ✅ Full support             |
+| `affinity`         | `object`            | Pod affinity and anti-affinity | ✅ With workload separation |
+| `tolerations`      | `[]object`          | Pod tolerations for taints     | ✅ Custom tolerations       |
+| `vpa`              | `object`            | Vertical Pod Autoscaler        | ✅ Native GKE support       |
+| `readinessProbe`   | `object`            | Global readiness probe         | ✅ Full support             |
+| `livenessProbe`    | `object`            | Global liveness probe          | ✅ Full support             |
+
+## **Node Selection and Workload Separation**
+
+GKE Autopilot supports custom node selection for workload separation:
+
+```yaml
+cloudExtras:
+  # Custom node selector labels
+  nodeSelector:
+    workload-group: "compute-intensive"
+    cost-optimization: "spot-instances"
+    
+  # Affinity rules for advanced placement
+  affinity:
+    nodePool: "compute-pool"           # Target specific node pool
+    exclusiveNodePool: true            # Exclusive placement
+    computeClass: "Performance"        # GKE compute class
+    
+  # Tolerations for custom taints
+  tolerations:
+    - key: "workload-group"
+      operator: "Equal"
+      value: "compute-intensive"
+      effect: "NoSchedule"
+```
+
+**How it works:**
+- GKE Autopilot automatically creates nodes with your custom labels
+- Pods are scheduled only on nodes matching the `nodeSelector`
+- Tolerations allow pods to run on tainted nodes
+
+## **High Availability Configuration**
+
+Configure pod disruption budgets and rolling updates for production workloads:
+
+```yaml
+cloudExtras:
+  # Ensure minimum availability during disruptions
+  disruptionBudget:
+    minAvailable: 3              # Keep at least 3 pods running
+    # maxUnavailable: 1          # Alternative: max 1 pod down
+    
+  # Control rolling update behavior
+  rollingUpdate:
+    maxSurge: "50%"              # Add 50% more pods during update
+    maxUnavailable: "25%"        # Max 25% pods unavailable
+```
+
+## **Health Probe Configuration**
+
+Configure global health probes for all containers:
+
+```yaml
+cloudExtras:
+  # Readiness probe - when pod is ready to receive traffic
+  readinessProbe:
+    httpGet:
+      path: "/api/ready"
+      port: 8080
+    initialDelaySeconds: 15      # Wait 15s before first check
+    timeoutSeconds: 5            # 5s timeout per check
+    periodSeconds: 10            # Check every 10s
+    failureThreshold: 3          # 3 failures = not ready
+    successThreshold: 1          # 1 success = ready
+    
+  # Liveness probe - when to restart pod
+  livenessProbe:
+    httpGet:
+      path: "/api/health"
+      port: 8080
+    initialDelaySeconds: 60      # Wait 60s before first check
+    timeoutSeconds: 10           # 10s timeout per check
+    periodSeconds: 30            # Check every 30s
+    failureThreshold: 3          # 3 failures = restart pod
+```
+
+### **Probe Types**
+
+```yaml
+# HTTP probe (most common)
+readinessProbe:
+  httpGet:
+    path: "/health"
+    port: 8080
+    
+# TCP probe (for non-HTTP services)
+livenessProbe:
+  tcpSocket:
+    port: 5432
+    
+# Command probe (custom health check)
+readinessProbe:
+  exec:
+    command:
+      - "/bin/sh"
+      - "-c"
+      - "pg_isready -U postgres"
+```
+
+## **Environment-Specific Configuration**
+
+Different environments can have different CloudExtras configurations:
+
+```yaml
+# Production - High availability focus
+stacks:
+  production:
+    config:
+      cloudExtras:
+        disruptionBudget:
+          minAvailable: 3
+        vpa:
+          updateMode: "Auto"
+        affinity:
+          exclusiveNodePool: true
+          
+# Staging - Cost optimization focus  
+  staging:
+    config:
+      cloudExtras:
+        disruptionBudget:
+          minAvailable: 1
+        vpa:
+          updateMode: "Initial"
+        nodeSelector:
+          cost-optimization: "spot"
+```
 
 ---
 

@@ -53,6 +53,16 @@
       "schema": {}
     },
     {
+      "name": "KubernetesCloudExtras",
+      "type": "cloudextras",
+      "provider": "kubernetes",
+      "description": "Kubernetes-specific cloudExtras configuration for Simple Container deployments including probes, VPA, affinity, node selection, and pod disruption budgets",
+      "goPackage": "pkg/clouds/k8s/",
+      "goStruct": "CloudExtras",
+      "resourceType": "kubernetes-cloudextras",
+      "schema": {}
+    },
+    {
       "name": "KubernetesConfig",
       "type": "resource",
       "provider": "kubernetes",

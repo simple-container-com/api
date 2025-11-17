@@ -1,0 +1,105 @@
+{
+  "name": "AWSCloudExtras",
+  "type": "cloudextras",
+  "provider": "aws",
+  "description": "AWS-specific cloudExtras configuration for Simple Container deployments including Lambda scheduling, security groups, and load balancer settings",
+  "goPackage": "pkg/clouds/aws/",
+  "goStruct": "CloudExtras",
+  "resourceType": "aws-cloudextras",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "awsRoles": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "lambdaInvokeMode": {
+        "type": "string"
+      },
+      "lambdaRoutingType": {
+        "type": "string"
+      },
+      "lambdaSchedule": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "request": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression",
+          "request"
+        ],
+        "type": "object"
+      },
+      "lambdaSchedules": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "expression": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "expression",
+            "request"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "loadBalancerType": {
+        "type": "string"
+      },
+      "securityGroup": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "ingress": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "allowOnlyCloudflare": {
+                "type": "boolean"
+              },
+              "cidrBlocks": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "ipv6CidrBlocks": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    "required": [
+      "awsRoles",
+      "lambdaInvokeMode",
+      "lambdaRoutingType"
+    ],
+    "type": "object"
+  }
+}

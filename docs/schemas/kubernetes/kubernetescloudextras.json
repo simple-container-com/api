@@ -1,0 +1,733 @@
+{
+  "name": "KubernetesCloudExtras",
+  "type": "cloudextras",
+  "provider": "kubernetes",
+  "description": "Kubernetes-specific cloudExtras configuration for Simple Container deployments including probes, VPA, affinity, node selection, and pod disruption budgets",
+  "goPackage": "pkg/clouds/k8s/",
+  "goStruct": "CloudExtras",
+  "resourceType": "kubernetes-cloudextras",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "affinity": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "computeClass": {
+            "type": "string"
+          },
+          "exclusiveNodePool": {
+            "type": "boolean"
+          },
+          "nodeAffinity": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "preferredDuringSchedulingIgnoredDuringExecution": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "preference": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "matchExpressions": {
+                          "items": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "operator",
+                              "values"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "matchFields": {
+                          "items": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "operator",
+                              "values"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "matchExpressions",
+                        "matchFields"
+                      ],
+                      "type": "object"
+                    },
+                    "weight": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "preference",
+                    "weight"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "nodeSelectorTerms": {
+                    "items": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "matchExpressions": {
+                          "items": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "operator",
+                              "values"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "matchFields": {
+                          "items": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "operator",
+                              "values"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "matchExpressions",
+                        "matchFields"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "nodeSelectorTerms"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "preferredDuringSchedulingIgnoredDuringExecution",
+              "requiredDuringSchedulingIgnoredDuringExecution"
+            ],
+            "type": "object"
+          },
+          "nodePool": {
+            "type": "string"
+          },
+          "podAffinity": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "preferredDuringSchedulingIgnoredDuringExecution": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "podAffinityTerm": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "labelSelector": {
+                          "$schema": "https://json-schema.org/draft/2020-12/schema",
+                          "properties": {
+                            "matchExpressions": {
+                              "items": {
+                                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "operator": {
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "operator",
+                                  "values"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "matchLabels": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "matchExpressions",
+                            "matchLabels"
+                          ],
+                          "type": "object"
+                        },
+                        "namespaces": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "topologyKey": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "labelSelector",
+                        "namespaces",
+                        "topologyKey"
+                      ],
+                      "type": "object"
+                    },
+                    "weight": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "podAffinityTerm",
+                    "weight"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "labelSelector": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "matchExpressions": {
+                          "items": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "operator",
+                              "values"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "matchLabels": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "matchExpressions",
+                        "matchLabels"
+                      ],
+                      "type": "object"
+                    },
+                    "namespaces": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "topologyKey": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "labelSelector",
+                    "namespaces",
+                    "topologyKey"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "preferredDuringSchedulingIgnoredDuringExecution",
+              "requiredDuringSchedulingIgnoredDuringExecution"
+            ],
+            "type": "object"
+          },
+          "podAntiAffinity": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "preferredDuringSchedulingIgnoredDuringExecution": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "podAffinityTerm": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "labelSelector": {
+                          "$schema": "https://json-schema.org/draft/2020-12/schema",
+                          "properties": {
+                            "matchExpressions": {
+                              "items": {
+                                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "operator": {
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "operator",
+                                  "values"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "matchLabels": {
+                              "additionalProperties": {
+                                "type": "string"
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "matchExpressions",
+                            "matchLabels"
+                          ],
+                          "type": "object"
+                        },
+                        "namespaces": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "topologyKey": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "labelSelector",
+                        "namespaces",
+                        "topologyKey"
+                      ],
+                      "type": "object"
+                    },
+                    "weight": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "podAffinityTerm",
+                    "weight"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "labelSelector": {
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "properties": {
+                        "matchExpressions": {
+                          "items": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "properties": {
+                              "key": {
+                                "type": "string"
+                              },
+                              "operator": {
+                                "type": "string"
+                              },
+                              "values": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "operator",
+                              "values"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "matchLabels": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "matchExpressions",
+                        "matchLabels"
+                      ],
+                      "type": "object"
+                    },
+                    "namespaces": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "topologyKey": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "labelSelector",
+                    "namespaces",
+                    "topologyKey"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "preferredDuringSchedulingIgnoredDuringExecution",
+              "requiredDuringSchedulingIgnoredDuringExecution"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "computeClass",
+          "exclusiveNodePool",
+          "nodeAffinity",
+          "nodePool",
+          "podAffinity",
+          "podAntiAffinity"
+        ],
+        "type": "object"
+      },
+      "disruptionBudget": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "maxUnavailable": {
+            "type": "integer"
+          },
+          "minAvailable": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "maxUnavailable",
+          "minAvailable"
+        ],
+        "type": "object"
+      },
+      "livenessProbe": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "failureThreshold": {
+            "type": "integer"
+          },
+          "httpGet": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "port": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "port"
+            ],
+            "type": "object"
+          },
+          "initialDelaySeconds": {
+            "type": "integer"
+          },
+          "intervaSeconds": {
+            "type": "integer"
+          },
+          "interval": {
+            "type": "integer"
+          },
+          "successThreshold": {
+            "type": "integer"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "failureThreshold",
+          "httpGet",
+          "initialDelaySeconds",
+          "intervaSeconds",
+          "interval",
+          "successThreshold",
+          "timeoutSeconds"
+        ],
+        "type": "object"
+      },
+      "nodeSelector": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "readinessProbe": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "failureThreshold": {
+            "type": "integer"
+          },
+          "httpGet": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "port": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "port"
+            ],
+            "type": "object"
+          },
+          "initialDelaySeconds": {
+            "type": "integer"
+          },
+          "intervaSeconds": {
+            "type": "integer"
+          },
+          "interval": {
+            "type": "integer"
+          },
+          "successThreshold": {
+            "type": "integer"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "failureThreshold",
+          "httpGet",
+          "initialDelaySeconds",
+          "intervaSeconds",
+          "interval",
+          "successThreshold",
+          "timeoutSeconds"
+        ],
+        "type": "object"
+      },
+      "rollingUpdate": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "maxSurge": {
+            "type": "integer"
+          },
+          "maxUnavailable": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "maxSurge",
+          "maxUnavailable"
+        ],
+        "type": "object"
+      },
+      "tolerations": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "effect": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "operator": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "vpa": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "controlledResources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "maxAllowed": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "cpu": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cpu",
+              "memory"
+            ],
+            "type": "object"
+          },
+          "minAllowed": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "cpu": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cpu",
+              "memory"
+            ],
+            "type": "object"
+          },
+          "updateMode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "controlledResources",
+          "enabled",
+          "maxAllowed",
+          "minAllowed",
+          "updateMode"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "affinity",
+      "disruptionBudget",
+      "livenessProbe",
+      "nodeSelector",
+      "readinessProbe",
+      "rollingUpdate",
+      "tolerations",
+      "vpa"
+    ],
+    "type": "object"
+  }
+}
