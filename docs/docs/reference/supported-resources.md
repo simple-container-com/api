@@ -1490,6 +1490,12 @@ alerts:
 - **`periodSec`** - Evaluation period in seconds (60-86400)
 - **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
 
+**CloudWatch Metrics and Dimensions:**
+- **`serverErrors`** - Uses `HTTPCode_Target_5XX_Count` metric with LoadBalancer dimension
+- **`unhealthyHosts`** - Uses `UnHealthyHostCount` metric with LoadBalancer + TargetGroup dimensions  
+- **`responseTime`** - Uses `TargetResponseTime` metric with LoadBalancer dimension
+- All metrics use full AWS load balancer identifiers (including AWS-generated suffixes) for reliable targeting
+
 **Notification Channel Properties:**
 - **`email.addresses`** - Array of email addresses for email notifications
 - **`slack.webhookUrl`** - Slack webhook URL (use secrets management)

@@ -40,6 +40,7 @@ stacks:
       alerts:
         slack:
           webhookUrl: ${secret:alerts-slack-webhook}
+        # ECS Service Monitoring
         maxMemory:
           threshold: 80
           alertName: backend-max-memory
@@ -48,6 +49,22 @@ stacks:
           threshold: 70
           alertName: backend-max-cpu
           description: "Backend CPU usage exceeds 70%"
+        # ALB Monitoring
+        serverErrors:
+          threshold: 10
+          alertName: backend-server-errors
+          description: "High 5XX error rate detected"
+          periodSec: 300
+        unhealthyHosts:
+          threshold: 1
+          alertName: backend-unhealthy-hosts
+          description: "Unhealthy targets behind load balancer"
+          periodSec: 300
+        responseTime:
+          threshold: 2.0
+          alertName: backend-response-time
+          description: "Response time exceeds 2 seconds"
+          periodSec: 300
 ```
 
 **Docker Compose:**
@@ -71,6 +88,9 @@ services:
 - Redis caching layer
 - Auto-scaling configuration
 - Health checks and monitoring
+- Comprehensive ALB monitoring (5XX errors, unhealthy hosts, response time)
+- ECS service monitoring (CPU, memory)
+- Multi-channel alerting (Slack, Discord, Telegram, Email)
 - Secure environment variable injection
 
 ### Vector Database
@@ -282,6 +302,48 @@ sc deploy -s myservice -e production
 - **Configure auto-scaling** based on actual usage patterns
 - **Implement proper logging** with structured log formats
 - **Use environment-specific configurations** for different environments
-- **Set up monitoring and alerting** for production services
+- **Set up comprehensive monitoring and alerting** for production services:
+  - **ALB Monitoring**: Monitor server errors (5XX), unhealthy hosts, and response times
+  - **ECS Monitoring**: Track CPU and memory utilization
+  - **Multi-channel alerts**: Configure Slack, Discord, Telegram, or email notifications
 - **Implement graceful shutdown** handling in your applications
 - **Use secrets management** for sensitive configuration values
+
+### ALB Monitoring Configuration
+
+For production deployments with Application Load Balancers, configure monitoring for:
+
+```yaml
+alerts:
+  # Notification channels
+  slack:
+    webhookUrl: ${secret:alerts-slack-webhook}
+  email:
+    addresses:
+      - "ops@company.com"
+      
+  # ALB Health Monitoring
+  serverErrors:
+    threshold: 5.0        # Alert on 5+ server errors per period
+    periodSec: 300        # 5-minute evaluation period
+    alertName: "prod-server-errors"
+    description: "High 5XX error rate detected"
+    
+  unhealthyHosts:
+    threshold: 1          # Alert when any target becomes unhealthy
+    periodSec: 300
+    alertName: "prod-unhealthy-hosts"
+    description: "Unhealthy targets detected"
+    
+  responseTime:
+    threshold: 1.5        # Alert when response time > 1.5 seconds
+    periodSec: 300
+    alertName: "prod-response-time"
+    description: "Response time degradation"
+```
+
+**Technical Details:**
+- Server errors use `HTTPCode_Target_5XX_Count` metric with LoadBalancer dimension
+- Unhealthy hosts use `UnHealthyHostCount` metric with LoadBalancer + TargetGroup dimensions
+- Response time uses `TargetResponseTime` metric with LoadBalancer dimension
+- All metrics use full AWS load balancer identifiers for reliable monitoring
