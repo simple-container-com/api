@@ -442,6 +442,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}
 
 	var ecsLoadBalancers ecsV6.ServiceLoadBalancerArrayInput
+	var applicationLoadBalancer *lb.ApplicationLoadBalancer
 
 	if lbType == aws.LoadBalancerTypeAlb {
 		params.Log.Info(ctx.Context(), "configure application loadbalancer for %q in %q...", stack.Name, deployParams.Environment)
@@ -459,7 +460,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			HealthyThreshold:   sdk.IntPtr(lo.If(liveProbe.HttpGet.HealthyThreshold > 0, liveProbe.HttpGet.HealthyThreshold).Else(3)),
 			UnhealthyThreshold: sdk.IntPtr(lo.If(liveProbe.Retries > 0, liveProbe.Retries).Else(3)),
 		}
-		loadBalancer, err := lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
+		applicationLoadBalancer, err = lb.NewApplicationLoadBalancer(ctx, loadBalancerName, &lb.ApplicationLoadBalancerArgs{
 			Name:      sdk.String(loadBalancerName),
 			Tags:      tags,
 			SubnetIds: publicSubnets.Ids(),
@@ -472,15 +473,15 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		if err != nil {
 			return errors.Wrapf(err, "failed to create application loadbalancer for %q in %q", stack.Name, deployParams.Environment)
 		}
-		ref.LoadBalancerDNSHost = lo.ToPtr(loadBalancer.LoadBalancer.DnsName())
-		ctx.Export(fmt.Sprintf("%s-alb-arn", ecsSimpleClusterName), loadBalancer.LoadBalancer.Arn())
-		ctx.Export(fmt.Sprintf("%s-alb-name", ecsSimpleClusterName), loadBalancer.LoadBalancer.Name())
+		ref.LoadBalancerDNSHost = lo.ToPtr(applicationLoadBalancer.LoadBalancer.DnsName())
+		ctx.Export(fmt.Sprintf("%s-alb-arn", ecsSimpleClusterName), applicationLoadBalancer.LoadBalancer.Arn())
+		ctx.Export(fmt.Sprintf("%s-alb-name", ecsSimpleClusterName), applicationLoadBalancer.LoadBalancer.Name())
 
 		ecsLoadBalancers = ecsV6.ServiceLoadBalancerArray{
 			ecsV6.ServiceLoadBalancerArgs{
 				ContainerName:  sdk.String(iContainer.Name),
 				ContainerPort:  sdk.Int(iContainer.Port),
-				TargetGroupArn: loadBalancer.DefaultTargetGroup.Arn(),
+				TargetGroupArn: applicationLoadBalancer.DefaultTargetGroup.Arn(),
 			},
 		}
 	} else if lbType == aws.LoadBalancerTypeNlb {
@@ -713,13 +714,13 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	if crInput.Alerts != nil {
 		cluster.Name.ApplyT(func(clusterName string) any {
-			return createEcsAlerts(ctx, clusterName, ecsServiceName, stack, crInput, deployParams, params, opts...)
+			return createEcsAlerts(ctx, clusterName, ecsServiceName, stack, crInput, deployParams, params, applicationLoadBalancer, opts...)
 		})
 	}
 	return nil
 }
 
-func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack api.Stack, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, opts ...sdk.ResourceOption) error {
+func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack api.Stack, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, loadBalancer *lb.ApplicationLoadBalancer, opts ...sdk.ResourceOption) error {
 	alerts := crInput.Alerts
 
 	helpersImage, err := pushHelpersImageToECR(ctx, helperCfg{
@@ -801,9 +802,28 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 	if crInput.CloudExtras != nil && crInput.CloudExtras.LoadBalancerType != "" {
 		lbType = crInput.CloudExtras.LoadBalancerType
 	}
-	if lbType == aws.LoadBalancerTypeAlb {
-		// Get ALB name using the same pattern as ALB creation
-		loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+	if lbType == aws.LoadBalancerTypeAlb && loadBalancer != nil {
+		// Extract the full load balancer identifier from the ALB ARN
+		loadBalancerIdentifier := loadBalancer.LoadBalancer.Arn().ApplyT(func(arn string) string {
+			// Parse ARN: arn:aws:elasticloadbalancing:region:account:loadbalancer/app/name/suffix
+			if idx := strings.Index(arn, "loadbalancer/"); idx != -1 {
+				return arn[idx+len("loadbalancer/"):] // Returns "app/name/suffix"
+			}
+			// Fallback to constructed name if ARN parsing fails
+			loadBalancerName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-alb%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+			return fmt.Sprintf("app/%s", loadBalancerName)
+		}).(sdk.StringInput)
+
+		// Extract target group identifier from the target group ARN
+		targetGroupIdentifier := loadBalancer.DefaultTargetGroup.Arn().ApplyT(func(arn string) string {
+			// Parse ARN: arn:aws:elasticloadbalancing:region:account:targetgroup/name/suffix
+			if idx := strings.Index(arn, "targetgroup/"); idx != -1 {
+				return arn[idx:] // Returns "targetgroup/name/suffix"
+			}
+			// Fallback to constructed name if ARN parsing fails
+			targetGroupName := util.TrimStringMiddle(fmt.Sprintf("%s-%s-tg%s", stack.Name, deployParams.Environment, crInput.Config.Version), 30, "-")
+			return fmt.Sprintf("targetgroup/%s", targetGroupName)
+		}).(sdk.StringInput)
 
 		// Create SNS topic and subscriptions only if email addresses are configured
 		var snsTopic *sns.Topic
@@ -836,13 +856,13 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
-					MetricName:         sdk.String("HTTPCode_ELB_5XX_Count"),
+					MetricName:         sdk.String("HTTPCode_Target_5XX_Count"),
 					Namespace:          sdk.String("AWS/ApplicationELB"),
 					Threshold:          sdk.Float64(alerts.ServerErrors.Threshold),
 					Period:             sdk.Int(lo.If(alerts.ServerErrors.PeriodSec == 0, 300).Else(alerts.ServerErrors.PeriodSec)),
 					Statistic:          sdk.String("Sum"),
 					Dimensions: sdk.StringMap{
-						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+						"LoadBalancer": loadBalancerIdentifier,
 					},
 					AlarmDescription: sdk.String(alerts.ServerErrors.Description),
 					TreatMissingData: sdk.String("notBreaching"),
@@ -874,7 +894,8 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 					Period:             sdk.Int(lo.If(alerts.UnhealthyHosts.PeriodSec == 0, 300).Else(alerts.UnhealthyHosts.PeriodSec)),
 					Statistic:          sdk.String("Average"),
 					Dimensions: sdk.StringMap{
-						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+						"LoadBalancer": loadBalancerIdentifier,
+						"TargetGroup":  targetGroupIdentifier,
 					},
 					AlarmDescription: sdk.String(alerts.UnhealthyHosts.Description),
 					TreatMissingData: sdk.String("notBreaching"),
@@ -906,7 +927,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 					Period:             sdk.Int(lo.If(alerts.ResponseTime.PeriodSec == 0, 300).Else(alerts.ResponseTime.PeriodSec)),
 					Statistic:          sdk.String("Average"),
 					Dimensions: sdk.StringMap{
-						"LoadBalancer": sdk.String(fmt.Sprintf("app/%s", loadBalancerName)),
+						"LoadBalancer": loadBalancerIdentifier,
 					},
 					AlarmDescription: sdk.String(alerts.ResponseTime.Description),
 					TreatMissingData: sdk.String("notBreaching"),
