@@ -61,15 +61,28 @@ When adding support for new cloud resources:
 
 ### 4. Documentation Structure
 ```
-docs/docs/
-├── getting-started/     # Initial setup and basic usage
-├── concepts/           # Core concepts (stacks, resources, etc.)
-├── guides/            # Step-by-step tutorials
-├── examples/          # Code examples organized by category
-├── reference/         # API reference and supported resources
-├── advanced/          # Advanced topics
-└── ai-assistant/      # AI assistant documentation
+docs/
+├── design/            # Design documents for major features and architecture decisions
+│   ├── ai-assistant/
+│   ├── deploy-feedback/
+│   ├── resources-adoption/
+│   ├── secrets-managers/
+│   └── horizontal-pod-autoscaler/  # Example: HPA implementation design
+└── docs/
+    ├── getting-started/     # Initial setup and basic usage
+    ├── concepts/           # Core concepts (stacks, resources, etc.)
+    ├── guides/            # Step-by-step tutorials
+    ├── examples/          # Code examples organized by category
+    ├── reference/         # API reference and supported resources
+    ├── advanced/          # Advanced topics
+    └── ai-assistant/      # AI assistant documentation
 ```
+
+**Design Document Requirements:**
+- **All design documents must be placed under `docs/design/` folder**
+- **Each major feature should have its own subdirectory** (e.g., `docs/design/horizontal-pod-autoscaler/`)
+- **Include comprehensive documentation**: README.md, implementation phases, configuration examples, technical architecture
+- **Design-first approach**: Create design documents before implementation for complex features
 
 ### 5. GitHub Actions Integration
 - **Actions location**: `.github/actions/[action-name]/action.yml`

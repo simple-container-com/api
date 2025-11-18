@@ -12,6 +12,10 @@ type KubeRunInput struct {
 	Deployment       DeploymentConfig `json:"deployment" yaml:"deployment"`
 }
 
+func (i *KubeRunInput) OverriddenBaseZone() string {
+	return i.Deployment.StackConfig.BaseDnsZone
+}
+
 type CloudExtras struct {
 	NodeSelector     map[string]string `json:"nodeSelector" yaml:"nodeSelector"`
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget" yaml:"disruptionBudget"`

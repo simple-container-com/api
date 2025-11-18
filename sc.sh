@@ -352,16 +352,134 @@ BINDIR=~/.local/bin
 
 mkdir -p $BINDIR
 
-CURRENT="0.0.0"
-if [[ -f "$BINDIR/sc"  ]]; then
+# Enhanced binary validation function
+validate_sc_binary() {
+  local binary_path="$1"
+  
+  # Check if file exists and is executable
+  if [[ ! -f "$binary_path" ]]; then
+    return 1
+  fi
+  
+  if [[ ! -x "$binary_path" ]]; then
+    return 1
+  fi
+  
+  # Check if binary is complete (not corrupted)
   set +e
-  $BINDIR/sc --version 1>/dev/null 2>/dev/null
-  failure="$?"
+  "$binary_path" --version >/dev/null 2>&1
+  local exit_code=$?
   set -e
-  if [[ $failure != "0" ]]; then
-    CURRENT="null"
+  
+  return $exit_code
+}
+
+# Progress indicator for downloads
+show_progress() {
+  local pid=$1
+  local delay=0.1
+  local spinstr='|/-\'
+  local temp_file="/tmp/.sc_download_progress_$$"
+  
+  echo -n "Downloading Simple Container binary "
+  while kill -0 $pid 2>/dev/null; do
+    local temp=${spinstr#?}
+    printf "[%c]" "$spinstr"
+    local spinstr=$temp${spinstr%"$temp"}
+    sleep $delay
+    printf "\b\b\b"
+  done
+  printf "   \b\b\b"
+}
+
+# Safe download with validation
+safe_download_sc() {
+  local url="$1"
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  local temp_binary="$temp_dir/sc"
+  
+  echo "🚀 Installing Simple Container..."
+  echo "📦 Downloading from: $url"
+  
+  # Download with progress indicator
+  (
+    cd "$temp_dir"
+    curl -fL --progress-bar "$url" | tar -xzp sc
+  ) &
+  
+  local download_pid=$!
+  show_progress $download_pid
+  
+  # Wait for download to complete and check exit status
+  wait $download_pid
+  local download_status=$?
+  
+  if [[ $download_status -ne 0 ]]; then
+    echo ""
+    echo "❌ Failed to download sc from $url"
+    rm -rf "$temp_dir"
+    return 1
+  fi
+  
+  echo " ✅"
+  
+  # Validate the downloaded binary
+  echo -n "🔍 Validating binary... "
+  if ! validate_sc_binary "$temp_binary"; then
+    echo "❌"
+    echo "❌ Downloaded binary is corrupted or invalid"
+    rm -rf "$temp_dir"
+    return 1
+  fi
+  echo "✅"
+  
+  # Backup existing binary if it exists and is valid
+  if [[ -f "$BINDIR/sc" ]] && validate_sc_binary "$BINDIR/sc"; then
+    echo "📦 Backing up existing binary..."
+    cp "$BINDIR/sc" "$BINDIR/sc.backup.$(date +%s)"
+  fi
+  
+  # Atomically replace the binary
+  echo -n "📦 Installing binary... "
+  chmod +x "$temp_binary"
+  mv "$temp_binary" "$BINDIR/sc"
+  echo "✅"
+  
+  # Clean up
+  rm -rf "$temp_dir"
+  
+  # Final validation
+  echo -n "🧪 Testing installation... "
+  if validate_sc_binary "$BINDIR/sc"; then
+    local installed_version
+    installed_version=$("$BINDIR/sc" --version 2>/dev/null || echo "unknown")
+    echo "✅"
+    echo "🎉 Simple Container $installed_version installed successfully!"
+    return 0
   else
-    CURRENT="$($BINDIR/sc --version)"
+    echo "❌"
+    echo "❌ Installation failed - binary validation failed"
+    
+    # Attempt to restore backup if available
+    local latest_backup
+    latest_backup=$(ls -t "$BINDIR"/sc.backup.* 2>/dev/null | head -n1)
+    if [[ -n "$latest_backup" ]] && validate_sc_binary "$latest_backup"; then
+      echo "🔄 Restoring previous working version..."
+      cp "$latest_backup" "$BINDIR/sc"
+      echo "✅ Previous version restored"
+    fi
+    return 1
+  fi
+}
+
+CURRENT="0.0.0"
+if [[ -f "$BINDIR/sc" ]]; then
+  if validate_sc_binary "$BINDIR/sc"; then
+    CURRENT="$($BINDIR/sc --version 2>/dev/null || echo "0.0.0")"
+  else
+    echo "⚠️  Existing sc binary is corrupted or invalid"
+    CURRENT="null"
   fi
 fi
 
@@ -379,22 +497,62 @@ if [[ "$CURRENT" != "null" ]]; then
   VERSION_COMPARE="$(semver_compare "$VERSION" "$CURRENT" || echo "1")"
 fi
 
+# Enhanced installation logic with better UX
 if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "1" || ( "${FORCE_UPDATE}" == "true" && "$VERSION_COMPARE" != "0" ) ]]; then
-  (
-    cd $BINDIR &&
-    curl -s -fL "$URL" | tar -xzp sc || ( echo "Failed to install sc from $URL" && exit 1) &&
-    chmod +x sc &&
-    cd - >/dev/null
-  )
+  if ! safe_download_sc "$URL"; then
+    echo "❌ Failed to install Simple Container"
+    echo "💡 You can try:"
+    echo "   - Check your internet connection"
+    echo "   - Run the script again"
+    echo "   - Set SIMPLE_CONTAINER_VERSION to a specific version"
+    echo "   - Visit https://github.com/simple-container/simple-container for manual installation"
+    exit 1
+  fi
+elif [[ -f "$BINDIR/sc" ]]; then
+  # Binary exists and is up to date
+  current_version=$("$BINDIR/sc" --version 2>/dev/null || echo "unknown")
+  echo "✅ Simple Container $current_version is already installed and up to date"
+  echo "💡 No download needed - using existing installation"
 fi
 
+# Install Pulumi if not present
 if ! [ -x "$(command -v pulumi)" ]; then
+  echo "🔧 Pulumi not found, installing..."
   if [[ "$PLATFORM" == "linux" ]]; then
-    curl -fsSL https://get.pulumi.com | sh
+    echo "📦 Installing Pulumi for Linux..."
+    if curl -fsSL https://get.pulumi.com | sh; then
+      echo "✅ Pulumi installed successfully"
+    else
+      echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
+    fi
   elif [[ "$PLATFORM" == "darwin" ]]; then
-    brew install pulumi/tap/pulumi
+    echo "📦 Installing Pulumi via Homebrew..."
+    if command -v brew >/dev/null 2>&1; then
+      if brew install pulumi/tap/pulumi; then
+        echo "✅ Pulumi installed successfully"
+      else
+        echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
+      fi
+    else
+      echo "⚠️  Homebrew not found. Please install Pulumi manually: https://www.pulumi.com/docs/get-started/install/"
+    fi
   fi
+else
+  pulumi_version=$(pulumi version 2>/dev/null | head -n1 || echo "unknown")
+  echo "✅ Pulumi $pulumi_version is already installed"
 fi
+
+# Cleanup old backup files (keep only last 3)
+cleanup_old_backups() {
+  local backup_files
+  backup_files=$(ls -t "$BINDIR"/sc.backup.* 2>/dev/null | tail -n +4)
+  if [[ -n "$backup_files" ]]; then
+    echo "$backup_files" | xargs rm -f
+  fi
+}
+
+# Clean up old backups silently
+cleanup_old_backups 2>/dev/null || true
 
 export PATH="$PATH:$BINDIR"
 
@@ -439,4 +597,12 @@ if [[ -f "$HOME/.zshrc" ]]; then
   fi
 fi
 
-$BINDIR/sc $@
+# Final validation before executing sc
+if ! validate_sc_binary "$BINDIR/sc"; then
+  echo "❌ Simple Container binary is not working properly"
+  echo "💡 Try running the script again or check the installation"
+  exit 1
+fi
+
+# Execute sc with all passed arguments
+exec "$BINDIR/sc" "$@"
