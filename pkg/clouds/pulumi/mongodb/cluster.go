@@ -40,6 +40,11 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		return nil, errors.Errorf("failed to convert mongodb atlas config for %q", input.Descriptor.Type)
 	}
 
+	// Handle resource adoption - exit early if adopting
+	if atlasCfg.Adopt {
+		return AdoptCluster(ctx, stack, input, params)
+	}
+
 	projectName := toProjectName(stack.Name, input)
 	clusterName := toClusterName(stack.Name, input)
 

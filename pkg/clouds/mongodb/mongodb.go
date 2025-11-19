@@ -20,6 +20,9 @@ type AtlasConfig struct {
 	ExtraProviders map[string]api.AuthDescriptor `json:"extraProviders,omitempty" yaml:"extraProviders,omitempty"`
 	DiskSizeGB     *float64                      `json:"diskSizeGB,omitempty" yaml:"diskSizeGB,omitempty"`
 	NumShards      *int                          `json:"numShards,omitempty" yaml:"numShards,omitempty"`
+	// Resource adoption fields
+	Adopt       bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+	ClusterName string `json:"clusterName,omitempty" yaml:"clusterName,omitempty"`
 }
 
 type AtlasNetworkConfig struct {

@@ -29,18 +29,31 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	postgresName := toPostgresName(input, input.Descriptor.Name)
 	fullParentReference := params.ParentStack.FullReference
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-	params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
-	rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-	rootPassword, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootpass", postgresName, suffix), fullParentReference, rootPasswordExport, true)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
-	} else if rootPassword == "" {
-		return nil, errors.Errorf("failed to get root password (empty) from parent stack for %q", postgresName)
-	}
 
 	pgCfg, ok := input.Descriptor.Config.Config.(*gcloud.PostgresGcpCloudsqlConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
+	}
+
+	var rootPassword string
+	var err error
+
+	// For adopted resources, try to get root password from configuration first
+	if pgCfg.Adopt && pgCfg.RootPassword != "" {
+		params.Log.Info(ctx.Context(), "Using root password from configuration for adopted Postgres instance %q", postgresName)
+		rootPassword = pgCfg.RootPassword
+	} else {
+		// For provisioned resources or adopted resources without config password, get from parent stack
+		params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
+		rootPasswordExport := toPostgresRootPasswordExport(postgresName)
+		rootPassword, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootpass", postgresName, suffix), fullParentReference, rootPasswordExport, true)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
+		}
+	}
+
+	if rootPassword == "" {
+		return nil, errors.Errorf("failed to get root password (empty) for %q - check parent stack exports or configuration", postgresName)
 	}
 
 	// TODO: move to provider init

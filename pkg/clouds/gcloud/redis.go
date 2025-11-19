@@ -11,6 +11,9 @@ type RedisConfig struct {
 	MemorySizeGb int               `json:"memorySizeGb" yaml:"memorySizeGb"`
 	RedisConfig  map[string]string `json:"redisConfig" yaml:"redisConfig"`
 	Region       *string           `json:"region" yaml:"region"`
+	// Resource adoption fields
+	Adopt      bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+	InstanceId string `json:"instanceId,omitempty" yaml:"instanceId,omitempty"`
 }
 
 func RedisReadConfig(config *api.Config) (api.Config, error) {

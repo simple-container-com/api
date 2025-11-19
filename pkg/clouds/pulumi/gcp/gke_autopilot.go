@@ -34,6 +34,11 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		return nil, errors.Errorf("failed to convert gke autopilot config for %q", input.Descriptor.Type)
 	}
 
+	// Handle resource adoption - exit early if adopting
+	if gkeInput.Adopt {
+		return AdoptGkeAutopilot(ctx, stack, input, params)
+	}
+
 	containerServiceName := fmt.Sprintf("projects/%s/services/container.googleapis.com", gkeInput.ProjectId)
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, containerServiceName); err != nil {
 		return nil, errors.Wrapf(err, "failed to enable %s", containerServiceName)

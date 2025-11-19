@@ -25,6 +25,11 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
 
+	// Handle resource adoption - exit early if adopting
+	if pgCfg.Adopt {
+		return AdoptPostgres(ctx, stack, input, params)
+	}
+
 	containerServiceName := fmt.Sprintf("projects/%s/services/sqladmin.googleapis.com", pgCfg.ProjectId)
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, containerServiceName); err != nil {
 		return nil, errors.Wrapf(err, "failed to enable %s", containerServiceName)
