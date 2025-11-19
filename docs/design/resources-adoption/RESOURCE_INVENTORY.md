@@ -12,26 +12,58 @@ This document provides a comprehensive inventory of all cloud resources, service
 - **Service Count**: 10+ microservices with centralized infrastructure management
 
 ### **Project Breakdown**
-| Environment | GCP Project ID | Region | Zone | Registry |
-|------------|----------------|---------|------|----------|
-| **Staging** | `acme-staging` | `me-central1` | `me-central1-a` | `asia-east1-docker.pkg.dev/acme-staging/docker-registry-staging` |
-| **Production** | `acme-production` | `asia-east1` | `asia-east1-a` | `asia-east1-docker.pkg.dev/acme-production/docker-registry-prod` |
-| **Prod-EU** | `acme-prod-eu` | `europe-west1` | `europe-west1-b` | `europe-central2-docker.pkg.dev/acme-prod-eu/docker-registry-prod-eu` |
+| Environment    | GCP Project ID    | Region         | Zone             | Registry                                                              |
+|----------------|-------------------|----------------|------------------|-----------------------------------------------------------------------|
+| **Staging**    | `acme-staging`    | `me-central1`  | `me-central1-a`  | `asia-east1-docker.pkg.dev/acme-staging/docker-registry-staging`      |
+| **Production** | `acme-production` | `asia-east1`   | `asia-east1-a`   | `asia-east1-docker.pkg.dev/acme-production/docker-registry-prod`      |
+| **Prod-EU**    | `acme-prod-eu`    | `europe-west1` | `europe-west1-b` | `europe-central2-docker.pkg.dev/acme-prod-eu/docker-registry-prod-eu` |
 
 ## Core Infrastructure Resources
 
 ### **1. Compute Resources**
 
-#### **Google Kubernetes Engine (GKE)**
+#### **Google Kubernetes Engine (GKE Autopilot)** ⚠️ **CRITICAL FOR ADOPTION**
 - **Cluster Count**: 3 (one per environment)
+- **Cluster Type**: GKE Autopilot (fully managed)
 - **Node Configuration**: 
   - Machine Type: `e2-standard-4` (staging), `n1-standard-4` (production)
-  - Node Count: Variable scaling based on workload
+  - Node Count: Variable scaling based on workload (Autopilot managed)
+- **Locations**:
+  - **Staging**: `me-central1` (Middle East)
+  - **Production**: `asia-east1` (Asia Pacific)
+  - **Prod-EU**: `europe-west1` (Europe)
 - **Features**:
   - Regional persistent disks for high availability
   - Workload Identity for secure service communication
   - Horizontal Pod Autoscaling (HPA)
-  - Cluster Autoscaling
+  - Cluster Autoscaling (Autopilot managed)
+  - Existing Caddy deployments for ingress
+
+**Adoption Requirements**:
+```yaml
+# server.yaml - GKE Autopilot Cluster Adoption
+cluster:
+  type: gcp-gke-autopilot
+  config:
+    adopt: true  # Don't create - reference existing
+    clusterName: "acme-staging-cluster"
+    location: "me-central1"
+    projectId: "acme-staging"
+    serviceAccount: "${secret:GKE_STAGING_SERVICE_ACCOUNT}"
+    caddy:
+      patchExisting: true  # Patch existing Caddy instead of deploying new
+      deploymentName: "caddy"
+```
+
+**Service Account Permissions Required**:
+- `roles/container.viewer` - View cluster details
+- `roles/container.developer` - Deploy workloads and K8s Jobs
+- `roles/iam.serviceAccountUser` - Use service account
+
+**Existing Workloads**:
+- Caddy ingress controller (production traffic routing)
+- Prometheus monitoring stack
+- Existing PersistentVolumes with data
 
 #### **Container Registry (GCR/Artifact Registry)**
 - **Registry Type**: Google Artifact Registry
@@ -278,14 +310,15 @@ Document Data → MongoDB Atlas ← Analytics ← BigQuery
 
 **Problem**: ACME Corp has production resources with live data that cannot be recreated:
 
-| Resource Type | Production Data Risk | Adoption Strategy |
-|--------------|---------------------|-------------------|
-| **MongoDB Atlas** | ⚠️ **HIGH** - Live user data, cannot recreate | **ADOPT** - Reference existing clusters |
-| **Cloud SQL PostgreSQL** | ⚠️ **HIGH** - Transaction data, backups exist | **ADOPT** - Import existing instances |
-| **Redis Memorystore** | 🔄 **MEDIUM** - Cache data, can rebuild | **ADOPT** - Preserve existing connections |
-| **GCS Buckets** | ⚠️ **HIGH** - User uploads, media assets | **ADOPT** - Reference existing buckets |
-| **KMS Keys** | 🔒 **CRITICAL** - Encrypted data dependencies | **ADOPT** - Cannot recreate without data loss |
-| **VPC Networks** | 🌐 **MEDIUM** - Complex firewall rules | **ADOPT** - Preserve network security |
+| Resource Type              | Production Data Risk                            | Adoption Strategy                             |
+|----------------------------|-------------------------------------------------|-----------------------------------------------|
+| **GKE Autopilot Clusters** | 🔒 **CRITICAL** - Running workloads, Caddy, PVs | **ADOPT** - Reference existing clusters       |
+| **MongoDB Atlas**          | ⚠️ **HIGH** - Live user data, cannot recreate   | **ADOPT** - Reference existing clusters       |
+| **Cloud SQL PostgreSQL**   | ⚠️ **HIGH** - Transaction data, backups exist   | **ADOPT** - Import existing instances         |
+| **Redis Memorystore**      | 🔄 **MEDIUM** - Cache data, can rebuild         | **ADOPT** - Preserve existing connections     |
+| **GCS Buckets**            | ⚠️ **HIGH** - User uploads, media assets        | **ADOPT** - Reference existing buckets        |
+| **KMS Keys**               | 🔒 **CRITICAL** - Encrypted data dependencies   | **ADOPT** - Cannot recreate without data loss |
+| **VPC Networks**           | 🌐 **MEDIUM** - Complex firewall rules          | **ADOPT** - Preserve network security         |
 
 ### **Resource Adoption Implementation**
 
@@ -295,6 +328,18 @@ Document Data → MongoDB Atlas ← Analytics ← BigQuery
 resources:
   resources:
     staging:
+      # ADOPT EXISTING GKE CLUSTER - Critical infrastructure
+      cluster:
+        type: gcp-gke-autopilot
+        config:
+          adopt: true  # Don't create - reference existing
+          clusterName: "acme-staging-cluster"
+          location: "me-central1"
+          projectId: "acme-staging"
+          serviceAccount: "${secret:GKE_STAGING_SERVICE_ACCOUNT}"
+          caddy:
+            patchExisting: true  # Patch existing Caddy deployment
+      
       resources:
         # ADOPT EXISTING - Production data preservation
         postgresql-main:

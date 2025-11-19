@@ -53,6 +53,250 @@ graph TD
 ### **Key Requirement**: **Identical Output**
 The compute processor must generate **identical environment variables** whether the resource is provisioned or adopted, ensuring client services work without modification.
 
+## ⚠️ **CRITICAL REQUIREMENT: Active Database User Creation**
+
+### **The Core Challenge**
+
+**Problem Statement**: Resource adoption is NOT just reading existing connection details—compute processors must **actively create new users** in adopted databases for each service deployment.
+
+**Why This Is Critical**:
+- Each service needs its own isolated database user
+- Adopted databases don't have service-specific users pre-created
+- SC's security model requires separate credentials per service
+- Multi-tenant deployments need user isolation
+
+### **Current SC Behavior** (For Provisioned Databases)
+
+When SC provisions a database and a service uses it:
+
+1. **Parent Stack**: Provisions database with root/admin user
+2. **Service Deployment**: Compute processor runs:
+   ```go
+   // Get root credentials from parent stack
+   rootUser := parentStack.Outputs["postgres-root-user"]
+   rootPassword := parentStack.Outputs["postgres-root-password"]
+   
+   // Generate service-specific credentials
+   serviceUser := serviceName       // e.g., "web-app"
+   servicePassword := generateRandom(20)
+   
+   // Deploy Kubernetes Job to CREATE USER in database
+   NewPostgresInitDbUserJob(ctx, serviceUser, InitDbUserJobArgs{
+       Namespace: kubernetesNamespace,
+       User: DatabaseUser{
+           Database: serviceUser,
+           Username: serviceUser,
+           Password: servicePassword,
+       },
+       RootUser: rootUser,           // Use root to create user
+       RootPassword: rootPassword,
+       Host: databaseHost,
+       Port: "5432",
+   })
+   
+   // Return connection details with NEW user credentials
+   return ConnectionDetails{
+       User: serviceUser,
+       Password: servicePassword,
+       Database: serviceUser,
+   }
+   ```
+
+### **Required Behavior for Adopted Resources**
+
+**Adopted databases MUST support the exact same user creation flow**:
+
+```yaml
+# server.yaml - Adopted PostgreSQL Configuration
+postgresql-main:
+  type: gcp-cloudsql-postgres
+  config:
+    adopt: true
+    instanceName: "acme-postgres-prod"
+    connectionName: "acme-prod:asia-east1:postgres-prod"
+    
+    # CRITICAL: Root credentials for user creation
+    # These come from secrets.yaml, NOT from Pulumi provisioning
+    rootCredentials:
+      user: "${secret:POSTGRES_ROOT_USER}"
+      password: "${secret:POSTGRES_ROOT_PASSWORD}"
+```
+
+**Compute Processor Implementation for Adopted Postgres**:
+```go
+func handleAdoptedPostgres(ctx *sdk.Context, config *AdoptedPostgresConfig, serviceName string) error {
+    // Get root credentials from secrets.yaml (not from provisioning)
+    rootUser := secrets["POSTGRES_ROOT_USER"]
+    rootPassword := secrets["POSTGRES_ROOT_PASSWORD"]
+    
+    // Generate service-specific credentials (SAME as provisioned)
+    serviceUser := serviceName
+    servicePassword := generateRandom(20)
+    
+    // Deploy Kubernetes Job to CREATE USER (IDENTICAL to provisioned flow)
+    NewPostgresInitDbUserJob(ctx, serviceUser, InitDbUserJobArgs{
+        Namespace: kubernetesNamespace,
+        User: DatabaseUser{
+            Database: serviceUser,
+            Username: serviceUser,
+            Password: servicePassword,
+        },
+        RootUser: rootUser,              // From secrets.yaml
+        RootPassword: rootPassword,       // From secrets.yaml
+        Host: config.Host,                // From adoption config
+        Port: "5432",
+        KubeProvider: adoptedClusterProvider,  // Provider for adopted GKE cluster
+        InstanceName: config.InstanceName,
+    })
+    
+    // Return IDENTICAL connection details format
+    return ConnectionDetails{
+        User: serviceUser,
+        Password: servicePassword,
+        Database: serviceUser,
+    }
+}
+```
+
+### **MongoDB Atlas: Pulumi Provider Pattern**
+
+**Adopted MongoDB Configuration**:
+```yaml
+mongodb-cluster:
+  type: mongodb-atlas
+  config:
+    adopt: true
+    clusterName: "ACME-Production"
+    projectId: "507f1f77bcf86cd799439011"
+    
+    # MongoDB Atlas API credentials for Pulumi provider
+    publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+    privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+```
+
+**Compute Processor Implementation**:
+```go
+func handleAdoptedMongoDB(ctx *sdk.Context, config *AdoptedMongoConfig, serviceName string) error {
+    // Get MongoDB Atlas API credentials from secrets.yaml
+    publicKey := secrets["MONGODB_ATLAS_PUBLIC_KEY"]
+    privateKey := secrets["MONGODB_ATLAS_PRIVATE_KEY"]
+    
+    // Generate service-specific credentials
+    serviceUser := serviceName
+    servicePassword := generateRandom(20)
+    
+    // Create MongoDB Atlas database user via Pulumi provider
+    mongoUser, err := mongodbatlas.NewDatabaseUser(ctx, fmt.Sprintf("%s-user", serviceName), 
+        &mongodbatlas.DatabaseUserArgs{
+            ProjectId:        pulumi.String(config.ProjectId),
+            AuthDatabaseName: pulumi.String("admin"),
+            Username:         pulumi.String(serviceUser),
+            Password:         servicePassword.Result,
+            DatabaseName:     pulumi.String(serviceUser),
+            Roles: mongodbatlas.DatabaseUserRoleArray{
+                &mongodbatlas.DatabaseUserRoleArgs{
+                    DatabaseName: pulumi.String(serviceUser),
+                    RoleName:     pulumi.String("readWrite"),
+                },
+                &mongodbatlas.DatabaseUserRoleArgs{
+                    DatabaseName: pulumi.String(serviceUser),
+                    RoleName:     pulumi.String("dbAdmin"),
+                },
+            },
+        })
+    
+    if err != nil {
+        return errors.Wrapf(err, "failed to create MongoDB user for %s", serviceName)
+    }
+    
+    return ConnectionDetails{
+        User: serviceUser,
+        Password: servicePassword,
+        Database: serviceUser,
+    }
+}
+```
+
+**Why Pulumi Provider Instead of K8s Jobs**:
+- ✅ MongoDB Atlas has native Pulumi provider with full API support
+- ✅ No need for Kubernetes Jobs or mongosh containers
+- ✅ Cleaner architecture - user creation happens during Pulumi apply
+- ✅ Better error handling and retry logic via Pulumi
+
+### **GCP Cloud SQL: On-Cluster Job Requirement**
+
+**Critical Architecture Constraint**: For adopted GCP Cloud SQL Postgres instances, user creation **MUST** happen via Kubernetes Jobs running in the adopted GKE cluster.
+
+**Why Kubernetes Jobs Are Required**:
+1. **Cloud SQL Proxy**: Jobs use Cloud SQL Proxy sidecar for secure connection
+2. **Network Access**: Jobs run in same VPC as Cloud SQL instance
+3. **Service Account**: Jobs use GKE workload identity for authentication
+4. **Firewall Rules**: Existing firewall rules allow GKE → Cloud SQL traffic
+
+**Job Architecture**:
+```go
+func NewPostgresInitDbUserJob(ctx *sdk.Context, userName string, args InitDbUserJobArgs) (*InitUserJob, error) {
+    // Create Kubernetes Job in ADOPTED GKE cluster
+    job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
+        Metadata: &v1.ObjectMetaArgs{
+            Name: sdk.String(jobName),
+            Namespace: sdk.String(args.Namespace),
+        },
+        Spec: &batchv1.JobSpecArgs{
+            Template: &corev1.PodTemplateSpecArgs{
+                Spec: &corev1.PodSpecArgs{
+                    Containers: corev1.ContainerArray{
+                        // Container that creates database user
+                        &corev1.ContainerArgs{
+                            Image: sdk.String("postgres:15-alpine"),
+                            Command: sdk.StringArray{
+                                sdk.String("psql"),
+                                sdk.String(fmt.Sprintf("postgresql://%s:%s@%s:%s/postgres",
+                                    args.RootUser, args.RootPassword, args.Host, args.Port)),
+                                sdk.String("-c"),
+                                sdk.String(fmt.Sprintf(
+                                    "CREATE DATABASE %s; CREATE USER %s WITH PASSWORD '%s'; GRANT ALL ON DATABASE %s TO %s;",
+                                    args.User.Database, args.User.Username, args.User.Password,
+                                    args.User.Database, args.User.Username,
+                                )),
+                            },
+                        },
+                    },
+                    RestartPolicy: sdk.String("Never"),
+                },
+            },
+        },
+    }, sdk.Provider(args.KubeProvider))  // Uses adopted GKE cluster provider
+    
+    return &InitUserJob{Job: job}, nil
+}
+```
+
+### **Success Criteria for User Creation**
+
+For adopted resources to work identically to provisioned resources:
+
+1. ✅ **Root Credentials Available**: Compute processor can access root/admin credentials from secrets.yaml
+2. ✅ **Kubernetes Job Deployment**: Jobs can be deployed to adopted GKE clusters
+3. ✅ **Network Connectivity**: Jobs can connect to adopted databases (Cloud SQL Proxy, VPC peering, etc.)
+4. ✅ **User Creation Success**: Jobs successfully create users with proper permissions
+5. ✅ **Credential Return**: Service receives connection details with new user credentials
+6. ✅ **Identical Interface**: Service code uses `${resource:postgres-main.uri}` identically
+
+### **Validation Checklist**
+
+Before resource adoption is production-ready, verify:
+
+- [ ] Deploy service to adopted GKE cluster
+- [ ] Compute processor reads root credentials from secrets.yaml
+- [ ] Kubernetes Job deploys to adopted cluster successfully
+- [ ] Job connects to adopted database (Postgres/MongoDB)
+- [ ] Job creates database and user with correct permissions
+- [ ] Service receives environment variables with new credentials
+- [ ] Service successfully connects to database with new credentials
+- [ ] Multiple services can each get their own isolated users
+- [ ] User creation failures are properly handled and reported
+
 ## Technical Implementation Required
 
 ### **1. Enhanced Compute Processor Interface**

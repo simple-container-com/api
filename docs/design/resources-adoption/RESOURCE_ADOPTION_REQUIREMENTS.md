@@ -4,6 +4,18 @@
 
 Resource Adoption is a **critical enterprise feature** that allows Simple Container to reference and manage existing cloud resources without reprovisioning them. This enables brownfield migrations where production databases, storage, and other resources contain live data that cannot be recreated.
 
+**Key Architecture**:
+- ✅ **Pulumi State**: COMPLETELY NEW (fresh provisioner configuration in server.yaml)
+- ✅ **Cloud Resources**: EXISTING/ADOPTED (referenced via `adopt: true`, not recreated)
+- ✅ **State Management**: Pulumi tracks adopted resources in new state without modifying them
+
+**This Means**:
+1. Start with fresh Pulumi state backend (new GCS bucket, S3, or local state)
+2. Configure provisioner in server.yaml as normal
+3. Mark existing cloud resources with `adopt: true`
+4. Pulumi imports resources into new state without touching actual infrastructure
+5. SC can now manage service deployments using adopted resources
+
 ## Problem Statement
 
 ### **Current SC Limitation**
@@ -23,9 +35,46 @@ Without resource adoption, enterprises cannot migrate because:
 
 ## Technical Requirements
 
-### **1. Configuration Schema Extensions**
+### **1. Fresh Provisioner Configuration**
 
-#### **Server.yaml Schema Changes**
+#### **Server.yaml - New Pulumi State Backend**
+
+Since you're starting with completely fresh Pulumi state, configure the provisioner as normal:
+
+```yaml
+# server.yaml - Fresh provisioner configuration
+schemaVersion: 1.0
+
+provisioner:
+  type: pulumi
+  config:
+    # NEW Pulumi state backend (not importing existing state)
+    state-storage:
+      type: gcp-bucket
+      config:
+        credentials: "${auth:gcloud}"
+        provision: false  # Don't create state bucket (may already exist)
+        projectId: "acme-staging"
+        bucketName: "acme-sc-pulumi-state"  # NEW state bucket for SC
+    
+    # Optional: Secrets provider
+    secrets-provider:
+      type: gcp-kms
+      config:
+        credentials: "${auth:gcloud}"
+        provision: true
+        keyName: "acme-sc-secrets-key"
+```
+
+**Key Points**:
+- ✅ This creates a **NEW Pulumi state** - separate from any existing Pulumi infrastructure
+- ✅ State bucket can be new or existing (set `provision: false` if it exists)
+- ✅ Pulumi stack names will be fresh (e.g., `acme-corp-infrastructure-staging`)
+- ✅ No import of existing Pulumi state files needed
+
+### **2. Configuration Schema Extensions**
+
+#### **Server.yaml Schema Changes - Adopted Resources**
 ```yaml
 resources:
   resources:
@@ -48,51 +97,200 @@ resources:
 ```
 
 #### **Resource Type Support Matrix**
-| Resource Type           | Adopt Support | Import Command       | Required Identifiers             |
-|-------------------------|---------------|----------------------|----------------------------------|
-| `gcp-cloudsql-postgres` | ✅ Required    | `sc resource import` | `instanceName`, `connectionName` |
-| `gcp-cloudsql-mysql`    | ✅ Required    | `sc resource import` | `instanceName`, `connectionName` |
-| `mongodb-atlas`         | ✅ Required    | `sc resource import` | `clusterName`, `projectId`       |
-| `gcp-memorystore-redis` | ✅ Required    | `sc resource import` | `instanceId`, `region`           |
-| `gcp-storage`           | ✅ Required    | `sc resource import` | `bucketName`                     |
-| `gcp-kms`               | ✅ Critical    | `sc resource import` | `keyRing`, `cryptoKeys[]`        |
-| `aws-rds-postgres`      | ✅ Required    | `sc resource import` | `dbInstanceIdentifier`           |
-| `aws-elasticache-redis` | ✅ Required    | `sc resource import` | `cacheClusterId`                 |
-| `aws-s3`                | ✅ Required    | `sc resource import` | `bucketName`                     |
+| Resource Type           | Adopt Support  | Adoption Method       | Required Identifiers                   |
+|-------------------------|----------------|-----------------------|----------------------------------------|
+| `gcp-gke-autopilot`     | ✅ **CRITICAL** | `adopt: true` + `sc provision` | `clusterName`, `location`, `projectId` |
+| `gcp-cloudsql-postgres` | ✅ Required     | `adopt: true` + `sc provision` | `instanceName`, `connectionName`       |
+| `gcp-cloudsql-mysql`    | ✅ Required     | `adopt: true` + `sc provision` | `instanceName`, `connectionName`       |
+| `mongodb-atlas`         | ✅ Required     | `adopt: true` + `sc provision` | `clusterName`, `projectId`             |
+| `gcp-memorystore-redis` | ✅ Required     | `adopt: true` + `sc provision` | `instanceId`, `region`                 |
+| `gcp-storage`           | ✅ Required     | `adopt: true` + `sc provision` | `bucketName`                           |
+| `gcp-kms`               | ✅ Critical     | `adopt: true` + `sc provision` | `keyRing`, `cryptoKeys[]`              |
+| `aws-rds-postgres`      | ✅ Required     | `adopt: true` + `sc provision` | `dbInstanceIdentifier`                 |
+| `aws-elasticache-redis` | ✅ Required     | `adopt: true` + `sc provision` | `cacheClusterId`                       |
+| `aws-s3`                | ✅ Required     | `adopt: true` + `sc provision` | `bucketName`                           |
 
-### **2. CLI Command Extensions**
+#### **GKE Autopilot Cluster Adoption** ⚠️ **CRITICAL REQUIREMENT**
 
-#### **Resource Import Command**
-```bash
-sc resource import --stack <stack-name> \
-  --resource <resource-name> \
-  --type <resource-type> \
-  --identifier <cloud-resource-id> \
-  [--properties key=value]
+**Why Critical**: GKE Autopilot clusters are the compute foundation where all Kubernetes workloads run. Adopting existing clusters is essential for:
+- **Zero Downtime**: Services continue running in existing clusters
+- **Existing Workloads**: Caddy and other infrastructure already deployed
+- **Data Persistence**: PersistentVolumes with existing data
+- **Network Configuration**: Existing ingress, load balancers, and firewall rules
 
-# Examples:
-sc resource import --stack acme-corp-infrastructure \
-  --resource postgresql-main \
-  --type gcp-cloudsql-postgres \
-  --identifier "projects/acme-staging/instances/postgres-prod" \
-  --properties connectionName=acme-staging:me-central1:postgres-prod
-
-sc resource import --stack acme-corp-infrastructure \
-  --resource mongodb-cluster \
-  --type mongodb-atlas \
-  --identifier "cluster-id-12345" \
-  --properties projectId=507f1f77bcf86cd799439011
+**Configuration Schema**:
+```yaml
+# server.yaml - GKE Autopilot Cluster Adoption
+resources:
+  resources:
+    staging:
+      cluster:
+        type: gcp-gke-autopilot
+        config:
+          adopt: true  # Don't create cluster - reference existing
+          
+          # Required: Cluster identification
+          clusterName: "acme-staging-cluster"
+          location: "me-central1"  # Region or zone
+          projectId: "acme-staging"
+          
+          # Required: Service account with cluster access
+          serviceAccount: "${secret:GKE_STAGING_SERVICE_ACCOUNT}"
+          
+          # Optional: Existing Caddy deployment handling
+          caddy:
+            skipDeployment: false    # Default: deploy Caddy if not exists
+            patchExisting: true      # Default: patch existing Caddy deployment
+            deploymentName: "caddy"  # Existing Caddy deployment name
 ```
 
-#### **Resource Status Command**
+**Caddy Deployment Handling**:
+When adopting GKE clusters with existing Caddy deployments:
+
+1. **Detection Logic**:
+   ```go
+   // Check if Caddy deployment exists in cluster
+   existingCaddy := checkCaddyDeployment(cluster, "caddy")
+   if existingCaddy != nil {
+       if config.Caddy.PatchExisting {
+           // Patch existing Caddy with new configuration
+           patchCaddyDeployment(existingCaddy, newConfig)
+       } else if config.Caddy.SkipDeployment {
+           // Skip Caddy deployment entirely
+           log.Info("Skipping Caddy deployment - using existing")
+       }
+   } else {
+       // Deploy new Caddy instance
+       deployCaddy(cluster, config)
+   }
+   ```
+
+2. **Patching Strategy**:
+   - Update Caddy configuration ConfigMap
+   - Preserve existing TLS certificates
+   - Add new route configurations
+   - Trigger rolling update for Caddy pods
+
+3. **Skip vs Patch Decision Matrix**:
+   | Scenario | skipDeployment | patchExisting | Behavior |
+   |----------|----------------|---------------|----------|
+   | New cluster | false | false | Deploy Caddy normally |
+   | Existing Caddy, need updates | false | true | Patch existing Caddy |
+   | Existing Caddy, no changes | true | false | Skip Caddy entirely |
+   | Migration in progress | false | false | Deploy new, migrate traffic |
+
+**Adoption Flow**:
+```bash
+# 1. Configure cluster with adopt: true in server.yaml (shown above)
+
+# 2. Run normal provision command - SC automatically adopts instead of creating
+sc provision -s acme-corp-infrastructure -e staging
+
+# SC detects adopt: true and:
+# - Looks up existing GKE cluster
+# - Imports it into Pulumi state (doesn't modify cluster)
+# - Generates kubeconfig from service account
+# - Detects and optionally patches existing Caddy deployment
+# - Exports cluster connection details
+```
+
+**Service Account Requirements**:
+The service account must have the following GCP IAM permissions:
+```yaml
+# Required GCP IAM roles for adopted GKE cluster
+required_roles:
+  - roles/container.viewer                  # View cluster details
+  - roles/container.clusterViewer          # View cluster resources
+  - roles/iam.serviceAccountUser           # Use service account
+  
+# Additional permissions for Caddy management
+  - roles/container.developer              # Deploy/update workloads
+```
+
+**Secrets Configuration**:
+```yaml
+# secrets.yaml - GKE Service Account
+values:
+  # Service account key for cluster access
+  GKE_STAGING_SERVICE_ACCOUNT: |
+    {
+      "type": "service_account",
+      "project_id": "acme-staging",
+      "private_key_id": "...",
+      "private_key": "...",
+      "client_email": "gke-deployer@acme-staging.iam.gserviceaccount.com"
+    }
+```
+
+**Kubeconfig Access**:
+SC generates kubeconfig from adopted cluster configuration:
+```go
+// Generate kubeconfig for adopted cluster
+func generateKubeconfig(cluster *AdoptedGKECluster) (*kubernetes.Provider, error) {
+    // Authenticate with service account
+    credentials := loadServiceAccount(cluster.ServiceAccount)
+    
+    // Get cluster endpoint and CA certificate
+    clusterInfo := gcp.GetClusterInfo(cluster.ProjectId, cluster.Location, cluster.ClusterName)
+    
+    // Create Kubernetes provider for cluster
+    return kubernetes.NewProvider(ctx, "adopted-gke", &kubernetes.ProviderArgs{
+        Kubeconfig: generateKubeconfigFromCluster(clusterInfo, credentials),
+    })
+}
+```
+
+### **2. Natural Adoption via `sc provision`**
+
+#### **How Adoption Works**
+
+**Key Principle**: Resource adoption happens automatically during normal `sc provision` flow when `adopt: true` is detected.
+
+**Workflow**:
+```bash
+# 1. Configure resources with adopt: true in server.yaml
+# 2. Run normal provision command
+sc provision -s acme-corp-infrastructure -e staging
+
+# SC automatically:
+# - Detects adopt: true flag for each resource
+# - Routes to adoption logic instead of creation logic
+# - Looks up existing cloud resource
+# - Imports into Pulumi state (via sdk.Import())
+# - Exports connection details (same format as provisioned resources)
+# - Continues to next resource
+```
+
+**What This Does**:
+1. ✅ Adds cloud resource to Pulumi state without creating it
+2. ✅ Records resource metadata (connection details, identifiers)
+3. ✅ Enables `${resource:}` syntax for client services
+4. ❌ Does NOT modify the actual cloud resource
+5. ❌ Does NOT require separate import command
+6. ❌ Does NOT create any new infrastructure
+
+**Example Output**:
+```bash
+$ sc provision -s acme-corp-infrastructure -e staging
+
+Provisioning parent stack...
+  ✅ Adopting GKE cluster gke-staging-cluster (not creating)
+  ✅ Adopting MongoDB Atlas cluster ACME-Staging (not creating)
+  ✅ Adopting Cloud SQL instance acme-postgres-staging (not creating)
+  ✅ Creating new GCS bucket media-storage (provisioning)
+  
+All resources ready. Adopted: 3, Provisioned: 1
+```
+
+#### **Optional: Resource Status Command**
 ```bash
 sc resource status --stack <stack-name>
 # Output:
 # Resource                Type                    Status      Management
+# gke-staging            gcp-gke-autopilot       ADOPTED     External
 # postgresql-main        gcp-cloudsql-postgres   ADOPTED     External
 # mongodb-cluster        mongodb-atlas           ADOPTED     External  
-# analytics-db           gcp-cloudsql-postgres   PROVISIONED SC-Managed
-# storage-new            gcp-storage             PROVISIONED SC-Managed
+# media-storage          gcp-storage             PROVISIONED SC-Managed
 ```
 
 ### **3. State Management Requirements**
