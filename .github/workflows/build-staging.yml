@@ -10,6 +10,9 @@ jobs:
   build-staging:
     name: Build Staging Image
     runs-on: blacksmith-32vcpu-ubuntu-2204
+    outputs:
+      cicd-bot-telegram-token: ${{ steps.prepare-additional-secrets.outputs.cicd-bot-telegram-token }}
+      cicd-bot-telegram-chat-id: ${{ steps.prepare-additional-secrets.outputs.cicd-bot-telegram-chat-id }}
 
     steps:
       - name: Checkout code
@@ -64,6 +67,12 @@ jobs:
           EOF
           sc secrets reveal
 
+      - name: Prepare additional secrets for notifications
+        id: prepare-additional-secrets
+        run: |
+          echo "cicd-bot-telegram-token=$(sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
+
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@v3
         with:
@@ -113,3 +122,52 @@ jobs:
           echo "📝 Next steps:"
           echo "   1. Test your GitHub Actions workflows"
           echo "   2. Push changes to main when ready for production"
+
+  finalize:
+    name: Finalize staging build
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - build-staging
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ always() }}
+
+      - name: Extract git reference
+        id: extract_git_ref
+        if: ${{ always() }}
+        shell: bash
+        run: |-
+          cat <<'EOF' > /tmp/commit_message.txt
+            ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
+          EOF
+          message="$(cat /tmp/commit_message.txt | tr -d '\n')"
+          echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
+          echo "message=$message" >> $GITHUB_OUTPUT
+          echo "author=$GITHUB_ACTOR" >> $GITHUB_OUTPUT
+          echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+
+      # Notify telegram on success
+      - uses: yanzay/notify-telegram@v0.1.0
+        if: ${{ success() && !contains(needs.*.result, 'failure')  }}
+        continue-on-error: true
+        with:
+          chat: ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
+          status: ✅ staging build success (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+
+      # Notify telegram on failure
+      - uses: yanzay/notify-telegram@v0.1.0
+        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        continue-on-error: true
+        with:
+          chat: ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
+          status: ❗ staging build failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+
+      - name: Build failed due to previously failed steps
+        id: fail_if_needed
+        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        shell: bash
+        run: |-
+          exit 1
