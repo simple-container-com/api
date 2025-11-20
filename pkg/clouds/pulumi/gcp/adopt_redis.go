@@ -37,6 +37,39 @@ func AdoptRedis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 
 	params.Log.Info(ctx.Context(), "adopting existing Redis Memorystore instance %q", redisCfg.InstanceId)
 
+	// First, lookup the existing Redis instance to get its current configuration
+	params.Log.Info(ctx.Context(), "fetching existing Redis instance details for %q", redisCfg.InstanceId)
+	existingInstance, err := redis.LookupInstance(ctx, &redis.LookupInstanceArgs{
+		Name:    redisCfg.InstanceId,
+		Project: &redisCfg.ProjectId,
+		Region:  redisCfg.Region,
+	}, sdk.Provider(params.Provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to lookup existing Redis Memorystore instance %q", redisCfg.InstanceId)
+	}
+
+	// Use the existing instance's configuration for the import, but allow overrides from config
+	memorySizeGb := existingInstance.MemorySizeGb
+	if redisCfg.MemorySizeGb != 0 {
+		memorySizeGb = redisCfg.MemorySizeGb
+		params.Log.Info(ctx.Context(), "overriding memory size with config value: %dGB", memorySizeGb)
+	}
+
+	redisVersion := existingInstance.RedisVersion
+	if redisCfg.Version != "" {
+		redisVersion = redisCfg.Version
+		params.Log.Info(ctx.Context(), "overriding Redis version with config value: %q", redisVersion)
+	}
+
+	region := existingInstance.Region
+	if redisCfg.Region != nil && *redisCfg.Region != "" {
+		region = redisCfg.Region
+		params.Log.Info(ctx.Context(), "overriding region with config value: %q", *region)
+	}
+
+	params.Log.Info(ctx.Context(), "found existing Redis instance with memory size %dGB, version %q, region %q",
+		memorySizeGb, redisVersion, region)
+
 	// Import existing Redis instance into Pulumi state
 	// The instance resource ID in GCP is: projects/{project}/locations/{location}/instances/{instance}
 	// For Redis, we need to construct the full resource path
@@ -53,8 +86,12 @@ func AdoptRedis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 
 	redisInstance, err := redis.NewInstance(ctx, redisName, &redis.InstanceArgs{
 		Name: sdk.String(redisCfg.InstanceId),
-		// Note: We don't need to specify all the instance configuration since we're importing
-		// Pulumi will read the current state from GCP
+		// Use the existing instance's configuration for import
+		MemorySizeGb: sdk.Int(memorySizeGb),
+		RedisVersion: sdk.StringPtr(redisVersion),
+		Region:       sdk.StringPtrFromPtr(region),
+		// Note: Using actual instance configuration from GCP
+		// This ensures the import matches the existing instance exactly
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to import Redis Memorystore instance %q", redisCfg.InstanceId)

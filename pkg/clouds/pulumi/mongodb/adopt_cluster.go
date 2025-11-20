@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -38,6 +39,54 @@ func AdoptCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 
 	params.Log.Info(ctx.Context(), "adopting existing MongoDB Atlas cluster %q for project %q", atlasCfg.ClusterName, atlasCfg.ProjectId)
 
+	// First, lookup the existing cluster to get its current configuration
+	params.Log.Info(ctx.Context(), "fetching existing cluster details for %q", atlasCfg.ClusterName)
+	existingCluster, err := mongodbatlas.LookupCluster(ctx, &mongodbatlas.LookupClusterArgs{
+		ProjectId: atlasCfg.ProjectId,
+		Name:      atlasCfg.ClusterName,
+	}, sdk.Provider(params.Provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to lookup existing MongoDB Atlas cluster %q", atlasCfg.ClusterName)
+	}
+
+	// Use the existing cluster's configuration for the import, but allow overrides from config
+	instanceSize := existingCluster.ProviderInstanceSizeName
+	if atlasCfg.InstanceSize != "" {
+		instanceSize = atlasCfg.InstanceSize
+		params.Log.Info(ctx.Context(), "overriding instance size with config value: %q", instanceSize)
+	}
+
+	region := existingCluster.ProviderRegionName
+	if atlasCfg.Region != "" {
+		region = atlasCfg.Region
+		params.Log.Info(ctx.Context(), "overriding region with config value: %q", region)
+	}
+
+	clusterType := existingCluster.ClusterType
+	providerName := existingCluster.ProviderName
+	backingProviderName := existingCluster.BackingProviderName
+
+	// Override provider settings if cloud provider is explicitly specified
+	if atlasCfg.CloudProvider != "" {
+		params.Log.Info(ctx.Context(), "overriding cloud provider with config value: %q", atlasCfg.CloudProvider)
+		// Apply the same shared instance size logic as regular provisioning
+		sharedInstanceSizes := []string{"M0", "M2", "M5"}
+		_, isSharedInstanceSize := lo.Find(sharedInstanceSizes, func(size string) bool {
+			return size == instanceSize
+		})
+
+		if isSharedInstanceSize {
+			providerName = "TENANT"
+			backingProviderName = atlasCfg.CloudProvider
+		} else {
+			providerName = atlasCfg.CloudProvider
+			backingProviderName = ""
+		}
+	}
+
+	params.Log.Info(ctx.Context(), "found existing cluster with instance size %q, region %q, provider %q",
+		instanceSize, region, providerName)
+
 	// Import existing cluster into Pulumi state
 	// The cluster resource ID in MongoDB Atlas is: {project_id}-{cluster_name}
 	clusterResourceId := fmt.Sprintf("%s-%s", atlasCfg.ProjectId, atlasCfg.ClusterName)
@@ -51,8 +100,14 @@ func AdoptCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	cluster, err := mongodbatlas.NewCluster(ctx, clusterName, &mongodbatlas.ClusterArgs{
 		ProjectId: sdk.String(atlasCfg.ProjectId),
 		Name:      sdk.String(atlasCfg.ClusterName),
-		// Note: We don't need to specify all the cluster configuration since we're importing
-		// Pulumi will read the current state from MongoDB Atlas
+		// Use the existing cluster's configuration for import
+		ProviderInstanceSizeName: sdk.String(instanceSize),
+		ProviderRegionName:       sdk.StringPtr(region),
+		ClusterType:              sdk.StringPtr(clusterType),
+		ProviderName:             sdk.String(providerName),
+		BackingProviderName:      sdk.StringPtrFromPtr(lo.If(backingProviderName != "", &backingProviderName).Else(nil)),
+		// Note: Using actual cluster configuration from MongoDB Atlas
+		// This ensures the import matches the existing cluster exactly
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to import MongoDB Atlas cluster %q", atlasCfg.ClusterName)
