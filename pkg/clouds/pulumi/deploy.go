@@ -45,7 +45,18 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	}
 	if !params.SkipPreview {
 		p.logger.Info(ctx, color.GreenFmt("Preview stack %q...", stackSource.Name()))
-		previewResult, err := stackSource.Preview(ctx, optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))))
+
+		previewOpts := []optpreview.Option{
+			optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
+		}
+
+		// Add detailed diff option if requested
+		if params.DetailedDiff {
+			previewOpts = append(previewOpts, optpreview.Diff())
+			p.logger.Info(ctx, "🔍 Diff enabled - showing granular changes for nested properties")
+		}
+
+		previewResult, err := stackSource.Preview(ctx, previewOpts...)
 		if err != nil {
 			return err
 		}
@@ -59,7 +70,17 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		defer cancel()
 	}
 
-	upRes, err := stackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDeploy))))
+	upOpts := []optup.Option{
+		optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDeploy))),
+	}
+
+	// Add detailed diff option if requested
+	if params.DetailedDiff {
+		upOpts = append(upOpts, optup.Diff())
+		p.logger.Info(ctx, "🔍 Diff enabled for update operation - showing granular changes")
+	}
+
+	upRes, err := stackSource.Up(ctx, upOpts...)
 	if err != nil {
 		return err
 	}

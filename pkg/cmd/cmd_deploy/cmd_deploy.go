@@ -20,6 +20,11 @@ type deployCmd struct {
 func NewDeployCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	pCmd := deployCmd{
 		Root: rootCmd,
+		Params: api.DeployParams{
+			StackParams: api.StackParams{
+				DetailedDiff: true, // Enable detailed diff by default for better visibility
+			},
+		},
 	}
 	cmd := &cobra.Command{
 		Use:   "deploy",

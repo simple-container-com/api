@@ -246,17 +246,18 @@ type StackConfigStatic struct {
 }
 
 type StackParams struct {
-	StacksDir   string   `json:"stacksDir" yaml:"stacksDir"`
-	StackDir    string   `json:"stackDir" yaml:"stackDir"`
-	Profile     string   `json:"profile" yaml:"profile"`
-	StackName   string   `json:"stack" yaml:"stack"`
-	Environment string   `json:"environment" yaml:"environment"`
-	ParentEnv   string   `json:"parentEnv" yaml:"parentEnv"`
-	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
-	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
-	Version     string   `json:"version" yaml:"version"`
-	Timeouts    Timeouts `json:",inline" yaml:",inline"`
-	Parent      bool     `json:"parent" yaml:"parent"`
+	StacksDir    string   `json:"stacksDir" yaml:"stacksDir"`
+	StackDir     string   `json:"stackDir" yaml:"stackDir"`
+	Profile      string   `json:"profile" yaml:"profile"`
+	StackName    string   `json:"stack" yaml:"stack"`
+	Environment  string   `json:"environment" yaml:"environment"`
+	ParentEnv    string   `json:"parentEnv" yaml:"parentEnv"`
+	SkipRefresh  bool     `json:"skipRefresh" yaml:"skipRefresh"`
+	SkipPreview  bool     `json:"skipPreview" yaml:"skipPreview"`
+	DetailedDiff bool     `json:"detailedDiff" yaml:"detailedDiff"` // Enable detailed diff output for granular change visibility
+	Version      string   `json:"version" yaml:"version"`
+	Timeouts     Timeouts `json:",inline" yaml:",inline"`
+	Parent       bool     `json:"parent" yaml:"parent"`
 }
 
 type Timeouts struct {
