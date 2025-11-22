@@ -1,6 +1,7 @@
 package gcp
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -128,12 +129,30 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	out := &GkeAutopilotOut{
 		Cluster: cluster,
-		Caddy:   nil, // For adopted clusters, Caddy handling is done in compute processor
+		Caddy:   nil, // Will be set below if Caddy is configured
 	}
 
 	// Export the same keys as the provisioning function to ensure compute processor compatibility
 	kubeconfig := generateKubeconfig(cluster, gkeInput)
 	ctx.Export(toKubeconfigExport(clusterName), kubeconfig)
+
+	// Export Caddy configuration if specified (for child stack compatibility)
+	// Note: For adopted clusters, we don't deploy Caddy but still need to export config
+	if gkeInput.Caddy != nil {
+		params.Log.Info(ctx.Context(), "exporting Caddy config for adopted GKE Autopilot cluster %q (no deployment)", gkeInput.ClusterName)
+
+		// Export a minimal Caddy config that child stacks can read
+		// This matches the structure that DeployCaddyService would export
+		caddyConfigJson, err := json.Marshal(gkeInput.Caddy)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to marshal caddy config for adopted cluster %q", clusterName)
+		}
+
+		// Export the Caddy config using the same export key as regular provisioning
+		ctx.Export(kubernetes.ToCaddyConfigExport(clusterName), sdk.String(string(caddyConfigJson)))
+
+		params.Log.Info(ctx.Context(), "✅ Caddy config exported for child stack compatibility")
+	}
 
 	params.Log.Info(ctx.Context(), "successfully adopted GKE Autopilot cluster %q", gkeInput.ClusterName)
 
