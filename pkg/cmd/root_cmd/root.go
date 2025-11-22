@@ -117,6 +117,9 @@ func RegisterStackFlags(cmd *cobra.Command, p *api.StackParams, persistent bool)
 	flags.StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before deploy")
 	cmd.Flags().BoolVarP(&p.SkipPreview, "skip-preview", "S", p.SkipPreview, "Skip preview before deploy")
+	cmd.Flags().BoolVarP(&p.DetailedDiff, "diff", "D", p.DetailedDiff, "Show detailed diff with granular changes for nested properties (e.g., redisConfigs)")
+	cmd.Flags().BoolVar(&p.DetailedDiff, "detailed-diff", p.DetailedDiff, "Alias for --diff")
+	_ = cmd.Flags().MarkHidden("detailed-diff") // Hide the alias from help output
 
 	// Register auto-completion for stack and environment parameters
 	registerStackCompletion(cmd, "stack")

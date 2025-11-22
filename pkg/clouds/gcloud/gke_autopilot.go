@@ -21,6 +21,9 @@ type GkeAutopilotResource struct {
 	Zone          string           `json:"zone" yaml:"zone"`
 	Timeouts      *Timeouts        `json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Caddy         *k8s.CaddyConfig `json:"caddy,omitempty" yaml:"caddy,omitempty"`
+	// Resource adoption fields
+	Adopt       bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+	ClusterName string `json:"clusterName,omitempty" yaml:"clusterName,omitempty"`
 }
 
 type Timeouts struct {

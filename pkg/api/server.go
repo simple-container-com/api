@@ -9,12 +9,13 @@ import (
 const ServerSchemaVersion = "1.0"
 
 type ProvisionParams struct {
-	StacksDir   string   `json:"rootDir" yaml:"rootDir"`
-	Profile     string   `json:"profile" yaml:"profile"`
-	Stacks      []string `json:"stacks" yaml:"stacks"`
-	SkipRefresh bool     `json:"skipRefresh" yaml:"skipRefresh"`
-	SkipPreview bool     `json:"skipPreview" yaml:"skipPreview"`
-	Timeouts    Timeouts `json:",inline" yaml:",inline"`
+	StacksDir    string   `json:"rootDir" yaml:"rootDir"`
+	Profile      string   `json:"profile" yaml:"profile"`
+	Stacks       []string `json:"stacks" yaml:"stacks"`
+	SkipRefresh  bool     `json:"skipRefresh" yaml:"skipRefresh"`
+	SkipPreview  bool     `json:"skipPreview" yaml:"skipPreview"`
+	DetailedDiff bool     `json:"detailedDiff" yaml:"detailedDiff"` // Enable detailed diff output for granular change visibility
+	Timeouts     Timeouts `json:",inline" yaml:",inline"`
 }
 
 // ServerDescriptor describes the server schema

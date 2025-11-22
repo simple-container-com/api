@@ -31,6 +31,12 @@
         ],
         "type": "object"
       },
+      "adopt": {
+        "type": "boolean"
+      },
+      "bucketName": {
+        "type": "string"
+      },
       "location": {
         "type": "string"
       },

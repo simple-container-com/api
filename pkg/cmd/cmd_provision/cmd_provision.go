@@ -18,6 +18,9 @@ type provisionCmd struct {
 func NewProvisionCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 	pCmd := provisionCmd{
 		Root: rootCmd,
+		Params: api.ProvisionParams{
+			DetailedDiff: true, // Enable detailed diff by default for better visibility
+		},
 	}
 	cmd := &cobra.Command{
 		Use:   "provision",
@@ -48,6 +51,9 @@ func RegisterProvisionFlags(cmd *cobra.Command, p *api.ProvisionParams) {
 	cmd.Flags().StringVarP(&p.StacksDir, "dir", "d", p.StacksDir, "Root directory for stack configurations (default: .sc/stacks)")
 	cmd.Flags().BoolVarP(&p.SkipRefresh, "skip-refresh", "R", p.SkipRefresh, "Skip refresh before provision")
 	cmd.Flags().BoolVarP(&p.SkipPreview, "skip-preview", "S", p.SkipPreview, "Skip preview before provision")
+	cmd.Flags().BoolVarP(&p.DetailedDiff, "diff", "D", p.DetailedDiff, "Show detailed diff with granular changes for nested properties (e.g., redisConfigs)")
+	cmd.Flags().BoolVar(&p.DetailedDiff, "detailed-diff", p.DetailedDiff, "Alias for --diff")
+	_ = cmd.Flags().MarkHidden("detailed-diff") // Hide the alias from help output
 
 	cmd.Flags().StringVarP(&p.Timeouts.PreviewTimeout, "preview-timeout", "M", p.Timeouts.PreviewTimeout, "Timeout on preview operations (in Go's duration format, e.g. `20m`)")
 	cmd.Flags().StringVarP(&p.Timeouts.ExecutionTimeout, "execution-timeout", "O", p.Timeouts.ExecutionTimeout, "Timeout on whole command execution (in Go's duration format, e.g. `20m`)")

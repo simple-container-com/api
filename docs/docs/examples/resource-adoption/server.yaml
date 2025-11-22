@@ -1,0 +1,184 @@
+# Resource Adoption Example - Parent Stack Configuration
+# This example shows how to adopt existing cloud infrastructure across multiple environments
+
+schemaVersion: 1.0
+
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: gcp-bucket
+      config:
+        credentials: "${auth:gcloud}"
+        projectId: "${auth:gcloud.projectId}"
+        bucketName: "your-company-pulumi-state"
+    secrets-provider:
+      type: gcp-kms
+      config:
+        provision: true
+        projectId: "${auth:gcloud.projectId}"
+        keyName: your-company-sc-kms-key
+        keyLocation: global
+        credentials: "${auth:gcloud}"
+
+templates:
+  gke-autopilot-prod:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud-prod.projectId}"
+      credentials: "${auth:gcloud-prod}"
+      gkeClusterResource: gke-cluster
+      artifactRegistryResource: artifact-registry
+      
+  gke-autopilot-staging:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud-staging.projectId}"
+      credentials: "${auth:gcloud-staging}"
+      gkeClusterResource: gke-cluster
+      artifactRegistryResource: artifact-registry
+
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: "${secret:CLOUDFLARE_ACCOUNT_ID}"
+      zoneName: your-company.com
+
+  resources:
+    # Production Environment
+    prod:
+      template: gke-autopilot-prod
+      resources:
+        # Adopt existing MongoDB Atlas cluster
+        mongodb:
+          type: mongodb-atlas
+          config:
+            adopt: true
+            clusterName: "production-cluster-abc123"  # Replace with your cluster name
+            orgId: "${secret:MONGODB_ATLAS_ORG_ID}"
+            projectId: "${secret:MONGODB_ATLAS_PROJECT_ID_PROD}"
+            projectName: "Production MongoDB"
+            region: "WESTERN_EUROPE"
+            cloudProvider: GCP
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+
+        # Adopt existing Cloud SQL Postgres instance
+        postgres:
+          type: gcp-cloudsql-postgres
+          config:
+            adopt: true
+            instanceName: "production-postgres-instance"  # Replace with your instance name
+            connectionName: "your-project:us-central1:production-postgres-instance"  # Replace with your connection name
+            rootPassword: "${secret:POSTGRES_ROOT_PASSWORD_PROD}"
+            projectId: "${auth:gcloud-prod.projectId}"
+            credentials: "${auth:gcloud-prod}"
+            version: "POSTGRES_14"
+            region: "us-central1"
+            usersProvisionRuntime:
+              type: "gke"
+              resourceName: "gke-cluster"
+
+        # Adopt existing Redis Memorystore instance
+        redis:
+          type: gcp-redis
+          config:
+            adopt: true
+            instanceId: "production-redis-cache"  # Replace with your instance ID
+            projectId: "${auth:gcloud-prod.projectId}"
+            credentials: "${auth:gcloud-prod}"
+            region: "us-central1"
+
+        # Adopt existing GKE Autopilot cluster
+        gke-cluster:
+          type: gcp-gke-autopilot-cluster
+          config:
+            adopt: true
+            clusterName: "production-gke-cluster"  # Replace with your cluster name
+            projectId: "${auth:gcloud-prod.projectId}"
+            credentials: "${auth:gcloud-prod}"
+            location: "us-central1"
+            caddy:
+              enable: true
+              namespace: "caddy"
+              replicas: 2
+
+        # Provision new Artifact Registry (not adopted)
+        artifact-registry:
+          type: gcp-artifact-registry
+          config:
+            projectId: "${auth:gcloud-prod.projectId}"
+            credentials: "${auth:gcloud-prod}"
+            location: "us-central1"
+            docker:
+              immutableTags: true
+
+    # Staging Environment
+    staging:
+      template: gke-autopilot-staging
+      resources:
+        # Adopt existing MongoDB Atlas cluster
+        mongodb:
+          type: mongodb-atlas
+          config:
+            adopt: true
+            clusterName: "staging-cluster-def456"  # Replace with your cluster name
+            orgId: "${secret:MONGODB_ATLAS_ORG_ID}"
+            projectId: "${secret:MONGODB_ATLAS_PROJECT_ID_STAGING}"
+            projectName: "Staging MongoDB"
+            region: "WESTERN_EUROPE"
+            cloudProvider: GCP
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
+
+        # Adopt existing Cloud SQL Postgres instance
+        postgres:
+          type: gcp-cloudsql-postgres
+          config:
+            adopt: true
+            instanceName: "staging-postgres-instance"  # Replace with your instance name
+            connectionName: "your-staging-project:us-central1:staging-postgres-instance"  # Replace with your connection name
+            rootPassword: "${secret:POSTGRES_ROOT_PASSWORD_STAGING}"
+            projectId: "${auth:gcloud-staging.projectId}"
+            credentials: "${auth:gcloud-staging}"
+            version: "POSTGRES_14"
+            region: "us-central1"
+            usersProvisionRuntime:
+              type: "gke"
+              resourceName: "gke-cluster"
+
+        # Adopt existing Redis Memorystore instance
+        redis:
+          type: gcp-redis
+          config:
+            adopt: true
+            instanceId: "staging-redis-cache"  # Replace with your instance ID
+            projectId: "${auth:gcloud-staging.projectId}"
+            credentials: "${auth:gcloud-staging}"
+            region: "us-central1"
+
+        # Adopt existing GKE Autopilot cluster
+        gke-cluster:
+          type: gcp-gke-autopilot-cluster
+          config:
+            adopt: true
+            clusterName: "staging-gke-cluster"  # Replace with your cluster name
+            projectId: "${auth:gcloud-staging.projectId}"
+            credentials: "${auth:gcloud-staging}"
+            location: "us-central1"
+            caddy:
+              enable: true
+              namespace: "caddy"
+              replicas: 1
+
+        # Provision new Artifact Registry (not adopted)
+        artifact-registry:
+          type: gcp-artifact-registry
+          config:
+            projectId: "${auth:gcloud-staging.projectId}"
+            credentials: "${auth:gcloud-staging}"
+            location: "us-central1"
+            docker:
+              immutableTags: true

@@ -1,0 +1,61 @@
+# Resource Adoption Example - Client Service Configuration
+# This shows how services use adopted resources with identical configuration across environments
+
+schemaVersion: 1.0
+
+stacks:
+  # Production service using adopted resources
+  prod:
+    type: cloud-compose
+    parent: your-company/infrastructure  # Reference to parent stack
+    config:
+      domain: api.your-company.com
+      dockerComposeFile: ./docker-compose.yaml
+      uses:
+        - mongodb      # Uses adopted MongoDB Atlas cluster
+        - postgres     # Uses adopted Cloud SQL Postgres
+        - redis        # Uses adopted Redis Memorystore
+      runs:
+        - api-service
+      env:
+        NODE_ENV: production
+        LOG_LEVEL: info
+        # Automatic resource environment variables:
+        # MONGO_URI: "${resource:mongodb.uri}"
+        # POSTGRES_HOST: "${resource:postgres.host}"
+        # POSTGRES_USER: "${resource:postgres.user}"
+        # REDIS_HOST: "${resource:redis.host}"
+        # REDIS_PORT: "${resource:redis.port}"
+      secrets:
+        # Sensitive data from adopted resources:
+        DATABASE_PASSWORD: "${resource:postgres.password}"
+        MONGO_PASSWORD: "${resource:mongodb.password}"
+
+  # Staging service using adopted resources (same configuration!)
+  staging:
+    type: cloud-compose
+    parent: your-company/infrastructure  # Same parent reference
+    config:
+      domain: staging-api.your-company.com
+      dockerComposeFile: ./docker-compose.yaml
+      uses:
+        - mongodb      # Same resource names!
+        - postgres     # Different actual resources per environment
+        - redis        # But identical configuration
+      runs:
+        - api-service
+      env:
+        NODE_ENV: staging
+        LOG_LEVEL: debug
+        # Same automatic environment variables
+      secrets:
+        # Same secret references work across environments
+        DATABASE_PASSWORD: "${resource:postgres.password}"
+        MONGO_PASSWORD: "${resource:mongodb.password}"
+
+# Key Benefits Demonstrated:
+# ✅ Same resource names work across all environments
+# ✅ Identical client.yaml structure everywhere
+# ✅ Automatic environment variable injection from adopted resources
+# ✅ Consistent secrets management
+# ✅ Zero changes needed when switching environments

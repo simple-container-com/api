@@ -29,6 +29,9 @@ This directory contains production-tested Simple Container configurations based 
 - **comprehensive-setup**: Complete GCP setup with all resources
 - **template-based**: GKE template with resource references
 
+### Resource Adoption (`resource-adoption/`)
+- **multi-environment**: Complete example of adopting existing MongoDB, PostgreSQL, Redis, and GKE resources across production and staging environments
+
 ### Kubernetes Native (`kubernetes-native/`)
 - **streaming-platform**: Hardcoded infrastructure IPs with N8N integration
 - **ai-development**: High-resource code execution environment

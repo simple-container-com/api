@@ -258,10 +258,11 @@ func (e *Executor) executeDeploy(ctx context.Context, config OperationConfig, pr
 
 	deployParams := api.DeployParams{
 		StackParams: api.StackParams{
-			StackName:   config.StackName,
-			Environment: config.Env,
-			Version:     config.Version,
-			SkipRefresh: previewMode,
+			StackName:    config.StackName,
+			Environment:  config.Env,
+			Version:      config.Version,
+			SkipRefresh:  previewMode,
+			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 		},
 	}
 
@@ -304,10 +305,11 @@ func (e *Executor) executeProvision(ctx context.Context, config OperationConfig,
 	}
 
 	provisionParams := api.ProvisionParams{
-		StacksDir:   ".sc/stacks",
-		Profile:     profile,
-		Stacks:      []string{config.StackName},
-		SkipRefresh: previewMode,
+		StacksDir:    ".sc/stacks",
+		Profile:      profile,
+		Stacks:       []string{config.StackName},
+		SkipRefresh:  previewMode,
+		DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 	}
 
 	if previewMode {

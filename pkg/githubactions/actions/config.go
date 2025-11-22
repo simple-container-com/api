@@ -55,9 +55,10 @@ func (e *Executor) loadStacksForNotifications(ctx context.Context, stackName str
 		// Step 1: Load client stack to read its client.yaml and find parent reference
 		e.logger.Info(ctx, "📋 Loading client stack to determine parent...")
 		clientParams := api.ProvisionParams{
-			Profile:   profile,
-			StacksDir: ".sc/stacks",
-			Stacks:    []string{stackName},
+			Profile:      profile,
+			StacksDir:    ".sc/stacks",
+			Stacks:       []string{stackName},
+			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 		}
 
 		// Load client with client.yaml required, but ignore missing server.yaml
@@ -98,9 +99,10 @@ func (e *Executor) loadStacksForNotifications(ctx context.Context, stackName str
 
 		// Step 3: Load only the parent stack with server.yaml required
 		parentParams := api.ProvisionParams{
-			Profile:   profile,
-			StacksDir: ".sc/stacks",
-			Stacks:    []string{parentStackName},
+			Profile:      profile,
+			StacksDir:    ".sc/stacks",
+			Stacks:       []string{parentStackName},
+			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 		}
 
 		parentOpts := api.ReadOpts{
@@ -118,9 +120,10 @@ func (e *Executor) loadStacksForNotifications(ctx context.Context, stackName str
 	} else {
 		// For parent operations, load the specific parent stack
 		params := api.ProvisionParams{
-			Profile:   profile,
-			StacksDir: ".sc/stacks",
-			Stacks:    []string{stackName},
+			Profile:      profile,
+			StacksDir:    ".sc/stacks",
+			Stacks:       []string{stackName},
+			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 		}
 
 		opts := api.ReadOpts{

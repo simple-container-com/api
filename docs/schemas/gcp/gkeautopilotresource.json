@@ -31,6 +31,9 @@
         ],
         "type": "object"
       },
+      "adopt": {
+        "type": "boolean"
+      },
       "caddy": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -146,6 +149,9 @@
         },
         "required": [],
         "type": "object"
+      },
+      "clusterName": {
+        "type": "string"
       },
       "gkeMinVersion": {
         "type": "string"
