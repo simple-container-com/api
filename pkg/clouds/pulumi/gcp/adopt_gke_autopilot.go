@@ -7,12 +7,14 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/container"
+	k8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
+	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
+	pulumiKubernetes "github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 )
 
 // AdoptGkeAutopilot imports an existing GKE Autopilot cluster into Pulumi state without modifying it
@@ -39,7 +41,7 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	// Use identical naming functions as provisioning to ensure export compatibility
-	clusterName := kubernetes.ToClusterName(input, input.Descriptor.Name)
+	clusterName := pulumiKubernetes.ToClusterName(input, input.Descriptor.Name)
 
 	params.Log.Info(ctx.Context(), "adopting existing GKE Autopilot cluster %q in location %q", gkeInput.ClusterName, gkeInput.Location)
 
@@ -149,12 +151,80 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		}
 
 		// Export the Caddy config using the same export key as regular provisioning
-		ctx.Export(kubernetes.ToCaddyConfigExport(clusterName), sdk.String(string(caddyConfigJson)))
+		ctx.Export(pulumiKubernetes.ToCaddyConfigExport(clusterName), sdk.String(string(caddyConfigJson)))
 
 		params.Log.Info(ctx.Context(), "✅ Caddy config exported for child stack compatibility")
+
+		// Detect and export existing load balancer IP for DNS record creation
+		if err := exportExistingLoadBalancerIP(ctx, cluster, gkeInput, clusterName, params); err != nil {
+			params.Log.Warn(ctx.Context(), "⚠️ Failed to detect existing load balancer IP: %v", err)
+			// Don't fail the adoption, just warn - DNS records might need manual setup
+		}
 	}
 
 	params.Log.Info(ctx.Context(), "successfully adopted GKE Autopilot cluster %q", gkeInput.ClusterName)
 
 	return &api.ResourceOutput{Ref: out}, nil
+}
+
+// exportExistingLoadBalancerIP detects the existing Caddy load balancer service in the adopted cluster
+// and exports its IP address for DNS record creation
+func exportExistingLoadBalancerIP(ctx *sdk.Context, cluster *container.Cluster, gkeInput *gcloud.GkeAutopilotResource, clusterName string, params pApi.ProvisionParams) error {
+	// Create a Kubernetes provider for the adopted cluster
+	kubeconfig := generateKubeconfig(cluster, gkeInput)
+	kubeProvider, err := k8s.NewProvider(ctx, fmt.Sprintf("%s-adoption-kube-provider", clusterName), &k8s.ProviderArgs{
+		Kubeconfig: kubeconfig,
+	})
+	if err != nil {
+		return errors.Wrapf(err, "failed to create Kubernetes provider for adopted cluster %q", gkeInput.ClusterName)
+	}
+
+	// Determine the service name and namespace based on Caddy configuration
+	serviceName := "caddy"
+	namespace := "caddy"
+
+	if gkeInput.Caddy.DeploymentName != nil {
+		serviceName = *gkeInput.Caddy.DeploymentName
+	}
+	if gkeInput.Caddy.Namespace != nil {
+		namespace = *gkeInput.Caddy.Namespace
+	}
+
+	params.Log.Info(ctx.Context(), "🔍 Looking for existing Caddy service %q in namespace %q", serviceName, namespace)
+
+	// Look up the existing Caddy service to get its load balancer IP
+	// Use GetService with the proper resource ID format: namespace/serviceName
+	serviceId := fmt.Sprintf("%s/%s", namespace, serviceName)
+	service, err := corev1.GetService(ctx, fmt.Sprintf("%s-adoption-service-lookup", clusterName), sdk.ID(serviceId), nil, sdk.Provider(kubeProvider))
+	if err != nil {
+		return errors.Wrapf(err, "failed to lookup existing Caddy service %q in namespace %q", serviceName, namespace)
+	}
+
+	// Extract the load balancer IP and export it
+	loadBalancerIP := service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
+		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+			params.Log.Warn(ctx.Context(), "⚠️ No load balancer ingress found for service %q in namespace %q", serviceName, namespace)
+			return ""
+		}
+
+		ingress := status.LoadBalancer.Ingress[0]
+		ip := ""
+		if ingress.Ip != nil {
+			ip = *ingress.Ip
+		} else if ingress.Hostname != nil {
+			// Some load balancers provide hostname instead of IP
+			ip = *ingress.Hostname
+		}
+
+		if ip != "" {
+			params.Log.Info(ctx.Context(), "✅ Found existing load balancer IP: %s", ip)
+		}
+		return ip
+	}).(sdk.StringOutput)
+
+	// Export the IP using the same key that child stacks expect
+	ctx.Export(pulumiKubernetes.ToIngressIpExport(clusterName), loadBalancerIP)
+	params.Log.Info(ctx.Context(), "✅ Exported existing load balancer IP for DNS record creation")
+
+	return nil
 }
