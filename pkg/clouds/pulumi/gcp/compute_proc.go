@@ -26,34 +26,46 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
 	}
 
-	postgresName := toPostgresName(input, input.Descriptor.Name)
-	fullParentReference := params.ParentStack.FullReference
-	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-
 	pgCfg, ok := input.Descriptor.Config.Config.(*gcloud.PostgresGcpCloudsqlConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
+
+	// For export lookups, always use the configuration-based name (what parent stack exports)
+	configBasedName := toPostgresName(input, input.Descriptor.Name)
+
+	// For actual database operations, use InstanceName when adopting existing resources
+	var actualInstanceName string
+	if pgCfg.Adopt && pgCfg.InstanceName != "" {
+		actualInstanceName = pgCfg.InstanceName
+		params.Log.Info(ctx.Context(), "Using actual instance name %q for adopted Postgres resource (config name: %q)", actualInstanceName, configBasedName)
+	} else {
+		actualInstanceName = configBasedName
+		params.Log.Debug(ctx.Context(), "Using convention-based name %q for Postgres resource", actualInstanceName)
+	}
+
+	fullParentReference := params.ParentStack.FullReference
+	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
 
 	var rootPassword string
 	var err error
 
 	// For adopted resources, try to get root password from configuration first
 	if pgCfg.Adopt && pgCfg.RootPassword != "" {
-		params.Log.Info(ctx.Context(), "Using root password from configuration for adopted Postgres instance %q", postgresName)
+		params.Log.Info(ctx.Context(), "Using root password from configuration for adopted Postgres instance %q", actualInstanceName)
 		rootPassword = pgCfg.RootPassword
 	} else {
 		// For provisioned resources or adopted resources without config password, get from parent stack
 		params.Log.Info(ctx.Context(), "Getting postgres root password for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
-		rootPasswordExport := toPostgresRootPasswordExport(postgresName)
-		rootPassword, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootpass", postgresName, suffix), fullParentReference, rootPasswordExport, true)
+		rootPasswordExport := toPostgresRootPasswordExport(configBasedName) // Use config-based name for export lookup
+		rootPassword, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-rootpass", configBasedName, suffix), fullParentReference, rootPasswordExport, true)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", postgresName)
+			return nil, errors.Wrapf(err, "failed to get root password from parent stack for %q", configBasedName)
 		}
 	}
 
 	if rootPassword == "" {
-		return nil, errors.Errorf("failed to get root password (empty) for %q - check parent stack exports or configuration", postgresName)
+		return nil, errors.Errorf("failed to get root password (empty) for %q - check parent stack exports or configuration", actualInstanceName)
 	}
 
 	// TODO: move to provider init
@@ -73,7 +85,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		clusterName := input.ToResName(pgCfg.UsersProvisionRuntime.ResourceName)
 		outputName := toKubeconfigExport(clusterName)
 		params.Log.Info(ctx.Context(), "Getting kubeconfig for %q from parent stack %q (outputName=%q, suffix=%q)", clusterName, fullParentReference, outputName, suffix)
-		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-kubeconfig", postgresName, suffix), fullParentReference, outputName, true)
+		kubeConfig, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-kubeconfig", configBasedName, suffix), fullParentReference, outputName, true)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get kubeconfig from parent stack's resources")
 		}
@@ -95,7 +107,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 
 	gcpProvider, ok := params.Provider.(*gcp.Provider)
 	if !ok {
-		return nil, errors.Errorf("failed to convert provider to *gcp.Provider when processing compute context for %q", postgresName)
+		return nil, errors.Errorf("failed to convert provider to *gcp.Provider when processing compute context for %q", actualInstanceName)
 	}
 	appendContextParams := appendParams{
 		config:          pgCfg,
@@ -103,7 +115,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		collector:       collector,
 		input:           input,
 		rootPassword:    rootPassword,
-		postgresName:    postgresName,
+		postgresName:    actualInstanceName, // Use actual instance name for database operations
 		provisionParams: params,
 		kubeProvider:    kubeProvider,
 		gcpProvider:     gcpProvider,
@@ -119,7 +131,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 			return nil, err
 		}
 	} else {
-		return nil, errors.Errorf("postgres %q only supports `uses` or `dependency`, but it wasn't explicitly declared as being used", postgresName)
+		return nil, errors.Errorf("postgres %q only supports `uses` or `dependency`, but it wasn't explicitly declared as being used", actualInstanceName)
 	}
 
 	return &api.ResourceOutput{

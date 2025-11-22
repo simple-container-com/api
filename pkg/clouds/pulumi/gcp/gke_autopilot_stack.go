@@ -192,10 +192,14 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		}
 
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
+		// Use deployment name override if specified, otherwise fall back to default
+		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(input.ToResName("caddy"))
+		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
+
 		_, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
 			PatchName:   input.ToResName(stackName),
-			ServiceName: input.ToResName("caddy"), // Use helper to add environment suffix consistently
-			Namespace:   lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy"),
+			ServiceName: deploymentName,
+			Namespace:   namespace,
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
 				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),

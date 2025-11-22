@@ -10,6 +10,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
 )
@@ -18,11 +19,28 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 	if params.ParentStack == nil {
 		return nil, errors.Errorf("parent stack must not be nil for compute processor for %q", stack.Name)
 	}
-	projectName := toProjectName(params.ParentStack.StackName, input)
-	clusterName := toClusterName(params.ParentStack.StackName, input)
+
+	mongoConfig, ok := input.Descriptor.Config.Config.(*mongodb.AtlasConfig)
+	if !ok {
+		return nil, errors.Errorf("failed to convert mongodb config for %q", input.Descriptor.Type)
+	}
+
+	// For export lookups, always use the configuration-based name (what parent stack exports)
+	configBasedProjectName := toProjectName(params.ParentStack.StackName, input)
+	configBasedClusterName := toClusterName(params.ParentStack.StackName, input)
+
+	// For actual cluster operations, use ClusterName when adopting existing resources
+	var actualClusterName string
+	if mongoConfig.Adopt && mongoConfig.ClusterName != "" {
+		actualClusterName = mongoConfig.ClusterName
+		params.Log.Info(ctx.Context(), "Using actual cluster name %q for adopted MongoDB resource (config name: %q)", actualClusterName, configBasedClusterName)
+	} else {
+		actualClusterName = configBasedClusterName
+		params.Log.Debug(ctx.Context(), "Using convention-based name %q for MongoDB resource", actualClusterName)
+	}
 
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas cluster %q (%q)", params.ParentStack.FullReference, clusterName, suffix)
+	params.Log.Info(ctx.Context(), "getting parent's (%q) outputs for mongodb atlas cluster %q (%q)", params.ParentStack.FullReference, actualClusterName, suffix)
 	parentRef, err := sdk.NewStackReference(ctx, fmt.Sprintf("%s--%s--%s%s--mongodb-atlas-ref", stack.Name, input.Descriptor.Name, params.ParentStack.FullReference, suffix),
 		&sdk.StackReferenceArgs{
 			Name: sdk.String(params.ParentStack.FullReference).ToStringOutput(),
@@ -31,14 +49,14 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		return nil, err
 	}
 
-	projectIdExport := toProjectIdExport(projectName)
+	projectIdExport := toProjectIdExport(configBasedProjectName) // Use config-based name for export lookup
 	projectId, err := pApi.GetParentOutput(parentRef, projectIdExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q (%q)", stack.Name, projectIdExport)
 	} else if projectId == "" {
 		return nil, errors.Errorf("project id is empty for %q (%q)", stack.Name, projectIdExport)
 	}
-	mongoUriExport := toMongoUriWithOptionsExport(clusterName)
+	mongoUriExport := toMongoUriWithOptionsExport(configBasedClusterName) // Use config-based name for export lookup
 	mongoUri, err := pApi.GetParentOutput(parentRef, mongoUriExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q (%q)", stack.Name, mongoUriExport)
@@ -50,8 +68,8 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		stack:           stack,
 		collector:       collector,
 		input:           input,
-		clusterName:     clusterName,
-		projectName:     projectName,
+		clusterName:     actualClusterName,      // Use actual cluster name for database operations
+		projectName:     configBasedProjectName, // Keep project name for consistency with exports
 		projectId:       projectId,
 		mongoUri:        mongoUri,
 		provisionParams: params,
@@ -67,8 +85,8 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 			return nil, err
 		}
 	} else {
-		params.Log.Warn(ctx.Context(), "mongodb %q only supports `uses` or `dependency`, but neither was explicitly declared as being used", clusterName)
-		return nil, errors.Errorf("mongodb %q only supports `uses` or `dependency`, but it wasn't explicitly declared as being used", clusterName)
+		params.Log.Warn(ctx.Context(), "mongodb %q only supports `uses` or `dependency`, but neither was explicitly declared as being used", actualClusterName)
+		return nil, errors.Errorf("mongodb %q only supports `uses` or `dependency`, but it wasn't explicitly declared as being used", actualClusterName)
 	}
 
 	return &api.ResourceOutput{
