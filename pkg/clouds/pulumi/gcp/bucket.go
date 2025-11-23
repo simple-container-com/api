@@ -27,6 +27,11 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Errorf("failed to convert bucket config for %q", input.Descriptor.Type)
 	}
 
+	// Handle resource adoption - exit early if adopting
+	if bucketCfg.Adopt {
+		return AdoptPrivateBucket(ctx, stack, input, params)
+	}
+
 	bucketName := input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name))
 	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
 

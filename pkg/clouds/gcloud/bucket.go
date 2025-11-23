@@ -8,6 +8,9 @@ type GcpBucket struct {
 	Credentials `json:",inline" yaml:",inline"`
 	Name        string `json:"name,omitempty" yaml:"name"`
 	Location    string `json:"location" yaml:"location"`
+	// Resource adoption fields
+	Adopt      bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+	BucketName string `json:"bucketName,omitempty" yaml:"bucketName,omitempty"`
 }
 
 func GcpBucketReadConfig(config *api.Config) (api.Config, error) {

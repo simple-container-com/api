@@ -15,6 +15,11 @@ type PostgresGcpCloudsqlConfig struct {
 	QueryInsightsEnabled  *bool                   `json:"queryInsightsEnabled" yaml:"queryInsightsEnabled"`
 	QueryStringLength     *int                    `json:"queryStringLength" yaml:"queryStringLength"`
 	UsersProvisionRuntime *ProvisionRuntimeConfig `json:"usersProvisionRuntime" yaml:"usersProvisionRuntime"`
+	// Resource adoption fields
+	Adopt          bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+	InstanceName   string `json:"instanceName,omitempty" yaml:"instanceName,omitempty"`
+	ConnectionName string `json:"connectionName,omitempty" yaml:"connectionName,omitempty"`
+	RootPassword   string `json:"rootPassword,omitempty" yaml:"rootPassword,omitempty"`
 }
 
 type ProvisionRuntimeConfig struct {

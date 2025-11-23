@@ -15,6 +15,9 @@
         },
         "type": "array"
       },
+      "adopt": {
+        "type": "boolean"
+      },
       "backup": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -32,6 +35,9 @@
         "type": "object"
       },
       "cloudProvider": {
+        "type": "string"
+      },
+      "clusterName": {
         "type": "string"
       },
       "developers": {

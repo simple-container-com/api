@@ -4,6 +4,26 @@
 
 This document outlines a comprehensive migration strategy for converting the ACME Corp infrastructure from its current hybrid Pulumi/Simple Container setup to a pure Simple Container architecture. The strategy emphasizes gradual transition to minimize risk while preserving all existing functionality.
 
+## 🔑 Critical Architectural Decision: Fresh Pulumi State
+
+**Pulumi State Approach**:
+- ✅ **Create COMPLETELY NEW Pulumi state** (fresh state backend configuration in server.yaml)
+- ✅ **Adopt existing cloud resources** (reference without recreating using `adopt: true`)
+- ✅ **No import of old Pulumi state files** (clean slate for Simple Container)
+
+**This Means**:
+1. Configure new Pulumi state backend (GCS bucket, S3, etc.) in server.yaml provisioner section
+2. Mark existing cloud resources with `adopt: true` in resource definitions
+3. Run `sc provision` - Pulumi adds adopted resources to NEW state without touching infrastructure
+4. Old Pulumi state remains untouched (can be archived or kept as backup)
+5. SC manages all future infrastructure changes through new state
+
+**Benefits**:
+- 🎯 **Clean separation** from legacy Pulumi infrastructure
+- 🎯 **No state migration complexity** - fresh start with SC
+- 🎯 **Zero risk to existing resources** - only metadata tracking changes
+- 🎯 **Easier rollback** - old Pulumi state remains available if needed
+
 ## Current State Assessment
 
 ### **Existing Infrastructure**
@@ -40,151 +60,192 @@ This document outlines a comprehensive migration strategy for converting the ACM
 
 ```yaml
 # server.yaml - Resource Adoption Configuration
+# ✅ Validated against actual schemas in pkg/clouds/
+
+schemaVersion: 1.0
+
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: gcp-bucket
+      config:
+        credentials: "${auth:gcloud}"
+        projectId: "acme-staging"
+        bucketName: "acme-sc-pulumi-state"  # NEW state bucket for SC
+
+templates:
+  gke-staging:
+    type: gcp-gke-autopilot
+    config:
+      credentials: "${auth:gcloud}"
+      gkeClusterResource: "gke-autopilot-res"
+      artifactRegistryResource: "artifact-registry-res"
+
 resources:
   registrar:
     type: cloudflare
     config:
       credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: 87152c65fca76d443751a37a91a77c17
       zoneName: acme-corp.com
       
   resources:
     staging:
       template: gke-staging
       resources:
-        # ADOPTED RESOURCES - Reference existing without provisioning
-        postgresql-main:
-          type: gcp-cloudsql-postgres
+        # ========================================
+        # ADOPTED RESOURCES
+        # ========================================
+        
+        # Adopted GKE Autopilot Cluster
+        # Schema: pkg/clouds/gcloud/gke_autopilot.go:GkeAutopilotResource
+        gke-autopilot-res:
+          type: gcp-gke-autopilot-cluster
           config:
-            adopt: true  # Critical: Don't provision, reference existing
-            instanceName: "acme-postgres-staging"
-            credentials: "${auth:gcloud-staging}"
-            connectionName: "acme-staging:me-central1:acme-postgres-staging"
-            
+            adopt: true
+            clusterName: "acme-staging-cluster"
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: me-central1
+            zone: me-central1-a
+            caddy:
+              enable: true
+              namespace: caddy
+              replicas: 2
+              adoptionHandling:
+                patchExisting: true
+                deploymentName: "caddy"
+        
+        # Adopted MongoDB Atlas Cluster
+        # Schema: pkg/clouds/mongodb/mongodb.go:AtlasConfig
         mongodb-cluster:
           type: mongodb-atlas
           config:
-            adopt: true  # Don't create new cluster
-            clusterName: "ACME-Corp-Staging"
+            adopt: true
+            clusterName: "ACME-Staging"
+            orgId: 5b89110a4e6581562623c59c
             projectId: "507f1f77bcf86cd799439011"
-            connectionString: "${secret:MONGODB_ATLAS_STAGING_URI}"
+            projectName: "acme-staging-project"
+            region: "WESTERN_EUROPE"
+            cloudProvider: GCP
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
             
+        # Adopted Cloud SQL Postgres
+        # Schema: pkg/clouds/gcloud/postgres.go:PostgresGcpCloudsqlConfig
+        postgresql-main:
+          type: gcp-cloudsql-postgres
+          config:
+            adopt: true
+            instanceName: "acme-postgres-staging"
+            connectionName: "acme-staging:me-central1:acme-postgres-staging"
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            project: "acme-staging"
+            version: "POSTGRES_14"
+            region: "me-central1"
+            usersProvisionRuntime:
+              type: "gke"
+              resourceName: "gke-autopilot-res"
+            
+        # Adopted Redis Instance
+        # Schema: pkg/clouds/gcloud/redis.go:RedisConfig
         redis-cache:
           type: gcp-redis
           config:
-            adopt: true  # Reference existing instance
+            adopt: true
             instanceId: "acme-redis-staging"
-            region: "me-central1"
-            credentials: "${auth:gcloud-staging}"
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            region: me-central1
             
-        # NEW RESOURCES - Let SC provision these
-        new-storage-buckets:
-          type: gcp-bucket
+        # ========================================
+        # NEW SC-MANAGED RESOURCES
+        # ========================================
+        
+        # New Artifact Registry
+        # Schema: pkg/clouds/gcloud/artifact_registry.go:ArtifactRegistryConfig
+        artifact-registry-res:
+          type: gcp-artifact-registry
           config:
-            credentials: "${auth:gcloud-staging}"
-            buckets:
-              - name: "acme-sc-managed-storage"  # New bucket managed by SC
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: me-central1
+            docker:
+              immutableTags: false
 ```
 
-#### **0.2 Resource Import Commands**
+#### **0.2 Adoption Flow**
 
 ```bash
-# Import existing resources into SC state without provisioning
-sc resource import --stack acme-corp-infrastructure \
-  --resource postgresql-main \
-  --type gcp-cloudsql-postgres \
-  --id "projects/acme-staging/instances/acme-postgres-staging"
+# No separate import command needed!
+# Just run normal provision - SC detects adopt: true and handles it automatically
 
-sc resource import --stack acme-corp-infrastructure \
-  --resource mongodb-cluster \
-  --type mongodb-atlas \
-  --cluster-id "507f1f77bcf86cd799439011"
+sc provision -s acme-corp-infrastructure -e staging
 
-sc resource import --stack acme-corp-infrastructure \
-  --resource redis-cache \
-  --type gcp-memorystore-redis \
-  --instance-id "projects/acme-staging/locations/me-central1/instances/acme-redis-staging"
+# SC automatically:
+# ✅ Adopts gke-autopilot-res (imports into Pulumi state, doesn't modify cluster)
+# ✅ Adopts mongodb-cluster (imports into Pulumi state, doesn't modify cluster)  
+# ✅ Adopts postgresql-main (imports into Pulumi state, doesn't modify instance)
+# ✅ Adopts redis-cache (imports into Pulumi state, doesn't modify instance)
+# ✅ Provisions artifact-registry-res (creates new registry)
 ```
 
-#### **0.3 Credential Mapping for Existing Resources**
+#### **0.3 Required Secrets Configuration**
 
 ```yaml
-# secrets.yaml - Map existing resource credentials
+# secrets.yaml - Credentials for adopted resources
+# ✅ Validated against actual compute processor requirements
+
 values:
-  # Existing MongoDB Atlas cluster credentials
-  MONGODB_ATLAS_STAGING_URI: "mongodb+srv://username:password@acme-corp-staging.mongodb.net/database"
-  MONGODB_ATLAS_PUBLIC_KEY: "${MONGODB_ATLAS_PUBLIC_KEY}"
-  MONGODB_ATLAS_PRIVATE_KEY: "${MONGODB_ATLAS_PRIVATE_KEY}"
+  # Cloudflare API
+  CLOUDFLARE_API_TOKEN: "your-cloudflare-token"
   
-  # Existing PostgreSQL connection details
-  POSTGRES_STAGING_HOST: "10.1.0.3"
-  POSTGRES_STAGING_PORT: "5432"
-  POSTGRES_STAGING_USER: "acme_app"
-  POSTGRES_STAGING_PASSWORD: "${POSTGRES_STAGING_PASSWORD}"
+  # MongoDB Atlas API credentials (for Pulumi provider to create users)
+  MONGODB_ATLAS_PUBLIC_KEY: "your-api-public-key"
+  MONGODB_ATLAS_PRIVATE_KEY: "your-api-private-key"
   
-  # Existing Redis connection
-  REDIS_STAGING_HOST: "10.1.0.5"
-  REDIS_STAGING_PORT: "6379"
-  REDIS_STAGING_AUTH: "${REDIS_STAGING_AUTH_TOKEN}"
+  # PostgreSQL root credentials (for K8s Jobs to create users/databases)
+  POSTGRES_ROOT_USER: "postgres"
+  POSTGRES_ROOT_PASSWORD: "existing-postgres-root-password"
+  
+  # Redis AUTH token
+  REDIS_AUTH_TOKEN: "existing-redis-auth-token"
 ```
+
+#### **0.4 Client Service Access**
+
+Once resources are adopted, client services can reference them using standard `${resource:}` syntax:
+
+```yaml
+# client.yaml - Service using adopted resources
+schemaVersion: 1.0
+stacks:
+  web-app:
+    environment: staging
+    uses:
+      - mongodb-cluster       # Adopted MongoDB Atlas
+      - postgresql-main       # Adopted Cloud SQL Postgres
+      - redis-cache          # Adopted Redis
+    secrets:
+      # SC automatically injects these from adopted resources:
+      MONGO_URI: ${resource:mongodb-cluster.uri}
+      DATABASE_URL: ${resource:postgresql-main.uri}
+      REDIS_URL: ${resource:redis-cache.uri}
+```
+
+**How It Works**:
+1. Parent stack adopts resources → exports connection details
+2. Compute processors create service-specific users
+3. Client service receives environment variables with credentials
+4. Service connects using its own isolated credentials
 
 ### **Phase 1: Infrastructure Foundation (Parent Stack)**
 **Duration**: 4-6 weeks  
 **Risk Level**: Medium  
 **Rollback Strategy**: Keep existing Pulumi stack as backup  
-**Prerequisites**: Phase 0 Resource Adoption MUST be completed first  
-
-#### **0.4 Client Service Resource References**
-
-**Problem**: Client services need seamless access to adopted resources through `${resource:}` syntax.
-
-**Solution**: Adopted resources provide same interface as provisioned resources:
-
-```yaml
-# client.yaml - sample-app service
-schemaVersion: 1.0
-stacks:
-  staging:
-    type: single-image
-    parent: acme-org/acme-corp-infrastructure
-    parentEnv: staging
-    config:
-      image: node:18-alpine
-      port: 3000
-      secrets:
-        # Seamless access to adopted resources - same syntax as new resources
-        DATABASE_URL: ${resource:postgresql-main.uri}      # Adopted PostgreSQL
-        MONGO_URI: ${resource:mongodb-cluster.uri}         # Adopted MongoDB Atlas  
-        REDIS_URL: ${resource:redis-cache.uri}            # Adopted Redis
-        STORAGE_BUCKET: ${resource:new-storage-buckets.name}  # New SC-managed bucket
-```
-
-#### **0.5 Resource Adoption Implementation Requirements**
-
-**Critical SC Features Needed:**
-1. **`adopt: true` Configuration**: Tells SC not to provision, only reference
-2. **`sc resource import` Command**: Import existing resources into SC state
-3. **Resource URI Resolution**: Adopted resources must provide same `${resource:name.property}` interface
-4. **Credential Mapping**: Map existing connection details to SC secrets
-5. **State Management**: Track adopted resources separately from provisioned ones
-6. **Enhanced Compute Processors**: Unified environment variable generation for adopted and provisioned resources
-
-**🔗 See [COMPUTE_PROCESSORS_ADOPTION.md](COMPUTE_PROCESSORS_ADOPTION.md) for detailed implementation of compute processor enhancements.**
-
-**Example Resource Processor Output:**
-```bash
-# What SC should generate for adopted PostgreSQL
-export DATABASE_URL="postgresql://acme_app:${POSTGRES_STAGING_PASSWORD}@10.1.0.3:5432/acme_db"
-export POSTGRES_HOST="10.1.0.3"
-export POSTGRES_PORT="5432"
-export POSTGRES_USER="acme_app"
-export POSTGRES_PASSWORD="${POSTGRES_STAGING_PASSWORD}"
-
-# Same interface as if SC provisioned it, but uses existing credentials
-```
-
-#### **0.6 Mixed Resource Strategy**
-
-**Production Pattern**: Adopt critical resources, provision new ones:
+**Prerequisites**: Phase 0 Resource Adoption MUST be completed first
 
 ```yaml
 resources:

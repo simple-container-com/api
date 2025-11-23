@@ -45,6 +45,22 @@ This case study validates Simple Container's ability to handle:
 
 ## Critical Enterprise Feature: Resource Adoption
 
+### **Architectural Approach: Fresh Pulumi State**
+
+**Key Principle**: Simple Container uses **completely new Pulumi state**, only adopting existing cloud resources.
+
+- ✅ **New Pulumi State Backend**: Configure fresh state storage (GCS, S3, local) in server.yaml
+- ✅ **Adopt Cloud Resources**: Mark existing resources with `adopt: true` - Pulumi tracks them without modification
+- ✅ **Zero State Migration**: No import of old Pulumi state files needed
+- ✅ **Clean Architecture**: Old Pulumi infrastructure remains untouched, can be archived
+
+**What This Means**:
+1. Start with fresh Pulumi provisioner configuration in server.yaml
+2. Run `sc provision` - creates new Pulumi stack with adopted resources
+3. Pulumi adds existing cloud resources to new state (metadata only)
+4. Cloud infrastructure remains completely unchanged
+5. SC now manages deployments using adopted resources
+
 ### **The Challenge**
 Enterprise migrations face a critical constraint: **existing production resources cannot be recreated**:
 - MongoDB Atlas clusters with live user data
@@ -53,9 +69,9 @@ Enterprise migrations face a critical constraint: **existing production resource
 - KMS keys protecting encrypted data
 - Complex network configurations and firewall rules
 
-### **The Solution: `adopt: true` Pattern**
+### **The Solution: `adopt: true` + Natural Adoption**
 
-Simple Container addresses this with **resource adoption**, allowing references to existing resources without reprovisioning:
+Simple Container addresses this with **natural resource adoption** via the normal `sc provision` flow:
 
 ```yaml
 # server.yaml - Mixed adoption strategy
@@ -66,14 +82,25 @@ resources:
       mongodb-main:
         type: mongodb-atlas
         config:
-          adopt: true  # Don't provision - reference existing
+          adopt: true  # Tells SC to adopt, not provision
           clusterName: "Production-Cluster"
+          projectId: "507f1f77bcf86cd799439011"
           
       # PROVISION - New SC-managed resources
       analytics-db:
         type: gcp-cloudsql-postgres
         config:
           tier: "db-n1-standard-2"  # SC provisions this
+```
+
+**How It Works**:
+```bash
+# Just run normal provision command
+sc provision -s infrastructure -e production
+
+# SC automatically:
+# - Adopts mongodb-main (imports into Pulumi state, doesn't modify cluster)
+# - Provisions analytics-db (creates new instance)
 ```
 
 **Client services get seamless access through the same `${resource:}` syntax**:

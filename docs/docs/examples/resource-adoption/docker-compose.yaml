@@ -1,0 +1,54 @@
+# Resource Adoption Example - Docker Compose Configuration
+# This shows how services connect to adopted resources via environment variables
+
+services:
+  api-service:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Application configuration
+      - NODE_ENV
+      - LOG_LEVEL
+      
+      # Database connections (automatically injected by Simple Container)
+      - MONGO_URI          # From adopted MongoDB Atlas cluster
+      - MONGO_PASSWORD     # From secrets configuration
+      
+      - POSTGRES_HOST      # From adopted Cloud SQL instance
+      - POSTGRES_USER      # From adopted Cloud SQL instance
+      - DATABASE_PASSWORD  # From secrets configuration
+      
+      - REDIS_HOST         # From adopted Redis Memorystore
+      - REDIS_PORT         # From adopted Redis Memorystore
+      
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# Example application code would use these environment variables:
+#
+# MongoDB connection:
+# const mongoClient = new MongoClient(process.env.MONGO_URI, {
+#   auth: {
+#     username: 'app-user',
+#     password: process.env.MONGO_PASSWORD
+#   }
+# });
+#
+# PostgreSQL connection:
+# const pgClient = new Client({
+#   host: process.env.POSTGRES_HOST,
+#   user: process.env.POSTGRES_USER,
+#   password: process.env.DATABASE_PASSWORD,
+#   database: 'app_database'
+# });
+#
+# Redis connection:
+# const redisClient = redis.createClient({
+#   host: process.env.REDIS_HOST,
+#   port: process.env.REDIS_PORT
+# });

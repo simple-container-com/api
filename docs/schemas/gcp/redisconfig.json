@@ -31,6 +31,12 @@
         ],
         "type": "object"
       },
+      "adopt": {
+        "type": "boolean"
+      },
+      "instanceId": {
+        "type": "string"
+      },
       "memorySizeGb": {
         "type": "integer"
       },

@@ -30,8 +30,9 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 	// Create deployment parameters
 	deployParams := api.DeployParams{
 		StackParams: api.StackParams{
-			StackName:   os.Getenv("STACK_NAME"),
-			Environment: os.Getenv("ENVIRONMENT"),
+			StackName:    os.Getenv("STACK_NAME"),
+			Environment:  os.Getenv("ENVIRONMENT"),
+			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 		},
 	}
 
@@ -65,7 +66,8 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 
 	// Create provision parameters
 	provisionParams := api.ProvisionParams{
-		Stacks: []string{stackName},
+		Stacks:       []string{stackName},
+		DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
 	}
 
 	// Wrap the provision with signal handling and panic recovery

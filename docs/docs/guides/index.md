@@ -12,6 +12,7 @@ This section provides step-by-step guides for deploying applications using Simpl
 
 ### Operational Guides
 
+- **[Resource Adoption](resource-adoption.md)** - Import existing cloud infrastructure without downtime or modifications
 - **[CI/CD with GitHub Actions](cicd-github-actions.md)** - Complete guide to automated deployment pipelines with GitHub Actions
 - **[DNS Management](dns-management.md)** - Complete guide to domain and DNS configuration with Cloudflare
 - **[Secrets Management](secrets-management.md)** - Comprehensive guide to handling secrets and credentials

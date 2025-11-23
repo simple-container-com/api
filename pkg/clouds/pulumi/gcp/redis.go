@@ -25,6 +25,11 @@ func Redis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pA
 		return nil, errors.Errorf("failed to convert redis config for %q", input.Descriptor.Type)
 	}
 
+	// Handle resource adoption - exit early if adopting
+	if redisCfg.Adopt {
+		return AdoptRedis(ctx, stack, input, params)
+	}
+
 	redisServiceName := fmt.Sprintf("projects/%s/services/redis.googleapis.com", redisCfg.ProjectId)
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, redisServiceName); err != nil {
 		return nil, errors.Wrapf(err, "failed to enable %s", redisServiceName)

@@ -106,8 +106,10 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			})
 		}
 		cReadyProbe := c.Container.ReadinessProbe
-		// Use global readiness probe if container doesn't have one
-		if cReadyProbe == nil && args.ReadinessProbe != nil {
+		// Use global readiness probe if container doesn't have one AND it's the ingress container
+		// This prevents applying HTTP/TCP probes to worker containers that don't expose ports
+		isIngressContainer := args.Deployment.IngressContainer != nil && args.Deployment.IngressContainer.Name == c.Container.Name
+		if cReadyProbe == nil && args.ReadinessProbe != nil && isIngressContainer {
 			cReadyProbe = args.ReadinessProbe
 		}
 
@@ -136,8 +138,9 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		// Handle liveness probe
 		var livenessProbe *corev1.ProbeArgs
 		cLivenessProbe := c.Container.LivenessProbe
-		// Use global liveness probe if container doesn't have one
-		if cLivenessProbe == nil && args.LivenessProbe != nil {
+		// Use global liveness probe if container doesn't have one AND it's the ingress container
+		// This prevents applying HTTP/TCP probes to worker containers that don't expose ports
+		if cLivenessProbe == nil && args.LivenessProbe != nil && isIngressContainer {
 			cLivenessProbe = args.LivenessProbe
 		}
 

@@ -1,0 +1,7 @@
+# Ignore real customer infrastructure details
+REAL_CUSTOMER_ADOPTION.md
+
+# Ignore any other confidential adoption documents
+*_REAL.md
+*_CUSTOMER.md
+*_CONFIDENTIAL.md
