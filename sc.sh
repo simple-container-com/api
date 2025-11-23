@@ -4,6 +4,12 @@ set -e;
 
 VERSION="0.0.0"
 
+# Pulumi version that matches Simple Container's go.mod requirements
+# NOTE: This version is automatically updated during the release process
+# The welder.yaml build extracts the version from go.mod and updates this variable
+# Manual updates are not needed - the release process handles synchronization
+PULUMI_VERSION="3.184.0"
+
 debug() {
   if [ "$debug" = "debug" ]; then printf "DEBUG: %s$1 \n"; fi
 }
@@ -340,6 +346,8 @@ semver_compare() {
 PLATFORM=${PLATFORM:-linux}
 if [ "$(uname)" == "Darwin" ]; then
   PLATFORM=darwin
+elif [[ "$(uname -s)" == CYGWIN* ]] || [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]] || [[ -n "${WINDIR:-}" ]]; then
+  PLATFORM=windows
 fi
 
 ARCH=amd64
@@ -348,9 +356,54 @@ case $(uname -m) in
     arm)    ARCH="arm64" ;;
     arm64)  ARCH="arm64" ;;
 esac
-BINDIR=~/.local/bin
+# Set binary directory and executable name based on platform
+if [[ "$PLATFORM" == "windows" ]]; then
+  BINDIR="$HOME/.local/bin"
+  SC_BINARY="sc.exe"
+else
+  BINDIR=~/.local/bin
+  SC_BINARY="sc"
+fi
 
-mkdir -p $BINDIR
+mkdir -p "$BINDIR"
+
+# Windows Pulumi direct installation function
+install_pulumi_windows_direct() {
+  echo "📦 Installing Pulumi v${PULUMI_VERSION} via direct download for Windows..."
+  local pulumi_dir="$HOME/.pulumi"
+  local pulumi_bin="$pulumi_dir/bin"
+  
+  # Create Pulumi directory
+  mkdir -p "$pulumi_bin"
+  
+  # Download and extract Pulumi using the specific version
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  local pulumi_url="https://get.pulumi.com/releases/sdk/pulumi-v${PULUMI_VERSION}-windows-x64.tar.gz"
+  
+  echo "📥 Downloading Pulumi v${PULUMI_VERSION} from $pulumi_url..."
+  if curl -fL "$pulumi_url" | tar -xz -C "$temp_dir"; then
+    # Move binaries to Pulumi directory
+    if [[ -d "$temp_dir/pulumi" ]]; then
+      cp -r "$temp_dir/pulumi"/* "$pulumi_bin/"
+      chmod +x "$pulumi_bin"/*
+      
+      # Add to PATH if not already there
+      if [[ ":$PATH:" != *":$pulumi_bin:"* ]]; then
+        export PATH="$PATH:$pulumi_bin"
+      fi
+      
+      echo "✅ Pulumi v${PULUMI_VERSION} installed successfully to $pulumi_bin"
+    else
+      echo "⚠️  Pulumi extraction failed - directory structure unexpected"
+    fi
+  else
+    echo "⚠️  Pulumi v${PULUMI_VERSION} download failed"
+  fi
+  
+  # Clean up
+  rm -rf "$temp_dir"
+}
 
 # Enhanced binary validation function
 validate_sc_binary() {
@@ -397,7 +450,7 @@ safe_download_sc() {
   local url="$1"
   local temp_dir
   temp_dir=$(mktemp -d)
-  local temp_binary="$temp_dir/sc"
+  local temp_binary="$temp_dir/$SC_BINARY"
   
   echo "🚀 Installing Simple Container..."
   echo "📦 Downloading from: $url"
@@ -405,7 +458,15 @@ safe_download_sc() {
   # Download with progress indicator
   (
     cd "$temp_dir"
-    curl -fL --progress-bar "$url" | tar -xzp sc
+    if [[ "$PLATFORM" == "windows" ]]; then
+      # Windows: extract and rename to .exe
+      curl -fL --progress-bar "$url" | tar -xzp sc
+      if [[ -f "sc" ]]; then
+        mv "sc" "$SC_BINARY"
+      fi
+    else
+      curl -fL --progress-bar "$url" | tar -xzp sc
+    fi
   ) &
   
   local download_pid=$!
@@ -435,15 +496,15 @@ safe_download_sc() {
   echo "✅"
   
   # Backup existing binary if it exists and is valid
-  if [[ -f "$BINDIR/sc" ]] && validate_sc_binary "$BINDIR/sc"; then
+  if [[ -f "$BINDIR/$SC_BINARY" ]] && validate_sc_binary "$BINDIR/$SC_BINARY"; then
     echo "📦 Backing up existing binary..."
-    cp "$BINDIR/sc" "$BINDIR/sc.backup.$(date +%s)"
+    cp "$BINDIR/$SC_BINARY" "$BINDIR/$SC_BINARY.backup.$(date +%s)"
   fi
   
   # Atomically replace the binary
   echo -n "📦 Installing binary... "
   chmod +x "$temp_binary"
-  mv "$temp_binary" "$BINDIR/sc"
+  mv "$temp_binary" "$BINDIR/$SC_BINARY"
   echo "✅"
   
   # Clean up
@@ -451,9 +512,9 @@ safe_download_sc() {
   
   # Final validation
   echo -n "🧪 Testing installation... "
-  if validate_sc_binary "$BINDIR/sc"; then
+  if validate_sc_binary "$BINDIR/$SC_BINARY"; then
     local installed_version
-    installed_version=$("$BINDIR/sc" --version 2>/dev/null || echo "unknown")
+    installed_version=$("$BINDIR/$SC_BINARY" --version 2>/dev/null || echo "unknown")
     echo "✅"
     echo "🎉 Simple Container $installed_version installed successfully!"
     return 0
@@ -463,10 +524,10 @@ safe_download_sc() {
     
     # Attempt to restore backup if available
     local latest_backup
-    latest_backup=$(ls -t "$BINDIR"/sc.backup.* 2>/dev/null | head -n1)
+    latest_backup=$(ls -t "$BINDIR"/$SC_BINARY.backup.* 2>/dev/null | head -n1)
     if [[ -n "$latest_backup" ]] && validate_sc_binary "$latest_backup"; then
       echo "🔄 Restoring previous working version..."
-      cp "$latest_backup" "$BINDIR/sc"
+      cp "$latest_backup" "$BINDIR/$SC_BINARY"
       echo "✅ Previous version restored"
     fi
     return 1
@@ -474,9 +535,9 @@ safe_download_sc() {
 }
 
 CURRENT="0.0.0"
-if [[ -f "$BINDIR/sc" ]]; then
-  if validate_sc_binary "$BINDIR/sc"; then
-    CURRENT="$($BINDIR/sc --version 2>/dev/null || echo "0.0.0")"
+if [[ -f "$BINDIR/$SC_BINARY" ]]; then
+  if validate_sc_binary "$BINDIR/$SC_BINARY"; then
+    CURRENT="$("$BINDIR/$SC_BINARY" --version 2>/dev/null || echo "0.0.0")"
   else
     echo "⚠️  Existing sc binary is corrupted or invalid"
     CURRENT="null"
@@ -498,7 +559,7 @@ if [[ "$CURRENT" != "null" ]]; then
 fi
 
 # Enhanced installation logic with better UX
-if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "1" || ( "${FORCE_UPDATE}" == "true" && "$VERSION_COMPARE" != "0" ) ]]; then
+if [[ ! -f "$BINDIR/$SC_BINARY" || $VERSION_COMPARE == "1" || ( "${FORCE_UPDATE}" == "true" && "$VERSION_COMPARE" != "0" ) ]]; then
   if ! safe_download_sc "$URL"; then
     echo "❌ Failed to install Simple Container"
     echo "💡 You can try:"
@@ -508,9 +569,9 @@ if [[ ! -f "$BINDIR/sc" || $VERSION_COMPARE == "1" || ( "${FORCE_UPDATE}" == "tr
     echo "   - Visit https://github.com/simple-container/simple-container for manual installation"
     exit 1
   fi
-elif [[ -f "$BINDIR/sc" ]]; then
+elif [[ -f "$BINDIR/$SC_BINARY" ]]; then
   # Binary exists and is up to date
-  current_version=$("$BINDIR/sc" --version 2>/dev/null || echo "unknown")
+  current_version=$("$BINDIR/$SC_BINARY" --version 2>/dev/null || echo "unknown")
   echo "✅ Simple Container $current_version is already installed and up to date"
   echo "💡 No download needed - using existing installation"
 fi
@@ -519,33 +580,68 @@ fi
 if ! [ -x "$(command -v pulumi)" ]; then
   echo "🔧 Pulumi not found, installing..."
   if [[ "$PLATFORM" == "linux" ]]; then
-    echo "📦 Installing Pulumi for Linux..."
-    if curl -fsSL https://get.pulumi.com | sh; then
-      echo "✅ Pulumi installed successfully"
+    echo "📦 Installing Pulumi v${PULUMI_VERSION} for Linux..."
+    if curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION}; then
+      echo "✅ Pulumi v${PULUMI_VERSION} installed successfully"
     else
       echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
     fi
   elif [[ "$PLATFORM" == "darwin" ]]; then
-    echo "📦 Installing Pulumi via Homebrew..."
-    if command -v brew >/dev/null 2>&1; then
-      if brew install pulumi/tap/pulumi; then
-        echo "✅ Pulumi installed successfully"
-      else
-        echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
-      fi
+    echo "📦 Installing Pulumi v${PULUMI_VERSION} for macOS..."
+    # Use direct download for macOS to ensure specific version
+    if curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION}; then
+      echo "✅ Pulumi v${PULUMI_VERSION} installed successfully"
     else
-      echo "⚠️  Homebrew not found. Please install Pulumi manually: https://www.pulumi.com/docs/get-started/install/"
+      echo "⚠️  Direct installation failed, trying Homebrew..."
+      if command -v brew >/dev/null 2>&1; then
+        if brew install pulumi/tap/pulumi; then
+          echo "✅ Pulumi installed successfully via Homebrew"
+          echo "⚠️  Note: Homebrew version may differ from required v${PULUMI_VERSION}"
+        else
+          echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
+        fi
+      else
+        echo "⚠️  Homebrew not found. Please install Pulumi v${PULUMI_VERSION} manually: https://www.pulumi.com/docs/get-started/install/"
+      fi
+    fi
+  elif [[ "$PLATFORM" == "windows" ]]; then
+    echo "📦 Installing Pulumi v${PULUMI_VERSION} for Windows..."
+    # Prefer direct download to ensure specific version
+    echo "📦 Installing Pulumi via direct download..."
+    install_pulumi_windows_direct
+    
+    # Fallback to package managers if direct download fails
+    if ! [ -x "$(command -v pulumi)" ]; then
+      if command -v choco >/dev/null 2>&1; then
+        echo "📦 Direct download failed, trying Chocolatey..."
+        if choco install pulumi; then
+          echo "✅ Pulumi installed successfully via Chocolatey"
+          echo "⚠️  Note: Chocolatey version may differ from required v${PULUMI_VERSION}"
+        fi
+      elif command -v winget >/dev/null 2>&1; then
+        echo "📦 Direct download failed, trying winget..."
+        if winget install pulumi; then
+          echo "✅ Pulumi installed successfully via winget"
+          echo "⚠️  Note: winget version may differ from required v${PULUMI_VERSION}"
+        fi
+      fi
     fi
   fi
 else
   pulumi_version=$(pulumi version 2>/dev/null | head -n1 || echo "unknown")
   echo "✅ Pulumi $pulumi_version is already installed"
+  
+  # Check if installed version matches required version
+  if [[ "$pulumi_version" != *"v${PULUMI_VERSION}"* ]]; then
+    echo "⚠️  Warning: Installed Pulumi version ($pulumi_version) may not match Simple Container requirements (v${PULUMI_VERSION})"
+    echo "💡 If you experience issues, consider updating Pulumi to v${PULUMI_VERSION}"
+  fi
 fi
 
 # Cleanup old backup files (keep only last 3)
 cleanup_old_backups() {
   local backup_files
-  backup_files=$(ls -t "$BINDIR"/sc.backup.* 2>/dev/null | tail -n +4)
+  backup_files=$(ls -t "$BINDIR"/$SC_BINARY.backup.* 2>/dev/null | tail -n +4)
   if [[ -n "$backup_files" ]]; then
     echo "$backup_files" | xargs rm -f
   fi
@@ -556,20 +652,52 @@ cleanup_old_backups 2>/dev/null || true
 
 export PATH="$PATH:$BINDIR"
 
-# Add completions
+# Add completions and PATH export
 # bash
 path_export="export PATH=\"\$PATH:$BINDIR\""
-if [[ -f "$HOME/.bashrc" ]]; then
-  if [[ "$(cat $HOME/.bashrc | grep "$path_export")" == "" ]]; then
-    echo "$path_export" >> "$HOME/.bashrc"
-  fi
-  completion_bash="source <(sc completion bash)"
-  if [[ "$(cat $HOME/.bashrc | grep "$completion_bash")" == "" ]]; then
-    echo "$completion_bash" >> "$HOME/.bashrc"
-  fi
-  unalias_cmd="unalias sc > /dev/null 2>/dev/null || true" # in case sc is defined as global alias
-  if [[ "$(cat $HOME/.bashrc | grep "$unalias_cmd")" == "" ]]; then
-    echo "$unalias_cmd" >> "$HOME/.bashrc"
+
+# Windows-specific shell configuration
+if [[ "$PLATFORM" == "windows" ]]; then
+  # For Windows, try to configure common bash environments
+  bash_configs=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile")
+  
+  for config_file in "${bash_configs[@]}"; do
+    if [[ -f "$config_file" ]] || [[ "$config_file" == "$HOME/.bashrc" ]]; then
+      # Create .bashrc if it doesn't exist (common in Git Bash)
+      if [[ ! -f "$config_file" && "$config_file" == "$HOME/.bashrc" ]]; then
+        touch "$config_file"
+      fi
+      
+      if [[ -f "$config_file" ]]; then
+        if [[ "$(cat "$config_file" | grep "$path_export")" == "" ]]; then
+          echo "$path_export" >> "$config_file"
+        fi
+        completion_bash="source <($SC_BINARY completion bash)"
+        if [[ "$(cat "$config_file" | grep "$completion_bash")" == "" ]]; then
+          echo "$completion_bash" >> "$config_file"
+        fi
+        unalias_cmd="unalias sc > /dev/null 2>/dev/null || true"
+        if [[ "$(cat "$config_file" | grep "$unalias_cmd")" == "" ]]; then
+          echo "$unalias_cmd" >> "$config_file"
+        fi
+        break  # Only configure the first available config file
+      fi
+    fi
+  done
+else
+  # Linux/macOS configuration
+  if [[ -f "$HOME/.bashrc" ]]; then
+    if [[ "$(cat $HOME/.bashrc | grep "$path_export")" == "" ]]; then
+      echo "$path_export" >> "$HOME/.bashrc"
+    fi
+    completion_bash="source <(sc completion bash)"
+    if [[ "$(cat $HOME/.bashrc | grep "$completion_bash")" == "" ]]; then
+      echo "$completion_bash" >> "$HOME/.bashrc"
+    fi
+    unalias_cmd="unalias sc > /dev/null 2>/dev/null || true" # in case sc is defined as global alias
+    if [[ "$(cat $HOME/.bashrc | grep "$unalias_cmd")" == "" ]]; then
+      echo "$unalias_cmd" >> "$HOME/.bashrc"
+    fi
   fi
 fi
 
@@ -598,11 +726,11 @@ if [[ -f "$HOME/.zshrc" ]]; then
 fi
 
 # Final validation before executing sc
-if ! validate_sc_binary "$BINDIR/sc"; then
+if ! validate_sc_binary "$BINDIR/$SC_BINARY"; then
   echo "❌ Simple Container binary is not working properly"
   echo "💡 Try running the script again or check the installation"
   exit 1
 fi
 
 # Execute sc with all passed arguments
-exec "$BINDIR/sc" "$@"
+exec "$BINDIR/$SC_BINARY" "$@"

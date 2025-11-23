@@ -110,6 +110,11 @@ tasks:
       - welder run build -a os=windows -a arch=amd64
       - cp ${project:root}/sc.sh ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - sed -i -e 's/VERSION="0\.0\.0"/VERSION="${project:version}"/g' ${project:root}/.sc/stacks/dist/bundle/sc.sh
+      - |-
+        # Extract Pulumi version from go.mod and update sc.sh
+        PULUMI_VER=$(grep 'github.com/pulumi/pulumi/sdk/v3' ${project:root}/go.mod | awk '{print $2}' | sed 's/^v//')
+        echo "Updating sc.sh with Pulumi version: ${PULUMI_VER}"
+        sed -i -e "s/PULUMI_VERSION=\"[^\"]*\"/PULUMI_VERSION=\"${PULUMI_VER}\"/g" ${project:root}/.sc/stacks/dist/bundle/sc.sh
       - echo "${project:version}" > ${project:root}/.sc/stacks/dist/bundle/version
       - cp ${project:root}/.sc/stacks/dist/site/* ${project:root}/.sc/stacks/dist/bundle/
   docker-login:
