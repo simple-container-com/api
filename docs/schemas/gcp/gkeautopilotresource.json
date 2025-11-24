@@ -43,6 +43,9 @@
           "caddyfilePrefix": {
             "type": "string"
           },
+          "deploymentName": {
+            "type": "string"
+          },
           "enable": {
             "type": "boolean"
           },

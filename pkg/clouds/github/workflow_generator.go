@@ -144,14 +144,26 @@ func (wg *WorkflowGenerator) prepareTemplateData() *WorkflowTemplateData {
 
 // getDefaultEnvironment determines the default environment for deployments
 func (wg *WorkflowGenerator) getDefaultEnvironment() string {
-	// Prefer staging environments
+	// First priority: environments with auto-deploy enabled
+	for name, env := range wg.config.Environments {
+		if env.AutoDeploy {
+			return name
+		}
+	}
+
+	// Second priority: staging environments (by type)
 	for name, env := range wg.config.Environments {
 		if env.Type == "staging" {
 			return name
 		}
 	}
 
-	// Fall back to production environments
+	// Third priority: environments named "staging"
+	if _, exists := wg.config.Environments["staging"]; exists {
+		return "staging"
+	}
+
+	// Fourth priority: production environments (by type)
 	for name, env := range wg.config.Environments {
 		if env.Type == "production" {
 			return name

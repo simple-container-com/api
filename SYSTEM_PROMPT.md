@@ -290,7 +290,21 @@ Client Stack: Receives GCS_BUCKET_NAME, GCS_ACCESS_KEY, etc.
 - **Resource boundaries**: Always set `minAllowed` and `maxAllowed` to prevent resource starvation or runaway costs
 - **Documentation**: VPA concepts in `docs/docs/concepts/vertical-pod-autoscaler.md`, examples in `docs/docs/examples/kubernetes-vpa/`
 
-### 12. Memory Management
+### 12. CI/CD Configuration Resolution Patterns
+**Monorepo Support**: When client and parent stacks are in the same repository, use local configuration instead of remote fetching.
+
+**Config Resolution Order**:
+1. Stack-specific: `.sc/stacks/{stackName}/server.yaml`
+2. Root: `server.yaml`  
+3. Local parent: `.sc/stacks/{parentStackName}/server.yaml` (extracted from client.yaml)
+4. Remote parent: Fetch from `parentRepository` if different from current repo
+
+**Key Implementation Functions**:
+- `isCurrentRepository()`: Detects when parent repo matches current repo
+- `getAllParentStackNames()`: Extracts all unique parent stack names from client.yaml using `lo.Map`
+- `autoDetectConfigFileWithLogging()`: Implements the resolution order with proper logging
+
+### 13. Memory Management
 - **Create memories**: Use `create_memory` tool to preserve important context
 - **Update SYSTEM_PROMPT.md**: Add new essential instructions when patterns emerge
 - **Keep instructions current**: Remove outdated information, focus on actionable guidance
