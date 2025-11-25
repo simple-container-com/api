@@ -10,6 +10,8 @@ import (
 
 	"gopkg.in/yaml.v2"
 
+	"github.com/samber/lo"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 )
@@ -91,6 +93,12 @@ func checkParentRepositoryConfigWithLogging(ctx context.Context, logger Logger, 
 	if config.ParentRepository == "" {
 		logDebug("No parent repository configured")
 		return nil
+	}
+
+	// Check if parent repository is the same as current repository
+	if isCurrentRepository(config.ParentRepository) {
+		logDebug("Parent repository is same as current repository, using local configuration")
+		return nil // Use local server.yaml instead of trying to fetch from parent
 	}
 
 	logDebug("Found parent repository: %s", config.ParentRepository)
@@ -382,6 +390,17 @@ func autoDetectConfigFileWithLogging(ctx context.Context, logger Logger, configF
 	if _, err := os.Stat("server.yaml"); err == nil {
 		logDebug("Found root server.yaml")
 		return "server.yaml", nil
+	}
+
+	// Check for local parent stack server.yaml (when client and parent are in same repo)
+	parentStackNames := getAllParentStackNames(stackName)
+	for _, parentStackName := range parentStackNames {
+		parentStackServerYaml := filepath.Join(".sc", "stacks", parentStackName, "server.yaml")
+		logDebug("Checking local parent stack server.yaml: %s", parentStackServerYaml)
+		if _, err := os.Stat(parentStackServerYaml); err == nil {
+			logDebug("Found local parent stack server.yaml: %s", parentStackServerYaml)
+			return parentStackServerYaml, nil
+		}
 	}
 
 	// Check if parent repository configuration is available as fallback
@@ -680,4 +699,88 @@ func executeGitClone(repoURL, destDir string) error {
 	}
 
 	return nil
+}
+
+// isCurrentRepository checks if the given repository URL matches the current repository
+func isCurrentRepository(parentRepoURL string) bool {
+	// Get current repository's remote origin URL
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	output, err := cmd.Output()
+	if err != nil {
+		// If we can't get the current repo URL, assume it's different
+		return false
+	}
+
+	currentRepoURL := strings.TrimSpace(string(output))
+
+	// Normalize URLs for comparison (handle both SSH and HTTPS formats)
+	normalizedParent := normalizeGitURL(parentRepoURL)
+	normalizedCurrent := normalizeGitURL(currentRepoURL)
+
+	return normalizedParent == normalizedCurrent
+}
+
+// getAllParentStackNames extracts all unique parent stack names from client.yaml
+func getAllParentStackNames(stackName string) []string {
+	// Read client.yaml for the specific stack to get parent stack names
+	clientPath := filepath.Join(".sc", "stacks", stackName, "client.yaml")
+	if _, err := os.Stat(clientPath); err != nil {
+		return nil // No client.yaml found
+	}
+
+	var clientConfig api.ClientDescriptor
+	readConfig, err := api.ReadDescriptor(clientPath, &clientConfig)
+	if err != nil {
+		return nil // Failed to read client.yaml
+	}
+
+	// Extract parent stack names from all environments and deduplicate
+	stackConfigs := lo.Values(readConfig.Stacks)
+
+	// Filter out stacks without parent configuration
+	stacksWithParents := lo.Filter(stackConfigs, func(stackConfig api.StackClientDescriptor, _ int) bool {
+		return stackConfig.ParentStack != ""
+	})
+
+	// Map to extract parent stack names
+	parentStackNames := lo.Map(stacksWithParents, func(stackConfig api.StackClientDescriptor, _ int) string {
+		// Extract stack name from parent reference (e.g., "aiwize/parent" -> "parent")
+		parts := strings.Split(stackConfig.ParentStack, "/")
+		if len(parts) >= 2 {
+			return parts[1] // Return the stack name part
+		}
+		// If no slash, assume the whole string is the stack name
+		return stackConfig.ParentStack
+	})
+
+	// Remove duplicates
+	return lo.Uniq(parentStackNames)
+}
+
+// normalizeGitURL normalizes git URLs for comparison
+func normalizeGitURL(url string) string {
+	url = strings.TrimSpace(url)
+
+	// Convert SSH format to HTTPS-like format for comparison
+	// git@github.com:owner/repo.git -> github.com/owner/repo
+	if strings.HasPrefix(url, "git@") {
+		// git@github.com:owner/repo.git
+		parts := strings.Split(url, ":")
+		if len(parts) == 2 {
+			host := strings.TrimPrefix(parts[0], "git@")
+			repo := strings.TrimSuffix(parts[1], ".git")
+			return host + "/" + repo
+		}
+	}
+
+	// Convert HTTPS format
+	// https://github.com/owner/repo.git -> github.com/owner/repo
+	if strings.HasPrefix(url, "https://") {
+		url = strings.TrimPrefix(url, "https://")
+		url = strings.TrimSuffix(url, ".git")
+		return url
+	}
+
+	// Remove .git suffix if present
+	return strings.TrimSuffix(url, ".git")
 }
