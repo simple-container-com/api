@@ -3,6 +3,15 @@
 ## ⚠️ CRITICAL DEVELOPMENT WORKFLOW
 **ALWAYS run `welder run fmt` after completing any code modifications to ensure proper formatting and linting compliance!**
 
+## 🚨 CRITICAL: Resource Adoption Safety
+**Following a production MongoDB cluster deletion incident, ALL resource adoption implementations MUST include:**
+1. **`sdk.Protect(true)`** - Prevents Pulumi from deleting adopted resources
+2. **`sdk.IgnoreChanges([]string{...})`** - Prevents configuration drift from triggering replacements
+3. **Production warnings** - Alert users when adopting resources in production environments
+4. **Configuration validation** - Ensure adopted resource config matches existing resource exactly
+
+**See `docs/ADOPTION_SAFETY_GUIDE.md` for complete safety requirements and `pkg/clouds/pulumi/adoption_protection.go` for utility functions.**
+
 ## 📚 Documentation-First Approach
 **When you need additional context or understanding:**
 1. **Search documentation first**: Use `sc assistant search [query]` or browse `docs/docs/`

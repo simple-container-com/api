@@ -43,6 +43,10 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	// Use identical naming functions as provisioning to ensure export compatibility
 	clusterName := pulumiKubernetes.ToClusterName(input, input.Descriptor.Name)
 
+	// CRITICAL SAFETY WARNING for production environments
+	// Use flexible environment detection instead of hardcoded names
+	pApi.LogAdoptionWarnings(ctx, input, params, "GKE Autopilot cluster", gkeInput.ClusterName)
+
 	params.Log.Info(ctx.Context(), "adopting existing GKE Autopilot cluster %q in location %q", gkeInput.ClusterName, gkeInput.Location)
 
 	// First, lookup the existing cluster to get its current configuration
@@ -106,23 +110,24 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		params.Log.Info(ctx.Context(), "setting MinMasterVersion to %q for adoption", gkeInput.GkeMinVersion)
 	}
 
-	// Add resource options to ignore changes that might cause conflicts during adoption
-	adoptionOpts := append(opts,
+	// Use standardized adoption protection options
+	adoptionProtectionOpts := pApi.AdoptionProtectionOptions([]string{
 		// Ignore node pool related changes since Autopilot manages these automatically
-		sdk.IgnoreChanges([]string{
-			"nodePools",
-			"nodePool",
-			"defaultMaxPodsPerNode",
-			"ipAllocationPolicy",
-			"networkPolicy",
-			"enableIntranodeVisibility",
-			"loggingService",
-			"monitoringService",
-			"verticalPodAutoscaling",
-			"clusterTelemetry",
-			"nodeConfig",
-		}),
-	)
+		"nodePools",
+		"nodePool",
+		"defaultMaxPodsPerNode",
+		"ipAllocationPolicy",
+		"networkPolicy",
+		"enableIntranodeVisibility",
+		"loggingService",
+		"monitoringService",
+		"verticalPodAutoscaling",
+		"clusterTelemetry",
+		"nodeConfig",
+	})
+
+	// Add resource options to ignore changes that might cause conflicts during adoption
+	adoptionOpts := append(opts, adoptionProtectionOpts...)
 
 	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, adoptionOpts...)
 	if err != nil {
