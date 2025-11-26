@@ -39,6 +39,10 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	// Use identical naming functions as provisioning to ensure export compatibility
 	postgresName := toPostgresName(input, input.Descriptor.Name)
 
+	// CRITICAL SAFETY WARNING for production environments
+	// Use flexible environment detection instead of hardcoded names
+	pApi.LogAdoptionWarnings(ctx, input, params, "PostgreSQL instance", pgCfg.InstanceName)
+
 	params.Log.Info(ctx.Context(), "adopting existing Cloud SQL Postgres instance %q", pgCfg.InstanceName)
 
 	// First, lookup the existing instance to get its current configuration
@@ -88,11 +92,22 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	// The instance resource ID in GCP is: projects/{project}/instances/{instance}
 	instanceResourceId := fmt.Sprintf("projects/%s/instances/%s", pgCfg.ProjectId, pgCfg.InstanceName)
 
-	opts := []sdk.ResourceOption{
+	// Use standardized adoption protection options
+	adoptionOpts := pApi.AdoptionProtectionOptions([]string{
+		// Instance configuration that might drift
+		"settings.insightsConfig", "settings.databaseFlags", "settings.maintenanceWindow",
+		"settings.backupConfiguration", "settings.ipConfiguration",
+		// Version and upgrade settings
+		"masterInstanceName", "replicaConfiguration", "restoreBackupContext",
+		// Advanced settings that might be managed outside of Pulumi
+		"settings.userLabels", "settings.availabilityType", "settings.diskAutoresize",
+	})
+
+	opts := append([]sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		// Import the existing instance without creating or modifying it
 		sdk.Import(sdk.ID(instanceResourceId)),
-	}
+	}, adoptionOpts...)
 
 	// Preserve existing database flags and optionally override max_connections
 	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray

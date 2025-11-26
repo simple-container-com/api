@@ -2,6 +2,9 @@ package api
 
 import (
 	"reflect"
+	"strings"
+
+	"github.com/pkg/errors"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -98,4 +101,80 @@ type ComputeContextCollector interface {
 	AddPostProcessor(forType any, processor PostProcessor)
 	RunPreProcessors(forType any, onObject any) error
 	RunPostProcessors(forType any, onObject any) error
+}
+
+// isProductionLikeEnvironment detects production-like environments based on common naming patterns
+func isProductionLikeEnvironment(env string) bool {
+	if env == "" {
+		return false
+	}
+
+	env = strings.ToLower(env)
+
+	// Common production environment patterns
+	productionPatterns := []string{
+		"prod", "production", "live", "prd",
+		"main", "master", "release", "stable",
+	}
+
+	// Check for exact matches
+	for _, pattern := range productionPatterns {
+		if env == pattern {
+			return true
+		}
+	}
+
+	// Check for patterns that contain production indicators
+	// e.g., "production-eu", "prod-us", "live-west", "main-cluster"
+	for _, pattern := range productionPatterns {
+		if strings.Contains(env, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// AdoptionProtectionOptions provides comprehensive protection for adopted resources
+func AdoptionProtectionOptions(ignoreChanges []string) []sdk.ResourceOption {
+	opts := []sdk.ResourceOption{
+		// CRITICAL: Protect adopted resources from deletion
+		sdk.Protect(true),
+	}
+
+	// Add ignore changes if provided
+	if len(ignoreChanges) > 0 {
+		opts = append(opts, sdk.IgnoreChanges(ignoreChanges))
+	}
+
+	return opts
+}
+
+// LogAdoptionWarnings logs critical safety warnings for production-like environments
+func LogAdoptionWarnings(ctx *sdk.Context, input api.ResourceInput, params ProvisionParams, resourceType, resourceName string) {
+	// Always log adoption info
+	params.Log.Info(ctx.Context(), "🔄 Adopting %s %q in environment %q", resourceType, resourceName, input.StackParams.Environment)
+
+	// Enhanced warnings for production-like environments
+	if isProductionLikeEnvironment(input.StackParams.Environment) {
+		params.Log.Warn(ctx.Context(), "🚨 Adopting %s %q in PRODUCTION-LIKE environment %q", resourceType, resourceName, input.StackParams.Environment)
+		params.Log.Warn(ctx.Context(), "🛡️  PROTECTION: Resource will be protected from deletion with sdk.Protect(true)")
+	} else {
+		// Still provide safety information for non-production environments
+		params.Log.Info(ctx.Context(), "🛡️  PROTECTION: Resource will be protected from deletion with sdk.Protect(true)")
+		params.Log.Info(ctx.Context(), "ℹ️  INFO: Configuration mismatches are ignored to prevent replacements")
+	}
+}
+
+// ValidateAdoptionConfig validates common adoption configuration requirements
+func ValidateAdoptionConfig(adoptFlag bool, resourceName, descriptorName string) error {
+	if !adoptFlag {
+		return errors.Errorf("adopt flag not set for resource %q", descriptorName)
+	}
+
+	if resourceName == "" {
+		return errors.Errorf("resource name is required when adopt=true for resource %q", descriptorName)
+	}
+
+	return nil
 }

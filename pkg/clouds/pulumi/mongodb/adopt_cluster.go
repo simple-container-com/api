@@ -37,6 +37,10 @@ func AdoptCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	projectName := toProjectName(stack.Name, input)
 	clusterName := toClusterName(stack.Name, input)
 
+	// CRITICAL SAFETY WARNING for production environments
+	// Use flexible environment detection instead of hardcoded names
+	pApi.LogAdoptionWarnings(ctx, input, params, "MongoDB cluster", atlasCfg.ClusterName)
+
 	params.Log.Info(ctx.Context(), "adopting existing MongoDB Atlas cluster %q for project %q", atlasCfg.ClusterName, atlasCfg.ProjectId)
 
 	// First, lookup the existing cluster to get its current configuration
@@ -91,11 +95,26 @@ func AdoptCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	// The cluster resource ID in MongoDB Atlas is: {project_id}-{cluster_name}
 	clusterResourceId := fmt.Sprintf("%s-%s", atlasCfg.ProjectId, atlasCfg.ClusterName)
 
-	opts := []sdk.ResourceOption{
+	// Use standardized adoption protection options
+	adoptionOpts := pApi.AdoptionProtectionOptions([]string{
+		// Core cluster configuration that might drift
+		"diskSizeGb", "numShards", "cloudBackup",
+		// Provider-specific settings that might vary
+		"providerAutoScalingComputeEnabled", "providerAutoScalingComputeScaleDownEnabled",
+		"providerDiskIops", "providerEncryptEbsVolume", "providerVolumeType",
+		// Network and security settings
+		"mongoDbMajorVersion", "pitEnabled", "rootCertType",
+		// Advanced settings that might be managed outside of Pulumi
+		"advancedConfiguration", "labels", "tags",
+		// Backup and maintenance settings
+		"backupEnabled", "mongoDbVersion", "paused",
+	})
+
+	opts := append([]sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		// Import the existing cluster without creating or modifying it
 		sdk.Import(sdk.ID(clusterResourceId)),
-	}
+	}, adoptionOpts...)
 
 	cluster, err := mongodbatlas.NewCluster(ctx, clusterName, &mongodbatlas.ClusterArgs{
 		ProjectId: sdk.String(atlasCfg.ProjectId),

@@ -236,7 +236,7 @@ func toMemoryLimit(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64,
 		if v, err := strconv.Atoi(cfg.Size.Limits.Memory); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse memory limit specified for stack: %q", cfg.Size.Limits.Memory)
 		} else {
-			return int64(v), nil
+			return int64(v) * 1024 * 1024, nil // Convert MB to bytes
 		}
 	}
 
@@ -245,7 +245,7 @@ func toMemoryLimit(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64,
 		if v, err := strconv.Atoi(cfg.Size.Memory); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse memory value specified for stack: %q", cfg.Size.Memory)
 		} else {
-			return int64(v), nil
+			return int64(v) * 1024 * 1024, nil // Convert MB to bytes (consistent with ECS Fargate)
 		}
 	}
 
@@ -254,8 +254,8 @@ func toMemoryLimit(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64,
 		return int64(svc.Deploy.Resources.Limits.MemoryBytes), nil
 	}
 
-	// Default memory limit
-	return 512, nil
+	// Default memory limit (512MB in bytes)
+	return 512 * 1024 * 1024, nil
 }
 
 // toMemoryRequest extracts memory requests from configuration, with fallback to limits
@@ -265,7 +265,7 @@ func toMemoryRequest(cfg *api.StackConfigCompose, svc types.ServiceConfig, memor
 		if v, err := strconv.Atoi(cfg.Size.Requests.Memory); err != nil {
 			return 0, errors.Wrapf(err, "failed to parse memory request specified for stack: %q", cfg.Size.Requests.Memory)
 		} else {
-			return int64(v), nil
+			return int64(v) * 1024 * 1024, nil // Convert MB to bytes
 		}
 	}
 

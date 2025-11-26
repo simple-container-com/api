@@ -35,6 +35,10 @@ func AdoptRedis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	// Use identical naming functions as provisioning to ensure export compatibility
 	redisName := toRedisName(input, input.Descriptor.Name)
 
+	// CRITICAL SAFETY WARNING for production environments
+	// Use flexible environment detection instead of hardcoded names
+	pApi.LogAdoptionWarnings(ctx, input, params, "Redis instance", redisCfg.InstanceId)
+
 	params.Log.Info(ctx.Context(), "adopting existing Redis Memorystore instance %q", redisCfg.InstanceId)
 
 	// First, lookup the existing Redis instance to get its current configuration
@@ -78,11 +82,20 @@ func AdoptRedis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 		*redisCfg.Region, // Redis requires region
 		redisCfg.InstanceId)
 
-	opts := []sdk.ResourceOption{
+	// Use standardized adoption protection options
+	adoptionOpts := pApi.AdoptionProtectionOptions([]string{
+		// Instance configuration that might drift
+		"authorizedNetwork", "connectMode", "displayName",
+		"labels", "redisConfigs", "reservedIpRange",
+		// Advanced settings that might be managed outside of Pulumi
+		"locationId", "alternativeLocationId", "tier",
+	})
+
+	opts := append([]sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		// Import the existing instance without creating or modifying it
 		sdk.Import(sdk.ID(instanceResourceId)),
-	}
+	}, adoptionOpts...)
 
 	redisInstance, err := redis.NewInstance(ctx, redisName, &redis.InstanceArgs{
 		Name: sdk.String(redisCfg.InstanceId),
