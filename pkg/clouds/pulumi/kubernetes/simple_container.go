@@ -648,7 +648,7 @@ ${proto}://${domain} {
 
 	// Create VPA if enabled
 	if args.VPA != nil && args.VPA.Enabled {
-		if err := createVPA(ctx, args, sanitizedDeployment, sanitizedNamespace, opts...); err != nil {
+		if err := createVPA(ctx, args, sanitizedDeployment, sanitizedNamespace, appLabels, appAnnotations, opts...); err != nil {
 			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", sanitizedDeployment)
 		}
 	}
@@ -663,6 +663,8 @@ ${proto}://${domain} {
 			CPUTarget:    args.Scale.CPUTarget,
 			MemoryTarget: args.Scale.MemoryTarget,
 			Namespace:    namespace,
+			Labels:       appLabels,
+			Annotations:  appAnnotations,
 			Opts:         opts,
 		}
 
@@ -690,7 +692,7 @@ ${proto}://${domain} {
 	return sc, nil
 }
 
-func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, opts ...sdk.ResourceOption) error {
+func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
 
 	// Build VPA spec content
@@ -758,13 +760,30 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 		"spec": vpaSpec,
 	}
 
+	// Merge common labels with VPA-specific labels
+	vpaLabels := make(map[string]string)
+	for k, v := range labels {
+		vpaLabels[k] = v
+	}
+	// Add VPA-specific labels
+	vpaLabels["app.kubernetes.io/component"] = "vpa"
+	vpaLabels["app.kubernetes.io/managed-by"] = "simple-container"
+
+	// Use common annotations (VPA doesn't typically need specific annotations)
+	vpaAnnotations := make(map[string]string)
+	for k, v := range annotations {
+		vpaAnnotations[k] = v
+	}
+
 	// Create VPA custom resource
 	_, err := apiextensions.NewCustomResource(ctx, vpaName, &apiextensions.CustomResourceArgs{
 		ApiVersion: sdk.String("autoscaling.k8s.io/v1"),
 		Kind:       sdk.String("VerticalPodAutoscaler"),
 		Metadata: &metav1.ObjectMetaArgs{
-			Name:      sdk.String(vpaName),
-			Namespace: sdk.String(namespace),
+			Name:        sdk.String(vpaName),
+			Namespace:   sdk.String(namespace),
+			Labels:      sdk.ToStringMap(vpaLabels),
+			Annotations: sdk.ToStringMap(vpaAnnotations),
 		},
 		OtherFields: spec,
 	}, opts...)

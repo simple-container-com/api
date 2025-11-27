@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+
 	appsv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
 	autoscalingv2 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/autoscaling/v2"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
@@ -22,6 +23,8 @@ type HPAArgs struct {
 	CPUTarget    *int
 	MemoryTarget *int
 	Namespace    *corev1.Namespace
+	Labels       map[string]string
+	Annotations  map[string]string
 	Opts         []sdk.ResourceOption
 }
 
@@ -70,17 +73,28 @@ func CreateHPA(ctx *sdk.Context, args *HPAArgs) (*autoscalingv2.HorizontalPodAut
 		metrics = append(metrics, memoryMetric)
 	}
 
+	// Merge common labels with HPA-specific labels
+	hpaLabels := make(map[string]string)
+	for k, v := range args.Labels {
+		hpaLabels[k] = v
+	}
+	// Add HPA-specific labels
+	hpaLabels["app.kubernetes.io/component"] = "hpa"
+	hpaLabels["app.kubernetes.io/managed-by"] = "simple-container"
+
+	// Use common annotations (HPA doesn't typically need specific annotations)
+	hpaAnnotations := make(map[string]string)
+	for k, v := range args.Annotations {
+		hpaAnnotations[k] = v
+	}
+
 	// Create HPA resource
 	hpa, err := autoscalingv2.NewHorizontalPodAutoscaler(ctx, hpaName, &autoscalingv2.HorizontalPodAutoscalerArgs{
 		Metadata: &metav1.ObjectMetaArgs{
-			Name:      sdk.String(hpaName),
-			Namespace: args.Namespace.Metadata.Name(),
-			Labels: sdk.StringMap{
-				"app":                          sdk.String(args.Name),
-				"app.kubernetes.io/name":       sdk.String(args.Name),
-				"app.kubernetes.io/component":  sdk.String("hpa"),
-				"app.kubernetes.io/managed-by": sdk.String("simple-container"),
-			},
+			Name:        sdk.String(hpaName),
+			Namespace:   args.Namespace.Metadata.Name(),
+			Labels:      sdk.ToStringMap(hpaLabels),
+			Annotations: sdk.ToStringMap(hpaAnnotations),
 		},
 		Spec: &autoscalingv2.HorizontalPodAutoscalerSpecArgs{
 			MinReplicas: sdk.Int(args.MinReplicas),
