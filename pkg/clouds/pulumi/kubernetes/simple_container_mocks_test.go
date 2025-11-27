@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -9,6 +10,8 @@ import (
 
 // simpleContainerMocks implements pulumi.MockResourceMonitor for testing SimpleContainer
 type simpleContainerMocks struct {
+	// Mutex to protect concurrent access to maps
+	mu sync.RWMutex
 	// Track resource creation counts by type
 	resourceCounts map[string]int
 	// Store created resources for validation
@@ -25,14 +28,22 @@ func NewSimpleContainerMocks() *simpleContainerMocks {
 
 // NewResource mocks the creation of Kubernetes resources
 func (m *simpleContainerMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
-	// Track resource creation
+	// Thread-safe resource tracking
+	m.mu.Lock()
 	m.resourceCounts[args.TypeToken]++
+	count := m.resourceCounts[args.TypeToken]
+	m.mu.Unlock()
 
 	// Generate unique resource ID
-	resourceID := fmt.Sprintf("%s-%d", args.Name, m.resourceCounts[args.TypeToken])
+	resourceID := fmt.Sprintf("%s-%d", args.Name, count)
 
-	// Get input properties
-	outputs := args.Inputs.Mappable()
+	// Get input properties safely
+	outputs := make(map[string]interface{})
+	if args.Inputs != nil {
+		if inputMap := args.Inputs.Mappable(); inputMap != nil {
+			outputs = inputMap
+		}
+	}
 
 	// Add mock outputs based on resource type
 	switch args.TypeToken {
@@ -68,11 +79,15 @@ func (m *simpleContainerMocks) Call(args pulumi.MockCallArgs) (resource.Property
 
 // GetResourceCount returns the number of resources created of a specific type
 func (m *simpleContainerMocks) GetResourceCount(resourceType string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.resourceCounts[resourceType]
 }
 
 // GetCreatedResource returns the properties of a created resource
 func (m *simpleContainerMocks) GetCreatedResource(resourceID string) (resource.PropertyMap, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	props, exists := m.createdResources[resourceID]
 	return props, exists
 }
@@ -87,9 +102,11 @@ func (m *simpleContainerMocks) mockNamespace(args pulumi.MockResourceArgs, outpu
 		"phase": "Active",
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -105,9 +122,11 @@ func (m *simpleContainerMocks) mockDeployment(args pulumi.MockResourceArgs, outp
 		"updatedReplicas":   1,
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -126,9 +145,11 @@ func (m *simpleContainerMocks) mockService(args pulumi.MockResourceArgs, outputs
 		},
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -138,7 +159,9 @@ func (m *simpleContainerMocks) mockConfigMap(args pulumi.MockResourceArgs, outpu
 
 	// ConfigMaps don't have complex status, just return inputs
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -148,7 +171,9 @@ func (m *simpleContainerMocks) mockSecret(args pulumi.MockResourceArgs, outputs 
 
 	// Secrets don't have complex status, just return inputs
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -161,9 +186,11 @@ func (m *simpleContainerMocks) mockPVC(args pulumi.MockResourceArgs, outputs map
 		"phase": "Bound",
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -182,9 +209,11 @@ func (m *simpleContainerMocks) mockIngress(args pulumi.MockResourceArgs, outputs
 		},
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -198,9 +227,11 @@ func (m *simpleContainerMocks) mockPDB(args pulumi.MockResourceArgs, outputs map
 		"desiredHealthy": 1,
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -214,9 +245,11 @@ func (m *simpleContainerMocks) mockHPA(args pulumi.MockResourceArgs, outputs map
 		"desiredReplicas": 2,
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
@@ -241,9 +274,11 @@ func (m *simpleContainerMocks) mockCustomResource(args pulumi.MockResourceArgs, 
 		}
 	}
 
-	// Store for validation
+	// Store for validation (thread-safe)
 	props := resource.NewPropertyMapFromMap(outputs)
+	m.mu.Lock()
 	m.createdResources[resourceID] = props
+	m.mu.Unlock()
 
 	return resourceID, props, nil
 }
