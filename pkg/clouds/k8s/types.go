@@ -88,7 +88,13 @@ type PersistentVolume struct {
 
 type Scale struct {
 	Replicas int `json:"replicas" yaml:"replicas"`
-	// TODO: support autoscaling
+
+	// HPA Configuration
+	EnableHPA    bool `json:"enableHPA" yaml:"enableHPA"`
+	MinReplicas  int  `json:"minReplicas,omitempty" yaml:"minReplicas,omitempty"`
+	MaxReplicas  int  `json:"maxReplicas,omitempty" yaml:"maxReplicas,omitempty"`
+	CPUTarget    *int `json:"cpuTarget,omitempty" yaml:"cpuTarget,omitempty"`       // CPU utilization percentage (e.g., 70)
+	MemoryTarget *int `json:"memoryTarget,omitempty" yaml:"memoryTarget,omitempty"` // Memory utilization percentage (e.g., 80)
 }
 
 type CloudRunProbe struct {
@@ -286,12 +292,36 @@ func ToHeaders(headers *api.Headers) Headers {
 }
 
 func ToScale(stack *api.StackConfigCompose) *Scale {
-	if lo.FromPtr(stack).Scale != nil {
-		return &Scale{
-			Replicas: stack.Scale.Min,
-		}
+	if stack == nil || stack.Scale == nil {
+		return nil
 	}
-	return nil
+
+	scaleConfig := stack.Scale
+
+	// Detect if autoscaling should be enabled
+	// HPA is enabled when: min != max AND policy is defined with CPU or Memory targets
+	shouldAutoscale := scaleConfig.Min != scaleConfig.Max &&
+		scaleConfig.Policy != nil &&
+		(scaleConfig.Policy.Cpu != nil || scaleConfig.Policy.Memory != nil)
+
+	scale := &Scale{
+		Replicas:    scaleConfig.Min, // Use min as base replica count
+		EnableHPA:   shouldAutoscale,
+		MinReplicas: scaleConfig.Min,
+		MaxReplicas: scaleConfig.Max,
+	}
+
+	// Set CPU target if configured
+	if scaleConfig.Policy != nil && scaleConfig.Policy.Cpu != nil {
+		scale.CPUTarget = &scaleConfig.Policy.Cpu.Max
+	}
+
+	// Set Memory target if configured
+	if scaleConfig.Policy != nil && scaleConfig.Policy.Memory != nil {
+		scale.MemoryTarget = &scaleConfig.Policy.Memory.Max
+	}
+
+	return scale
 }
 
 func ToPersistentVolumes(svc types.ServiceConfig, cfg compose.Config) []PersistentVolume {

@@ -218,7 +218,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		NodeSelector:           args.NodeSelector,
 		Affinity:               args.Affinity,
 		Sidecars:               args.Sidecars,
-		VPA:                    args.VPA, // Pass VPA configuration to SimpleContainer
+		VPA:                    args.VPA,              // Pass VPA configuration to SimpleContainer
+		Scale:                  args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
@@ -232,6 +233,21 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
 	}
+
+	// Validate HPA configuration before passing to SimpleContainer
+	if args.Deployment.Scale != nil && args.Deployment.Scale.EnableHPA {
+		// Get resources from the first container (assuming all containers have similar resource requirements)
+		var containerResources *k8s.Resources
+		if len(args.Deployment.Containers) > 0 {
+			containerResources = args.Deployment.Containers[0].Resources
+		}
+
+		// Validate HPA configuration
+		if err := ValidateHPAConfiguration(args.Deployment.Scale, containerResources); err != nil {
+			return nil, errors.Wrapf(err, "invalid HPA configuration for deployment %s", stackName)
+		}
+	}
+
 	return sc, nil
 }
 

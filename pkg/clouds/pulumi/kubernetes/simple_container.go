@@ -88,6 +88,7 @@ type SimpleContainerArgs struct {
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
 	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
+	Scale             *k8s.Scale                   `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
@@ -650,6 +651,28 @@ ${proto}://${domain} {
 		if err := createVPA(ctx, args, sanitizedDeployment, sanitizedNamespace, opts...); err != nil {
 			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", sanitizedDeployment)
 		}
+	}
+
+	// Create HPA if enabled (validation already done in deployment.go)
+	if args.Scale != nil && args.Scale.EnableHPA {
+		hpaArgs := &HPAArgs{
+			Name:         sanitizedDeployment,
+			Deployment:   deployment,
+			MinReplicas:  args.Scale.MinReplicas,
+			MaxReplicas:  args.Scale.MaxReplicas,
+			CPUTarget:    args.Scale.CPUTarget,
+			MemoryTarget: args.Scale.MemoryTarget,
+			Namespace:    namespace,
+			Opts:         opts,
+		}
+
+		hpa, err := CreateHPA(ctx, hpaArgs)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create HPA for deployment %s", sanitizedDeployment)
+		}
+
+		args.Log.Info(ctx.Context(), "✅ Created HPA %s with min=%d, max=%d replicas",
+			hpa.Metadata.Name(), args.Scale.MinReplicas, args.Scale.MaxReplicas)
 	}
 
 	err = ctx.RegisterResourceOutputs(sc, sdk.Map{
