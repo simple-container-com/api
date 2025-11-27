@@ -1,6 +1,8 @@
 package gcloud
 
 import (
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -21,6 +23,10 @@ type GkeAutopilotResource struct {
 	Zone          string           `json:"zone" yaml:"zone"`
 	Timeouts      *Timeouts        `json:"timeouts,omitempty" yaml:"timeouts,omitempty"`
 	Caddy         *k8s.CaddyConfig `json:"caddy,omitempty" yaml:"caddy,omitempty"`
+
+	// External Egress IP Configuration
+	ExternalEgressIp *ExternalEgressIpConfig `json:"externalEgressIp,omitempty" yaml:"externalEgressIp,omitempty"`
+
 	// Resource adoption fields
 	Adopt       bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
 	ClusterName string `json:"clusterName,omitempty" yaml:"clusterName,omitempty"`
@@ -30,6 +36,12 @@ type Timeouts struct {
 	Create string `json:"create" yaml:"create"`
 	Update string `json:"update" yaml:"update"`
 	Delete string `json:"delete" yaml:"delete"`
+}
+
+// ExternalEgressIpConfig provides simple configuration for static egress IP
+type ExternalEgressIpConfig struct {
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	Existing string `json:"existing,omitempty" yaml:"existing,omitempty"`
 }
 
 type GkeAutopilotTemplate struct {
@@ -152,4 +164,24 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	res.Deployment.TextVolumes = k8s.ToSimpleTextVolumes(stackCfg)
 
 	return res, nil
+}
+
+// Validate validates the ExternalEgressIpConfig
+func (c *ExternalEgressIpConfig) Validate() error {
+	if !c.Enabled {
+		return nil // No validation needed if disabled
+	}
+
+	// Validate existing IP format if specified
+	if c.Existing != "" {
+		if !strings.HasPrefix(c.Existing, "projects/") {
+			return errors.New("'existing' must be a full GCP resource path like 'projects/{project}/regions/{region}/addresses/{name}'")
+		}
+		parts := strings.Split(c.Existing, "/")
+		if len(parts) != 6 || parts[2] != "regions" || parts[4] != "addresses" {
+			return errors.New("invalid 'existing' format, expected 'projects/{project}/regions/{region}/addresses/{name}'")
+		}
+	}
+
+	return nil
 }

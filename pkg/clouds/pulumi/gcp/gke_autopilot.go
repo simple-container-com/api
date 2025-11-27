@@ -3,10 +3,12 @@ package gcp
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/container"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/storage"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -22,6 +24,11 @@ import (
 type GkeAutopilotOut struct {
 	Cluster *container.Cluster
 	Caddy   *kubernetes.SimpleContainer
+
+	// Cloud NAT resources (optional)
+	StaticIp *compute.Address
+	Router   *compute.Router
+	Nat      *compute.RouterNat
 }
 
 func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -43,7 +50,10 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, containerServiceName); err != nil {
 		return nil, errors.Wrapf(err, "failed to enable %s", containerServiceName)
 	}
-	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
+	var opts []sdk.ResourceOption
+	if params.Provider != nil {
+		opts = append(opts, sdk.Provider(params.Provider))
+	}
 
 	location := gkeInput.Location
 
@@ -81,6 +91,17 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	out.Cluster = cluster
 	kubeconfig := generateKubeconfig(cluster, gkeInput)
 	ctx.Export(toKubeconfigExport(clusterName), kubeconfig)
+
+	// Setup Cloud NAT if external egress IP is enabled
+	if gkeInput.ExternalEgressIp != nil && gkeInput.ExternalEgressIp.Enabled {
+		if err := gkeInput.ExternalEgressIp.Validate(); err != nil {
+			return nil, errors.Wrapf(err, "invalid external egress IP configuration")
+		}
+
+		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, &out, opts, params); err != nil {
+			return nil, errors.Wrapf(err, "failed to setup Cloud NAT for cluster %q", clusterName)
+		}
+	}
 
 	if gkeInput.Caddy != nil {
 		// Provision GCS bucket and service account for Caddy ACME certificate storage
@@ -292,4 +313,158 @@ users:
 
 		return kubeconfig, nil
 	}).(sdk.StringOutput)
+}
+
+// setupCloudNAT creates Cloud NAT resources for static egress IP
+func setupCloudNAT(
+	ctx *sdk.Context,
+	gkeInput *gcloud.GkeAutopilotResource,
+	clusterName string,
+	location string,
+	out *GkeAutopilotOut,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) error {
+	// Extract region from location (handle both regional and zonal locations)
+	region := extractRegionFromLocation(location)
+
+	params.Log.Info(ctx.Context(), "🌐 Setting up Cloud NAT for static egress IP in region %s", region)
+
+	// Step 1: Create or reference static IP
+	staticIp, err := createOrReferenceStaticIp(ctx, gkeInput.ExternalEgressIp, clusterName, region, opts, params)
+	if err != nil {
+		return errors.Wrap(err, "failed to create or reference static IP")
+	}
+	out.StaticIp = staticIp
+
+	// Step 2: Create Cloud Router
+	router, err := createCloudRouter(ctx, clusterName, region, opts, params)
+	if err != nil {
+		return errors.Wrap(err, "failed to create Cloud Router")
+	}
+	out.Router = router
+
+	// Step 3: Create Cloud NAT
+	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, opts, params)
+	if err != nil {
+		return errors.Wrap(err, "failed to create Cloud NAT")
+	}
+	out.Nat = nat
+
+	// Export static IP address for external reference
+	ctx.Export(fmt.Sprintf("%s-egress-ip-address", clusterName), staticIp.Address)
+	ctx.Export(fmt.Sprintf("%s-egress-ip-name", clusterName), staticIp.Name)
+
+	params.Log.Info(ctx.Context(), "✅ Cloud NAT configured successfully with static egress IP")
+
+	return nil
+}
+
+// createOrReferenceStaticIp creates a new static IP or references an existing one
+func createOrReferenceStaticIp(
+	ctx *sdk.Context,
+	config *gcloud.ExternalEgressIpConfig,
+	clusterName string,
+	region string,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) (*compute.Address, error) {
+	if config.Existing != "" {
+		// Use existing static IP
+		params.Log.Info(ctx.Context(), "🔗 Using existing static IP: %s", config.Existing)
+
+		// Parse the existing IP reference to extract name
+		// Format: projects/{project}/regions/{region}/addresses/{name}
+		parts := strings.Split(config.Existing, "/")
+		if len(parts) != 6 {
+			return nil, errors.Errorf("invalid existing static IP reference format: %s", config.Existing)
+		}
+		addressName := parts[5]
+
+		return compute.GetAddress(ctx, addressName, sdk.ID(config.Existing), nil, opts...)
+	} else {
+		// Create new static IP automatically
+		staticIpName := fmt.Sprintf("%s-egress-ip", clusterName)
+		params.Log.Info(ctx.Context(), "📍 Creating static IP address: %s", staticIpName)
+
+		return compute.NewAddress(ctx, staticIpName, &compute.AddressArgs{
+			Name:        sdk.String(staticIpName),
+			Region:      sdk.String(region),
+			AddressType: sdk.String("EXTERNAL"),
+			Description: sdk.String(fmt.Sprintf("Static egress IP for GKE cluster %s", clusterName)),
+		}, opts...)
+	}
+}
+
+// createCloudRouter creates a Cloud Router for NAT
+func createCloudRouter(
+	ctx *sdk.Context,
+	clusterName string,
+	region string,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) (*compute.Router, error) {
+	routerName := fmt.Sprintf("%s-router", clusterName)
+	params.Log.Info(ctx.Context(), "🔀 Creating Cloud Router: %s", routerName)
+
+	return compute.NewRouter(ctx, routerName, &compute.RouterArgs{
+		Name:    sdk.String(routerName),
+		Region:  sdk.String(region),
+		Network: sdk.String("default"), // Use default VPC network
+		Bgp: &compute.RouterBgpArgs{
+			Asn: sdk.Int(64512), // Private ASN
+		},
+		Description: sdk.String(fmt.Sprintf("Cloud Router for GKE cluster %s NAT", clusterName)),
+	}, opts...)
+}
+
+// createCloudNat creates a Cloud NAT gateway
+func createCloudNat(
+	ctx *sdk.Context,
+	clusterName string,
+	router *compute.Router,
+	staticIp *compute.Address,
+	region string,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) (*compute.RouterNat, error) {
+	natName := fmt.Sprintf("%s-nat", clusterName)
+	params.Log.Info(ctx.Context(), "🌐 Creating Cloud NAT gateway: %s", natName)
+
+	// Create array of static IP references for NAT
+	natIps := sdk.StringArray{staticIp.SelfLink}
+
+	return compute.NewRouterNat(ctx, natName, &compute.RouterNatArgs{
+		Name:   sdk.String(natName),
+		Router: router.Name,
+		Region: sdk.String(region),
+
+		// NAT configuration - use our specific static IP (not random GCP-assigned IPs)
+		NatIpAllocateOption:           sdk.String("MANUAL_ONLY"), // Use only the IPs we specify in NatIps
+		NatIps:                        natIps,                    // Our static IP address
+		SourceSubnetworkIpRangesToNat: sdk.String("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+
+		// Port allocation - production-ready defaults
+		MinPortsPerVm: sdk.Int(64),
+		MaxPortsPerVm: sdk.Int(65536),
+
+		// Logging configuration - errors only for cost optimization
+		LogConfig: &compute.RouterNatLogConfigArgs{
+			Enable: sdk.Bool(true),
+			Filter: sdk.String("ERRORS_ONLY"),
+		},
+
+		// Enable endpoint independent mapping for better performance
+		EnableEndpointIndependentMapping: sdk.Bool(true),
+	}, opts...)
+}
+
+// extractRegionFromLocation extracts region from GKE location (handles both regional and zonal)
+func extractRegionFromLocation(location string) string {
+	// Handle both regional (us-central1) and zonal (us-central1-a) locations
+	parts := strings.Split(location, "-")
+	if len(parts) >= 2 {
+		return strings.Join(parts[:2], "-")
+	}
+	return location
 }
