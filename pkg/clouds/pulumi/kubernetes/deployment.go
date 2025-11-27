@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -88,12 +89,14 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		containerEnvVars := lo.Assign(c.Container.Env, envVars, args.Deployment.StackConfig.Env)
 		containerEnvVars = lo.OmitByKeys(containerEnvVars, lo.Keys(secretEnvs))
 
-		// Convert to Kubernetes env var array
+		// Convert to Kubernetes env var array with sorted keys to ensure consistent ordering
 		var env corev1.EnvVarArray
-		for k, v := range containerEnvVars {
+		envKeys := lo.Keys(containerEnvVars)
+		sort.Strings(envKeys)
+		for _, k := range envKeys {
 			env = append(env, corev1.EnvVarArgs{
 				Name:  sdk.String(k),
-				Value: sdk.String(v),
+				Value: sdk.String(containerEnvVars[k]),
 			})
 		}
 		var ports corev1.ContainerPortArray
