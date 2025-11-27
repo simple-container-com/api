@@ -175,7 +175,7 @@ func (c *EnhancedActionsCiCdConfig) SetDefaults() {
 			"deploy":         "simple-container-com/api/.github/actions/deploy" + actionVersion,
 			"provision":      "simple-container-com/api/.github/actions/provision" + actionVersion,
 			"destroy-client": "simple-container-com/api/.github/actions/destroy" + actionVersion,
-			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent" + actionVersion,
+			"destroy-parent": "simple-container-com/api/.github/actions/destroy" + actionVersion,
 			"cancel-stack":   "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	}

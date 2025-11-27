@@ -120,10 +120,10 @@ func (wg *WorkflowGenerator) prepareTemplateData() *WorkflowTemplateData {
 		}
 
 		customActions = map[string]string{
-			"deploy":         "simple-container-com/api/.github/actions/deploy" + actionVersion,
-			"destroy-client": "simple-container-com/api/.github/actions/destroy" + actionVersion,
-			"provision":      "simple-container-com/api/.github/actions/provision" + actionVersion,
-			"cancel-stack":   "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
+			"deploy":       "simple-container-com/api/.github/actions/deploy" + actionVersion,
+			"destroy":      "simple-container-com/api/.github/actions/destroy" + actionVersion,
+			"provision":    "simple-container-com/api/.github/actions/provision" + actionVersion,
+			"cancel-stack": "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	}
 

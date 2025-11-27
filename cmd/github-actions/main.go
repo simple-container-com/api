@@ -38,7 +38,7 @@ func main() {
 
 	if actionType == "" {
 		fmt.Fprintf(os.Stderr, "Error: Action type not specified. Set GITHUB_ACTION_TYPE or provide as argument.\n")
-		fmt.Fprintf(os.Stderr, "Valid actions: deploy-client-stack, provision-parent-stack, destroy-client-stack, destroy-parent-stack\n")
+		fmt.Fprintf(os.Stderr, "Valid actions: deploy-client-stack, provision-parent-stack, destroy, cancel-stack\n")
 		os.Exit(1)
 	}
 
@@ -46,14 +46,13 @@ func main() {
 	validActions := map[string]bool{
 		"deploy-client-stack":    true,
 		"provision-parent-stack": true,
-		"destroy-client-stack":   true,
-		"destroy-parent-stack":   true,
+		"destroy":                true,
 		"cancel-stack":           true,
 	}
 
 	if !validActions[actionType] {
 		fmt.Fprintf(os.Stderr, "Unknown action type: %s\n", actionType)
-		fmt.Fprintf(os.Stderr, "Valid actions: deploy-client-stack, provision-parent-stack, destroy-client-stack, destroy-parent-stack, cancel-stack\n")
+		fmt.Fprintf(os.Stderr, "Valid actions: deploy-client-stack, provision-parent-stack, destroy, cancel-stack\n")
 		os.Exit(1)
 	}
 
@@ -147,11 +146,18 @@ func main() {
 	case "provision-parent-stack":
 		execErr = executor.ProvisionParentStack(ctx)
 
-	case "destroy-client-stack":
-		execErr = executor.DestroyClientStack(ctx)
-
-	case "destroy-parent-stack":
-		execErr = executor.DestroyParentStack(ctx)
+	case "destroy":
+		// Determine stack type based on environment parameter
+		environment := os.Getenv("ENVIRONMENT")
+		if environment != "" {
+			// Environment provided = client stack destruction
+			log.Info(ctx, "🎯 Environment '%s' provided - destroying client stack", environment)
+			execErr = executor.DestroyClientStack(ctx)
+		} else {
+			// No environment = parent stack destruction
+			log.Info(ctx, "🏗️ No environment provided - destroying parent stack")
+			execErr = executor.DestroyParentStack(ctx)
+		}
 
 	case "cancel-stack":
 		execErr = executor.CancelStack(ctx)
