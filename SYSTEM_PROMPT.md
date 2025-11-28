@@ -313,7 +313,49 @@ Client Stack: Receives GCS_BUCKET_NAME, GCS_ACCESS_KEY, etc.
 - `getAllParentStackNames()`: Extracts all unique parent stack names from client.yaml using `lo.Map`
 - `autoDetectConfigFileWithLogging()`: Implements the resolution order with proper logging
 
-### 13. Memory Management
+### 13. GKE Autopilot Cloud NAT Configuration
+**Critical Requirements for Cloud NAT to work with GKE Autopilot:**
+
+#### Private Nodes Are Required
+- **Cloud NAT ONLY works with private nodes** - GKE nodes with external IPs bypass Cloud NAT entirely
+- **Automatic configuration**: When `externalEgressIp.enabled: true`, Simple Container automatically enables private nodes
+- **Configuration**:
+  ```go
+  PrivateClusterConfig: &container.ClusterPrivateClusterConfigArgs{
+      EnablePrivateNodes:    sdk.Bool(true),  // Required for Cloud NAT
+      EnablePrivateEndpoint: sdk.Bool(false), // Keep control plane public
+  }
+  ```
+
+#### How It Works
+- **Private nodes**: Nodes have NO external IPs, all egress goes through Cloud NAT
+- **Public endpoint**: Control plane remains accessible (kubectl works from anywhere)
+- **Ingress unchanged**: LoadBalancers, Ingress controllers work normally
+- **No VPN needed**: Only private nodes, not private endpoint
+
+#### Cloud NAT Subnet Configuration
+Cloud NAT must be configured to include both primary and secondary IP ranges:
+```go
+natArgs.SourceSubnetworkIpRangesToNat = sdk.String("LIST_OF_SUBNETWORKS")
+natArgs.Subnetworks = compute.RouterNatSubnetworkArray{
+    &compute.RouterNatSubnetworkArgs{
+        Name: sdk.String("default"),
+        SourceIpRangesToNats: sdk.StringArray{
+            sdk.String("ALL_IP_RANGES"), // Includes primary + secondary ranges
+        },
+    },
+}
+```
+**Why**: GKE Autopilot pods use secondary IP ranges - `ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES` only covers nodes, not pods
+
+#### Key Learnings
+- **Cannot retrofit**: `enablePrivateNodes` is immutable - requires cluster recreation to change
+- **Blue-green approach**: Safest way to migrate existing clusters (create new, switch traffic, delete old)
+- **No VPC workaround**: Custom VPC/subnets don't bypass the private nodes requirement
+- **Ingress unaffected**: External traffic to pods works the same with private nodes
+- **Organization policies**: Can restrict external IPs but affects all VMs project-wide
+
+### 14. Memory Management
 - **Create memories**: Use `create_memory` tool to preserve important context
 - **Update SYSTEM_PROMPT.md**: Add new essential instructions when patterns emerge
 - **Keep instructions current**: Remove outdated information, focus on actionable guidance

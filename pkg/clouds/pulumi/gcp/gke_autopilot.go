@@ -74,7 +74,9 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		timeouts.Create = lo.If(gkeInput.Timeouts.Create != "", gkeInput.Timeouts.Create).Else(timeouts.Create)
 	}
 	out := GkeAutopilotOut{}
-	cluster, err := container.NewCluster(ctx, clusterName, &container.ClusterArgs{
+
+	// Configure cluster args
+	clusterArgs := &container.ClusterArgs{
 		EnableAutopilot:  sdk.Bool(true),
 		Location:         sdk.String(location),
 		Name:             sdk.String(clusterName),
@@ -84,7 +86,28 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		},
 		IpAllocationPolicy: &container.ClusterIpAllocationPolicyArgs{},
 		// because we are using autopilot verticalPodAutoscaling is handled by the GCP
-	}, append(opts, sdk.IgnoreChanges([]string{"verticalPodAutoscaling"}), sdk.Timeouts(&timeouts))...)
+	}
+
+	// Enable private nodes when Cloud NAT is enabled (required for Cloud NAT to work)
+	// NOTE: privateClusterConfig is immutable and cannot be changed after cluster creation
+	ignoreChanges := []string{"verticalPodAutoscaling"}
+	if gkeInput.ExternalEgressIp != nil && gkeInput.ExternalEgressIp.Enabled {
+		params.Log.Info(ctx.Context(), "🔒 Enabling private nodes (required for Cloud NAT)")
+		clusterArgs.PrivateClusterConfig = &container.ClusterPrivateClusterConfigArgs{
+			EnablePrivateNodes:    sdk.Bool(true),  // Nodes will not have external IPs
+			EnablePrivateEndpoint: sdk.Bool(false), // Keep control plane public for easy access
+		}
+		params.Log.Info(ctx.Context(), "   ✅ Private nodes enabled (nodes will use Cloud NAT for egress)")
+		params.Log.Info(ctx.Context(), "   ✅ Control plane remains public (kubectl works from anywhere)")
+		params.Log.Info(ctx.Context(), "   ⚠️  Note: Existing clusters without private nodes will NOT be modified")
+		params.Log.Info(ctx.Context(), "   ⚠️  Cluster recreation required to enable private nodes on existing clusters")
+
+		// CRITICAL: Ignore changes to privateClusterConfig to prevent Pulumi from attempting
+		// to replace existing clusters. This field is immutable in GKE.
+		ignoreChanges = append(ignoreChanges, "privateClusterConfig")
+	}
+
+	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, append(opts, sdk.IgnoreChanges(ignoreChanges), sdk.Timeouts(&timeouts))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create cluster %q in %q", clusterName, input.StackParams.Environment)
 	}
@@ -334,6 +357,7 @@ func setupCloudNAT(
 	region := extractRegionFromLocation(location)
 
 	params.Log.Info(ctx.Context(), "🌐 Setting up Cloud NAT for static egress IP in region %s", region)
+	params.Log.Info(ctx.Context(), "   💡 Note: Private nodes were enabled for this cluster to allow Cloud NAT usage")
 
 	// Validate that cluster and NAT will be in the same region
 	cluster.Location.ApplyT(func(clusterLocation string) error {
