@@ -11,19 +11,22 @@ import (
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/container"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/storage"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
+	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
+	pulumiKubernetes "github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
 type GkeAutopilotOut struct {
 	Cluster *container.Cluster
-	Caddy   *kubernetes.SimpleContainer
+	Caddy   *pulumiKubernetes.SimpleContainer
 
 	// Cloud NAT resources (optional)
 	StaticIp *compute.Address
@@ -61,7 +64,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		return nil, errors.Errorf("`location` must be specified for GKE cluster %q in %q", input.Descriptor.Name, input.StackParams.Environment)
 	}
 
-	clusterName := kubernetes.ToClusterName(input, input.Descriptor.Name)
+	clusterName := pulumiKubernetes.ToClusterName(input, input.Descriptor.Name)
 	params.Log.Info(ctx.Context(), "Configuring GKE Autopilot cluster %q in %q", clusterName, input.StackParams.Environment)
 	timeouts := sdk.CustomTimeouts{
 		Create: "10m",
@@ -100,6 +103,11 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 
 		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, cluster, &out, opts, params); err != nil {
 			return nil, errors.Wrapf(err, "failed to setup Cloud NAT for cluster %q", clusterName)
+		}
+
+		// Create Egress NAT Policy to allow Cloud NAT for external traffic
+		if err := createEgressNATPolicy(ctx, gkeInput, clusterName, cluster, opts, params); err != nil {
+			return nil, errors.Wrapf(err, "failed to create Egress NAT Policy for cluster %q", clusterName)
 		}
 	}
 
@@ -145,7 +153,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		params.Log.Info(ctx.Context(), "🔐 Preparing GCP credentials secret volume for Caddy ACME storage at %s", credentialsMountPath)
 
 		// Build Caddy deployment configuration with GCS storage
-		caddyConfig := kubernetes.CaddyDeployment{
+		caddyConfig := pulumiKubernetes.CaddyDeployment{
 			CaddyConfig:        gkeInput.Caddy,
 			ClusterName:        clusterName,
 			ClusterResource:    cluster,
@@ -158,7 +166,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			},
 		}
 
-		caddy, err := kubernetes.DeployCaddyService(ctx, caddyConfig, input, params, kubeconfig)
+		caddy, err := pulumiKubernetes.DeployCaddyService(ctx, caddyConfig, input, params, kubeconfig)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create caddy deployment for cluster %q in %q", clusterName, input.StackParams.Environment)
 		}
@@ -472,32 +480,13 @@ func createCloudNat(
 		EnableEndpointIndependentMapping: sdk.Bool(true),
 	}
 
-	// Configure NAT to target specific subnet ranges for better control
-	// Use LIST_OF_SUBNETWORKS to be more specific about which subnets use NAT
-	params.Log.Info(ctx.Context(), "🎯 Configuring NAT for specific GKE subnets")
+	// Configure NAT to target primary IP ranges only (avoid secondary ranges)
+	params.Log.Info(ctx.Context(), "🎯 Configuring NAT for primary IP ranges only")
 
-	// Try to configure for specific subnetwork first
-	cluster.Subnetwork.ApplyT(func(subnetwork string) error {
-		if subnetwork != "" {
-			params.Log.Info(ctx.Context(), "🔧 Configuring NAT for specific subnetwork: %s", subnetwork)
-			natArgs.SourceSubnetworkIpRangesToNat = sdk.String("LIST_OF_SUBNETWORKS")
-			natArgs.Subnetworks = compute.RouterNatSubnetworkArray{
-				&compute.RouterNatSubnetworkArgs{
-					Name: sdk.String(subnetwork),
-					SourceIpRangesToNats: sdk.StringArray{
-						sdk.String("ALL_IP_RANGES"),
-					},
-				},
-			}
-		} else {
-			params.Log.Info(ctx.Context(), "🔧 Using ALL_SUBNETWORKS configuration")
-			natArgs.SourceSubnetworkIpRangesToNat = sdk.String("ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES")
-		}
-		return nil
-	})
-
-	// Fallback configuration for immediate setup
+	// Use ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES to avoid conflicts with secondary ranges
 	natArgs.SourceSubnetworkIpRangesToNat = sdk.String("ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES")
+
+	params.Log.Info(ctx.Context(), "🔧 NAT configured for primary IP ranges only (avoiding pod/service ranges)")
 
 	// Log cluster subnetwork for debugging purposes
 	cluster.Subnetwork.ApplyT(func(subnetwork string) error {
@@ -529,6 +518,95 @@ func createCloudNat(
 	})
 
 	return compute.NewRouterNat(ctx, natName, natArgs, opts...)
+}
+
+// createEgressNATPolicy creates an Egress NAT Policy to allow Cloud NAT for external traffic
+func createEgressNATPolicy(
+	ctx *sdk.Context,
+	gkeInput *gcloud.GkeAutopilotResource,
+	clusterName string,
+	cluster *container.Cluster,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) error {
+	policyName := fmt.Sprintf("%s-cloud-nat-policy", clusterName)
+	params.Log.Info(ctx.Context(), "🔧 Creating Egress NAT Policy for Cloud NAT compatibility")
+
+	// Create Kubernetes provider using the cluster's kubeconfig
+	kubeconfig := generateKubeconfig(cluster, gkeInput)
+	k8sProvider, err := kubernetes.NewProvider(ctx, fmt.Sprintf("%s-k8s-provider", clusterName), &kubernetes.ProviderArgs{
+		Kubeconfig: kubeconfig,
+	}, opts...)
+	if err != nil {
+		return errors.Wrap(err, "failed to create Kubernetes provider for Egress NAT Policy")
+	}
+
+	// Create the Egress NAT Policy using Pulumi's CustomResource
+	egressNATPolicy, err := apiextensions.NewCustomResource(ctx, policyName, &apiextensions.CustomResourceArgs{
+		ApiVersion: sdk.String("networking.gke.io/v1"),
+		Kind:       sdk.String("EgressNATPolicy"),
+		Metadata: &metav1.ObjectMetaArgs{
+			Name: sdk.String(policyName),
+		},
+		OtherFields: kubernetes.UntypedArgs{
+			"spec": sdk.All(cluster.ClusterIpv4Cidr, cluster.ServicesIpv4Cidr).ApplyT(func(args []interface{}) (map[string]interface{}, error) {
+				podCIDR := args[0].(string)
+				serviceCIDR := args[1].(string)
+
+				params.Log.Info(ctx.Context(), "📋 Creating Egress NAT Policy with:")
+				params.Log.Info(ctx.Context(), "   - Pod CIDR (NoSNAT): %s", podCIDR)
+				params.Log.Info(ctx.Context(), "   - Service CIDR (NoSNAT): %s", serviceCIDR)
+				params.Log.Info(ctx.Context(), "   - External traffic: Will use Cloud NAT SNAT")
+
+				return map[string]interface{}{
+					"action": "NoSNAT",
+					"destinations": []map[string]interface{}{
+						{"cidr": podCIDR},     // Pod IP range
+						{"cidr": serviceCIDR}, // Service IP range
+					},
+				}, nil
+			}),
+		},
+	}, sdk.Provider(k8sProvider), sdk.Parent(cluster))
+	if err != nil {
+		params.Log.Warn(ctx.Context(), "⚠️ Failed to create Egress NAT Policy via Pulumi: %v", err)
+		params.Log.Info(ctx.Context(), "")
+		params.Log.Info(ctx.Context(), "🚨 MANUAL ACTION REQUIRED:")
+		params.Log.Info(ctx.Context(), "Your Cloud NAT is configured correctly, but you need to manually")
+		params.Log.Info(ctx.Context(), "create an Egress NAT Policy to enable it for external traffic.")
+		params.Log.Info(ctx.Context(), "")
+
+		// Provide fallback manual instructions
+		cluster.ClusterIpv4Cidr.ApplyT(func(podCIDR string) error {
+			cluster.ServicesIpv4Cidr.ApplyT(func(serviceCIDR string) error {
+				params.Log.Info(ctx.Context(), "Run this command:")
+				params.Log.Info(ctx.Context(), "kubectl apply -f - << 'EOF'")
+				params.Log.Info(ctx.Context(), "apiVersion: networking.gke.io/v1")
+				params.Log.Info(ctx.Context(), "kind: EgressNATPolicy")
+				params.Log.Info(ctx.Context(), "metadata:")
+				params.Log.Info(ctx.Context(), "  name: %s", policyName)
+				params.Log.Info(ctx.Context(), "spec:")
+				params.Log.Info(ctx.Context(), "  action: NoSNAT")
+				params.Log.Info(ctx.Context(), "  destinations:")
+				params.Log.Info(ctx.Context(), "  - cidr: %s  # Pod IP range", podCIDR)
+				params.Log.Info(ctx.Context(), "  - cidr: %s  # Service IP range", serviceCIDR)
+				params.Log.Info(ctx.Context(), "EOF")
+				return nil
+			})
+			return nil
+		})
+
+		return nil // Don't fail the entire deployment
+	}
+
+	params.Log.Info(ctx.Context(), "✅ Egress NAT Policy created successfully via Pulumi")
+	params.Log.Info(ctx.Context(), "💡 Restart pods to use the new NAT configuration:")
+	params.Log.Info(ctx.Context(), "   kubectl delete pods --all -n default")
+
+	// Export the policy for reference
+	ctx.Export(fmt.Sprintf("%s-egress-nat-policy", clusterName), egressNATPolicy.ID())
+
+	return nil
 }
 
 // extractRegionFromLocation extracts region from GKE location (handles both regional and zonal)
