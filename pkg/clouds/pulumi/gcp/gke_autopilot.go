@@ -472,11 +472,32 @@ func createCloudNat(
 		EnableEndpointIndependentMapping: sdk.Bool(true),
 	}
 
-	// Configure subnet-specific NAT if cluster has a specific subnetwork
-	// For GKE Autopilot, we'll use ALL_SUBNETWORKS_ALL_IP_RANGES as it's the most reliable approach
-	// since GKE Autopilot manages subnets automatically and subnet names may not be accessible
-	params.Log.Info(ctx.Context(), "🎯 Configuring NAT for GKE Autopilot cluster subnets")
-	natArgs.SourceSubnetworkIpRangesToNat = sdk.String("ALL_SUBNETWORKS_ALL_IP_RANGES")
+	// Configure NAT to target specific subnet ranges for better control
+	// Use LIST_OF_SUBNETWORKS to be more specific about which subnets use NAT
+	params.Log.Info(ctx.Context(), "🎯 Configuring NAT for specific GKE subnets")
+
+	// Try to configure for specific subnetwork first
+	cluster.Subnetwork.ApplyT(func(subnetwork string) error {
+		if subnetwork != "" {
+			params.Log.Info(ctx.Context(), "🔧 Configuring NAT for specific subnetwork: %s", subnetwork)
+			natArgs.SourceSubnetworkIpRangesToNat = sdk.String("LIST_OF_SUBNETWORKS")
+			natArgs.Subnetworks = compute.RouterNatSubnetworkArray{
+				&compute.RouterNatSubnetworkArgs{
+					Name: sdk.String(subnetwork),
+					SourceIpRangesToNats: sdk.StringArray{
+						sdk.String("ALL_IP_RANGES"),
+					},
+				},
+			}
+		} else {
+			params.Log.Info(ctx.Context(), "🔧 Using ALL_SUBNETWORKS configuration")
+			natArgs.SourceSubnetworkIpRangesToNat = sdk.String("ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES")
+		}
+		return nil
+	})
+
+	// Fallback configuration for immediate setup
+	natArgs.SourceSubnetworkIpRangesToNat = sdk.String("ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES")
 
 	// Log cluster subnetwork for debugging purposes
 	cluster.Subnetwork.ApplyT(func(subnetwork string) error {
@@ -485,6 +506,25 @@ func createCloudNat(
 		} else {
 			params.Log.Info(ctx.Context(), "📍 GKE cluster using default subnetwork")
 		}
+		return nil
+	})
+
+	// Add additional logging to help debug NAT configuration
+	params.Log.Info(ctx.Context(), "🔍 NAT Configuration Details:")
+	params.Log.Info(ctx.Context(), "   - IP Allocation: MANUAL_ONLY (using static IP %s)", staticIp.Name.ToStringOutput())
+	params.Log.Info(ctx.Context(), "   - Source Ranges: ALL_SUBNETWORKS_ALL_PRIMARY_IP_RANGES")
+	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM", 64, 65536)
+	params.Log.Info(ctx.Context(), "")
+	params.Log.Info(ctx.Context(), "🔍 Troubleshooting Steps if egress IP is still wrong:")
+	params.Log.Info(ctx.Context(), "   1. Check GCP Console → VPC Network → Cloud NAT")
+	params.Log.Info(ctx.Context(), "   2. Verify NAT gateway is 'Active' and using your static IP")
+	params.Log.Info(ctx.Context(), "   3. Check if there are multiple NAT gateways in the same region")
+	params.Log.Info(ctx.Context(), "   4. Restart pods to pick up new NAT configuration")
+	params.Log.Info(ctx.Context(), "   5. Run: kubectl delete pods --all -n <namespace>")
+
+	// Export the static IP for easy reference
+	staticIp.Address.ApplyT(func(addr string) error {
+		params.Log.Info(ctx.Context(), "📍 Expected egress IP: %s", addr)
 		return nil
 	})
 
