@@ -1,0 +1,75 @@
+# Simple Container
+
+> Simple Container offers high-level primitives for quick and easy setup of integration and delivery pipelines for microservice applications. Scale from startup to enterprise with 500x faster onboarding and 70% cost reduction.
+
+Simple Container provides container-native DevOps practices with a separation of concerns philosophy: DevOps manages infrastructure once in parent stacks, developers deploy self-service with simple client configurations. Supports AWS ECS Fargate, Google Cloud GKE Autopilot, and pure Kubernetes deployments.
+
+## Home
+
+- [Home](docs/index.md): Overview of Home
+
+## Getting Started
+
+- [Overview](docs/getting-started/index.md): Introduction and installation guide for Simple Container
+- [Installation](docs/getting-started/installation.md): How to install Simple Container CLI
+- [Quick Start](docs/getting-started/quick-start.md): Deploy your first app in 15 minutes
+
+## Core Concepts
+
+- [Main Concepts](docs/concepts/main-concepts.md): Templates, resources, environments fundamentals
+- [Template Placeholders](docs/concepts/template-placeholders.md): Basic placeholder syntax and usage
+- [Advanced Template Placeholders](docs/concepts/template-placeholders-advanced.md): Advanced templating features and resource references
+- [Why Simple Container](docs/concepts/motivation.md): Quantified scaling advantages over traditional approaches
+
+## Guides
+
+- [Deployment Guides](docs/guides/index.md): Overview of Deployment Guides
+- [ECS Fargate](docs/guides/parent-ecs-fargate.md): AWS ECS Fargate deployment guide
+- [GKE Autopilot](docs/guides/parent-gcp-gke-autopilot.md): Google Cloud GKE Autopilot deployment guide
+- [Pure Kubernetes](docs/guides/parent-pure-kubernetes.md): Plain Kubernetes deployment guide
+- [Secrets Management](docs/guides/secrets-management.md): Managing secrets across environments
+- [Migration](docs/guides/migration.md): Migrating from other tools like Terraform or Pulumi
+
+## Examples
+
+- [Overview](docs/examples/README.md): Overview of Overview
+- [Static Websites](docs/examples/static-websites/index.md): Overview of Static Websites
+- [ECS Deployments](docs/examples/ecs-deployments/index.md): Overview of ECS Deployments
+- [Lambda Functions](docs/examples/lambda-functions/index.md): Overview of Lambda Functions
+- [GKE Autopilot](docs/examples/gke-autopilot/index.md): Google Cloud GKE Autopilot deployment guide
+- [Kubernetes Native](docs/examples/kubernetes-native/index.md): Overview of Kubernetes Native
+- [Advanced Configs](docs/examples/advanced-configs/index.md): Overview of Advanced Configs
+- [Parent Stacks](docs/examples/parent-stacks/index.md): Overview of Parent Stacks
+
+## Reference
+
+- [Supported Resources](docs/reference/supported-resources.md): Complete resource support matrix for AWS, GCP, Kubernetes
+- [Deployment Schemas](docs/reference/service-available-deployment-schemas.md): Schema documentation for all deployment types
+- [Use Cases](docs/reference/use-cases.md): Common use case scenarios
+
+## Advanced
+
+- [Scaling Advantages](docs/advanced/scaling-advantages.md): Detailed comparison with traditional approaches
+- [Tool Comparisons](docs/advanced/compare-with-other-tools.md): Compare with Terraform, Pulumi, Helm, etc.
+- [Best Practices](docs/advanced/best-practices.md): Production best practices
+
+## AI Assistant
+
+AI-powered project onboarding and configuration assistant
+
+- [AI Assistant Overview](docs/ai-assistant/index.md): Overview of AI Assistant
+- [Getting Started](docs/ai-assistant/getting-started.md): Quick setup guide for AI assistant features
+- [Developer Mode](docs/ai-assistant/developer-mode.md): Application team workflows for generating client configs
+- [DevOps Mode](docs/ai-assistant/devops-mode.md): Infrastructure team workflows for server configs
+- [Commands Reference](docs/ai-assistant/commands.md): Complete command documentation
+- [MCP Integration](docs/ai-assistant/mcp-integration.md): Model Context Protocol integration for IDE tools like Windsurf and Cursor
+- [Template Requirements](docs/ai-assistant/templates-config-requirements.md): Template configuration requirements and validation rules
+- [Troubleshooting](docs/ai-assistant/troubleshooting.md): Common issues and solutions
+- [Usage Examples](docs/ai-assistant/usage-examples.md): Real-world usage examples and workflows
+
+## Optional
+
+- [AI Assistant Examples](docs/ai-assistant/examples/index.md): Detailed AI assistant usage examples
+- [Kubernetes Affinity](docs/examples/kubernetes-affinity/README.md): Node affinity and isolation examples
+- [Kubernetes VPA](docs/examples/kubernetes-vpa/README.md): Vertical Pod Autoscaler examples
+- [Resource Adoption](docs/examples/resource-adoption/README.md): Resource adoption examples
