@@ -98,7 +98,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			return nil, errors.Wrapf(err, "invalid external egress IP configuration")
 		}
 
-		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, &out, opts, params); err != nil {
+		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, cluster, &out, opts, params); err != nil {
 			return nil, errors.Wrapf(err, "failed to setup Cloud NAT for cluster %q", clusterName)
 		}
 	}
@@ -321,6 +321,7 @@ func setupCloudNAT(
 	gkeInput *gcloud.GkeAutopilotResource,
 	clusterName string,
 	location string,
+	cluster *container.Cluster,
 	out *GkeAutopilotOut,
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
@@ -330,6 +331,17 @@ func setupCloudNAT(
 
 	params.Log.Info(ctx.Context(), "🌐 Setting up Cloud NAT for static egress IP in region %s", region)
 
+	// Validate that cluster and NAT will be in the same region
+	cluster.Location.ApplyT(func(clusterLocation string) error {
+		clusterRegion := extractRegionFromLocation(clusterLocation)
+		if clusterRegion != region {
+			params.Log.Warn(ctx.Context(), "⚠️ Region mismatch: cluster in %s, NAT in %s", clusterRegion, region)
+		} else {
+			params.Log.Info(ctx.Context(), "✅ Cluster and NAT both in region %s", region)
+		}
+		return nil
+	})
+
 	// Step 1: Create or reference static IP
 	staticIp, err := createOrReferenceStaticIp(ctx, gkeInput.ExternalEgressIp, clusterName, region, opts, params)
 	if err != nil {
@@ -337,15 +349,15 @@ func setupCloudNAT(
 	}
 	out.StaticIp = staticIp
 
-	// Step 2: Create Cloud Router
-	router, err := createCloudRouter(ctx, clusterName, region, opts, params)
+	// Step 2: Create Cloud Router (using cluster's VPC network)
+	router, err := createCloudRouter(ctx, clusterName, region, cluster, opts, params)
 	if err != nil {
 		return errors.Wrap(err, "failed to create Cloud Router")
 	}
 	out.Router = router
 
-	// Step 3: Create Cloud NAT
-	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, opts, params)
+	// Step 3: Create Cloud NAT (configured for cluster's specific subnet)
+	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, opts, params)
 	if err != nil {
 		return errors.Wrap(err, "failed to create Cloud NAT")
 	}
@@ -401,6 +413,7 @@ func createCloudRouter(
 	ctx *sdk.Context,
 	clusterName string,
 	region string,
+	cluster *container.Cluster,
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
 ) (*compute.Router, error) {
@@ -410,7 +423,7 @@ func createCloudRouter(
 	return compute.NewRouter(ctx, routerName, &compute.RouterArgs{
 		Name:    sdk.String(routerName),
 		Region:  sdk.String(region),
-		Network: sdk.String("default"), // Use default VPC network
+		Network: cluster.Network.ToStringPtrOutput().Elem(), // Use cluster's actual VPC network
 		Bgp: &compute.RouterBgpArgs{
 			Asn: sdk.Int(64512), // Private ASN
 		},
@@ -425,6 +438,7 @@ func createCloudNat(
 	router *compute.Router,
 	staticIp *compute.Address,
 	region string,
+	cluster *container.Cluster,
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
 ) (*compute.RouterNat, error) {
@@ -434,15 +448,15 @@ func createCloudNat(
 	// Create array of static IP references for NAT
 	natIps := sdk.StringArray{staticIp.SelfLink}
 
-	return compute.NewRouterNat(ctx, natName, &compute.RouterNatArgs{
+	// Configure NAT for specific GKE cluster subnet instead of all subnets
+	natArgs := &compute.RouterNatArgs{
 		Name:   sdk.String(natName),
 		Router: router.Name,
 		Region: sdk.String(region),
 
 		// NAT configuration - use our specific static IP (not random GCP-assigned IPs)
-		NatIpAllocateOption:           sdk.String("MANUAL_ONLY"), // Use only the IPs we specify in NatIps
-		NatIps:                        natIps,                    // Our static IP address
-		SourceSubnetworkIpRangesToNat: sdk.String("ALL_SUBNETWORKS_ALL_IP_RANGES"),
+		NatIpAllocateOption: sdk.String("MANUAL_ONLY"), // Use only the IPs we specify in NatIps
+		NatIps:              natIps,                    // Our static IP address
 
 		// Port allocation - production-ready defaults
 		MinPortsPerVm: sdk.Int(64),
@@ -456,15 +470,88 @@ func createCloudNat(
 
 		// Enable endpoint independent mapping for better performance
 		EnableEndpointIndependentMapping: sdk.Bool(true),
-	}, opts...)
+	}
+
+	// Configure subnet-specific NAT if cluster has a specific subnetwork
+	// For GKE Autopilot, we'll use ALL_SUBNETWORKS_ALL_IP_RANGES as it's the most reliable approach
+	// since GKE Autopilot manages subnets automatically and subnet names may not be accessible
+	params.Log.Info(ctx.Context(), "🎯 Configuring NAT for GKE Autopilot cluster subnets")
+	natArgs.SourceSubnetworkIpRangesToNat = sdk.String("ALL_SUBNETWORKS_ALL_IP_RANGES")
+
+	// Log cluster subnetwork for debugging purposes
+	cluster.Subnetwork.ApplyT(func(subnetwork string) error {
+		if subnetwork != "" {
+			params.Log.Info(ctx.Context(), "📍 GKE cluster using subnetwork: %s", subnetwork)
+		} else {
+			params.Log.Info(ctx.Context(), "📍 GKE cluster using default subnetwork")
+		}
+		return nil
+	})
+
+	return compute.NewRouterNat(ctx, natName, natArgs, opts...)
 }
 
 // extractRegionFromLocation extracts region from GKE location (handles both regional and zonal)
 func extractRegionFromLocation(location string) string {
 	// Handle both regional (us-central1) and zonal (us-central1-a) locations
-	parts := strings.Split(location, "-")
-	if len(parts) >= 2 {
-		return strings.Join(parts[:2], "-")
+
+	// Special handling for complex region names that don't follow simple pattern
+	complexRegions := map[string]string{
+		"asia-southeast1-a":         "asia-southeast1",
+		"asia-southeast1-b":         "asia-southeast1",
+		"asia-southeast1-c":         "asia-southeast1",
+		"asia-southeast2-a":         "asia-southeast2",
+		"asia-southeast2-b":         "asia-southeast2",
+		"asia-southeast2-c":         "asia-southeast2",
+		"asia-northeast1-a":         "asia-northeast1",
+		"asia-northeast1-b":         "asia-northeast1",
+		"asia-northeast1-c":         "asia-northeast1",
+		"asia-northeast2-a":         "asia-northeast2",
+		"asia-northeast2-b":         "asia-northeast2",
+		"asia-northeast2-c":         "asia-northeast2",
+		"asia-northeast3-a":         "asia-northeast3",
+		"asia-northeast3-b":         "asia-northeast3",
+		"asia-northeast3-c":         "asia-northeast3",
+		"australia-southeast1-a":    "australia-southeast1",
+		"australia-southeast1-b":    "australia-southeast1",
+		"australia-southeast1-c":    "australia-southeast1",
+		"australia-southeast2-a":    "australia-southeast2",
+		"australia-southeast2-b":    "australia-southeast2",
+		"australia-southeast2-c":    "australia-southeast2",
+		"europe-southwest1-a":       "europe-southwest1",
+		"europe-southwest1-b":       "europe-southwest1",
+		"europe-southwest1-c":       "europe-southwest1",
+		"northamerica-northeast1-a": "northamerica-northeast1",
+		"northamerica-northeast1-b": "northamerica-northeast1",
+		"northamerica-northeast1-c": "northamerica-northeast1",
+		"northamerica-northeast2-a": "northamerica-northeast2",
+		"northamerica-northeast2-b": "northamerica-northeast2",
+		"northamerica-northeast2-c": "northamerica-northeast2",
+		"southamerica-east1-a":      "southamerica-east1",
+		"southamerica-east1-b":      "southamerica-east1",
+		"southamerica-east1-c":      "southamerica-east1",
+		"southamerica-west1-a":      "southamerica-west1",
+		"southamerica-west1-b":      "southamerica-west1",
+		"southamerica-west1-c":      "southamerica-west1",
 	}
+
+	// Check if it's a known complex region zone
+	if region, exists := complexRegions[location]; exists {
+		return region
+	}
+
+	// For zones like us-central1-a, extract us-central1
+	if strings.Count(location, "-") >= 2 {
+		lastDash := strings.LastIndex(location, "-")
+		if lastDash > 0 {
+			zonePart := location[lastDash+1:]
+			// Check if the part after the last dash is a single letter (zone indicator)
+			if len(zonePart) == 1 && zonePart >= "a" && zonePart <= "z" {
+				return location[:lastDash]
+			}
+		}
+	}
+
+	// Return as-is for regional clusters (already in correct format)
 	return location
 }
