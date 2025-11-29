@@ -99,12 +99,9 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		}
 		params.Log.Info(ctx.Context(), "   ✅ Private nodes enabled (nodes will use Cloud NAT for egress)")
 		params.Log.Info(ctx.Context(), "   ✅ Control plane remains public (kubectl works from anywhere)")
-		params.Log.Info(ctx.Context(), "   ⚠️  Note: Existing clusters without private nodes will NOT be modified")
-		params.Log.Info(ctx.Context(), "   ⚠️  Cluster recreation required to enable private nodes on existing clusters")
 
-		// CRITICAL: Ignore changes to privateClusterConfig to prevent Pulumi from attempting
-		// to replace existing clusters. This field is immutable in GKE.
-		ignoreChanges = append(ignoreChanges, "privateClusterConfig")
+		// NOTE: privateClusterConfig is immutable in GKE. Adding it to existing clusters will trigger replacement.
+		// For production safety, you may want to add "privateClusterConfig" to ignoreChanges for existing clusters.
 	}
 
 	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, append(opts, sdk.IgnoreChanges(ignoreChanges), sdk.Timeouts(&timeouts))...)
