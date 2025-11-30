@@ -40,11 +40,12 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 	// Wrap the deployment with signal handling and panic recovery
 	err := e.signalHandler.WithSignalHandling(ctx, opTypeDeploy, deployParams, func(opCtx context.Context) error {
 		return e.executeOperation(opCtx, OperationConfig{
-			Type:      OperationDeploy,
-			Scope:     ScopeClient,
-			StackName: deployParams.StackName,
-			Env:       deployParams.Environment,
-			Version:   version,
+			Type:        OperationDeploy,
+			Scope:       ScopeClient,
+			StackName:   deployParams.StackName,
+			Env:         deployParams.Environment,
+			Version:     version,
+			SkipRefresh: deployParams.SkipRefresh,
 		})
 	})
 
