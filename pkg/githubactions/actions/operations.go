@@ -32,7 +32,8 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 		StackParams: api.StackParams{
 			StackName:    os.Getenv("STACK_NAME"),
 			Environment:  os.Getenv("ENVIRONMENT"),
-			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
+			DetailedDiff: true,                                // Enable detailed diff for better visibility in GitHub Actions
+			SkipRefresh:  os.Getenv("SKIP_REFRESH") == "true", // Skip Pulumi refresh if requested
 		},
 	}
 

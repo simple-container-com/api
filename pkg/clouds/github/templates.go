@@ -60,6 +60,9 @@ jobs:
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
           commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
+          {{- if .SkipRefresh }}
+          skip-refresh: "true"
+          {{- end }}
       
       - name: Emergency Cleanup on Cancellation
         if: always() && cancelled()

@@ -13,10 +13,11 @@ import (
 
 // WorkflowGenerator generates GitHub Actions workflows from Simple Container configuration
 type WorkflowGenerator struct {
-	config     *EnhancedActionsCiCdConfig
-	stackName  string
-	outputPath string
-	templates  map[string]*template.Template
+	config      *EnhancedActionsCiCdConfig
+	stackName   string
+	outputPath  string
+	templates   map[string]*template.Template
+	skipRefresh bool
 }
 
 // WorkflowTemplateData contains data passed to workflow templates
@@ -32,15 +33,17 @@ type WorkflowTemplateData struct {
 	Execution          ExecutionConfig
 	Validation         ValidationConfig
 	SCVersion          string
+	SkipRefresh        bool
 }
 
 // NewWorkflowGenerator creates a new workflow generator
-func NewWorkflowGenerator(config *EnhancedActionsCiCdConfig, stackName, outputPath string) *WorkflowGenerator {
+func NewWorkflowGenerator(config *EnhancedActionsCiCdConfig, stackName, outputPath string, skipRefresh bool) *WorkflowGenerator {
 	return &WorkflowGenerator{
-		config:     config,
-		stackName:  stackName,
-		outputPath: outputPath,
-		templates:  make(map[string]*template.Template),
+		config:      config,
+		stackName:   stackName,
+		outputPath:  outputPath,
+		templates:   make(map[string]*template.Template),
+		skipRefresh: skipRefresh,
 	}
 }
 
@@ -139,6 +142,7 @@ func (wg *WorkflowGenerator) prepareTemplateData() *WorkflowTemplateData {
 		Execution:          execution,
 		Validation:         wg.config.Validation,
 		SCVersion:          scVersion,
+		SkipRefresh:        wg.skipRefresh,
 	}
 }
 
@@ -320,7 +324,7 @@ func GenerateWorkflowsFromServerConfig(serverDesc *api.ServerDescriptor, stackNa
 		return fmt.Errorf("workflow generation is not enabled in configuration")
 	}
 
-	generator := NewWorkflowGenerator(enhancedConfig, stackName, outputPath)
+	generator := NewWorkflowGenerator(enhancedConfig, stackName, outputPath, false)
 	return generator.GenerateWorkflows()
 }
 
@@ -378,7 +382,7 @@ func PreviewWorkflow(serverDesc *api.ServerDescriptor, stackName, templateName s
 
 	enhancedConfig.SetDefaults()
 
-	generator := NewWorkflowGenerator(enhancedConfig, stackName, "")
+	generator := NewWorkflowGenerator(enhancedConfig, stackName, "", false)
 	if err := generator.LoadTemplates(); err != nil {
 		return "", fmt.Errorf("failed to load templates: %w", err)
 	}
