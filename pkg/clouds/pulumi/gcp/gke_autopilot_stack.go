@@ -51,6 +51,14 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	stackName := input.StackParams.StackName
 	fullParentReference := params.ParentStack.FullReference
 
+	// Debug logging for custom stacks
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: GKE Autopilot stack deployment")
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: environment=%q, stackName=%q", environment, stackName)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: input.StackParams.ParentEnv=%q", input.StackParams.ParentEnv)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: params.ParentStack.ParentEnv=%q", params.ParentStack.ParentEnv)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: clusterResource=%q, clusterName=%q", clusterResource, clusterName)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: registryResource=%q, registryName=%q", registryResource, registryName)
+
 	if clusterResource == "" {
 		return nil, errors.Errorf("`clusterResource` must be specified for gke autopilot config for %q/%q in %q", stackName, input.Descriptor.Name, environment)
 	}
