@@ -57,9 +57,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		parentEnv = args.Params.ParentStack.ParentEnv
 	}
 
-	// Determine namespace using parentEnv-aware logic
-	// For custom stacks (parentEnv != stackEnv), use parent's namespace
-	namespace := lo.If(args.Namespace == "", resolveNamespace(stackEnv, parentEnv)).Else(args.Namespace)
+	// Determine namespace - always use stack name as namespace (service name)
+	namespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
 
 	// Generate deployment name with environment suffix for custom stacks
 	baseDeploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
