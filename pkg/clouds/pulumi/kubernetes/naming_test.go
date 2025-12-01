@@ -391,50 +391,44 @@ func TestGenerateImagePullSecretName(t *testing.T) {
 	}
 }
 
-func TestResolveNamespace(t *testing.T) {
+func TestNamespaceIsStackName(t *testing.T) {
 	tests := []struct {
 		name      string
-		stackEnv  string
-		parentEnv string
+		stackName string
 		expected  string
 	}{
 		{
-			name:      "standard stack - no parent",
-			stackEnv:  "staging",
-			parentEnv: "",
-			expected:  "staging",
+			name:      "simple stack name",
+			stackName: "myapp",
+			expected:  "myapp",
 		},
 		{
-			name:      "custom stack - different parent",
-			stackEnv:  "staging-preview",
-			parentEnv: "staging",
-			expected:  "staging",
+			name:      "stack with environment",
+			stackName: "myapp-staging",
+			expected:  "myapp-staging",
 		},
 		{
-			name:      "self-reference - same as parent",
-			stackEnv:  "staging",
-			parentEnv: "staging",
-			expected:  "staging",
+			name:      "custom stack name",
+			stackName: "frontend-staging-preview",
+			expected:  "frontend-staging-preview",
 		},
 		{
-			name:      "production hotfix",
-			stackEnv:  "prod-hotfix",
-			parentEnv: "production",
-			expected:  "production",
+			name:      "production stack",
+			stackName: "api-production",
+			expected:  "api-production",
 		},
 		{
-			name:      "multiple custom stacks in same namespace",
-			stackEnv:  "staging-pr-456",
-			parentEnv: "staging",
-			expected:  "staging",
+			name:      "hotfix stack",
+			stackName: "backend-prod-hotfix",
+			expected:  "backend-prod-hotfix",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := resolveNamespace(tt.stackEnv, tt.parentEnv)
+			result := tt.stackName // Namespace is always stackName
 			if result != tt.expected {
-				t.Errorf("resolveNamespace() = %v, expected %v", result, tt.expected)
+				t.Errorf("namespace = %v, expected %v", result, tt.expected)
 			}
 		})
 	}
@@ -491,33 +485,38 @@ func TestIsCustomStack(t *testing.T) {
 
 // TestComplexScenarios tests real-world deployment scenarios
 func TestComplexScenarios(t *testing.T) {
-	t.Run("multiple preview environments in same namespace", func(t *testing.T) {
-		// Scenario: staging namespace with multiple PR previews
+	t.Run("multiple preview environments with unique namespaces", func(t *testing.T) {
+		// Scenario: Each stack environment gets its own namespace
 		serviceName := "api"
 		parentEnv := "staging"
 
 		envs := []struct {
-			stackEnv string
-			expected string
+			stackName          string
+			stackEnv           string
+			expectedDeployment string
+			expectedNamespace  string
 		}{
-			{"staging", "api"},                       // Parent deployment
-			{"staging-pr-123", "api-staging-pr-123"}, // PR 123
-			{"staging-pr-456", "api-staging-pr-456"}, // PR 456
-			{"staging-hotfix", "api-staging-hotfix"}, // Hotfix
+			{"api-staging", "staging", "api", "api-staging"},                                     // Parent deployment
+			{"api-staging-pr-123", "staging-pr-123", "api-staging-pr-123", "api-staging-pr-123"}, // PR 123
+			{"api-staging-pr-456", "staging-pr-456", "api-staging-pr-456", "api-staging-pr-456"}, // PR 456
+			{"api-staging-hotfix", "staging-hotfix", "api-staging-hotfix", "api-staging-hotfix"}, // Hotfix
 		}
 
 		namespaces := make(map[string]bool)
 		deployments := make(map[string]bool)
 
 		for _, env := range envs {
-			// All should resolve to same namespace
-			ns := resolveNamespace(env.stackEnv, parentEnv)
+			// Each stack should get its own namespace (namespace = stackName)
+			ns := env.stackName // Namespace is always stackName
+			if ns != env.expectedNamespace {
+				t.Errorf("Expected namespace %s, got %s", env.expectedNamespace, ns)
+			}
 			namespaces[ns] = true
 
 			// All should have unique deployment names
 			deployment := generateDeploymentName(serviceName, env.stackEnv, parentEnv)
-			if deployment != env.expected {
-				t.Errorf("Expected deployment %s, got %s", env.expected, deployment)
+			if deployment != env.expectedDeployment {
+				t.Errorf("Expected deployment %s, got %s", env.expectedDeployment, deployment)
 			}
 			if deployments[deployment] {
 				t.Errorf("Duplicate deployment name: %s", deployment)
@@ -525,9 +524,9 @@ func TestComplexScenarios(t *testing.T) {
 			deployments[deployment] = true
 		}
 
-		// Should only have one namespace
-		if len(namespaces) != 1 {
-			t.Errorf("Expected all deployments in single namespace, got %d namespaces", len(namespaces))
+		// Each stack should have its own namespace
+		if len(namespaces) != len(envs) {
+			t.Errorf("Expected %d unique namespaces, got %d namespaces", len(envs), len(namespaces))
 		}
 	})
 
