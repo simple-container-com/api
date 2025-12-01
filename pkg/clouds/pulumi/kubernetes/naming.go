@@ -66,14 +66,12 @@ func generateImagePullSecretName(serviceName, stackEnv, parentEnv string) string
 }
 
 // resolveNamespace determines the target namespace based on parentEnv
-// For custom stacks (where parentEnv differs from stackEnv), use parent's namespace
-// For standard stacks, use the stack's own environment as namespace
+// For both custom stacks and standard stacks, use the stack's own environment as namespace
+// Custom stacks should deploy to their own namespace, not the parent's namespace
 func resolveNamespace(stackEnv, parentEnv string) string {
-	if parentEnv != "" && parentEnv != stackEnv {
-		// Custom stack: deploy to parent's namespace
-		return parentEnv
-	}
-	// Standard stack: use own environment as namespace
+	// Always use the stack's own environment as namespace
+	// Custom stacks deploy to their own namespace (e.g., "preprod")
+	// Standard stacks also deploy to their own namespace
 	return stackEnv
 }
 
