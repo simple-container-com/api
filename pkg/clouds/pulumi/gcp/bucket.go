@@ -32,7 +32,7 @@ func PrivateBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return AdoptPrivateBucket(ctx, stack, input, params)
 	}
 
-	bucketName := input.ToResName(lo.If(bucketCfg.Name == "", input.Descriptor.Name).Else(bucketCfg.Name))
+	bucketName := input.ToResName(lo.If(bucketCfg.GetBucketName() == "", input.Descriptor.Name).Else(bucketCfg.GetBucketName()))
 	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
 
 	params.Log.Info(ctx.Context(), "creating GCS bucket %q with S3 interoperability", bucketName)

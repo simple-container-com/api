@@ -72,7 +72,7 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	defer func(client *gcpStorage.Client) {
 		_ = client.Close()
 	}(client)
-	bucketRef := client.Bucket(gcpStateCfg.BucketName)
+	bucketRef := client.Bucket(gcpStateCfg.GetBucketName())
 
 	_, err = bucketRef.Attrs(ctx)
 	if err != nil {

@@ -241,6 +241,9 @@ func DetectRegistrarType(p *PerStackResourcesDescriptor) (*PerStackResourcesDesc
 	if registrar.IsInherited() {
 		return p, nil
 	}
+	if registrar.Type == "" { // skip registrar when not configured
+		return p, nil
+	}
 	if fn, found := providerConfigMapping[registrar.Type]; !found {
 		return nil, errors.Errorf("unknown registrar type %q", registrar.Type)
 	} else {
