@@ -81,13 +81,14 @@ func runGenerate(rootCmd *root_cmd.RootCmd, params *generateParams) error {
 	service := cicd.NewService()
 
 	serviceParams := cicd.GenerateParams{
-		StackName:  params.StackName,
-		Output:     params.Output,
-		ConfigFile: params.ConfigFile,
-		Force:      params.Force,
-		DryRun:     params.DryRun,
-		Parent:     params.Parent,
-		Staging:    params.Staging,
+		StackName:   params.StackName,
+		Output:      params.Output,
+		ConfigFile:  params.ConfigFile,
+		Force:       params.Force,
+		DryRun:      params.DryRun,
+		Parent:      params.Parent,
+		Staging:     params.Staging,
+		SkipRefresh: params.SkipRefresh,
 	}
 
 	result, err := service.GenerateWorkflows(serviceParams)

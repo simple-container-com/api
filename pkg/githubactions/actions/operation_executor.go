@@ -29,11 +29,12 @@ const (
 
 // OperationConfig defines the configuration for a stack operation
 type OperationConfig struct {
-	Type      OperationType
-	Scope     OperationScope
-	StackName string
-	Env       string
-	Version   string
+	Type        OperationType
+	Scope       OperationScope
+	StackName   string
+	Env         string
+	Version     string
+	SkipRefresh bool
 }
 
 // capitalize returns the string with first letter capitalized (ASCII only)
@@ -261,8 +262,8 @@ func (e *Executor) executeDeploy(ctx context.Context, config OperationConfig, pr
 			StackName:    config.StackName,
 			Environment:  config.Env,
 			Version:      config.Version,
-			SkipRefresh:  previewMode,
-			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
+			SkipRefresh:  config.SkipRefresh || previewMode, // Use configured skip-refresh or preview mode
+			DetailedDiff: true,                              // Enable detailed diff for better visibility in GitHub Actions
 		},
 	}
 

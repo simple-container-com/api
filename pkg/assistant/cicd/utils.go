@@ -212,7 +212,7 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		defaultTemplates = []string{"provision", "destroy-parent"}
 		defaultCustomActions = map[string]string{
 			"provision":      "simple-container-com/api/.github/actions/provision-parent-stack" + actionVersion,
-			"destroy-parent": "simple-container-com/api/.github/actions/destroy-parent-stack" + actionVersion,
+			"destroy-parent": "simple-container-com/api/.github/actions/destroy" + actionVersion,
 			"cancel-stack":   "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	} else {
@@ -220,7 +220,7 @@ func createEnhancedConfig(serverDesc *api.ServerDescriptor, stackName string, is
 		defaultTemplates = []string{"deploy", "destroy"}
 		defaultCustomActions = map[string]string{
 			"deploy":       "simple-container-com/api/.github/actions/deploy-client-stack" + actionVersion,
-			"destroy":      "simple-container-com/api/.github/actions/destroy-client-stack" + actionVersion,
+			"destroy":      "simple-container-com/api/.github/actions/destroy" + actionVersion,
 			"cancel-stack": "simple-container-com/api/.github/actions/cancel-stack" + actionVersion,
 		}
 	}

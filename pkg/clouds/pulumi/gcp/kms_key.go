@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	gcpOptions "google.golang.org/api/option"
 	"google.golang.org/api/serviceusage/v1"
@@ -75,70 +73,6 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}))
 
 	return &api.ResourceOutput{Ref: key}, nil
-}
-
-func enableServicesAPI(ctx context.Context, authConfig any, apiName string) error {
-	svc, err := initServicesAPIClient(ctx, authConfig)
-	if err != nil {
-		return errors.Wrapf(err, "failed to init services API client")
-	}
-
-	if info, err := svc.Services.Get(apiName).Do(); err == nil {
-		if info.State == "ENABLED" {
-			// already enabled
-			return nil
-		}
-	}
-	op, err := svc.Services.Enable(apiName, &serviceusage.EnableServiceRequest{}).Do()
-	if err != nil {
-		return errors.Wrapf(err, "failed to enable %s", apiName)
-	}
-
-	// Handle immediate completion or operations that don't need polling
-	if op.Done {
-		// Operation completed immediately
-		if op.Error != nil {
-			return errors.Errorf("failed to enable API %q: %s", apiName, op.Error.Message)
-		}
-		return nil
-	}
-
-	// Poll for operation completion with improved error handling
-	maxRetries := 60 // Maximum 60 seconds
-	for i := 0; i < maxRetries; i++ {
-		// Add context cancellation check
-		select {
-		case <-ctx.Done():
-			return errors.Wrapf(ctx.Err(), "context cancelled while enabling API %q", apiName)
-		default:
-		}
-
-		op, err = svc.Operations.Get(op.Name).Do()
-		if err != nil {
-			// Handle specific "DONE_OPERATION" error
-			if strings.Contains(err.Error(), "DONE_OPERATION") {
-				// Operation is already done, check final state
-				if info, checkErr := svc.Services.Get(apiName).Do(); checkErr == nil {
-					if info.State == "ENABLED" {
-						return nil
-					}
-				}
-				return errors.Wrapf(err, "API enablement operation completed with error for %q", apiName)
-			}
-			return errors.Wrapf(err, "failed to check operation status for API %q", apiName)
-		}
-
-		if op.Done {
-			if op.Error != nil {
-				return errors.Errorf("failed to enable API %q: %s", apiName, op.Error.Message)
-			}
-			return nil
-		}
-
-		time.Sleep(1 * time.Second)
-	}
-
-	return errors.Errorf("timeout waiting for API %q to be enabled after %d seconds", apiName, maxRetries)
 }
 
 func initServicesAPIClient(ctx context.Context, resourceConfig any) (*serviceusage.Service, error) {

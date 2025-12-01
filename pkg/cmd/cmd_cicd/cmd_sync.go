@@ -75,12 +75,13 @@ func runSync(rootCmd *root_cmd.RootCmd, params SyncParams) error {
 	service := cicd.NewService()
 
 	serviceParams := cicd.SyncParams{
-		StackName:  params.StackName,
-		ConfigFile: params.ConfigFile,
-		DryRun:     params.DryRun,
-		Force:      params.Force,
-		Parent:     params.Parent,
-		Staging:    params.Staging,
+		StackName:   params.StackName,
+		ConfigFile:  params.ConfigFile,
+		DryRun:      params.DryRun,
+		Force:       params.Force,
+		Parent:      params.Parent,
+		Staging:     params.Staging,
+		SkipRefresh: params.SkipRefresh,
 	}
 
 	result, err := service.SyncWorkflows(serviceParams)

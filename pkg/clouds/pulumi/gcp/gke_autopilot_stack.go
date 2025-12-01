@@ -45,11 +45,27 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 	clusterResource := gkeAutopilotInput.GkeAutopilotTemplate.GkeClusterResource
 	registryResource := gkeAutopilotInput.GkeAutopilotTemplate.ArtifactRegistryResource
+
+	// Fix for custom stacks: ensure input.StackParams.ParentEnv is set correctly
+	environment := input.StackParams.Environment
+	if params.ParentStack != nil && params.ParentStack.ParentEnv != "" && params.ParentStack.ParentEnv != environment {
+		// This is a custom stack - set ParentEnv so ToResName uses parent environment for resource naming
+		input.StackParams.ParentEnv = params.ParentStack.ParentEnv
+		params.Log.Info(ctx.Context(), "🔧 Custom stack detected: set input.StackParams.ParentEnv to %q for resource naming", params.ParentStack.ParentEnv)
+	}
+
 	clusterName := kubernetes.ToClusterName(input, clusterResource)
 	registryName := toArtifactRegistryName(input, registryResource)
-	environment := input.StackParams.Environment
 	stackName := input.StackParams.StackName
 	fullParentReference := params.ParentStack.FullReference
+
+	// Debug logging for custom stacks
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: GKE Autopilot stack deployment")
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: environment=%q, stackName=%q", environment, stackName)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: input.StackParams.ParentEnv=%q", input.StackParams.ParentEnv)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: params.ParentStack.ParentEnv=%q", params.ParentStack.ParentEnv)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: clusterResource=%q, clusterName=%q", clusterResource, clusterName)
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: registryResource=%q, registryName=%q", registryResource, registryName)
 
 	if clusterResource == "" {
 		return nil, errors.Errorf("`clusterResource` must be specified for gke autopilot config for %q/%q in %q", stackName, input.Descriptor.Name, environment)

@@ -3,10 +3,12 @@ package gcp
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/container"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/storage"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -15,13 +17,18 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
+	pulumiKubernetes "github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
 type GkeAutopilotOut struct {
 	Cluster *container.Cluster
-	Caddy   *kubernetes.SimpleContainer
+	Caddy   *pulumiKubernetes.SimpleContainer
+
+	// Cloud NAT resources (optional)
+	StaticIp *compute.Address
+	Router   *compute.Router
+	Nat      *compute.RouterNat
 }
 
 func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -43,7 +50,10 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config, containerServiceName); err != nil {
 		return nil, errors.Wrapf(err, "failed to enable %s", containerServiceName)
 	}
-	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
+	var opts []sdk.ResourceOption
+	if params.Provider != nil {
+		opts = append(opts, sdk.Provider(params.Provider))
+	}
 
 	location := gkeInput.Location
 
@@ -51,7 +61,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		return nil, errors.Errorf("`location` must be specified for GKE cluster %q in %q", input.Descriptor.Name, input.StackParams.Environment)
 	}
 
-	clusterName := kubernetes.ToClusterName(input, input.Descriptor.Name)
+	clusterName := pulumiKubernetes.ToClusterName(input, input.Descriptor.Name)
 	params.Log.Info(ctx.Context(), "Configuring GKE Autopilot cluster %q in %q", clusterName, input.StackParams.Environment)
 	timeouts := sdk.CustomTimeouts{
 		Create: "10m",
@@ -64,7 +74,9 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		timeouts.Create = lo.If(gkeInput.Timeouts.Create != "", gkeInput.Timeouts.Create).Else(timeouts.Create)
 	}
 	out := GkeAutopilotOut{}
-	cluster, err := container.NewCluster(ctx, clusterName, &container.ClusterArgs{
+
+	// Configure cluster args
+	clusterArgs := &container.ClusterArgs{
 		EnableAutopilot:  sdk.Bool(true),
 		Location:         sdk.String(location),
 		Name:             sdk.String(clusterName),
@@ -74,13 +86,46 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		},
 		IpAllocationPolicy: &container.ClusterIpAllocationPolicyArgs{},
 		// because we are using autopilot verticalPodAutoscaling is handled by the GCP
-	}, append(opts, sdk.IgnoreChanges([]string{"verticalPodAutoscaling"}), sdk.Timeouts(&timeouts))...)
+	}
+
+	// Enable private nodes when Cloud NAT is enabled (required for Cloud NAT to work)
+	// NOTE: privateClusterConfig is immutable and cannot be changed after cluster creation
+	ignoreChanges := []string{"verticalPodAutoscaling"}
+	if gkeInput.ExternalEgressIp != nil && gkeInput.ExternalEgressIp.Enabled {
+		params.Log.Info(ctx.Context(), "🔒 Enabling private nodes (required for Cloud NAT)")
+		clusterArgs.PrivateClusterConfig = &container.ClusterPrivateClusterConfigArgs{
+			EnablePrivateNodes:    sdk.Bool(true),  // Nodes will not have external IPs
+			EnablePrivateEndpoint: sdk.Bool(false), // Keep control plane public for easy access
+		}
+		params.Log.Info(ctx.Context(), "   ✅ Private nodes enabled (nodes will use Cloud NAT for egress)")
+		params.Log.Info(ctx.Context(), "   ✅ Control plane remains public (kubectl works from anywhere)")
+
+		// NOTE: privateClusterConfig is immutable in GKE. Adding it to existing clusters will trigger replacement.
+		// For production safety, you may want to add "privateClusterConfig" to ignoreChanges for existing clusters.
+	}
+
+	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, append(opts, sdk.IgnoreChanges(ignoreChanges), sdk.Timeouts(&timeouts))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create cluster %q in %q", clusterName, input.StackParams.Environment)
 	}
 	out.Cluster = cluster
 	kubeconfig := generateKubeconfig(cluster, gkeInput)
 	ctx.Export(toKubeconfigExport(clusterName), kubeconfig)
+
+	// Setup Cloud NAT if external egress IP is enabled
+	if gkeInput.ExternalEgressIp != nil && gkeInput.ExternalEgressIp.Enabled {
+		if err := gkeInput.ExternalEgressIp.Validate(); err != nil {
+			return nil, errors.Wrapf(err, "invalid external egress IP configuration")
+		}
+
+		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, cluster, &out, opts, params); err != nil {
+			return nil, errors.Wrapf(err, "failed to setup Cloud NAT for cluster %q", clusterName)
+		}
+
+		// Note: Cloud NAT is now configured to handle both primary and secondary IP ranges
+		// No additional Egress NAT Policy needed - GKE's default policies work correctly
+		// with the proper Cloud NAT subnet configuration (LIST_OF_SUBNETWORKS + ALL_IP_RANGES)
+	}
 
 	if gkeInput.Caddy != nil {
 		// Provision GCS bucket and service account for Caddy ACME certificate storage
@@ -124,7 +169,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		params.Log.Info(ctx.Context(), "🔐 Preparing GCP credentials secret volume for Caddy ACME storage at %s", credentialsMountPath)
 
 		// Build Caddy deployment configuration with GCS storage
-		caddyConfig := kubernetes.CaddyDeployment{
+		caddyConfig := pulumiKubernetes.CaddyDeployment{
 			CaddyConfig:        gkeInput.Caddy,
 			ClusterName:        clusterName,
 			ClusterResource:    cluster,
@@ -137,7 +182,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			},
 		}
 
-		caddy, err := kubernetes.DeployCaddyService(ctx, caddyConfig, input, params, kubeconfig)
+		caddy, err := pulumiKubernetes.DeployCaddyService(ctx, caddyConfig, input, params, kubeconfig)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create caddy deployment for cluster %q in %q", clusterName, input.StackParams.Environment)
 		}
@@ -292,4 +337,279 @@ users:
 
 		return kubeconfig, nil
 	}).(sdk.StringOutput)
+}
+
+// setupCloudNAT creates Cloud NAT resources for static egress IP
+func setupCloudNAT(
+	ctx *sdk.Context,
+	gkeInput *gcloud.GkeAutopilotResource,
+	clusterName string,
+	location string,
+	cluster *container.Cluster,
+	out *GkeAutopilotOut,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) error {
+	// Extract region from location (handle both regional and zonal locations)
+	region := extractRegionFromLocation(location)
+
+	params.Log.Info(ctx.Context(), "🌐 Setting up Cloud NAT for static egress IP in region %s", region)
+	params.Log.Info(ctx.Context(), "   💡 Note: Private nodes were enabled for this cluster to allow Cloud NAT usage")
+
+	// Validate that cluster and NAT will be in the same region
+	cluster.Location.ApplyT(func(clusterLocation string) error {
+		clusterRegion := extractRegionFromLocation(clusterLocation)
+		if clusterRegion != region {
+			params.Log.Warn(ctx.Context(), "⚠️ Region mismatch: cluster in %s, NAT in %s", clusterRegion, region)
+		} else {
+			params.Log.Info(ctx.Context(), "✅ Cluster and NAT both in region %s", region)
+		}
+		return nil
+	})
+
+	// Step 1: Create or reference static IP
+	staticIp, err := createOrReferenceStaticIp(ctx, gkeInput.ExternalEgressIp, clusterName, region, opts, params)
+	if err != nil {
+		return errors.Wrap(err, "failed to create or reference static IP")
+	}
+	out.StaticIp = staticIp
+
+	// Step 2: Create Cloud Router (using cluster's VPC network)
+	router, err := createCloudRouter(ctx, clusterName, region, cluster, opts, params)
+	if err != nil {
+		return errors.Wrap(err, "failed to create Cloud Router")
+	}
+	out.Router = router
+
+	// Step 3: Create Cloud NAT (configured for cluster's specific subnet)
+	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, opts, params)
+	if err != nil {
+		return errors.Wrap(err, "failed to create Cloud NAT")
+	}
+	out.Nat = nat
+
+	// Export static IP address for external reference
+	ctx.Export(fmt.Sprintf("%s-egress-ip-address", clusterName), staticIp.Address)
+	ctx.Export(fmt.Sprintf("%s-egress-ip-name", clusterName), staticIp.Name)
+
+	params.Log.Info(ctx.Context(), "✅ Cloud NAT configured successfully with static egress IP")
+
+	return nil
+}
+
+// createOrReferenceStaticIp creates a new static IP or references an existing one
+func createOrReferenceStaticIp(
+	ctx *sdk.Context,
+	config *gcloud.ExternalEgressIpConfig,
+	clusterName string,
+	region string,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) (*compute.Address, error) {
+	if config.Existing != "" {
+		// Use existing static IP
+		params.Log.Info(ctx.Context(), "🔗 Using existing static IP: %s", config.Existing)
+
+		// Parse the existing IP reference to extract name
+		// Format: projects/{project}/regions/{region}/addresses/{name}
+		parts := strings.Split(config.Existing, "/")
+		if len(parts) != 6 {
+			return nil, errors.Errorf("invalid existing static IP reference format: %s", config.Existing)
+		}
+		addressName := parts[5]
+
+		return compute.GetAddress(ctx, addressName, sdk.ID(config.Existing), nil, opts...)
+	} else {
+		// Create new static IP automatically
+		staticIpName := fmt.Sprintf("%s-egress-ip", clusterName)
+		params.Log.Info(ctx.Context(), "📍 Creating static IP address: %s", staticIpName)
+
+		return compute.NewAddress(ctx, staticIpName, &compute.AddressArgs{
+			Name:        sdk.String(staticIpName),
+			Region:      sdk.String(region),
+			AddressType: sdk.String("EXTERNAL"),
+			Description: sdk.String(fmt.Sprintf("Static egress IP for GKE cluster %s", clusterName)),
+		}, opts...)
+	}
+}
+
+// createCloudRouter creates a Cloud Router for NAT
+func createCloudRouter(
+	ctx *sdk.Context,
+	clusterName string,
+	region string,
+	cluster *container.Cluster,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) (*compute.Router, error) {
+	routerName := fmt.Sprintf("%s-router", clusterName)
+	params.Log.Info(ctx.Context(), "🔀 Creating Cloud Router: %s", routerName)
+
+	return compute.NewRouter(ctx, routerName, &compute.RouterArgs{
+		Name:    sdk.String(routerName),
+		Region:  sdk.String(region),
+		Network: cluster.Network.ToStringPtrOutput().Elem(), // Use cluster's actual VPC network
+		Bgp: &compute.RouterBgpArgs{
+			Asn: sdk.Int(64512), // Private ASN
+		},
+		Description: sdk.String(fmt.Sprintf("Cloud Router for GKE cluster %s NAT", clusterName)),
+	}, opts...)
+}
+
+// createCloudNat creates a Cloud NAT gateway
+func createCloudNat(
+	ctx *sdk.Context,
+	clusterName string,
+	router *compute.Router,
+	staticIp *compute.Address,
+	region string,
+	cluster *container.Cluster,
+	opts []sdk.ResourceOption,
+	params pApi.ProvisionParams,
+) (*compute.RouterNat, error) {
+	natName := fmt.Sprintf("%s-nat", clusterName)
+	params.Log.Info(ctx.Context(), "🌐 Creating Cloud NAT gateway: %s", natName)
+
+	// Create array of static IP references for NAT
+	natIps := sdk.StringArray{staticIp.SelfLink}
+
+	// Configure NAT for specific GKE cluster subnet instead of all subnets
+	natArgs := &compute.RouterNatArgs{
+		Name:   sdk.String(natName),
+		Router: router.Name,
+		Region: sdk.String(region),
+
+		// NAT configuration - use our specific static IP (not random GCP-assigned IPs)
+		NatIpAllocateOption: sdk.String("MANUAL_ONLY"), // Use only the IPs we specify in NatIps
+		NatIps:              natIps,                    // Our static IP address
+
+		// Port allocation - production-ready defaults
+		MinPortsPerVm: sdk.Int(64),
+		MaxPortsPerVm: sdk.Int(65536),
+
+		// Logging configuration - errors only for cost optimization
+		LogConfig: &compute.RouterNatLogConfigArgs{
+			Enable: sdk.Bool(true),
+			Filter: sdk.String("ERRORS_ONLY"),
+		},
+
+		// Enable endpoint independent mapping for better performance
+		EnableEndpointIndependentMapping: sdk.Bool(true),
+	}
+
+	// Configure NAT to target ALL IP ranges (primary + secondary) for GKE pods
+	params.Log.Info(ctx.Context(), "🎯 Configuring NAT for ALL IP ranges (primary + secondary)")
+
+	// Use LIST_OF_SUBNETWORKS with ALL_IP_RANGES to include both primary and secondary ranges
+	// This is required for GKE Autopilot where pods use secondary IP ranges
+	natArgs.SourceSubnetworkIpRangesToNat = sdk.String("LIST_OF_SUBNETWORKS")
+
+	// Configure the default subnet to use ALL_IP_RANGES (primary + secondary)
+	natArgs.Subnetworks = compute.RouterNatSubnetworkArray{
+		&compute.RouterNatSubnetworkArgs{
+			Name: sdk.String("default"), // GKE uses default subnet
+			SourceIpRangesToNats: sdk.StringArray{
+				sdk.String("ALL_IP_RANGES"), // Include both primary and secondary ranges
+			},
+		},
+	}
+
+	params.Log.Info(ctx.Context(), "🔧 NAT configured for ALL IP ranges (primary + secondary for GKE pods)")
+
+	// Log cluster subnetwork for debugging purposes
+	cluster.Subnetwork.ApplyT(func(subnetwork string) error {
+		if subnetwork != "" {
+			params.Log.Info(ctx.Context(), "📍 GKE cluster using subnetwork: %s", subnetwork)
+		} else {
+			params.Log.Info(ctx.Context(), "📍 GKE cluster using default subnetwork")
+		}
+		return nil
+	})
+
+	// Add additional logging to help debug NAT configuration
+	params.Log.Info(ctx.Context(), "🔍 NAT Configuration Details:")
+	params.Log.Info(ctx.Context(), "   - IP Allocation: MANUAL_ONLY (using static IP %s)", staticIp.Name.ToStringOutput())
+	params.Log.Info(ctx.Context(), "   - Source Ranges: LIST_OF_SUBNETWORKS with ALL_IP_RANGES")
+	params.Log.Info(ctx.Context(), "   - Subnet: default (includes primary + secondary ranges)")
+	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM", 64, 65536)
+	params.Log.Info(ctx.Context(), "")
+	params.Log.Info(ctx.Context(), "🔍 Troubleshooting Steps if egress IP is still wrong:")
+	params.Log.Info(ctx.Context(), "   1. Check GCP Console → VPC Network → Cloud NAT")
+	params.Log.Info(ctx.Context(), "   2. Verify NAT gateway is 'Active' and using your static IP")
+	params.Log.Info(ctx.Context(), "   3. Check if there are multiple NAT gateways in the same region")
+	params.Log.Info(ctx.Context(), "   4. Restart pods to pick up new NAT configuration")
+	params.Log.Info(ctx.Context(), "   5. Run: kubectl delete pods --all -n <namespace>")
+
+	// Export the static IP for easy reference
+	staticIp.Address.ApplyT(func(addr string) error {
+		params.Log.Info(ctx.Context(), "📍 Expected egress IP: %s", addr)
+		return nil
+	})
+
+	return compute.NewRouterNat(ctx, natName, natArgs, opts...)
+}
+
+// extractRegionFromLocation extracts region from GKE location (handles both regional and zonal)
+func extractRegionFromLocation(location string) string {
+	// Handle both regional (us-central1) and zonal (us-central1-a) locations
+
+	// Special handling for complex region names that don't follow simple pattern
+	complexRegions := map[string]string{
+		"asia-southeast1-a":         "asia-southeast1",
+		"asia-southeast1-b":         "asia-southeast1",
+		"asia-southeast1-c":         "asia-southeast1",
+		"asia-southeast2-a":         "asia-southeast2",
+		"asia-southeast2-b":         "asia-southeast2",
+		"asia-southeast2-c":         "asia-southeast2",
+		"asia-northeast1-a":         "asia-northeast1",
+		"asia-northeast1-b":         "asia-northeast1",
+		"asia-northeast1-c":         "asia-northeast1",
+		"asia-northeast2-a":         "asia-northeast2",
+		"asia-northeast2-b":         "asia-northeast2",
+		"asia-northeast2-c":         "asia-northeast2",
+		"asia-northeast3-a":         "asia-northeast3",
+		"asia-northeast3-b":         "asia-northeast3",
+		"asia-northeast3-c":         "asia-northeast3",
+		"australia-southeast1-a":    "australia-southeast1",
+		"australia-southeast1-b":    "australia-southeast1",
+		"australia-southeast1-c":    "australia-southeast1",
+		"australia-southeast2-a":    "australia-southeast2",
+		"australia-southeast2-b":    "australia-southeast2",
+		"australia-southeast2-c":    "australia-southeast2",
+		"europe-southwest1-a":       "europe-southwest1",
+		"europe-southwest1-b":       "europe-southwest1",
+		"europe-southwest1-c":       "europe-southwest1",
+		"northamerica-northeast1-a": "northamerica-northeast1",
+		"northamerica-northeast1-b": "northamerica-northeast1",
+		"northamerica-northeast1-c": "northamerica-northeast1",
+		"northamerica-northeast2-a": "northamerica-northeast2",
+		"northamerica-northeast2-b": "northamerica-northeast2",
+		"northamerica-northeast2-c": "northamerica-northeast2",
+		"southamerica-east1-a":      "southamerica-east1",
+		"southamerica-east1-b":      "southamerica-east1",
+		"southamerica-east1-c":      "southamerica-east1",
+		"southamerica-west1-a":      "southamerica-west1",
+		"southamerica-west1-b":      "southamerica-west1",
+		"southamerica-west1-c":      "southamerica-west1",
+	}
+
+	// Check if it's a known complex region zone
+	if region, exists := complexRegions[location]; exists {
+		return region
+	}
+
+	// For zones like us-central1-a, extract us-central1
+	if strings.Count(location, "-") >= 2 {
+		lastDash := strings.LastIndex(location, "-")
+		if lastDash > 0 {
+			zonePart := location[lastDash+1:]
+			// Check if the part after the last dash is a single letter (zone indicator)
+			if len(zonePart) == 1 && zonePart >= "a" && zonePart <= "z" {
+				return location[:lastDash]
+			}
+		}
+	}
+
+	// Return as-is for regional clusters (already in correct format)
+	return location
 }

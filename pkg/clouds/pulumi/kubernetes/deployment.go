@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -49,8 +50,22 @@ type Args struct {
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	stackName := args.Input.StackParams.StackName
 	stackEnv := args.Input.StackParams.Environment
+
+	// Extract parentEnv from ParentStack if available
+	var parentEnv string
+	if args.Params.ParentStack != nil {
+		parentEnv = args.Params.ParentStack.ParentEnv
+	}
+
+	// Determine namespace - always use stack name as namespace (service name)
 	namespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
-	deploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
+
+	// Generate deployment name with environment suffix for custom stacks
+	baseDeploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
+	deploymentName := generateDeploymentName(baseDeploymentName, stackEnv, parentEnv)
+
+	args.Params.Log.Info(ctx.Context(), "📦 Deploying to namespace=%q, deployment=%q (stackEnv=%q, parentEnv=%q, isCustomStack=%v)",
+		namespace, deploymentName, stackEnv, parentEnv, isCustomStack(stackEnv, parentEnv))
 
 	opts = append(opts, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
 
@@ -88,12 +103,14 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		containerEnvVars := lo.Assign(c.Container.Env, envVars, args.Deployment.StackConfig.Env)
 		containerEnvVars = lo.OmitByKeys(containerEnvVars, lo.Keys(secretEnvs))
 
-		// Convert to Kubernetes env var array
+		// Convert to Kubernetes env var array with sorted keys to ensure consistent ordering
 		var env corev1.EnvVarArray
-		for k, v := range containerEnvVars {
+		envKeys := lo.Keys(containerEnvVars)
+		sort.Strings(envKeys)
+		for _, k := range envKeys {
 			env = append(env, corev1.EnvVarArgs{
 				Name:  sdk.String(k),
-				Value: sdk.String(v),
+				Value: sdk.String(containerEnvVars[k]),
 			})
 		}
 		var ports corev1.ContainerPortArray
@@ -204,6 +221,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
 		ProxyKeepPrefix:        lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
 		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
+		ParentEnv:              lo.If(parentEnv != "", lo.ToPtr(parentEnv)).Else(nil),
 		Replicas:               replicas,
 		Headers:                args.Deployment.Headers,
 		SecretEnvs:             mergedSecretEnvs,
@@ -218,7 +236,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		NodeSelector:           args.NodeSelector,
 		Affinity:               args.Affinity,
 		Sidecars:               args.Sidecars,
-		VPA:                    args.VPA, // Pass VPA configuration to SimpleContainer
+		VPA:                    args.VPA,              // Pass VPA configuration to SimpleContainer
+		Scale:                  args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
@@ -232,6 +251,21 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
 	}
+
+	// Validate HPA configuration before passing to SimpleContainer
+	if args.Deployment.Scale != nil && args.Deployment.Scale.EnableHPA {
+		// Get resources from the first container (assuming all containers have similar resource requirements)
+		var containerResources *k8s.Resources
+		if len(args.Deployment.Containers) > 0 {
+			containerResources = args.Deployment.Containers[0].Resources
+		}
+
+		// Validate HPA configuration
+		if err := ValidateHPAConfiguration(args.Deployment.Scale, containerResources); err != nil {
+			return nil, errors.Wrapf(err, "invalid HPA configuration for deployment %s", stackName)
+		}
+	}
+
 	return sc, nil
 }
 

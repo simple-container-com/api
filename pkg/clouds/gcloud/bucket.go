@@ -13,6 +13,15 @@ type GcpBucket struct {
 	BucketName string `json:"bucketName,omitempty" yaml:"bucketName,omitempty"`
 }
 
+// GetBucketName returns the bucket name, supporting both "name" and "bucketName" fields
+// Falls back to "name" if "bucketName" is empty, or "bucketName" if "name" is empty
+func (b *GcpBucket) GetBucketName() string {
+	if b.BucketName != "" {
+		return b.BucketName
+	}
+	return b.Name
+}
+
 func GcpBucketReadConfig(config *api.Config) (api.Config, error) {
 	return api.ConvertConfig(config, &GcpBucket{})
 }

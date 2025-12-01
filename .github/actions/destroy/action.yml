@@ -1,13 +1,16 @@
-name: 'Destroy Simple Container Parent Stack'
-description: 'Destroy a Simple Container parent stack using internal SC APIs'
+name: 'Destroy Simple Container Stack'
+description: 'Destroy a Simple Container stack (client or parent) using internal SC APIs'
 branding:
-  icon: 'x-circle'
+  icon: 'trash-2'
   color: 'red'
 
 inputs:
   stack-name:
-    description: 'Name of the parent stack to destroy'
+    description: 'Name of the stack to destroy'
     required: true
+  environment:
+    description: 'Target environment (staging, prod, etc.) - if provided, destroys client stack; if omitted, destroys parent stack'
+    required: false
   sc-config:
     description: 'Simple Container configuration (SIMPLE_CONTAINER_CONFIG secret content)'
     required: true
@@ -19,8 +22,15 @@ inputs:
     description: 'Skip creating backups before destruction'
     required: false
     default: 'false'
+  pr-preview:
+    description: 'Destroy PR preview environment (client stacks only)'
+    required: false
+    default: 'false'
+  pr-number:
+    description: 'Pull request number for preview environments (client stacks only)'
+    required: false
   notify-on-completion:
-    description: 'Send notifications when destruction completes'
+    description: 'Send notifications when destruction completes (parent stacks only)'
     required: false
     default: 'true'
   verbose:
@@ -49,8 +59,12 @@ inputs:
     default: ''
 
 outputs:
+  environment:
+    description: 'Environment that was destroyed (client stacks only)'
   stack-name:
-    description: 'Parent stack name that was destroyed'
+    description: 'Stack name that was destroyed'
+  stack-type:
+    description: 'Type of stack that was destroyed (client or parent)'
   duration:
     description: 'Destruction duration'
   status:
@@ -60,11 +74,14 @@ runs:
   using: 'docker'
   image: 'docker://simplecontainer/github-actions:staging'
   env:
-    GITHUB_ACTION_TYPE: 'destroy-parent-stack'
+    GITHUB_ACTION_TYPE: 'destroy'
     STACK_NAME: ${{ inputs.stack-name }}
+    ENVIRONMENT: ${{ inputs.environment }}
     SIMPLE_CONTAINER_CONFIG: ${{ inputs.sc-config }}
     AUTO_CONFIRM: ${{ inputs.auto-confirm }}
     SKIP_BACKUP: ${{ inputs.skip-backup }}
+    PR_PREVIEW: ${{ inputs.pr-preview }}
+    PR_NUMBER: ${{ inputs.pr-number }}
     NOTIFY_ON_COMPLETION: ${{ inputs.notify-on-completion }}
     VERBOSE: ${{ inputs.verbose }}
     GITHUB_TOKEN: ${{ inputs.token }}

@@ -24,13 +24,14 @@ func NewService() *Service {
 
 // GenerateParams contains parameters for workflow generation
 type GenerateParams struct {
-	StackName  string
-	Output     string
-	ConfigFile string
-	Force      bool
-	DryRun     bool
-	Parent     bool
-	Staging    bool
+	StackName   string
+	Output      string
+	ConfigFile  string
+	Force       bool
+	DryRun      bool
+	Parent      bool
+	Staging     bool
+	SkipRefresh bool
 }
 
 // ValidateParams contains parameters for workflow validation
@@ -55,12 +56,13 @@ type PreviewParams struct {
 
 // SyncParams contains parameters for workflow synchronization
 type SyncParams struct {
-	StackName  string
-	ConfigFile string
-	DryRun     bool
-	Force      bool
-	Parent     bool
-	Staging    bool
+	StackName   string
+	ConfigFile  string
+	DryRun      bool
+	Force       bool
+	Parent      bool
+	Staging     bool
+	SkipRefresh bool
 }
 
 // Result contains the result of a CI/CD operation
@@ -136,7 +138,7 @@ func (s *Service) GenerateWorkflowsWithContext(ctx context.Context, logger Logge
 	}
 
 	// Generate workflows
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, outputDir)
+	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, outputDir, params.SkipRefresh)
 	if err := generator.GenerateWorkflows(); err != nil {
 		return &Result{
 			Success: false,
@@ -204,7 +206,7 @@ func (s *Service) ValidateWorkflowsWithContext(ctx context.Context, logger Logge
 	}
 
 	// Perform validation
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, workflowsDir)
+	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, workflowsDir, false)
 	validationResults, err := generator.ValidateWorkflows()
 	if err != nil {
 		return &Result{
@@ -343,7 +345,7 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 	}
 
 	// Generate workflows (sync is essentially generate + git operations)
-	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, workflowsDir)
+	generator := github.NewWorkflowGenerator(enhancedConfig, stackName, workflowsDir, params.SkipRefresh)
 	if err := generator.GenerateWorkflows(); err != nil {
 		return &Result{
 			Success: false,

@@ -50,6 +50,10 @@ inputs:
     description: 'Commit message'
     required: false
     default: ''
+  skip-refresh:
+    description: 'Skip Pulumi refresh operation before deployment'
+    required: false
+    default: 'false'
 
 outputs:
   version:
@@ -81,3 +85,4 @@ runs:
     GITHUB_REF: ${{ inputs.ref }}
     COMMIT_AUTHOR: ${{ inputs.commit-author }}
     COMMIT_MESSAGE: ${{ inputs.commit-message }}
+    SKIP_REFRESH: ${{ inputs.skip-refresh }}

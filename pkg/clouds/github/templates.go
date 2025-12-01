@@ -60,6 +60,9 @@ jobs:
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
           commit-author: "${{ "{{" }} github.actor {{ "}}" }}"
           commit-message: "${{ "{{" }} github.event.head_commit.message || '' {{ "}}" }}"
+          {{- if .SkipRefresh }}
+          skip-refresh: "true"
+          {{- end }}
       
       - name: Emergency Cleanup on Cancellation
         if: always() && cancelled()
@@ -158,7 +161,7 @@ jobs:
     
     steps:
       - name: Destroy {{ .StackName }}
-        uses: {{ if index .CustomActions "destroy-client" }}{{ index .CustomActions "destroy-client" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
+        uses: {{ if index .CustomActions "destroy" }}{{ index .CustomActions "destroy" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "${{ "{{" }} needs.validate-destroy.outputs.environment {{ "}}" }}"
@@ -235,7 +238,7 @@ jobs:
     
     steps:
       - name: Destroy Parent Stack
-        uses: {{ if index .CustomActions "destroy" }}{{ index .CustomActions "destroy" }}{{ else }}{{ defaultAction "destroy-parent" .SCVersion }}{{ end }}
+        uses: {{ if index .CustomActions "destroy" }}{{ index .CustomActions "destroy" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           sc-config: ${{ "{{" }} secrets.SC_CONFIG {{ "}}" }}
@@ -450,7 +453,7 @@ jobs:
     
     steps:
       - name: Destroy PR Preview
-        uses: {{ if index .CustomActions "destroy-client" }}{{ index .CustomActions "destroy-client" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
+        uses: {{ if index .CustomActions "destroy" }}{{ index .CustomActions "destroy" }}{{ else }}{{ defaultAction "destroy" .SCVersion }}{{ end }}
         with:
           stack-name: "${{ "{{" }} env.STACK_NAME {{ "}}" }}"
           environment: "preview"

@@ -37,6 +37,9 @@
       "location": {
         "type": "string"
       },
+      "name": {
+        "type": "string"
+      },
       "provision": {
         "type": "boolean"
       }

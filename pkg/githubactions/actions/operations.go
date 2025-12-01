@@ -32,18 +32,20 @@ func (e *Executor) DeployClientStack(ctx context.Context) error {
 		StackParams: api.StackParams{
 			StackName:    os.Getenv("STACK_NAME"),
 			Environment:  os.Getenv("ENVIRONMENT"),
-			DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
+			DetailedDiff: true,                                // Enable detailed diff for better visibility in GitHub Actions
+			SkipRefresh:  os.Getenv("SKIP_REFRESH") == "true", // Skip Pulumi refresh if requested
 		},
 	}
 
 	// Wrap the deployment with signal handling and panic recovery
 	err := e.signalHandler.WithSignalHandling(ctx, opTypeDeploy, deployParams, func(opCtx context.Context) error {
 		return e.executeOperation(opCtx, OperationConfig{
-			Type:      OperationDeploy,
-			Scope:     ScopeClient,
-			StackName: deployParams.StackName,
-			Env:       deployParams.Environment,
-			Version:   version,
+			Type:        OperationDeploy,
+			Scope:       ScopeClient,
+			StackName:   deployParams.StackName,
+			Env:         deployParams.Environment,
+			Version:     version,
+			SkipRefresh: deployParams.SkipRefresh,
 		})
 	})
 

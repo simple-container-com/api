@@ -32,8 +32,18 @@ type CredentialsParsed struct {
 type StateStorageConfig struct {
 	Credentials `json:",inline" yaml:",inline"`
 	BucketName  string  `json:"bucketName" yaml:"bucketName"`
+	Name        string  `json:"name,omitempty" yaml:"name,omitempty"`
 	Location    *string `json:"location" yaml:"location"`
 	Provision   bool    `json:"provision" yaml:"provision"`
+}
+
+// GetBucketName returns the bucket name, supporting both "name" and "bucketName" fields
+// Falls back to "name" if "bucketName" is empty, or "bucketName" if "name" is empty
+func (s *StateStorageConfig) GetBucketName() string {
+	if s.BucketName != "" {
+		return s.BucketName
+	}
+	return s.Name
 }
 
 type SecretsProviderConfig struct {
@@ -52,7 +62,7 @@ type SecretsProviderConfig struct {
 }
 
 func (sa *StateStorageConfig) StorageUrl() string {
-	return fmt.Sprintf("gs://%s", sa.BucketName)
+	return fmt.Sprintf("gs://%s", sa.GetBucketName())
 }
 
 func (sa *StateStorageConfig) IsProvisionEnabled() bool {

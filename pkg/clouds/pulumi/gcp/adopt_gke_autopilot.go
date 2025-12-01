@@ -75,13 +75,17 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	location := existingCluster.Location
-	if gkeInput.Location != "" && gkeInput.Location != *location {
+	if gkeInput.Location != "" && (location == nil || gkeInput.Location != *location) {
 		location = &gkeInput.Location
 		params.Log.Info(ctx.Context(), "overriding location with config value: %q", gkeInput.Location)
 	}
 
+	locationStr := "unknown"
+	if location != nil {
+		locationStr = *location
+	}
 	params.Log.Info(ctx.Context(), "found existing GKE cluster with autopilot=%v, version=%q, location=%q",
-		enableAutopilot, minMasterVersion, location)
+		enableAutopilot, minMasterVersion, locationStr)
 
 	// Import existing GKE cluster into Pulumi state
 	// The cluster resource ID in GCP is: projects/{project}/locations/{location}/clusters/{cluster}
@@ -91,9 +95,11 @@ func AdoptGkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		gkeInput.ClusterName)
 
 	opts := []sdk.ResourceOption{
-		sdk.Provider(params.Provider),
 		// Import the existing cluster without creating or modifying it
 		sdk.Import(sdk.ID(clusterResourceId)),
+	}
+	if params.Provider != nil {
+		opts = append(opts, sdk.Provider(params.Provider))
 	}
 
 	// For GKE Autopilot adoption, use minimal configuration to avoid conflicts
