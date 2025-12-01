@@ -41,9 +41,11 @@ const (
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
 
-	LabelAppType = "appType"
-	LabelAppName = "appName"
-	LabelScEnv   = "appEnv"
+	LabelAppType     = "appType"
+	LabelAppName     = "appName"
+	LabelScEnv       = "appEnv"
+	LabelParentEnv   = "simplecontainer.com/parent-env"
+	LabelCustomStack = "simplecontainer.com/custom-stack"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
@@ -69,6 +71,7 @@ type SimpleContainerArgs struct {
 	ProxyKeepPrefix        bool    `json:"proxyKeepPrefix" yaml:"proxyKeepPrefix"`
 	Deployment             string  `json:"deployment" yaml:"deployment"`
 	ParentStack            *string `json:"parentStack" yaml:"parentStack"`
+	ParentEnv              *string `json:"parentEnv" yaml:"parentEnv"`
 	Replicas               int     `json:"replicas" yaml:"replicas"`
 	GenerateCaddyfileEntry bool    `json:"generateCaddyfileEntry" yaml:"generateCaddyfileEntry"`
 	KubeProvider           sdk.ProviderResource
@@ -126,10 +129,22 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	sanitizedDeployment := sanitizeK8sName(args.Deployment)
 	sanitizedService := sanitizeK8sName(args.Service)
 
+	// Extract parentEnv for resource naming
+	var parentEnv string
+	if args.ParentEnv != nil {
+		parentEnv = lo.FromPtr(args.ParentEnv)
+	}
+
 	appLabels := map[string]string{
 		LabelAppType: AppTypeSimpleContainer,
 		LabelAppName: sanitizedService,
 		LabelScEnv:   args.ScEnv,
+	}
+
+	// Add parentEnv labels for custom stacks
+	if args.ParentEnv != nil && lo.FromPtr(args.ParentEnv) != "" && lo.FromPtr(args.ParentEnv) != args.ScEnv {
+		appLabels[LabelParentEnv] = lo.FromPtr(args.ParentEnv)
+		appLabels[LabelCustomStack] = "true"
 	}
 
 	appAnnotations := map[string]string{
@@ -190,10 +205,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		secretVolumeToData[secretVolume.Name] = secretVolume.Content
 	}
 
-	volumesCfgName := ToConfigVolumesName(sanitizedDeployment)
-	envSecretName := ToEnvConfigName(sanitizedDeployment)
-	volumesSecretName := ToSecretVolumesName(sanitizedDeployment)
-	imagePullSecretName := ToImagePullSecretName(sanitizedDeployment)
+	// Generate resource names with parentEnv-aware logic
+	baseResourceName := generateDeploymentName(sanitizedService, args.ScEnv, parentEnv)
+	volumesCfgName := generateConfigVolumesName(sanitizedService, args.ScEnv, parentEnv)
+	envSecretName := generateSecretName(sanitizedService, args.ScEnv, parentEnv)
+	volumesSecretName := generateSecretVolumesName(sanitizedService, args.ScEnv, parentEnv)
+	imagePullSecretName := generateImagePullSecretName(sanitizedService, args.ScEnv, parentEnv)
 
 	var imagePullSecret *corev1.Secret
 	if args.ImagePullSecret != nil {
@@ -648,15 +665,15 @@ ${proto}://${domain} {
 
 	// Create VPA if enabled
 	if args.VPA != nil && args.VPA.Enabled {
-		if err := createVPA(ctx, args, sanitizedDeployment, sanitizedNamespace, appLabels, appAnnotations, opts...); err != nil {
-			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", sanitizedDeployment)
+		if err := createVPA(ctx, args, baseResourceName, sanitizedNamespace, appLabels, appAnnotations, opts...); err != nil {
+			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", baseResourceName)
 		}
 	}
 
 	// Create HPA if enabled (validation already done in deployment.go)
 	if args.Scale != nil && args.Scale.EnableHPA {
 		hpaArgs := &HPAArgs{
-			Name:         sanitizedDeployment,
+			Name:         baseResourceName, // Uses parentEnv-aware name
 			Deployment:   deployment,
 			MinReplicas:  args.Scale.MinReplicas,
 			MaxReplicas:  args.Scale.MaxReplicas,

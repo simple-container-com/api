@@ -50,8 +50,23 @@ type Args struct {
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	stackName := args.Input.StackParams.StackName
 	stackEnv := args.Input.StackParams.Environment
-	namespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
-	deploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
+
+	// Extract parentEnv from ParentStack if available
+	var parentEnv string
+	if args.Params.ParentStack != nil {
+		parentEnv = args.Params.ParentStack.ParentEnv
+	}
+
+	// Determine namespace using parentEnv-aware logic
+	// For custom stacks (parentEnv != stackEnv), use parent's namespace
+	namespace := lo.If(args.Namespace == "", resolveNamespace(stackEnv, parentEnv)).Else(args.Namespace)
+
+	// Generate deployment name with environment suffix for custom stacks
+	baseDeploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
+	deploymentName := generateDeploymentName(baseDeploymentName, stackEnv, parentEnv)
+
+	args.Params.Log.Info(ctx.Context(), "📦 Deploying to namespace=%q, deployment=%q (stackEnv=%q, parentEnv=%q, isCustomStack=%v)",
+		namespace, deploymentName, stackEnv, parentEnv, isCustomStack(stackEnv, parentEnv))
 
 	opts = append(opts, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
 
@@ -207,6 +222,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
 		ProxyKeepPrefix:        lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
 		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
+		ParentEnv:              lo.If(parentEnv != "", lo.ToPtr(parentEnv)).Else(nil),
 		Replicas:               replicas,
 		Headers:                args.Deployment.Headers,
 		SecretEnvs:             mergedSecretEnvs,
