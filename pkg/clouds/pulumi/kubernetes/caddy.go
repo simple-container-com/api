@@ -172,16 +172,20 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	        echo "" >> /tmp/Caddyfile
 	      fi
 	      
-	      namespaces=$(kubectl get services --all-namespaces -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' | uniq)
+	      # Get all services with Simple Container annotations across all namespaces
+	      services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
           if [ "$USE_PREFIXES" == "false" ]; then
             echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
 	        echo "}" >> /tmp/Caddyfile
           fi
-	      for ns in $namespaces; do
-	          echo $ns
-	          kubectl get service -n $ns $ns -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> /tmp/Caddyfile || true;
-	          echo "" >> /tmp/Caddyfile
+	      # Process each service that has Caddyfile entry annotation
+	      echo "$services" | while read ns service; do
+	          if [ -n "$ns" ] && [ -n "$service" ]; then
+	              echo "Processing service: $service in namespace: $ns"
+	              kubectl get service -n $ns $service -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> /tmp/Caddyfile || true;
+	              echo "" >> /tmp/Caddyfile
+	          fi
 	      done
           if [ "$USE_PREFIXES" == "true" ]; then
             echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile

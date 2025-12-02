@@ -179,7 +179,75 @@ resources:
 
 ---
 
-# **4️⃣ Provisioning the GCP & GKE Autopilot Parent Stack**
+# **4️⃣ Advanced Networking Configuration**
+
+## **Private VPC and Static Egress IP**
+
+For production environments that require network isolation and static egress IPs, Simple Container supports automatic private VPC creation and CloudNAT configuration:
+
+```yaml
+# File: "myproject/.sc/stacks/devops/server.yaml"
+resources:
+  production:
+    template: stack-per-app-gke
+    resources:
+      gke-autopilot-res:
+        type: gcp-gke-autopilot-cluster
+        config:
+          gkeMinVersion: "1.33.4-gke.1245000"
+          projectId: "${auth:gcloud.projectId}"
+          credentials: "${auth:gcloud}"
+          location: europe-west3
+          
+          # Private VPC Configuration
+          privateVpc: true              # Creates dedicated VPC with automatic peering
+          
+          # Static Egress IP Configuration
+          externalEgressIp:
+            enabled: true               # Enables CloudNAT with static IP
+            # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Optional: use existing IP
+```
+
+### **🔹 What Private VPC Does**
+
+✅ **Creates dedicated VPC**: `{cluster-name}-vpc` with isolated networking
+
+✅ **Automatic subnet allocation**: Environment-based CIDR ranges (production: 10.1.0.0/16, staging: 10.2.0.0/16)
+
+✅ **VPC peering**: Automatic bidirectional peering with default VPC for shared resources
+
+✅ **CloudNAT isolation**: Each environment gets separate CloudNAT (prevents conflicts)
+
+✅ **Shared resource access**: Production can access staging Redis/CloudSQL via VPC peering
+
+### **🔹 Network Architecture**
+
+```
+Production VPC (10.1.0.0/16) ←→ Default VPC (10.128.0.0/20)
+├── Production GKE Cluster      ├── Staging GKE Cluster
+├── Production CloudNAT         ├── Staging CloudNAT  
+└── VPC Peering                 └── Shared Redis/CloudSQL
+```
+
+### **🔹 When to Use Private VPC**
+
+✅ **Multiple environments**: Prevents CloudNAT subnet conflicts between staging/production
+
+✅ **Network isolation**: Production workloads isolated from other environments
+
+✅ **Compliance requirements**: Dedicated network boundaries for security
+
+✅ **Static egress IPs**: Required for external API allowlisting
+
+### **🔹 Cost Considerations**
+
+- **VPC peering**: No additional cost for traffic within same region
+- **CloudNAT**: Per-NAT gateway and data processing charges apply
+- **Static IPs**: Standard GCP static IP pricing
+
+---
+
+# **5️⃣ Provisioning the GCP & GKE Autopilot Parent Stack**
 Once `server.yaml` is configured, **provision** the infrastructure:
 
 ```sh
@@ -196,7 +264,7 @@ sc provision -s devops
 
 ---
 
-# **5️⃣ Deploying Microservices to GKE Autopilot**
+# **6️⃣ Deploying Microservices to GKE Autopilot**
 Once the infrastructure is provisioned, developers can deploy their microservices.
 
 ## **Step 1: Define `client.yaml` for a Microservice**
@@ -234,7 +302,7 @@ sc deploy -s myservice -e staging
 
 ---
 
-# **6️⃣ Advanced Configuration: Vertical Pod Autoscaler (VPA)**
+# **7️⃣ Advanced Configuration: Vertical Pod Autoscaler (VPA)**
 
 GKE Autopilot supports **Vertical Pod Autoscaler (VPA)** for automatic resource optimization. Simple Container provides built-in VPA support for both **application deployments** and **Caddy ingress controllers**.
 
@@ -330,7 +398,7 @@ resources:
 
 ---
 
-# **6️⃣ Advanced Configuration: Kubernetes CloudExtras**
+# **8️⃣ Advanced Configuration: Kubernetes CloudExtras**
 
 Beyond VPA, Simple Container supports comprehensive Kubernetes configuration through `cloudExtras`. This section covers all available options for fine-tuning your GKE Autopilot deployments.
 
@@ -557,7 +625,7 @@ stacks:
 
 ---
 
-# **7️⃣ Summary**
+# **9️⃣ Summary**
 | Step                | Command                             | Purpose                                 |
 |---------------------|-------------------------------------|-----------------------------------------|
 | **Define Secrets**  | `secrets.yaml`                      | Stores GCP credentials                  |

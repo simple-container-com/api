@@ -27,6 +27,9 @@ type GkeAutopilotResource struct {
 	// External Egress IP Configuration
 	ExternalEgressIp *ExternalEgressIpConfig `json:"externalEgressIp,omitempty" yaml:"externalEgressIp,omitempty"`
 
+	// Private VPC - creates dedicated VPC for the cluster (avoids CloudNAT conflicts)
+	PrivateVpc bool `json:"privateVpc,omitempty" yaml:"privateVpc,omitempty"`
+
 	// Resource adoption fields
 	Adopt       bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
 	ClusterName string `json:"clusterName,omitempty" yaml:"clusterName,omitempty"`
