@@ -75,6 +75,80 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	}
 	out := GkeAutopilotOut{}
 
+	// Create private VPC if requested
+	var network, subnetwork sdk.StringInput
+	if gkeInput.PrivateVpc {
+		params.Log.Info(ctx.Context(), "🏗️ Creating private VPC for cluster %q", clusterName)
+
+		vpcName := fmt.Sprintf("%s-vpc", clusterName)
+		subnetName := fmt.Sprintf("%s-subnet", clusterName)
+
+		// Create VPC
+		vpc, err := compute.NewNetwork(ctx, vpcName, &compute.NetworkArgs{
+			Name:                  sdk.String(vpcName),
+			AutoCreateSubnetworks: sdk.Bool(false), // We'll create subnet manually
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create VPC %q", vpcName)
+		}
+
+		// Create subnet with auto-generated CIDR based on environment
+		// Use different CIDR ranges to avoid conflicts: prod=10.1.x.x, staging=10.2.x.x, etc.
+		var subnetCidr string
+		switch input.StackParams.Environment {
+		case "production":
+			subnetCidr = "10.1.0.0/16"
+		case "staging":
+			subnetCidr = "10.2.0.0/16"
+		default:
+			// Use hash of environment name to generate unique CIDR
+			envHash := len(input.StackParams.Environment)%200 + 10 // Range 10-209
+			subnetCidr = fmt.Sprintf("10.%d.0.0/16", envHash)
+		}
+
+		subnet, err := compute.NewSubnetwork(ctx, subnetName, &compute.SubnetworkArgs{
+			Name:        sdk.String(subnetName),
+			IpCidrRange: sdk.String(subnetCidr),
+			Network:     vpc.ID(),
+			Region:      sdk.String(location),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create subnet %q", subnetName)
+		}
+
+		network = vpc.Name
+		subnetwork = subnet.Name
+
+		params.Log.Info(ctx.Context(), "   ✅ VPC created: %s (CIDR: %s)", vpcName, subnetCidr)
+
+		// Create VPC peering to default VPC for shared resources (Redis, CloudSQL, etc.)
+		params.Log.Info(ctx.Context(), "🔗 Creating VPC peering to default VPC for shared resources")
+
+		// Peering from private VPC to default VPC
+		peeringName := fmt.Sprintf("%s-to-default", vpcName)
+		_, err = compute.NewNetworkPeering(ctx, peeringName, &compute.NetworkPeeringArgs{
+			Name:        sdk.String(peeringName),
+			Network:     vpc.SelfLink,
+			PeerNetwork: sdk.Sprintf("projects/%s/global/networks/default", gkeInput.ProjectId),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create VPC peering %q", peeringName)
+		}
+
+		// Peering from default VPC to private VPC (bidirectional)
+		reversePeeringName := fmt.Sprintf("default-to-%s", clusterName)
+		_, err = compute.NewNetworkPeering(ctx, reversePeeringName, &compute.NetworkPeeringArgs{
+			Name:        sdk.String(reversePeeringName),
+			Network:     sdk.Sprintf("projects/%s/global/networks/default", gkeInput.ProjectId),
+			PeerNetwork: vpc.SelfLink,
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create reverse VPC peering %q", reversePeeringName)
+		}
+
+		params.Log.Info(ctx.Context(), "   ✅ VPC peering configured: production ↔ default (for shared resources)")
+	}
+
 	// Configure cluster args
 	clusterArgs := &container.ClusterArgs{
 		EnableAutopilot:  sdk.Bool(true),
@@ -86,6 +160,12 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		},
 		IpAllocationPolicy: &container.ClusterIpAllocationPolicyArgs{},
 		// because we are using autopilot verticalPodAutoscaling is handled by the GCP
+	}
+
+	// Set VPC and subnet if private VPC is enabled
+	if gkeInput.PrivateVpc {
+		clusterArgs.Network = network
+		clusterArgs.Subnetwork = subnetwork
 	}
 
 	// Enable private nodes when Cloud NAT is enabled (required for Cloud NAT to work)
@@ -118,7 +198,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			return nil, errors.Wrapf(err, "invalid external egress IP configuration")
 		}
 
-		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, cluster, &out, opts, params); err != nil {
+		if err := setupCloudNAT(ctx, gkeInput, clusterName, location, cluster, subnetwork, &out, opts, params); err != nil {
 			return nil, errors.Wrapf(err, "failed to setup Cloud NAT for cluster %q", clusterName)
 		}
 
@@ -346,6 +426,7 @@ func setupCloudNAT(
 	clusterName string,
 	location string,
 	cluster *container.Cluster,
+	subnetwork sdk.StringInput, // Optional: specific subnet for private VPC
 	out *GkeAutopilotOut,
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
@@ -382,7 +463,7 @@ func setupCloudNAT(
 	out.Router = router
 
 	// Step 3: Create Cloud NAT (configured for cluster's specific subnet)
-	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, opts, params)
+	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, subnetwork, opts, params)
 	if err != nil {
 		return errors.Wrap(err, "failed to create Cloud NAT")
 	}
@@ -464,6 +545,7 @@ func createCloudNat(
 	staticIp *compute.Address,
 	region string,
 	cluster *container.Cluster,
+	subnetwork sdk.StringInput, // Optional: specific subnet for private VPC
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
 ) (*compute.RouterNat, error) {
@@ -504,10 +586,20 @@ func createCloudNat(
 	// This is required for GKE Autopilot where pods use secondary IP ranges
 	natArgs.SourceSubnetworkIpRangesToNat = sdk.String("LIST_OF_SUBNETWORKS")
 
-	// Configure the default subnet to use ALL_IP_RANGES (primary + secondary)
+	// Configure subnet to use ALL_IP_RANGES (primary + secondary)
+	// Use specific subnet if provided (private VPC), otherwise use default
+	var subnetName sdk.StringInput
+	if subnetwork != nil {
+		subnetName = subnetwork
+		params.Log.Info(ctx.Context(), "🎯 Using private VPC subnet for NAT")
+	} else {
+		subnetName = sdk.String("default")
+		params.Log.Info(ctx.Context(), "🎯 Using default subnet for NAT")
+	}
+
 	natArgs.Subnetworks = compute.RouterNatSubnetworkArray{
 		&compute.RouterNatSubnetworkArgs{
-			Name: sdk.String("default"), // GKE uses default subnet
+			Name: subnetName,
 			SourceIpRangesToNats: sdk.StringArray{
 				sdk.String("ALL_IP_RANGES"), // Include both primary and secondary ranges
 			},
