@@ -571,6 +571,12 @@ resources:
             location: "europe-west3"
             zone: "europe-west3-a"                       # GKE zone (required)
             gkeMinVersion: "1.33.4-gke.1245000"  # Check: gcloud container get-server-config --location=europe-west3
+            
+            # Networking Configuration
+            privateVpc: true                             # Creates dedicated VPC with automatic peering (optional)
+            externalEgressIp:
+              enabled: true                              # Enables CloudNAT with static IP (optional)
+              # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Use existing IP (optional)
             caddy:
               enable: true
               namespace: caddy
