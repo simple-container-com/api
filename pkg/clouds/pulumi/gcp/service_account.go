@@ -2,7 +2,6 @@ package gcp
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/projects"
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/serviceaccount"
@@ -24,10 +23,7 @@ type ServiceAccountArgs struct {
 }
 
 func NewServiceAccount(ctx *sdk.Context, name string, args ServiceAccountArgs, opts ...sdk.ResourceOption) (*CloudSQLAccount, error) {
-	// GCP service account IDs must match: ^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$
-	// Replace underscores with hyphens to comply with GCP naming requirements
-	sanitizedName := strings.ReplaceAll(name, "_", "-")
-	accountName := strings.ReplaceAll(util.TrimStringMiddle(sanitizedName, 28, "-"), "--", "-")
+	accountName := util.SanitizeGCPServiceAccountName(name)
 
 	serviceAccount, err := serviceaccount.NewAccount(ctx, accountName, &serviceaccount.AccountArgs{
 		AccountId:   sdk.String(accountName),

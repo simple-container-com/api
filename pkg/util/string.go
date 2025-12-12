@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -25,4 +26,29 @@ func ToSnakeCase(str string) string {
 
 func ToEnvVariableName(str string) string {
 	return strings.ReplaceAll(strings.ToUpper(ToSnakeCase(str)), "-", "_")
+}
+
+// SanitizeGCPServiceAccountName sanitizes and truncates a name to comply with GCP service account naming requirements.
+// GCP service account IDs must match: ^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$ and be at most 28 characters.
+func SanitizeGCPServiceAccountName(name string) string {
+	// Replace underscores with hyphens to comply with GCP naming requirements
+	sanitizedName := strings.ReplaceAll(name, "_", "-")
+
+	// Improved name truncation to avoid malformed names
+	accountName := sanitizedName
+	if len(sanitizedName) > 28 {
+		// Use a 4-character hash suffix for uniqueness
+		hash := fmt.Sprintf("%04x", len(sanitizedName)+int(sanitizedName[0])+int(sanitizedName[len(sanitizedName)-1]))
+		// Calculate max prefix length to fit: prefix + "-" + hash <= 28
+		maxPrefixLen := 28 - 1 - len(hash) // 28 - 1 (hyphen) - 4 (hash) = 23
+		prefix := sanitizedName[:maxPrefixLen]
+		// Remove trailing hyphens from prefix
+		prefix = strings.TrimRight(prefix, "-")
+		accountName = fmt.Sprintf("%s-%s", prefix, hash)
+	}
+
+	// Clean up any double hyphens that might have been created
+	accountName = strings.ReplaceAll(accountName, "--", "-")
+
+	return accountName
 }

@@ -30,10 +30,7 @@ type CloudSQLAccount struct {
 }
 
 func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInstanceArgs, provider *gcp.Provider, opts ...sdk.ResourceOption) (*CloudSQLAccount, error) {
-	// GCP service account IDs must match: ^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$
-	// Replace underscores with hyphens to comply with GCP naming requirements
-	sanitizedName := strings.ReplaceAll(name, "_", "-")
-	accountName := strings.ReplaceAll(util.TrimStringMiddle(sanitizedName, 28, "-"), "--", "-")
+	accountName := util.SanitizeGCPServiceAccountName(name)
 
 	opts = append(opts, sdk.Provider(provider))
 	serviceAccount, err := serviceaccount.NewAccount(ctx, accountName, &serviceaccount.AccountArgs{
