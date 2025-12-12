@@ -61,7 +61,9 @@ func (c *RootCmd) Init(opts InitOpts) error {
 	if err != nil && !opts.ReturnOnGitError {
 		return err
 	} else if err != nil && opts.ReturnOnGitError {
-		return nil
+		// Even if git fails, we need to initialize the provisioner to prevent nil pointer dereference
+		// Use current working directory as fallback
+		gitRepo = nil
 	}
 
 	c.Provisioner, err = provisioner.New(
@@ -72,13 +74,28 @@ func (c *RootCmd) Init(opts InitOpts) error {
 		return err
 	}
 
+	// Handle case where git initialization failed
+	var projectName, rootDir string
+	if gitRepo != nil {
+		projectName = path.Base(gitRepo.Workdir())
+		rootDir = gitRepo.Workdir()
+	} else {
+		// Fallback to current working directory when git is not available
+		if wd, err := os.Getwd(); err != nil {
+			return errors.Wrapf(err, "failed to get current working directory")
+		} else {
+			projectName = path.Base(wd)
+			rootDir = wd
+		}
+	}
+
 	if err := c.Provisioner.Init(ctx, api.InitParams{
-		ProjectName:         path.Base(gitRepo.Workdir()),
-		RootDir:             gitRepo.Workdir(),
+		ProjectName:         projectName,
+		RootDir:             rootDir,
 		SkipInitialCommit:   true,
 		SkipProfileCreation: true,
 		SkipScDirCreation:   opts.SkipScDirCreation,
-		IgnoreWorkdirErrors: opts.SkipScDirCreation,
+		IgnoreWorkdirErrors: true, // Always ignore workdir errors when git failed
 		Profile:             c.Params.Profile,
 		GenerateKeyPair:     c.Params.GenerateKeyPair,
 	}); err != nil {
