@@ -240,8 +240,17 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 }
 
 func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy, error) {
-	// Sanitize the name to comply with Kubernetes RFC 1123 requirements (no underscores)
-	cloudsqlProxyName := kubernetes.SanitizeK8sName(fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName))
+	// Fix for custom stacks: ensure input.StackParams.ParentEnv is set correctly for proper resource naming
+	if params.provisionParams.ParentStack != nil && params.provisionParams.ParentStack.ParentEnv != "" &&
+		params.provisionParams.ParentStack.ParentEnv != params.input.StackParams.Environment {
+		// This is a custom stack - set ParentEnv so ToResName uses parent environment for resource naming
+		params.input.StackParams.ParentEnv = params.provisionParams.ParentStack.ParentEnv
+	}
+
+	// Use environment-aware resource naming to avoid conflicts between custom stacks
+	// This ensures service accounts are unique per environment (e.g., telegram-bot--on-sidecarcsql--production vs telegram-bot--on-sidecarcsql--staging)
+	baseProxyName := fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName)
+	cloudsqlProxyName := kubernetes.SanitizeK8sName(params.input.ToResName(baseProxyName))
 	// Sanitize namespace name as well
 	sanitizedNamespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
 	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
