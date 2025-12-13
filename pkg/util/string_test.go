@@ -93,3 +93,91 @@ func TestSanitizeGCPServiceAccountName_RealWorldExample(t *testing.T) {
 	Expect(accountName).To(MatchRegexp("^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])?$")) // Should match GCP requirements
 	Expect(accountName).ToNot(ContainSubstring("--"))                          // Should not have double hyphens
 }
+
+func TestSanitizeK8sResourceName(t *testing.T) {
+	RegisterTestingT(t)
+
+	testCases := []struct {
+		name             string
+		input            string
+		expectedLength   int
+		shouldContain    string
+		shouldNotContain string
+	}{
+		{
+			name:           "Short name unchanged",
+			input:          "simple-service",
+			expectedLength: 14,
+			shouldContain:  "simple-service",
+		},
+		{
+			name:             "Long volume name truncated",
+			input:            "celery-blockchain--vata-postgres--production-sidecarcsql--production-creds",
+			expectedLength:   63,
+			shouldContain:    "celery-blockchain",
+			shouldNotContain: "--production-creds", // Should not have the full suffix
+		},
+		{
+			name:             "Name with underscores and uppercase",
+			input:            "My_Service_Name_With_Underscores",
+			expectedLength:   32,
+			shouldContain:    "my-service-name-with-underscores",
+			shouldNotContain: "_", // Underscores should be replaced
+		},
+		{
+			name:             "Name with invalid characters",
+			input:            "service@name#with$invalid%chars",
+			expectedLength:   63,
+			shouldContain:    "servicename",
+			shouldNotContain: "@", // Invalid chars should be removed
+		},
+		{
+			name:           "Very long name exceeding 63 chars",
+			input:          "this-is-a-very-long-kubernetes-resource-name-that-definitely-exceeds-the-sixty-three-character-limit",
+			expectedLength: 63,
+			shouldContain:  "this-is-a-very-long-kubernetes-resource-name-that-definit",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			result := SanitizeK8sResourceName(tc.input)
+
+			// Verify length constraint
+			Expect(len(result)).To(BeNumerically("<=", tc.expectedLength))
+
+			// Verify it contains expected content
+			if tc.shouldContain != "" {
+				Expect(result).To(ContainSubstring(tc.shouldContain))
+			}
+
+			// Verify it doesn't contain problematic patterns
+			if tc.shouldNotContain != "" {
+				Expect(result).ToNot(ContainSubstring(tc.shouldNotContain))
+			}
+
+			// Verify Kubernetes naming requirements
+			Expect(result).To(MatchRegexp("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"))
+
+			// Verify no double hyphens
+			Expect(result).ToNot(ContainSubstring("--"))
+		})
+	}
+}
+
+func TestSanitizeK8sResourceName_RealWorldVolumeExample(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Test the exact case from the Kubernetes error message
+	problematicVolumeName := "celery-blockchain--vata-postgres--production-sidecarcsql--production"
+
+	result := SanitizeK8sResourceName(problematicVolumeName)
+
+	// Verify the fix
+	Expect(len(result)).To(BeNumerically("<=", 63))
+	Expect(result).To(ContainSubstring("celery-blockchain"))          // Should preserve meaningful prefix
+	Expect(result).To(MatchRegexp("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")) // Should match K8s requirements
+	Expect(result).ToNot(ContainSubstring("--"))                      // Should not have double hyphens
+}

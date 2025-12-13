@@ -94,7 +94,9 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 	}
 
 	opts = append(opts, sdk.Provider(args.KubeProvider))
-	sqlProxySecret, err := v1.NewSecret(ctx, args.Name+"-creds", &v1.SecretArgs{
+	// Sanitize the secret name to comply with Kubernetes 63-character limit
+	secretName := util.SanitizeK8sResourceName(args.Name + "-creds")
+	sqlProxySecret, err := v1.NewSecret(ctx, secretName, &v1.SecretArgs{
 		Metadata: args.Metadata,
 		Data:     account.CredentialsSecrets,
 	}, opts...)

@@ -52,3 +52,34 @@ func SanitizeGCPServiceAccountName(name string) string {
 
 	return accountName
 }
+
+// SanitizeK8sResourceName sanitizes and truncates a name to comply with Kubernetes resource naming requirements.
+// Kubernetes resource names must be at most 63 characters and match: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+func SanitizeK8sResourceName(name string) string {
+	// Replace underscores with hyphens to comply with Kubernetes RFC 1123
+	sanitizedName := strings.ReplaceAll(strings.ToLower(name), "_", "-")
+
+	// Remove any invalid characters (keep only a-z, 0-9, -)
+	reg := regexp.MustCompile(`[^a-z0-9\-]`)
+	sanitizedName = reg.ReplaceAllString(sanitizedName, "")
+
+	// Ensure it starts and ends with alphanumeric (trim leading/trailing hyphens)
+	sanitizedName = strings.Trim(sanitizedName, "-")
+
+	// Truncate if too long (63 character limit)
+	if len(sanitizedName) > 63 {
+		// Use a 4-character hash suffix for uniqueness
+		hash := fmt.Sprintf("%04x", len(sanitizedName)+int(sanitizedName[0])+int(sanitizedName[len(sanitizedName)-1]))
+		// Calculate max prefix length to fit: prefix + "-" + hash <= 63
+		maxPrefixLen := 63 - 1 - len(hash) // 63 - 1 (hyphen) - 4 (hash) = 58
+		prefix := sanitizedName[:maxPrefixLen]
+		// Remove trailing hyphens from prefix
+		prefix = strings.TrimRight(prefix, "-")
+		sanitizedName = fmt.Sprintf("%s-%s", prefix, hash)
+	}
+
+	// Clean up any double hyphens that might have been created
+	sanitizedName = strings.ReplaceAll(sanitizedName, "--", "-")
+
+	return sanitizedName
+}
