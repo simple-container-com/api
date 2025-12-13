@@ -74,8 +74,8 @@ func TestCreateCloudsqlProxy_StandardStack_NamingConvention(t *testing.T) {
 	baseProxyName := "telegram-bot-main-db-sidecarcsql"
 	expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-	// For standard stack, ToResName should add environment suffix
-	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--production"))
+	// For standard stack, ToResName should add environment suffix (sanitized to remove double hyphens)
+	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-production"))
 }
 
 func TestCreateCloudsqlProxy_CustomStack_WithoutParentEnvInitialization(t *testing.T) {
@@ -92,8 +92,8 @@ func TestCreateCloudsqlProxy_CustomStack_WithoutParentEnvInitialization(t *testi
 	baseProxyName := "telegram-bot-main-db-sidecarcsql"
 	expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-	// Without ParentEnv initialization, should use custom stack's environment
-	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--preview"))
+	// Without ParentEnv initialization, should use custom stack's environment (sanitized to remove double hyphens)
+	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-preview"))
 }
 
 func TestCreateCloudsqlProxy_CustomStack_WithParentEnvInitialization(t *testing.T) {
@@ -116,8 +116,8 @@ func TestCreateCloudsqlProxy_CustomStack_WithParentEnvInitialization(t *testing.
 	baseProxyName := "telegram-bot-main-db-sidecarcsql"
 	expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-	// With ParentEnv initialization, should use parent environment
-	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--production"))
+	// With ParentEnv initialization, should use parent environment (sanitized to remove double hyphens)
+	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-production"))
 }
 
 func TestCreateCloudsqlProxy_CustomStack_SameEnvironmentAsParent(t *testing.T) {
@@ -140,8 +140,8 @@ func TestCreateCloudsqlProxy_CustomStack_SameEnvironmentAsParent(t *testing.T) {
 	baseProxyName := "telegram-bot-main-db-sidecarcsql"
 	expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-	// Should not initialize ParentEnv since environments match, use standard naming
-	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--production"))
+	// Should not initialize ParentEnv since environments match, use standard naming (sanitized to remove double hyphens)
+	Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-production"))
 	Expect(input.StackParams.ParentEnv).To(Equal("")) // ParentEnv should not be set
 }
 
@@ -160,28 +160,28 @@ func TestCreateCloudsqlProxy_CustomStack_MultipleEnvironments(t *testing.T) {
 			name:            "Preview environment with production parent",
 			customEnv:       "preview",
 			parentEnv:       "production",
-			expectedSuffix:  "--production",
+			expectedSuffix:  "-production",
 			shouldSetParent: true,
 		},
 		{
 			name:            "Staging environment with production parent",
 			customEnv:       "staging-preview",
 			parentEnv:       "production",
-			expectedSuffix:  "--production",
+			expectedSuffix:  "-production",
 			shouldSetParent: true,
 		},
 		{
 			name:            "Development environment with staging parent",
 			customEnv:       "dev",
 			parentEnv:       "staging",
-			expectedSuffix:  "--staging",
+			expectedSuffix:  "-staging",
 			shouldSetParent: true,
 		},
 		{
 			name:            "Production custom stack with production parent",
 			customEnv:       "production",
 			parentEnv:       "production",
-			expectedSuffix:  "--production",
+			expectedSuffix:  "-production",
 			shouldSetParent: false,
 		},
 	}
@@ -255,8 +255,8 @@ func TestCreateCloudsqlProxy_ServiceAccountNamingConflictPrevention(t *testing.T
 	name1 := kubernetes.SanitizeK8sName(input1.ToResName(baseProxyName))
 	name2 := kubernetes.SanitizeK8sName(input2.ToResName(baseProxyName))
 
-	// Both should use the parent environment for naming
-	expectedName := "telegram-bot-main-db-sidecarcsql--production"
+	// Both should use the parent environment for naming (sanitized to remove double hyphens)
+	expectedName := "telegram-bot-main-db-sidecarcsql-production"
 	Expect(name1).To(Equal(expectedName))
 	Expect(name2).To(Equal(expectedName))
 
@@ -284,8 +284,8 @@ func TestCreateCloudsqlProxy_EdgeCases(t *testing.T) {
 		baseProxyName := "telegram-bot-main-db-sidecarcsql"
 		expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-		// Should use custom stack environment since parent env is empty
-		Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--preview"))
+		// Should use custom stack environment since parent env is empty (sanitized to remove double hyphens)
+		Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-preview"))
 		Expect(input.StackParams.ParentEnv).To(Equal(""))
 	})
 
@@ -304,8 +304,8 @@ func TestCreateCloudsqlProxy_EdgeCases(t *testing.T) {
 		baseProxyName := "telegram-bot-main-db-sidecarcsql"
 		expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-		// Should use custom stack environment
-		Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--preview"))
+		// Should use custom stack environment (sanitized to remove double hyphens)
+		Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-preview"))
 		Expect(input.StackParams.ParentEnv).To(Equal(""))
 	})
 
@@ -327,8 +327,8 @@ func TestCreateCloudsqlProxy_EdgeCases(t *testing.T) {
 		baseProxyName := "telegram-bot-main-db-sidecarcsql"
 		expectedName := kubernetes.SanitizeK8sName(input.ToResName(baseProxyName))
 
-		// Should override the existing ParentEnv with the one from ParentStack
-		Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql--production"))
+		// Should override the existing ParentEnv with the one from ParentStack (sanitized to remove double hyphens)
+		Expect(expectedName).To(Equal("telegram-bot-main-db-sidecarcsql-production"))
 		Expect(input.StackParams.ParentEnv).To(Equal("production"))
 	})
 }
