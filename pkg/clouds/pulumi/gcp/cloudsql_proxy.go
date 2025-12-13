@@ -30,10 +30,7 @@ type CloudSQLAccount struct {
 }
 
 func NewCloudSQLAccount(ctx *sdk.Context, name string, dbInstance PostgresDBInstanceArgs, provider *gcp.Provider, opts ...sdk.ResourceOption) (*CloudSQLAccount, error) {
-	// GCP service account IDs must match: ^[a-z](?:[-a-z0-9]{4,28}[a-z0-9])$
-	// Replace underscores with hyphens to comply with GCP naming requirements
-	sanitizedName := strings.ReplaceAll(name, "_", "-")
-	accountName := strings.ReplaceAll(util.TrimStringMiddle(sanitizedName, 28, "-"), "--", "-")
+	accountName := util.SanitizeGCPServiceAccountName(name)
 
 	opts = append(opts, sdk.Provider(provider))
 	serviceAccount, err := serviceaccount.NewAccount(ctx, accountName, &serviceaccount.AccountArgs{
@@ -97,7 +94,9 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 	}
 
 	opts = append(opts, sdk.Provider(args.KubeProvider))
-	sqlProxySecret, err := v1.NewSecret(ctx, args.Name+"-creds", &v1.SecretArgs{
+	// Sanitize the secret name to comply with Kubernetes 63-character limit
+	secretName := util.SanitizeK8sResourceName(args.Name + "-creds")
+	sqlProxySecret, err := v1.NewSecret(ctx, secretName, &v1.SecretArgs{
 		Metadata: args.Metadata,
 		Data:     account.CredentialsSecrets,
 	}, opts...)

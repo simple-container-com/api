@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -19,6 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 type deployChartCfg struct {
@@ -33,9 +33,10 @@ type deployChartCfg struct {
 // RFC 1123 labels must consist of lowercase alphanumeric characters or '-',
 // and must start and end with an alphanumeric character.
 // Regex: [a-z0-9]([-a-z0-9]*[a-z0-9])?
+// This function now handles the 63-character limit for Kubernetes resource names.
 func SanitizeK8sName(name string) string {
-	// Replace underscores with hyphens to comply with RFC 1123
-	return strings.ReplaceAll(name, "_", "-")
+	// Use the comprehensive sanitization function from util package
+	return util.SanitizeK8sResourceName(name)
 }
 
 // sanitizeK8sName is an internal helper that calls the exported function

@@ -355,7 +355,21 @@ natArgs.Subnetworks = compute.RouterNatSubnetworkArray{
 - **Ingress unaffected**: External traffic to pods works the same with private nodes
 - **Organization policies**: Can restrict external IPs but affects all VMs project-wide
 
-### 14. Memory Management
+### 14. Common Issues and Fixes
+
+#### Segmentation Fault in sc provision Command
+**Issue**: `sc provision` crashes with "invalid memory address or nil pointer dereference" when git initialization fails.
+
+**Root Cause**: The `Init()` method in `pkg/cmd/root_cmd/root.go` returns early when git fails with `ReturnOnGitError: true`, leaving the `Provisioner` field uninitialized (nil).
+
+**Solution Pattern**:
+1. **Never return early without initializing critical fields** - Always ensure Provisioner is created even when git fails
+2. **Handle nil git repo gracefully** - Use current working directory as fallback when git is unavailable
+3. **Set appropriate error handling flags** - Use `IgnoreWorkdirErrors: true` when git initialization failed
+
+**Files to check**: `pkg/cmd/root_cmd/root.go` - Ensure provisioner initialization handles git failures
+
+### 15. Memory Management
 - **Create memories**: Use `create_memory` tool to preserve important context
 - **Update SYSTEM_PROMPT.md**: Add new essential instructions when patterns emerge
 - **Keep instructions current**: Remove outdated information, focus on actionable guidance
