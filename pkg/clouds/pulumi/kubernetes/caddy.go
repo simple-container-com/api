@@ -75,9 +75,11 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 	// Generate volume names using the same logic as SimpleContainer to ensure consistency
 	// This fixes the volume mount name mismatch issue for custom stacks
+	// Use the deploymentName (which includes environment suffix) as the service name
 	parentEnv := input.StackParams.ParentEnv
 	stackEnv := input.StackParams.Environment
-	volumesCfgName := generateConfigVolumesName("caddy", stackEnv, parentEnv)
+	serviceName := sanitizeK8sName(deploymentName)
+	volumesCfgName := generateConfigVolumesName(serviceName, stackEnv, parentEnv)
 
 	// Prepare Caddy volumes (embedded config)
 	var caddyVolumes []k8s.SimpleTextVolume
