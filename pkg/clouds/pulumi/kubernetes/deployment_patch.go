@@ -12,13 +12,12 @@ type DeploymentPatchArgs struct {
 	ServiceName string
 	Namespace   string
 	Annotations map[string]sdk.StringOutput
-	Labels      map[string]string
 	Opts        []sdk.ResourceOption
 }
 
 func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.DeploymentPatch, error) {
-	// Add SSA options to handle field manager conflicts
-	// This forces Pulumi to take ownership of conflicting fields
+	// Use strategic merge patch to only update pod template annotations
+	// This avoids Kubernetes validation errors that require full deployment spec
 	ssaOpts := []sdk.ResourceOption{
 		sdk.ReplaceOnChanges([]string{}), // Don't replace, just update
 	}
@@ -26,30 +25,19 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 	// Combine SSA options with user-provided options
 	allOpts := append(ssaOpts, args.Opts...)
 
-	// Ensure we have required labels for selector and template
-	labels := args.Labels
-	if labels == nil {
-		labels = map[string]string{
-			"app": args.ServiceName,
-		}
-	}
-
+	// Only patch the pod template annotations - this is the minimal patch needed
+	// to trigger a rolling restart without requiring selector/containers validation
 	return appsv1.NewDeploymentPatch(ctx, args.PatchName, &appsv1.DeploymentPatchArgs{
 		Metadata: &metav1.ObjectMetaPatchArgs{
 			Namespace: sdk.String(args.Namespace),
 			Name:      sdk.String(args.ServiceName),
-			Labels:    sdk.ToStringMap(labels),
 			Annotations: sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
 			},
 		},
 		Spec: &appsv1.DeploymentSpecPatchArgs{
-			Selector: &metav1.LabelSelectorPatchArgs{
-				MatchLabels: sdk.ToStringMap(labels),
-			},
 			Template: &v1.PodTemplateSpecPatchArgs{
 				Metadata: &metav1.ObjectMetaPatchArgs{
-					Labels:      sdk.ToStringMap(labels),
 					Annotations: sdk.ToStringMapOutput(args.Annotations),
 				},
 			},
