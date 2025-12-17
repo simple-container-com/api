@@ -12,6 +12,7 @@ type DeploymentPatchArgs struct {
 	ServiceName string
 	Namespace   string
 	Annotations map[string]sdk.StringOutput
+	Labels      map[string]string
 	Opts        []sdk.ResourceOption
 }
 
@@ -25,17 +26,30 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 	// Combine SSA options with user-provided options
 	allOpts := append(ssaOpts, args.Opts...)
 
+	// Ensure we have required labels for selector and template
+	labels := args.Labels
+	if labels == nil {
+		labels = map[string]string{
+			"app": args.ServiceName,
+		}
+	}
+
 	return appsv1.NewDeploymentPatch(ctx, args.PatchName, &appsv1.DeploymentPatchArgs{
 		Metadata: &metav1.ObjectMetaPatchArgs{
 			Namespace: sdk.String(args.Namespace),
 			Name:      sdk.String(args.ServiceName),
+			Labels:    sdk.ToStringMap(labels),
 			Annotations: sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
 			},
 		},
 		Spec: &appsv1.DeploymentSpecPatchArgs{
+			Selector: &metav1.LabelSelectorPatchArgs{
+				MatchLabels: sdk.ToStringMap(labels),
+			},
 			Template: &v1.PodTemplateSpecPatchArgs{
 				Metadata: &metav1.ObjectMetaPatchArgs{
+					Labels:      sdk.ToStringMap(labels),
 					Annotations: sdk.ToStringMapOutput(args.Annotations),
 				},
 			},
