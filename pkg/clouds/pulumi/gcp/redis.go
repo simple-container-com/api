@@ -36,11 +36,23 @@ func Redis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pA
 	}
 
 	redisName := toRedisName(input, input.Descriptor.Name)
-	redisInstance, err := redis.NewInstance(ctx, redisName, &redis.InstanceArgs{
+
+	// Configure Redis instance arguments
+	redisArgs := &redis.InstanceArgs{
 		MemorySizeGb: sdk.Int(redisCfg.MemorySizeGb),
 		RedisConfigs: sdk.ToStringMap(redisCfg.RedisConfig),
 		Region:       sdk.StringPtrFromPtr(lo.If(redisCfg.Region != nil, redisCfg.Region).Else(nil)),
-	}, sdk.Provider(params.Provider))
+	}
+
+	// Set VPC network if specified (for custom VPC connectivity)
+	if redisCfg.AuthorizedNetwork != nil && *redisCfg.AuthorizedNetwork != "" {
+		redisArgs.AuthorizedNetwork = sdk.String(*redisCfg.AuthorizedNetwork)
+		params.Log.Info(ctx.Context(), "🔗 Configuring Redis %q to use VPC network: %s", redisName, *redisCfg.AuthorizedNetwork)
+	} else {
+		params.Log.Info(ctx.Context(), "📡 Redis %q will use default VPC network", redisName)
+	}
+
+	redisInstance, err := redis.NewInstance(ctx, redisName, redisArgs, sdk.Provider(params.Provider))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision redis instance %q", redisName)
 	}
