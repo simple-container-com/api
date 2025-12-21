@@ -54,6 +54,8 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 	// Use untyped Map instead of DeploymentPatchArgs to bypass client-side validation
 	// This allows true partial patches with SSA without requiring selector, labels, containers, etc.
 	patchData := sdk.Map{
+		"apiVersion": sdk.String("apps/v1"),
+		"kind":       sdk.String("Deployment"),
 		"metadata": sdk.Map{
 			"namespace": sdk.String(args.Namespace),
 			"name":      sdk.String(args.ServiceName),
