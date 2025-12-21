@@ -5,8 +5,6 @@ import (
 
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	appsv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
-	v1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
-	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -53,22 +51,31 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 	// Note: Provider option is set first, so if user provides another provider it will be ignored
 	allOpts := append(patchOpts, args.Opts...)
 
-	// Only patch the pod template annotations - this is the minimal patch needed
-	// to trigger a rolling restart. SSA mode allows this without full spec validation.
-	return appsv1.NewDeploymentPatch(ctx, args.PatchName, &appsv1.DeploymentPatchArgs{
-		Metadata: &metav1.ObjectMetaPatchArgs{
-			Namespace: sdk.String(args.Namespace),
-			Name:      sdk.String(args.ServiceName),
-			Annotations: sdk.StringMap{
+	// Use untyped Map instead of DeploymentPatchArgs to bypass client-side validation
+	// This allows true partial patches with SSA without requiring selector, labels, containers, etc.
+	patchData := sdk.Map{
+		"metadata": sdk.Map{
+			"namespace": sdk.String(args.Namespace),
+			"name":      sdk.String(args.ServiceName),
+			"annotations": sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
 			},
 		},
-		Spec: &appsv1.DeploymentSpecPatchArgs{
-			Template: &v1.PodTemplateSpecPatchArgs{
-				Metadata: &metav1.ObjectMetaPatchArgs{
-					Annotations: sdk.ToStringMapOutput(args.Annotations),
+		"spec": sdk.Map{
+			"template": sdk.Map{
+				"metadata": sdk.Map{
+					"annotations": sdk.ToStringMapOutput(args.Annotations),
 				},
 			},
 		},
-	}, allOpts...)
+	}
+
+	// Register the resource directly to avoid typed struct validation
+	var patch appsv1.DeploymentPatch
+	err := ctx.RegisterResource("kubernetes:apps/v1:DeploymentPatch", args.PatchName, patchData, &patch, allOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &patch, nil
 }
