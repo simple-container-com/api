@@ -212,10 +212,13 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(input.ToResName("caddy"))
 		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
 
+		kubeConfigOutput := sdk.String(kubeConfig).ToStringOutput()
 		_, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
-			PatchName:   input.ToResName(stackName),
-			ServiceName: deploymentName,
-			Namespace:   namespace,
+			PatchName:    input.ToResName(stackName),
+			ServiceName:  deploymentName,
+			Namespace:    namespace,
+			KubeProvider: kubeProvider,
+			Kubeconfig:   &kubeConfigOutput,
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
 				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
@@ -224,7 +227,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Service})},
+			Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
 		if patchErr != nil {
 			// Log warning but continue - caddy annotation patch is not critical for deployment

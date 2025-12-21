@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -193,23 +194,32 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	if caddyConfig != nil {
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
 		caddyServiceName := input.ToResName("caddy")
-		_, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
-			PatchName:   input.ToResName(stackName),
-			ServiceName: caddyServiceName, // Use helper to add environment suffix consistently
-			Namespace:   lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
-			Annotations: map[string]sdk.StringOutput{
-				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
-				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
-					sum := md5.Sum([]byte(entry[0].(string)))
-					return hex.EncodeToString(sum[:])
-				}).(sdk.StringOutput),
-			},
-			Opts: []sdk.ResourceOption{sdk.Provider(params.Provider), sdk.DependsOn([]sdk.Resource{sc.Service})},
-		})
-		if patchErr != nil {
-			// Log warning but continue - caddy annotation patch is not critical for deployment
-			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+
+		// Cast params.Provider to Kubernetes provider for patch operations
+		kubeProvider, ok := params.Provider.(*sdkK8s.Provider)
+		if !ok {
+			params.Log.Warn(ctx.Context(), "⚠️  Failed to cast provider to Kubernetes provider for caddy patch")
+		} else {
+			_, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
+				PatchName:    input.ToResName(stackName),
+				ServiceName:  caddyServiceName, // Use helper to add environment suffix consistently
+				Namespace:    lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
+				KubeProvider: kubeProvider,
+				Kubeconfig:   nil, // No kubeconfig available in this context, will use existing provider
+				Annotations: map[string]sdk.StringOutput{
+					"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
+					"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
+					"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+						sum := md5.Sum([]byte(entry[0].(string)))
+						return hex.EncodeToString(sum[:])
+					}).(sdk.StringOutput),
+				},
+				Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},
+			})
+			if patchErr != nil {
+				// Log warning but continue - caddy annotation patch is not critical for deployment
+				params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+			}
 		}
 	}
 
