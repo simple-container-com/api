@@ -84,7 +84,8 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out := &GkeAutopilotOutput{}
 
 	kubeProvider, err := sdkK8s.NewProvider(ctx, input.ToResName(stackName), &sdkK8s.ProviderArgs{
-		Kubeconfig: sdk.String(kubeConfig),
+		Kubeconfig:            sdk.String(kubeConfig),
+		EnableServerSideApply: sdk.BoolPtr(true), // Required for DeploymentPatch resources
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q", stackName, input.Descriptor.Name, environment)
