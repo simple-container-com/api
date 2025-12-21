@@ -4,7 +4,8 @@ import (
 	"fmt"
 
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
-	appsv1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apps/v1"
+	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
+	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -18,7 +19,7 @@ type DeploymentPatchArgs struct {
 	Opts         []sdk.ResourceOption
 }
 
-func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.DeploymentPatch, error) {
+func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*apiextensions.CustomResource, error) {
 	var patchProvider sdk.ProviderResource
 
 	// If Kubeconfig is provided, create a dedicated SSA-enabled provider for patches
@@ -51,33 +52,29 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*appsv1.Deplo
 	// Note: Provider option is set first, so if user provides another provider it will be ignored
 	allOpts := append(patchOpts, args.Opts...)
 
-	// Use untyped Map instead of DeploymentPatchArgs to bypass client-side validation
-	// This allows true partial patches with SSA without requiring selector, labels, containers, etc.
-	patchData := sdk.Map{
-		"apiVersion": sdk.String("apps/v1"),
-		"kind":       sdk.String("Deployment"),
-		"metadata": sdk.Map{
-			"namespace": sdk.String(args.Namespace),
-			"name":      sdk.String(args.ServiceName),
-			"annotations": sdk.StringMap{
-				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
-			},
-		},
-		"spec": sdk.Map{
-			"template": sdk.Map{
-				"metadata": sdk.Map{
-					"annotations": sdk.ToStringMapOutput(args.Annotations),
+	// Use CustomResource with OtherFields to bypass DeploymentPatch validation logic
+	// This forces Pulumi to send a raw PATCH request to Kubernetes without schema validation
+	// The OtherFields map is sent directly to the API with SSA enabled
+	otherFields := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": args.Annotations,
 				},
 			},
 		},
 	}
 
-	// Register the resource directly to avoid typed struct validation
-	var patch appsv1.DeploymentPatch
-	err := ctx.RegisterResource("kubernetes:apps/v1:DeploymentPatch", args.PatchName, patchData, &patch, allOpts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return &patch, nil
+	return apiextensions.NewCustomResource(ctx, args.PatchName, &apiextensions.CustomResourceArgs{
+		ApiVersion: sdk.String("apps/v1"),
+		Kind:       sdk.String("Deployment"),
+		Metadata: &metav1.ObjectMetaArgs{
+			Namespace: sdk.String(args.Namespace),
+			Name:      sdk.String(args.ServiceName),
+			Annotations: sdk.StringMap{
+				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
+			},
+		},
+		OtherFields: otherFields,
+	}, allOpts...)
 }
