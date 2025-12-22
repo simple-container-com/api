@@ -1,12 +1,18 @@
 package kubernetes
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
-	"github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/apiextensions"
-	metav1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/meta/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
 )
 
 type DeploymentPatchArgs struct {
@@ -19,62 +25,100 @@ type DeploymentPatchArgs struct {
 	Opts         []sdk.ResourceOption
 }
 
-func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*apiextensions.CustomResource, error) {
-	var patchProvider sdk.ProviderResource
+type deploymentPatchInputs struct {
+	Kubeconfig  string
+	Namespace   string
+	ServiceName string
+	Annotations map[string]string
+}
 
-	// If Kubeconfig is provided, create a dedicated SSA-enabled provider for patches
-	// This isolates patch resources from regular resources
-	if args.Kubeconfig != nil {
-		patchProviderName := fmt.Sprintf("%s-patch-provider", args.PatchName)
-		dedicatedProvider, err := sdkK8s.NewProvider(ctx, patchProviderName, &sdkK8s.ProviderArgs{
-			Kubeconfig:            *args.Kubeconfig,
-			EnableServerSideApply: sdk.BoolPtr(true), // Required for DeploymentPatch resources
-		}, sdk.Parent(args.KubeProvider)) // Make it a child of the main provider
-		if err != nil {
-			return nil, err
-		}
-		patchProvider = dedicatedProvider
-	} else {
-		// Use the existing provider (assumes SSA is already enabled or will be enabled)
-		patchProvider = args.KubeProvider
+func patchDeploymentWithK8sClient(ctx context.Context, inputs deploymentPatchInputs) error {
+	// Create Kubernetes client from kubeconfig
+	config, err := clientcmd.RESTConfigFromKubeConfig([]byte(inputs.Kubeconfig))
+	if err != nil {
+		return fmt.Errorf("failed to create REST config: %w", err)
 	}
 
-	// NOTE: DeploymentPatch requires Server-Side Apply mode
-	// SSA allows partial updates without requiring the complete deployment spec
-	patchOpts := []sdk.ResourceOption{
-		sdk.Provider(patchProvider),      // Use dedicated or existing provider
-		sdk.RetainOnDelete(true),         // Don't delete the deployment if patch is removed
-		sdk.ReplaceOnChanges([]string{}), // Don't replace, just update
-		sdk.DeleteBeforeReplace(false),   // Never delete before replacing
+	clientSet, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
-	// Combine patch options with user-provided options
-	// Note: Provider option is set first, so if user provides another provider it will be ignored
-	allOpts := append(patchOpts, args.Opts...)
-
-	// Use CustomResource with OtherFields to bypass DeploymentPatch validation logic
-	// This forces Pulumi to send a raw PATCH request to Kubernetes without schema validation
-	// The OtherFields map is sent directly to the API with SSA enabled
-	otherFields := map[string]interface{}{
+	// Build the patch payload - only the annotations we want to update
+	patch := map[string]interface{}{
 		"spec": map[string]interface{}{
 			"template": map[string]interface{}{
 				"metadata": map[string]interface{}{
-					"annotations": args.Annotations,
+					"annotations": inputs.Annotations,
 				},
 			},
 		},
 	}
 
-	return apiextensions.NewCustomResource(ctx, args.PatchName, &apiextensions.CustomResourceArgs{
-		ApiVersion: sdk.String("apps/v1"),
-		Kind:       sdk.String("Deployment"),
-		Metadata: &metav1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
-			Name:      sdk.String(args.ServiceName),
-			Annotations: sdk.StringMap{
-				"pulumi.com/patchForce": sdk.String("true"), // Force SSA to resolve conflicts
-			},
-		},
-		OtherFields: otherFields,
-	}, allOpts...)
+	// Marshal to JSON
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	// Apply the patch using Strategic Merge Patch
+	// This is a true partial update that doesn't require full deployment spec
+	patchOptions := metav1.PatchOptions{
+		FieldManager: "simple-container",
+		Force:        ptr.To(true), // Force ownership of fields
+	}
+
+	_, err = clientSet.AppsV1().Deployments(inputs.Namespace).Patch(
+		ctx,
+		inputs.ServiceName,
+		types.StrategicMergePatchType,
+		patchBytes,
+		patchOptions,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to patch deployment %s/%s: %w", inputs.Namespace, inputs.ServiceName, err)
+	}
+
+	return nil
+}
+
+func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*sdk.StringOutput, error) {
+	// Use Pulumi's Apply to execute the native Kubernetes client patch
+	// This bypasses Pulumi's DeploymentPatch validation entirely
+
+	// Convert map[string]StringOutput to StringMapOutput for proper resolution
+	annotationsOutput := sdk.ToStringMapOutput(args.Annotations)
+
+	// Apply the patch when all outputs are resolved
+	// Use ApplyTWithContext to get access to Pulumi's context
+	result := sdk.All(args.Kubeconfig, annotationsOutput).ApplyTWithContext(ctx.Context(), func(goCtx context.Context, vals []interface{}) (string, error) {
+		kubeconfigStr, ok := vals[0].(string)
+		if !ok || kubeconfigStr == "" {
+			return "", fmt.Errorf("kubeconfig is required for native Kubernetes client patching")
+		}
+
+		annotations, ok := vals[1].(map[string]string)
+		if !ok {
+			return "", fmt.Errorf("failed to resolve annotations: got type %T", vals[1])
+		}
+
+		inputs := deploymentPatchInputs{
+			Kubeconfig:  kubeconfigStr,
+			Namespace:   args.Namespace,
+			ServiceName: args.ServiceName,
+			Annotations: annotations,
+		}
+
+		// Use Pulumi's context with timeout to respect cancellation and prevent hanging
+		patchCtx, cancel := context.WithTimeout(goCtx, 30*time.Second)
+		defer cancel()
+
+		if err := patchDeploymentWithK8sClient(patchCtx, inputs); err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf("%s/%s patched", args.Namespace, args.ServiceName), nil
+	}).(sdk.StringOutput)
+
+	return &result, nil
 }

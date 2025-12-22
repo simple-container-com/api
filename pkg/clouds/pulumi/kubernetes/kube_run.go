@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -100,6 +101,8 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	}
 
 	useSSL := kubeRunInput.UseSSL == nil || *kubeRunInput.UseSSL
+
+	kubeconfig := kubeRunInput.Kubeconfig
 
 	var nodeSelector map[string]string
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras: %+v", kubeRunInput.Deployment.StackConfig.CloudExtras)
@@ -200,15 +203,16 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		if !ok {
 			params.Log.Warn(ctx.Context(), "⚠️  Failed to cast provider to Kubernetes provider for caddy patch")
 		} else {
-			_, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
+			kubeconfigOutput := sdk.String(kubeconfig).ToStringOutput()
+			patchResult, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
 				PatchName:    input.ToResName(stackName),
 				ServiceName:  caddyServiceName, // Use helper to add environment suffix consistently
 				Namespace:    lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
 				KubeProvider: kubeProvider,
-				Kubeconfig:   nil, // No kubeconfig available in this context, will use existing provider
+				Kubeconfig:   &kubeconfigOutput,
 				Annotations: map[string]sdk.StringOutput{
 					"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-					"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
+					"simple-container.com/caddy-updated-at": sdk.String(time.Now().UTC().Format(time.RFC3339)).ToStringOutput(),
 					"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 						sum := md5.Sum([]byte(entry[0].(string)))
 						return hex.EncodeToString(sum[:])
@@ -219,6 +223,11 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 			if patchErr != nil {
 				// Log warning but continue - caddy annotation patch is not critical for deployment
 				params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+			} else if patchResult != nil {
+				patchResult.ApplyT(func(msg string) string {
+					params.Log.Info(ctx.Context(), "✅ Caddy deployment patched: %s", msg)
+					return msg
+				})
 			}
 		}
 	}

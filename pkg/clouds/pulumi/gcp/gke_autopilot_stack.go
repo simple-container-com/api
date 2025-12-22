@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	auth "golang.org/x/oauth2/google"
 
@@ -214,7 +215,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
 
 		kubeConfigOutput := sdk.String(kubeConfig).ToStringOutput()
-		_, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
+		patchResult, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
 			PatchName:    input.ToResName(stackName),
 			ServiceName:  deploymentName,
 			Namespace:    namespace,
@@ -222,7 +223,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			Kubeconfig:   &kubeConfigOutput,
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
+				"simple-container.com/caddy-updated-at": sdk.String(time.Now().UTC().Format(time.RFC3339)).ToStringOutput(),
 				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
@@ -232,7 +233,12 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		})
 		if patchErr != nil {
 			// Log warning but continue - caddy annotation patch is not critical for deployment
-			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+			params.Log.Warn(ctx.Context(), "  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+		} else if patchResult != nil {
+			patchResult.ApplyT(func(msg string) string {
+				params.Log.Info(ctx.Context(), "✅ Caddy deployment patched: %s", msg)
+				return msg
+			})
 		}
 	}
 
