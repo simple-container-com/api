@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	auth "golang.org/x/oauth2/google"
 
@@ -84,7 +85,8 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out := &GkeAutopilotOutput{}
 
 	kubeProvider, err := sdkK8s.NewProvider(ctx, input.ToResName(stackName), &sdkK8s.ProviderArgs{
-		Kubeconfig: sdk.String(kubeConfig),
+		Kubeconfig:            sdk.String(kubeConfig),
+		EnableServerSideApply: sdk.BoolPtr(true), // Required for DeploymentPatch resources
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q", stackName, input.Descriptor.Name, environment)
@@ -208,27 +210,37 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		}
 
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
-		// Use deployment name override if specified, otherwise fall back to default
-		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(input.ToResName("caddy"))
+		// Use deployment name override if specified, otherwise generate using single-dash convention
+		// to match the actual Caddy deployment naming (e.g., "caddy-staging" not "caddy--staging")
+		defaultDeploymentName := kubernetes.GenerateCaddyDeploymentName(input.StackParams.Environment)
+		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(defaultDeploymentName)
 		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
 
-		_, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
-			PatchName:   input.ToResName(stackName),
-			ServiceName: deploymentName,
-			Namespace:   namespace,
+		kubeConfigOutput := sdk.String(kubeConfig).ToStringOutput()
+		patchResult, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
+			PatchName:    input.ToResName(stackName),
+			ServiceName:  deploymentName,
+			Namespace:    namespace,
+			KubeProvider: kubeProvider,
+			Kubeconfig:   &kubeConfigOutput,
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				"simple-container.com/caddy-updated-at": sdk.String("latest").ToStringOutput(),
+				"simple-container.com/caddy-updated-at": sdk.String(time.Now().UTC().Format(time.RFC3339)).ToStringOutput(),
 				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.Provider(kubeProvider), sdk.DependsOn([]sdk.Resource{sc.Service})},
+			Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
 		if patchErr != nil {
 			// Log warning but continue - caddy annotation patch is not critical for deployment
-			params.Log.Warn(ctx.Context(), "⚠️  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+			params.Log.Warn(ctx.Context(), "  Failed to patch caddy deployment annotations (non-critical): %v", patchErr)
+		} else if patchResult != nil {
+			patchResult.ApplyT(func(msg string) string {
+				params.Log.Info(ctx.Context(), "✅ Caddy deployment patched: %s", msg)
+				return msg
+			})
 		}
 	}
 

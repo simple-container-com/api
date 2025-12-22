@@ -69,9 +69,18 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
 			input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
 	}
-	deploymentName := input.ToResName("caddy")
-	namespace := lo.If(caddy.Namespace != nil, lo.FromPtr(caddy.Namespace)).Else(deploymentName)
+	// Use the same naming convention as the patch operation for consistency
+	deploymentName := GenerateCaddyDeploymentName(input.StackParams.Environment)
+	namespace := lo.If(caddy.Namespace != nil, lo.FromPtr(caddy.Namespace)).Else("caddy")
 	caddyImage := lo.If(caddy.Image != nil, lo.FromPtr(caddy.Image)).Else(fmt.Sprintf("simplecontainer/caddy:%s", build.Version))
+
+	// Generate volume names using the same logic as SimpleContainer to ensure consistency
+	// This fixes the volume mount name mismatch issue for custom stacks
+	// Use the deploymentName (which includes environment suffix) as the service name
+	parentEnv := input.StackParams.ParentEnv
+	stackEnv := input.StackParams.Environment
+	serviceName := sanitizeK8sName(deploymentName)
+	volumesCfgName := generateConfigVolumesName(serviceName, stackEnv, parentEnv)
 
 	// Prepare Caddy volumes (embedded config)
 	var caddyVolumes []k8s.SimpleTextVolume
@@ -125,7 +134,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			},
 			corev1.VolumeMountArgs{
 				MountPath: sdk.String("/etc/caddy/Caddyfile"),
-				Name:      sdk.String(ToConfigVolumesName(deploymentName)),
+				Name:      sdk.String(volumesCfgName),
 				SubPath:   sdk.String("Caddyfile"),
 			},
 		},

@@ -19,7 +19,8 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	creds := pcfg.CredentialsValue()
 
 	provider, err := kubernetes.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &kubernetes.ProviderArgs{
-		Kubeconfig: sdk.String(creds),
+		Kubeconfig:            sdk.String(creds),
+		EnableServerSideApply: sdk.BoolPtr(true), // Required for DeploymentPatch resources
 	})
 
 	return &api.ResourceOutput{
