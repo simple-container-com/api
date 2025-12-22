@@ -70,3 +70,14 @@ func generateImagePullSecretName(serviceName, stackEnv, parentEnv string) string
 func isCustomStack(stackEnv, parentEnv string) bool {
 	return parentEnv != "" && parentEnv != stackEnv
 }
+
+// GenerateCaddyDeploymentName creates the Caddy deployment name with environment suffix
+// Caddy deployments always include the environment suffix for backwards compatibility
+// This is exported so it can be used by both kubernetes and gcp packages for consistency
+func GenerateCaddyDeploymentName(stackEnv string) string {
+	// Always add environment suffix for Caddy deployments (backwards compatibility)
+	if stackEnv != "" {
+		return fmt.Sprintf("caddy-%s", stackEnv)
+	}
+	return "caddy"
+}

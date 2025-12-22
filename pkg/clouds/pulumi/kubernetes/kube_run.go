@@ -196,7 +196,10 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 
 	if caddyConfig != nil {
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
-		caddyServiceName := input.ToResName("caddy")
+		// Use deployment name override if specified, otherwise generate using single-dash convention
+		// to match the actual Caddy deployment naming (e.g., "caddy-staging" not "caddy--staging")
+		defaultCaddyName := GenerateCaddyDeploymentName(input.StackParams.Environment)
+		caddyServiceName := lo.If(caddyConfig.DeploymentName != nil, lo.FromPtr(caddyConfig.DeploymentName)).Else(defaultCaddyName)
 
 		// Cast params.Provider to Kubernetes provider for patch operations
 		kubeProvider, ok := params.Provider.(*sdkK8s.Provider)

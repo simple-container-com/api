@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
-	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/utils/ptr"
+
+	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 type DeploymentPatchArgs struct {
@@ -65,7 +66,6 @@ func patchDeploymentWithK8sClient(ctx context.Context, inputs deploymentPatchInp
 	// This is a true partial update that doesn't require full deployment spec
 	patchOptions := metav1.PatchOptions{
 		FieldManager: "simple-container",
-		Force:        ptr.To(true), // Force ownership of fields
 	}
 
 	_, err = clientSet.AppsV1().Deployments(inputs.Namespace).Patch(
@@ -76,6 +76,8 @@ func patchDeploymentWithK8sClient(ctx context.Context, inputs deploymentPatchInp
 		patchOptions,
 	)
 	if err != nil {
+		// Log detailed error information for debugging
+		_, _ = fmt.Fprintf(os.Stderr, "❌ PATCH ERROR: failed to patch deployment %s/%s: %v\n", inputs.Namespace, inputs.ServiceName, err)
 		return fmt.Errorf("failed to patch deployment %s/%s: %w", inputs.Namespace, inputs.ServiceName, err)
 	}
 
@@ -109,9 +111,19 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*sdk.StringOu
 			Annotations: annotations,
 		}
 
-		// Use Pulumi's context with timeout to respect cancellation and prevent hanging
-		patchCtx, cancel := context.WithTimeout(goCtx, 30*time.Second)
+		// Create a context that respects parent cancellation but allows extra time for patch to complete
+		// We use a channel to listen for parent context cancellation, then give the patch operation
+		// additional time (5 seconds) to complete before actually cancelling
+		patchCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
+
+		// Monitor parent context for cancellation
+		go func() {
+			<-goCtx.Done()
+			// Parent context was cancelled, but give patch 5 more seconds to complete
+			time.Sleep(5 * time.Second)
+			cancel()
+		}()
 
 		if err := patchDeploymentWithK8sClient(patchCtx, inputs); err != nil {
 			return "", err

@@ -210,8 +210,10 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		}
 
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
-		// Use deployment name override if specified, otherwise fall back to default
-		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(input.ToResName("caddy"))
+		// Use deployment name override if specified, otherwise generate using single-dash convention
+		// to match the actual Caddy deployment naming (e.g., "caddy-staging" not "caddy--staging")
+		defaultDeploymentName := kubernetes.GenerateCaddyDeploymentName(input.StackParams.Environment)
+		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(defaultDeploymentName)
 		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
 
 		kubeConfigOutput := sdk.String(kubeConfig).ToStringOutput()
