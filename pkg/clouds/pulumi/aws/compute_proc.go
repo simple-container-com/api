@@ -47,7 +47,8 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 
 	postgresCfg.AccountConfig = *accountConfig
 	postgresResName := lo.If(postgresCfg.Name == "", input.Descriptor.Name).Else(postgresCfg.Name)
-	postgresName := toRdsPostgresName(postgresResName, input.StackParams.Environment)
+	postgresEnv := lo.If(params.ParentStack.ParentEnv != "", params.ParentStack.ParentEnv).Else(input.StackParams.Environment)
+	postgresName := toRdsPostgresName(postgresResName, postgresEnv)
 
 	// Create a StackReference to the parent stack
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
@@ -205,7 +206,8 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	mysqlCfg.AccountConfig = *accountConfig
 	dbCfg := mysqlCfg
 	mysqlResName := lo.If(dbCfg.Name == "", input.Descriptor.Name).Else(dbCfg.Name)
-	mysqlName := toRdsMysqlName(mysqlResName, input.StackParams.Environment)
+	mysqlEnv := lo.If(params.ParentStack.ParentEnv != "", params.ParentStack.ParentEnv).Else(input.StackParams.Environment)
+	mysqlName := toRdsMysqlName(mysqlResName, mysqlEnv)
 
 	// Create a StackReference to the parent stack
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
