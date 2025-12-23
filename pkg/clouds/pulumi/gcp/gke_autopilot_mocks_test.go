@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -9,6 +10,7 @@ import (
 
 // gkeAutopilotMocks implements pulumi.MockResourceMonitor for testing GKE Autopilot
 type gkeAutopilotMocks struct {
+	mu sync.Mutex
 	// Track resource creation counts by type
 	resourceCounts map[string]int
 	// Store created resources for validation
@@ -28,6 +30,9 @@ func newGkeAutopilotMocks() *gkeAutopilotMocks {
 
 // NewResource mocks the creation of GCP resources
 func (m *gkeAutopilotMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Check for simulated failures
 	if m.simulateFailures[args.TypeToken] {
 		return "", nil, fmt.Errorf("simulated failure for %s", args.TypeToken)
