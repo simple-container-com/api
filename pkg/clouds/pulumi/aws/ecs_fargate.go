@@ -585,6 +585,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		"elasticfilesystem:ClientWrite",
 		"elasticfilesystem:DescribeMountTargets",
 		"elasticfilesystem:DescribeFileSystems",
+		"cloudwatch:PutMetricData",
 	}
 
 	params.Log.Info(ctx.Context(), "adding extra roles %q for lambda %q...", strings.Join(awsCloudExtras.AwsRoles, ","), stack.Name)
