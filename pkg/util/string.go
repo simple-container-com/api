@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"hash/fnv"
 	"regexp"
 	"strings"
 )
@@ -37,8 +38,9 @@ func SanitizeGCPServiceAccountName(name string) string {
 	// Improved name truncation to avoid malformed names
 	accountName := sanitizedName
 	if len(sanitizedName) > 28 {
-		// Use a 4-character hash suffix for uniqueness
-		hash := fmt.Sprintf("%04x", len(sanitizedName)+int(sanitizedName[0])+int(sanitizedName[len(sanitizedName)-1]))
+		// Use FNV-1a hash for better uniqueness - the old hash (len + first + last) was too weak
+		// and caused collisions between similar names like sidecar and init proxies
+		hash := fmt.Sprintf("%04x", fnvHash(sanitizedName)&0xFFFF)
 		// Calculate max prefix length to fit: prefix + "-" + hash <= 28
 		maxPrefixLen := 28 - 1 - len(hash) // 28 - 1 (hyphen) - 4 (hash) = 23
 		prefix := sanitizedName[:maxPrefixLen]
@@ -68,8 +70,8 @@ func SanitizeK8sResourceName(name string) string {
 
 	// Truncate if too long (63 character limit)
 	if len(sanitizedName) > 63 {
-		// Use a 4-character hash suffix for uniqueness
-		hash := fmt.Sprintf("%04x", len(sanitizedName)+int(sanitizedName[0])+int(sanitizedName[len(sanitizedName)-1]))
+		// Use FNV-1a hash for better uniqueness - the old hash (len + first + last) was too weak
+		hash := fmt.Sprintf("%04x", fnvHash(sanitizedName)&0xFFFF)
 		// Calculate max prefix length to fit: prefix + "-" + hash <= 63
 		maxPrefixLen := 63 - 1 - len(hash) // 63 - 1 (hyphen) - 4 (hash) = 58
 		prefix := sanitizedName[:maxPrefixLen]
@@ -82,4 +84,12 @@ func SanitizeK8sResourceName(name string) string {
 	sanitizedName = strings.ReplaceAll(sanitizedName, "--", "-")
 
 	return sanitizedName
+}
+
+// fnvHash computes a FNV-1a hash of the input string.
+// This provides much better distribution than the simple len+first+last hash.
+func fnvHash(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
 }
