@@ -277,16 +277,40 @@ func toRollingUpdateArgs(update *k8s.RollingUpdate) *v1.RollingUpdateDeploymentA
 }
 
 func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs {
-	return &corev1.ProbeArgs{
-		TcpSocket: corev1.TCPSocketActionArgs{
-			Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
-		},
+	// Determine the port for the probe:
+	// 1. Use probe's HttpGet.Port if specified
+	// 2. Fall back to container's MainPort if available
+	// 3. Fall back to first container port as last resort
+	var probePort int
+	if probe.HttpGet.Port > 0 {
+		probePort = probe.HttpGet.Port
+	} else if c.Container.MainPort != nil && *c.Container.MainPort > 0 {
+		probePort = *c.Container.MainPort
+	} else if len(c.Container.Ports) > 0 {
+		probePort = c.Container.Ports[0]
+	}
+
+	probeArgs := &corev1.ProbeArgs{
 		PeriodSeconds:       sdk.IntPtrFromPtr(lo.If(probe.Interval != nil, lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))).Else(nil)),
 		InitialDelaySeconds: sdk.IntPtrFromPtr(probe.InitialDelaySeconds),
 		FailureThreshold:    sdk.IntPtrFromPtr(probe.FailureThreshold),
 		SuccessThreshold:    sdk.IntPtrFromPtr(probe.SuccessThreshold),
 		TimeoutSeconds:      sdk.IntPtrFromPtr(probe.TimeoutSeconds),
 	}
+
+	// Use HttpGet probe if path is specified, otherwise fall back to TcpSocket
+	if probe.HttpGet.Path != "" {
+		probeArgs.HttpGet = &corev1.HTTPGetActionArgs{
+			Path: sdk.String(probe.HttpGet.Path),
+			Port: sdk.Int(probePort),
+		}
+	} else {
+		probeArgs.TcpSocket = corev1.TCPSocketActionArgs{
+			Port: sdk.String(toPortName(probePort)),
+		}
+	}
+
+	return probeArgs
 }
 
 func toPortName(p int) string {
