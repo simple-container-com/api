@@ -25,7 +25,7 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		return nil, errors.Errorf("failed to convert mongodb config for %q", input.Descriptor.Type)
 	}
 
-	// For export lookups, always use the configuration-based name (what parent stack exports)
+	// For export lookups, use parent's naming strategy version (already in mongoConfig from server.yaml)
 	configBasedProjectName := toProjectName(params.ParentStack.StackName, input)
 	configBasedClusterName := toClusterName(params.ParentStack.StackName, input)
 
@@ -49,14 +49,16 @@ func ClusterComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resour
 		return nil, err
 	}
 
-	projectIdExport := toProjectIdExport(configBasedProjectName) // Use config-based name for export lookup
+	// Direct export lookup using parent's naming strategy version - no fallback needed
+	projectIdExport := toProjectIdExport(configBasedProjectName)
 	projectId, err := pApi.GetParentOutput(parentRef, projectIdExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get project id from parent stack for %q (%q)", stack.Name, projectIdExport)
 	} else if projectId == "" {
 		return nil, errors.Errorf("project id is empty for %q (%q)", stack.Name, projectIdExport)
 	}
-	mongoUriExport := toMongoUriWithOptionsExport(configBasedClusterName) // Use config-based name for export lookup
+
+	mongoUriExport := toMongoUriWithOptionsExport(configBasedClusterName)
 	mongoUri, err := pApi.GetParentOutput(parentRef, mongoUriExport, params.ParentStack.FullReference, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get mongo uri from parent stack for %q (%q)", stack.Name, mongoUriExport)

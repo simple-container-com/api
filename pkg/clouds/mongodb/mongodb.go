@@ -23,6 +23,10 @@ type AtlasConfig struct {
 	// Resource adoption fields
 	Adopt       bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
 	ClusterName string `json:"clusterName,omitempty" yaml:"clusterName,omitempty"`
+	// Deletion protection
+	DeletionProtection bool `json:"deletionProtection,omitempty" yaml:"deletionProtection,omitempty"`
+	// Naming strategy version control
+	NamingStrategyVersion *int `json:"namingStrategyVersion,omitempty" yaml:"namingStrategyVersion,omitempty"` // Default 2 (new), use 1 for legacy
 }
 
 type AtlasNetworkConfig struct {
