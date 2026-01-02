@@ -3,6 +3,7 @@ package mongodb
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -48,9 +49,29 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	projectName := toProjectName(stack.Name, input)
 	clusterName := toClusterName(stack.Name, input)
 
+	// Deletion protection check
+	if atlasCfg.DeletionProtection {
+		params.Log.Info(ctx.Context(), "⚠️ Deletion protection ENABLED for MongoDB cluster %q - resource will be protected from accidental deletion", clusterName)
+	}
+
+	// Log cluster naming information for transparency
+	if atlasCfg.ClusterName != "" {
+		params.Log.Info(ctx.Context(), "📝 Using custom cluster name %q for MongoDB resource %q in stack %q",
+			clusterName, input.Descriptor.Name, input.StackParams.StackName)
+	} else {
+		params.Log.Info(ctx.Context(), "📝 Generated cluster name %q for MongoDB resource %q in stack %q",
+			clusterName, input.Descriptor.Name, input.StackParams.StackName)
+	}
+
 	var projectId sdk.StringOutput
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
+	}
+
+	// Apply deletion protection if enabled
+	if atlasCfg.DeletionProtection {
+		opts = append(opts, sdk.Protect(true))
+		params.Log.Info(ctx.Context(), "🔒 Deletion protection applied to MongoDB cluster %q - use 'pulumi state unprotect' to disable", clusterName)
 	}
 	if atlasCfg.ProjectId == "" {
 		projName := lo.If(atlasCfg.ProjectName != "", atlasCfg.ProjectName).Else(projectName)
@@ -332,8 +353,91 @@ func toProjectName(stackName string, input api.ResourceInput) string {
 }
 
 func toClusterName(stackName string, input api.ResourceInput) string {
+	// Get config to check custom cluster name and naming strategy version
+	var atlasCfg *mongodb.AtlasConfig
+	if cfg, ok := input.Descriptor.Config.Config.(*mongodb.AtlasConfig); ok {
+		atlasCfg = cfg
+	}
+
+	// Check if a custom cluster name is specified
+	if atlasCfg != nil && atlasCfg.ClusterName != "" {
+		// Use custom name but ensure it fits MongoDB Atlas naming constraints
+		return util.TrimStringMiddle(atlasCfg.ClusterName, 21, "--")
+	}
+
+	// Determine naming strategy version (default is 2 for new logic)
+	namingVersion := 2
+	if atlasCfg != nil && atlasCfg.NamingStrategyVersion != nil {
+		namingVersion = *atlasCfg.NamingStrategyVersion
+	}
+
+	switch namingVersion {
+	case 1:
+		// Version 1: Original TrimStringMiddle logic (for existing clusters)
+		return toClusterNameV1(stackName, input)
+	case 2:
+		// Version 2: Improved hash-based logic (for new clusters)
+		return toClusterNameV2(stackName, input)
+	default:
+		// Fallback to version 2 for any unknown versions
+		return toClusterNameV2(stackName, input)
+	}
+}
+
+// Version 1: Exact original behavior (preserves existing clusters)
+func toClusterNameV1(stackName string, input api.ResourceInput) string {
 	projectName := toProjectName(stackName, input)
-	return util.TrimStringMiddle(projectName, 21, "--") //  Atlas truncates cluster names to 23 characters
+	return util.TrimStringMiddle(projectName, 21, "--") // Original logic: Atlas truncates cluster names to 23 characters
+}
+
+// Version 2: Improved logic with proper length constraints and conflict resolution
+func toClusterNameV2(stackName string, input api.ResourceInput) string {
+	resourceName := input.Descriptor.Name
+	env := input.StackParams.Environment
+	if input.StackParams.ParentEnv != "" {
+		env = input.StackParams.ParentEnv
+	}
+
+	// Build base cluster name
+	baseClusterName := fmt.Sprintf("%s--%s", stackName, resourceName)
+	if env != "" {
+		baseClusterName = fmt.Sprintf("%s--%s", baseClusterName, env)
+	}
+
+	// If base name fits MongoDB Atlas 23-character limit, use it directly
+	if len(baseClusterName) <= 23 {
+		return baseClusterName
+	}
+
+	// For long names, use hash-based truncation for uniqueness and proper length
+	hashInput := 0
+	for i, char := range baseClusterName {
+		hashInput += int(char) * (i + 1) // Position-weighted character sum
+	}
+	hashInput += len(baseClusterName) * 37        // Length multiplier
+	hash := fmt.Sprintf("%04x", hashInput&0xFFFF) // Use lower 16 bits
+
+	// Calculate max prefix length: total (23) - separator (1) - hash (4) = 18
+	maxPrefixLen := 23 - 1 - len(hash)
+	if maxPrefixLen > len(baseClusterName) {
+		maxPrefixLen = len(baseClusterName)
+	}
+	if maxPrefixLen < 1 {
+		maxPrefixLen = 1
+	}
+
+	prefix := baseClusterName[:maxPrefixLen]
+	// Remove trailing hyphens from prefix
+	prefix = strings.TrimRight(prefix, "-")
+	result := fmt.Sprintf("%s-%s", prefix, hash)
+
+	// Final safety check for MongoDB Atlas 23-character limit
+	if len(result) > 23 {
+		shortPrefix := baseClusterName[:1]
+		result = fmt.Sprintf("%s-%s", shortPrefix, hash)
+	}
+
+	return result
 }
 
 type dbRole struct {
