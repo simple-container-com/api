@@ -14,6 +14,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/db"
 	"github.com/simple-container-com/api/pkg/util"
 )
 
@@ -140,21 +141,7 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 			}.ToJson()
 
 			command := []string{
-				// TODO: replace with db.PSQL_DB_INIT_SH
-				"sh", "-c", `apk add --update postgresql && 
-psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || psql -U postgres -c "CREATE DATABASE \"$DB_NAME\"" &&
-psql -c "DO
-\$\$
-BEGIN
-  IF NOT EXISTS (SELECT * FROM pg_user WHERE usename = '$DB_USER') THEN
-	CREATE ROLE \"$DB_USER\" WITH LOGIN PASSWORD '$DB_PASSWORD'; 
-    GRANT ALL PRIVILEGES ON DATABASE \"$DB_NAME\" TO \"$DB_USER\";
-	ALTER DATABASE \"$DB_NAME\" OWNER TO \"$DB_USER\";
-  END IF;
-END
-\$\$
-;
-"`,
+				"sh", "-c", db.PSQL_DB_INIT_SH,
 			}
 
 			if err := execEcsTask(ctx, ecsTaskConfig{
@@ -172,6 +159,7 @@ END
 					"PGUSER":      rootPgUsername,
 					"PGDATABASE":  "postgres",
 					"PGPASSWORD":  rootPgPassword,
+					"INIT_SQL":    "", // No additional SQL needed for AWS RDS initialization
 				},
 			}); err != nil {
 				return nil, errors.Wrapf(err, "failed to run init task for rds postgres")
