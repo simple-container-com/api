@@ -159,7 +159,7 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 					"PGUSER":      rootPgUsername,
 					"PGDATABASE":  "postgres",
 					"PGPASSWORD":  rootPgPassword,
-					"INIT_SQL":    "", // No additional SQL needed for AWS RDS initialization
+					"INIT_SQL":    lo.FromPtrOr(postgresCfg.InitSQL, ""),
 				},
 			}); err != nil {
 				return nil, errors.Wrapf(err, "failed to run init task for rds postgres")
