@@ -122,41 +122,31 @@ func Cluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	out.Cluster = cluster
 
 	if atlasCfg.Backup != nil {
-		// Configure the backup schedule
+		// Configure backup schedule - support both basic and advanced configurations
 		backupArgs := &mongodbatlas.CloudBackupScheduleArgs{
 			ProjectId:       projectId,
 			ClusterName:     cluster.Name,
 			UpdateSnapshots: sdk.Bool(true),
 		}
-		every, err := time.ParseDuration(atlasCfg.Backup.Every)
+
+		// Note: Point-in-Time Recovery is handled at the cluster level via PitEnabled field
+		// PITR configuration should be set when creating the cluster itself, not in backup schedule
+
+		var err error
+		if atlasCfg.Backup.Advanced != nil {
+			// Use advanced backup configuration
+			err = configureAdvancedBackup(backupArgs, atlasCfg.Backup.Advanced)
+		} else if atlasCfg.Backup.Every != "" && atlasCfg.Backup.Retention != "" {
+			// Use legacy basic configuration for backwards compatibility
+			err = configureBasicBackup(backupArgs, atlasCfg.Backup.Every, atlasCfg.Backup.Retention)
+		} else {
+			return nil, errors.New("backup configuration must specify either 'advanced' schedules or basic 'every'/'retention' values")
+		}
+
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse schedule %q", atlasCfg.Backup.Every)
+			return nil, errors.Wrapf(err, "failed to configure backup schedules")
 		}
-		retention, err := time.ParseDuration(atlasCfg.Backup.Retention)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse retention %q", atlasCfg.Backup.Retention)
-		}
-		if every.Hours() < 24 {
-			backupArgs.PolicyItemHourly = &mongodbatlas.CloudBackupSchedulePolicyItemHourlyArgs{
-				FrequencyInterval: sdk.Int(every.Hours()),
-				RetentionUnit:     sdk.String("days"),
-				RetentionValue:    sdk.Int(retention.Hours() / 24),
-			}
-		} else if every.Hours()/24/7 > 0 {
-			backupArgs.PolicyItemWeeklies = mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArray{
-				&mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArgs{
-					FrequencyInterval: sdk.Int(every.Hours() / 24 / 7),
-					RetentionUnit:     sdk.String("days"),
-					RetentionValue:    sdk.Int(retention.Hours() / 24),
-				},
-			}
-		} else if every.Hours() > 24 {
-			backupArgs.PolicyItemDaily = &mongodbatlas.CloudBackupSchedulePolicyItemDailyArgs{
-				FrequencyInterval: sdk.Int(every.Hours() / 24),
-				RetentionUnit:     sdk.String("days"),
-				RetentionValue:    sdk.Int(retention.Hours() / 24),
-			}
-		}
+
 		_, err = mongodbatlas.NewCloudBackupSchedule(ctx, fmt.Sprintf("%s-backups-schedule", clusterName), backupArgs, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create mongodb backups schedule for stack %q", stack.Name)
@@ -636,4 +626,116 @@ func createDatabaseUsers(ctx *sdk.Context, cluster *mongodbatlas.Cluster, cfg *m
 			return value.(sdk.Output)
 		})), nil
 	})
+}
+
+// configureBasicBackup handles the legacy simple backup configuration for backwards compatibility
+func configureBasicBackup(backupArgs *mongodbatlas.CloudBackupScheduleArgs, every, retention string) error {
+	everyDuration, err := time.ParseDuration(every)
+	if err != nil {
+		return errors.Wrapf(err, "failed to parse schedule %q", every)
+	}
+	retentionDuration, err := time.ParseDuration(retention)
+	if err != nil {
+		return errors.Wrapf(err, "failed to parse retention %q", retention)
+	}
+
+	// Convert to the appropriate backup policy based on frequency
+	if everyDuration.Hours() < 24 {
+		// Hourly backups
+		backupArgs.PolicyItemHourly = &mongodbatlas.CloudBackupSchedulePolicyItemHourlyArgs{
+			FrequencyInterval: sdk.Int(int(everyDuration.Hours())),
+			RetentionUnit:     sdk.String("days"),
+			RetentionValue:    sdk.Int(int(retentionDuration.Hours() / 24)),
+		}
+	} else if everyDuration.Hours() >= 24 && everyDuration.Hours() < 24*7 {
+		// Daily backups
+		backupArgs.PolicyItemDaily = &mongodbatlas.CloudBackupSchedulePolicyItemDailyArgs{
+			FrequencyInterval: sdk.Int(int(everyDuration.Hours() / 24)),
+			RetentionUnit:     sdk.String("days"),
+			RetentionValue:    sdk.Int(int(retentionDuration.Hours() / 24)),
+		}
+	} else {
+		// Weekly backups
+		backupArgs.PolicyItemWeeklies = mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArray{
+			&mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArgs{
+				FrequencyInterval: sdk.Int(int(everyDuration.Hours() / 24 / 7)),
+				RetentionUnit:     sdk.String("days"),
+				RetentionValue:    sdk.Int(int(retentionDuration.Hours() / 24)),
+			},
+		}
+	}
+
+	return nil
+}
+
+// configureAdvancedBackup handles the new multi-tier backup configuration
+func configureAdvancedBackup(backupArgs *mongodbatlas.CloudBackupScheduleArgs, advanced *mongodb.AtlasAdvancedBackup) error {
+	// Configure hourly backups
+	if advanced.Hourly != nil {
+		policy := advanced.Hourly
+		unit := policy.Unit
+		if unit == "" {
+			unit = "days" // Default unit for hourly backups
+		}
+		backupArgs.PolicyItemHourly = &mongodbatlas.CloudBackupSchedulePolicyItemHourlyArgs{
+			FrequencyInterval: sdk.Int(policy.Every),
+			RetentionUnit:     sdk.String(unit),
+			RetentionValue:    sdk.Int(policy.RetainFor),
+		}
+	}
+
+	// Configure daily backups
+	if advanced.Daily != nil {
+		policy := advanced.Daily
+		unit := policy.Unit
+		if unit == "" {
+			unit = "days" // Default unit for daily backups
+		}
+		backupArgs.PolicyItemDaily = &mongodbatlas.CloudBackupSchedulePolicyItemDailyArgs{
+			FrequencyInterval: sdk.Int(policy.Every),
+			RetentionUnit:     sdk.String(unit),
+			RetentionValue:    sdk.Int(policy.RetainFor),
+		}
+	}
+
+	// Configure weekly backups
+	if advanced.Weekly != nil {
+		policy := advanced.Weekly
+		unit := policy.Unit
+		if unit == "" {
+			unit = "weeks" // Default unit for weekly backups
+		}
+		weeklyArgs := &mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArgs{
+			FrequencyInterval: sdk.Int(policy.Every),
+			RetentionUnit:     sdk.String(unit),
+			RetentionValue:    sdk.Int(policy.RetainFor),
+		}
+
+		// Note: DayOfWeek configuration not supported in current MongoDB Atlas provider version
+
+		backupArgs.PolicyItemWeeklies = mongodbatlas.CloudBackupSchedulePolicyItemWeeklyArray{weeklyArgs}
+	}
+
+	// Configure monthly backups
+	if advanced.Monthly != nil {
+		policy := advanced.Monthly
+		unit := policy.Unit
+		if unit == "" {
+			unit = "months" // Default unit for monthly backups
+		}
+		monthlyArgs := &mongodbatlas.CloudBackupSchedulePolicyItemMonthlyArgs{
+			FrequencyInterval: sdk.Int(policy.Every),
+			RetentionUnit:     sdk.String(unit),
+			RetentionValue:    sdk.Int(policy.RetainFor),
+		}
+
+		// Note: DayOfMonth configuration not supported in current MongoDB Atlas provider version
+
+		backupArgs.PolicyItemMonthlies = mongodbatlas.CloudBackupSchedulePolicyItemMonthlyArray{monthlyArgs}
+	}
+
+	// Note: Backup export configuration not supported in current MongoDB Atlas provider version
+	// Export functionality would need to be configured separately through MongoDB Atlas UI/API
+
+	return nil
 }

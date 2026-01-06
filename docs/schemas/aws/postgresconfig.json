@@ -55,6 +55,9 @@
       "engineVersion": {
         "type": "string"
       },
+      "initSQL": {
+        "type": "string"
+      },
       "instanceClass": {
         "type": "string"
       },
