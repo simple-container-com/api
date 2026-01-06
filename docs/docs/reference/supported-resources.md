@@ -1175,7 +1175,7 @@ resources:
             admins: [ "vitaly", "dmitriy" ]              # Admin user emails
             developers: [ ]                               # Developer user emails
             
-            # Backup configuration
+            # Simple backup configuration (backwards compatible)
             backup:
               every: 4h                                   # Backup frequency
               retention: 24h                              # Retention period
@@ -1195,10 +1195,47 @@ resources:
             cloudProvider: AWS
             admins: [ "vitaly", "dmitriy" ]
             developers: [ ]
+            
+            # Advanced multi-tier backup configuration
             backup:
-              every: 1h                                   # More frequent backups
-              retention: 168h                             # Longer retention (1 week)
+              advanced:
+                # Hourly snapshots: Every 1 hour (retained 2 days)
+                hourly:
+                  every: 1                  # Every 1 hour
+                  retainFor: 2              # Retain for 2 days (unit: days - default)
+                  
+                # Daily snapshots: Every day (retained 35 days) 
+                daily:
+                  every: 1                  # Every 1 day
+                  retainFor: 35             # Retain for 35 days (unit: days - default)
+                  
+                # Weekly snapshots: Every week (retained 8 weeks)
+                weekly:
+                  every: 1                  # Every 1 week
+                  retainFor: 8              # Retain for 8 weeks (unit: weeks - default)
+                  
+                # Monthly snapshots: 1st of month (retained 6 months)
+                monthly:
+                  every: 1                  # Every 1 month  
+                  retainFor: 6              # Retain for 6 months (unit: months - default)
+                  
+                # Point-in-Time Recovery: Continuous oplog streaming
+                pointInTimeRecovery:
+                  enabled: true             # Enable PITR
+                  oplogSizeGB: 2.0         # 2GB oplog size
+                  oplogMinRetentionHours: 24 # Minimum 24 hours retention
+
 ```
+
+**Backup Security:**
+
+MongoDB Atlas encrypts **all backups automatically by default** using your cloud provider's encryption:
+- **Automatic encryption**: No configuration required - all snapshots are encrypted at rest
+- **Cloud provider managed**: Encryption keys managed by AWS/GCP/Azure
+- **Universal**: Applies to all cluster tiers and backup types (hourly, daily, weekly, monthly)
+- **Secure by design**: Ensures backup data is always protected on disk
+
+For enterprise customers requiring additional control, MongoDB Atlas also supports Customer Key Management (CKM) using your own KMS keys, but this requires separate configuration outside of Simple Container.
 
 **Client Access:**
 

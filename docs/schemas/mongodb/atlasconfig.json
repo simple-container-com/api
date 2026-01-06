@@ -21,6 +21,150 @@
       "backup": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "advanced": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "daily": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "dayOfMonth": {
+                    "type": "integer"
+                  },
+                  "dayOfWeek": {
+                    "type": "integer"
+                  },
+                  "every": {
+                    "type": "integer"
+                  },
+                  "retainFor": {
+                    "type": "integer"
+                  },
+                  "unit": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "every",
+                  "retainFor"
+                ],
+                "type": "object"
+              },
+              "export": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "exportBucketId": {
+                    "type": "string"
+                  },
+                  "exportBucketUrl": {
+                    "type": "string"
+                  },
+                  "frequencyType": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "exportBucketId",
+                  "frequencyType"
+                ],
+                "type": "object"
+              },
+              "hourly": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "dayOfMonth": {
+                    "type": "integer"
+                  },
+                  "dayOfWeek": {
+                    "type": "integer"
+                  },
+                  "every": {
+                    "type": "integer"
+                  },
+                  "retainFor": {
+                    "type": "integer"
+                  },
+                  "unit": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "every",
+                  "retainFor"
+                ],
+                "type": "object"
+              },
+              "monthly": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "dayOfMonth": {
+                    "type": "integer"
+                  },
+                  "dayOfWeek": {
+                    "type": "integer"
+                  },
+                  "every": {
+                    "type": "integer"
+                  },
+                  "retainFor": {
+                    "type": "integer"
+                  },
+                  "unit": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "every",
+                  "retainFor"
+                ],
+                "type": "object"
+              },
+              "pointInTimeRecovery": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "oplogMinRetentionHours": {
+                    "type": "integer"
+                  },
+                  "oplogSizeGB": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "enabled"
+                ],
+                "type": "object"
+              },
+              "weekly": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "dayOfMonth": {
+                    "type": "integer"
+                  },
+                  "dayOfWeek": {
+                    "type": "integer"
+                  },
+                  "every": {
+                    "type": "integer"
+                  },
+                  "retainFor": {
+                    "type": "integer"
+                  },
+                  "unit": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "every",
+                  "retainFor"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "every": {
             "type": "string"
           },
@@ -28,10 +172,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "every",
-          "retention"
-        ],
+        "required": [],
         "type": "object"
       },
       "cloudProvider": {
@@ -39,6 +180,9 @@
       },
       "clusterName": {
         "type": "string"
+      },
+      "deletionProtection": {
+        "type": "boolean"
       },
       "developers": {
         "items": {
@@ -80,6 +224,9 @@
       },
       "instanceSize": {
         "type": "string"
+      },
+      "namingStrategyVersion": {
+        "type": "integer"
       },
       "networkConfig": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

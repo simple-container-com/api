@@ -34,6 +34,9 @@
       "adopt": {
         "type": "boolean"
       },
+      "authorizedNetwork": {
+        "type": "string"
+      },
       "instanceId": {
         "type": "string"
       },

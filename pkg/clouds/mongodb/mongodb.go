@@ -40,8 +40,62 @@ type PrivateLinkEndpoint struct {
 }
 
 type AtlasBackup struct {
-	Every     string `json:"every" yaml:"every"`         // e.g. 2h
-	Retention string `json:"retention" yaml:"retention"` // e.g. 24h
+	// Basic configuration (backwards compatible)
+	Every     string `json:"every,omitempty" yaml:"every,omitempty"`         // e.g. 2h
+	Retention string `json:"retention,omitempty" yaml:"retention,omitempty"` // e.g. 24h
+
+	// Advanced multi-tier backup configuration
+	Advanced *AtlasAdvancedBackup `json:"advanced,omitempty" yaml:"advanced,omitempty"`
+}
+
+// AtlasAdvancedBackup provides sophisticated backup scheduling with multiple retention tiers
+type AtlasAdvancedBackup struct {
+	// Individual schedule policies (can be combined)
+	Hourly  *AtlasBackupPolicy `json:"hourly,omitempty" yaml:"hourly,omitempty"`
+	Daily   *AtlasBackupPolicy `json:"daily,omitempty" yaml:"daily,omitempty"`
+	Weekly  *AtlasBackupPolicy `json:"weekly,omitempty" yaml:"weekly,omitempty"`
+	Monthly *AtlasBackupPolicy `json:"monthly,omitempty" yaml:"monthly,omitempty"`
+
+	// Point-in-Time Recovery configuration
+	PointInTimeRecovery *AtlasPointInTimeRecovery `json:"pointInTimeRecovery,omitempty" yaml:"pointInTimeRecovery,omitempty"`
+
+	// Export configuration for cross-region/project backups
+	Export *AtlasBackupExport `json:"export,omitempty" yaml:"export,omitempty"`
+}
+
+// AtlasBackupPolicy defines a backup schedule with retention
+type AtlasBackupPolicy struct {
+	// Schedule frequency
+	Every int `json:"every" yaml:"every"` // e.g. 1 for every 1 hour/day/week/month
+
+	// Retention duration (unit inferred from backup type context)
+	RetainFor int    `json:"retainFor" yaml:"retainFor"`           // e.g. 2 for retain for 2 days/weeks/months
+	Unit      string `json:"unit,omitempty" yaml:"unit,omitempty"` // "days", "weeks", "months" (optional, defaults based on backup type)
+
+	// Weekly-specific configuration (not supported in current provider)
+	DayOfWeek *int `json:"dayOfWeek,omitempty" yaml:"dayOfWeek,omitempty"` // 1=Sunday, 7=Saturday
+
+	// Monthly-specific configuration (not supported in current provider)
+	DayOfMonth *int `json:"dayOfMonth,omitempty" yaml:"dayOfMonth,omitempty"` // 1-31
+}
+
+// AtlasPointInTimeRecovery configures continuous oplog streaming
+type AtlasPointInTimeRecovery struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// Oplog retention window
+	OplogSizeGB            *float64 `json:"oplogSizeGB,omitempty" yaml:"oplogSizeGB,omitempty"`                       // GB of oplog to retain
+	OplogMinRetentionHours *int     `json:"oplogMinRetentionHours,omitempty" yaml:"oplogMinRetentionHours,omitempty"` // Minimum oplog retention in hours
+}
+
+// AtlasBackupExport configures cross-region or cross-project backup exports
+type AtlasBackupExport struct {
+	// Export frequency (typically less frequent than main backups)
+	FrequencyType string `json:"frequencyType" yaml:"frequencyType"` // "daily", "weekly", "monthly"
+
+	// Export destinations
+	ExportBucketId  string  `json:"exportBucketId" yaml:"exportBucketId"`                       // Atlas-managed cloud storage bucket
+	ExportBucketUrl *string `json:"exportBucketUrl,omitempty" yaml:"exportBucketUrl,omitempty"` // Custom S3/GCS bucket URL
 }
 
 func ReadAtlasConfig(config *api.Config) (api.Config, error) {
