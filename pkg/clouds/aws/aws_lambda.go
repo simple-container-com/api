@@ -25,6 +25,10 @@ func (l *LambdaInput) Uses() []string {
 	return l.StackConfig.Uses
 }
 
+func (l *LambdaInput) OverriddenBaseZone() string {
+	return l.StackConfig.BaseDnsZone
+}
+
 func ToAwsLambdaConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
