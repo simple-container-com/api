@@ -198,8 +198,9 @@ func ResolvedRefappAwsLambdaClientDescriptor() *api.ClientDescriptor {
 				Env: map[string]string{
 					"ENV": "staging",
 				},
-				Secrets: map[string]string{},
-				Uses:    []string{},
+				Secrets:      map[string]string{},
+				Uses:         []string{},
+				Dependencies: []api.StackConfigDependencyResource{},
 			},
 		},
 	}
@@ -216,8 +217,9 @@ func ResolvedRefappAwsLambdaClientDescriptor() *api.ClientDescriptor {
 				Env: map[string]string{
 					"ENV": "prod",
 				},
-				Secrets: map[string]string{},
-				Uses:    []string{},
+				Secrets:      map[string]string{},
+				Uses:         []string{},
+				Dependencies: []api.StackConfigDependencyResource{},
 			},
 		},
 	}
