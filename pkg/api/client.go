@@ -121,21 +121,22 @@ type ContainerImageBuild struct {
 }
 
 type StackConfigSingleImage struct {
-	Image               *ContainerImage   `json:"image" yaml:"image"`
-	Domain              string            `json:"domain" yaml:"domain"`
-	BaseDnsZone         string            `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
-	Env                 map[string]string `json:"env" yaml:"env"`
-	Secrets             map[string]string `json:"secrets" yaml:"secrets"`
-	Min                 int               `yaml:"min" json:"min"`
-	Max                 int               `yaml:"max" json:"max"`
-	Version             string            `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
-	Timeout             *int              `json:"timeout" yaml:"timeout"`
-	BasePath            string            `json:"basePath" yaml:"basePath"`                       // base path where API will listen on (e.g. for aws apigateway -> lambda integration)
-	MaxMemory           *int              `json:"maxMemory" yaml:"maxMemory"`                     // max memory to use for container
-	MaxEphemeralStorage *int              `json:"maxEphemeralStorage" yaml:"maxEphemeralStorage"` // max ephemeral storage in MB
-	Uses                []string          `json:"uses" yaml:"uses"`
-	StaticEgressIP      *bool             `json:"staticEgressIP" yaml:"staticEgressIP"` // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
-	CloudExtras         *any              `json:"cloudExtras" yaml:"cloudExtras"`       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
+	Image               *ContainerImage                 `json:"image" yaml:"image"`
+	Domain              string                          `json:"domain" yaml:"domain"`
+	BaseDnsZone         string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
+	Env                 map[string]string               `json:"env" yaml:"env"`
+	Secrets             map[string]string               `json:"secrets" yaml:"secrets"`
+	Min                 int                             `yaml:"min" json:"min"`
+	Max                 int                             `yaml:"max" json:"max"`
+	Version             string                          `json:"version" yaml:"version"` // only when need to forcefully redeploy (e.g. aws secrets)
+	Timeout             *int                            `json:"timeout" yaml:"timeout"`
+	BasePath            string                          `json:"basePath" yaml:"basePath"`                       // base path where API will listen on (e.g. for aws apigateway -> lambda integration)
+	MaxMemory           *int                            `json:"maxMemory" yaml:"maxMemory"`                     // max memory to use for container
+	MaxEphemeralStorage *int                            `json:"maxEphemeralStorage" yaml:"maxEphemeralStorage"` // max ephemeral storage in MB
+	Uses                []string                        `json:"uses" yaml:"uses"`
+	StaticEgressIP      *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`                 // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
+	CloudExtras         *any                            `json:"cloudExtras" yaml:"cloudExtras"`                       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
+	Dependencies        []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
 }
 
 type TextVolume struct {

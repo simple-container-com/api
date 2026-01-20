@@ -25,6 +25,10 @@ func (l *LambdaInput) Uses() []string {
 	return l.StackConfig.Uses
 }
 
+func (l *LambdaInput) DependsOnResources() []api.StackConfigDependencyResource {
+	return l.StackConfig.Dependencies
+}
+
 func (l *LambdaInput) OverriddenBaseZone() string {
 	return l.StackConfig.BaseDnsZone
 }
