@@ -376,11 +376,13 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 		// Add permission to allow anonymous invocation via function URL
 		// This is required for AuthorizationType: "NONE" to work properly
+		// AWS now requires FunctionUrlAuthType to be specified for public access
 		urlPermissionName := fmt.Sprintf("%s-url-permission", lambdaName)
 		_, err = lambda.NewPermission(ctx, urlPermissionName, &lambda.PermissionArgs{
-			Action:    sdk.String("lambda:InvokeFunctionUrl"),
-			Function:  lambdaFunc.Name,
-			Principal: sdk.String("*"),
+			Action:              sdk.String("lambda:InvokeFunctionUrl"),
+			Function:            lambdaFunc.Name,
+			Principal:           sdk.String("*"),
+			FunctionUrlAuthType: sdk.String("NONE"),
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create lambda function url permission")
