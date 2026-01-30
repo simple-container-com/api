@@ -1,0 +1,51 @@
+name: Simple Forge Agent
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Job ID from the queue'
+        required: true
+        type: string
+      issue_id:
+        description: 'GitHub issue ID'
+        required: true
+        type: string
+      branch:
+        description: 'Target branch for changes'
+        required: true
+        type: string
+      script_version:
+        description: 'Script version to use'
+        required: false
+        type: string
+        default: 'latest'
+
+jobs:
+  generate-code:
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install welder
+        run: curl -s "https://welder.simple-container.com/welder.sh" | bash
+
+      - name: Run Simple Forge
+        uses: simple-container-com/forge-action/dockerless@v1
+        with:
+          job_id: ${{ inputs.job_id }}
+          issue_id: ${{ inputs.issue_id }}
+          service_url: 'https://forge.simple-container.com'
+          branch: ${{ inputs.branch }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          simple_forge_api_key: ${{ secrets.SIMPLE_FORGE_API_KEY }}
+          github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          script_version: ${{ inputs.script_version }}
+          skip_dependency_install: 'false'
