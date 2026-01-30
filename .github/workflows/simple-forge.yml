@@ -14,6 +14,11 @@ on:
         description: 'Target branch for changes'
         required: true
         type: string
+      service_url:
+        description: 'Simple Forge service URL'
+        required: true
+        type: string
+        default: 'https://forge.simple-container.com'
       script_version:
         description: 'Script version to use'
         required: false
@@ -42,7 +47,7 @@ jobs:
         with:
           job_id: ${{ inputs.job_id }}
           issue_id: ${{ inputs.issue_id }}
-          service_url: 'https://forge.simple-container.com'
+          service_url: "${{ inputs.service_url || 'https://forge.simple-container.com' }}"
           branch: ${{ inputs.branch }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           simple_forge_api_key: ${{ secrets.SIMPLE_FORGE_API_KEY }}
