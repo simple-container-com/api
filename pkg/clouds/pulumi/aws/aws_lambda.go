@@ -373,6 +373,18 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create lambda function url")
 		}
+
+		// Add permission to allow anonymous invocation via function URL
+		// This is required for AuthorizationType: "NONE" to work properly
+		urlPermissionName := fmt.Sprintf("%s-url-permission", lambdaName)
+		_, err = lambda.NewPermission(ctx, urlPermissionName, &lambda.PermissionArgs{
+			Action:    sdk.String("lambda:InvokeFunctionUrl"),
+			Function:  lambdaFunc.Name,
+			Principal: sdk.String("*"),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create lambda function url permission")
+		}
 		ctx.Export(fmt.Sprintf("%s-%s-function-url", stack.Name, deployParams.Environment), functionUrl.FunctionUrl)
 		if stackConfig.Domain != "" {
 			_, err := provisionDNSForLambda(ctx, stack, params, lambdaName, stackConfig.Domain, functionUrl.FunctionUrl)
