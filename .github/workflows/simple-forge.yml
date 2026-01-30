@@ -29,8 +29,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Setup Go with Blacksmith Cache
+        uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
 
