@@ -43,7 +43,7 @@ jobs:
         run: curl -s "https://welder.simple-container.com/welder.sh" | bash
 
       - name: Run Simple Forge
-        uses: simple-container-com/forge-action/dockerless@v1
+        uses: simple-container-com/forge-action/.github/actions/dockerless@v1
         with:
           job_id: ${{ inputs.job_id }}
           issue_id: ${{ inputs.issue_id }}
