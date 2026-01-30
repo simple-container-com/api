@@ -73,12 +73,11 @@ jobs:
           echo "cicd-bot-telegram-token=$(sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
           echo "cicd-bot-telegram-chat-id=$(sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
 
-      - name: Setup Docker Buildx with advanced caching
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:buildx-stable-1
-          buildkitd-flags: --allow-insecure-entitlement security.insecure
+
+      - name: Setup Blacksmith Docker Builder
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Build static github-actions binary with welder (cached Go modules)
         run: |
@@ -89,20 +88,17 @@ jobs:
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
 
-      - name: Build and push Docker image with BuildKit caching
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          # Build and push with advanced caching using BuildKit
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file github-actions-staging.Dockerfile \
-            --tag simplecontainer/github-actions:staging \
-            --tag simplecontainer/github-actions:${{ github.ref_name }} \
-            --push \
-            .
+      - name: Build and push github-actions-staging image with Blacksmith caching
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./github-actions-staging.Dockerfile
+          push: true
+          tags: |
+            simplecontainer/github-actions:staging
+            simplecontainer/github-actions:${{ github.ref_name }}
+          cache-from: type=registry,ref=simplecontainer/github-actions:stagingcache
+          cache-to: type=registry,ref=simplecontainer/github-actions:stagingcache,mode=max
 
       - name: Image built successfully
         run: |

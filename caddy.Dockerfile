@@ -8,21 +8,13 @@ FROM caddy:${version}-builder AS builder
 ARG version
 ENV CADDY_VERSION="${version}"
 
-# Set up a dedicated stage for caching Go modules
-FROM builder AS go-mod-cache
-
-# Download Go modules to leverage Docker caching
-WORKDIR /usr/local/go/src
-RUN go mod download
-
-# Now do the actual build, leveraging cached Go modules
+# Build Caddy with cache mounts for optimal Blacksmith performance
 FROM builder AS final-builder
 
-# Copy cached Go modules from the previous stage
-COPY --from=go-mod-cache /go/pkg /go/pkg
-
-# Build Caddy with the required module
-RUN xcaddy build "v${CADDY_VERSION}" \
+# Build Caddy with the required module using cache mounts
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    xcaddy build "v${CADDY_VERSION}" \
         --with github.com/grafana/certmagic-gcs@v0.1.2 && \
     caddy version
 

@@ -8,15 +8,21 @@ WORKDIR /app
 # Set Go toolchain to auto to allow downloading newer versions
 ENV GOTOOLCHAIN=auto
 
-# Copy go mod files
+# Copy go mod files first for better layer caching
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount for Blacksmith optimization
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 # Copy source code
 COPY . .
 
-# Build the GitHub Actions binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o github-actions ./cmd/github-actions
+# Build the GitHub Actions binary with cache mounts for optimal Blacksmith performance
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o github-actions ./cmd/github-actions
 
 # Final stage - minimal runtime with optimizations
 FROM alpine:3.19

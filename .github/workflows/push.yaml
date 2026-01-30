@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
-      - name: install sc tool (latest release) 
+      - name: install sc tool (latest release)
         shell: bash
         run: |-
           # Install latest SC release to get secrets for embeddings generation
@@ -53,10 +53,14 @@ jobs:
           ${{ secrets.SC_CONFIG }}
           EOF
           sc secrets reveal
-      - name: get openai key 
+      - name: get openai key
         id: get-openai-key
         run: |
           echo "openai-key=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+      - name: Setup Go with Blacksmith Cache
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
       - name: prepare sc tool (rebuild)
         shell: bash
         env:
@@ -76,7 +80,81 @@ jobs:
         run: |-
           git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make --timestamps
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") docker build --push --timestamps
+      
+      # Setup Docker Buildx with Blacksmith optimizations
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Setup Blacksmith Docker Builder
+        uses: useblacksmith/setup-docker-builder@v1
+      
+      - name: Login to DockerHub
+        shell: bash
+        run: |
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+      
+      # Build kubectl image with Blacksmith caching
+      - name: Build and push kubectl image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./kubectl.Dockerfile
+          push: true
+          tags: |
+            simplecontainer/kubectl:latest
+            simplecontainer/kubectl:${{ needs.prepare.outputs.version }}
+          cache-from: type=registry,ref=simplecontainer/kubectl:buildcache
+          cache-to: type=registry,ref=simplecontainer/kubectl:buildcache,mode=max
+      
+      # Build caddy image with Blacksmith caching
+      - name: Build and push caddy image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./caddy.Dockerfile
+          push: true
+          tags: |
+            simplecontainer/caddy:latest
+            simplecontainer/caddy:${{ needs.prepare.outputs.version }}
+          cache-from: type=registry,ref=simplecontainer/caddy:buildcache
+          cache-to: type=registry,ref=simplecontainer/caddy:buildcache,mode=max
+          build-args: |
+            version=2.8.4
+      
+      # Build github-actions image with Blacksmith caching and Go optimizations
+      - name: Build and push github-actions image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./github-actions.Dockerfile
+          push: true
+          tags: |
+            simplecontainer/github-actions:latest
+            simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
+          cache-from: type=registry,ref=simplecontainer/github-actions:buildcache
+          cache-to: type=registry,ref=simplecontainer/github-actions:buildcache,mode=max
+      
+      # Build cloud-helpers-aws image with Blacksmith caching
+      - name: Build and push cloud-helpers-aws image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: ./cloud-helpers.aws.Dockerfile
+          push: true
+          tags: |
+            simplecontainer/cloud-helpers:aws-latest
+            simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
+          cache-from: type=registry,ref=simplecontainer/cloud-helpers:awscache
+          cache-to: type=registry,ref=simplecontainer/cloud-helpers:awscache,mode=max
+      
+      # Tag release after successful Docker builds
+      - name: Tag release
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |-
+          git tag ${VERSION} || echo "Already set tag ${VERSION}"
+          git push -f origin ${VERSION} || echo "Tag ${VERSION} already exists in origin"
       - name: publish sc tool
         shell: bash
         env:
