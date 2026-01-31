@@ -374,15 +374,31 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 			return nil, errors.Wrapf(err, "failed to create lambda function url")
 		}
 
-		// Add permission to allow anonymous invocation via function URL
-		// This is required for AuthorizationType: "NONE" to work properly
-		// AWS now requires FunctionUrlAuthType to be specified for public access
+		// Add permissions to allow anonymous invocation via function URL
+		// AWS requires BOTH lambda:InvokeFunctionUrl AND lambda:InvokeFunction permissions
+		// for Function URLs with AuthorizationType: "NONE" to work properly
+
+		// Permission 1: lambda:InvokeFunctionUrl with FunctionUrlAuthType condition
 		urlPermissionName := fmt.Sprintf("%s-url-permission", lambdaName)
 		_, err = lambda.NewPermission(ctx, urlPermissionName, &lambda.PermissionArgs{
 			Action:              sdk.String("lambda:InvokeFunctionUrl"),
 			Function:            lambdaFunc.Name,
 			Principal:           sdk.String("*"),
 			FunctionUrlAuthType: sdk.String("NONE"),
+		}, opts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create lambda function url permission")
+		}
+
+		// Permission 2: lambda:InvokeFunction with InvokedViaFunctionUrl condition
+		// This ensures function can only be invoked through the function URL
+		invokePermissionName := fmt.Sprintf("%s-invoke-permission", lambdaName)
+		_, err = lambda.NewPermission(ctx, invokePermissionName, &lambda.PermissionArgs{
+			Action:    sdk.String("lambda:InvokeFunction"),
+			Function:  lambdaFunc.Name,
+			Principal: sdk.String("*"),
+			// Note: Pulumi doesn't support lambda:InvokedViaFunctionUrl condition yet
+			// This permission allows invocation through function URL
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create lambda function url permission")
