@@ -19,6 +19,10 @@ on:
         required: true
         type: string
         default: 'https://forge.simple-container.com'
+      model_name:
+        description: 'Claude model to use for generation'
+        required: false
+        default: 'claude-sonnet-4-5'
       script_version:
         description: 'Script version to use'
         required: false
@@ -49,6 +53,7 @@ jobs:
           issue_id: ${{ inputs.issue_id }}
           service_url: "${{ inputs.service_url || 'https://forge.simple-container.com' }}"
           branch: ${{ inputs.branch }}
+          model_name: ${{ inputs.model_name }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           simple_forge_api_key: ${{ secrets.SIMPLE_FORGE_API_KEY }}
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
