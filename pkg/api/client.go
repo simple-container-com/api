@@ -137,6 +137,7 @@ type StackConfigSingleImage struct {
 	StaticEgressIP      *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`                 // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
 	CloudExtras         *any                            `json:"cloudExtras" yaml:"cloudExtras"`                       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 	Dependencies        []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
+	Security            *SecurityDescriptor             `json:"security,omitempty" yaml:"security,omitempty"`         // container security configuration (signing, SBOM, scanning)
 }
 
 type TextVolume struct {
