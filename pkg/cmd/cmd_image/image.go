@@ -15,6 +15,7 @@ func NewImageCmd() *cobra.Command {
 	// Add subcommands
 	cmd.AddCommand(NewSignCmd())
 	cmd.AddCommand(NewVerifyCmd())
+	cmd.AddCommand(NewScanCmd())
 
 	return cmd
 }

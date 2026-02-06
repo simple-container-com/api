@@ -2,11 +2,13 @@ package security
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/simple-container-com/api/pkg/security/sbom"
+	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
@@ -33,6 +35,130 @@ func NewSecurityExecutor(ctx context.Context, config *SecurityConfig) (*Security
 		Context: execCtx,
 		Config:  config,
 	}, nil
+}
+
+// ExecuteScanning performs vulnerability scanning on the image
+// This runs FIRST in the security workflow (fail-fast pattern)
+func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string) (*scan.ScanResult, error) {
+	if !e.Config.Enabled || e.Config.Scan == nil || !e.Config.Scan.Enabled {
+		return nil, nil // Scanning disabled
+	}
+
+	// Validate scan configuration
+	if err := e.Config.Scan.Validate(); err != nil {
+		if e.Config.Scan.Required {
+			return nil, fmt.Errorf("scan validation failed: %w", err)
+		}
+		// Fail-open: log warning and continue
+		fmt.Printf("Warning: scan validation failed, skipping: %v\n", err)
+		return nil, nil
+	}
+
+	var results []*scan.ScanResult
+
+	// Run each configured scanner
+	for _, toolName := range e.Config.Scan.Tools {
+		// Handle "all" tool
+		if toolName == scan.ScanToolAll {
+			toolName = scan.ScanToolGrype
+		}
+
+		scanner, err := scan.NewScanner(toolName)
+		if err != nil {
+			if e.Config.Scan.Required {
+				return nil, fmt.Errorf("creating scanner %s: %w", toolName, err)
+			}
+			fmt.Printf("Warning: failed to create scanner %s, skipping: %v\n", toolName, err)
+			continue
+		}
+
+		// Check if scanner is installed
+		if err := scanner.CheckInstalled(ctx); err != nil {
+			if e.Config.Scan.Required {
+				return nil, fmt.Errorf("scanner %s not installed: %w", toolName, err)
+			}
+			fmt.Printf("Warning: scanner %s not installed, skipping: %v\n", toolName, err)
+			continue
+		}
+
+		// Run scan
+		fmt.Printf("Running %s vulnerability scan on %s...\n", toolName, imageRef)
+		result, err := scanner.Scan(ctx, imageRef)
+		if err != nil {
+			if e.Config.Scan.Required {
+				return nil, fmt.Errorf("scan with %s failed: %w", toolName, err)
+			}
+			fmt.Printf("Warning: scan with %s failed, continuing: %v\n", toolName, err)
+			continue
+		}
+
+		fmt.Printf("%s scan complete: %s\n", toolName, result.Summary.String())
+		results = append(results, result)
+	}
+
+	if len(results) == 0 {
+		if e.Config.Scan.Required {
+			return nil, fmt.Errorf("no scanners produced results")
+		}
+		fmt.Println("Warning: no scan results available")
+		return nil, nil
+	}
+
+	// Merge results if multiple scanners were used
+	var finalResult *scan.ScanResult
+	if len(results) > 1 {
+		finalResult = scan.MergeResults(results...)
+		fmt.Printf("Merged scan results (deduplicated by CVE ID): %s\n", finalResult.Summary.String())
+	} else {
+		finalResult = results[0]
+	}
+
+	// Enforce policy
+	if e.Config.Scan.FailOn != "" {
+		enforcer := scan.NewPolicyEnforcer(e.Config.Scan)
+		if err := enforcer.Enforce(finalResult); err != nil {
+			// Policy violation - this should block deployment
+			return nil, fmt.Errorf("vulnerability policy violation: %w", err)
+		}
+		fmt.Printf("✓ Vulnerability policy check passed (failOn: %s)\n", e.Config.Scan.FailOn)
+	}
+
+	// Save locally if configured
+	if e.Config.Scan.ShouldSaveLocal() {
+		if err := e.saveScanLocal(finalResult); err != nil {
+			if e.Config.Scan.Required {
+				return nil, fmt.Errorf("saving scan results locally: %w", err)
+			}
+			fmt.Printf("Warning: failed to save scan results locally: %v\n", err)
+		}
+	}
+
+	return finalResult, nil
+}
+
+// saveScanLocal saves scan results to local file
+func (e *SecurityExecutor) saveScanLocal(result *scan.ScanResult) error {
+	outputPath := e.Config.Scan.Output.Local
+
+	// Create directory if needed
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("creating output directory: %w", err)
+	}
+
+	// Marshal to JSON
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling scan results: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(outputPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing scan results file: %w", err)
+	}
+
+	fmt.Printf("Scan results saved to: %s\n", outputPath)
+	return nil
 }
 
 // ExecuteSigning performs signing operations on the image
