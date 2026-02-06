@@ -137,6 +137,7 @@ type StackConfigSingleImage struct {
 	StaticEgressIP      *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`                 // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
 	CloudExtras         *any                            `json:"cloudExtras" yaml:"cloudExtras"`                       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 	Dependencies        []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
+	Security            *SecurityDescriptor             `json:"security,omitempty" yaml:"security,omitempty"`         // container image security configuration
 }
 
 type TextVolume struct {
@@ -175,6 +176,7 @@ type StackConfigCompose struct {
 	StaticEgressIP    *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`     // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
 	ImagePullPolicy   *string                         `json:"imagePullPolicy" yaml:"imagePullPolicy"`   // applicable only for certain compute types, e.g. Kubernetes
 	ClusterIPAddress  *string                         `json:"clusterIPAddress" yaml:"clusterIPAddress"` // applicable only for certain compute types, e.g. Kubernetes
+	Security          *SecurityDescriptor             `json:"security,omitempty" yaml:"security,omitempty"` // container image security configuration
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack (client configuration)

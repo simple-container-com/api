@@ -13,12 +13,7 @@ type SecurityExecutor struct {
 	Config  *SecurityConfig
 }
 
-// SecurityConfig contains configuration for all security operations
-type SecurityConfig struct {
-	Enabled bool
-	Signing *signing.Config
-	// Future: SBOM, Provenance, Scanning configs
-}
+// Note: SecurityConfig is now defined in config.go with comprehensive types
 
 // NewSecurityExecutor creates a new security executor
 func NewSecurityExecutor(ctx context.Context, config *SecurityConfig) (*SecurityExecutor, error) {
@@ -80,15 +75,10 @@ func (e *SecurityExecutor) ExecuteSigning(ctx context.Context, imageRef string) 
 
 // ValidateConfig validates the security configuration
 func (e *SecurityExecutor) ValidateConfig() error {
-	if !e.Config.Enabled {
+	if e.Config == nil {
 		return nil
 	}
 
-	if e.Config.Signing != nil && e.Config.Signing.Enabled {
-		if err := e.Config.Signing.Validate(); err != nil {
-			return fmt.Errorf("signing config validation failed: %w", err)
-		}
-	}
-
-	return nil
+	// Use the comprehensive validation from config.go
+	return e.Config.Validate()
 }
