@@ -22,6 +22,7 @@ type ClientDescriptor struct {
 	SchemaVersion string                           `json:"schemaVersion" yaml:"schemaVersion"`
 	Defaults      map[string]interface{}           `json:"defaults,omitempty" yaml:"defaults,omitempty"` // Maximum flexibility - supports any user-defined YAML anchors, templates, and configuration
 	Stacks        map[string]StackClientDescriptor `json:"stacks" yaml:"stacks"`
+	Security      *SecurityDescriptor              `json:"security,omitempty" yaml:"security,omitempty"` // Container security configuration
 
 	// Additional flexible root-level properties for future extensibility
 	// Any other user-defined root-level sections will be preserved via our text manipulation approach

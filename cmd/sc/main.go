@@ -21,6 +21,7 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_image"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_release"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_sbom"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
@@ -87,6 +88,7 @@ func main() {
 		cmd_cicd.NewCicdCmd(rootCmdInstance),
 		cmd_image.NewImageCmd(),
 		cmd_sbom.NewSBOMCommand(),
+		cmd_release.NewReleaseCommand(rootCmdInstance),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")
