@@ -32,7 +32,7 @@ func TestNewKeylessVerifier(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			verifier := NewKeylessVerifier(tt.oidcIssuer, tt.identityRegexp, tt.timeout)
 			if verifier == nil {
-				t.Error("NewKeylessVerifier() returned nil")
+				t.Fatal("NewKeylessVerifier() returned nil")
 			}
 			if verifier.OIDCIssuer != tt.oidcIssuer {
 				t.Errorf("OIDCIssuer = %v, want %v", verifier.OIDCIssuer, tt.oidcIssuer)
@@ -69,7 +69,7 @@ func TestNewKeyBasedVerifier(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			verifier := NewKeyBasedVerifier(tt.publicKey, tt.timeout)
 			if verifier == nil {
-				t.Error("NewKeyBasedVerifier() returned nil")
+				t.Fatal("NewKeyBasedVerifier() returned nil")
 			}
 			if verifier.PublicKey != tt.publicKey {
 				t.Errorf("PublicKey = %v, want %v", verifier.PublicKey, tt.publicKey)
