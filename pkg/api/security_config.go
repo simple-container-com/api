@@ -3,11 +3,11 @@ package api
 // SecurityDescriptor defines security configuration for container images
 // This is the API-level representation that maps to pkg/security types
 type SecurityDescriptor struct {
-	Enabled    bool                 `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Signing    *SigningDescriptor   `json:"signing,omitempty" yaml:"signing,omitempty"`
-	SBOM       *SBOMDescriptor      `json:"sbom,omitempty" yaml:"sbom,omitempty"`
+	Enabled    bool                  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Signing    *SigningDescriptor    `json:"signing,omitempty" yaml:"signing,omitempty"`
+	SBOM       *SBOMDescriptor       `json:"sbom,omitempty" yaml:"sbom,omitempty"`
 	Provenance *ProvenanceDescriptor `json:"provenance,omitempty" yaml:"provenance,omitempty"`
-	Scan       *ScanDescriptor      `json:"scan,omitempty" yaml:"scan,omitempty"`
+	Scan       *ScanDescriptor       `json:"scan,omitempty" yaml:"scan,omitempty"`
 }
 
 // SigningDescriptor configures image signing
@@ -31,12 +31,12 @@ type VerifyDescriptor struct {
 
 // SBOMDescriptor configures SBOM generation
 type SBOMDescriptor struct {
-	Enabled   bool               `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Format    string             `json:"format,omitempty" yaml:"format,omitempty"`       // Default: "cyclonedx-json"
-	Generator string             `json:"generator,omitempty" yaml:"generator,omitempty"` // Default: "syft"
-	Output    *OutputDescriptor  `json:"output,omitempty" yaml:"output,omitempty"`
-	Attach    *AttachDescriptor  `json:"attach,omitempty" yaml:"attach,omitempty"`
-	Required  bool               `json:"required,omitempty" yaml:"required,omitempty"`
+	Enabled   bool              `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Format    string            `json:"format,omitempty" yaml:"format,omitempty"`       // Default: "cyclonedx-json"
+	Generator string            `json:"generator,omitempty" yaml:"generator,omitempty"` // Default: "syft"
+	Output    *OutputDescriptor `json:"output,omitempty" yaml:"output,omitempty"`
+	Attach    *AttachDescriptor `json:"attach,omitempty" yaml:"attach,omitempty"`
+	Required  bool              `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // OutputDescriptor configures output destinations
@@ -53,14 +53,14 @@ type AttachDescriptor struct {
 
 // ProvenanceDescriptor configures SLSA provenance
 type ProvenanceDescriptor struct {
-	Enabled         bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Format          string                 `json:"format,omitempty" yaml:"format,omitempty"` // Default: "slsa-v1.0"
-	Output          *OutputDescriptor      `json:"output,omitempty" yaml:"output,omitempty"`
-	IncludeGit      bool                   `json:"includeGit,omitempty" yaml:"includeGit,omitempty"`
-	IncludeDocker   bool                   `json:"includeDockerfile,omitempty" yaml:"includeDockerfile,omitempty"`
-	Required        bool                   `json:"required,omitempty" yaml:"required,omitempty"`
-	Builder         *BuilderDescriptor     `json:"builder,omitempty" yaml:"builder,omitempty"`
-	Metadata        *MetadataDescriptor    `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Enabled       bool                `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Format        string              `json:"format,omitempty" yaml:"format,omitempty"` // Default: "slsa-v1.0"
+	Output        *OutputDescriptor   `json:"output,omitempty" yaml:"output,omitempty"`
+	IncludeGit    bool                `json:"includeGit,omitempty" yaml:"includeGit,omitempty"`
+	IncludeDocker bool                `json:"includeDockerfile,omitempty" yaml:"includeDockerfile,omitempty"`
+	Required      bool                `json:"required,omitempty" yaml:"required,omitempty"`
+	Builder       *BuilderDescriptor  `json:"builder,omitempty" yaml:"builder,omitempty"`
+	Metadata      *MetadataDescriptor `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 // BuilderDescriptor configures builder identification
@@ -76,16 +76,16 @@ type MetadataDescriptor struct {
 
 // ScanDescriptor configures vulnerability scanning
 type ScanDescriptor struct {
-	Enabled  bool                   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Tools    []ScanToolDescriptor   `json:"tools,omitempty" yaml:"tools,omitempty"`
-	FailOn   string                 `json:"failOn,omitempty" yaml:"failOn,omitempty"`   // "critical", "high", "medium", "low"
-	WarnOn   string                 `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`   // "critical", "high", "medium", "low"
-	Required bool                   `json:"required,omitempty" yaml:"required,omitempty"`
+	Enabled  bool                 `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Tools    []ScanToolDescriptor `json:"tools,omitempty" yaml:"tools,omitempty"`
+	FailOn   string               `json:"failOn,omitempty" yaml:"failOn,omitempty"` // "critical", "high", "medium", "low"
+	WarnOn   string               `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // "critical", "high", "medium", "low"
+	Required bool                 `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // ScanToolDescriptor configures a specific scanning tool
 type ScanToolDescriptor struct {
-	Name     string `json:"name,omitempty" yaml:"name,omitempty"`             // "grype", "trivy"
+	Name     string `json:"name,omitempty" yaml:"name,omitempty"` // "grype", "trivy"
 	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Required bool   `json:"required,omitempty" yaml:"required,omitempty"`
 	FailOn   string `json:"failOn,omitempty" yaml:"failOn,omitempty"`

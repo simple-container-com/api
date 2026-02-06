@@ -163,9 +163,9 @@ func TestToolRegistryGetToolsByCategory(t *testing.T) {
 	registry := NewToolRegistry()
 
 	tests := []struct {
-		category     string
-		expectedMin  int
-		shouldHave   []string
+		category    string
+		expectedMin int
+		shouldHave  []string
 	}{
 		{"signing", 1, []string{"cosign"}},
 		{"sbom", 1, []string{"syft"}},

@@ -37,7 +37,7 @@ func TestNewKeylessSigner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			signer := NewKeylessSigner(tt.oidcToken, tt.timeout)
 			if signer == nil {
-				t.Error("NewKeylessSigner() returned nil")
+				t.Fatal("NewKeylessSigner() returned nil")
 			}
 			if signer.OIDCToken != tt.oidcToken {
 				t.Errorf("OIDCToken = %v, want %v", signer.OIDCToken, tt.oidcToken)

@@ -42,10 +42,10 @@ func TestParseVersion(t *testing.T) {
 
 func TestVersionIsAtLeast(t *testing.T) {
 	tests := []struct {
-		name  string
-		v1    string
-		v2    string
-		want  bool
+		name string
+		v1   string
+		v2   string
+		want bool
 	}{
 		{"same version", "1.2.3", "1.2.3", true},
 		{"higher major", "2.0.0", "1.9.9", true},

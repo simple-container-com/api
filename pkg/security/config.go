@@ -44,7 +44,7 @@ type ProvenanceConfig struct {
 	Output        *OutputConfig   `json:"output,omitempty" yaml:"output,omitempty"`
 	IncludeGit    bool            `json:"includeGit,omitempty" yaml:"includeGit,omitempty"`               // Include git metadata
 	IncludeDocker bool            `json:"includeDockerfile,omitempty" yaml:"includeDockerfile,omitempty"` // Include Dockerfile
-	Required      bool            `json:"required,omitempty" yaml:"required,omitempty"`                    // Fail if provenance generation fails
+	Required      bool            `json:"required,omitempty" yaml:"required,omitempty"`                   // Fail if provenance generation fails
 	Builder       *BuilderConfig  `json:"builder,omitempty" yaml:"builder,omitempty"`
 	Metadata      *MetadataConfig `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
@@ -64,8 +64,8 @@ type MetadataConfig struct {
 type ScanConfig struct {
 	Enabled  bool             `json:"enabled" yaml:"enabled"`
 	Tools    []ScanToolConfig `json:"tools,omitempty" yaml:"tools,omitempty"`
-	FailOn   Severity         `json:"failOn,omitempty" yaml:"failOn,omitempty"`   // Fail on this severity or higher
-	WarnOn   Severity         `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`   // Warn on this severity or higher
+	FailOn   Severity         `json:"failOn,omitempty" yaml:"failOn,omitempty"`     // Fail on this severity or higher
+	WarnOn   Severity         `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`     // Warn on this severity or higher
 	Required bool             `json:"required,omitempty" yaml:"required,omitempty"` // Fail if scan fails
 }
 

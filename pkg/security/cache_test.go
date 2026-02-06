@@ -121,7 +121,9 @@ func TestCacheTTLExpiration(t *testing.T) {
 
 	// Write expired entry
 	entryData, _ := marshalJSON(entry)
-	os.WriteFile(path, entryData, 0600)
+	if err := os.WriteFile(path, entryData, 0o600); err != nil {
+		t.Fatalf("Failed to write expired entry: %v", err)
+	}
 
 	// Try to get expired entry
 	_, found, err = cache.Get(key)

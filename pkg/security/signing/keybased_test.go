@@ -39,7 +39,7 @@ func TestNewKeyBasedSigner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			signer := NewKeyBasedSigner(tt.privateKey, tt.password, tt.timeout)
 			if signer == nil {
-				t.Error("NewKeyBasedSigner() returned nil")
+				t.Fatal("NewKeyBasedSigner() returned nil")
 			}
 			if signer.PrivateKey != tt.privateKey {
 				t.Errorf("PrivateKey = %v, want %v", signer.PrivateKey, tt.privateKey)
