@@ -18,6 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cicd"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_image"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
@@ -83,6 +84,7 @@ func main() {
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 		cmd_stack.NewStackCmd(rootCmdInstance),
 		cmd_cicd.NewCicdCmd(rootCmdInstance),
+		cmd_image.NewImageCmd(),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")
