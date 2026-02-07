@@ -131,9 +131,34 @@ type CloudComposeDescriptor struct {
 }
 
 type SecretsConfigDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
+	Type          string `json:"type" yaml:"type"`
+	Config        `json:",inline" yaml:",inline"`
+	Inherit       `json:",inline" yaml:",inline"`
+	SecretsConfig *EnvironmentSecretsConfig `json:"secretsConfig,omitempty" yaml:"secretsConfig,omitempty"`
+}
+
+// EnvironmentSecretsConfig defines environment-specific secret filtering rules
+type EnvironmentSecretsConfig struct {
+	// Mode determines how secrets are filtered: "include", "exclude", or "override"
+	Mode string `json:"mode" yaml:"mode"`
+
+	// Secrets is a map of environment names to their secret configurations
+	Secrets map[string]SecretsConfigMap `json:"secrets" yaml:"secrets"`
+}
+
+// SecretsConfigMap defines secret reference patterns for an environment
+type SecretsConfigMap struct {
+	// InheritAll when true, all secrets from the parent are inherited (for exclude mode)
+	InheritAll bool `json:"inheritAll,omitempty" yaml:"inheritAll,omitempty"`
+
+	// Include lists secrets to make available (for include mode)
+	Include []string `json:"include,omitempty" yaml:"include,omitempty"`
+
+	// Exclude lists secrets to hide (for exclude mode)
+	Exclude []string `json:"exclude,omitempty" yaml:"exclude,omitempty"`
+
+	// Override provides literal values or mappings for secrets (for override mode)
+	Override map[string]string `json:"override,omitempty" yaml:"override,omitempty"`
 }
 
 // ProvisionerDescriptor describes the provisioner schema

@@ -99,10 +99,26 @@ func (s *RegistrarDescriptor) Copy() RegistrarDescriptor {
 }
 
 func (s *SecretsConfigDescriptor) Copy() SecretsConfigDescriptor {
+	var secretsConfigCopy *EnvironmentSecretsConfig
+	if s.SecretsConfig != nil {
+		secretsConfigCopy = &EnvironmentSecretsConfig{
+			Mode:    s.SecretsConfig.Mode,
+			Secrets: make(map[string]SecretsConfigMap),
+		}
+		for k, v := range s.SecretsConfig.Secrets {
+			secretsConfigCopy.Secrets[k] = SecretsConfigMap{
+				InheritAll: v.InheritAll,
+				Include:    append([]string{}, v.Include...),
+				Exclude:    append([]string{}, v.Exclude...),
+				Override:   lo.Assign(map[string]string{}, v.Override),
+			}
+		}
+	}
 	return SecretsConfigDescriptor{
-		Type:    s.Type,
-		Config:  s.Config.Copy(),
-		Inherit: s.Inherit,
+		Type:          s.Type,
+		Config:        s.Config.Copy(),
+		Inherit:       s.Inherit,
+		SecretsConfig: secretsConfigCopy,
 	}
 }
 
