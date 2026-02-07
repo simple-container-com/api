@@ -55,6 +55,7 @@ jobs:
           branch: ${{ inputs.branch }}
           model_name: ${{ inputs.model_name }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com' }}
           simple_forge_api_key: ${{ secrets.SIMPLE_FORGE_API_KEY }}
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           script_version: ${{ inputs.script_version }}
