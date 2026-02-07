@@ -140,6 +140,12 @@ func ReadServerConfigs(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 		res = *withSecrets
 	}
 
+	if withSecretsConfig, err := DetectSecretsConfigType(&res); err != nil {
+		return nil, err
+	} else {
+		res = *withSecretsConfig
+	}
+
 	if withTemplates, err := DetectTemplatesType(&res); err != nil {
 		return nil, err
 	} else {
@@ -299,6 +305,57 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 			return descriptor, err
 		}
 	}
+	return descriptor, nil
+}
+
+func DetectSecretsConfigType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
+	if descriptor.Secrets.IsInherited() {
+		return descriptor, nil
+	}
+	// SecretsConfig is optional, skip if not set
+	if descriptor.Secrets.SecretsConfig == nil {
+		return descriptor, nil
+	}
+
+	// Validate the mode
+	if descriptor.Secrets.SecretsConfig.Mode == "" {
+		return nil, errors.Errorf("secretsConfig.mode is required when secretsConfig is specified")
+	}
+
+	// Validate mode is one of: include, exclude, override
+	validModes := map[string]bool{
+		"include":  true,
+		"exclude":  true,
+		"override": true,
+	}
+	if !validModes[descriptor.Secrets.SecretsConfig.Mode] {
+		return nil, errors.Errorf("invalid secretsConfig.mode %q, must be one of: include, exclude, override", descriptor.Secrets.SecretsConfig.Mode)
+	}
+
+	// Validate each environment config
+	for envName, envConfig := range descriptor.Secrets.SecretsConfig.Secrets {
+		// Validate include mode
+		if descriptor.Secrets.SecretsConfig.Mode == "include" {
+			if len(envConfig.Include) == 0 {
+				return nil, errors.Errorf("secretsConfig.secrets.%s: at least one secret must be specified in include mode", envName)
+			}
+		}
+
+		// Validate exclude mode
+		if descriptor.Secrets.SecretsConfig.Mode == "exclude" {
+			if !envConfig.InheritAll && len(envConfig.Exclude) == 0 {
+				return nil, errors.Errorf("secretsConfig.secrets.%s: inheritAll must be true or exclude must not be empty in exclude mode", envName)
+			}
+		}
+
+		// Validate override mode
+		if descriptor.Secrets.SecretsConfig.Mode == "override" {
+			if len(envConfig.Override) == 0 {
+				return nil, errors.Errorf("secretsConfig.secrets.%s: at least one override must be specified in override mode", envName)
+			}
+		}
+	}
+
 	return descriptor, nil
 }
 
