@@ -25,6 +25,207 @@
       "schemaVersion": {
         "type": "string"
       },
+      "security": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "provenance": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "builder": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "format": {
+                "type": "string"
+              },
+              "includeDockerfile": {
+                "type": "boolean"
+              },
+              "includeGit": {
+                "type": "boolean"
+              },
+              "metadata": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "includeEnv": {
+                    "type": "boolean"
+                  },
+                  "includeMaterials": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "output": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "local": {
+                    "type": "string"
+                  },
+                  "registry": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "sbom": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "attach": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "sign": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "format": {
+                "type": "string"
+              },
+              "generator": {
+                "type": "string"
+              },
+              "output": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "local": {
+                    "type": "string"
+                  },
+                  "registry": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "scan": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "failOn": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "tools": {
+                "items": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "failOn": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "warnOn": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "warnOn": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "signing": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "keyless": {
+                "type": "boolean"
+              },
+              "password": {
+                "type": "string"
+              },
+              "privateKey": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "verify": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "identityRegexp": {
+                    "type": "string"
+                  },
+                  "oidcIssuer": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "stacks": {
         "additionalProperties": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -1,0 +1,67 @@
+{
+  "name": "ProvenanceDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "SLSA provenance configuration schema",
+  "goPackage": "pkg/api/security_config.go",
+  "goStruct": "ProvenanceDescriptor",
+  "resourceType": "provenance-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "builder": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "format": {
+        "type": "string"
+      },
+      "includeDockerfile": {
+        "type": "boolean"
+      },
+      "includeGit": {
+        "type": "boolean"
+      },
+      "metadata": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "includeEnv": {
+            "type": "boolean"
+          },
+          "includeMaterials": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "local": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "required": {
+        "type": "boolean"
+      }
+    },
+    "required": [],
+    "type": "object"
+  }
+}

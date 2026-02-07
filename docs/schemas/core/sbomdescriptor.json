@@ -1,0 +1,54 @@
+{
+  "name": "SBOMDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "SBOM generation configuration schema",
+  "goPackage": "pkg/api/security_config.go",
+  "goStruct": "SBOMDescriptor",
+  "resourceType": "sbom-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "attach": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "sign": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "enabled": {
+        "type": "boolean"
+      },
+      "format": {
+        "type": "string"
+      },
+      "generator": {
+        "type": "string"
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "local": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "required": {
+        "type": "boolean"
+      }
+    },
+    "required": [],
+    "type": "object"
+  }
+}

@@ -9,13 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/simple-container-com/api/pkg/security"
-	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/sbom"
+	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
@@ -40,7 +39,7 @@ func TestE2EFullWorkflowAWSECR(t *testing.T) {
 		dockerfile := `FROM alpine:3.18
 RUN apk add --no-cache curl
 CMD ["sh"]`
-		err := os.WriteFile("/tmp/Dockerfile.test", []byte(dockerfile), 0644)
+		err := os.WriteFile("/tmp/Dockerfile.test", []byte(dockerfile), 0o644)
 		require.NoError(t, err)
 		defer os.Remove("/tmp/Dockerfile.test")
 
@@ -85,17 +84,21 @@ CMD ["sh"]`
 	// Sign image
 	var signedImage string
 	t.Run("SignImage", func(t *testing.T) {
-		signer := signing.NewCosignSigner()
-		cfg := &signing.Config{
-			Keyless: true,
-		}
-
 		// Sign requires OIDC token in CI
 		if os.Getenv("SIGSTORE_ID_TOKEN") == "" {
 			t.Skip("Skipping sign test: SIGSTORE_ID_TOKEN not set")
 		}
 
-		result, err := signer.Sign(ctx, testImage, cfg)
+		cfg := &signing.Config{
+			Enabled:  true,
+			Keyless:  true,
+			Required: true,
+		}
+
+		signer, err := cfg.CreateSigner(os.Getenv("SIGSTORE_ID_TOKEN"))
+		require.NoError(t, err)
+
+		result, err := signer.Sign(ctx, testImage)
 		require.NoError(t, err)
 		assert.NotEmpty(t, result.Signature)
 		signedImage = testImage
@@ -108,14 +111,11 @@ CMD ["sh"]`
 			t.Skip("Skipping verify test: image not signed")
 		}
 
-		verifier := signing.NewCosignVerifier()
-		cfg := &signing.Config{
-			Keyless: true,
-		}
+		verifier := signing.NewKeylessVerifier("https://oauth2.sigstore.dev/auth", ".*", 30*time.Second)
 
-		valid, err := verifier.Verify(ctx, signedImage, cfg)
+		result, err := verifier.Verify(ctx, signedImage)
 		require.NoError(t, err)
-		assert.True(t, valid, "Signature verification should succeed")
+		assert.True(t, result.Verified, "Signature verification should succeed")
 	})
 
 	// Generate SBOM
@@ -128,7 +128,7 @@ CMD ["sh"]`
 		assert.Greater(t, sbomResult.Metadata.PackageCount, 0)
 
 		sbomPath = fmt.Sprintf("/tmp/sbom-%d.json", time.Now().Unix())
-		err = os.WriteFile(sbomPath, sbomResult.Content, 0644)
+		err = os.WriteFile(sbomPath, sbomResult.Content, 0o644)
 		require.NoError(t, err)
 		t.Logf("SBOM generated: %d packages", sbomResult.Metadata.PackageCount)
 	})
@@ -142,12 +142,24 @@ CMD ["sh"]`
 			t.Skip("Skipping SBOM attach test: SIGSTORE_ID_TOKEN not set")
 		}
 
-		attacher := &sbom.Attacher{}
 		cfg := &signing.Config{
-			Keyless: true,
+			Enabled:  true,
+			Keyless:  true,
+			Required: true,
 		}
 
-		err := attacher.Attach(ctx, testImage, sbomPath, sbom.FormatCycloneDXJSON, cfg)
+		attacher := sbom.NewAttacher(cfg)
+
+		// Read SBOM content
+		content, err := os.ReadFile(sbomPath)
+		require.NoError(t, err)
+
+		sbomObj := &sbom.SBOM{
+			Content: content,
+			Format:  sbom.FormatCycloneDXJSON,
+		}
+
+		err = attacher.Attach(ctx, sbomObj, testImage)
 		require.NoError(t, err)
 		t.Logf("SBOM attestation attached to %s", testImage)
 	})
@@ -171,9 +183,9 @@ CMD ["sh"]`
 	// Cleanup
 	t.Run("Cleanup", func(t *testing.T) {
 		if sbomPath != "" {
-			os.Remove(sbomPath)
+			_ = os.Remove(sbomPath)
 		}
-		exec.CommandContext(ctx, "docker", "rmi", testImage).Run()
+		_ = exec.CommandContext(ctx, "docker", "rmi", testImage).Run()
 	})
 }
 
@@ -198,7 +210,7 @@ func TestE2EFullWorkflowGCPGCR(t *testing.T) {
 		dockerfile := `FROM alpine:3.18
 RUN apk add --no-cache curl
 CMD ["sh"]`
-		err := os.WriteFile("/tmp/Dockerfile.test", []byte(dockerfile), 0644)
+		err := os.WriteFile("/tmp/Dockerfile.test", []byte(dockerfile), 0o644)
 		require.NoError(t, err)
 		defer os.Remove("/tmp/Dockerfile.test")
 
@@ -230,9 +242,14 @@ CMD ["sh"]`
 
 		// Sign
 		if os.Getenv("SIGSTORE_ID_TOKEN") != "" {
-			signer := signing.NewCosignSigner()
-			cfg := &signing.Config{Keyless: true}
-			_, err := signer.Sign(ctx, testImage, cfg)
+			cfg := &signing.Config{
+				Enabled:  true,
+				Keyless:  true,
+				Required: true,
+			}
+			signer, err := cfg.CreateSigner(os.Getenv("SIGSTORE_ID_TOKEN"))
+			require.NoError(t, err)
+			_, err = signer.Sign(ctx, testImage)
 			require.NoError(t, err)
 			t.Logf("Image signed successfully")
 		}
@@ -246,7 +263,7 @@ CMD ["sh"]`
 
 	// Cleanup
 	t.Run("Cleanup", func(t *testing.T) {
-		exec.CommandContext(ctx, "docker", "rmi", testImage).Run()
+		_ = exec.CommandContext(ctx, "docker", "rmi", testImage).Run()
 	})
 }
 
@@ -262,7 +279,7 @@ func TestPerformanceBenchmarkEnabled(t *testing.T) {
 	// Measure baseline (no security)
 	start := time.Now()
 	baselineCmd := exec.CommandContext(ctx, "docker", "pull", testImage)
-	baselineCmd.Run()
+	_ = baselineCmd.Run()
 	baselineDuration := time.Since(start)
 
 	// Measure with security (scan only, as it's the quickest)
@@ -310,19 +327,22 @@ func TestConfigurationInheritance(t *testing.T) {
 	// Parent config
 	parentCfg := &security.SecurityConfig{
 		Enabled: true,
-		Signing: &security.SigningConfig{
-			Enabled: lo.ToPtr(true),
-			Keyless: lo.ToPtr(true),
+		Signing: &signing.Config{
+			Enabled:  true,
+			Keyless:  true,
+			Required: false,
 		},
 		Scan: &security.ScanConfig{
-			Enabled: lo.ToPtr(true),
+			Enabled: true,
 		},
 	}
 
 	// Child config (overrides signing)
 	childCfg := &security.SecurityConfig{
-		Signing: &security.SigningConfig{
-			Enabled: lo.ToPtr(false),
+		Signing: &signing.Config{
+			Enabled:  false,
+			Keyless:  true,
+			Required: false,
 		},
 	}
 
@@ -330,26 +350,27 @@ func TestConfigurationInheritance(t *testing.T) {
 	merged := &security.SecurityConfig{
 		Enabled: parentCfg.Enabled,
 		Signing: childCfg.Signing, // Child overrides
-		Scan:    parentCfg.Scan,    // Inherit from parent
+		Scan:    parentCfg.Scan,   // Inherit from parent
 	}
 
 	assert.True(t, merged.Enabled)
-	assert.False(t, *merged.Signing.Enabled, "Child config should override parent")
-	assert.True(t, *merged.Scan.Enabled, "Should inherit from parent")
+	assert.False(t, merged.Signing.Enabled, "Child config should override parent")
+	assert.True(t, merged.Scan.Enabled, "Should inherit from parent")
 }
 
 // TestSecurityOperationsSkippedWhenDisabled tests graceful skipping
 func TestSecurityOperationsSkippedWhenDisabled(t *testing.T) {
 	cfg := &security.SecurityConfig{
 		Enabled: false,
-		Signing: &security.SigningConfig{
-			Enabled: lo.ToPtr(false),
+		Signing: &signing.Config{
+			Enabled:  false,
+			Required: false,
 		},
 	}
 
 	assert.False(t, cfg.Enabled)
 	if cfg.Signing != nil {
-		assert.False(t, *cfg.Signing.Enabled)
+		assert.False(t, cfg.Signing.Enabled)
 	}
 
 	t.Log("Security operations correctly skipped when disabled")

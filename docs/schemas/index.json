@@ -10,7 +10,7 @@
       "description": "Cloudflare cloud provider resources and templates"
     },
     "core": {
-      "count": 6,
+      "count": 11,
       "description": "Simple Container configuration file schemas (client.yaml, server.yaml, etc.)"
     },
     "fs": {

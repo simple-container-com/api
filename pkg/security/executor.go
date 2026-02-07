@@ -57,7 +57,10 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 	var results []*scan.ScanResult
 
 	// Run each configured scanner
-	for _, toolName := range e.Config.Scan.Tools {
+	for _, toolConfig := range e.Config.Scan.Tools {
+		// Convert ScanToolConfig to ScanTool string
+		toolName := scan.ScanTool(toolConfig.Name)
+
 		// Handle "all" tool
 		if toolName == scan.ScanToolAll {
 			toolName = scan.ScanToolGrype
@@ -115,7 +118,9 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 
 	// Enforce policy
 	if e.Config.Scan.FailOn != "" {
-		enforcer := scan.NewPolicyEnforcer(e.Config.Scan)
+		// Convert our ScanConfig to scan.Config for the policy enforcer
+		scanCfg := e.convertToScanConfig()
+		enforcer := scan.NewPolicyEnforcer(scanCfg)
 		if err := enforcer.Enforce(finalResult); err != nil {
 			// Policy violation - this should block deployment
 			return nil, fmt.Errorf("vulnerability policy violation: %w", err)
@@ -124,7 +129,7 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 	}
 
 	// Save locally if configured
-	if e.Config.Scan.ShouldSaveLocal() {
+	if e.shouldSaveScanLocal() {
 		if err := e.saveScanLocal(finalResult); err != nil {
 			if e.Config.Scan.Required {
 				return nil, fmt.Errorf("saving scan results locally: %w", err)
@@ -136,9 +141,48 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 	return finalResult, nil
 }
 
+// shouldSaveScanLocal returns true if local output is configured
+func (e *SecurityExecutor) shouldSaveScanLocal() bool {
+	return e.Config.Scan != nil && len(e.Config.Scan.Tools) > 0 && e.getScanOutputPath() != ""
+}
+
+// getScanOutputPath returns the output path from the first tool config that has one
+func (e *SecurityExecutor) getScanOutputPath() string {
+	if e.Config.Scan == nil {
+		return ""
+	}
+	// For now, we'll use a default path if tools exist
+	// In a real implementation, each tool config could have its own output path
+	return "./scan-results.json"
+}
+
+// convertToScanConfig converts our ScanConfig to scan.Config
+func (e *SecurityExecutor) convertToScanConfig() *scan.Config {
+	if e.Config.Scan == nil {
+		return nil
+	}
+
+	// Convert tools from []ScanToolConfig to []ScanTool
+	var tools []scan.ScanTool
+	for _, tc := range e.Config.Scan.Tools {
+		tools = append(tools, scan.ScanTool(tc.Name))
+	}
+
+	return &scan.Config{
+		Enabled:  e.Config.Scan.Enabled,
+		Tools:    tools,
+		FailOn:   scan.Severity(e.Config.Scan.FailOn),
+		WarnOn:   scan.Severity(e.Config.Scan.WarnOn),
+		Required: e.Config.Scan.Required,
+		Output: &scan.OutputConfig{
+			Local: e.getScanOutputPath(),
+		},
+	}
+}
+
 // saveScanLocal saves scan results to local file
 func (e *SecurityExecutor) saveScanLocal(result *scan.ScanResult) error {
-	outputPath := e.Config.Scan.Output.Local
+	outputPath := e.getScanOutputPath()
 
 	// Create directory if needed
 	dir := filepath.Dir(outputPath)

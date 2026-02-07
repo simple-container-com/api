@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/security/scan"
 )
 
 // NewScanCmd creates the image scan command
