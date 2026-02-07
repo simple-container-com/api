@@ -103,6 +103,24 @@ func (s *SecretsConfigDescriptor) Copy() SecretsConfigDescriptor {
 		Type:    s.Type,
 		Config:  s.Config.Copy(),
 		Inherit: s.Inherit,
+		SecretsConfig: lo.MapValues(s.SecretsConfig, func(value *EnvironmentSecretsConfigDescriptor, key string) *EnvironmentSecretsConfigDescriptor {
+			if value == nil {
+				return nil
+			}
+			return value.Copy()
+		}),
+	}
+}
+
+// Copy creates a deep copy of EnvironmentSecretsConfigDescriptor
+func (s *EnvironmentSecretsConfigDescriptor) Copy() *EnvironmentSecretsConfigDescriptor {
+	if s == nil {
+		return nil
+	}
+	return &EnvironmentSecretsConfigDescriptor{
+		Mode:       s.Mode,
+		InheritAll: s.InheritAll,
+		Secrets:    lo.Assign(map[string]string{}, s.Secrets),
 	}
 }
 
