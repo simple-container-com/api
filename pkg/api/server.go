@@ -130,10 +130,34 @@ type CloudComposeDescriptor struct {
 	StackDescriptor `json:",inline" yaml:",inline"`
 }
 
+// SecretsConfigMap defines secret name mappings for environment-specific configuration
+// Keys are the secret names available to child stacks, values are the source secret names
+// A value can be:
+// - A direct secret name from the parent's secrets
+// - A literal value starting with "literal:"
+// - A reference using ${secret:KEY} syntax to resolve to another secret
+type SecretsConfigMap map[string]string
+
+// EnvironmentSecretsConfigDescriptor configures environment-specific secret filtering
+// for parent stacks. It allows controlling which secrets are available to child stacks
+// based on the deployment environment (staging, production, etc.)
+type EnvironmentSecretsConfigDescriptor struct {
+	// Mode determines how secrets are filtered: "include", "exclude", or "override"
+	Mode string `json:"mode" yaml:"mode"`
+	// InheritAll when true with mode "exclude", includes all secrets except those in the secrets map
+	InheritAll bool `json:"inheritAll,omitempty" yaml:"inheritAll,omitempty"`
+	// Secrets defines which secrets to include, exclude, or override based on the mode
+	// For "include" mode: only these secrets are available (keys are local names, values are source names)
+	// For "exclude" mode: these secrets are excluded from the available secrets
+	// For "override" mode: these secrets override the base secret values
+	Secrets SecretsConfigMap `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+}
+
 type SecretsConfigDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
+	Type          string `json:"type" yaml:"type"`
+	Config        `json:",inline" yaml:",inline"`
+	Inherit       `json:",inline" yaml:",inline"`
+	SecretsConfig map[string]*EnvironmentSecretsConfigDescriptor `json:"secretsConfig,omitempty" yaml:"secretsConfig,omitempty"`
 }
 
 // ProvisionerDescriptor describes the provisioner schema

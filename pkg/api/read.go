@@ -299,7 +299,42 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 			return descriptor, err
 		}
 	}
+
+	// Process environment-specific secrets configuration
+	if withSecretsConfig, err := DetectSecretsConfigType(&descriptor.Secrets); err != nil {
+		return descriptor, err
+	} else {
+		descriptor.Secrets = *withSecretsConfig
+	}
+
 	return descriptor, nil
+}
+
+// DetectSecretsConfigType validates the environment-specific secrets configuration
+func DetectSecretsConfigType(secrets *SecretsConfigDescriptor) (*SecretsConfigDescriptor, error) {
+	if secrets == nil || secrets.SecretsConfig == nil {
+		return secrets, nil
+	}
+	for envName, envConfig := range secrets.SecretsConfig {
+		if envConfig == nil {
+			continue
+		}
+		// Validate mode
+		if envConfig.Mode != "include" && envConfig.Mode != "exclude" && envConfig.Mode != "override" {
+			return secrets, errors.Errorf("invalid mode %q for secretsConfig in environment %q, must be one of: include, exclude, override", envConfig.Mode, envName)
+		}
+		// Validate exclude mode requires inheritAll
+		if envConfig.Mode == "exclude" && !envConfig.InheritAll {
+			return secrets, errors.Errorf("mode 'exclude' for secretsConfig in environment %q requires inheritAll to be set to true", envName)
+		}
+		// Validate secret references in the config
+		for localName, sourceRef := range envConfig.Secrets {
+			if err := ValidateSecretReference(sourceRef); err != nil {
+				return secrets, errors.Wrapf(err, "invalid secret reference for %q in environment %q", localName, envName)
+			}
+		}
+	}
+	return secrets, nil
 }
 
 func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
