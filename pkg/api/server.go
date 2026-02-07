@@ -131,10 +131,34 @@ type CloudComposeDescriptor struct {
 }
 
 type SecretsConfigDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
+	Type         string                               `json:"type" yaml:"type"`
+	SecretsConfig *EnvironmentSecretsConfigDescriptor `json:"secretsConfig,omitempty" yaml:"secretsConfig,omitempty"`
+	Config       `json:",inline" yaml:",inline"`
+	Inherit      `json:",inline" yaml:",inline"`
 }
+
+// EnvironmentSecretsConfigDescriptor configures environment-specific secret filtering in parent stacks
+type EnvironmentSecretsConfigDescriptor struct {
+	// Mode defines how secrets are filtered: "include", "exclude", or "override"
+	// include: Only specified secrets are available
+	// exclude: All secrets except specified ones are available (use with inheritAll: true)
+	// override: All secrets are available, with specified values overriding secrets.yaml
+	Mode string `json:"mode" yaml:"mode"`
+
+	// InheritAll when true, all secrets from secrets.yaml are inherited (default: false)
+	InheritAll bool `json:"inheritAll,omitempty" yaml:"inheritAll,omitempty"`
+
+	// Secrets is a map of secret references with three patterns:
+	// 1. Direct: "DATABASE_PASSWORD" -> uses DATABASE_PASSWORD from secrets.yaml
+	// 2. Mapped: "DATABASE_PASSWORD" -> "DATABASE_PASSWORD_STAGING" (mapped to env-specific key)
+	// 3. Literal: "DATABASE_PASSWORD" -> "${secret:DATABASE_PASSWORD_STAGING}" (explicit reference)
+	Secrets SecretsConfigMap `json:"secrets,omitempty" yaml:"secrets,omitempty"`
+}
+
+// SecretsConfigMap defines how secrets are mapped/filtered for a specific environment
+// Key: The secret name as referenced in client stacks
+// Value: Either the actual secret key in secrets.yaml (for mapping) or a ${secret:KEY} reference
+type SecretsConfigMap map[string]string
 
 // ProvisionerDescriptor describes the provisioner schema
 type ProvisionerDescriptor struct {

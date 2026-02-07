@@ -299,7 +299,48 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 			return descriptor, err
 		}
 	}
+
+	// Process secretsConfig if present
+	if descriptor.Secrets.SecretsConfig != nil {
+		if err := DetectSecretsConfigType(descriptor.Secrets.SecretsConfig); err != nil {
+			return nil, errors.Wrapf(err, "failed to detect secretsConfig type")
+		}
+	}
+
 	return descriptor, nil
+}
+
+// DetectSecretsConfigType validates the environment-specific secrets configuration
+func DetectSecretsConfigType(config *EnvironmentSecretsConfigDescriptor) error {
+	if config == nil {
+		return nil
+	}
+
+	// Validate mode
+	validModes := map[string]bool{
+		"include":  true,
+		"exclude":  true,
+		"override": true,
+	}
+	if !validModes[config.Mode] {
+		return errors.Errorf("invalid secretsConfig mode %q (must be 'include', 'exclude', or 'override')", config.Mode)
+	}
+
+	// Validate exclude mode requires inheritAll
+	if config.Mode == "exclude" && !config.InheritAll {
+		return errors.Errorf("exclude mode requires inheritAll: true to be set")
+	}
+
+	// Validate secret references
+	for refName, value := range config.Secrets {
+		if IsSecretReference(value) {
+			if err := ValidateSecretReference(value); err != nil {
+				return errors.Wrapf(err, "invalid secret reference %q for %q", value, refName)
+			}
+		}
+	}
+
+	return nil
 }
 
 func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
