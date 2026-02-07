@@ -100,9 +100,10 @@ func (s *RegistrarDescriptor) Copy() RegistrarDescriptor {
 
 func (s *SecretsConfigDescriptor) Copy() SecretsConfigDescriptor {
 	return SecretsConfigDescriptor{
-		Type:    s.Type,
-		Config:  s.Config.Copy(),
-		Inherit: s.Inherit,
+		Type:          s.Type,
+		SecretsConfig: s.SecretsConfig,
+		Config:        s.Config.Copy(),
+		Inherit:       s.Inherit,
 	}
 }
 
