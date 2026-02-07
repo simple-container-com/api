@@ -57,6 +57,15 @@ func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 		if parentStack, ok := current[parentStackName]; ok {
 			stack.Server = parentStack.Server.Copy()
 			stack.Secrets = parentStack.Secrets.Copy()
+
+			// Apply environment-specific secrets filtering if configured
+			if stack.Server.Secrets.SecretsConfig != nil {
+				resolvedSecrets, err := NewSecretResolver(stack.Server.Secrets.SecretsConfig, stack.Secrets.Values).Resolve()
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to resolve secrets for stack %q", stackName)
+				}
+				stack.Secrets.Values = resolvedSecrets
+			}
 		} else {
 			return nil, errors.Errorf("parent stack %q is not configured for %q in %q", clientDesc.ParentStack, stackName, params.Environment)
 		}

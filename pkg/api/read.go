@@ -140,6 +140,12 @@ func ReadServerConfigs(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 		res = *withSecrets
 	}
 
+	if withSecretsConfig, err := DetectSecretsConfigType(&res); err != nil {
+		return nil, err
+	} else {
+		res = *withSecretsConfig
+	}
+
 	if withTemplates, err := DetectTemplatesType(&res); err != nil {
 		return nil, err
 	} else {
@@ -299,6 +305,24 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 			return descriptor, err
 		}
 	}
+	return descriptor, nil
+}
+
+// DetectSecretsConfigType processes environment-specific secrets configuration
+func DetectSecretsConfigType(descriptor *ServerDescriptor) (*ServerDescriptor, error) {
+	if descriptor.Secrets.IsInherited() {
+		return descriptor, nil
+	}
+	// No secrets config is valid - it's an optional feature
+	if descriptor.Secrets.SecretsConfig == nil {
+		return descriptor, nil
+	}
+
+	// Validate the secrets config
+	if err := ValidateSecretConfig(descriptor.Secrets.SecretsConfig); err != nil {
+		return descriptor, errors.Wrapf(err, "failed to validate secrets config")
+	}
+
 	return descriptor, nil
 }
 

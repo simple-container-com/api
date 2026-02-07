@@ -131,10 +131,45 @@ type CloudComposeDescriptor struct {
 }
 
 type SecretsConfigDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
-	Config  `json:",inline" yaml:",inline"`
-	Inherit `json:",inline" yaml:",inline"`
+	Type          string                    `json:"type" yaml:"type"`
+	SecretsConfig *EnvironmentSecretsConfig `json:"secretsConfig,omitempty" yaml:"secretsConfig,omitempty"`
+	Config        `json:",inline" yaml:",inline"`
+	Inherit       `json:",inline" yaml:",inline"`
 }
+
+// EnvironmentSecretsConfig defines environment-specific secret filtering
+type EnvironmentSecretsConfig struct {
+	// Mode defines how secrets are filtered: include, exclude, or override
+	Mode string `json:"mode" yaml:"mode"`
+
+	// Secrets defines the secret mapping and filtering rules
+	Secrets SecretsConfigMap `json:"secrets" yaml:"secrets"`
+
+	// InheritAll when true includes all secrets except those explicitly excluded
+	InheritAll bool `json:"inheritAll,omitempty" yaml:"inheritAll,omitempty"`
+}
+
+// SecretsConfigMap defines the mapping of secret references
+type SecretsConfigMap map[string]SecretReference
+
+// SecretReference defines how a secret is referenced
+// Three patterns are supported:
+// 1. Direct reference: "~" - use secret with same name from secrets.yaml
+// 2. Mapped reference: "${secret:KEY}" - use secret named KEY from secrets.yaml
+// 3. Literal value: Any other string - use the literal value directly
+type SecretReference string
+
+const (
+	// SecretsConfigModeInclude filters secrets to only include those specified
+	SecretsConfigModeInclude = "include"
+	// SecretsConfigModeExclude filters secrets to exclude those specified
+	SecretsConfigModeExclude = "exclude"
+	// SecretsConfigModeOverride uses specified secrets and includes all others
+	SecretsConfigModeOverride = "override"
+)
+
+// DirectSecretReference is the constant for direct secret references (~)
+const DirectSecretReference = SecretReference("~")
 
 // ProvisionerDescriptor describes the provisioner schema
 type ProvisionerDescriptor struct {
