@@ -56,13 +56,47 @@ func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 		parentStackName := parentStackParts[len(parentStackParts)-1]
 		if parentStack, ok := current[parentStackName]; ok {
 			stack.Server = parentStack.Server.Copy()
+
+			// Copy parent secrets and apply environment-specific filtering if configured
 			stack.Secrets = parentStack.Secrets.Copy()
+			if err := stack.applySecretsConfig(params); err != nil {
+				return nil, errors.Wrapf(err, "failed to apply secretsConfig for stack %q", stackName)
+			}
 		} else {
 			return nil, errors.Errorf("parent stack %q is not configured for %q in %q", clientDesc.ParentStack, stackName, params.Environment)
 		}
 		current[stackName] = stack
 	}
 	return &current, nil
+}
+
+// applySecretsConfig applies environment-specific secret filtering based on parentEnv configuration
+func (s *Stack) applySecretsConfig(params StackParams) error {
+	// Only apply secrets config if this is a child stack with parentEnv specified
+	if params.ParentEnv == "" {
+		return nil
+	}
+
+	// Check if parent stack has secretsConfig configured
+	if s.Server.Secrets.SecretsConfig == nil {
+		return nil
+	}
+
+	// Create resolver and apply filtering
+	resolver, err := NewSecretResolver(&s.Secrets, s.Server.Secrets.SecretsConfig)
+	if err != nil {
+		return err
+	}
+
+	filteredSecrets, err := resolver.Resolve()
+	if err != nil {
+		return err
+	}
+
+	// Update the stack's secrets with the filtered values
+	s.Secrets.Values = filteredSecrets
+
+	return nil
 }
 
 func (m *StacksMap) ResolveInheritance() *StacksMap {
