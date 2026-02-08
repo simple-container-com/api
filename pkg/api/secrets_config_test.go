@@ -3,11 +3,12 @@ package api
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	. "github.com/onsi/gomega"
 )
 
 func TestSecretResolver_IncludeMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY_PROD":      "prod-key",
 		"API_KEY_STAGING":   "staging-key",
@@ -27,15 +28,16 @@ func TestSecretResolver_IncludeMode(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
-
-	assert.Equal(t, map[string]string{
+	Expect(err).ToNot(HaveOccurred())
+	Expect(result).To(Equal(map[string]string{
 		"API_KEY_STAGING":   "staging-key",
 		"DATABASE_PASSWORD": "db-password",
-	}, result)
+	}))
 }
 
 func TestSecretResolver_ExcludeMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY_PROD":      "prod-key",
 		"API_KEY_STAGING":   "staging-key",
@@ -56,20 +58,22 @@ func TestSecretResolver_ExcludeMode(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, map[string]string{
+	Expect(result).To(Equal(map[string]string{
 		"API_KEY_STAGING":   "staging-key",
 		"DATABASE_PASSWORD": "db-password",
 		"SMTP_PASSWORD":     "smtp-password",
-	}, result)
+	}))
 
 	// Verify API_KEY_PROD is excluded
 	_, exists := result["API_KEY_PROD"]
-	assert.False(t, exists)
+	Expect(exists).To(BeFalse())
 }
 
 func TestSecretResolver_OverrideMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY_STAGING":           "staging-key",
 		"DATABASE_PASSWORD_STAGING": "staging-db-password",
@@ -91,16 +95,18 @@ func TestSecretResolver_OverrideMode(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, map[string]string{
+	Expect(result).To(Equal(map[string]string{
 		"API_KEY":           "staging-key",
 		"DATABASE_PASSWORD": "staging-db-password",
 		"APP_NAME":          "my-app",
-	}, result)
+	}))
 }
 
 func TestSecretResolver_MappedReference(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY_STAGING": "staging-key",
 	}
@@ -119,14 +125,16 @@ func TestSecretResolver_MappedReference(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, map[string]string{
+	Expect(result).To(Equal(map[string]string{
 		"API_KEY": "staging-key",
-	}, result)
+	}))
 }
 
 func TestSecretResolver_LiteralValue(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{}
 
 	config := &EnvironmentSecretsConfig{
@@ -143,14 +151,16 @@ func TestSecretResolver_LiteralValue(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, map[string]string{
+	Expect(result).To(Equal(map[string]string{
 		"API_KEY": "literal-api-key",
-	}, result)
+	}))
 }
 
 func TestSecretResolver_NoConfig(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY": "api-key",
 	}
@@ -159,13 +169,15 @@ func TestSecretResolver_NoConfig(t *testing.T) {
 	resolver := NewSecretResolver(nil)
 
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
 	// All secrets should be returned
-	assert.Equal(t, allSecrets, result)
+	Expect(result).To(Equal(allSecrets))
 }
 
 func TestSecretResolver_NoEnvironmentConfig(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY": "api-key",
 	}
@@ -183,12 +195,14 @@ func TestSecretResolver_NoEnvironmentConfig(t *testing.T) {
 
 	// Request environment not in config - should return all secrets (backwards compatibility)
 	result, err := resolver.ResolveSecrets(allSecrets, "staging")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
-	assert.Equal(t, allSecrets, result)
+	Expect(result).To(Equal(allSecrets))
 }
 
 func TestSecretResolver_InvalidMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY": "api-key",
 	}
@@ -203,11 +217,13 @@ func TestSecretResolver_InvalidMode(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	_, err := resolver.ResolveSecrets(allSecrets, "staging")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown secrets config mode")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("unknown secrets config mode"))
 }
 
 func TestSecretResolver_NonExistentSecretReference(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY": "api-key",
 	}
@@ -224,12 +240,14 @@ func TestSecretResolver_NonExistentSecretReference(t *testing.T) {
 	resolver := NewSecretResolver(config)
 
 	_, err := resolver.ResolveSecrets(allSecrets, "staging")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "secret")
-	assert.Contains(t, err.Error(), "not found")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("secret"))
+	Expect(err.Error()).To(ContainSubstring("not found"))
 }
 
 func TestSecretResolver_GetAvailableSecrets(t *testing.T) {
+	RegisterTestingT(t)
+
 	allSecrets := map[string]string{
 		"API_KEY":           "api-key",
 		"DATABASE_PASSWORD": "db-password",
@@ -237,6 +255,8 @@ func TestSecretResolver_GetAvailableSecrets(t *testing.T) {
 	}
 
 	t.Run("Include mode", func(t *testing.T) {
+		RegisterTestingT(t)
+
 		config := &EnvironmentSecretsConfig{
 			Mode: "include",
 			Secrets: map[string]SecretsConfigMap{
@@ -248,12 +268,14 @@ func TestSecretResolver_GetAvailableSecrets(t *testing.T) {
 
 		resolver := NewSecretResolver(config)
 		available, err := resolver.GetAvailableSecrets(allSecrets, "staging")
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.ElementsMatch(t, []string{"API_KEY", "DATABASE_PASSWORD"}, available)
+		Expect(available).To(ConsistOf("API_KEY", "DATABASE_PASSWORD"))
 	})
 
 	t.Run("Exclude mode", func(t *testing.T) {
+		RegisterTestingT(t)
+
 		config := &EnvironmentSecretsConfig{
 			Mode: "exclude",
 			Secrets: map[string]SecretsConfigMap{
@@ -266,12 +288,14 @@ func TestSecretResolver_GetAvailableSecrets(t *testing.T) {
 
 		resolver := NewSecretResolver(config)
 		available, err := resolver.GetAvailableSecrets(allSecrets, "staging")
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.ElementsMatch(t, []string{"API_KEY", "DATABASE_PASSWORD"}, available)
+		Expect(available).To(ConsistOf("API_KEY", "DATABASE_PASSWORD"))
 	})
 
 	t.Run("Override mode", func(t *testing.T) {
+		RegisterTestingT(t)
+
 		config := &EnvironmentSecretsConfig{
 			Mode: "override",
 			Secrets: map[string]SecretsConfigMap{
@@ -285,21 +309,25 @@ func TestSecretResolver_GetAvailableSecrets(t *testing.T) {
 
 		resolver := NewSecretResolver(config)
 		available, err := resolver.GetAvailableSecrets(allSecrets, "staging")
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.ElementsMatch(t, []string{"API_KEY"}, available)
+		Expect(available).To(ConsistOf("API_KEY"))
 	})
 
 	t.Run("No config", func(t *testing.T) {
+		RegisterTestingT(t)
+
 		resolver := NewSecretResolver(nil)
 		available, err := resolver.GetAvailableSecrets(allSecrets, "staging")
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.ElementsMatch(t, []string{"API_KEY", "DATABASE_PASSWORD", "SMTP_PASSWORD"}, available)
+		Expect(available).To(ConsistOf("API_KEY", "DATABASE_PASSWORD", "SMTP_PASSWORD"))
 	})
 }
 
 func TestSecretsConfigDescriptor_Copy(t *testing.T) {
+	RegisterTestingT(t)
+
 	original := &SecretsConfigDescriptor{
 		Type: "test-type",
 		SecretsConfig: &EnvironmentSecretsConfig{
@@ -318,23 +346,25 @@ func TestSecretsConfigDescriptor_Copy(t *testing.T) {
 	copied := original.Copy()
 
 	// Verify values match
-	assert.Equal(t, original.Type, copied.Type)
-	require.NotNil(t, copied.SecretsConfig)
-	assert.Equal(t, original.SecretsConfig.Mode, copied.SecretsConfig.Mode)
+	Expect(copied.Type).To(Equal(original.Type))
+	Expect(copied.SecretsConfig).ToNot(BeNil())
+	Expect(copied.SecretsConfig.Mode).To(Equal(original.SecretsConfig.Mode))
 
 	// Verify deep copy
-	assert.Equal(t, original.SecretsConfig.Secrets["staging"].Include, copied.SecretsConfig.Secrets["staging"].Include)
-	assert.Equal(t, original.SecretsConfig.Secrets["staging"].Override, copied.SecretsConfig.Secrets["staging"].Override)
+	Expect(copied.SecretsConfig.Secrets["staging"].Include).To(Equal(original.SecretsConfig.Secrets["staging"].Include))
+	Expect(copied.SecretsConfig.Secrets["staging"].Override).To(Equal(original.SecretsConfig.Secrets["staging"].Override))
 
 	// Modify original and verify copy is unaffected
 	original.SecretsConfig.Secrets["staging"].Include[0] = "~MODIFIED"
-	assert.Equal(t, "~API_KEY", copied.SecretsConfig.Secrets["staging"].Include[0])
+	Expect(copied.SecretsConfig.Secrets["staging"].Include[0]).To(Equal("~API_KEY"))
 
 	original.SecretsConfig.Secrets["staging"].Override["KEY"] = "modified"
-	assert.Equal(t, "value", copied.SecretsConfig.Secrets["staging"].Override["KEY"])
+	Expect(copied.SecretsConfig.Secrets["staging"].Override["KEY"]).To(Equal("value"))
 }
 
 func TestValidateSecretAccess_IncludeMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	descriptor := &ServerDescriptor{
 		Secrets: SecretsConfigDescriptor{
 			SecretsConfig: &EnvironmentSecretsConfig{
@@ -355,7 +385,7 @@ func TestValidateSecretAccess_IncludeMode(t *testing.T) {
 	}
 
 	errs := ValidateSecretAccess(descriptor, clientConfig, "staging")
-	assert.Empty(t, errs)
+	Expect(errs).To(BeEmpty())
 
 	// Test with secret not in include list
 	clientConfigInvalid := &StackConfigCompose{
@@ -365,12 +395,14 @@ func TestValidateSecretAccess_IncludeMode(t *testing.T) {
 	}
 
 	errs = ValidateSecretAccess(descriptor, clientConfigInvalid, "staging")
-	assert.NotEmpty(t, errs)
-	assert.Contains(t, errs[0].Error(), "SMTP_PASSWORD")
-	assert.Contains(t, errs[0].Error(), "not in the include list")
+	Expect(errs).ToNot(BeEmpty())
+	Expect(errs[0].Error()).To(ContainSubstring("SMTP_PASSWORD"))
+	Expect(errs[0].Error()).To(ContainSubstring("not in the include list"))
 }
 
 func TestValidateSecretAccess_ExcludeMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	descriptor := &ServerDescriptor{
 		Secrets: SecretsConfigDescriptor{
 			SecretsConfig: &EnvironmentSecretsConfig{
@@ -392,7 +424,7 @@ func TestValidateSecretAccess_ExcludeMode(t *testing.T) {
 	}
 
 	errs := ValidateSecretAccess(descriptor, clientConfig, "staging")
-	assert.Empty(t, errs)
+	Expect(errs).To(BeEmpty())
 
 	// Test with excluded secret
 	clientConfigInvalid := &StackConfigCompose{
@@ -402,12 +434,14 @@ func TestValidateSecretAccess_ExcludeMode(t *testing.T) {
 	}
 
 	errs = ValidateSecretAccess(descriptor, clientConfigInvalid, "staging")
-	assert.NotEmpty(t, errs)
-	assert.Contains(t, errs[0].Error(), "PROD_SECRET")
-	assert.Contains(t, errs[0].Error(), "excluded")
+	Expect(errs).ToNot(BeEmpty())
+	Expect(errs[0].Error()).To(ContainSubstring("PROD_SECRET"))
+	Expect(errs[0].Error()).To(ContainSubstring("excluded"))
 }
 
 func TestValidateSecretAccess_OverrideMode(t *testing.T) {
+	RegisterTestingT(t)
+
 	descriptor := &ServerDescriptor{
 		Secrets: SecretsConfigDescriptor{
 			SecretsConfig: &EnvironmentSecretsConfig{
@@ -430,7 +464,7 @@ func TestValidateSecretAccess_OverrideMode(t *testing.T) {
 	}
 
 	errs := ValidateSecretAccess(descriptor, clientConfig, "staging")
-	assert.Empty(t, errs)
+	Expect(errs).To(BeEmpty())
 
 	// Test with secret not in override map
 	clientConfigInvalid := &StackConfigCompose{
@@ -440,12 +474,14 @@ func TestValidateSecretAccess_OverrideMode(t *testing.T) {
 	}
 
 	errs = ValidateSecretAccess(descriptor, clientConfigInvalid, "staging")
-	assert.NotEmpty(t, errs)
-	assert.Contains(t, errs[0].Error(), "OTHER_SECRET")
-	assert.Contains(t, errs[0].Error(), "not in the override list")
+	Expect(errs).ToNot(BeEmpty())
+	Expect(errs[0].Error()).To(ContainSubstring("OTHER_SECRET"))
+	Expect(errs[0].Error()).To(ContainSubstring("not in the override list"))
 }
 
 func TestValidateSecretAccess_NoConfig(t *testing.T) {
+	RegisterTestingT(t)
+
 	descriptor := &ServerDescriptor{
 		Secrets: SecretsConfigDescriptor{
 			// No SecretsConfig set
@@ -459,10 +495,12 @@ func TestValidateSecretAccess_NoConfig(t *testing.T) {
 	}
 
 	errs := ValidateSecretAccess(descriptor, clientConfig, "staging")
-	assert.Empty(t, errs)
+	Expect(errs).To(BeEmpty())
 }
 
 func TestReconcileForDeploy_SecretFiltering(t *testing.T) {
+	RegisterTestingT(t)
+
 	stacks := &StacksMap{
 		"parent": {
 			Name: "parent",
@@ -504,17 +542,19 @@ func TestReconcileForDeploy_SecretFiltering(t *testing.T) {
 	}
 
 	result, err := stacks.ReconcileForDeploy(params)
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
 	childStack := (*result)["child"]
 
 	// Verify only included secrets are available
-	assert.Contains(t, childStack.Secrets.Values, "API_KEY_STAGING")
-	assert.Contains(t, childStack.Secrets.Values, "DATABASE_PASSWORD")
-	assert.NotContains(t, childStack.Secrets.Values, "PROD_SECRET")
+	Expect(childStack.Secrets.Values).To(HaveKey("API_KEY_STAGING"))
+	Expect(childStack.Secrets.Values).To(HaveKey("DATABASE_PASSWORD"))
+	Expect(childStack.Secrets.Values).ToNot(HaveKey("PROD_SECRET"))
 }
 
 func TestExtractKeyFromRef(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		ref      string
@@ -544,8 +584,9 @@ func TestExtractKeyFromRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			result := extractKeyFromRef(tt.ref)
-			assert.Equal(t, tt.expected, result)
+			Expect(result).To(Equal(tt.expected))
 		})
 	}
 }
