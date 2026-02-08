@@ -56,6 +56,8 @@ func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 		parentStackName := parentStackParts[len(parentStackParts)-1]
 		if parentStack, ok := current[parentStackName]; ok {
 			stack.Server = parentStack.Server.Copy()
+			// Set environment context on the server descriptor for environment-aware secret resolution
+			stack.Server.Environment = params.Environment
 			stack.Secrets = parentStack.Secrets.Copy()
 		} else {
 			return nil, errors.Errorf("parent stack %q is not configured for %q in %q", clientDesc.ParentStack, stackName, params.Environment)
