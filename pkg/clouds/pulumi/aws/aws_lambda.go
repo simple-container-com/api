@@ -363,16 +363,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 			}
 		}
 	} else if lambdaRoutingType == aws.LambdaRoutingFunctionUrl {
-		functionUrlName := fmt.Sprintf("%s-url", lambdaName)
-		params.Log.Info(ctx.Context(), "configure lambda function url for %q in %q...", stack.Name, deployParams.Environment)
-		functionUrl, err := lambda.NewFunctionUrl(ctx, functionUrlName, &lambda.FunctionUrlArgs{
-			AuthorizationType: sdk.String("NONE"),
-			FunctionName:      lambdaFunc.Name,
-			InvokeMode:        sdk.String(invokeMode),
-		}, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create lambda function url")
-		}
+		// Create permissions FIRST to avoid timing issues with RESPONSE_STREAM invoke mode
+		params.Log.Info(ctx.Context(), "configure lambda function url permissions for %q in %q...", stack.Name, deployParams.Environment)
 
 		// Add permissions to allow anonymous invocation via function URL
 		// AWS requires BOTH lambda:InvokeFunctionUrl AND lambda:InvokeFunction permissions
@@ -380,7 +372,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 
 		// Permission 1: lambda:InvokeFunctionUrl with FunctionUrlAuthType condition
 		urlPermissionName := fmt.Sprintf("%s-url-permission", lambdaName)
-		_, err = lambda.NewPermission(ctx, urlPermissionName, &lambda.PermissionArgs{
+		urlPermission, err := lambda.NewPermission(ctx, urlPermissionName, &lambda.PermissionArgs{
 			Action:              sdk.String("lambda:InvokeFunctionUrl"),
 			Function:            lambdaFunc.Name,
 			Principal:           sdk.String("*"),
@@ -393,7 +385,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		// Permission 2: lambda:InvokeFunction with InvokedViaFunctionUrl condition
 		// This ensures function can only be invoked through the function URL
 		invokePermissionName := fmt.Sprintf("%s-invoke-permission", lambdaName)
-		_, err = lambda.NewPermission(ctx, invokePermissionName, &lambda.PermissionArgs{
+		invokePermission, err := lambda.NewPermission(ctx, invokePermissionName, &lambda.PermissionArgs{
 			Action:    sdk.String("lambda:InvokeFunction"),
 			Function:  lambdaFunc.Name,
 			Principal: sdk.String("*"),
@@ -403,6 +395,20 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create lambda function url permission")
 		}
+
+		// Now create Function URL AFTER permissions are in place (critical for RESPONSE_STREAM)
+		functionUrlName := fmt.Sprintf("%s-url", lambdaName)
+		params.Log.Info(ctx.Context(), "configure lambda function url for %q in %q with invoke mode %q...", stack.Name, deployParams.Environment, invokeMode)
+		functionUrlOpts := append(opts, sdk.DependsOn([]sdk.Resource{urlPermission, invokePermission}))
+		functionUrl, err := lambda.NewFunctionUrl(ctx, functionUrlName, &lambda.FunctionUrlArgs{
+			AuthorizationType: sdk.String("NONE"),
+			FunctionName:      lambdaFunc.Name,
+			InvokeMode:        sdk.String(invokeMode),
+		}, functionUrlOpts...)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create lambda function url")
+		}
+
 		ctx.Export(fmt.Sprintf("%s-%s-function-url", stack.Name, deployParams.Environment), functionUrl.FunctionUrl)
 		if stackConfig.Domain != "" {
 			_, err := provisionDNSForLambda(ctx, stack, params, lambdaName, stackConfig.Domain, functionUrl.FunctionUrl)
