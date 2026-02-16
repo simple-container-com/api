@@ -209,7 +209,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 
 	if gkeInput.Caddy != nil {
 		// Provision GCS bucket and service account for Caddy ACME certificate storage
-		bucket, credentialsJSON, err := provisionCaddyACMEStorage(ctx, clusterName, gkeInput.ProjectId, location, opts, params)
+		bucket, credentialsJSON, err := provisionCaddyACMEStorage(ctx, clusterName, gkeInput.ProjectId, location, input.Descriptor.Config.Config, opts, params)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision ACME storage for Caddy in cluster %q", clusterName)
 		}
@@ -309,7 +309,7 @@ func convertClusterLocationToBucketLocation(clusterLocation string) string {
 }
 
 // provisionCaddyACMEStorage provisions a GCS bucket and service account for Caddy ACME certificate storage
-func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, clusterLocation string, opts []sdk.ResourceOption, params pApi.ProvisionParams) (*storage.Bucket, sdk.StringOutput, error) {
+func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, clusterLocation string, authConfig any, opts []sdk.ResourceOption, params pApi.ProvisionParams) (*storage.Bucket, sdk.StringOutput, error) {
 	bucketName := fmt.Sprintf("%s-caddy-acme", clusterName)
 
 	// Convert cluster location to GCS bucket location
@@ -318,6 +318,13 @@ func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, cluster
 	bucketLocation := convertClusterLocationToBucketLocation(clusterLocation)
 
 	params.Log.Info(ctx.Context(), "📦 Provisioning GCS bucket %q in location %q for Caddy ACME certificate storage", bucketName, bucketLocation)
+
+	// Enable Cloud Resource Manager API before creating IAM bindings
+	// This is required for creating project-level IAM members for the service account
+	cloudresourcemanagerServiceName := fmt.Sprintf("projects/%s/services/cloudresourcemanager.googleapis.com", projectID)
+	if err := enableServicesAPI(ctx.Context(), authConfig, cloudresourcemanagerServiceName); err != nil {
+		return nil, sdk.StringOutput{}, errors.Wrapf(err, "failed to enable %s", cloudresourcemanagerServiceName)
+	}
 
 	// Provision GCS bucket for ACME data
 	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
