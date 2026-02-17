@@ -25,6 +25,33 @@
           "null"
         ]
       },
+      "dependencies": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "env": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "resource": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "env",
+            "name",
+            "owner",
+            "resource"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
       "domain": {
         "type": "string"
       },
