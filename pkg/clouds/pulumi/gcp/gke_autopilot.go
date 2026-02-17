@@ -321,8 +321,9 @@ func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, cluster
 
 	// Provision GCS bucket for ACME data
 	bucket, err := storage.NewBucket(ctx, bucketName, &storage.BucketArgs{
-		Name:     sdk.String(bucketName),
-		Location: sdk.String(bucketLocation),
+		Name:                      sdk.String(bucketName),
+		Location:                  sdk.String(bucketLocation),
+		UniformBucketLevelAccess:  sdk.Bool(true),
 		LifecycleRules: storage.BucketLifecycleRuleArray{
 			&storage.BucketLifecycleRuleArgs{
 				Action: &storage.BucketLifecycleRuleActionArgs{
