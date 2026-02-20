@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     name: Build simple-container in branch
-    runs-on: blacksmith-32vcpu-ubuntu-2204
+    runs-on: blacksmith-8vcpu-ubuntu-2204
     outputs:
       cicd-bot-telegram-token: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-chat-id }}
