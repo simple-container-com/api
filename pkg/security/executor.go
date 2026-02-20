@@ -450,25 +450,6 @@ func (e *SecurityExecutor) UploadReports(ctx context.Context, result *scan.ScanR
 		}
 	}
 
-	// Upload to GitHub Security if configured
-	if e.Config.Reporting.GitHub != nil && e.Config.Reporting.GitHub.Enabled && result != nil {
-		startTime := time.Now()
-		err := e.uploadToGitHub(ctx, result, imageRef)
-		duration := time.Since(startTime)
-
-		if e.Summary != nil {
-			url := ""
-			if err == nil {
-				url = fmt.Sprintf("https://github.com/%s/security/code-scanning", e.Config.Reporting.GitHub.Repository)
-			}
-			e.Summary.RecordUpload("github", err, url, duration)
-		}
-
-		if err != nil {
-			fmt.Printf("Warning: failed to upload to GitHub Security: %v\n", err)
-		}
-	}
-
 	return nil
 }
 
@@ -500,29 +481,5 @@ func (e *SecurityExecutor) uploadToDefectDojo(ctx context.Context, result *scan.
 
 	fmt.Printf("✓ Successfully uploaded to DefectDojo (test ID: %d, %d findings)\n",
 		importResp.ID, importResp.NumberOfFindings)
-	return nil
-}
-
-// uploadToGitHub uploads scan results to GitHub Security tab
-func (e *SecurityExecutor) uploadToGitHub(ctx context.Context, result *scan.ScanResult, imageRef string) error {
-	config := e.Config.Reporting.GitHub
-
-	// Create uploader config
-	uploaderConfig := &reporting.GitHubUploaderConfig{
-		Repository: config.Repository,
-		Token:      config.Token,
-		CommitSHA:  config.CommitSHA,
-		Ref:        config.Ref,
-		Workspace:  config.Workspace,
-	}
-
-	// Upload
-	fmt.Printf("Uploading scan results to GitHub Security (%s)...\n", config.Repository)
-	err := reporting.UploadToGitHub(ctx, result, imageRef, uploaderConfig)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("✓ Successfully uploaded to GitHub Security\n")
 	return nil
 }

@@ -292,7 +292,6 @@ func (s Severity) Validate() error {
 // ReportingConfig configures report uploading to external systems
 type ReportingConfig struct {
 	DefectDojo *DefectDojoConfig `json:"defectdojo,omitempty" yaml:"defectdojo,omitempty"`
-	GitHub     *GitHubConfig     `json:"github,omitempty" yaml:"github,omitempty"`
 }
 
 // DefectDojoConfig configures DefectDojo integration
@@ -308,16 +307,6 @@ type DefectDojoConfig struct {
 	Tags         []string          `json:"tags,omitempty" yaml:"tags,omitempty"`           // Tags for the engagement
 	Environment  string            `json:"environment,omitempty" yaml:"environment"`       // Environment (e.g., "production", "staging")
 	AutoCreate  bool              `json:"autoCreate,omitempty" yaml:"autoCreate"`         // Auto-create product/engagement if not found
-}
-
-// GitHubConfig configures GitHub Security tab integration
-type GitHubConfig struct {
-	Enabled      bool              `json:"enabled" yaml:"enabled"`
-	Repository   string            `json:"repository" yaml:"repository"`         // Repository name (e.g., "owner/repo")
-	Token        string            `json:"token" yaml:"token"`                   // GitHub token with security_events write permission
-	CommitSHA    string            `json:"commitSha,omitempty" yaml:"commitSha"` // Commit SHA for the scan
-	Ref          string            `json:"ref,omitempty" yaml:"ref"`             // Git reference (branch, tag, SHA)
-	Workspace    string            `json:"workspace,omitempty" yaml:"workspace"` // GitHub Workspace path for local SARIF file
 }
 
 // IsAtLeast returns true if this severity is at least as severe as the given severity
@@ -394,13 +383,6 @@ func (c *ReportingConfig) Validate() error {
 		}
 	}
 
-	// Validate GitHub config
-	if c.GitHub != nil && c.GitHub.Enabled {
-		if err := c.GitHub.Validate(); err != nil {
-			return fmt.Errorf("github validation failed: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -423,23 +405,6 @@ func (c *DefectDojoConfig) Validate() error {
 		if c.ProductName == "" {
 			return fmt.Errorf("defectdojo.productName is required when autoCreate is enabled and engagementId is not provided")
 		}
-	}
-
-	return nil
-}
-
-// Validate validates GitHub configuration
-func (c *GitHubConfig) Validate() error {
-	if !c.Enabled {
-		return nil
-	}
-
-	if c.Repository == "" {
-		return fmt.Errorf("github.repository is required when enabled")
-	}
-
-	if c.Token == "" {
-		return fmt.Errorf("github.token is required when enabled")
 	}
 
 	return nil

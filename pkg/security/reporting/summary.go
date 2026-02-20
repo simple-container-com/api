@@ -66,7 +66,7 @@ type ProvenanceSummary struct {
 
 // UploadSummary tracks report upload results
 type UploadSummary struct {
-	Target  string // "defectdojo" or "github"
+	Target  string // "defectdojo"
 	Success bool
 	Error   error
 	URL     string
