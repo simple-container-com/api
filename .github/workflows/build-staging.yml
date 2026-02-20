@@ -104,13 +104,31 @@ jobs:
             --push \
             .
 
+      - name: Build and push caddy staging image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          # Build and push caddy staging image with BuildKit caching
+          # Tag with both 'staging' and the full VERSION (e.g., staging-219-20260220-093856)
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file caddy.Dockerfile \
+            --tag simplecontainer/caddy:staging \
+            --tag simplecontainer/caddy:$VERSION \
+            --push \
+            .
+
       - name: Image built successfully
         run: |
-          echo "🎉 GitHub Actions staging image built successfully with BuildKit + GitHub Actions caching!"
+          echo "🎉 GitHub Actions and Caddy staging images built successfully with BuildKit + GitHub Actions caching!"
           echo ""
-          echo "🚀 The staging image is now available:"
-          echo "   simplecontainer/github-actions:staging" 
+          echo "🚀 The staging images are now available:"
+          echo "   simplecontainer/github-actions:staging"
           echo "   simplecontainer/github-actions:${{ github.ref_name }}"
+          echo "   simplecontainer/caddy:staging"
+          echo "   simplecontainer/caddy:$VERSION"
           echo ""
           echo "📦 Built with version: $VERSION"
           echo "✅ Your GitHub Actions will now use the updated staging image with your latest changes!"
