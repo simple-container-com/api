@@ -349,7 +349,16 @@ func runGitCommandWithAuth(ctx context.Context, log logger.Logger, dir string, a
 		cmd.Dir = dir
 		cmd.Env = env
 		if output, err := cmd.CombinedOutput(); err != nil {
-			log.Debug(ctx, "Failed to configure submodule URL rewrite: %s", string(output))
+			log.Debug(ctx, "Failed to configure submodule URL rewrite (HTTPS): %s", string(output))
+			// Continue anyway - this is a best-effort configuration
+		}
+
+		// Also rewrite SSH URLs (git@github.com:) to use HTTPS with token
+		cmd = exec.Command("git", "config", "--local", "url."+submoduleConfig+".insteadOf", "git@github.com:")
+		cmd.Dir = dir
+		cmd.Env = env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.Debug(ctx, "Failed to configure submodule URL rewrite (SSH): %s", string(output))
 			// Continue anyway - this is a best-effort configuration
 		}
 	}
