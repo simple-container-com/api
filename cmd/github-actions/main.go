@@ -274,7 +274,91 @@ func cloneRepository(ctx context.Context, log logger.Logger, workDir string) err
 	}
 
 	// Copy contents from temp directory to work directory
-	return copyRepositoryContents(tempDir, workDir)
+	if err := copyRepositoryContents(tempDir, workDir); err != nil {
+		return err
+	}
+
+	// Initialize and update submodules if they exist
+	return initializeSubmodules(ctx, log, workDir, token, repository)
+}
+
+// initializeSubmodules handles git submodule initialization and updates
+func initializeSubmodules(ctx context.Context, log logger.Logger, workDir, token, repository string) error {
+	// First check if .gitmodules exists
+	gitmodulesPath := workDir + "/.gitmodules"
+	if _, err := os.Stat(gitmodulesPath); os.IsNotExist(err) {
+		log.Debug(ctx, "No .gitmodules found - skipping submodule initialization")
+		return nil
+	}
+
+	log.Info(ctx, "Git submodules detected - initializing and updating...")
+
+	// Configure submodules to use the authenticated URL
+	// This ensures submodules use the same token for authentication
+	submoduleUpdateCmd := []string{
+		"git", "submodule", "update", "--init", "--recursive",
+		"--depth=1",
+	}
+	if err := runGitCommandWithAuth(ctx, log, workDir, submoduleUpdateCmd, token, repository); err != nil {
+		log.Warn(ctx, "Failed to update submodules: %v", err)
+		// Don't fail the entire operation if submodules fail - just warn
+		return nil
+	}
+
+	log.Info(ctx, "Git submodules initialized successfully")
+	return nil
+}
+
+// runGitCommandWithAuth executes a git command with authentication configured for submodules
+func runGitCommandWithAuth(ctx context.Context, log logger.Logger, dir string, args []string, token, repository string) error {
+	log.Info(ctx, "Executing git command with auth: %s", strings.Join(args, " "))
+
+	// Set up environment with authentication for submodule URLs
+	// This converts https://github.com/ URLs to use the token
+	env := append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no",
+		"GIT_ASKPASS=echo",
+	)
+
+	// If we have a token, configure git to use it for all HTTPS URLs
+	if token != "" {
+		// Use git config to set credentials for the specific repository
+		cmd := exec.Command("git", "config", "--local", "credential.helper", "")
+		cmd.Dir = dir
+		cmd.Env = env
+		_ = cmd.Run() // Ignore errors, this just clears the default helper
+
+		// Configure submodule URLs to use authentication
+		// This uses a credential helper that injects the token
+		submoduleConfig := fmt.Sprintf("https://x-access-token:%s@github.com/%s.git", token, repository)
+		cmd = exec.Command("git", "config", "--local", "url."+submoduleConfig+".insteadOf", "https://github.com/")
+		cmd.Dir = dir
+		cmd.Env = env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.Debug(ctx, "Failed to configure submodule URL rewrite: %s", string(output))
+			// Continue anyway - this is a best-effort configuration
+		}
+	}
+
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = dir
+	cmd.Env = env
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputStr := string(output)
+		if strings.Contains(outputStr, "could not read Username") ||
+			strings.Contains(outputStr, "permission denied") ||
+			strings.Contains(outputStr, "Authentication failed") {
+			log.Error(ctx, "Submodule authentication failed - check token permissions")
+			return fmt.Errorf("submodule authentication failed")
+		}
+		log.Error(ctx, "Git submodule command failed: %s, output: %s", strings.Join(args, " "), outputStr)
+		return fmt.Errorf("git submodule command failed: %w", err)
+	}
+
+	return nil
 }
 
 // runGitCommand executes a git command with proper logging and error handling
