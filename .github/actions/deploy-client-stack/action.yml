@@ -69,7 +69,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:staging'
+  image: 'docker://simplecontainer/github-actions:main'
   env:
     GITHUB_ACTION_TYPE: 'deploy-client-stack'
     STACK_NAME: ${{ inputs.stack-name }}
