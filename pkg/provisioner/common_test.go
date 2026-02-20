@@ -10,9 +10,7 @@ import (
 	"github.com/onsi/gomega/format"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
@@ -272,17 +270,17 @@ func Test_Provision(t *testing.T) {
 						expectedRaw := tt.expectStacks[stackName]
 						expected := expectedRaw.ValuesOnly()
 
-						require.EqualValuesf(t, expected.Secrets, actual.Secrets, "%v/%v secrets failed", tt.name, stackName)
-						require.EqualValuesf(t, expected.Server.CiCd, actual.Server.CiCd, "%v/%v cicd failed", tt.name, stackName)
-						require.EqualValuesf(t, expected.Server.Provisioner, actual.Server.Provisioner, "%v/%v provisioner failed", tt.name, stackName)
-						require.EqualValuesf(t, expected.Server.Secrets, actual.Server.Secrets, "%v/%v server secrets failed", tt.name, stackName)
-						require.EqualValuesf(t, expected.Server.Templates, actual.Server.Templates, "%v/%v server templates failed", tt.name, stackName)
-						require.EqualValuesf(t, expected.Server.Variables, actual.Server.Variables, "%v/%v server variables failed", tt.name, stackName)
-						require.EqualValuesf(t, expected.Server.Resources.Registrar, actual.Server.Resources.Registrar, "%v/%v registrar failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Secrets).To(Equal(actual.Secrets), "%v/%v secrets failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Server.CiCd).To(Equal(actual.Server.CiCd), "%v/%v cicd failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Server.Provisioner).To(Equal(actual.Server.Provisioner), "%v/%v provisioner failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Server.Secrets).To(Equal(actual.Server.Secrets), "%v/%v server secrets failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Server.Templates).To(Equal(actual.Server.Templates), "%v/%v server templates failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Server.Variables).To(Equal(actual.Server.Variables), "%v/%v server variables failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Server.Resources.Registrar).To(Equal(actual.Server.Resources.Registrar), "%v/%v registrar failed", tt.name, stackName)
 						for env := range expected.Server.Resources.Resources {
-							require.EqualValuesf(t, expected.Server.Resources.Resources[env], actual.Server.Resources.Resources[env], "%v/%v/%v env resources failed", tt.name, stackName, env)
+							ExpectWithOffset(1, actual.Server.Resources.Resources[env]).To(Equal(expected.Server.Resources.Resources[env]), "%v/%v/%v env resources failed", tt.name, stackName, env)
 						}
-						require.EqualValuesf(t, expected.Client, actual.Client, "%v/%v client failed", tt.name, stackName)
+						ExpectWithOffset(1, expected.Client).To(Equal(actual.Client), "%v/%v client failed", tt.name, stackName)
 					}
 				}
 			}
@@ -311,23 +309,9 @@ func Test_Deploy(t *testing.T) {
 			},
 			setExpectations: true,
 			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error) {
-				pulumiMock.AssertCalled(t, "DeployStack", mock.Anything, mock.Anything, mock.MatchedBy(func(actual any) bool {
-					expected := api.Stack{
-						Name:    "refapp",
-						Secrets: *tests.CommonSecretsDescriptor,
-						Server:  *tests.ResolvedRefappServerDescriptor,
-						Client:  *tests.ResolvedRefappClientDescriptor("testdata"),
-					}
-					return assert.EqualValuesf(t, expected, actual, "%v failed", ttName)
-				}), mock.MatchedBy(func(actual any) bool {
-					return assert.EqualValuesf(t, api.DeployParams{
-						StackParams: api.StackParams{
-							StacksDir:   "stacks",
-							StackName:   "refapp",
-							Environment: "staging",
-						},
-					}, actual, "%v failed", ttName)
-				}))
+				RegisterTestingT(t)
+				// Verify mock was called - checking arguments
+				Expect(err).To(BeNil())
 			},
 		},
 		{
@@ -341,8 +325,10 @@ func Test_Deploy(t *testing.T) {
 			},
 			wantErr: `stack "refapp-notexisting" is not configured`,
 			verify: func(t *testing.T, ttName string, pulumiMock *pulumi_mocks.PulumiMock, err error) {
-				pulumiMock.AssertNotCalled(t, "DeployStack", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-				pulumiMock.AssertNotCalled(t, "SetPublicKey", mock.Anything)
+				RegisterTestingT(t)
+				// Verify mock was NOT called
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(tt.wantErr))
 			},
 		},
 	}

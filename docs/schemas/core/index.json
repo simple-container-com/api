@@ -23,6 +23,46 @@
       "schema": {}
     },
     {
+      "name": "ProvenanceDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "SLSA provenance configuration schema",
+      "goPackage": "pkg/api/security_config.go",
+      "goStruct": "ProvenanceDescriptor",
+      "resourceType": "provenance-config",
+      "schema": {}
+    },
+    {
+      "name": "SBOMDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "SBOM generation configuration schema",
+      "goPackage": "pkg/api/security_config.go",
+      "goStruct": "SBOMDescriptor",
+      "resourceType": "sbom-config",
+      "schema": {}
+    },
+    {
+      "name": "ScanDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Vulnerability scanning configuration schema",
+      "goPackage": "pkg/api/security_config.go",
+      "goStruct": "ScanDescriptor",
+      "resourceType": "scan-config",
+      "schema": {}
+    },
+    {
+      "name": "SecurityDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Container image security configuration schema",
+      "goPackage": "pkg/api/security_config.go",
+      "goStruct": "SecurityDescriptor",
+      "resourceType": "security-config",
+      "schema": {}
+    },
+    {
       "name": "ServerDescriptor",
       "type": "configuration",
       "provider": "core",
@@ -30,6 +70,16 @@
       "goPackage": "pkg/api/server.go",
       "goStruct": "ServerDescriptor",
       "resourceType": "server-config",
+      "schema": {}
+    },
+    {
+      "name": "SigningDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Image signing configuration schema",
+      "goPackage": "pkg/api/security_config.go",
+      "goStruct": "SigningDescriptor",
+      "resourceType": "signing-config",
       "schema": {}
     },
     {

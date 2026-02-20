@@ -1,0 +1,53 @@
+{
+  "name": "ScanDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Vulnerability scanning configuration schema",
+  "goPackage": "pkg/api/security_config.go",
+  "goStruct": "ScanDescriptor",
+  "resourceType": "scan-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "failOn": {
+        "type": "string"
+      },
+      "required": {
+        "type": "boolean"
+      },
+      "tools": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "failOn": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "warnOn": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "warnOn": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  }
+}

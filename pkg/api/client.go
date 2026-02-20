@@ -22,6 +22,7 @@ type ClientDescriptor struct {
 	SchemaVersion string                           `json:"schemaVersion" yaml:"schemaVersion"`
 	Defaults      map[string]interface{}           `json:"defaults,omitempty" yaml:"defaults,omitempty"` // Maximum flexibility - supports any user-defined YAML anchors, templates, and configuration
 	Stacks        map[string]StackClientDescriptor `json:"stacks" yaml:"stacks"`
+	Security      *SecurityDescriptor              `json:"security,omitempty" yaml:"security,omitempty"` // Container security configuration
 
 	// Additional flexible root-level properties for future extensibility
 	// Any other user-defined root-level sections will be preserved via our text manipulation approach
@@ -137,6 +138,7 @@ type StackConfigSingleImage struct {
 	StaticEgressIP      *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`                 // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
 	CloudExtras         *any                            `json:"cloudExtras" yaml:"cloudExtras"`                       // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
 	Dependencies        []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
+	Security            *SecurityDescriptor             `json:"security,omitempty" yaml:"security,omitempty"`         // container image security configuration
 }
 
 type TextVolume struct {
@@ -168,13 +170,14 @@ type StackConfigCompose struct {
 	Scale             *StackConfigComposeScale        `json:"scale,omitempty" yaml:"scale,omitempty"`
 	Dependencies      []StackConfigDependencyResource `json:"dependencies,omitempty" yaml:"dependencies,omitempty"` // when service wants to use resources from another service
 	Alerts            *AlertsConfig                   `json:"alerts,omitempty" yaml:"alerts,omitempty"`
-	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"`           // extra text volumes to mount to containers (e.g. for k8s deployments)
-	Headers           *Headers                        `json:"headers" yaml:"headers"`                   // extra headers to add when serving requests
-	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`                 // load balancer configuration (so far only applicable for k8s deployments)
-	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"`           // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
-	StaticEgressIP    *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`     // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
-	ImagePullPolicy   *string                         `json:"imagePullPolicy" yaml:"imagePullPolicy"`   // applicable only for certain compute types, e.g. Kubernetes
-	ClusterIPAddress  *string                         `json:"clusterIPAddress" yaml:"clusterIPAddress"` // applicable only for certain compute types, e.g. Kubernetes
+	TextVolumes       *[]TextVolume                   `json:"textVolumes" yaml:"textVolumes"`               // extra text volumes to mount to containers (e.g. for k8s deployments)
+	Headers           *Headers                        `json:"headers" yaml:"headers"`                       // extra headers to add when serving requests
+	LBConfig          *SimpleContainerLBConfig        `json:"lbConfig" yaml:"lbConfig"`                     // load balancer configuration (so far only applicable for k8s deployments)
+	CloudExtras       *any                            `json:"cloudExtras" yaml:"cloudExtras"`               // when need to specify additional extra config for the specific cloud (e.g. AWS extra roles)
+	StaticEgressIP    *bool                           `json:"staticEgressIP" yaml:"staticEgressIP"`         // when need to provision NAT with fixed egress IP address (e.g. AWS Lambda with static IP)
+	ImagePullPolicy   *string                         `json:"imagePullPolicy" yaml:"imagePullPolicy"`       // applicable only for certain compute types, e.g. Kubernetes
+	ClusterIPAddress  *string                         `json:"clusterIPAddress" yaml:"clusterIPAddress"`     // applicable only for certain compute types, e.g. Kubernetes
+	Security          *SecurityDescriptor             `json:"security,omitempty" yaml:"security,omitempty"` // container image security configuration
 }
 
 // StackConfigDependencyResource when stack depends on resource context of another stack (client configuration)

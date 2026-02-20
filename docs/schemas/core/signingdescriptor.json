@@ -1,0 +1,53 @@
+{
+  "name": "SigningDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Image signing configuration schema",
+  "goPackage": "pkg/api/security_config.go",
+  "goStruct": "SigningDescriptor",
+  "resourceType": "signing-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "keyless": {
+        "type": "boolean"
+      },
+      "password": {
+        "type": "string"
+      },
+      "privateKey": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "publicKey": {
+        "type": "string"
+      },
+      "required": {
+        "type": "boolean"
+      },
+      "verify": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "identityRegexp": {
+            "type": "string"
+          },
+          "oidcIssuer": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    "required": [],
+    "type": "object"
+  }
+}

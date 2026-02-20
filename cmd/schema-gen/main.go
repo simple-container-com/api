@@ -348,6 +348,60 @@ func (sg *SchemaGenerator) generateConfigurationSchemas() ([]ResourceDefinition,
 		},
 	}...)
 
+	// Security configuration schemas
+	configSchemas = append(configSchemas, []ResourceDefinition{
+		{
+			Name:         "SecurityDescriptor",
+			Type:         "configuration",
+			Provider:     "core",
+			Description:  "Container image security configuration schema",
+			GoPackage:    "pkg/api/security_config.go",
+			GoStruct:     "SecurityDescriptor",
+			ResourceType: "security-config",
+			Schema:       reflect.TypeOf(api.SecurityDescriptor{}),
+		},
+		{
+			Name:         "SigningDescriptor",
+			Type:         "configuration",
+			Provider:     "core",
+			Description:  "Image signing configuration schema",
+			GoPackage:    "pkg/api/security_config.go",
+			GoStruct:     "SigningDescriptor",
+			ResourceType: "signing-config",
+			Schema:       reflect.TypeOf(api.SigningDescriptor{}),
+		},
+		{
+			Name:         "SBOMDescriptor",
+			Type:         "configuration",
+			Provider:     "core",
+			Description:  "SBOM generation configuration schema",
+			GoPackage:    "pkg/api/security_config.go",
+			GoStruct:     "SBOMDescriptor",
+			ResourceType: "sbom-config",
+			Schema:       reflect.TypeOf(api.SBOMDescriptor{}),
+		},
+		{
+			Name:         "ProvenanceDescriptor",
+			Type:         "configuration",
+			Provider:     "core",
+			Description:  "SLSA provenance configuration schema",
+			GoPackage:    "pkg/api/security_config.go",
+			GoStruct:     "ProvenanceDescriptor",
+			ResourceType: "provenance-config",
+			Schema:       reflect.TypeOf(api.ProvenanceDescriptor{}),
+		},
+		{
+			Name:         "ScanDescriptor",
+			Type:         "configuration",
+			Provider:     "core",
+			Description:  "Vulnerability scanning configuration schema",
+			GoPackage:    "pkg/api/security_config.go",
+			GoStruct:     "ScanDescriptor",
+			ResourceType: "scan-config",
+			Schema:       reflect.TypeOf(api.ScanDescriptor{}),
+		},
+	}...)
+
 	fmt.Printf("Generated %d configuration file schemas\n", len(configSchemas))
 	return configSchemas, nil
 }
