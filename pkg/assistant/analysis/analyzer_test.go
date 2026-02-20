@@ -1,25 +1,24 @@
 package analysis
 
 import (
+	. "github.com/onsi/gomega"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestProjectAnalyzer(t *testing.T) {
 	analyzer := NewProjectAnalyzer()
 
 	t.Run("test analyzer initialization", func(t *testing.T) {
-		assert.True(t, len(analyzer.detectors) >= 3)
+		Expect(len(analyzer.detectors).To(BeTrue()) >= 3)
 
 		// Verify detectors are sorted by priority
 		for i := 1; i < len(analyzer.detectors); i++ {
-			assert.True(t, analyzer.detectors[i-1].Priority() >= analyzer.detectors[i].Priority())
+			Expect(analyzer.detectors[i-1].Priority().To(BeTrue()) >= analyzer.detectors[i].Priority())
 		}
 	})
 
@@ -28,7 +27,7 @@ func TestProjectAnalyzer(t *testing.T) {
 		analyzer.AddDetector(customDetector)
 
 		// Should be first due to highest priority
-		assert.Equal(t, "test", analyzer.detectors[0].Name())
+		Expect(analyzer.detectors[0].Name().To(Equal("test")))
 	})
 }
 
@@ -61,22 +60,22 @@ func TestNodeJSDetector(t *testing.T) {
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "javascript", stack.Language)
-		assert.Equal(t, "nodejs", stack.Runtime)
-		assert.Equal(t, "express", stack.Framework)
-		assert.Equal(t, ">=18.0.0", stack.Version)
-		assert.True(t, stack.Confidence >= 0.9)
-		assert.Contains(t, stack.Evidence, "package.json found")
-		assert.Contains(t, stack.Evidence, "express dependency found")
+		Expect(stack.Language).To(Equal("javascript"))
+		Expect(stack.Runtime).To(Equal("nodejs"))
+		Expect(stack.Framework).To(Equal("express"))
+		Expect(stack.Version).To(Equal(">=18.0.0"))
+		Expect(stack.Confidence >= 0.9).To(BeTrue())
+		Expect(stack.Evidence).To(ContainSubstring("package.json found"))
+		Expect(stack.Evidence).To(ContainSubstring("express dependency found"))
 
 		// Check dependencies
-		assert.True(t, len(stack.Dependencies) >= 2)
-		assert.True(t, len(stack.DevDeps) >= 1)
+		Expect(len(stack.Dependencies).To(BeTrue()) >= 2)
+		Expect(len(stack.DevDeps).To(BeTrue()) >= 1)
 
 		// Check scripts
-		assert.Equal(t, "node server.js", stack.Scripts["start"])
+		Expect(stack.Scripts["start"]).To(Equal("node server.js"))
 	})
 
 	t.Run("test nodejs detection failure", func(t *testing.T) {
@@ -86,8 +85,8 @@ func TestNodeJSDetector(t *testing.T) {
 		defer os.RemoveAll(tmpDir)
 
 		_, err := detector.Detect(tmpDir)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "package.json not found")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("package.json not found"))
 	})
 
 	t.Run("test framework detection", func(t *testing.T) {
@@ -107,7 +106,7 @@ func TestNodeJSDetector(t *testing.T) {
 
 		for _, tc := range testCases {
 			result := detector.detectFramework(tc.deps)
-			assert.Equal(t, tc.expected, result, "Failed for deps: %v", tc.deps)
+			Expect(result, "Failed for deps: %v", tc.deps).To(Equal(tc.expected))
 		}
 	})
 }
@@ -127,27 +126,27 @@ celery>=5.0.0`,
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "python", stack.Language)
-		assert.Equal(t, "python", stack.Runtime)
-		assert.Equal(t, "django", stack.Framework)
-		assert.True(t, stack.Confidence >= 0.8)
-		assert.Contains(t, stack.Evidence, "requirements.txt")
-		assert.Contains(t, stack.Evidence, "parsed requirements.txt")
+		Expect(stack.Language).To(Equal("python"))
+		Expect(stack.Runtime).To(Equal("python"))
+		Expect(stack.Framework).To(Equal("django"))
+		Expect(stack.Confidence >= 0.8).To(BeTrue())
+		Expect(stack.Evidence).To(ContainSubstring("requirements.txt"))
+		Expect(stack.Evidence).To(ContainSubstring("parsed requirements.txt"))
 
 		// Check dependencies parsing
-		assert.True(t, len(stack.Dependencies) >= 3)
+		Expect(len(stack.Dependencies).To(BeTrue()) >= 3)
 
 		djangoFound := false
 		for _, dep := range stack.Dependencies {
 			if dep.Name == "Django" {
 				djangoFound = true
-				assert.Equal(t, ">=4.0.0", dep.Version)
-				assert.Equal(t, "runtime", dep.Type)
+				Expect(dep.Version).To(Equal(">=4.0.0"))
+				Expect(dep.Type).To(Equal("runtime"))
 			}
 		}
-		assert.True(t, djangoFound, "Django dependency should be found")
+		Expect(djangoFound, "Django dependency should be found").To(BeTrue())
 	})
 
 	t.Run("test python detection with setup.py", func(t *testing.T) {
@@ -162,11 +161,11 @@ setup(
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "python", stack.Language)
-		assert.Contains(t, stack.Evidence, "setup.py found")
-		assert.Equal(t, "setuptools", stack.Metadata["build_system"])
+		Expect(stack.Language).To(Equal("python"))
+		Expect(stack.Evidence).To(ContainSubstring("setup.py found"))
+		Expect(stack.Metadata["build_system"]).To(Equal("setuptools"))
 	})
 
 	t.Run("test python detection with pyproject.toml", func(t *testing.T) {
@@ -179,11 +178,11 @@ build-backend = "hatchling.build"`,
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "python", stack.Language)
-		assert.Contains(t, stack.Evidence, "pyproject.toml found")
-		assert.Equal(t, "modern", stack.Metadata["build_system"])
+		Expect(stack.Language).To(Equal("python"))
+		Expect(stack.Evidence).To(ContainSubstring("pyproject.toml found"))
+		Expect(stack.Metadata["build_system"]).To(Equal("modern"))
 	})
 
 	t.Run("test python detection with only .py files", func(t *testing.T) {
@@ -194,9 +193,9 @@ build-backend = "hatchling.build"`,
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "python", stack.Language)
+		Expect(stack.Language).To(Equal("python"))
 	})
 
 	t.Run("test framework detection", func(t *testing.T) {
@@ -213,7 +212,7 @@ build-backend = "hatchling.build"`,
 
 		for _, tc := range testCases {
 			result := detector.detectFramework(tc.deps)
-			assert.Equal(t, tc.expected, result)
+			Expect(result).To(Equal(tc.expected))
 		}
 	})
 }
@@ -242,17 +241,17 @@ func main() {
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "go", stack.Language)
-		assert.Equal(t, "go", stack.Runtime)
-		assert.Equal(t, "gin", stack.Framework)
-		assert.Equal(t, "1.21", stack.Version)
-		assert.True(t, stack.Confidence >= 0.9)
-		assert.Contains(t, stack.Evidence, "go.mod found")
-		assert.Contains(t, stack.Evidence, "gin framework detected")
-		assert.Equal(t, "github.com/test/myapp", stack.Metadata["module"])
-		assert.Equal(t, "modules", stack.Metadata["mode"])
+		Expect(stack.Language).To(Equal("go"))
+		Expect(stack.Runtime).To(Equal("go"))
+		Expect(stack.Framework).To(Equal("gin"))
+		Expect(stack.Version).To(Equal("1.21"))
+		Expect(stack.Confidence >= 0.9).To(BeTrue())
+		Expect(stack.Evidence).To(ContainSubstring("go.mod found"))
+		Expect(stack.Evidence).To(ContainSubstring("gin framework detected"))
+		Expect(stack.Metadata["module"]).To(Equal("github.com/test/myapp"))
+		Expect(stack.Metadata["mode"]).To(Equal("modules"))
 	})
 
 	t.Run("test go detection legacy GOPATH", func(t *testing.T) {
@@ -263,12 +262,12 @@ func main() {
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "go", stack.Language)
-		assert.True(t, stack.Confidence < 0.8) // Lower confidence without go.mod
-		assert.Contains(t, stack.Evidence[0], "legacy GOPATH mode")
-		assert.Equal(t, "gopath", stack.Metadata["mode"])
+		Expect(stack.Language).To(Equal("go"))
+		Expect(stack.Confidence < 0.8).To(BeTrue()) // Lower confidence without go.mod
+		Expect(stack.Evidence[0]).To(ContainSubstring("legacy GOPATH mode"))
+		Expect(stack.Metadata["mode"]).To(Equal("gopath"))
 	})
 
 	t.Run("test framework detection", func(t *testing.T) {
@@ -288,7 +287,7 @@ func main() {
 			})
 
 			result := detector.detectFramework(tmpDir)
-			assert.Equal(t, expected, result, "Failed for import path: %s", importPath)
+			Expect(result, "Failed for import path: %s", importPath).To(Equal(expected))
 
 			os.RemoveAll(tmpDir)
 		}
@@ -319,16 +318,16 @@ services:
 		defer os.RemoveAll(tmpDir)
 
 		stack, err := detector.Detect(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "docker", stack.Language)
-		assert.Equal(t, "docker", stack.Runtime)
-		assert.Equal(t, "nodejs", stack.Framework) // Detected from base image
-		assert.True(t, stack.Confidence >= 0.7)
-		assert.Contains(t, stack.Evidence, "Dockerfile")
-		assert.Contains(t, stack.Evidence, "docker-compose.yml")
-		assert.Contains(t, stack.Evidence, ".dockerignore")
-		assert.Equal(t, "node:18-alpine", stack.Metadata["base_image"])
+		Expect(stack.Language).To(Equal("docker"))
+		Expect(stack.Runtime).To(Equal("docker"))
+		Expect(stack.Framework).To(Equal("nodejs")) // Detected from base image
+		Expect(stack.Confidence >= 0.7).To(BeTrue())
+		Expect(stack.Evidence).To(ContainSubstring("Dockerfile"))
+		Expect(stack.Evidence).To(ContainSubstring("docker-compose.yml"))
+		Expect(stack.Evidence).To(ContainSubstring(".dockerignore"))
+		Expect(stack.Metadata["base_image"]).To(Equal("node:18-alpine"))
 	})
 
 	t.Run("test base image detection", func(t *testing.T) {
@@ -348,7 +347,7 @@ services:
 			})
 
 			stack, _ := detector.Detect(tmpDir)
-			assert.Equal(t, tc.expected, stack.Framework)
+			Expect(stack.Framework).To(Equal(tc.expected))
 
 			os.RemoveAll(tmpDir)
 		}
@@ -381,20 +380,20 @@ app.listen(3000);`,
 		defer os.RemoveAll(tmpDir)
 
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Verify basic analysis
-		assert.Equal(t, tmpDir, analysis.Path)
-		assert.True(t, len(analysis.TechStacks) >= 2) // Node.js + Docker
-		assert.NotNil(t, analysis.PrimaryStack)
-		assert.True(t, analysis.Confidence > 0)
+		Expect(analysis.Path).To(Equal(tmpDir))
+		Expect(len(analysis.TechStacks).To(BeTrue()) >= 2) // Node.js + Docker
+		Expect(analysis.PrimaryStack).ToNot(BeNil())
+		Expect(analysis.Confidence > 0).To(BeTrue())
 
 		// Verify primary stack
-		assert.Equal(t, "javascript", analysis.PrimaryStack.Language)
-		assert.Equal(t, "express", analysis.PrimaryStack.Framework)
+		Expect(analysis.PrimaryStack.Language).To(Equal("javascript"))
+		Expect(analysis.PrimaryStack.Framework).To(Equal("express"))
 
 		// Verify recommendations
-		assert.True(t, len(analysis.Recommendations) > 0)
+		Expect(len(analysis.Recommendations).To(BeTrue()) > 0)
 
 		// Check for database recommendations (MongoDB, Redis)
 		mongodbRec := false
@@ -407,11 +406,11 @@ app.listen(3000);`,
 				redisRec = true
 			}
 		}
-		assert.True(t, mongodbRec, "Should recommend MongoDB resource")
-		assert.True(t, redisRec, "Should recommend Redis resource")
+		Expect(mongodbRec, "Should recommend MongoDB resource").To(BeTrue())
+		Expect(redisRec, "Should recommend Redis resource").To(BeTrue())
 
 		// Verify architecture detection
-		assert.NotEmpty(t, analysis.Architecture)
+		Expect(analysis.Architecture).ToNot(BeEmpty())
 	})
 
 	t.Run("test microservice architecture detection", func(t *testing.T) {
@@ -430,9 +429,9 @@ services:
 		defer os.RemoveAll(tmpDir)
 
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "microservice", analysis.Architecture)
+		Expect(analysis.Architecture).To(Equal("microservice"))
 
 		// Should recommend Kubernetes template
 		k8sRec := false
@@ -441,7 +440,7 @@ services:
 				k8sRec = true
 			}
 		}
-		assert.True(t, k8sRec, "Should recommend Kubernetes template for microservices")
+		Expect(k8sRec, "Should recommend Kubernetes template for microservices").To(BeTrue())
 	})
 
 	t.Run("test static site detection", func(t *testing.T) {
@@ -459,9 +458,9 @@ services:
 		defer os.RemoveAll(tmpDir)
 
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.Equal(t, "static-site", analysis.Architecture)
+		Expect(analysis.Architecture).To(Equal("static-site"))
 
 		// Should recommend static site template
 		staticRec := false
@@ -470,7 +469,7 @@ services:
 				staticRec = true
 			}
 		}
-		assert.True(t, staticRec, "Should recommend static site template")
+		Expect(staticRec, "Should recommend static site template").To(BeTrue())
 	})
 
 	t.Run("test file analysis", func(t *testing.T) {
@@ -484,9 +483,9 @@ services:
 		defer os.RemoveAll(tmpDir)
 
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
-		assert.True(t, len(analysis.Files) >= 4)
+		Expect(len(analysis.Files).To(BeTrue()) >= 4)
 
 		// Verify file types and languages
 		fileMap := make(map[string]FileInfo)
@@ -494,11 +493,11 @@ services:
 			fileMap[file.Path] = file
 		}
 
-		assert.Equal(t, "config", fileMap["package.json"].Type)
-		assert.Equal(t, "javascript", fileMap["src/index.js"].Language)
-		assert.Equal(t, "typescript", fileMap["src/utils.ts"].Language)
-		assert.Equal(t, "docs", fileMap["README.md"].Type)
-		assert.Equal(t, "config", fileMap["Dockerfile"].Type)
+		Expect(fileMap["package.json"].Type).To(Equal("config"))
+		Expect(fileMap["src/index.js"].Language).To(Equal("javascript"))
+		Expect(fileMap["src/utils.ts"].Language).To(Equal("typescript"))
+		Expect(fileMap["README.md"].Type).To(Equal("docs"))
+		Expect(fileMap["Dockerfile"].Type).To(Equal("config"))
 	})
 }
 
@@ -520,7 +519,7 @@ func (d *TestDetector) Detect(projectPath string) (*TechStackInfo, error) {
 
 func createTempProject(t *testing.T, files map[string]string) string {
 	tmpDir, err := os.MkdirTemp("", "test-project-*")
-	require.NoError(t, err)
+	Expect(err).ToNot(HaveOccurred())
 
 	for path, content := range files {
 		fullPath := filepath.Join(tmpDir, path)
@@ -627,15 +626,15 @@ func TestLLMEnhancement(t *testing.T) {
 		// Don't set LLM provider
 
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Should work fine without LLM enhancement
-		assert.NotEmpty(t, analysis.TechStacks)
-		assert.NotEmpty(t, analysis.Recommendations)
+		Expect(analysis.TechStacks).ToNot(BeEmpty())
+		Expect(analysis.Recommendations).ToNot(BeEmpty())
 
 		// Should not have LLM enhancement metadata
 		_, hasLLMEnhanced := analysis.Metadata["llm_enhanced"]
-		assert.False(t, hasLLMEnhanced, "Should not have LLM enhancement without provider")
+		Expect(hasLLMEnhanced, "Should not have LLM enhancement without provider").To(BeFalse())
 	})
 
 	t.Run("test LLM provider interface", func(t *testing.T) {
@@ -652,13 +651,13 @@ func TestLLMEnhancement(t *testing.T) {
 		analyzer.SetLLMProvider(mockLLM)
 
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
-		require.NoError(t, err)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Should have basic analysis
-		assert.NotEmpty(t, analysis.TechStacks)
-		assert.Equal(t, "go", analysis.PrimaryStack.Language)
+		Expect(analysis.TechStacks).ToNot(BeEmpty())
+		Expect(analysis.PrimaryStack.Language).To(Equal("go"))
 
 		// LLM response should be stored in metadata since it's not valid JSON
-		assert.Equal(t, "LLM analysis complete", analysis.Metadata["llm_insights"])
+		Expect(analysis.Metadata["llm_insights"]).To(Equal("LLM analysis complete"))
 	})
 }
