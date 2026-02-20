@@ -41,11 +41,14 @@ const (
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
 
-	LabelAppType     = "appType"
-	LabelAppName     = "appName"
-	LabelScEnv       = "appEnv"
-	LabelParentEnv   = "simplecontainer.com/parent-env"
-	LabelCustomStack = "simplecontainer.com/custom-stack"
+	// Standard Kubernetes labels following simple-container.com convention
+	LabelAppType      = "simple-container.com/app-type"
+	LabelAppName      = "simple-container.com/app-name"
+	LabelScEnv        = "simple-container.com/env"
+	LabelParentEnv    = "simple-container.com/parent-env"
+	LabelParentStack  = "simple-container.com/parent-stack"
+	LabelClientStack  = "simple-container.com/client-stack"
+	LabelCustomStack  = "simple-container.com/custom-stack"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
@@ -145,6 +148,16 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	if args.ParentEnv != nil && lo.FromPtr(args.ParentEnv) != "" && lo.FromPtr(args.ParentEnv) != args.ScEnv {
 		appLabels[LabelParentEnv] = lo.FromPtr(args.ParentEnv)
 		appLabels[LabelCustomStack] = "true"
+	}
+
+	// Add parent-stack and client-stack labels if provided
+	if args.ParentStack != nil && *args.ParentStack != "" {
+		appLabels[LabelParentStack] = *args.ParentStack
+	}
+	// Note: client-stack is typically same as parent-stack in nested scenarios
+	// but can be different in more complex hierarchies
+	if args.ParentStack != nil && *args.ParentStack != "" {
+		appLabels[LabelClientStack] = *args.ParentStack
 	}
 
 	appAnnotations := map[string]string{

@@ -9,8 +9,10 @@ import (
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	taggingUtil "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
 )
 
@@ -68,12 +70,22 @@ type StaticEgressIPIn struct {
 	Provider      sdk.ProviderResource
 	AccountConfig aws.AccountConfig
 	SecurityGroup *aws.SecurityGroup
+	StackParams   api.StackParams
 }
 
 func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, input *StaticEgressIPIn, opts ...sdk.ResourceOption) (*MultiStaticEgressIPOut, error) {
 	params := input.Params
-	tags := sdk.StringMap{
+
+	// Build unified tags using the tagging utility
+	scTags := taggingUtil.BuildTagsFromStackParams(input.StackParams).ToAWSTags()
+
+	// Add resource-specific tags
+	baseTags := sdk.StringMap{
 		"resource": sdk.String(resName),
+	}
+	// Merge SC tags with resource-specific tags
+	for k, v := range scTags {
+		baseTags[k] = v
 	}
 
 	params.Log.Info(ctx.Context(), "configure public subnet for %s...", resName)
@@ -91,7 +103,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	params.Log.Info(ctx.Context(), "configure VPC for %s...", resName)
 	vpc, err := ec2.NewVpc(ctx, vpcName, &ec2.VpcArgs{
 		CidrBlock: sdk.String("172.31.0.0/16"),
-		Tags:      tags,
+		Tags:      baseTags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create vpc for %q", resName)
@@ -101,7 +113,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	igwName := fmt.Sprintf("%s-igw", resName)
 	igw, err := ec2.NewInternetGateway(ctx, igwName, &ec2.InternetGatewayArgs{
 		VpcId: vpc.ID(),
-		Tags:  tags,
+		Tags:  baseTags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision internet gateway for %q", resName)
@@ -112,7 +124,7 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 	publicRouteTableName := fmt.Sprintf("%s-public-route-table", resName)
 	publicRouteTable, err := ec2.NewRouteTable(ctx, publicRouteTableName, &ec2.RouteTableArgs{
 		VpcId: vpc.ID(),
-		Tags:  tags,
+		Tags:  baseTags,
 		Routes: ec2.RouteTableRouteArray{
 			&ec2.RouteTableRouteArgs{
 				CidrBlock: sdk.String("0.0.0.0/0"),
@@ -140,10 +152,16 @@ func provisionStaticEgressForMultiZoneVpc(ctx *sdk.Context, resName string, inpu
 		pubSubnetName := fmt.Sprintf("%s-public-subnet-%s", resName, zoneName)
 		publicCidrBlock := fmt.Sprintf("172.31.%d.0/24", index+1)
 		privateCidrBlock := fmt.Sprintf("172.31.%d.0/24", index+1+len(zones.Names))
-		zonedTags := map[string]string{
+
+		// Build zoned tags with SC metadata
+		zonedTags := lo.Assign(map[string]string{
 			"zone":     zoneName,
 			"resource": resName,
-		}
+		}, map[string]string{
+			string(taggingUtil.StackTag):       input.StackParams.StackName,
+			string(taggingUtil.EnvironmentTag): input.StackParams.Environment,
+		})
+
 		publicSubnet, err := ec2.NewSubnet(ctx, pubSubnetName, &ec2.SubnetArgs{
 			VpcId:               vpc.ID(),
 			CidrBlock:           sdk.String(publicCidrBlock),
