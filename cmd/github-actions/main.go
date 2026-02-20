@@ -293,6 +293,19 @@ func initializeSubmodules(ctx context.Context, log logger.Logger, workDir, token
 
 	log.Info(ctx, "Git submodules detected - initializing and updating...")
 
+	// Fix for "detected dubious ownership" error - add workDir to safe.directory
+	safeDirCmd := []string{"git", "config", "--global", "--add", "safe.directory", workDir}
+	if err := runGitCommand(ctx, log, workDir, safeDirCmd); err != nil {
+		log.Debug(ctx, "Failed to add safe.directory config: %v", err)
+		// Continue anyway - this is best-effort
+	}
+
+	// Also add wildcard to cover any nested submodule directories
+	wildcardCmd := []string{"git", "config", "--global", "--add", "safe.directory", "*"}
+	if err := runGitCommand(ctx, log, workDir, wildcardCmd); err != nil {
+		log.Debug(ctx, "Failed to add wildcard safe.directory: %v", err)
+	}
+
 	// Configure submodules to use the authenticated URL
 	// This ensures submodules use the same token for authentication
 	submoduleUpdateCmd := []string{
