@@ -64,6 +64,30 @@ func sanitizeK8sResourceName(name string) string {
 	return sanitized
 }
 
+// sanitizeK8sLabelValue sanitizes a value to be valid for Kubernetes labels
+// Kubernetes label values must be empty or consist of alphanumeric characters, '-', '_' or '.',
+// and must start and end with an alphanumeric character
+func sanitizeK8sLabelValue(value string) string {
+	if value == "" {
+		return value
+	}
+
+	// Replace forward slashes with hyphens (common in stack paths like "/demo/root")
+	sanitized := strings.ReplaceAll(value, "/", "-")
+	// Replace other invalid characters with hyphens
+	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_\.]`)
+	sanitized = reg.ReplaceAllString(sanitized, "-")
+	// Remove leading/trailing hyphens, underscores, or dots to ensure alphanumeric start/end
+	sanitized = strings.Trim(sanitized, "-_.")
+
+	// If the result is empty after sanitization, provide a default
+	if sanitized == "" {
+		sanitized = "unknown"
+	}
+
+	return sanitized
+}
+
 type SimpleContainerArgs struct {
 	// required properties
 	Namespace              string  `json:"namespace" yaml:"namespace"`
@@ -146,18 +170,18 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	// Add parentEnv labels for custom stacks
 	if args.ParentEnv != nil && lo.FromPtr(args.ParentEnv) != "" && lo.FromPtr(args.ParentEnv) != args.ScEnv {
-		appLabels[LabelParentEnv] = lo.FromPtr(args.ParentEnv)
+		appLabels[LabelParentEnv] = sanitizeK8sLabelValue(lo.FromPtr(args.ParentEnv))
 		appLabels[LabelCustomStack] = "true"
 	}
 
 	// Add parent-stack and client-stack labels if provided
 	if args.ParentStack != nil && *args.ParentStack != "" {
-		appLabels[LabelParentStack] = *args.ParentStack
+		appLabels[LabelParentStack] = sanitizeK8sLabelValue(*args.ParentStack)
 	}
 	// Note: client-stack is typically same as parent-stack in nested scenarios
 	// but can be different in more complex hierarchies
 	if args.ParentStack != nil && *args.ParentStack != "" {
-		appLabels[LabelClientStack] = *args.ParentStack
+		appLabels[LabelClientStack] = sanitizeK8sLabelValue(*args.ParentStack)
 	}
 
 	appAnnotations := map[string]string{
