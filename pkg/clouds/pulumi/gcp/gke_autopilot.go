@@ -17,6 +17,7 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	taggingUtil "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	pulumiKubernetes "github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
@@ -159,6 +160,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			Channel: sdk.String("STABLE"),
 		},
 		IpAllocationPolicy: &container.ClusterIpAllocationPolicyArgs{},
+		ResourceLabels:     sdk.ToStringMap(taggingUtil.BuildTagsFromStackParams(lo.FromPtr(input.StackParams)).ToGCPLabels()),
 		// because we are using autopilot verticalPodAutoscaling is handled by the GCP
 	}
 
