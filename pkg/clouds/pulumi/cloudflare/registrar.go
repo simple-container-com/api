@@ -261,12 +261,15 @@ async function handleRequest(origRequest) {
 				target.protocol = new URL(request.url).protocol;
 			}
 
+			// Preserve all headers from the original response (including Set-Cookie)
+			// and update only the Location header
+			const headers = new Headers(origResponse.headers);
+			headers.set("Location", target.toString());
+
 			return new Response(null, {
 				status: origResponse.status,
 				statusText: origResponse.statusText,
-				headers: {
-					Location: target.toString(),
-				},
+				headers: headers,
 			});
 		}
 	}
