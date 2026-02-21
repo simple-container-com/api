@@ -49,6 +49,15 @@ const (
 	LabelParentStack = "simple-container.com/parent-stack"
 	LabelClientStack = "simple-container.com/client-stack"
 	LabelCustomStack = "simple-container.com/custom-stack"
+
+	// Standard Kubernetes labels (https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/)
+	LabelKubernetesName       = "app.kubernetes.io/name"
+	LabelKubernetesInstance   = "app.kubernetes.io/instance"
+	LabelKubernetesVersion    = "app.kubernetes.io/version"
+	LabelKubernetesComponent  = "app.kubernetes.io/component"
+	LabelKubernetesPartOf     = "app.kubernetes.io/part-of"
+	LabelKubernetesManagedBy  = "app.kubernetes.io/managed-by"
+	LabelKubernetesCreatedBy  = "app.kubernetes.io/created-by"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
@@ -144,6 +153,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		LabelScEnv:   args.ScEnv,
 	}
 
+	// Add standard Kubernetes labels
+	appLabels[LabelKubernetesName] = sanitizedService
+	appLabels[LabelKubernetesInstance] = sanitizedDeployment
+	appLabels[LabelKubernetesPartOf] = "simple-container"
+	appLabels[LabelKubernetesManagedBy] = "simple-container"
+	appLabels[LabelKubernetesCreatedBy] = "simple-container-cli"
+
 	// Add parentEnv labels for custom stacks
 	if args.ParentEnv != nil && lo.FromPtr(args.ParentEnv) != "" && lo.FromPtr(args.ParentEnv) != args.ScEnv {
 		appLabels[LabelParentEnv] = lo.FromPtr(args.ParentEnv)
@@ -180,6 +196,15 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// apply provided annotations
 	for k, v := range args.Annotations {
 		appAnnotations[k] = v
+	}
+
+	// Copy standard Kubernetes labels from annotations if provided
+	// This allows users to specify version and component via annotations
+	if version, ok := appAnnotations["app.kubernetes.io/version"]; ok {
+		appLabels[LabelKubernetesVersion] = version
+	}
+	if component, ok := appAnnotations["app.kubernetes.io/component"]; ok {
+		appLabels[LabelKubernetesComponent] = component
 	}
 
 	// Namespace
