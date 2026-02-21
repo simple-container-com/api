@@ -254,9 +254,12 @@ async function handleRequest(origRequest) {
 				target.search = url.search;
 			}
 
-			// force Location to point back to original host
-			target.hostname = origHost;
-			target.protocol = new URL(request.url).protocol;
+			// Only rewrite hostname if redirect is to our target upstream (overrideHost)
+			// External redirects (e.g., to Microsoft login) should pass through unchanged
+			if (target.hostname === overrideHost) {
+				target.hostname = origHost;
+				target.protocol = new URL(request.url).protocol;
+			}
 
 			return new Response(null, {
 				status: origResponse.status,
