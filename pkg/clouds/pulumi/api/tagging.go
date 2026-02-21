@@ -23,16 +23,16 @@ const (
 
 // Tags represents a set of tags/labels that can be applied to cloud resources
 type Tags struct {
-	StackName     string
-	Environment   string
-	ParentStack   *string
-	ClientStack   *string
+	StackName   string
+	Environment string
+	ParentStack *string
+	ClientStack *string
 }
 
 // ToAWSTags converts Tags to AWS tag format
 func (t *Tags) ToAWSTags() sdk.StringMap {
 	tags := sdk.StringMap{
-		StackTag:     sdk.String(t.StackName),
+		StackTag:       sdk.String(t.StackName),
 		EnvironmentTag: sdk.String(t.Environment),
 	}
 

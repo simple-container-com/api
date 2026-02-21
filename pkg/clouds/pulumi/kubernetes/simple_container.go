@@ -42,13 +42,13 @@ const (
 	AnnotationEnv            = "simple-container.com/env"
 
 	// Standard Kubernetes labels following simple-container.com convention
-	LabelAppType      = "simple-container.com/app-type"
-	LabelAppName      = "simple-container.com/app-name"
-	LabelScEnv        = "simple-container.com/env"
-	LabelParentEnv    = "simple-container.com/parent-env"
-	LabelParentStack  = "simple-container.com/parent-stack"
-	LabelClientStack  = "simple-container.com/client-stack"
-	LabelCustomStack  = "simple-container.com/custom-stack"
+	LabelAppType     = "simple-container.com/app-type"
+	LabelAppName     = "simple-container.com/app-name"
+	LabelScEnv       = "simple-container.com/env"
+	LabelParentEnv   = "simple-container.com/parent-env"
+	LabelParentStack = "simple-container.com/parent-stack"
+	LabelClientStack = "simple-container.com/client-stack"
+	LabelCustomStack = "simple-container.com/custom-stack"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
