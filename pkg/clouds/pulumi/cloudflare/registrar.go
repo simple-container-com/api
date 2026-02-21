@@ -239,36 +239,43 @@ async function handleRequest(origRequest) {
 
 	%s
 
-	let origResponse = await fetch(request, {});
+	let origResponse = await fetch(request, {
+		redirect: "manual"
+	});
+
+	// Pass through redirect responses to the browser without following them
+	if (origResponse.status >= 300 && origResponse.status < 400) {
+		const location = origResponse.headers.get("Location");
+		if (location) {
+			const target = new URL(location, url);
+
+			// re-append original query string
+			if (url.search) {
+				target.search = url.search;
+			}
+
+			// Only rewrite hostname if redirect is to our target upstream (overrideHost)
+			// External redirects (e.g., to Microsoft login) should pass through unchanged
+			if (target.hostname === overrideHost) {
+				target.hostname = origHost;
+				target.protocol = new URL(request.url).protocol;
+			}
+
+			return new Response(null, {
+				status: origResponse.status,
+				statusText: origResponse.statusText,
+				headers: {
+					Location: target.toString(),
+				},
+			});
+		}
+	}
+
 	let response = new Response(origResponse.body, {
 		status: origResponse.status,
 		statusText: origResponse.statusText,
 		headers: origResponse.headers
 	});
-
-    // keep original redirect keeping query string
-	if (response.status >= 300 && response.status < 400) {
-	  const location = response.headers.get("Location");
-	  if (location) {
-		const target = new URL(location, url);
-  
-		// re-append original query string
-		if (url.search) {
-		  target.search = url.search;
-		}
-  
-		// force Location to point back to original host
-		target.hostname = origHost;
-		target.protocol = new URL(request.url).protocol;
-  
-		return new Response(null, {
-		  status: response.status,
-		  headers: {
-			Location: target.toString(),
-		  },
-		});
-	  }
-	}
 
 	// to pass original content-length if x-content-length is specified
 	if (response.headers.get("content-length") == "0" && response.headers.get("x-content-length") != '') {
