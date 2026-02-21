@@ -483,6 +483,17 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			},
 		}
 	}
+	// Use minimal, stable labels for selector to avoid breaking deployments when labels are added
+	selectorLabels := map[string]string{
+		LabelAppType: appLabels[LabelAppType],
+		LabelAppName: appLabels[LabelAppName],
+		LabelScEnv:   appLabels[LabelScEnv],
+	}
+	// Add parent-stack label to selector if present for proper multi-stack isolation
+	if val, ok := appLabels[LabelParentStack]; ok {
+		selectorLabels[LabelParentStack] = val
+	}
+
 	deployment, err := v1.NewDeployment(ctx, sanitizedDeployment, &v1.DeploymentArgs{
 		Metadata: &metav1.ObjectMetaArgs{
 			Name:        sdk.String(sanitizedDeployment),
@@ -494,7 +505,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Strategy: strategy,
 			Replicas: sdk.Int(args.Replicas),
 			Selector: &metav1.LabelSelectorArgs{
-				MatchLabels: sdk.ToStringMap(appLabels),
+				MatchLabels: sdk.ToStringMap(selectorLabels),
 			},
 			Template: &corev1.PodTemplateSpecArgs{
 				Metadata: &metav1.ObjectMetaArgs{
@@ -590,7 +601,7 @@ ${proto}://${domain} {
 				Annotations: sdk.ToStringMap(serviceAnnotations),
 			},
 			Spec: &corev1.ServiceSpecArgs{
-				Selector: sdk.ToStringMap(appLabels),
+				Selector: sdk.ToStringMap(selectorLabels),
 				Ports:    servicePorts,
 				Type:     serviceType,
 			},
@@ -648,7 +659,7 @@ ${proto}://${domain} {
 	if args.PodDisruption != nil {
 		pdbArgs := policyv1.PodDisruptionBudgetSpecArgs{
 			Selector: &metav1.LabelSelectorArgs{
-				MatchLabels: sdk.ToStringMap(appLabels),
+				MatchLabels: sdk.ToStringMap(selectorLabels),
 			},
 		}
 		if args.PodDisruption.MinAvailable != nil {
