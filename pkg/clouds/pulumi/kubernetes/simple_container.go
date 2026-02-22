@@ -41,14 +41,15 @@ const (
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
 
-	// Standard Kubernetes labels following simple-container.com convention
-	LabelAppType     = "simple-container.com/app-type"
-	LabelAppName     = "simple-container.com/app-name"
-	LabelScEnv       = "simple-container.com/env"
-	LabelParentEnv   = "simple-container.com/parent-env"
-	LabelParentStack = "simple-container.com/parent-stack"
-	LabelClientStack = "simple-container.com/client-stack"
-	LabelCustomStack = "simple-container.com/custom-stack"
+	// Standard Kubernetes labels - using hyphens instead of dots for GCP compatibility
+	// Kubernetes allows dots in label prefixes, but GCP labels do not
+	LabelAppType     = "simple-container-com/app-type"
+	LabelAppName     = "simple-container-com/app-name"
+	LabelScEnv       = "simple-container-com/env"
+	LabelParentEnv   = "simple-container-com/parent-env"
+	LabelParentStack = "simple-container-com/parent-stack"
+	LabelClientStack = "simple-container-com/client-stack"
+	LabelCustomStack = "simple-container-com/custom-stack"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
