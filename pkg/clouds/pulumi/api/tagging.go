@@ -8,6 +8,7 @@ import (
 
 // Tag keys for consistent resource identification across clouds
 const (
+	// AWS tags - can contain dots
 	// StackTag identifies the stack name
 	StackTag = "simple-container.com/stack"
 
@@ -19,6 +20,19 @@ const (
 
 	// ClientStackTag identifies the client stack for nested stacks
 	ClientStackTag = "simple-container.com/client-stack"
+
+	// GCP labels - cannot contain dots, using hyphens instead
+	// GCPStackTag identifies the stack name
+	GCPStackTag = "simple-container-com/stack"
+
+	// GCPEnvironmentTag identifies the environment (e.g., production, staging)
+	GCPEnvironmentTag = "simple-container-com/env"
+
+	// GCPParentStackTag identifies the parent stack for nested stacks
+	GCPParentStackTag = "simple-container-com/parent-stack"
+
+	// GCPClientStackTag identifies the client stack for nested stacks
+	GCPClientStackTag = "simple-container-com/client-stack"
 )
 
 // Tags represents a set of tags/labels that can be applied to cloud resources
@@ -50,16 +64,16 @@ func (t *Tags) ToAWSTags() sdk.StringMap {
 // ToGCPLabels converts Tags to GCP label format
 func (t *Tags) ToGCPLabels() map[string]string {
 	labels := map[string]string{
-		StackTag:       t.StackName,
-		EnvironmentTag: t.Environment,
+		GCPStackTag:       t.StackName,
+		GCPEnvironmentTag: t.Environment,
 	}
 
 	if t.ParentStack != nil && *t.ParentStack != "" {
-		labels[ParentStackTag] = *t.ParentStack
+		labels[GCPParentStackTag] = *t.ParentStack
 	}
 
 	if t.ClientStack != nil && *t.ClientStack != "" {
-		labels[ClientStackTag] = *t.ClientStack
+		labels[GCPClientStackTag] = *t.ClientStack
 	}
 
 	return labels
