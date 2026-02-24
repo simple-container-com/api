@@ -342,15 +342,15 @@ func TestDockerComposeGeneration(t *testing.T) {
 				require.NotEmpty(t, composeContent)
 
 				// Validate Simple Container ingress labels
-				assert.Contains(t, composeContent, `"simple-container-com/ingress": "true"`, "Must contain ingress label")
-				assert.Contains(t, composeContent, fmt.Sprintf(`"simple-container-com/ingress/port": "%s"`, tc.expectedPort), "Must specify ingress port")
-				assert.Contains(t, composeContent, `"simple-container-com/healthcheck/path": "/health"`, "Must contain healthcheck path")
+				assert.Contains(t, composeContent, `"simple-container.com/ingress": "true"`, "Must contain ingress label")
+				assert.Contains(t, composeContent, fmt.Sprintf(`"simple-container.com/ingress/port": "%s"`, tc.expectedPort), "Must specify ingress port")
+				assert.Contains(t, composeContent, `"simple-container.com/healthcheck/path": "/health"`, "Must contain healthcheck path")
 
 				// Validate volume labels
 				assert.Contains(t, composeContent, "volumes:", "Must have volumes section")
-				assert.Contains(t, composeContent, `"simple-container-com/volume-size": "10Gi"`, "Must specify volume size")
-				assert.Contains(t, composeContent, `"simple-container-com/volume-storage-class": "gp3"`, "Must specify storage class")
-				assert.Contains(t, composeContent, `"simple-container-com/volume-access-modes": "ReadWriteOnce"`, "Must specify access modes")
+				assert.Contains(t, composeContent, `"simple-container.com/volume-size": "10Gi"`, "Must specify volume size")
+				assert.Contains(t, composeContent, `"simple-container.com/volume-storage-class": "gp3"`, "Must specify storage class")
+				assert.Contains(t, composeContent, `"simple-container.com/volume-access-modes": "ReadWriteOnce"`, "Must specify access modes")
 
 				// Validate structure requirements
 				assert.Contains(t, composeContent, "version: '3.8'", "Must have proper version")
@@ -367,7 +367,7 @@ services:
   app:
     build: .
     labels:
-      "simple-container-com/ingress": "true"
+      "simple-container.com/ingress": "true"
     ports:
       - "3000:3000"
     environment:
@@ -377,7 +377,7 @@ services:
 volumes:
   app_data:
     labels:
-      "simple-container-com/volume-size": "10Gi"`
+      "simple-container.com/volume-size": "10Gi"`
 
 		invalidComposeNoIngressLabel := `version: '3.8'
 services:
@@ -403,9 +403,9 @@ services:
 		prompt := devMode.buildComposeYAMLPrompt(analysis)
 
 		// Check that prompt includes Simple Container label instructions
-		assert.Contains(t, prompt, "simple-container-com/ingress", "Prompt should mention ingress labels")
-		assert.Contains(t, prompt, "simple-container-com/volume-size", "Prompt should mention volume size labels")
-		assert.Contains(t, prompt, "simple-container-com/healthcheck", "Prompt should mention healthcheck labels")
+		assert.Contains(t, prompt, "simple-container.com/ingress", "Prompt should mention ingress labels")
+		assert.Contains(t, prompt, "simple-container.com/volume-size", "Prompt should mention volume size labels")
+		assert.Contains(t, prompt, "simple-container.com/healthcheck", "Prompt should mention healthcheck labels")
 		assert.Contains(t, prompt, "Create separate volumes block", "Prompt should emphasize separate volumes block")
 		assert.Contains(t, prompt, "ALL required volumes", "Prompt should emphasize all volumes need labels")
 	})

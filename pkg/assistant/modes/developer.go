@@ -2009,18 +2009,18 @@ func (d *DeveloperMode) buildComposeYAMLPrompt(analysis *analysis.ProjectAnalysi
 	prompt.WriteString("\n🏷️ REQUIRED SIMPLE CONTAINER LABELS:\n")
 	prompt.WriteString("For the MAIN SERVICE (ingress container):\n")
 	prompt.WriteString("  labels:\n")
-	prompt.WriteString("    \"simple-container-com/ingress\": \"true\"  # Marks this as the main ingress service\n")
-	prompt.WriteString("    \"simple-container-com/ingress/port\": \"3000\"  # Optional: specify ingress port\n")
-	prompt.WriteString("    \"simple-container-com/healthcheck/path\": \"/health\"  # Optional: health check endpoint\n")
-	prompt.WriteString("    \"simple-container-com/healthcheck/port\": \"3000\"  # Optional: health check port\n")
+	prompt.WriteString("    \"simple-container.com/ingress\": \"true\"  # Marks this as the main ingress service\n")
+	prompt.WriteString("    \"simple-container.com/ingress/port\": \"3000\"  # Optional: specify ingress port\n")
+	prompt.WriteString("    \"simple-container.com/healthcheck/path\": \"/health\"  # Optional: health check endpoint\n")
+	prompt.WriteString("    \"simple-container.com/healthcheck/port\": \"3000\"  # Optional: health check port\n")
 
 	prompt.WriteString("\nFor VOLUMES (create separate volumes block):\n")
 	prompt.WriteString("  volumes:\n")
 	prompt.WriteString("    app_data:  # Example volume name\n")
 	prompt.WriteString("      labels:\n")
-	prompt.WriteString("        \"simple-container-com/volume-size\": \"10Gi\"  # Volume size specification\n")
-	prompt.WriteString("        \"simple-container-com/volume-storage-class\": \"gp3\"  # Optional: storage class\n")
-	prompt.WriteString("        \"simple-container-com/volume-access-modes\": \"ReadWriteOnce\"  # Optional: access mode\n")
+	prompt.WriteString("        \"simple-container.com/volume-size\": \"10Gi\"  # Volume size specification\n")
+	prompt.WriteString("        \"simple-container.com/volume-storage-class\": \"gp3\"  # Optional: storage class\n")
+	prompt.WriteString("        \"simple-container.com/volume-access-modes\": \"ReadWriteOnce\"  # Optional: access mode\n")
 
 	prompt.WriteString("\n🚨 CRITICAL ENVIRONMENT VARIABLE RULES:\n")
 	prompt.WriteString("❌ ABSOLUTELY FORBIDDEN: ${secret:anything} or ${resource:anything} placeholders\n")
@@ -2144,10 +2144,10 @@ func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAn
 	template.WriteString(fmt.Sprintf(`  app:
     build: .
     labels:
-      "simple-container-com/ingress": "true"
-      "simple-container-com/ingress/port": "%s"
-      "simple-container-com/healthcheck/path": "/health"
-      "simple-container-com/healthcheck/port": "%s"
+      "simple-container.com/ingress": "true"
+      "simple-container.com/ingress/port": "%s"
+      "simple-container.com/healthcheck/path": "/health"
+      "simple-container.com/healthcheck/port": "%s"
     ports:
       - "%s:%s"
     environment:
@@ -2278,9 +2278,9 @@ func (d *DeveloperMode) generateFallbackComposeYAML(analysis *analysis.ProjectAn
 volumes:
   app_data:
     labels:
-      "simple-container-com/volume-size": "10Gi"
-      "simple-container-com/volume-storage-class": "gp3"
-      "simple-container-com/volume-access-modes": "ReadWriteOnce"
+      "simple-container.com/volume-size": "10Gi"
+      "simple-container.com/volume-storage-class": "gp3"
+      "simple-container.com/volume-access-modes": "ReadWriteOnce"
 
 networks:
   app_network:
@@ -2645,7 +2645,7 @@ func (d *DeveloperMode) validateComposeContent(content string) bool {
 	}
 
 	// Check for Simple Container ingress label (critical for deployment)
-	hasIngressLabel := strings.Contains(content, "simple-container-com/ingress")
+	hasIngressLabel := strings.Contains(content, "simple-container.com/ingress")
 
 	// Check for security and operational practices
 	hasSecurityPractices := false

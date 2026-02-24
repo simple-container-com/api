@@ -86,17 +86,15 @@ const (
 )
 
 const (
-	// Docker Compose labels - using hyphens instead of dots for GCP compatibility
-	// GCP labels cannot contain dots, so we use hyphens for consistency
-	ComposeLabelIngressContainer            = "simple-container-com/ingress"
-	ComposeLabelVolumeSize                  = "simple-container-com/volume-size"
-	ComposeLabelVolumeAccessModes           = "simple-container-com/volume-access-modes"
-	ComposeLabelVolumeStorageClass          = "simple-container-com/volume-storage-class"
-	ComposeLabelIngressPort                 = "simple-container-com/ingress/port"
-	ComposeLabelHealthcheckSuccessCodes     = "simple-container-com/healthcheck/success-codes"
-	ComposeLabelHealthcheckHealthyThreshold = "simple-container-com/healthcheck/healthy-threshold"
-	ComposeLabelHealthcheckPath             = "simple-container-com/healthcheck/path"
-	ComposeLabelHealthcheckPort             = "simple-container-com/healthcheck/port"
+	ComposeLabelIngressContainer            = "simple-container.com/ingress"
+	ComposeLabelVolumeSize                  = "simple-container.com/volume-size"
+	ComposeLabelVolumeAccessModes           = "simple-container.com/volume-access-modes"
+	ComposeLabelVolumeStorageClass          = "simple-container.com/volume-storage-class"
+	ComposeLabelIngressPort                 = "simple-container.com/ingress/port"
+	ComposeLabelHealthcheckSuccessCodes     = "simple-container.com/healthcheck/success-codes"
+	ComposeLabelHealthcheckHealthyThreshold = "simple-container.com/healthcheck/healthy-threshold"
+	ComposeLabelHealthcheckPath             = "simple-container.com/healthcheck/path"
+	ComposeLabelHealthcheckPort             = "simple-container.com/healthcheck/port"
 )
 
 type RemoteImage struct {
