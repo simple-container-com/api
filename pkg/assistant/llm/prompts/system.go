@@ -170,10 +170,10 @@ UNIVERSAL RULE FOR PORTS & HEALTH CHECKS:
       ports:
         - "3000:3000"          # ✅ CORRECT - Ports belong here
       labels:
-        "simple-container.com/ingress": "true"
-        "simple-container.com/ingress/port": "3000"
-        "simple-container.com/healthcheck/path": "/health"    # ✅ CORRECT - Health check here
-        "simple-container.com/healthcheck/port": "3000"
+        "simple-container-com/ingress": "true"
+        "simple-container-com/ingress/port": "3000"
+        "simple-container-com/healthcheck/path": "/health"    # ✅ CORRECT - Health check here
+        "simple-container-com/healthcheck/port": "3000"
       healthcheck:             # ✅ CORRECT - Health check config here
         test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
         interval: 30s

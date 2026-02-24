@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     labels:
-      "simple-container.com/ingress": true
+      "simple-container-com/ingress": true
     ports:
       - "3000:3000"
     environment:
@@ -30,4 +30,4 @@ services:
 volumes:
   streams_data:
     labels:
-      "simple-container.com/volume-size": "10Gi"
+      "simple-container-com/volume-size": "10Gi"

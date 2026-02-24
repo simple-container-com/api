@@ -2,7 +2,7 @@ services:
   vectordb:
     image: milvusdb/milvus:latest
     labels:
-      "simple-container.com/ingress": true
+      "simple-container-com/ingress": true
     ports:
       - "19530:19530"
       - "9091:9091"
@@ -58,13 +58,13 @@ volumes:
   milvus_data:
     driver: local
     labels:
-      - "simple-container.com/volume-size=50Gi"
-      - "simple-container.com/volume-storage-class=fast-ssd"
+      - "simple-container-com/volume-size=50Gi"
+      - "simple-container-com/volume-storage-class=fast-ssd"
   etcd_data:
     driver: local
     labels:
-      - "simple-container.com/volume-size=10Gi"
+      - "simple-container-com/volume-size=10Gi"
   minio_data:
     driver: local
     labels:
-      - "simple-container.com/volume-size=100Gi"
+      - "simple-container-com/volume-size=100Gi"

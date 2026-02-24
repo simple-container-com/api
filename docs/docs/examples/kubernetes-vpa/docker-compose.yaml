@@ -14,7 +14,7 @@ services:
     depends_on:
       - mongodb
     labels:
-      "simple-container.com/ingress": "true"
+      "simple-container-com/ingress": "true"
 
   mongodb:
     image: mongo:7.0
@@ -28,4 +28,4 @@ services:
 volumes:
   mongodb_data:
     labels:
-      "simple-container.com/volume-size": "10Gi"
+      "simple-container-com/volume-size": "10Gi"

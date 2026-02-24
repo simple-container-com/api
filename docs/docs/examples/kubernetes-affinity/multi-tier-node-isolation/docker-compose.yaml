@@ -10,7 +10,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     labels:
-      - "simple-container.com/ingress=true"
+      - "simple-container-com/ingress=true"
     ports:
       - "8000:8000"
     environment:
@@ -60,7 +60,7 @@ services:
       context: .
       dockerfile: Dockerfile.bot
     labels:
-      - "simple-container.com/ingress=true"
+      - "simple-container-com/ingress=true"
     ports:
       - "8080:8080"
     environment:
@@ -110,9 +110,9 @@ services:
 volumes:
   postgres_data:
     labels:
-      - "simple-container.com/volume-size=10Gi"
-      - "simple-container.com/volume-access-modes=ReadWriteOnce"
-      - "simple-container.com/volume-storage-class=ssd"
+      - "simple-container-com/volume-size=10Gi"
+      - "simple-container-com/volume-access-modes=ReadWriteOnce"
+      - "simple-container-com/volume-storage-class=ssd"
 
 # Networks (Simple Container handles networking automatically)
 networks:

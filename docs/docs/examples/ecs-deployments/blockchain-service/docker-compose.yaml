@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     labels:
-      "simple-container.com/ingress": true
+      "simple-container-com/ingress": true
     ports:
       - "3000:3000"
     environment:
@@ -23,4 +23,4 @@ services:
 volumes:
   blockchain_data:
     labels:
-      "simple-container.com/volume-size": "20Gi"
+      "simple-container-com/volume-size": "20Gi"

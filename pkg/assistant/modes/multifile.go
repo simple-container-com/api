@@ -249,13 +249,13 @@ FOR CLIENT.YAML:
 
 FOR DOCKER-COMPOSE.YAML:
 ✅ MUST include Simple Container labels:
-   - "simple-container.com/ingress": "true" (for main service)
-   - "simple-container.com/ingress/port": "PORT_NUMBER"
-   - "simple-container.com/healthcheck/path": "/health"
+   - "simple-container-com/ingress": "true" (for main service)
+   - "simple-container-com/ingress/port": "PORT_NUMBER"
+   - "simple-container-com/healthcheck/path": "/health"
 ✅ MUST have separate volumes block with labels:
-   - "simple-container.com/volume-size": "10Gi"
-   - "simple-container.com/volume-storage-class": "gp3"
-   - "simple-container.com/volume-access-modes": "ReadWriteOnce"
+   - "simple-container-com/volume-size": "10Gi"
+   - "simple-container-com/volume-storage-class": "gp3"
+   - "simple-container-com/volume-access-modes": "ReadWriteOnce"
 
 FOR DOCKERFILE:
 ✅ Multi-stage builds for production
