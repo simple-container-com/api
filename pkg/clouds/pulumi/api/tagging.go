@@ -21,18 +21,18 @@ const (
 	// ClientStackTag identifies the client stack for nested stacks
 	ClientStackTag = "simple-container.com/client-stack"
 
-	// GCP labels - cannot contain dots, using hyphens instead
+	// GCP labels - cannot contain dots or slashes, using underscores instead
 	// GCPStackTag identifies the stack name
-	GCPStackTag = "simple-container-com/stack"
+	GCPStackTag = "simple_container_com_stack"
 
 	// GCPEnvironmentTag identifies the environment (e.g., production, staging)
-	GCPEnvironmentTag = "simple-container-com/env"
+	GCPEnvironmentTag = "simple_container_com_env"
 
 	// GCPParentStackTag identifies the parent stack for nested stacks
-	GCPParentStackTag = "simple-container-com/parent-stack"
+	GCPParentStackTag = "simple_container_com_parent_stack"
 
 	// GCPClientStackTag identifies the client stack for nested stacks
-	GCPClientStackTag = "simple-container-com/client-stack"
+	GCPClientStackTag = "simple_container_com_client_stack"
 )
 
 // Tags represents a set of tags/labels that can be applied to cloud resources
