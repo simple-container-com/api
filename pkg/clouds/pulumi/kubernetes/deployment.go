@@ -300,10 +300,24 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 
 	// Use HttpGet probe if path is specified, otherwise fall back to TcpSocket
 	if probe.HttpGet.Path != "" {
-		probeArgs.HttpGet = &corev1.HTTPGetActionArgs{
+		httpGetArgs := &corev1.HTTPGetActionArgs{
 			Path: sdk.String(probe.HttpGet.Path),
 			Port: sdk.Int(probePort),
 		}
+
+		// Add HTTP headers if specified
+		if len(probe.HttpGet.HTTPHeaders) > 0 {
+			httpHeaders := make(corev1.HTTPHeaderArray, 0, len(probe.HttpGet.HTTPHeaders))
+			for _, header := range probe.HttpGet.HTTPHeaders {
+				httpHeaders = append(httpHeaders, corev1.HTTPHeaderArgs{
+					Name:  sdk.String(header.Name),
+					Value: sdk.String(header.Value),
+				})
+			}
+			httpGetArgs.HttpHeaders = httpHeaders
+		}
+
+		probeArgs.HttpGet = httpGetArgs
 	} else {
 		probeArgs.TcpSocket = corev1.TCPSocketActionArgs{
 			Port: sdk.String(toPortName(probePort)),
