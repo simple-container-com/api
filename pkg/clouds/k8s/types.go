@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/compose"
+
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
 type DeploymentConfig struct {
@@ -126,9 +126,9 @@ type HTTPHeader struct {
 }
 
 type ProbeHttpGet struct {
-	Path         string       `json:"path" yaml:"path"`
-	Port         int          `json:"port" yaml:"port"`
-	HTTPHeaders  []HTTPHeader `json:"httpHeaders,omitempty" yaml:"httpHeaders,omitempty"`
+	Path        string       `json:"path" yaml:"path"`
+	Port        int          `json:"port" yaml:"port"`
+	HTTPHeaders []HTTPHeader `json:"httpHeaders,omitempty" yaml:"httpHeaders,omitempty"`
 }
 
 type CloudRunContainer struct {
