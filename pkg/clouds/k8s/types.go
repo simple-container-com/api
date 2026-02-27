@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/compose"
-
 	"github.com/compose-spec/compose-go/types"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
 type DeploymentConfig struct {
