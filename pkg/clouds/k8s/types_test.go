@@ -2,11 +2,154 @@ package k8s
 
 import (
 	"testing"
+	"time"
 
 	"github.com/compose-spec/compose-go/types"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
+
+func TestHTTPHeader(t *testing.T) {
+	tests := []struct {
+		name      string
+		header    HTTPHeader
+		wantName  string
+		wantValue string
+	}{
+		{
+			name: "basic header",
+			header: HTTPHeader{
+				Name:  "Authorization",
+				Value: "Bearer token123",
+			},
+			wantName:  "Authorization",
+			wantValue: "Bearer token123",
+		},
+		{
+			name: "custom header",
+			header: HTTPHeader{
+				Name:  "X-Custom-Header",
+				Value: "custom-value",
+			},
+			wantName:  "X-Custom-Header",
+			wantValue: "custom-value",
+		},
+		{
+			name: "health check header",
+			header: HTTPHeader{
+				Name:  "X-Health-Check",
+				Value: "true",
+			},
+			wantName:  "X-Health-Check",
+			wantValue: "true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.header.Name != tt.wantName {
+				t.Errorf("HTTPHeader.Name = %v, want %v", tt.header.Name, tt.wantName)
+			}
+			if tt.header.Value != tt.wantValue {
+				t.Errorf("HTTPHeader.Value = %v, want %v", tt.header.Value, tt.wantValue)
+			}
+		})
+	}
+}
+
+func TestProbeHttpGet_WithHeaders(t *testing.T) {
+	tests := []struct {
+		name    string
+		probe   ProbeHttpGet
+		wantLen int
+	}{
+		{
+			name: "probe with single header",
+			probe: ProbeHttpGet{
+				Path: "/health",
+				Port: 8080,
+				HTTPHeaders: []HTTPHeader{
+					{Name: "X-Health-Check", Value: "true"},
+				},
+			},
+			wantLen: 1,
+		},
+		{
+			name: "probe with multiple headers",
+			probe: ProbeHttpGet{
+				Path: "/health",
+				Port: 8080,
+				HTTPHeaders: []HTTPHeader{
+					{Name: "X-Health-Check", Value: "true"},
+					{Name: "Authorization", Value: "Bearer token123"},
+					{Name: "X-Custom", Value: "custom-value"},
+				},
+			},
+			wantLen: 3,
+		},
+		{
+			name: "probe without headers",
+			probe: ProbeHttpGet{
+				Path: "/health",
+				Port: 8080,
+			},
+			wantLen: 0,
+		},
+		{
+			name: "probe with empty headers slice",
+			probe: ProbeHttpGet{
+				Path:        "/health",
+				Port:        8080,
+				HTTPHeaders: []HTTPHeader{},
+			},
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.probe.HTTPHeaders) != tt.wantLen {
+				t.Errorf("ProbeHttpGet.HTTPHeaders length = %v, want %v", len(tt.probe.HTTPHeaders), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestCloudRunProbe_WithHeaders(t *testing.T) {
+	initialDelay := 10
+	interval := 5 * time.Second
+	failureThreshold := 3
+
+	probe := &CloudRunProbe{
+		HttpGet: ProbeHttpGet{
+			Path: "/health",
+			Port: 8080,
+			HTTPHeaders: []HTTPHeader{
+				{Name: "X-Health-Check", Value: "true"},
+				{Name: "Authorization", Value: "Bearer token123"},
+			},
+		},
+		InitialDelaySeconds: &initialDelay,
+		Interval:            &interval,
+		FailureThreshold:    &failureThreshold,
+	}
+
+	if probe.HttpGet.Path != "/health" {
+		t.Errorf("CloudRunProbe.HttpGet.Path = %v, want /health", probe.HttpGet.Path)
+	}
+	if probe.HttpGet.Port != 8080 {
+		t.Errorf("CloudRunProbe.HttpGet.Port = %v, want 8080", probe.HttpGet.Port)
+	}
+	if len(probe.HttpGet.HTTPHeaders) != 2 {
+		t.Errorf("CloudRunProbe.HttpGet.HTTPHeaders length = %v, want 2", len(probe.HttpGet.HTTPHeaders))
+	}
+	if probe.HttpGet.HTTPHeaders[0].Name != "X-Health-Check" {
+		t.Errorf("First header name = %v, want X-Health-Check", probe.HttpGet.HTTPHeaders[0].Name)
+	}
+	if probe.HttpGet.HTTPHeaders[1].Name != "Authorization" {
+		t.Errorf("Second header name = %v, want Authorization", probe.HttpGet.HTTPHeaders[1].Name)
+	}
+}
 
 func Test_toMebibytesFormat(t *testing.T) {
 	tests := []struct {

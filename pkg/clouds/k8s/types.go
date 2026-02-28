@@ -107,9 +107,28 @@ type CloudRunProbe struct {
 	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`
 }
 
+// HTTPHeader represents an HTTP header name-value pair for health probe requests.
+// This allows customizing HTTP headers sent in readiness, liveness, and startup probes.
+//
+// Example:
+//
+//	HTTPHeader{
+//		Name:  "Authorization",
+//		Value: "Bearer token123",
+//	}
+//
+// Kubernetes Reference: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+type HTTPHeader struct {
+	// Name is the header field name (case-insensitive per HTTP spec)
+	Name string `json:"name" yaml:"name"`
+	// Value is the header field value
+	Value string `json:"value" yaml:"value"`
+}
+
 type ProbeHttpGet struct {
-	Path string `json:"path" yaml:"path"`
-	Port int    `json:"port" yaml:"port"`
+	Path        string       `json:"path" yaml:"path"`
+	Port        int          `json:"port" yaml:"port"`
+	HTTPHeaders []HTTPHeader `json:"httpHeaders,omitempty" yaml:"httpHeaders,omitempty"`
 }
 
 type CloudRunContainer struct {
