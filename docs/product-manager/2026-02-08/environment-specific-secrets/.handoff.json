@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "role": "product_manager",
+  "summary": "Completed comprehensive product requirements documentation for environment-specific secrets in parent stacks feature (Issue #60). Created detailed requirements specification, task breakdown with 6 phases and 23 tasks, and comprehensive acceptance criteria with test scenarios.",
+  "features": [
+    {
+      "title": "Feature: Environment-Specific Secrets in Parent Stacks",
+      "problem": "Current secrets management system lacks support for differentiating secrets based on deployment environments (production, staging, development) when using parent/child stack architectures. All environments must use the same secrets or require separate stack definitions, creating security risks and operational complexity.",
+      "scope": "Implement environment-aware secret storage and resolution within the existing repository-based secrets management system. The feature will extend the current secrets.yaml schema to support environment-specific values while maintaining full backward compatibility. Implementation includes schema version 2.0, environment context management (CLI flags, stack configuration, environment variables), environment-aware placeholder resolution, parent stack inheritance with environment context, validation and error handling, user documentation, testing, and migration tooling.\n\nOut of scope: External secrets managers (HashiCorp Vault, AWS Secrets Manager, etc.), automated secret rotation, dynamic secret generation, cross-environment secret references, environment promotion/copying, secret versioning/history.",
+      "scopeGroup": "environment-specific-secrets",
+      "workflowType": "sequential",
+      "acceptanceCriteria": [
+        "Schema v2.0 supports multiple environments with shared secrets while maintaining backward compatibility with v1.0",
+        "Environment context can be specified via CLI flag (--environment), stack configuration (environment field), or environment variable (SC_ENVIRONMENT) with proper precedence order",
+        "Secret placeholders support implicit environment resolution (${secret:name}) and explicit environment override (${secret:name:environment})",
+        "Child stacks inherit environment-appropriate secrets from parent stacks based on child's environment context",
+        "Clear validation and error messages for missing secrets, invalid environments, and security warnings for inappropriate environment access",
+        "Dry-run mode shows secret resolution preview without applying changes",
+        "No performance degradation (<5% overhead) for existing v1.0 configurations",
+        "All existing deployments continue to work without modification (100% backward compatibility)",
+        "Comprehensive test coverage (>80% unit tests, integration tests, performance tests, security tests)",
+        "Migration tool available for converting v1.0 to v2.0 format with user confirmation and backup",
+        "Complete user documentation including feature overview, configuration examples, migration guide, and troubleshooting"
+      ],
+      "docs": {
+        "featureDocsPaths": [
+          "docs/product-manager/2026-02-08/environment-specific-secrets/requirements.md",
+          "docs/product-manager/2026-02-08/environment-specific-secrets/task-breakdown.md",
+          "docs/product-manager/2026-02-08/environment-specific-secrets/acceptance-criteria.md"
+        ],
+        "notes": "Implementation estimated at 8-12 weeks across 6 phases: (1) Schema and Data Model, (2) Environment Context Management, (3) Secret Resolution, (4) Error Handling/UX, (5) Testing/QA, (6) Migration/Release. Key technical constraints: must work within existing package structure (pkg/api/secrets/, pkg/provisioner/placeholders/), must use existing encryption mechanisms, must integrate with existing placeholder system, must maintain backward compatibility. High-risk areas: backward compatibility breaking, performance degradation, security misconfiguration. All acceptance criteria, tasks, and test scenarios are fully documented in the provided files."
+      },
+      "priority": "high",
+      "dependencies": [
+        "Existing secrets management package (pkg/api/secrets/)",
+        "Existing placeholder resolution system (pkg/provisioner/placeholders/)",
+        "Existing stack configuration models (pkg/api/models.go)",
+        "Existing CLI command structure (cmd/sc/main.go)"
+      ]
+    }
+  ]
+}
