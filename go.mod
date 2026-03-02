@@ -36,7 +36,7 @@ require (
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.18.1
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v4 v4.4.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
-	github.com/pulumi/pulumi/pkg/v3 v3.184.0
+	github.com/pulumi/pulumi/pkg/v3 v3.218.0
 	github.com/pulumi/pulumi/sdk/v3 v3.218.0
 	github.com/samber/lo v1.38.1
 	github.com/spf13/afero v1.15.0
@@ -200,6 +200,7 @@ require (
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
+	github.com/go-test/deep v1.1.1 // indirect
 	github.com/go-toolsmith/astcast v1.1.0 // indirect
 	github.com/go-toolsmith/astcopy v1.1.0 // indirect
 	github.com/go-toolsmith/astequal v1.2.0 // indirect
@@ -259,7 +260,6 @@ require (
 	github.com/hexops/gotextdiff v1.0.3 // indirect
 	github.com/huandu/xstrings v1.4.0 // indirect
 	github.com/iancoleman/strcase v0.3.0 // indirect
-	github.com/ijc/Gotty v0.0.0-20170406111628-a8b993ba6abd // indirect
 	github.com/imdario/mergo v0.3.16 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/iwdgo/sigintwindows v0.2.2 // indirect
@@ -332,6 +332,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pgavlin/diff v0.0.0-20230503175810-113847418e2e // indirect
 	github.com/pgavlin/fx v0.1.6 // indirect
+	github.com/pgavlin/fx/v2 v2.0.10 // indirect
 	github.com/pgavlin/goldmark v1.1.33-0.20200616210433-b5eb04559386 // indirect
 	github.com/pgavlin/text v0.0.0-20240821195002-b51d0990e284 // indirect
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
@@ -373,7 +374,7 @@ require (
 	github.com/securego/gosec/v2 v2.22.2 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.3.5 // indirect
-	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
+	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sivchari/containedctx v1.0.3 // indirect
 	github.com/sivchari/tenv v1.12.1 // indirect
@@ -409,6 +410,7 @@ require (
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	github.com/xen0n/gosmopolitan v1.2.2 // indirect
+	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yagipy/maintidx v1.0.0 // indirect
 	github.com/yeya24/promlinter v0.3.0 // indirect
 	github.com/ykadowak/zerologlint v0.1.5 // indirect
@@ -443,7 +445,7 @@ require (
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
-	golang.org/x/time v0.10.0 // indirect
+	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect

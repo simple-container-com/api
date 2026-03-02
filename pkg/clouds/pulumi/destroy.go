@@ -50,7 +50,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 		return err
 	}
 	p.logger.Info(ctx, color.RedFmt("Removing stack: %q...", stackSource.Name()))
-	res, err := p.backend.RemoveStack(ctx, s, false)
+	res, err := p.backend.RemoveStack(ctx, s, false, false)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 			return err
 		}
 		p.logger.Info(ctx, color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
-		_, err = p.backend.RemoveStack(ctx, sStack, false)
+		_, err = p.backend.RemoveStack(ctx, sStack, false, false)
 		if err != nil {
 			return err
 		}
