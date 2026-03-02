@@ -1,8 +1,8 @@
 name: Build simple-container in branch
 on:
   workflow_dispatch:
-  push:
-    branches-ignore:
+  pull_request:
+    branches:
       - 'main'
       - 'staging'
 
