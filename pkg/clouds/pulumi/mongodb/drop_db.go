@@ -4,9 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/pkg/errors"
 )
 
 // DropDatabase connects to MongoDB using the provided URI and drops the specified database.
