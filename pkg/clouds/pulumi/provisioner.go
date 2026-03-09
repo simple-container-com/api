@@ -2,6 +2,8 @@ package pulumi
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
@@ -103,7 +106,69 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	if err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
-	return p.destroyStack(ctx, cfg, s, params, p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String()), preview)
+	program := p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String())
+	return p.destroyStack(ctx, cfg, s, params, program, preview, func(stackSource auto.Stack) {
+		p.dropMongoDbIfEnabled(ctx, childStack, params, stackSource)
+	})
+}
+
+// dropMongoDbIfEnabled checks if mongoDbDestroyDatabase is enabled in cloudExtras and if so,
+// reads MongoDB credentials from the stack outputs and drops the database before destroy.
+func (p *pulumi) dropMongoDbIfEnabled(ctx context.Context, childStack api.Stack, params api.DestroyParams, stackSource auto.Stack) {
+	clientDesc := childStack.Client.Stacks[params.Environment]
+	if clientDesc.Config.Config == nil {
+		return
+	}
+
+	type mongoDbDestroyExtras struct {
+		MongoDBDestroyDatabase *bool `json:"mongoDbDestroyDatabase" yaml:"mongoDbDestroyDatabase"`
+	}
+
+	// clientDesc.Config.Config is a raw map[string]interface{} from YAML parsing,
+	// so use ConvertDescriptor to extract cloudExtras regardless of the underlying type
+	type stackConfigWithCloudExtras struct {
+		CloudExtras *any `json:"cloudExtras" yaml:"cloudExtras"`
+	}
+	cfgWithExtras := &stackConfigWithCloudExtras{}
+	if _, err := api.ConvertDescriptor(clientDesc.Config.Config, cfgWithExtras); err != nil || cfgWithExtras.CloudExtras == nil {
+		return
+	}
+
+	extras := &mongoDbDestroyExtras{}
+	converted, err := api.ConvertDescriptor(*cfgWithExtras.CloudExtras, extras)
+	if err != nil || converted == nil || converted.MongoDBDestroyDatabase == nil || !*converted.MongoDBDestroyDatabase {
+		return
+	}
+
+	outputs, err := stackSource.Outputs(ctx)
+	if err != nil {
+		p.logger.Warn(ctx, "mongoDbDestroyDatabase: failed to get stack outputs: %v", err)
+		return
+	}
+
+	for key, output := range outputs {
+		if !strings.HasSuffix(key, "-service-user") {
+			continue
+		}
+		dbUserJson, ok := output.Value.(string)
+		if !ok {
+			continue
+		}
+		var dbUser mongodb.DbUserOutput
+		if err := json.Unmarshal([]byte(dbUserJson), &dbUser); err != nil {
+			p.logger.Warn(ctx, "mongoDbDestroyDatabase: failed to parse service user output %q: %v", key, err)
+			continue
+		}
+		// dbName == userName: both are set to stack.Name in appendUsesResourceContext
+		dbName := dbUser.UserName
+		fullUri := mongodb.AppendUserPasswordAndDBToMongoUri(dbUser.DbUri, dbUser.UserName, dbUser.Password, dbName)
+		p.logger.Info(ctx, "mongoDbDestroyDatabase: dropping MongoDB database %q...", dbName)
+		if err := mongodb.DropDatabase(ctx, fullUri, dbName); err != nil {
+			p.logger.Warn(ctx, "mongoDbDestroyDatabase: failed to drop database %q: %v", dbName, err)
+		} else {
+			p.logger.Info(ctx, "mongoDbDestroyDatabase: successfully dropped MongoDB database %q", dbName)
+		}
+	}
 }
 
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
