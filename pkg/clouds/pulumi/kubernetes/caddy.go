@@ -145,111 +145,55 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 				DEPLOYMENT_NAME="` + deploymentName + `"
 				NAMESPACE="` + namespace + `"
 
-				# Function to compute MD5 hash of a file
-				file_hash() {
-					md5sum "$1" 2>/dev/null | cut -d' ' -f1
-				}
+				# Watch for new services with caddyfile-entry annotation and trigger deployment rollout
+				# This mirrors the DeploymentPatch logic from kube_run.go
+				WATCH_INTERVAL=30
 
-				# Function to generate Caddyfile from all services with caddyfile-entry annotation
-				generate_caddyfile() {
-					local caddyfile="$1"
-					if [ -z "$caddyfile" ]; then
-						caddyfile="/tmp/Caddyfile"
-					fi
-
-					# Copy base Caddyfile
-					cp -f /etc/caddy/Caddyfile "$caddyfile" || true
-
-					# Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
-					if [ -n "$CADDYFILE_PREFIX" ]; then
-						echo "$CADDYFILE_PREFIX" >> "$caddyfile"
-						echo "" >> "$caddyfile"
-					fi
-
+				# Get initial list of service entries to compute initial hash
+				get_service_entries_hash() {
 					# Get all services with Simple Container annotations across all namespaces
-					services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
-
-					echo "$DEFAULT_ENTRY_START" >> "$caddyfile"
-					if [ "$USE_PREFIXES" == "false" ]; then
-						echo "$DEFAULT_ENTRY" >> "$caddyfile"
-						echo "}" >> "$caddyfile"
-					fi
-
-					# Process each service that has Caddyfile entry annotation
-					echo "$services" | while read ns service; do
-						if [ -n "$ns" ] && [ -n "$service" ]; then
-							kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> "$caddyfile" || true;
-							echo "" >> "$caddyfile"
-						fi
-					done
-
-					if [ "$USE_PREFIXES" == "true" ]; then
-						echo "$DEFAULT_ENTRY" >> "$caddyfile"
-						echo "}" >> "$caddyfile"
-					fi
-
-					echo "" >> "$caddyfile"
+					# Extract just the annotation values and compute a hash
+					kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{"/"}{.metadata.name}{":"}{.metadata.annotations.simple-container\.com/caddyfile-entry}{"\n"}{end}' | sort | md5sum | cut -d' ' -f1
 				}
 
-				# Function to trigger Caddy deployment rollout via DeploymentPatch
-				trigger_reload() {
+				# Function to trigger Caddy deployment rollout
+				trigger_rollout() {
 					echo "Triggering Caddy deployment rollout..."
 
-					# Generate new Caddyfile to temp location
-					generate_caddyfile /tmp/new-Caddyfile
-
-					# Validate the new Caddyfile
-					if ! caddy validate --config /tmp/new-Caddyfile --adapter caddyfile; then
-						echo "ERROR: New Caddyfile validation failed, keeping existing config"
+					# Patch deployment with annotations to trigger a rolling update
+					# This is the same approach used by DeploymentPatch in kube_run.go
+					TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+					kubectl patch deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" \
+						-p '{"spec":{"template":{"metadata":{"annotations":{"simple-container.com/caddy-auto-reload":"'$TIMESTAMP'"}}}}}' || {
+						echo "Failed to patch deployment, will retry next cycle"
 						return 1
-					fi
+					}
 
-					# Copy the new Caddyfile to the shared volume (configmap)
-					cp /tmp/new-Caddyfile /etc/caddy/Caddyfile
-
-					# Get current hash of the configmap Caddyfile
-					old_hash=$(file_hash /etc/caddy/Caddyfile)
-
-					# Wait for configmap to be updated (it mounts as a symlink or volume)
-					sleep 2
-
-					# Get new hash after potential configmap update
-					new_hash=$(file_hash /etc/caddy/Caddyfile)
-
-					if [ "$old_hash" != "$new_hash" ]; then
-						echo "Caddyfile updated, triggering deployment rollout..."
-
-						# Use kubectl patch to trigger a rolling update by patching an annotation
-						# This forces Kubernetes to roll out the new pods with the updated config
-						TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-						kubectl patch deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" \
-							-p '{"spec":{"template":{"metadata":{"annotations":{"simple-container.com/reload-timestamp":"'$TIMESTAMP'"}}}}}'
-
-						echo "Deployment rollout triggered successfully"
-					else
-						echo "Caddyfile unchanged, no reload needed"
-					fi
+					echo "Deployment rollout triggered successfully"
 				}
 
-				# Initial Caddyfile generation
-				generate_caddyfile /tmp/Caddyfile
-				cp /tmp/Caddyfile /etc/caddy/Caddyfile
-				LAST_HASH=$(file_hash /tmp/Caddyfile)
+				# Wait for init container to complete
+				echo "Waiting for init container to complete..."
+				sleep 5
+
+				# Initial hash
+				LAST_HASH=$(get_service_entries_hash)
+				echo "Initial service entries hash: $LAST_HASH"
 
 				# Watch for changes every 30 seconds
 				while true; do
-					sleep 30;
+					sleep $WATCH_INTERVAL;
 
-					# Generate new Caddyfile and get its hash
-					generate_caddyfile /tmp/check-Caddyfile
-					CURRENT_HASH=$(file_hash /tmp/check-Caddyfile)
+					# Get current service entries hash
+					CURRENT_HASH=$(get_service_entries_hash)
 
-					# If hash changed, trigger reload
+					# If hash changed, trigger rollout (which will re-run init container with fresh Caddyfile)
 					if [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
-						echo "Caddyfile configuration changed, reloading..."
-						cp /tmp/check-Caddyfile /tmp/Caddyfile
+						echo "Service entries changed from $LAST_HASH to $CURRENT_HASH, triggering rollout..."
 						LAST_HASH="$CURRENT_HASH"
-						trigger_reload
+						trigger_rollout
+					else
+						echo "No changes detected, continuing to watch..."
 					fi
 				done
 			`}),
@@ -258,43 +202,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 					MountPath: sdk.String("/tmp"),
 					Name:      sdk.String("tmp"),
 				},
-				corev1.VolumeMountArgs{
-					MountPath: sdk.String("/etc/caddy"),
-					Name:      sdk.String(volumesCfgName),
-					SubPath:   sdk.String("Caddyfile"),
-				},
 			},
-			Env: func() corev1.EnvVarArray {
-				envVars := corev1.EnvVarArray{
-					corev1.EnvVarArgs{
-						Name:  sdk.String("DEFAULT_ENTRY_START"),
-						Value: sdk.String(defaultCaddyFileEntryStart),
-					},
-					corev1.EnvVarArgs{
-						Name:  sdk.String("DEFAULT_ENTRY"),
-						Value: sdk.String(defaultCaddyFileEntry),
-					},
-					corev1.EnvVarArgs{
-						Name:  sdk.String("USE_PREFIXES"),
-						Value: sdk.String(fmt.Sprintf("%t", caddy.UsePrefixes)),
-					},
-				}
-
-				// Add Caddyfile prefix - prefer dynamic output over static config
-				if isPulumiOutputSet(caddy.CaddyfilePrefixOut) {
-					envVars = append(envVars, corev1.EnvVarArgs{
-						Name:  sdk.String("CADDYFILE_PREFIX"),
-						Value: caddy.CaddyfilePrefixOut.ToStringOutput(),
-					})
-				} else if caddy.CaddyfilePrefix != nil {
-					envVars = append(envVars, corev1.EnvVarArgs{
-						Name:  sdk.String("CADDYFILE_PREFIX"),
-						Value: sdk.String(lo.FromPtr(caddy.CaddyfilePrefix)),
-					})
-				}
-
-				return envVars
-			}(),
 		})
 	}
 	initContainer := corev1.ContainerArgs{
@@ -432,7 +340,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		},
 		Params:                 params,
 		InitContainers:         []corev1.ContainerArgs{initContainer},
-		Sidecars:                sidecarContainers,
+		Sidecars:               sidecarContainers,
 		KubeProvider:           kubeProvider,
 		GenerateCaddyfileEntry: false,
 		Annotations: map[string]string{
