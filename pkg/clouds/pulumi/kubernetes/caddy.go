@@ -115,7 +115,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	// Build Caddy container configuration
 	caddyContainer := k8s.CloudRunContainer{
 		Name:    deploymentName,
-		Command: []string{"caddy", "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile"},
+		Command: []string{"caddy", "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile", "--admin", "0.0.0.0:2019"},
 		Image: api.ContainerImage{
 			Name:     caddyImage,
 			Platform: api.ImagePlatformLinuxAmd64,
@@ -123,6 +123,162 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		Ports:     []int{443, 80},
 		MainPort:  lo.ToPtr(80),
 		Resources: caddy.Resources, // Use custom resources if specified, otherwise defaults will be applied
+	}
+
+	// Determine if auto-reload is enabled (default: true for backward compatibility)
+	autoReload := true
+	if caddy.AutoReload != nil {
+		autoReload = *caddy.AutoReload
+	}
+
+	// Build sidecar container for auto-reload if enabled
+	var sidecarContainers []corev1.ContainerArgs
+	if autoReload {
+		params.Log.Info(ctx.Context(), "Caddy auto-reload enabled - adding sidecar to watch for service changes")
+		sidecarContainers = append(sidecarContainers, corev1.ContainerArgs{
+			Name:  sdk.String("caddy-reloader"),
+			Image: sdk.String("simplecontainer/kubectl:latest"),
+			Command: sdk.ToStringArray([]string{"bash", "-c", `
+				set -xe;
+
+				# Function to generate Caddyfile from all services with caddyfile-entry annotation
+				generate_caddyfile() {
+					local caddyfile="/tmp/Caddyfile"
+					local volumes_cfg_name="` + volumesCfgName + `"
+
+					# Copy base Caddyfile
+					cp -f /etc/caddy/Caddyfile "$caddyfile" || true
+
+					# Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
+					if [ -n "$CADDYFILE_PREFIX" ]; then
+						echo "$CADDYFILE_PREFIX" >> "$caddyfile"
+						echo "" >> "$caddyfile"
+					fi
+
+					# Get all services with Simple Container annotations across all namespaces
+					services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
+
+					echo "$DEFAULT_ENTRY_START" >> "$caddyfile"
+					if [ "$USE_PREFIXES" == "false" ]; then
+						echo "$DEFAULT_ENTRY" >> "$caddyfile"
+						echo "}" >> "$caddyfile"
+					fi
+
+					# Process each service that has Caddyfile entry annotation
+					echo "$services" | while read ns service; do
+						if [ -n "$ns" ] && [ -n "$service" ]; then
+							kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> "$caddyfile" || true;
+							echo "" >> "$caddyfile"
+						fi
+					done
+
+					if [ "$USE_PREFIXES" == "true" ]; then
+						echo "$DEFAULT_ENTRY" >> "$caddyfile"
+						echo "}" >> "$caddyfile"
+					fi
+
+					echo "" >> "$caddyfile"
+					cat "$caddyfile"
+				}
+
+				# Function to reload Caddy configuration via admin API
+				reload_caddy() {
+					echo "Reloading Caddy configuration..."
+					# Generate new Caddyfile
+					generate_caddyfile > /tmp/new-Caddyfile
+
+					# Validate the new Caddyfile
+					if caddy validate --config /tmp/new-Caddyfile --adapter caddyfile; then
+						# Copy the new Caddyfile to the shared volume
+						cp /tmp/new-Caddyfile /etc/caddy/Caddyfile
+
+						# Try to reload Caddy via admin API (Caddy runs on localhost:2019)
+						# If that fails, the next request will pick up the new config
+						if curl -s -X POST http://localhost:2019/load -H "Content-Type: text/caddyfile" -d @/tmp/new-Caddyfile; then
+							echo "Caddy configuration reloaded successfully"
+						else
+							echo "Caddy reload API not available, config will be picked up on next pod restart"
+						fi
+					else
+						echo "ERROR: New Caddyfile validation failed, keeping existing config"
+						return 1
+					fi
+				}
+
+				# Function to extract service count from current Caddyfile
+				get_service_count() {
+					local count=0
+					if [ -f /tmp/Caddyfile ]; then
+						# Count lines with reverse_proxy as a proxy for service count
+						count=$(grep -c "reverse_proxy" /tmp/Caddyfile 2>/dev/null || echo "0")
+					fi
+					echo "$count"
+				}
+
+				# Initial Caddyfile generation
+				generate_caddyfile > /tmp/Caddyfile
+				cp /tmp/Caddyfile /etc/caddy/Caddyfile
+
+				# Watch for changes every 30 seconds
+				while true; do
+					sleep 30;
+
+					# Get current service count
+					current_count=$(get_service_count)
+
+					# Get new service count
+					new_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.name}{"\n"}{end}' | wc -l)
+
+					# If service count changed, reload
+					if [ "$new_services" != "$current_count" ]; then
+						echo "Service count changed: $current_count -> $new_services"
+						reload_caddy
+					fi
+				done
+			`}),
+			VolumeMounts: corev1.VolumeMountArray{
+				corev1.VolumeMountArgs{
+					MountPath: sdk.String("/tmp"),
+					Name:      sdk.String("tmp"),
+				},
+				corev1.VolumeMountArgs{
+					MountPath: sdk.String("/etc/caddy"),
+					Name:      sdk.String(volumesCfgName),
+					SubPath:   sdk.String("Caddyfile"),
+				},
+			},
+			Env: func() corev1.EnvVarArray {
+				envVars := corev1.EnvVarArray{
+					corev1.EnvVarArgs{
+						Name:  sdk.String("DEFAULT_ENTRY_START"),
+						Value: sdk.String(defaultCaddyFileEntryStart),
+					},
+					corev1.EnvVarArgs{
+						Name:  sdk.String("DEFAULT_ENTRY"),
+						Value: sdk.String(defaultCaddyFileEntry),
+					},
+					corev1.EnvVarArgs{
+						Name:  sdk.String("USE_PREFIXES"),
+						Value: sdk.String(fmt.Sprintf("%t", caddy.UsePrefixes)),
+					},
+				}
+
+				// Add Caddyfile prefix - prefer dynamic output over static config
+				if isPulumiOutputSet(caddy.CaddyfilePrefixOut) {
+					envVars = append(envVars, corev1.EnvVarArgs{
+						Name:  sdk.String("CADDYFILE_PREFIX"),
+						Value: caddy.CaddyfilePrefixOut.ToStringOutput(),
+					})
+				} else if caddy.CaddyfilePrefix != nil {
+					envVars = append(envVars, corev1.EnvVarArgs{
+						Name:  sdk.String("CADDYFILE_PREFIX"),
+						Value: sdk.String(lo.FromPtr(caddy.CaddyfilePrefix)),
+					})
+				}
+
+				return envVars
+			}(),
+		})
 	}
 	initContainer := corev1.ContainerArgs{
 		Name:  sdk.String("generate-caddyfile"),
@@ -259,6 +415,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		},
 		Params:                 params,
 		InitContainers:         []corev1.ContainerArgs{initContainer},
+		Sidecars:                sidecarContainers,
 		KubeProvider:           kubeProvider,
 		GenerateCaddyfileEntry: false,
 		Annotations: map[string]string{
