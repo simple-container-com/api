@@ -125,86 +125,6 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		Resources: caddy.Resources, // Use custom resources if specified, otherwise defaults will be applied
 	}
 
-	// Determine if auto-reload is enabled (default: true for backward compatibility)
-	autoReload := true
-	if caddy.AutoReload != nil {
-		autoReload = *caddy.AutoReload
-	}
-
-	// Build sidecar container for auto-reload if enabled
-	var sidecarContainers []corev1.ContainerArgs
-	if autoReload {
-		params.Log.Info(ctx.Context(), "Caddy auto-reload enabled - adding sidecar to watch for service changes")
-		sidecarContainers = append(sidecarContainers, corev1.ContainerArgs{
-			Name:  sdk.String("caddy-reloader"),
-			Image: sdk.String("simplecontainer/kubectl:latest"),
-			Command: sdk.ToStringArray([]string{"bash", "-c", `
-				set -xe;
-
-				# Get environment variables from deployment
-				DEPLOYMENT_NAME="` + deploymentName + `"
-				NAMESPACE="` + namespace + `"
-
-				# Watch for new services with caddyfile-entry annotation and trigger deployment rollout
-				# This mirrors the DeploymentPatch logic from kube_run.go
-				WATCH_INTERVAL=30
-
-				# Get initial list of service entries to compute initial hash
-				get_service_entries_hash() {
-					# Get all services with Simple Container annotations across all namespaces
-					# Extract just the annotation values and compute a hash
-					kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{"/"}{.metadata.name}{":"}{.metadata.annotations.simple-container\.com/caddyfile-entry}{"\n"}{end}' | sort | md5sum | cut -d' ' -f1
-				}
-
-				# Function to trigger Caddy deployment rollout
-				trigger_rollout() {
-					echo "Triggering Caddy deployment rollout..."
-
-					# Patch deployment with annotations to trigger a rolling update
-					# This is the same approach used by DeploymentPatch in kube_run.go
-					TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-					kubectl patch deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" \
-						-p '{"spec":{"template":{"metadata":{"annotations":{"simple-container.com/caddy-auto-reload":"'$TIMESTAMP'"}}}}}' || {
-						echo "Failed to patch deployment, will retry next cycle"
-						return 1
-					}
-
-					echo "Deployment rollout triggered successfully"
-				}
-
-				# Wait for init container to complete
-				echo "Waiting for init container to complete..."
-				sleep 5
-
-				# Initial hash
-				LAST_HASH=$(get_service_entries_hash)
-				echo "Initial service entries hash: $LAST_HASH"
-
-				# Watch for changes every 30 seconds
-				while true; do
-					sleep $WATCH_INTERVAL;
-
-					# Get current service entries hash
-					CURRENT_HASH=$(get_service_entries_hash)
-
-					# If hash changed, trigger rollout (which will re-run init container with fresh Caddyfile)
-					if [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
-						echo "Service entries changed from $LAST_HASH to $CURRENT_HASH, triggering rollout..."
-						LAST_HASH="$CURRENT_HASH"
-						trigger_rollout
-					else
-						echo "No changes detected, continuing to watch..."
-					fi
-				done
-			`}),
-			VolumeMounts: corev1.VolumeMountArray{
-				corev1.VolumeMountArgs{
-					MountPath: sdk.String("/tmp"),
-					Name:      sdk.String("tmp"),
-				},
-			},
-		})
-	}
 	initContainer := corev1.ContainerArgs{
 		Name:  sdk.String("generate-caddyfile"),
 		Image: sdk.String("simplecontainer/kubectl:latest"),
@@ -340,7 +260,6 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		},
 		Params:                 params,
 		InitContainers:         []corev1.ContainerArgs{initContainer},
-		Sidecars:               sidecarContainers,
 		KubeProvider:           kubeProvider,
 		GenerateCaddyfileEntry: false,
 		Annotations: map[string]string{

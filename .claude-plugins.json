@@ -1,0 +1,32 @@
+{
+  "plugins": {
+    "browser-mcp": {
+      "enabled": true,
+      "scope": "project"
+    },
+    "document-processor": {
+      "enabled": true,
+      "scope": "project"
+    },
+    "github-integration": {
+      "enabled": true,
+      "scope": "project"
+    },
+    "web-search": {
+      "enabled": true,
+      "scope": "project"
+    }
+  },
+  "mcp_servers": {
+    "browser": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-browser"],
+      "enabled": true
+    },
+    "web-search": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-web-search"],
+      "enabled": true
+    }
+  }
+}
