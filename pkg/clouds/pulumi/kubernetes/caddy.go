@@ -115,7 +115,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	// Build Caddy container configuration
 	caddyContainer := k8s.CloudRunContainer{
 		Name:    deploymentName,
-		Command: []string{"caddy", "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile", "--admin", "0.0.0.0:2019"},
+		Command: []string{"caddy", "run", "--config", "/tmp/Caddyfile", "--adapter", "caddyfile"},
 		Image: api.ContainerImage{
 			Name:     caddyImage,
 			Platform: api.ImagePlatformLinuxAmd64,
@@ -141,10 +141,21 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			Command: sdk.ToStringArray([]string{"bash", "-c", `
 				set -xe;
 
+				# Get environment variables from deployment
+				DEPLOYMENT_NAME="` + deploymentName + `"
+				NAMESPACE="` + namespace + `"
+
+				# Function to compute MD5 hash of a file
+				file_hash() {
+					md5sum "$1" 2>/dev/null | cut -d' ' -f1
+				}
+
 				# Function to generate Caddyfile from all services with caddyfile-entry annotation
 				generate_caddyfile() {
-					local caddyfile="/tmp/Caddyfile"
-					local volumes_cfg_name="` + volumesCfgName + `"
+					local caddyfile="$1"
+					if [ -z "$caddyfile" ]; then
+						caddyfile="/tmp/Caddyfile"
+					fi
 
 					# Copy base Caddyfile
 					cp -f /etc/caddy/Caddyfile "$caddyfile" || true
@@ -178,61 +189,67 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 					fi
 
 					echo "" >> "$caddyfile"
-					cat "$caddyfile"
 				}
 
-				# Function to reload Caddy configuration via admin API
-				reload_caddy() {
-					echo "Reloading Caddy configuration..."
-					# Generate new Caddyfile
-					generate_caddyfile > /tmp/new-Caddyfile
+				# Function to trigger Caddy deployment rollout via DeploymentPatch
+				trigger_reload() {
+					echo "Triggering Caddy deployment rollout..."
+
+					# Generate new Caddyfile to temp location
+					generate_caddyfile /tmp/new-Caddyfile
 
 					# Validate the new Caddyfile
-					if caddy validate --config /tmp/new-Caddyfile --adapter caddyfile; then
-						# Copy the new Caddyfile to the shared volume
-						cp /tmp/new-Caddyfile /etc/caddy/Caddyfile
-
-						# Try to reload Caddy via admin API (Caddy runs on localhost:2019)
-						# If that fails, the next request will pick up the new config
-						if curl -s -X POST http://localhost:2019/load -H "Content-Type: text/caddyfile" -d @/tmp/new-Caddyfile; then
-							echo "Caddy configuration reloaded successfully"
-						else
-							echo "Caddy reload API not available, config will be picked up on next pod restart"
-						fi
-					else
+					if ! caddy validate --config /tmp/new-Caddyfile --adapter caddyfile; then
 						echo "ERROR: New Caddyfile validation failed, keeping existing config"
 						return 1
 					fi
-				}
 
-				# Function to extract service count from current Caddyfile
-				get_service_count() {
-					local count=0
-					if [ -f /tmp/Caddyfile ]; then
-						# Count lines with reverse_proxy as a proxy for service count
-						count=$(grep -c "reverse_proxy" /tmp/Caddyfile 2>/dev/null || echo "0")
+					# Copy the new Caddyfile to the shared volume (configmap)
+					cp /tmp/new-Caddyfile /etc/caddy/Caddyfile
+
+					# Get current hash of the configmap Caddyfile
+					old_hash=$(file_hash /etc/caddy/Caddyfile)
+
+					# Wait for configmap to be updated (it mounts as a symlink or volume)
+					sleep 2
+
+					# Get new hash after potential configmap update
+					new_hash=$(file_hash /etc/caddy/Caddyfile)
+
+					if [ "$old_hash" != "$new_hash" ]; then
+						echo "Caddyfile updated, triggering deployment rollout..."
+
+						# Use kubectl patch to trigger a rolling update by patching an annotation
+						# This forces Kubernetes to roll out the new pods with the updated config
+						TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+						kubectl patch deployment "$DEPLOYMENT_NAME" -n "$NAMESPACE" \
+							-p '{"spec":{"template":{"metadata":{"annotations":{"simple-container.com/reload-timestamp":"'$TIMESTAMP'"}}}}}'
+
+						echo "Deployment rollout triggered successfully"
+					else
+						echo "Caddyfile unchanged, no reload needed"
 					fi
-					echo "$count"
 				}
 
 				# Initial Caddyfile generation
-				generate_caddyfile > /tmp/Caddyfile
+				generate_caddyfile /tmp/Caddyfile
 				cp /tmp/Caddyfile /etc/caddy/Caddyfile
+				LAST_HASH=$(file_hash /tmp/Caddyfile)
 
 				# Watch for changes every 30 seconds
 				while true; do
 					sleep 30;
 
-					# Get current service count
-					current_count=$(get_service_count)
+					# Generate new Caddyfile and get its hash
+					generate_caddyfile /tmp/check-Caddyfile
+					CURRENT_HASH=$(file_hash /tmp/check-Caddyfile)
 
-					# Get new service count
-					new_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.name}{"\n"}{end}' | wc -l)
-
-					# If service count changed, reload
-					if [ "$new_services" != "$current_count" ]; then
-						echo "Service count changed: $current_count -> $new_services"
-						reload_caddy
+					# If hash changed, trigger reload
+					if [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
+						echo "Caddyfile configuration changed, reloading..."
+						cp /tmp/check-Caddyfile /tmp/Caddyfile
+						LAST_HASH="$CURRENT_HASH"
+						trigger_reload
 					fi
 				done
 			`}),
