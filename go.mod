@@ -15,7 +15,7 @@ require (
 	github.com/disgoorg/disgo v0.18.5
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/fatih/color v1.18.0
-	github.com/go-delve/delve v1.26.0
+	github.com/go-delve/delve v1.26.1
 	github.com/go-git/go-billy/v5 v5.6.1
 	github.com/go-git/go-git/v5 v5.13.1
 	github.com/golangci/golangci-lint v1.64.8
@@ -45,6 +45,7 @@ require (
 	github.com/tmc/langchaingo v0.1.13
 	github.com/valyala/fasttemplate v1.2.2
 	github.com/vektra/mockery/v2 v2.53.6
+	go.mongodb.org/mongo-driver v1.16.1
 	go.uber.org/atomic v1.11.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/oauth2 v0.30.0
@@ -424,7 +425,6 @@ require (
 	gitlab.com/bosi/decorder v0.4.2 // indirect
 	go-simpler.org/musttag v0.13.0 // indirect
 	go-simpler.org/sloglint v0.9.0 // indirect
-	go.mongodb.org/mongo-driver v1.16.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.34.0 // indirect

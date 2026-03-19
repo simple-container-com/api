@@ -111,7 +111,6 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	})
 }
 
-
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
 	err := p.createStackIfNotExists(ctx, cfg, parentStack)
 	if err != nil {
