@@ -13,4 +13,5 @@ func init() {
 	pApi.RegisterComputeProcessor(map[string]pApi.ComputeProcessorFunc{
 		mongodb.ResourceTypeMongodbAtlas: ClusterComputeProcessor,
 	})
+	pApi.RegisterPreDestroyHook(DropDatabaseHook)
 }
