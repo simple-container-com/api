@@ -33,6 +33,9 @@ jobs:
     name: Build Setup (clean, tools, schemas, lint, fmt)
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: prepare
+    outputs:
+      cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
+      cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
@@ -93,6 +96,11 @@ jobs:
           go mod tidy
           bin/gofumpt -l -w ./
           bin/golangci-lint run --fix --timeout 3m -v
+      - name: get telegram secrets
+        id: telegram-secrets
+        run: |
+          echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: save schemas cache
         uses: actions/cache/save@v4
         with:
@@ -337,9 +345,6 @@ jobs:
     name: Docker finalize (tag-release, deploy)
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
-    outputs:
-      cicd-bot-telegram-token: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-token }}
-      cicd-bot-telegram-chat-id: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
@@ -357,11 +362,6 @@ jobs:
           ${{ secrets.SC_CONFIG }}
           EOF
           sc secrets reveal
-      - name: prepare additional secrets
-        id: prepare-secrets
-        run: |
-          echo "cicd-bot-telegram-token=$(${{ github.workspace }}/bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
-          echo "cicd-bot-telegram-chat-id=$(${{ github.workspace }}/bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -408,6 +408,7 @@ jobs:
       contents: write
     needs:
       - prepare
+      - build-setup
       - docker-finalize
     steps:
       - uses: actions/checkout@v4
@@ -440,15 +441,15 @@ jobs:
         if: ${{ success() && !contains(needs.*.result, 'failure')  }}
         continue-on-error: true
         with:
-          chat: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-token }}
+          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
           status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) (v${{ needs.prepare.outputs.version }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
       - uses: yanzay/notify-telegram@v0.1.0
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
         with:
-          chat: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-token }}
+          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
           status: ❗ failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
 
       - name: Build failed due to previously failed steps
