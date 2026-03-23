@@ -27,7 +27,9 @@ RUN --mount=type=cache,target=/tmp/pulumi-cache,sharing=locked \
     # Optimize Pulumi binaries - strip debug symbols and compress
     strip /root/.pulumi/bin/* 2>/dev/null || true && \
     upx --best --lzma /root/.pulumi/bin/* 2>/dev/null || true && \
-    rm -rf /tmp/* /var/tmp/*
+    # Clean up temp files, but not BuildKit cache mounts
+    rm -f /tmp/go.mod && \
+    rm -rf /var/tmp/*
 
 ENV PATH="/root/.pulumi/bin:${PATH}"
 
