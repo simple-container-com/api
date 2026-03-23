@@ -41,6 +41,12 @@ func HelmRabbitmqOperator(ctx *sdk.Context, stack api.Stack, input api.ResourceI
 		values: fields{
 			"commonAnnotations": annotations,
 			"commonLabels":      labels,
+			// Allow bitnamilegacy images (required for compatibility)
+			"global": fields{
+				"security": fields{
+					"allowInsecureImages": true,
+				},
+			},
 			// Use bitnamilegacy repositories for compatibility
 			"clusterOperator": fields{
 				"image": fields{

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "role": "architect",
+  "summary": "Design for HTTP headers support in Kubernetes health probe configuration (readinessProbe, livenessProbe, startupProbe)",
+  "implementationRequests": [
+    {
+      "title": "Implement HTTP Headers Support for Health Probes",
+      "description": "Add httpHeaders field to health probe configuration to support custom HTTP headers in readiness, liveness, and startup probes. This involves adding new types, updating data structures, modifying the probe conversion logic, and ensuring backward compatibility.",
+      "scopeGroup": "health-probe-http-headers",
+      "workflowType": "sequential",
+      "technicalNotes": "- Maintain 100% backward compatibility - existing configs must work without changes\n- Follow existing code patterns in pkg/clouds/k8s/types.go and pkg/clouds/pulumi/kubernetes/deployment.go\n- Use omitempty JSON tags for new fields to preserve existing behavior\n- Add comprehensive unit tests for header conversion logic\n- Update JSON schemas for validation\n- Ensure proper pointer handling with Pulumi's sdk.String()",
+      "filesOrAreas": [
+        "pkg/clouds/k8s/types.go - Add HTTPHeader type and update ProbeHttpGet struct (lines ~110-113)",
+        "pkg/clouds/pulumi/kubernetes/deployment.go - Update toProbeArgs() function to convert headers (lines ~279-314)",
+        "docs/schemas/ - Update JSON schemas for probe configurations",
+        "pkg/clouds/k8s/types_test.go - Add unit tests for HTTPHeader validation"
+      ],
+      "acceptanceCriteria": [
+        "HTTPHeader type defined with Name and Value fields",
+        "ProbeHttpGet struct includes optional HTTPHeaders field with omitempty tag",
+        "toProbeArgs() function converts []HTTPHeader to corev1.HTTPHeaderArray",
+        "Headers are properly set on HTTPGetActionArgs when specified",
+        "All existing tests pass without modification (backward compatibility)",
+        "Unit tests added for header conversion logic including edge cases",
+        "Documentation includes YAML examples with httpHeaders",
+        "JSON schemas updated to validate httpHeaders structure",
+        "Code comments document the new fields with examples"
+      ],
+      "docs": {
+        "designDocsPaths": [
+          "docs/design/2026-02-26/health-probe-http-headers/design.md"
+        ],
+        "notes": "Design includes detailed data model changes, Kubernetes integration approach, validation rules, testing strategy, and comprehensive examples. The implementation is additive only - no breaking changes to existing APIs."
+      },
+      "priority": "medium",
+      "dependencies": []
+    }
+  ]
+}

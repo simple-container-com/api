@@ -82,12 +82,25 @@ func (c *cryptor) AddFile(filePath string) error {
 }
 
 func (c *cryptor) RemovePublicKey(pubKey string) error {
-	delete(c.secrets.Secrets, TrimPubKey(pubKey))
+	defer c.withWriteLock()()
+
+	normalizedKey := TrimPubKey(pubKey)
+	if _, exists := c.secrets.Secrets[normalizedKey]; !exists {
+		return errors.Errorf("public key %q not found in secrets", normalizedKey)
+	}
+
+	delete(c.secrets.Secrets, normalizedKey)
 	err := c.EncryptChanged(true, false)
 	if err != nil {
 		return err
 	}
-	return c.MarshalSecretsFile()
+
+	if err := c.MarshalSecretsFile(); err != nil {
+		return errors.Wrapf(err, "failed to marshal secrets file after removing public key")
+	}
+
+	c.consoleWriter.Println(color.GreenFmt("removed public key"), color.MagentaFmt("%s", normalizedKey))
+	return nil
 }
 
 func (c *cryptor) GetKnownPublicKeys() []string {
@@ -196,10 +209,19 @@ func (c *cryptor) DecryptAll(forceChanged bool) error {
 		return errors.Errorf("current public key (%s) is not found in secrets: no decryption can be made", normalizedCurrentKey)
 	}
 
+	revealedCount := 0
 	for _, sFile := range c.secrets.Secrets[normalizedCurrentKey].Files {
 		if _, err := c.decryptSecretDataToFile(sFile.EncryptedData, sFile.Path, forceChanged); err != nil {
 			return errors.Wrapf(err, "failed to decrypt secret file %q with configured public key %q", sFile.Path, normalizedCurrentKey)
 		}
+		revealedCount++
+		c.consoleWriter.Println(color.GreenFmt("revealed"), color.MagentaFmt("%s", sFile.Path))
+	}
+
+	if revealedCount > 0 {
+		c.consoleWriter.Println(color.GreenFmt("revealed %d secret file(s)", revealedCount))
+	} else {
+		c.consoleWriter.Println("no secret files to reveal")
 	}
 
 	return nil

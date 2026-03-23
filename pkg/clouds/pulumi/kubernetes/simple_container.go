@@ -41,11 +41,15 @@ const (
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
 
-	LabelAppType     = "appType"
-	LabelAppName     = "appName"
-	LabelScEnv       = "appEnv"
-	LabelParentEnv   = "simplecontainer.com/parent-env"
-	LabelCustomStack = "simplecontainer.com/custom-stack"
+	// Standard Kubernetes labels - using hyphens instead of dots for GCP compatibility
+	// Kubernetes allows dots in label prefixes, but GCP labels do not
+	LabelAppType     = "simple-container-com/app-type"
+	LabelAppName     = "simple-container-com/app-name"
+	LabelScEnv       = "simple-container-com/env"
+	LabelParentEnv   = "simple-container-com/parent-env"
+	LabelParentStack = "simple-container-com/parent-stack"
+	LabelClientStack = "simple-container-com/client-stack"
+	LabelCustomStack = "simple-container-com/custom-stack"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
@@ -58,6 +62,30 @@ func sanitizeK8sResourceName(name string) string {
 	sanitized = reg.ReplaceAllString(strings.ToLower(sanitized), "")
 	// Ensure it starts and ends with alphanumeric (trim leading/trailing hyphens and dots)
 	sanitized = strings.Trim(sanitized, "-.")
+	return sanitized
+}
+
+// sanitizeK8sLabelValue sanitizes a value to be valid for Kubernetes labels
+// Kubernetes label values must be empty or consist of alphanumeric characters, '-', '_' or '.',
+// and must start and end with an alphanumeric character
+func sanitizeK8sLabelValue(value string) string {
+	if value == "" {
+		return value
+	}
+
+	// Replace forward slashes with hyphens (common in stack paths like "/demo/root")
+	sanitized := strings.ReplaceAll(value, "/", "-")
+	// Replace other invalid characters with hyphens
+	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_\.]`)
+	sanitized = reg.ReplaceAllString(sanitized, "-")
+	// Remove leading/trailing hyphens, underscores, or dots to ensure alphanumeric start/end
+	sanitized = strings.Trim(sanitized, "-_.")
+
+	// If the result is empty after sanitization, provide a default
+	if sanitized == "" {
+		sanitized = "unknown"
+	}
+
 	return sanitized
 }
 
@@ -108,6 +136,7 @@ type SimpleContainerArgs struct {
 	ComputeContext       pApi.ComputeContext
 	ImagePullSecret      *docker.RegistryCredentials
 	UseSSL               bool
+	EphemeralSize        string
 }
 
 type SimpleContainer struct {
@@ -143,8 +172,18 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	// Add parentEnv labels for custom stacks
 	if args.ParentEnv != nil && lo.FromPtr(args.ParentEnv) != "" && lo.FromPtr(args.ParentEnv) != args.ScEnv {
-		appLabels[LabelParentEnv] = lo.FromPtr(args.ParentEnv)
+		appLabels[LabelParentEnv] = sanitizeK8sLabelValue(lo.FromPtr(args.ParentEnv))
 		appLabels[LabelCustomStack] = "true"
+	}
+
+	// Add parent-stack and client-stack labels if provided
+	if args.ParentStack != nil && *args.ParentStack != "" {
+		appLabels[LabelParentStack] = sanitizeK8sLabelValue(*args.ParentStack)
+	}
+	// Note: client-stack is typically same as parent-stack in nested scenarios
+	// but can be different in more complex hierarchies
+	if args.ParentStack != nil && *args.ParentStack != "" {
+		appLabels[LabelClientStack] = sanitizeK8sLabelValue(*args.ParentStack)
 	}
 
 	appAnnotations := map[string]string{
@@ -291,6 +330,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	addVolumeMountsFromOutputs(volumesSecretName, args.SecretVolumeOutputs, &volumeMounts)
 
 	// Volumes
+	emptyDirArgs := corev1.EmptyDirVolumeSourceArgs{}
+	if args.EphemeralSize != "" {
+		emptyDirArgs.SizeLimit = sdk.StringPtr(args.EphemeralSize)
+	}
 	volumes := corev1.VolumeArray{
 		corev1.VolumeArgs{
 			Name: sdk.String(volumesCfgName),
@@ -306,7 +349,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		},
 		corev1.VolumeArgs{
 			Name:     sdk.String("tmp"),
-			EmptyDir: corev1.EmptyDirVolumeSourceArgs{},
+			EmptyDir: emptyDirArgs,
 		},
 	}
 	volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{

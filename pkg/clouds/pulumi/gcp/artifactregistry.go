@@ -14,6 +14,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	taggingUtil "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
 )
 
@@ -52,11 +53,19 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 
 	out := &ArtifactRegistryOut{}
 
+	// Build unified labels using the tagging utility
+	var stackParams api.StackParams
+	if input.StackParams != nil {
+		stackParams = *input.StackParams
+	}
+	labels := taggingUtil.BuildTagsFromStackParams(stackParams).ToGCPLabels()
+
 	// Create a new Artifact Registry repository for Docker images
 	repoArgs := artifactregistry.RepositoryArgs{
 		RepositoryId: sdk.String(artifactRegistryName),
 		Location:     sdk.String(location),
 		Project:      sdk.StringPtr(arCfg.ProjectId),
+		Labels:       sdk.ToStringMap(labels),
 	}
 	if arCfg.Docker != nil {
 		repoArgs.Format = sdk.String("DOCKER")
