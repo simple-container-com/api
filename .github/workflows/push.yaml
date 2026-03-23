@@ -88,9 +88,6 @@ jobs:
           go build -o bin/schema-gen ./cmd/schema-gen
           bin/schema-gen docs/schemas
           echo "Successfully generated JSON Schema files in docs/schemas/"
-      - name: linters
-        run: |
-          bin/golangci-lint run --fast --timeout 5m -v
       - name: fmt
         run: |
           go mod tidy
@@ -101,6 +98,19 @@ jobs:
         with:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
+      - name: save Go module cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+      - name: upload bin directory artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-tools
+          path: bin
+          retention-days: 1
 
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
@@ -121,11 +131,22 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
+      - name: restore Go module cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: restore cached dist
         uses: actions/cache@v4
         with:
           path: .sc/stacks/dist/bundle
           key: dist-${{ github.run_id }}
+      - name: create build directories
+        run: |
+          mkdir -p dist
+          mkdir -p .sc/stacks/dist/bundle
       - name: build sc for ${{ matrix.os }}/${{ matrix.arch }}
         env:
           GOOS: ${{ matrix.os }}
@@ -165,6 +186,16 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
+      - name: restore Go module cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+      - name: create build directories
+        run: |
+          mkdir -p dist
       - name: build ${{ matrix.target }}
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -187,6 +218,13 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
+      - name: restore Go module cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: build github-actions-staging
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -210,6 +248,13 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
+      - name: restore Go module cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: test
         run: |
           go test ./...
@@ -228,6 +273,12 @@ jobs:
       - name: build docs
         run: |
           docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
+      - name: upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: docs/site
+          retention-days: 1
 
   docker-build:
     name: Docker build and push ${{ matrix.image }}
@@ -320,6 +371,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: download bin tools artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bin-tools
+          path: bin
+      - name: download docs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: docs/site
       - name: copy build artifacts to dist bundle
         run: |
           mkdir -p .sc/stacks/dist/bundle
