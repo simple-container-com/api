@@ -40,7 +40,6 @@ modules:
         prod:
           autoDeploy: true
       steps:
-        - task: rebuild
         - task: deploy
     dockerImages:
       - name: kubectl

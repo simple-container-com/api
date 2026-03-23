@@ -29,16 +29,20 @@ jobs:
           increment: "patch"
           use_api: "true"
 
-  build:
-    name: Build and release simple-container
+  build-setup:
+    name: Build Setup (clean, tools, schemas, lint, fmt)
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: prepare
     outputs:
-      cicd-bot-telegram-token: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-token }}
-      cicd-bot-telegram-chat-id: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-chat-id }}
+      cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
+      cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
       - name: install sc tool (latest release)
         shell: bash
         run: |-
@@ -61,21 +65,253 @@ jobs:
         shell: bash
         env:
           OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
+          SKIP_EMBEDDINGS: "true"
         run: |-
           git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run rebuild
-      - name: prepare additional secrets
-        id: prepare-secrets
+      - name: clean
         run: |
-          echo "cicd-bot-telegram-token=$(${{ github.workspace }}/bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
-          echo "cicd-bot-telegram-chat-id=$(${{ github.workspace }}/bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
-      - name: build sc tool
-        shell: bash
+          mkdir -p dist
+          rm -fR dist/*
+          mkdir -p .sc/stacks/dist/bundle
+          rm -fR .sc/stacks/dist/bundle/*
+          mkdir -p docs/site
+          rm -fR docs/site/*
+          mkdir -p docs/schemas
+          rm -fR docs/schemas/*
+      - name: tools
+        run: |
+          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          go mod download
+          go generate -tags tools
+          go mod tidy
+      - name: generate-schemas
+        run: |
+          echo "Generating JSON Schema files for Simple Container resources..."
+          go build -o bin/schema-gen ./cmd/schema-gen
+          bin/schema-gen docs/schemas
+          echo "Successfully generated JSON Schema files in docs/schemas/"
+      - name: fmt
+        run: |
+          go mod tidy
+          bin/gofumpt -l -w ./
+          bin/golangci-lint run --fix --timeout 3m -v
+      - name: get telegram secrets
+        id: telegram-secrets
+        run: |
+          echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
+      - name: save schemas cache
+        uses: actions/cache/save@v4
+        with:
+          path: docs/schemas
+          key: schemas-${{ github.run_id }}
+      - name: upload bin directory artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-tools
+          path: bin
+          retention-days: 1
+
+  build-platforms:
+    name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: darwin
+            arch: arm64
+          - os: darwin
+            arch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: create build directories
+        run: |
+          mkdir -p dist
+          mkdir -p .sc/stacks/dist/bundle
+      - name: build sc for ${{ matrix.os }}/${{ matrix.arch }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          echo "Building for ${GOOS}/${GOARCH}..."
+          if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
+          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+          tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
+          cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
+      - name: upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sc-${{ matrix.os }}-${{ matrix.arch }}
+          path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-*.tar.gz
+          retention-days: 1
+
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    strategy:
+      matrix:
+        include:
+          - target: github-actions
+            cmd: github-actions
+            output: dist/github-actions
+          - target: cloud-helpers
+            cmd: cloud-helpers
+            output: dist/cloud-helpers
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: create build directories
+        run: |
+          mkdir -p dist
+      - name: build ${{ matrix.target }}
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
+      - name: upload ${{ matrix.target }} binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-binary
+          path: ${{ matrix.output }}
+          retention-days: 1
+
+  build-github-actions-staging:
+    name: Build github-actions-staging
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: build github-actions-staging
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p bin
+          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
+      - name: upload github-actions-staging binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-actions-staging-binary
+          path: bin/github-actions
+          retention-days: 1
+
+  test:
+    name: Run tests
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: test
+        run: |
+          go test ./...
+
+  build-docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    needs: [prepare, build-setup]
+    steps:
+      - uses: actions/checkout@v4
+      - name: restore cached schemas
+        uses: actions/cache@v4
+        with:
+          path: docs/schemas
+          key: schemas-${{ github.run_id }}
+      - name: build docs
+        run: |
+          docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
+      - name: upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: docs/site
+          retention-days: 1
+
+  docker-build:
+    name: Docker build and push ${{ matrix.image }}
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs]
+    strategy:
+      matrix:
+        include:
+          - image: kubectl
+            dockerfile: kubectl.Dockerfile
+            tags: |
+              simplecontainer/kubectl:latest
+              simplecontainer/kubectl:${{ needs.prepare.outputs.version }}
+          - image: caddy
+            dockerfile: caddy.Dockerfile
+            tags: |
+              simplecontainer/caddy:latest
+              simplecontainer/caddy:${{ needs.prepare.outputs.version }}
+          - image: github-actions
+            dockerfile: github-actions.Dockerfile
+            tags: |
+              simplecontainer/github-actions:latest
+              simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
+          - image: github-actions-staging
+            dockerfile: github-actions-staging.Dockerfile
+            tags: simplecontainer/github-actions:staging
+          - image: cloud-helpers-aws
+            dockerfile: cloud-helpers.aws.Dockerfile
+            tags: |
+              simplecontainer/cloud-helpers:aws-latest
+              simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: download github-actions-staging binary
+        if: matrix.image == 'github-actions-staging'
+        uses: actions/download-artifact@v4
+        with:
+          name: github-actions-staging-binary
+          path: bin
+      - name: download github-actions binary
+        if: matrix.image == 'github-actions'
+        uses: actions/download-artifact@v4
+        with:
+          name: github-actions-binary
+          path: dist
+      - name: download cloud-helpers binary
+        if: matrix.image == 'cloud-helpers-aws'
+        uses: actions/download-artifact@v4
+        with:
+          name: cloud-helpers-binary
+          path: dist
+      - name: install sc tool (latest release)
+        shell: bash
         run: |-
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make --timestamps
+          # Install latest SC release to get secrets for embeddings generation
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@v3
         with:
@@ -84,79 +320,78 @@ jobs:
           buildkitd-flags: --allow-insecure-entitlement security.insecure
       - name: Docker login using SC secrets
         run: |
-          ${{ github.workspace }}/bin/sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push kubectl image
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+      - name: Build and push ${{ matrix.image }} image
         env:
           DOCKER_BUILDKIT: 1
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file kubectl.Dockerfile \
-            --tag simplecontainer/kubectl:latest \
-            --tag simplecontainer/kubectl:$VERSION \
-            --push \
-            .
-      - name: Build and push caddy image
+          mapfile -t tags <<< "${{ matrix.tags }}"
+          for tag in "${tags[@]}"; do
+            # Skip empty tags caused by trailing newlines in multi-line YAML
+            if [ -n "$tag" ]; then
+              docker buildx build \
+                --platform linux/amd64 \
+                --cache-from type=gha \
+                --cache-to type=gha,mode=max \
+                --file ${{ matrix.dockerfile }} \
+                --tag "$tag" \
+                --push \
+                .
+            fi
+          done
+
+  docker-finalize:
+    name: Docker finalize (tag-release, deploy)
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fregante/setup-git-user@v2
+      - name: install sc tool (latest release)
+        shell: bash
+        run: |-
+          # Install latest SC release to get secrets for embeddings generation
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+      - name: download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: download bin tools artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bin-tools
+          path: bin
+      - name: download docs artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: docs/site
+      - name: copy build artifacts to dist bundle
+        run: |
+          mkdir -p .sc/stacks/dist/bundle
+          cp artifacts/sc-*/*.tar.gz .sc/stacks/dist/bundle/ 2>/dev/null || true
+      - name: finalize dist bundle setup
         env:
-          DOCKER_BUILDKIT: 1
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file caddy.Dockerfile \
-            --tag simplecontainer/caddy:latest \
-            --tag simplecontainer/caddy:$VERSION \
-            --push \
-            .
-      - name: Build and push github-actions image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file github-actions.Dockerfile \
-            --tag simplecontainer/github-actions:latest \
-            --tag simplecontainer/github-actions:$VERSION \
-            --push \
-            .
-      - name: Build and push github-actions-staging image
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file github-actions-staging.Dockerfile \
-            --tag simplecontainer/github-actions:staging \
-            --push \
-            .
-      - name: Build and push cloud-helpers-aws image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file cloud-helpers.aws.Dockerfile \
-            --tag simplecontainer/cloud-helpers:aws-latest \
-            --tag simplecontainer/cloud-helpers:aws-$VERSION \
-            --push \
-            .
+          cp sc.sh .sc/stacks/dist/bundle/sc.sh
+          sed -i -e 's/VERSION="0\.0\.0"/VERSION="${VERSION}"/g' .sc/stacks/dist/bundle/sc.sh
+          echo "${VERSION}" > .sc/stacks/dist/bundle/version
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
+          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run tag-release
       - name: publish sc tool
         shell: bash
@@ -173,7 +408,8 @@ jobs:
       contents: write
     needs:
       - prepare
-      - build
+      - build-setup
+      - docker-finalize
     steps:
       - uses: actions/checkout@v4
         if: ${{ always() }}
@@ -205,15 +441,15 @@ jobs:
         if: ${{ success() && !contains(needs.*.result, 'failure')  }}
         continue-on-error: true
         with:
-          chat: ${{ needs.build.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.build.outputs.cicd-bot-telegram-token }}
+          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
           status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) (v${{ needs.prepare.outputs.version }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
       - uses: yanzay/notify-telegram@v0.1.0
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
         with:
-          chat: ${{ needs.build.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.build.outputs.cicd-bot-telegram-token }}
+          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
           status: ❗ failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
 
       - name: Build failed due to previously failed steps
