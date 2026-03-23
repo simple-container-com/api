@@ -36,6 +36,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: fregante/setup-git-user@v2
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: install sc tool (latest release)
         shell: bash
         run: |-
@@ -112,6 +121,15 @@ jobs:
             arch: amd64
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: restore cached dist
         uses: actions/cache@v4
         with:
@@ -152,6 +170,15 @@ jobs:
             output: dist/cloud-helpers
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: build ${{ matrix.target }}
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -170,6 +197,15 @@ jobs:
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: build github-actions-staging
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -189,6 +225,15 @@ jobs:
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: test
         run: |
           go test ./...
@@ -209,9 +254,67 @@ jobs:
           docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
 
   docker-build:
-    name: Docker build and push
+    name: Docker build and push ${{ matrix.image }}
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs]
+    strategy:
+      matrix:
+        include:
+          - image: kubectl
+            dockerfile: kubectl.Dockerfile
+            tags: |
+              simplecontainer/kubectl:latest
+              simplecontainer/kubectl:${{ needs.prepare.outputs.version }}
+          - image: caddy
+            dockerfile: caddy.Dockerfile
+            tags: |
+              simplecontainer/caddy:latest
+              simplecontainer/caddy:${{ needs.prepare.outputs.version }}
+          - image: github-actions
+            dockerfile: github-actions.Dockerfile
+            tags: |
+              simplecontainer/github-actions:latest
+              simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
+          - image: github-actions-staging
+            dockerfile: github-actions-staging.Dockerfile
+            tags: simplecontainer/github-actions:staging
+          - image: cloud-helpers-aws
+            dockerfile: cloud-helpers.aws.Dockerfile
+            tags: |
+              simplecontainer/cloud-helpers:aws-latest
+              simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Docker Buildx with advanced caching
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
+      - name: Docker login using SC secrets
+        run: |
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+        env:
+          SC_CONFIG: ${{ secrets.SC_CONFIG }}
+      - name: Build and push ${{ matrix.image }} image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file ${{ matrix.dockerfile }} \
+            ${{ matrix.tags }} \
+            --push \
+            .
+
+  docker-finalize:
+    name: Docker finalize (tag-release, deploy)
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
     outputs:
       cicd-bot-telegram-token: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.prepare-secrets.outputs.cicd-bot-telegram-chat-id }}
@@ -252,87 +355,11 @@ jobs:
           cp sc.sh .sc/stacks/dist/bundle/sc.sh
           sed -i -e 's/VERSION="0\.0\.0"/VERSION="${VERSION}"/g' .sc/stacks/dist/bundle/sc.sh
           echo "${VERSION}" > .sc/stacks/dist/bundle/version
-      - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:buildx-stable-1
-          buildkitd-flags: --allow-insecure-entitlement security.insecure
-      - name: Docker login using SC secrets
-        run: |
-          ${{ github.workspace }}/bin/sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push kubectl image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file kubectl.Dockerfile \
-            --tag simplecontainer/kubectl:latest \
-            --tag simplecontainer/kubectl:$VERSION \
-            --push \
-            .
-      - name: Build and push caddy image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file caddy.Dockerfile \
-            --tag simplecontainer/caddy:latest \
-            --tag simplecontainer/caddy:$VERSION \
-            --push \
-            .
-      - name: Build and push github-actions image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file github-actions.Dockerfile \
-            --tag simplecontainer/github-actions:latest \
-            --tag simplecontainer/github-actions:$VERSION \
-            --push \
-            .
-      - name: Build and push github-actions-staging image
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file github-actions-staging.Dockerfile \
-            --tag simplecontainer/github-actions:staging \
-            --push \
-            .
-      - name: Build and push cloud-helpers-aws image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file cloud-helpers.aws.Dockerfile \
-            --tag simplecontainer/cloud-helpers:aws-latest \
-            --tag simplecontainer/cloud-helpers:aws-$VERSION \
-            --push \
-            .
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
+          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run tag-release
       - name: publish sc tool
         shell: bash
@@ -349,7 +376,7 @@ jobs:
       contents: write
     needs:
       - prepare
-      - docker-build
+      - docker-finalize
     steps:
       - uses: actions/checkout@v4
         if: ${{ always() }}
@@ -381,15 +408,15 @@ jobs:
         if: ${{ success() && !contains(needs.*.result, 'failure')  }}
         continue-on-error: true
         with:
-          chat: ${{ needs.docker-build.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.docker-build.outputs.cicd-bot-telegram-token }}
+          chat: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-token }}
           status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) (v${{ needs.prepare.outputs.version }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
       - uses: yanzay/notify-telegram@v0.1.0
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
         with:
-          chat: ${{ needs.docker-build.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.docker-build.outputs.cicd-bot-telegram-token }}
+          chat: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.docker-finalize.outputs.cicd-bot-telegram-token }}
           status: ❗ failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
 
       - name: Build failed due to previously failed steps
