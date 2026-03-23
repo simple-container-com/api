@@ -271,6 +271,30 @@ jobs:
               simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: download github-actions-staging binary
+        uses: actions/download-artifact@v4
+        with:
+          name: github-actions-staging-binary
+          path: bin
+      - name: download cloud-helpers binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cloud-helpers-binary
+          path: dist
+      - name: install sc tool (latest release)
+        shell: bash
+        run: |-
+          # Install latest SC release to get secrets for embeddings generation
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@v3
         with:
@@ -279,10 +303,7 @@ jobs:
           buildkitd-flags: --allow-insecure-entitlement security.insecure
       - name: Docker login using SC secrets
         run: |
-          curl -s "https://dist.simple-container.com/sc.sh" | bash
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-        env:
-          SC_CONFIG: ${{ secrets.SC_CONFIG }}
       - name: Build and push ${{ matrix.image }} image
         env:
           DOCKER_BUILDKIT: 1
