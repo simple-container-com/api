@@ -116,10 +116,8 @@ func backupConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseI
 
 // ipConfiguration returns IP settings only when requireSsl is explicitly set.
 // When nil, returns nil so Pulumi leaves existing IP configuration unchanged.
-// Preserves Ipv4Enabled=true to avoid wiping existing authorized networks.
-// ipConfiguration returns IP settings only when requireSsl is explicitly set.
-// When nil, returns nil so Pulumi leaves existing IP configuration unchanged.
 // Uses SslMode (Pulumi GCP SDK v8) instead of deprecated RequireSsl.
+// Preserves Ipv4Enabled=true to avoid wiping existing authorized networks.
 func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsIpConfigurationArgs {
 	if pgCfg.RequireSsl == nil {
 		return nil
