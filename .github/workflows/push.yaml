@@ -62,6 +62,7 @@ jobs:
         shell: bash
         env:
           OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
+          SKIP_EMBEDDINGS: "true"
         run: |-
           git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run rebuild
