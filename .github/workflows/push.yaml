@@ -98,13 +98,6 @@ jobs:
         with:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
-      - name: save Go module cache
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: upload bin directory artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -131,18 +124,6 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
-      - name: restore Go module cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-      - name: restore cached dist
-        uses: actions/cache@v4
-        with:
-          path: .sc/stacks/dist/bundle
-          key: dist-${{ github.run_id }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -186,13 +167,6 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
-      - name: restore Go module cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -218,13 +192,6 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
-      - name: restore Go module cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: build github-actions-staging
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -248,13 +215,6 @@ jobs:
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
-      - name: restore Go module cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
       - name: test
         run: |
           go test ./...
