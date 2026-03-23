@@ -320,14 +320,17 @@ jobs:
         run: |
           mapfile -t tags <<< "${{ matrix.tags }}"
           for tag in "${tags[@]}"; do
-            docker buildx build \
-              --platform linux/amd64 \
-              --cache-from type=gha \
-              --cache-to type=gha,mode=max \
-              --file ${{ matrix.dockerfile }} \
-              --tag "$tag" \
-              --push \
-              .
+            # Skip empty tags caused by trailing newlines in multi-line YAML
+            if [ -n "$tag" ]; then
+              docker buildx build \
+                --platform linux/amd64 \
+                --cache-from type=gha \
+                --cache-to type=gha,mode=max \
+                --file ${{ matrix.dockerfile }} \
+                --tag "$tag" \
+                --push \
+                .
+            fi
           done
 
   docker-finalize:
