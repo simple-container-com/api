@@ -172,8 +172,9 @@ jobs:
       - name: build ${{ matrix.target }}
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          CGO_ENABLED: "0"
         run: |
-          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
+          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
         uses: actions/upload-artifact@v4
         with:
@@ -277,6 +278,12 @@ jobs:
         with:
           name: github-actions-staging-binary
           path: bin
+      - name: download github-actions binary
+        if: matrix.image == 'github-actions'
+        uses: actions/download-artifact@v4
+        with:
+          name: github-actions-binary
+          path: dist
       - name: download cloud-helpers binary
         if: matrix.image == 'cloud-helpers-aws'
         uses: actions/download-artifact@v4
