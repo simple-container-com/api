@@ -15,6 +15,16 @@ type PostgresGcpCloudsqlConfig struct {
 	QueryInsightsEnabled  *bool                   `json:"queryInsightsEnabled" yaml:"queryInsightsEnabled"`
 	QueryStringLength     *int                    `json:"queryStringLength" yaml:"queryStringLength"`
 	UsersProvisionRuntime *ProvisionRuntimeConfig `json:"usersProvisionRuntime" yaml:"usersProvisionRuntime"`
+	// Backup configuration
+	BackupEnabled               *bool   `json:"backupEnabled,omitempty" yaml:"backupEnabled,omitempty"`
+	BackupStartTime             *string `json:"backupStartTime,omitempty" yaml:"backupStartTime,omitempty"`
+	PointInTimeRecoveryEnabled  *bool   `json:"pointInTimeRecoveryEnabled,omitempty" yaml:"pointInTimeRecoveryEnabled,omitempty"`
+	TransactionLogRetentionDays *int    `json:"transactionLogRetentionDays,omitempty" yaml:"transactionLogRetentionDays,omitempty"`
+	RetainedBackups             *int    `json:"retainedBackups,omitempty" yaml:"retainedBackups,omitempty"`
+	// High availability
+	AvailabilityType *string `json:"availabilityType,omitempty" yaml:"availabilityType,omitempty"` // ZONAL or REGIONAL
+	// SSL
+	RequireSsl *bool `json:"requireSsl,omitempty" yaml:"requireSsl,omitempty"`
 	// Resource adoption fields
 	Adopt          bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
 	InstanceName   string `json:"instanceName,omitempty" yaml:"instanceName,omitempty"`

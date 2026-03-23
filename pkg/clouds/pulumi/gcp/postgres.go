@@ -25,6 +25,12 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
 
+	if pgCfg.AvailabilityType != nil {
+		if *pgCfg.AvailabilityType != "ZONAL" && *pgCfg.AvailabilityType != "REGIONAL" {
+			return nil, errors.Errorf("availabilityType must be ZONAL or REGIONAL, got %q", *pgCfg.AvailabilityType)
+		}
+	}
+
 	// Handle resource adoption - exit early if adopting
 	if pgCfg.Adopt {
 		return AdoptPostgres(ctx, stack, input, params)
@@ -72,6 +78,9 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 					lo.If(pgCfg.QueryStringLength != nil, lo.FromPtr(pgCfg.QueryStringLength)).Else(2048),
 				),
 			},
+			BackupConfiguration: backupConfiguration(pgCfg),
+			AvailabilityType:    sdk.StringPtrFromPtr(pgCfg.AvailabilityType),
+			IpConfiguration:     ipConfiguration(pgCfg),
 		},
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
 	}, sdk.Provider(params.Provider))
@@ -80,6 +89,47 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}
 
 	return &api.ResourceOutput{Ref: pgInstance}, nil
+}
+
+func backupConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsBackupConfigurationArgs {
+	if pgCfg.BackupEnabled == nil || !*pgCfg.BackupEnabled {
+		return nil
+	}
+	args := &sql.DatabaseInstanceSettingsBackupConfigurationArgs{
+		Enabled:                    sdk.Bool(true),
+		PointInTimeRecoveryEnabled: sdk.Bool(pgCfg.PointInTimeRecoveryEnabled != nil && *pgCfg.PointInTimeRecoveryEnabled),
+	}
+	if pgCfg.BackupStartTime != nil {
+		args.StartTime = sdk.StringPtr(*pgCfg.BackupStartTime)
+	}
+	if pgCfg.TransactionLogRetentionDays != nil {
+		args.TransactionLogRetentionDays = sdk.Int(*pgCfg.TransactionLogRetentionDays)
+	}
+	if pgCfg.RetainedBackups != nil {
+		args.BackupRetentionSettings = &sql.DatabaseInstanceSettingsBackupConfigurationBackupRetentionSettingsArgs{
+			RetainedBackups: sdk.Int(*pgCfg.RetainedBackups),
+			RetentionUnit:   sdk.String("COUNT"),
+		}
+	}
+	return args
+}
+
+// ipConfiguration returns IP settings only when requireSsl is explicitly set.
+// When nil, returns nil so Pulumi leaves existing IP configuration unchanged.
+// Uses SslMode (Pulumi GCP SDK v8) instead of deprecated RequireSsl.
+// Preserves Ipv4Enabled=true to avoid wiping existing authorized networks.
+func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsIpConfigurationArgs {
+	if pgCfg.RequireSsl == nil {
+		return nil
+	}
+	sslMode := "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+	if *pgCfg.RequireSsl {
+		sslMode = "ENCRYPTED_ONLY"
+	}
+	return &sql.DatabaseInstanceSettingsIpConfigurationArgs{
+		Ipv4Enabled: sdk.Bool(true),
+		SslMode:     sdk.String(sslMode),
+	}
 }
 
 func toPostgresRootPasswordExport(resName string) string {
