@@ -138,8 +138,7 @@ jobs:
           echo "Building for ${GOOS}/${GOARCH}..."
           if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
-          cd dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
-          mv dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
+          tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
       - name: upload build artifacts
         uses: actions/upload-artifact@v4
