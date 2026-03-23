@@ -45,6 +45,7 @@ type Args struct {
 	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
+	EphemeralSize          string
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -247,6 +248,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		SecretVolumes:       args.SecretVolumes,
 		SecretVolumeOutputs: args.SecretVolumeOutputs,
 		ImagePullSecret:     args.ImagePullSecret,
+		EphemeralSize:       args.EphemeralSize,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)

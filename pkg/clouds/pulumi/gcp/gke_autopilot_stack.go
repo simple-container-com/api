@@ -156,6 +156,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		VPA:            gkeAutopilotInput.Deployment.VPA,            // Pass VPA configuration to Kubernetes deployment
 		ReadinessProbe: gkeAutopilotInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  gkeAutopilotInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
+		EphemeralSize:  lo.FromPtr(gkeAutopilotInput.Deployment.StackConfig).Size.Ephemeral,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
