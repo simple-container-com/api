@@ -318,15 +318,17 @@ jobs:
           DOCKER_BUILDKIT: 1
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          TAG_ARGS=$(echo "${{ matrix.tags }}" | while read -r tag; do echo "--tag $tag"; done)
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file ${{ matrix.dockerfile }} \
-            $TAG_ARGS \
-            --push \
-            .
+          mapfile -t tags <<< "${{ matrix.tags }}"
+          for tag in "${tags[@]}"; do
+            docker buildx build \
+              --platform linux/amd64 \
+              --cache-from type=gha \
+              --cache-to type=gha,mode=max \
+              --file ${{ matrix.dockerfile }} \
+              --tag "$tag" \
+              --push \
+              .
+          done
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
