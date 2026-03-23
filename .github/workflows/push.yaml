@@ -272,11 +272,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: download github-actions-staging binary
+        if: matrix.image == 'github-actions-staging'
         uses: actions/download-artifact@v4
         with:
           name: github-actions-staging-binary
           path: bin
       - name: download cloud-helpers binary
+        if: matrix.image == 'cloud-helpers-aws'
         uses: actions/download-artifact@v4
         with:
           name: cloud-helpers-binary
@@ -309,12 +311,13 @@ jobs:
           DOCKER_BUILDKIT: 1
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          TAG_ARGS=$(echo "${{ matrix.tags }}" | while read -r tag; do echo "--tag $tag"; done)
           docker buildx build \
             --platform linux/amd64 \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
             --file ${{ matrix.dockerfile }} \
-            ${{ matrix.tags }} \
+            $TAG_ARGS \
             --push \
             .
 
