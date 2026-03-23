@@ -136,6 +136,7 @@ type SimpleContainerArgs struct {
 	ComputeContext       pApi.ComputeContext
 	ImagePullSecret      *docker.RegistryCredentials
 	UseSSL               bool
+	EphemeralSize        string
 }
 
 type SimpleContainer struct {
@@ -329,6 +330,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	addVolumeMountsFromOutputs(volumesSecretName, args.SecretVolumeOutputs, &volumeMounts)
 
 	// Volumes
+	emptyDirArgs := corev1.EmptyDirVolumeSourceArgs{}
+	if args.EphemeralSize != "" {
+		emptyDirArgs.SizeLimit = sdk.StringPtr(args.EphemeralSize)
+	}
 	volumes := corev1.VolumeArray{
 		corev1.VolumeArgs{
 			Name: sdk.String(volumesCfgName),
@@ -344,7 +349,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		},
 		corev1.VolumeArgs{
 			Name:     sdk.String("tmp"),
-			EmptyDir: corev1.EmptyDirVolumeSourceArgs{},
+			EmptyDir: emptyDirArgs,
 		},
 	}
 	volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{

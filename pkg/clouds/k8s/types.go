@@ -70,8 +70,9 @@ type Toleration struct {
 type Headers = map[string]string
 
 type Resources struct {
-	Limits   map[string]string `json:"limits" yaml:"limits"`
-	Requests map[string]string `json:"requests" yaml:"requests"`
+	Limits    map[string]string `json:"limits" yaml:"limits"`
+	Requests  map[string]string `json:"requests" yaml:"requests"`
+	Ephemeral string            `json:"ephemeral" yaml:"ephemeral"`
 }
 
 type SimpleTextVolume struct {

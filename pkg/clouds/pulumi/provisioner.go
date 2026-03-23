@@ -103,7 +103,12 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	if err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
-	return p.destroyStack(ctx, cfg, s, params, p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String()), preview)
+	program := p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String())
+	return p.destroyStack(ctx, cfg, s, params, program, preview, func(stackSource auto.Stack) {
+		for _, hook := range pApi.PreDestroyHookFuncs {
+			hook(ctx, childStack, params, stackSource, p.logger)
+		}
+	})
 }
 
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
