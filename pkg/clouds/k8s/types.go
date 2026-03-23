@@ -70,8 +70,9 @@ type Toleration struct {
 type Headers = map[string]string
 
 type Resources struct {
-	Limits   map[string]string `json:"limits" yaml:"limits"`
-	Requests map[string]string `json:"requests" yaml:"requests"`
+	Limits    map[string]string `json:"limits" yaml:"limits"`
+	Requests  map[string]string `json:"requests" yaml:"requests"`
+	Ephemeral string            `json:"ephemeral" yaml:"ephemeral"`
 }
 
 type SimpleTextVolume struct {
@@ -174,10 +175,6 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory limits")
 	}
-	ephemeralLimitInBytesInt, err := toEphemeralLimit(cfg, svc)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to convert ephemeral storage limits")
-	}
 
 	// Get requests (with fallback to limits if not specified)
 	cpuRequestInt, err := toCpuRequest(cfg, svc, cpuLimitInt)
@@ -188,31 +185,16 @@ func ToResources(cfg *api.StackConfigCompose, svc types.ServiceConfig) (*Resourc
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert memory requests")
 	}
-	ephemeralRequestInBytesInt, err := toEphemeralRequest(cfg, svc, ephemeralLimitInBytesInt)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to convert ephemeral storage requests")
-	}
-
-	limits := map[string]string{
-		"memory": bytesSizeToHuman(memLimitInBytesInt), // must be in MB
-		"cpu":    fmt.Sprintf("%dm", cpuLimitInt),
-	}
-	requests := map[string]string{
-		"memory": bytesSizeToHuman(memRequestInBytesInt), // must be in MB
-		"cpu":    fmt.Sprintf("%dm", cpuRequestInt),
-	}
-
-	// Add ephemeral storage if configured
-	if ephemeralLimitInBytesInt > 0 {
-		limits["ephemeral-storage"] = bytesSizeToHuman(ephemeralLimitInBytesInt)
-	}
-	if ephemeralRequestInBytesInt > 0 {
-		requests["ephemeral-storage"] = bytesSizeToHuman(ephemeralRequestInBytesInt)
-	}
 
 	return &Resources{
-		Limits:   limits,
-		Requests: requests,
+		Limits: map[string]string{
+			"memory": bytesSizeToHuman(memLimitInBytesInt), // must be in MB
+			"cpu":    fmt.Sprintf("%dm", cpuLimitInt),
+		},
+		Requests: map[string]string{
+			"memory": bytesSizeToHuman(memRequestInBytesInt), // must be in MB
+			"cpu":    fmt.Sprintf("%dm", cpuRequestInt),
+		},
 	}, nil
 }
 
@@ -320,50 +302,6 @@ func toMemoryRequest(cfg *api.StackConfigCompose, svc types.ServiceConfig, memor
 
 	// Fallback: Use 50% of limit as request (Kubernetes best practice)
 	return memoryLimit / 2, nil
-}
-
-// toEphemeralLimit extracts ephemeral storage limits from configuration
-func toEphemeralLimit(cfg *api.StackConfigCompose, svc types.ServiceConfig) (int64, error) {
-	// Priority 1: Explicit limits in size configuration
-	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Limits != nil && cfg.Size.Limits.Ephemeral != "" {
-		if v, err := strconv.Atoi(cfg.Size.Limits.Ephemeral); err != nil {
-			return 0, errors.Wrapf(err, "failed to parse ephemeral storage limit specified for stack: %q", cfg.Size.Limits.Ephemeral)
-		} else {
-			return int64(v) * 1024 * 1024, nil // Convert MB to bytes
-		}
-	}
-
-	// Priority 2: Size configuration ephemeral field
-	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Ephemeral != "" {
-		if v, err := strconv.Atoi(cfg.Size.Ephemeral); err != nil {
-			return 0, errors.Wrapf(err, "failed to parse ephemeral storage specified for stack: %q", cfg.Size.Ephemeral)
-		} else {
-			return int64(v) * 1024 * 1024, nil // Convert MB to bytes
-		}
-	}
-
-	// No ephemeral storage configured - return 0 (will be omitted from resources)
-	return 0, nil
-}
-
-// toEphemeralRequest extracts ephemeral storage requests from configuration, with fallback to limits
-func toEphemeralRequest(cfg *api.StackConfigCompose, svc types.ServiceConfig, ephemeralLimit int64) (int64, error) {
-	// Priority 1: Explicit requests in size configuration
-	if len(cfg.Runs) == 1 && cfg.Size != nil && cfg.Size.Requests != nil && cfg.Size.Requests.Ephemeral != "" {
-		if v, err := strconv.Atoi(cfg.Size.Requests.Ephemeral); err != nil {
-			return 0, errors.Wrapf(err, "failed to parse ephemeral storage request specified for stack: %q", cfg.Size.Requests.Ephemeral)
-		} else {
-			return int64(v) * 1024 * 1024, nil // Convert MB to bytes
-		}
-	}
-
-	// If no limit is set, don't set a request either
-	if ephemeralLimit == 0 {
-		return 0, nil
-	}
-
-	// Fallback: Use 50% of limit as request (Kubernetes best practice)
-	return ephemeralLimit / 2, nil
 }
 
 func ToHeaders(headers *api.Headers) Headers {
