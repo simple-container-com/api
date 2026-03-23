@@ -72,6 +72,11 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 					lo.If(pgCfg.QueryStringLength != nil, lo.FromPtr(pgCfg.QueryStringLength)).Else(2048),
 				),
 			},
+			BackupConfiguration: backupConfiguration(pgCfg),
+			AvailabilityType: sdk.StringPtrFromPtr(
+				lo.If(pgCfg.AvailabilityType != nil, pgCfg.AvailabilityType).Else(nil),
+			),
+			IpConfiguration: ipConfiguration(pgCfg),
 		},
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
 	}, sdk.Provider(params.Provider))
@@ -80,6 +85,38 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}
 
 	return &api.ResourceOutput{Ref: pgInstance}, nil
+}
+
+func backupConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsBackupConfigurationArgs {
+	if pgCfg.BackupEnabled == nil || !*pgCfg.BackupEnabled {
+		return nil
+	}
+	args := &sql.DatabaseInstanceSettingsBackupConfigurationArgs{
+		Enabled:                    sdk.Bool(true),
+		PointInTimeRecoveryEnabled: sdk.Bool(pgCfg.PointInTimeRecoveryEnabled != nil && *pgCfg.PointInTimeRecoveryEnabled),
+	}
+	if pgCfg.BackupStartTime != nil {
+		args.StartTime = sdk.StringPtr(*pgCfg.BackupStartTime)
+	}
+	if pgCfg.TransactionLogRetentionDays != nil {
+		args.TransactionLogRetentionDays = sdk.Int(*pgCfg.TransactionLogRetentionDays)
+	}
+	if pgCfg.RetainedBackups != nil {
+		args.BackupRetentionSettings = &sql.DatabaseInstanceSettingsBackupConfigurationBackupRetentionSettingsArgs{
+			RetainedBackups: sdk.Int(*pgCfg.RetainedBackups),
+			RetentionUnit:   sdk.String("COUNT"),
+		}
+	}
+	return args
+}
+
+func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsIpConfigurationArgs {
+	if pgCfg.RequireSsl == nil || !*pgCfg.RequireSsl {
+		return nil
+	}
+	return &sql.DatabaseInstanceSettingsIpConfigurationArgs{
+		RequireSsl: sdk.Bool(true),
+	}
 }
 
 func toPostgresRootPasswordExport(resName string) string {
