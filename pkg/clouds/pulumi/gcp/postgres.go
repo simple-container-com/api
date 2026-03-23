@@ -79,8 +79,8 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 				),
 			},
 			BackupConfiguration: backupConfiguration(pgCfg),
-			AvailabilityType: sdk.StringPtrFromPtr(pgCfg.AvailabilityType),
-			IpConfiguration: ipConfiguration(pgCfg),
+			AvailabilityType:    sdk.StringPtrFromPtr(pgCfg.AvailabilityType),
+			IpConfiguration:     ipConfiguration(pgCfg),
 		},
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
 	}, sdk.Provider(params.Provider))
