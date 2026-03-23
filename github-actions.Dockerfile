@@ -10,13 +10,17 @@ ENV GOTOOLCHAIN=auto
 
 # Copy go mod files
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
 
 # Copy source code
 COPY . .
 
-# Build the GitHub Actions binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o github-actions ./cmd/github-actions
+# Build the GitHub Actions binary with cache mounts
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o github-actions ./cmd/github-actions
 
 # Final stage - minimal runtime with optimizations
 FROM alpine:3.19
@@ -38,7 +42,8 @@ RUN apk --no-cache add \
 # Install Pulumi CLI - Required for Simple Container provisioning
 # Read version from go.mod to ensure consistency with Go dependencies
 COPY go.mod /tmp/go.mod
-RUN PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//') && \
+RUN --mount=type=cache,target=/tmp/pulumi-cache,sharing=locked \
+    PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//') && \
     echo "Installing Pulumi version: ${PULUMI_VERSION} (extracted from go.mod)" && \
     curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION} && \
     # Optimize Pulumi binaries - strip debug symbols and compress
@@ -49,9 +54,11 @@ RUN PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{
 ENV PATH="/root/.pulumi/bin:${PATH}"
 
 # Install Google Cloud SDK (gcloud CLI) - Fixed installation with proper cleanup
-RUN cd /tmp && \
-    curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz -o gcloud.tar.gz && \
-    tar -xzf gcloud.tar.gz && \
+RUN --mount=type=cache,target=/tmp/gcloud-cache,sharing=locked \
+    cd /tmp && \
+    [ -f /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz ] || \
+    curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz -o /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz && \
+    tar -xzf /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz && \
     mv google-cloud-sdk /opt/ && \
     /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --bash-completion=false && \
     # Remove unnecessary components, documentation, and cache files
@@ -77,8 +84,7 @@ RUN cd /tmp && \
     && find /opt/google-cloud-sdk -name "*.md" -delete \
     && find /opt/google-cloud-sdk -name "*.txt" -delete \
     && find /opt/google-cloud-sdk -name "COPYING*" -delete \
-    && find /opt/google-cloud-sdk -name "LICENSE*" -delete \
-    && rm -rf /tmp/gcloud.tar.gz /tmp/google-cloud-sdk
+    && find /opt/google-cloud-sdk -name "LICENSE*" -delete
 
 ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
 
