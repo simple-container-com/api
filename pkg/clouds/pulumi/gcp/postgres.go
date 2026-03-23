@@ -25,6 +25,12 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
 
+	if pgCfg.AvailabilityType != nil {
+		if *pgCfg.AvailabilityType != "ZONAL" && *pgCfg.AvailabilityType != "REGIONAL" {
+			return nil, errors.Errorf("availabilityType must be ZONAL or REGIONAL, got %q", *pgCfg.AvailabilityType)
+		}
+	}
+
 	// Handle resource adoption - exit early if adopting
 	if pgCfg.Adopt {
 		return AdoptPostgres(ctx, stack, input, params)
@@ -73,9 +79,7 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 				),
 			},
 			BackupConfiguration: backupConfiguration(pgCfg),
-			AvailabilityType: sdk.StringPtrFromPtr(
-				lo.If(pgCfg.AvailabilityType != nil, pgCfg.AvailabilityType).Else(nil),
-			),
+			AvailabilityType: sdk.StringPtrFromPtr(pgCfg.AvailabilityType),
 			IpConfiguration: ipConfiguration(pgCfg),
 		},
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
@@ -110,12 +114,23 @@ func backupConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseI
 	return args
 }
 
+// ipConfiguration returns IP settings only when requireSsl is explicitly set.
+// When nil, returns nil so Pulumi leaves existing IP configuration unchanged.
+// Preserves Ipv4Enabled=true to avoid wiping existing authorized networks.
+// ipConfiguration returns IP settings only when requireSsl is explicitly set.
+// When nil, returns nil so Pulumi leaves existing IP configuration unchanged.
+// Uses SslMode (Pulumi GCP SDK v8) instead of deprecated RequireSsl.
 func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsIpConfigurationArgs {
-	if pgCfg.RequireSsl == nil || !*pgCfg.RequireSsl {
+	if pgCfg.RequireSsl == nil {
 		return nil
 	}
+	sslMode := "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+	if *pgCfg.RequireSsl {
+		sslMode = "ENCRYPTED_ONLY"
+	}
 	return &sql.DatabaseInstanceSettingsIpConfigurationArgs{
-		RequireSsl: sdk.Bool(true),
+		Ipv4Enabled: sdk.Bool(true),
+		SslMode:     sdk.String(sslMode),
 	}
 }
 
