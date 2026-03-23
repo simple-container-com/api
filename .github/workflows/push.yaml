@@ -76,7 +76,88 @@ jobs:
         run: |-
           git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") make --timestamps
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") docker build --push --timestamps
+      - name: Setup Docker Buildx with advanced caching
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
+      - name: Docker login using SC secrets
+        run: |
+          ${{ github.workspace }}/bin/sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+      - name: Build and push kubectl image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file kubectl.Dockerfile \
+            --tag simplecontainer/kubectl:latest \
+            --tag simplecontainer/kubectl:$VERSION \
+            --push \
+            .
+      - name: Build and push caddy image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file caddy.Dockerfile \
+            --tag simplecontainer/caddy:latest \
+            --tag simplecontainer/caddy:$VERSION \
+            --push \
+            .
+      - name: Build and push github-actions image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file github-actions.Dockerfile \
+            --tag simplecontainer/github-actions:latest \
+            --tag simplecontainer/github-actions:$VERSION \
+            --push \
+            .
+      - name: Build and push github-actions-staging image
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file github-actions-staging.Dockerfile \
+            --tag simplecontainer/github-actions:staging \
+            --push \
+            .
+      - name: Build and push cloud-helpers-aws image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file cloud-helpers.aws.Dockerfile \
+            --tag simplecontainer/cloud-helpers:aws-latest \
+            --tag simplecontainer/cloud-helpers:aws-$VERSION \
+            --push \
+            .
+      - name: Run tag-release task after images are built
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |-
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run tag-release
       - name: publish sc tool
         shell: bash
         env:
