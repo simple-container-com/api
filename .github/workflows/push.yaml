@@ -371,6 +371,8 @@ jobs:
         with:
           name: bin-tools
           path: bin
+      - name: fix bin tools permissions
+        run: chmod +x bin/*
       - name: download docs artifact
         uses: actions/download-artifact@v4
         with:
