@@ -17,14 +17,15 @@ func (i *KubeRunInput) OverriddenBaseZone() string {
 }
 
 type CloudExtras struct {
-	NodeSelector     map[string]string `json:"nodeSelector" yaml:"nodeSelector"`
-	DisruptionBudget *DisruptionBudget `json:"disruptionBudget" yaml:"disruptionBudget"`
-	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
-	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
-	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
-	VPA              *VPAConfig        `json:"vpa" yaml:"vpa"`
-	ReadinessProbe   *CloudRunProbe    `json:"readinessProbe" yaml:"readinessProbe"`
-	LivenessProbe    *CloudRunProbe    `json:"livenessProbe" yaml:"livenessProbe"`
+	NodeSelector     map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
+	DisruptionBudget *DisruptionBudget        `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate    *RollingUpdate           `json:"rollingUpdate" yaml:"rollingUpdate"`
+	Affinity         *AffinityRules           `json:"affinity" yaml:"affinity"`
+	Tolerations      []Toleration             `json:"tolerations" yaml:"tolerations"`
+	VPA              *VPAConfig               `json:"vpa" yaml:"vpa"`
+	ReadinessProbe   *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`
+	LivenessProbe    *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`
+	EphemeralVolumes []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -159,9 +160,10 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
-		deployCfg.VPA = k8sCloudExtras.VPA                       // Extract VPA configuration from CloudExtras
-		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe // Extract global readiness probe configuration
-		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe   // Extract global liveness probe configuration
+		deployCfg.VPA = k8sCloudExtras.VPA                           // Extract VPA configuration from CloudExtras
+		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe     // Extract global readiness probe configuration
+		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe       // Extract global liveness probe configuration
+		deployCfg.EphemeralVolumes = k8sCloudExtras.EphemeralVolumes // Extract generic ephemeral volumes configuration
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {
