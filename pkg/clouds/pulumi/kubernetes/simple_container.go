@@ -435,12 +435,13 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 		// Create the generic ephemeral volume with volumeClaimTemplate
 		// This creates a PVC for each pod and deletes it when the pod is deleted
+		// Note: metadata.name cannot be set in volumeClaimTemplate - Kubernetes generates it automatically
 		volumes = append(volumes, corev1.VolumeArgs{
 			Name: sdk.String(sanitizedName),
 			Ephemeral: &corev1.EphemeralVolumeSourceArgs{
 				VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplateArgs{
 					Metadata: &metav1.ObjectMetaArgs{
-						Name:        sdk.String(sanitizedName),
+						// Name is intentionally omitted - Kubernetes generates it automatically
 						Labels:      sdk.ToStringMap(appLabels),
 						Annotations: sdk.ToStringMap(appAnnotations),
 					},
