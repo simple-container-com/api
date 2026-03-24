@@ -203,6 +203,7 @@ jobs:
       - name: build github-actions-staging
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          CGO_ENABLED: "0"
         run: |
           mkdir -p bin
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
@@ -285,7 +286,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: github-actions-staging-binary
-          path: dist
+          path: bin
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
         uses: actions/download-artifact@v4
