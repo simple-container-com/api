@@ -118,6 +118,7 @@ type SimpleContainerArgs struct {
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes  []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
 	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
 	Scale             *k8s.Scale                   `json:"scale" yaml:"scale"`
 
@@ -410,6 +411,62 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Name:      sdk.String(sanitizedName),
 			MountPath: sdk.String(pv.MountPath),
 		})
+	}
+
+	// Generic ephemeral volumes
+	// These use the generic ephemeral volume feature which creates a PVC for each pod
+	// and deletes it when the pod is deleted. This allows for larger temporary storage
+	// than the 10GB limit on GKE Autopilot regular ephemeral storage.
+	for _, ev := range args.EphemeralVolumes {
+		// Sanitize volume name for Kubernetes RFC 1123 compliance (no underscores allowed)
+		sanitizedName := sanitizeK8sResourceName(ev.Name)
+		if sanitizedName != ev.Name {
+			args.Log.Info(ctx.Context(), "📝 Sanitized ephemeral volume name %q -> %q for Kubernetes RFC 1123 compliance", ev.Name, sanitizedName)
+		}
+
+		// Set default storage class if not specified
+		storageClass := ev.StorageClassName
+		if storageClass == nil {
+			// Use the default standard-rwo storage class for GKE
+			defaultSC := "standard-rwo"
+			storageClass = &defaultSC
+			args.Log.Info(ctx.Context(), "📦 Using default storage class %q for ephemeral volume %q", defaultSC, sanitizedName)
+		}
+
+		// Create the generic ephemeral volume with volumeClaimTemplate
+		// This creates a PVC for each pod and deletes it when the pod is deleted
+		volumes = append(volumes, corev1.VolumeArgs{
+			Name: sdk.String(sanitizedName),
+			Ephemeral: &corev1.EphemeralVolumeSourceArgs{
+				VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplateArgs{
+					Metadata: &metav1.ObjectMetaArgs{
+						Name:        sdk.String(sanitizedName),
+						Labels:      sdk.ToStringMap(appLabels),
+						Annotations: sdk.ToStringMap(appAnnotations),
+					},
+					Spec: &corev1.PersistentVolumeClaimSpecArgs{
+						AccessModes: sdk.StringArray{
+							sdk.String("ReadWriteOnce"),
+						},
+						StorageClassName: sdk.StringPtrFromPtr(storageClass),
+						Resources: &corev1.VolumeResourceRequirementsArgs{
+							Requests: sdk.StringMap{
+								"storage": sdk.String(ev.Size),
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// Add the volume mount
+		volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
+			Name:      sdk.String(sanitizedName),
+			MountPath: sdk.String(ev.MountPath),
+		})
+
+		args.Log.Info(ctx.Context(), "✨ Added generic ephemeral volume %q at %q with size %q (storage class: %q)",
+			sanitizedName, ev.MountPath, ev.Size, lo.FromPtr(storageClass))
 	}
 
 	var strategy v1.DeploymentStrategyArgs
