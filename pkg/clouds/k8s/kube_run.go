@@ -121,8 +121,9 @@ type VPAConfig struct {
 
 // VPAResourceRequirements defines resource requirements for VPA
 type VPAResourceRequirements struct {
-	CPU    *string `json:"cpu" yaml:"cpu"`
-	Memory *string `json:"memory" yaml:"memory"`
+	CPU              *string `json:"cpu" yaml:"cpu"`
+	Memory           *string `json:"memory" yaml:"memory"`
+	EphemeralStorage *string `json:"ephemeral-storage" yaml:"ephemeral-storage"`
 }
 
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {

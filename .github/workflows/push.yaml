@@ -203,6 +203,7 @@ jobs:
       - name: build github-actions-staging
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          CGO_ENABLED: "0"
         run: |
           mkdir -p bin
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
@@ -371,6 +372,8 @@ jobs:
         with:
           name: bin-tools
           path: bin
+      - name: fix bin tools permissions
+        run: chmod +x bin/*
       - name: download docs artifact
         uses: actions/download-artifact@v4
         with:

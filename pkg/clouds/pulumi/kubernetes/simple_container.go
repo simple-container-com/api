@@ -793,6 +793,9 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 			if args.VPA.MinAllowed.Memory != nil {
 				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
 			}
+			if args.VPA.MinAllowed.EphemeralStorage != nil {
+				minAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MinAllowed.EphemeralStorage)
+			}
 			if len(minAllowed) > 0 {
 				containerPolicy["minAllowed"] = minAllowed
 			}
@@ -805,6 +808,9 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 			}
 			if args.VPA.MaxAllowed.Memory != nil {
 				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
+			}
+			if args.VPA.MaxAllowed.EphemeralStorage != nil {
+				maxAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MaxAllowed.EphemeralStorage)
 			}
 			if len(maxAllowed) > 0 {
 				containerPolicy["maxAllowed"] = maxAllowed
