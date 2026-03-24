@@ -285,7 +285,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: github-actions-staging-binary
-          path: bin
+          path: dist
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
         uses: actions/download-artifact@v4
