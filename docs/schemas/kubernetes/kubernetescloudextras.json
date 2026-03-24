@@ -9,6 +9,36 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "ephemeralVolumes": {
+        "description": "Generic ephemeral volumes for large temporary storage (>10GB). These volumes bypass GKE Autopilot's 10GB ephemeral storage limit by using PersistentVolumeClaims that are automatically created and deleted with pods.",
+        "items": {
+          "properties": {
+            "mountPath": {
+              "description": "Path where the volume should be mounted inside the container",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the ephemeral volume (will be sanitized for Kubernetes RFC 1123 compliance)",
+              "type": "string"
+            },
+            "size": {
+              "description": "Size of the volume (e.g., '10Gi', '100Gi', '1Ti'). Can be much larger than the 10GB regular ephemeral storage limit.",
+              "type": "string"
+            },
+            "storageClassName": {
+              "description": "Storage class to use for the PersistentVolumeClaim (e.g., 'standard-rwo', 'pd-balanced'). Defaults to cluster default if not specified.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "mountPath",
+            "size"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
       "affinity": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -757,6 +787,7 @@
       }
     },
     "required": [
+      "ephemeralVolumes",
       "affinity",
       "disruptionBudget",
       "livenessProbe",
