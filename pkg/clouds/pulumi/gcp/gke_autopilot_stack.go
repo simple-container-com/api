@@ -132,7 +132,9 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	var ephemeralSize string
 	if gkeAutopilotInput.Deployment.StackConfig != nil {
 		domain = gkeAutopilotInput.Deployment.StackConfig.Domain
-		ephemeralSize = gkeAutopilotInput.Deployment.StackConfig.Size.Ephemeral
+		if gkeAutopilotInput.Deployment.StackConfig.Size != nil {
+			ephemeralSize = gkeAutopilotInput.Deployment.StackConfig.Size.Ephemeral
+		}
 	}
 
 	// Debug logging for affinity rules
