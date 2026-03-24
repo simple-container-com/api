@@ -126,7 +126,14 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out.Images = images
 
 	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
-	domain := gkeAutopilotInput.Deployment.StackConfig.Domain
+
+	// Safely extract domain and ephemeral size from StackConfig with nil checking
+	domain := ""
+	var ephemeralSize string
+	if gkeAutopilotInput.Deployment.StackConfig != nil {
+		domain = gkeAutopilotInput.Deployment.StackConfig.Domain
+		ephemeralSize = gkeAutopilotInput.Deployment.StackConfig.Size.Ephemeral
+	}
 
 	// Debug logging for affinity rules
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity: %+v", gkeAutopilotInput.Deployment.Affinity)
@@ -156,7 +163,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		VPA:            gkeAutopilotInput.Deployment.VPA,            // Pass VPA configuration to Kubernetes deployment
 		ReadinessProbe: gkeAutopilotInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  gkeAutopilotInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
-		EphemeralSize:  lo.FromPtr(gkeAutopilotInput.Deployment.StackConfig).Size.Ephemeral,
+		EphemeralSize:  ephemeralSize,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
@@ -178,7 +185,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 
 		// Determine if domain should be proxied - defaults to true if not explicitly set to false
 		domainProxied := true
-		if gkeAutopilotInput.Deployment.StackConfig.DomainProxied != nil {
+		if gkeAutopilotInput.Deployment.StackConfig != nil && gkeAutopilotInput.Deployment.StackConfig.DomainProxied != nil {
 			domainProxied = *gkeAutopilotInput.Deployment.StackConfig.DomainProxied
 		}
 
