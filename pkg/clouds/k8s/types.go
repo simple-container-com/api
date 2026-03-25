@@ -16,21 +16,22 @@ import (
 )
 
 type DeploymentConfig struct {
-	StackConfig      *api.StackConfigCompose  `json:"stackConfig" yaml:"stackConfig"`
-	Containers       []CloudRunContainer      `json:"containers" yaml:"containers"`
-	IngressContainer *CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
-	Scale            *Scale                   `json:"scale" yaml:"scale"`
-	Headers          *Headers                 `json:"headers" yaml:"headers"`
-	TextVolumes      []SimpleTextVolume       `json:"textVolumes" yaml:"textVolumes"`
-	DisruptionBudget *DisruptionBudget        `json:"disruptionBudget" yaml:"disruptionBudget"`
-	RollingUpdate    *RollingUpdate           `json:"rollingUpdate" yaml:"rollingUpdate"`
-	NodeSelector     map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity         *AffinityRules           `json:"affinity" yaml:"affinity"`
-	Tolerations      []Toleration             `json:"tolerations" yaml:"tolerations"`
-	VPA              *VPAConfig               `json:"vpa" yaml:"vpa"`                           // Vertical Pod Autoscaler configuration
-	ReadinessProbe   *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`     // Global readiness probe configuration
-	LivenessProbe    *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`       // Global liveness probe configuration
-	EphemeralVolumes []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
+	StackConfig       *api.StackConfigCompose  `json:"stackConfig" yaml:"stackConfig"`
+	Containers        []CloudRunContainer      `json:"containers" yaml:"containers"`
+	IngressContainer  *CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
+	Scale             *Scale                   `json:"scale" yaml:"scale"`
+	Headers           *Headers                 `json:"headers" yaml:"headers"`
+	TextVolumes       []SimpleTextVolume       `json:"textVolumes" yaml:"textVolumes"`
+	DisruptionBudget  *DisruptionBudget        `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate     *RollingUpdate           `json:"rollingUpdate" yaml:"rollingUpdate"`
+	NodeSelector      map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity          *AffinityRules           `json:"affinity" yaml:"affinity"`
+	Tolerations       []Toleration             `json:"tolerations" yaml:"tolerations"`
+	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                             // Vertical Pod Autoscaler configuration
+	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`       // Global readiness probe configuration
+	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`         // Global liveness probe configuration
+	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
+	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 }
 
 type CaddyConfig struct {
