@@ -111,6 +111,7 @@ type SimpleContainerArgs struct {
 	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
 	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
+	PriorityClassName *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
 	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
@@ -538,6 +539,11 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		}).(corev1.VolumeArrayOutput),
 		SecurityContext:    args.SecurityContext,
 		ServiceAccountName: args.ServiceAccountName,
+	}
+
+	// Set optional fields if provided
+	if args.PriorityClassName != nil {
+		podSpecArgs.PriorityClassName = sdk.String(*args.PriorityClassName)
 	}
 	if imagePullSecret != nil {
 		podSpecArgs.ImagePullSecrets = corev1.LocalObjectReferenceArray{
