@@ -230,6 +230,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Volumes:                args.Deployment.TextVolumes,
 		PersistentVolumes:      pvs,
 		EphemeralVolumes:       args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
+		PriorityClassName:      args.Deployment.PriorityClassName,
 		Containers:             containers,
 		ServiceAccountName:     args.ServiceAccountName,
 		InitContainers:         args.InitContainers,
