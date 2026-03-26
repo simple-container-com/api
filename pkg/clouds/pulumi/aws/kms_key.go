@@ -11,6 +11,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	taggingUtil "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
 func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -24,11 +25,16 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
 
+	// Build unified tags using the tagging utility
+	var stackParams api.StackParams
+	if input.StackParams != nil {
+		stackParams = *input.StackParams
+	}
+	tags := taggingUtil.BuildTagsFromStackParams(stackParams).ToAWSTags()
+
 	// Create a new KMS Key for encryption/decryption operations
 	key, err := kms.NewKey(ctx, input.Descriptor.Name, &kms.KeyArgs{
-		Tags: sdk.StringMap{
-			"stack": sdk.String(stack.Name),
-		},
+		Tags:              tags,
 		EnableKeyRotation: sdk.Bool(true),
 	}, sdk.Provider(params.Provider))
 	if err != nil {

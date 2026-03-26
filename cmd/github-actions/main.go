@@ -293,6 +293,19 @@ func initializeSubmodules(ctx context.Context, log logger.Logger, workDir, token
 
 	log.Info(ctx, "Git submodules detected - initializing and updating...")
 
+	// Fix for "detected dubious ownership" error - add workDir to safe.directory
+	safeDirCmd := []string{"git", "config", "--global", "--add", "safe.directory", workDir}
+	if err := runGitCommand(ctx, log, workDir, safeDirCmd); err != nil {
+		log.Debug(ctx, "Failed to add safe.directory config: %v", err)
+		// Continue anyway - this is best-effort
+	}
+
+	// Also add wildcard to cover any nested submodule directories
+	wildcardCmd := []string{"git", "config", "--global", "--add", "safe.directory", "*"}
+	if err := runGitCommand(ctx, log, workDir, wildcardCmd); err != nil {
+		log.Debug(ctx, "Failed to add wildcard safe.directory: %v", err)
+	}
+
 	// Configure submodules to use the authenticated URL
 	// This ensures submodules use the same token for authentication
 	submoduleUpdateCmd := []string{
@@ -336,7 +349,16 @@ func runGitCommandWithAuth(ctx context.Context, log logger.Logger, dir string, a
 		cmd.Dir = dir
 		cmd.Env = env
 		if output, err := cmd.CombinedOutput(); err != nil {
-			log.Debug(ctx, "Failed to configure submodule URL rewrite: %s", string(output))
+			log.Debug(ctx, "Failed to configure submodule URL rewrite (HTTPS): %s", string(output))
+			// Continue anyway - this is a best-effort configuration
+		}
+
+		// Also rewrite SSH URLs (git@github.com:) to use HTTPS with token
+		cmd = exec.Command("git", "config", "--local", "url."+submoduleConfig+".insteadOf", "git@github.com:")
+		cmd.Dir = dir
+		cmd.Env = env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			log.Debug(ctx, "Failed to configure submodule URL rewrite (SSH): %s", string(output))
 			// Continue anyway - this is a best-effort configuration
 		}
 	}

@@ -1,10 +1,13 @@
 package scan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -33,11 +36,34 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 		return nil, fmt.Errorf("trivy not installed: %w", err)
 	}
 
-	// Run trivy scan
-	cmd := exec.CommandContext(ctx, "trivy", "image", "--format", "json", image)
-	output, err := cmd.CombinedOutput()
+	cacheDir, err := ensureTrivyCacheDir()
 	if err != nil {
-		return nil, fmt.Errorf("trivy scan failed: %w (output: %s)", err, string(output))
+		return nil, err
+	}
+
+	// Run trivy scan
+	cmd := exec.CommandContext(
+		ctx,
+		"trivy", "image",
+		"--quiet",
+		"--scanners", "vuln",
+		"--cache-dir", cacheDir,
+		"--format", "json",
+		image,
+	)
+	cmd.Env = append(os.Environ(), "TRIVY_CACHE_DIR="+cacheDir)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("trivy scan failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+
+	output := bytes.TrimSpace(stdout.Bytes())
+	if len(output) == 0 {
+		return nil, fmt.Errorf("trivy produced empty output (stderr: %s)", strings.TrimSpace(stderr.String()))
 	}
 
 	// Parse trivy JSON output
@@ -61,14 +87,7 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 			}
 
 			// Extract CVSS score
-			if vuln.CVSS != nil {
-				for _, cvss := range vuln.CVSS {
-					if cvss.V3Score > 0 {
-						v.CVSS = cvss.V3Score
-						break
-					}
-				}
-			}
+			v.CVSS = extractTrivyCVSS(vuln.CVSS)
 
 			vulns = append(vulns, v)
 		}
@@ -81,7 +100,9 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	}
 
 	result := NewScanResult(imageDigest, ScanToolTrivy, vulns)
-	result.Metadata["trivyVersion"] = trivyOutput.Metadata.Version
+	if version, err := t.Version(ctx); err == nil {
+		result.Metadata["trivyVersion"] = version
+	}
 
 	return result, nil
 }
@@ -94,14 +115,7 @@ func (t *TrivyScanner) Version(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to get trivy version: %w", err)
 	}
 
-	// Parse version from output (format: "Version: 0.68.2")
-	re := regexp.MustCompile(`Version:\s*(\d+\.\d+\.\d+)`)
-	matches := re.FindStringSubmatch(string(output))
-	if len(matches) < 2 {
-		return "", fmt.Errorf("failed to parse trivy version from: %s", string(output))
-	}
-
-	return matches[1], nil
+	return parseTrivyVersion(string(output))
 }
 
 // CheckInstalled checks if trivy is installed
@@ -131,16 +145,14 @@ func (t *TrivyScanner) CheckVersion(ctx context.Context) error {
 type TrivyOutput struct {
 	Results []struct {
 		Vulnerabilities []struct {
-			VulnerabilityID  string   `json:"VulnerabilityID"`
-			Severity         string   `json:"Severity"`
-			PkgName          string   `json:"PkgName"`
-			InstalledVersion string   `json:"InstalledVersion"`
-			FixedVersion     string   `json:"FixedVersion"`
-			Description      string   `json:"Description"`
-			References       []string `json:"References"`
-			CVSS             []struct {
-				V3Score float64 `json:"V3Score"`
-			} `json:"CVSS"`
+			VulnerabilityID  string    `json:"VulnerabilityID"`
+			Severity         string    `json:"Severity"`
+			PkgName          string    `json:"PkgName"`
+			InstalledVersion string    `json:"InstalledVersion"`
+			FixedVersion     string    `json:"FixedVersion"`
+			Description      string    `json:"Description"`
+			References       []string  `json:"References"`
+			CVSS             trivyCVSS `json:"CVSS"`
 		} `json:"Vulnerabilities"`
 	} `json:"Results"`
 	Metadata struct {
@@ -172,4 +184,80 @@ func extractImageDigestFromTrivy(imageID string) string {
 		return imageID
 	}
 	return ""
+}
+
+type trivyCVSS map[string]trivyCVSSScore
+
+type trivyCVSSScore struct {
+	V3Score float64 `json:"V3Score"`
+	V2Score float64 `json:"V2Score"`
+}
+
+func (c *trivyCVSS) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+
+	if trimmed[0] == '{' {
+		var values map[string]trivyCVSSScore
+		if err := json.Unmarshal(trimmed, &values); err != nil {
+			return err
+		}
+		*c = values
+		return nil
+	}
+
+	if trimmed[0] == '[' {
+		var values []trivyCVSSScore
+		if err := json.Unmarshal(trimmed, &values); err != nil {
+			return err
+		}
+		result := make(trivyCVSS, len(values))
+		for i, value := range values {
+			result[fmt.Sprintf("%d", i)] = value
+		}
+		*c = result
+		return nil
+	}
+
+	return fmt.Errorf("unexpected trivy CVSS payload: %s", string(trimmed))
+}
+
+func extractTrivyCVSS(cvss trivyCVSS) float64 {
+	var best float64
+	for _, value := range cvss {
+		if value.V3Score > best {
+			best = value.V3Score
+		}
+		if value.V2Score > best {
+			best = value.V2Score
+		}
+	}
+	return best
+}
+
+func parseTrivyVersion(output string) (string, error) {
+	versionPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?m)^Version:\s*v?(\d+\.\d+\.\d+)\s*$`),
+		regexp.MustCompile(`(?m)^trivy\s+v?(\d+\.\d+\.\d+)\s*$`),
+		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
+	}
+
+	for _, pattern := range versionPatterns {
+		matches := pattern.FindStringSubmatch(output)
+		if len(matches) >= 2 {
+			return matches[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to parse trivy version from: %s", output)
+}
+
+func ensureTrivyCacheDir() (string, error) {
+	cacheDir := filepath.Join(os.TempDir(), "simple-container", "trivy")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", fmt.Errorf("create trivy cache directory: %w", err)
+	}
+	return cacheDir, nil
 }

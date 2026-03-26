@@ -83,7 +83,7 @@ func TestMCPServer(t *testing.T) {
 		server.handleHealthCheck(w, req)
 
 		Expect(w.Code).To(Equal(http.StatusOK))
-		Expect(w.Header().To(Equal("application/json")).Get("Content-Type"))
+		Expect(w.Header().Get("Content-Type")).To(Equal("application/json"))
 
 		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -102,7 +102,7 @@ func TestMCPServer(t *testing.T) {
 		server.handleHealthCheck(w, req) // Use health check since capabilities handler was removed
 
 		Expect(w.Code).To(Equal(http.StatusOK))
-		Expect(w.Header().To(Equal("application/json")).Get("Content-Type"))
+		Expect(w.Header().Get("Content-Type")).To(Equal("application/json"))
 
 		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -174,8 +174,8 @@ func TestMCPServer(t *testing.T) {
 
 		// Verify tool call response structure
 		resultMap := response.Result.(map[string]interface{})
-		Expect(resultMap).To(ContainSubstring("content"))
-		Expect(resultMap).To(ContainSubstring("isError"))
+		Expect(resultMap).To(HaveKey("content"))
+		Expect(resultMap).To(HaveKey("isError"))
 	})
 
 	t.Run("test MCP invalid method", func(t *testing.T) {
@@ -249,9 +249,9 @@ func TestDefaultMCPHandler(t *testing.T) {
 		RegisterTestingT(t)
 		capabilities, err := handler.GetCapabilities(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(capabilities).To(ContainSubstring("name"))
-		Expect(capabilities).To(ContainSubstring("version"))
-		Expect(capabilities).To(ContainSubstring("methods"))
+		Expect(capabilities).To(HaveKey("name"))
+		Expect(capabilities).To(HaveKey("version"))
+		Expect(capabilities).To(HaveKey("methods"))
 		Expect(capabilities["name"]).To(Equal(MCPName))
 		Expect(capabilities["version"]).To(Equal(MCPVersion))
 	})
@@ -270,8 +270,8 @@ func TestDefaultMCPHandler(t *testing.T) {
 		RegisterTestingT(t)
 		resources, err := handler.GetSupportedResources(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(len(resources.Resources).To(BeTrue()) > 0)
-		Expect(len(resources.Providers).To(BeTrue()) > 0)
+		Expect(len(resources.Resources)).To(BeNumerically(">", 0))
+		Expect(len(resources.Providers)).To(BeNumerically(">", 0))
 		Expect(resources.Total).To(Equal(len(resources.Resources)))
 	})
 
@@ -289,7 +289,7 @@ func TestDefaultMCPHandler(t *testing.T) {
 		Expect(result).ToNot(BeNil())
 		// Results may be empty or have content depending on embeddings availability
 		Expect(result.Total >= 0).To(BeTrue())
-		Expect(len(result.Documents).To(Equal(result.Total)))
+		Expect(len(result.Documents)).To(Equal(result.Total))
 	})
 }
 

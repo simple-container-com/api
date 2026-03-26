@@ -130,6 +130,43 @@ services:
 - MongoDB Atlas integration with GCP networking
 - Multi-service deployment with resource sharing
 
+### Pod Priority and Large Storage
+Configure pod priority classes and generic ephemeral volumes for production workloads that require preemption protection and large temporary storage.
+
+**Use Case:** Critical production services, data processing pipelines, ML workloads, streaming platforms
+
+**Features:**
+- **PriorityClassName** - Prevent pod preemption by system pods
+- **Generic Ephemeral Volumes** - Support >10GB temporary storage (up to 64TB)
+- **VPA** - Vertical Pod Autoscaler integration
+- **High Availability** - Pod disruption budget configuration
+
+**Configuration:**
+```yaml
+# client.yaml
+stacks:
+  production:
+    config:
+      cloudExtras:
+        priorityClassName: "production-high-priority"
+        ephemeralVolumes:
+          - name: processing-cache
+            mountPath: /tmp/cache
+            size: 100Gi
+            storageClassName: pd-balanced
+        vpa:
+          enabled: true
+          updateMode: "Auto"
+        disruptionBudget:
+          minAvailable: 2
+```
+
+**Benefits:**
+- Prevents preemption of critical workloads
+- Supports large temporary datasets for processing
+- Automatic resource optimization with VPA
+- Cost-effective storage with multiple storage class options
+
 ### Multi-Region Deployment
 Deploy applications across multiple GCP regions for high availability.
 

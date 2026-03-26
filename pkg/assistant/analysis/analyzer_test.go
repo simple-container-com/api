@@ -1,24 +1,25 @@
 package analysis
 
 import (
-	. "github.com/onsi/gomega"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	. "github.com/onsi/gomega"
 )
 
 func TestProjectAnalyzer(t *testing.T) {
+	RegisterTestingT(t)
 	analyzer := NewProjectAnalyzer()
 
 	t.Run("test analyzer initialization", func(t *testing.T) {
-		Expect(len(analyzer.detectors).To(BeTrue()) >= 3)
+		Expect(len(analyzer.detectors)).To(BeNumerically(">=", 3))
 
 		// Verify detectors are sorted by priority
 		for i := 1; i < len(analyzer.detectors); i++ {
-			Expect(analyzer.detectors[i-1].Priority().To(BeTrue()) >= analyzer.detectors[i].Priority())
+			Expect(analyzer.detectors[i-1].Priority()).To(BeNumerically(">=", analyzer.detectors[i].Priority()))
 		}
 	})
 
@@ -27,11 +28,12 @@ func TestProjectAnalyzer(t *testing.T) {
 		analyzer.AddDetector(customDetector)
 
 		// Should be first due to highest priority
-		Expect(analyzer.detectors[0].Name().To(Equal("test")))
+		Expect(analyzer.detectors[0].Name()).To(Equal("test"))
 	})
 }
 
 func TestNodeJSDetector(t *testing.T) {
+	RegisterTestingT(t)
 	detector := &NodeJSDetector{}
 
 	t.Run("test nodejs detection success", func(t *testing.T) {
@@ -67,12 +69,12 @@ func TestNodeJSDetector(t *testing.T) {
 		Expect(stack.Framework).To(Equal("express"))
 		Expect(stack.Version).To(Equal(">=18.0.0"))
 		Expect(stack.Confidence >= 0.9).To(BeTrue())
-		Expect(stack.Evidence).To(ContainSubstring("package.json found"))
-		Expect(stack.Evidence).To(ContainSubstring("express dependency found"))
+		Expect(stack.Evidence).To(ContainElement("package.json found"))
+		Expect(stack.Evidence).To(ContainElement("express dependency found"))
 
 		// Check dependencies
-		Expect(len(stack.Dependencies).To(BeTrue()) >= 2)
-		Expect(len(stack.DevDeps).To(BeTrue()) >= 1)
+		Expect(len(stack.Dependencies)).To(BeNumerically(">=", 2))
+		Expect(len(stack.DevDeps)).To(BeNumerically(">=", 1))
 
 		// Check scripts
 		Expect(stack.Scripts["start"]).To(Equal("node server.js"))
@@ -106,12 +108,13 @@ func TestNodeJSDetector(t *testing.T) {
 
 		for _, tc := range testCases {
 			result := detector.detectFramework(tc.deps)
-			Expect(result, "Failed for deps: %v", tc.deps).To(Equal(tc.expected))
+			Expect(result).To(Equal(tc.expected))
 		}
 	})
 }
 
 func TestPythonDetector(t *testing.T) {
+	RegisterTestingT(t)
 	detector := &PythonDetector{}
 
 	t.Run("test python detection with requirements.txt", func(t *testing.T) {
@@ -132,11 +135,11 @@ celery>=5.0.0`,
 		Expect(stack.Runtime).To(Equal("python"))
 		Expect(stack.Framework).To(Equal("django"))
 		Expect(stack.Confidence >= 0.8).To(BeTrue())
-		Expect(stack.Evidence).To(ContainSubstring("requirements.txt"))
-		Expect(stack.Evidence).To(ContainSubstring("parsed requirements.txt"))
+		Expect(stack.Evidence).To(ContainElement("requirements.txt"))
+		Expect(stack.Evidence).To(ContainElement("parsed requirements.txt"))
 
 		// Check dependencies parsing
-		Expect(len(stack.Dependencies).To(BeTrue()) >= 3)
+		Expect(len(stack.Dependencies)).To(BeNumerically(">=", 3))
 
 		djangoFound := false
 		for _, dep := range stack.Dependencies {
@@ -146,7 +149,7 @@ celery>=5.0.0`,
 				Expect(dep.Type).To(Equal("runtime"))
 			}
 		}
-		Expect(djangoFound, "Django dependency should be found").To(BeTrue())
+		Expect(djangoFound).To(BeTrue())
 	})
 
 	t.Run("test python detection with setup.py", func(t *testing.T) {
@@ -164,7 +167,7 @@ setup(
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(stack.Language).To(Equal("python"))
-		Expect(stack.Evidence).To(ContainSubstring("setup.py found"))
+		Expect(stack.Evidence).To(ContainElement("setup.py found"))
 		Expect(stack.Metadata["build_system"]).To(Equal("setuptools"))
 	})
 
@@ -181,7 +184,7 @@ build-backend = "hatchling.build"`,
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(stack.Language).To(Equal("python"))
-		Expect(stack.Evidence).To(ContainSubstring("pyproject.toml found"))
+		Expect(stack.Evidence).To(ContainElement("pyproject.toml found"))
 		Expect(stack.Metadata["build_system"]).To(Equal("modern"))
 	})
 
@@ -218,6 +221,7 @@ build-backend = "hatchling.build"`,
 }
 
 func TestGoDetector(t *testing.T) {
+	RegisterTestingT(t)
 	detector := &GoDetector{}
 
 	t.Run("test go detection with go.mod", func(t *testing.T) {
@@ -248,8 +252,8 @@ func main() {
 		Expect(stack.Framework).To(Equal("gin"))
 		Expect(stack.Version).To(Equal("1.21"))
 		Expect(stack.Confidence >= 0.9).To(BeTrue())
-		Expect(stack.Evidence).To(ContainSubstring("go.mod found"))
-		Expect(stack.Evidence).To(ContainSubstring("gin framework detected"))
+		Expect(stack.Evidence).To(ContainElement("go.mod found"))
+		Expect(stack.Evidence).To(ContainElement("gin framework detected"))
 		Expect(stack.Metadata["module"]).To(Equal("github.com/test/myapp"))
 		Expect(stack.Metadata["mode"]).To(Equal("modules"))
 	})
@@ -287,7 +291,7 @@ func main() {
 			})
 
 			result := detector.detectFramework(tmpDir)
-			Expect(result, "Failed for import path: %s", importPath).To(Equal(expected))
+			Expect(result).To(Equal(expected))
 
 			os.RemoveAll(tmpDir)
 		}
@@ -295,6 +299,7 @@ func main() {
 }
 
 func TestDockerDetector(t *testing.T) {
+	RegisterTestingT(t)
 	detector := &DockerDetector{}
 
 	t.Run("test docker detection success", func(t *testing.T) {
@@ -324,9 +329,9 @@ services:
 		Expect(stack.Runtime).To(Equal("docker"))
 		Expect(stack.Framework).To(Equal("nodejs")) // Detected from base image
 		Expect(stack.Confidence >= 0.7).To(BeTrue())
-		Expect(stack.Evidence).To(ContainSubstring("Dockerfile"))
-		Expect(stack.Evidence).To(ContainSubstring("docker-compose.yml"))
-		Expect(stack.Evidence).To(ContainSubstring(".dockerignore"))
+		Expect(stack.Evidence).To(ContainElement("Dockerfile"))
+		Expect(stack.Evidence).To(ContainElement("docker-compose.yml"))
+		Expect(stack.Evidence).To(ContainElement(".dockerignore"))
 		Expect(stack.Metadata["base_image"]).To(Equal("node:18-alpine"))
 	})
 
@@ -355,6 +360,7 @@ services:
 }
 
 func TestProjectAnalyzerIntegration(t *testing.T) {
+	RegisterTestingT(t)
 	analyzer := NewProjectAnalyzer()
 	analyzer.EnableFullAnalysis() // Enable full analysis for integration tests
 
@@ -384,7 +390,7 @@ app.listen(3000);`,
 
 		// Verify basic analysis
 		Expect(analysis.Path).To(Equal(tmpDir))
-		Expect(len(analysis.TechStacks).To(BeTrue()) >= 2) // Node.js + Docker
+		Expect(len(analysis.TechStacks)).To(BeNumerically(">=", 2)) // Node.js + Docker
 		Expect(analysis.PrimaryStack).ToNot(BeNil())
 		Expect(analysis.Confidence > 0).To(BeTrue())
 
@@ -393,7 +399,7 @@ app.listen(3000);`,
 		Expect(analysis.PrimaryStack.Framework).To(Equal("express"))
 
 		// Verify recommendations
-		Expect(len(analysis.Recommendations).To(BeTrue()) > 0)
+		Expect(len(analysis.Recommendations)).To(BeNumerically(">", 0))
 
 		// Check for database recommendations (MongoDB, Redis)
 		mongodbRec := false
@@ -406,8 +412,8 @@ app.listen(3000);`,
 				redisRec = true
 			}
 		}
-		Expect(mongodbRec, "Should recommend MongoDB resource").To(BeTrue())
-		Expect(redisRec, "Should recommend Redis resource").To(BeTrue())
+		Expect(mongodbRec).To(BeTrue())
+		Expect(redisRec).To(BeTrue())
 
 		// Verify architecture detection
 		Expect(analysis.Architecture).ToNot(BeEmpty())
@@ -440,7 +446,7 @@ services:
 				k8sRec = true
 			}
 		}
-		Expect(k8sRec, "Should recommend Kubernetes template for microservices").To(BeTrue())
+		Expect(k8sRec).To(BeTrue())
 	})
 
 	t.Run("test static site detection", func(t *testing.T) {
@@ -469,7 +475,7 @@ services:
 				staticRec = true
 			}
 		}
-		Expect(staticRec, "Should recommend static site template").To(BeTrue())
+		Expect(staticRec).To(BeTrue())
 	})
 
 	t.Run("test file analysis", func(t *testing.T) {
@@ -485,7 +491,7 @@ services:
 		analysis, err := analyzer.AnalyzeProject(tmpDir)
 		Expect(err).ToNot(HaveOccurred())
 
-		Expect(len(analysis.Files).To(BeTrue()) >= 4)
+		Expect(len(analysis.Files)).To(BeNumerically(">=", 4))
 
 		// Verify file types and languages
 		fileMap := make(map[string]FileInfo)
@@ -616,6 +622,7 @@ func (m *MockLLMProvider) GenerateResponse(ctx context.Context, prompt string) (
 }
 
 func TestLLMEnhancement(t *testing.T) {
+	RegisterTestingT(t)
 	t.Run("test analyzer without LLM provider", func(t *testing.T) {
 		tmpDir := createTempProject(t, map[string]string{
 			"package.json": `{"name": "test", "dependencies": {"express": "^4.0.0"}}`,
@@ -634,7 +641,7 @@ func TestLLMEnhancement(t *testing.T) {
 
 		// Should not have LLM enhancement metadata
 		_, hasLLMEnhanced := analysis.Metadata["llm_enhanced"]
-		Expect(hasLLMEnhanced, "Should not have LLM enhancement without provider").To(BeFalse())
+		Expect(hasLLMEnhanced).To(BeFalse())
 	})
 
 	t.Run("test LLM provider interface", func(t *testing.T) {

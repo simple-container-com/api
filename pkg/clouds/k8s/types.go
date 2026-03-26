@@ -16,20 +16,22 @@ import (
 )
 
 type DeploymentConfig struct {
-	StackConfig      *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
-	Containers       []CloudRunContainer     `json:"containers" yaml:"containers"`
-	IngressContainer *CloudRunContainer      `json:"ingressContainer" yaml:"ingressContainer"`
-	Scale            *Scale                  `json:"scale" yaml:"scale"`
-	Headers          *Headers                `json:"headers" yaml:"headers"`
-	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
-	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
-	RollingUpdate    *RollingUpdate          `json:"rollingUpdate" yaml:"rollingUpdate"`
-	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
-	Tolerations      []Toleration            `json:"tolerations" yaml:"tolerations"`
-	VPA              *VPAConfig              `json:"vpa" yaml:"vpa"`                       // Vertical Pod Autoscaler configuration
-	ReadinessProbe   *CloudRunProbe          `json:"readinessProbe" yaml:"readinessProbe"` // Global readiness probe configuration
-	LivenessProbe    *CloudRunProbe          `json:"livenessProbe" yaml:"livenessProbe"`   // Global liveness probe configuration
+	StackConfig       *api.StackConfigCompose  `json:"stackConfig" yaml:"stackConfig"`
+	Containers        []CloudRunContainer      `json:"containers" yaml:"containers"`
+	IngressContainer  *CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
+	Scale             *Scale                   `json:"scale" yaml:"scale"`
+	Headers           *Headers                 `json:"headers" yaml:"headers"`
+	TextVolumes       []SimpleTextVolume       `json:"textVolumes" yaml:"textVolumes"`
+	DisruptionBudget  *DisruptionBudget        `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate     *RollingUpdate           `json:"rollingUpdate" yaml:"rollingUpdate"`
+	NodeSelector      map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity          *AffinityRules           `json:"affinity" yaml:"affinity"`
+	Tolerations       []Toleration             `json:"tolerations" yaml:"tolerations"`
+	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                             // Vertical Pod Autoscaler configuration
+	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`       // Global readiness probe configuration
+	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`         // Global liveness probe configuration
+	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
+	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 }
 
 type CaddyConfig struct {
@@ -70,8 +72,9 @@ type Toleration struct {
 type Headers = map[string]string
 
 type Resources struct {
-	Limits   map[string]string `json:"limits" yaml:"limits"`
-	Requests map[string]string `json:"requests" yaml:"requests"`
+	Limits    map[string]string `json:"limits" yaml:"limits"`
+	Requests  map[string]string `json:"requests" yaml:"requests"`
+	Ephemeral string            `json:"ephemeral" yaml:"ephemeral"`
 }
 
 type SimpleTextVolume struct {
@@ -84,6 +87,18 @@ type PersistentVolume struct {
 	Storage          string   `json:"storage" yaml:"storage"`
 	AccessModes      []string `json:"accessModes" yaml:"accessModes"`
 	StorageClassName *string  `json:"storageClassName" yaml:"storageClassName"`
+}
+
+// GenericEphemeralVolume defines a generic ephemeral volume configuration
+// These volumes use Kubernetes generic ephemeral volumes feature, which creates
+// a PersistentVolumeClaim for each pod and deletes it when the pod is deleted.
+// This is useful for applications requiring large temporary storage (>10GB) on
+// GKE Autopilot, which has a 10GB limit on regular ephemeral storage.
+type GenericEphemeralVolume struct {
+	Name             string  `json:"name" yaml:"name"`
+	MountPath        string  `json:"mountPath" yaml:"mountPath"`
+	Size             string  `json:"size" yaml:"size"`
+	StorageClassName *string `json:"storageClassName" yaml:"storageClassName"` // Optional, defaults to cluster default
 }
 
 type Scale struct {
@@ -107,9 +122,28 @@ type CloudRunProbe struct {
 	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`
 }
 
+// HTTPHeader represents an HTTP header name-value pair for health probe requests.
+// This allows customizing HTTP headers sent in readiness, liveness, and startup probes.
+//
+// Example:
+//
+//	HTTPHeader{
+//		Name:  "Authorization",
+//		Value: "Bearer token123",
+//	}
+//
+// Kubernetes Reference: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+type HTTPHeader struct {
+	// Name is the header field name (case-insensitive per HTTP spec)
+	Name string `json:"name" yaml:"name"`
+	// Value is the header field value
+	Value string `json:"value" yaml:"value"`
+}
+
 type ProbeHttpGet struct {
-	Path string `json:"path" yaml:"path"`
-	Port int    `json:"port" yaml:"port"`
+	Path        string       `json:"path" yaml:"path"`
+	Port        int          `json:"port" yaml:"port"`
+	HTTPHeaders []HTTPHeader `json:"httpHeaders,omitempty" yaml:"httpHeaders,omitempty"`
 }
 
 type CloudRunContainer struct {

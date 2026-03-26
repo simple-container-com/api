@@ -1,18 +1,18 @@
 package modes
 
 import (
-	. "github.com/onsi/gomega"
 	"context"
 	"fmt"
+	. "github.com/onsi/gomega"
 	"strings"
 	"testing"
-
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/validation"
 )
 
 func TestDeveloperModeValidation(t *testing.T) {
+	RegisterTestingT(t)
 	devMode := NewDeveloperMode()
 	validator := validation.NewValidator()
 
@@ -29,7 +29,7 @@ func TestDeveloperModeValidation(t *testing.T) {
 
 		// Validate against schema
 		result := validator.ValidateClientYAML(context.Background(), yamlContent)
-		Expect(result.Valid, "Generated client.yaml should be schema-compliant").To(BeTrue())
+		Expect(result.Valid).To(BeTrue())
 
 		if !result.Valid {
 			t.Logf("Validation errors: %v", result.Errors)
@@ -102,15 +102,15 @@ func TestDeveloperModeValidation(t *testing.T) {
 
 				// Validate schema compliance
 				result := validator.ValidateClientYAML(context.Background(), yamlContent)
-				Expect(result.Valid, "Generated client.yaml should be schema-compliant").To(BeTrue())
+				Expect(result.Valid).To(BeTrue())
 
 				// Check for expected environment variables
 				for envVar := range tc.expectEnv {
-					Expect(yamlContent).To(ContainSubstring(envVar, "Should contain language-specific environment variable"))
+					Expect(yamlContent).To(ContainSubstring(envVar))
 				}
 
 				// Ensure contains project name
-				Expect(yamlContent).To(ContainSubstring(tc.analysis.Name, "Should contain project name"))
+				Expect(yamlContent).To(ContainSubstring(tc.analysis.Name))
 			})
 		}
 	})
@@ -125,18 +125,18 @@ func TestDeveloperModeValidation(t *testing.T) {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Check required schema structure
-		Expect(yamlContent).To(ContainSubstring("schemaVersion: 1.0", "Must have correct schema version"))
-		Expect(yamlContent).To(ContainSubstring("stacks:", "Must have stacks section"))
-		Expect(yamlContent).To(ContainSubstring("type: cloud-compose", "Must have correct stack type"))
-		Expect(yamlContent).To(ContainSubstring("parent: mycompany/myinfra", "Must reference parent stack with project/stack format"))
-		Expect(yamlContent).To(ContainSubstring("parentEnv: staging", "Must reference parent environment"))
-		Expect(yamlContent).To(ContainSubstring("config:", "Must have config section"))
-		Expect(yamlContent).To(ContainSubstring("runs: [app]", "Must have runs specification"))
-		Expect(yamlContent).To(ContainSubstring("scale:", "Must have scale configuration"))
-		Expect(yamlContent).To(ContainSubstring("min: 1", "Must have min scale"))
-		Expect(yamlContent).To(ContainSubstring("max: 5", "Must have max scale"))
-		Expect(yamlContent).To(ContainSubstring("env:", "Must have environment variables section"))
-		Expect(yamlContent).To(ContainSubstring("secrets:", "Must have secrets section"))
+		Expect(yamlContent).To(ContainSubstring("schemaVersion: 1.0"))
+		Expect(yamlContent).To(ContainSubstring("stacks:"))
+		Expect(yamlContent).To(ContainSubstring("type: cloud-compose"))
+		Expect(yamlContent).To(ContainSubstring("parent: mycompany/myinfra"))
+		Expect(yamlContent).To(ContainSubstring("parentEnv: staging"))
+		Expect(yamlContent).To(ContainSubstring("config:"))
+		Expect(yamlContent).To(ContainSubstring("runs: [app]"))
+		Expect(yamlContent).To(ContainSubstring("scale:"))
+		Expect(yamlContent).To(ContainSubstring("min: 1"))
+		Expect(yamlContent).To(ContainSubstring("max: 5"))
+		Expect(yamlContent).To(ContainSubstring("env:"))
+		Expect(yamlContent).To(ContainSubstring("secrets:"))
 
 		// Ensure no fictional properties
 		Expect(yamlContent).ToNot(ContainSubstring("environments:"), "Must not use fictional environments section")
@@ -156,7 +156,7 @@ func TestDeveloperModeValidation(t *testing.T) {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Check secret reference format
-		Expect(yamlContent).To(ContainSubstring(`"${secret:jwt-secret}"`, "Must use correct quoted secret reference format"))
+		Expect(yamlContent).To(ContainSubstring(`"${secret:jwt-secret}"`))
 		// Check that unquoted versions are not present (except inside the quoted strings)
 		lines := strings.Split(yamlContent, "\n")
 		hasUnquotedSecret := false
@@ -168,11 +168,12 @@ func TestDeveloperModeValidation(t *testing.T) {
 				break
 			}
 		}
-		Expect(hasUnquotedSecret, "Secret references should be properly quoted in YAML").To(BeFalse())
+		Expect(hasUnquotedSecret).To(BeFalse())
 	})
 }
 
 func TestLanguageSpecificGeneration(t *testing.T) {
+	RegisterTestingT(t)
 	devMode := NewDeveloperMode()
 
 	t.Run("test_build_language_specific_env_vars", func(t *testing.T) {
@@ -237,8 +238,8 @@ func TestLanguageSpecificGeneration(t *testing.T) {
 
 				for key, expectedValue := range tc.expected {
 					actualValue, exists := result[key]
-					Expect(exists, "Expected environment variable %s should exist", key).To(BeTrue())
-					Expect(actualValue, "Environment variable %s should have correct value", key).To(Equal(expectedValue))
+					Expect(exists).To(BeTrue())
+					Expect(actualValue).To(Equal(expectedValue))
 				}
 			})
 		}
@@ -292,8 +293,8 @@ func TestLanguageSpecificGeneration(t *testing.T) {
 
 				for key, expectedValue := range tc.expected {
 					actualValue, exists := result[key]
-					Expect(exists, "Expected secret %s should exist", key).To(BeTrue())
-					Expect(actualValue, "Secret %s should have correct value", key).To(Equal(expectedValue))
+					Expect(exists).To(BeTrue())
+					Expect(actualValue).To(Equal(expectedValue))
 				}
 			})
 		}
@@ -301,6 +302,7 @@ func TestLanguageSpecificGeneration(t *testing.T) {
 }
 
 func TestDockerComposeGeneration(t *testing.T) {
+	RegisterTestingT(t)
 	devMode := NewDeveloperMode()
 
 	t.Run("test_fallback_compose_includes_sc_labels", func(t *testing.T) {
@@ -341,21 +343,21 @@ func TestDockerComposeGeneration(t *testing.T) {
 				Expect(composeContent).ToNot(BeEmpty())
 
 				// Validate Simple Container ingress labels
-				Expect(composeContent).To(ContainSubstring(`"simple-container.com/ingress": "true"`, "Must contain ingress label"))
+				Expect(composeContent).To(ContainSubstring(`"simple-container.com/ingress": "true"`))
 				Expect(composeContent).To(ContainSubstring(fmt.Sprintf(`"simple-container.com/ingress/port": "%s"`, tc.expectedPort)), "Must specify ingress port")
-				Expect(composeContent).To(ContainSubstring(`"simple-container.com/healthcheck/path": "/health"`, "Must contain healthcheck path"))
+				Expect(composeContent).To(ContainSubstring(`"simple-container.com/healthcheck/path": "/health"`))
 
 				// Validate volume labels
-				Expect(composeContent).To(ContainSubstring("volumes:", "Must have volumes section"))
-				Expect(composeContent).To(ContainSubstring(`"simple-container.com/volume-size": "10Gi"`, "Must specify volume size"))
-				Expect(composeContent).To(ContainSubstring(`"simple-container.com/volume-storage-class": "gp3"`, "Must specify storage class"))
-				Expect(composeContent).To(ContainSubstring(`"simple-container.com/volume-access-modes": "ReadWriteOnce"`, "Must specify access modes"))
+				Expect(composeContent).To(ContainSubstring("volumes:"))
+				Expect(composeContent).To(ContainSubstring(`"simple-container.com/volume-size": "10Gi"`))
+				Expect(composeContent).To(ContainSubstring(`"simple-container.com/volume-storage-class": "gp3"`))
+				Expect(composeContent).To(ContainSubstring(`"simple-container.com/volume-access-modes": "ReadWriteOnce"`))
 
 				// Validate structure requirements
-				Expect(composeContent).To(ContainSubstring("version: '3.8'", "Must have proper version"))
-				Expect(composeContent).To(ContainSubstring("services:", "Must have services section"))
-				Expect(composeContent).To(ContainSubstring("restart: unless-stopped", "Must have restart policy"))
-				Expect(composeContent).To(ContainSubstring("networks:", "Must have networks section"))
+				Expect(composeContent).To(ContainSubstring("version: '3.8'"))
+				Expect(composeContent).To(ContainSubstring("services:"))
+				Expect(composeContent).To(ContainSubstring("restart: unless-stopped"))
+				Expect(composeContent).To(ContainSubstring("networks:"))
 			})
 		}
 	})
@@ -387,8 +389,8 @@ services:
     environment:
       - NODE_ENV=development`
 
-		Expect(devMode.validateComposeContent(validComposeWithSCLabels).To(BeTrue()), "Should validate compose with SC labels")
-		Expect(devMode.validateComposeContent(invalidComposeNoIngressLabel).To(BeFalse()), "Should fail validation without ingress label")
+		Expect(devMode.validateComposeContent(validComposeWithSCLabels)).To(BeTrue())
+		Expect(devMode.validateComposeContent(invalidComposeNoIngressLabel)).To(BeFalse())
 	})
 
 	t.Run("test_compose_prompt_includes_sc_instructions", func(t *testing.T) {
@@ -402,10 +404,10 @@ services:
 		prompt := devMode.buildComposeYAMLPrompt(analysis)
 
 		// Check that prompt includes Simple Container label instructions
-		Expect(prompt).To(ContainSubstring("simple-container.com/ingress", "Prompt should mention ingress labels"))
-		Expect(prompt).To(ContainSubstring("simple-container.com/volume-size", "Prompt should mention volume size labels"))
-		Expect(prompt).To(ContainSubstring("simple-container.com/healthcheck", "Prompt should mention healthcheck labels"))
-		Expect(prompt).To(ContainSubstring("Create separate volumes block", "Prompt should emphasize separate volumes block"))
-		Expect(prompt).To(ContainSubstring("ALL required volumes", "Prompt should emphasize all volumes need labels"))
+		Expect(prompt).To(ContainSubstring("simple-container.com/ingress"))
+		Expect(prompt).To(ContainSubstring("simple-container.com/volume-size"))
+		Expect(prompt).To(ContainSubstring("simple-container.com/healthcheck"))
+		Expect(prompt).To(ContainSubstring("Create separate volumes block"))
+		Expect(prompt).To(ContainSubstring("ALL required volumes"))
 	})
 }

@@ -45,6 +45,7 @@ type Args struct {
 	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
+	EphemeralSize          string
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -228,6 +229,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		LbConfig:               args.Deployment.StackConfig.LBConfig,
 		Volumes:                args.Deployment.TextVolumes,
 		PersistentVolumes:      pvs,
+		EphemeralVolumes:       args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
+		PriorityClassName:      args.Deployment.PriorityClassName,
 		Containers:             containers,
 		ServiceAccountName:     args.ServiceAccountName,
 		InitContainers:         args.InitContainers,
@@ -247,6 +250,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		SecretVolumes:       args.SecretVolumes,
 		SecretVolumeOutputs: args.SecretVolumeOutputs,
 		ImagePullSecret:     args.ImagePullSecret,
+		EphemeralSize:       args.EphemeralSize,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
@@ -300,10 +304,24 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 
 	// Use HttpGet probe if path is specified, otherwise fall back to TcpSocket
 	if probe.HttpGet.Path != "" {
-		probeArgs.HttpGet = &corev1.HTTPGetActionArgs{
+		httpGetArgs := &corev1.HTTPGetActionArgs{
 			Path: sdk.String(probe.HttpGet.Path),
 			Port: sdk.Int(probePort),
 		}
+
+		// Add HTTP headers if specified
+		if len(probe.HttpGet.HTTPHeaders) > 0 {
+			httpHeaders := make(corev1.HTTPHeaderArray, 0, len(probe.HttpGet.HTTPHeaders))
+			for _, header := range probe.HttpGet.HTTPHeaders {
+				httpHeaders = append(httpHeaders, corev1.HTTPHeaderArgs{
+					Name:  sdk.String(header.Name),
+					Value: sdk.String(header.Value),
+				})
+			}
+			httpGetArgs.HttpHeaders = httpHeaders
+		}
+
+		probeArgs.HttpGet = httpGetArgs
 	} else {
 		probeArgs.TcpSocket = corev1.TCPSocketActionArgs{
 			Port: sdk.String(toPortName(probePort)),

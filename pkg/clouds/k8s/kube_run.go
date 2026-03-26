@@ -17,14 +17,16 @@ func (i *KubeRunInput) OverriddenBaseZone() string {
 }
 
 type CloudExtras struct {
-	NodeSelector     map[string]string `json:"nodeSelector" yaml:"nodeSelector"`
-	DisruptionBudget *DisruptionBudget `json:"disruptionBudget" yaml:"disruptionBudget"`
-	RollingUpdate    *RollingUpdate    `json:"rollingUpdate" yaml:"rollingUpdate"`
-	Affinity         *AffinityRules    `json:"affinity" yaml:"affinity"`
-	Tolerations      []Toleration      `json:"tolerations" yaml:"tolerations"`
-	VPA              *VPAConfig        `json:"vpa" yaml:"vpa"`
-	ReadinessProbe   *CloudRunProbe    `json:"readinessProbe" yaml:"readinessProbe"`
-	LivenessProbe    *CloudRunProbe    `json:"livenessProbe" yaml:"livenessProbe"`
+	NodeSelector      map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
+	DisruptionBudget  *DisruptionBudget        `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate     *RollingUpdate           `json:"rollingUpdate" yaml:"rollingUpdate"`
+	Affinity          *AffinityRules           `json:"affinity" yaml:"affinity"`
+	Tolerations       []Toleration             `json:"tolerations" yaml:"tolerations"`
+	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`
+	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`
+	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`
+	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
+	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -121,8 +123,9 @@ type VPAConfig struct {
 
 // VPAResourceRequirements defines resource requirements for VPA
 type VPAResourceRequirements struct {
-	CPU    *string `json:"cpu" yaml:"cpu"`
-	Memory *string `json:"memory" yaml:"memory"`
+	CPU              *string `json:"cpu" yaml:"cpu"`
+	Memory           *string `json:"memory" yaml:"memory"`
+	EphemeralStorage *string `json:"ephemeral-storage" yaml:"ephemeral-storage"`
 }
 
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {
@@ -158,9 +161,11 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
-		deployCfg.VPA = k8sCloudExtras.VPA                       // Extract VPA configuration from CloudExtras
-		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe // Extract global readiness probe configuration
-		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe   // Extract global liveness probe configuration
+		deployCfg.VPA = k8sCloudExtras.VPA                             // Extract VPA configuration from CloudExtras
+		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe       // Extract global readiness probe configuration
+		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe         // Extract global liveness probe configuration
+		deployCfg.EphemeralVolumes = k8sCloudExtras.EphemeralVolumes   // Extract generic ephemeral volumes configuration
+		deployCfg.PriorityClassName = k8sCloudExtras.PriorityClassName // Extract PriorityClass for pod scheduling and preemption
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {

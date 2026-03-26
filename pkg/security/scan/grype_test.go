@@ -144,3 +144,48 @@ func TestGrypeScanner_CheckVersion(t *testing.T) {
 		t.Logf("CheckVersion() error = %v (this is expected if grype version is below minimum)", err)
 	}
 }
+
+func TestParseGrypeVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:  "legacy single line format",
+			input: "grype 0.106.0",
+			want:  "0.106.0",
+		},
+		{
+			name: "current multiline format",
+			input: `Application:         grype
+Version:             0.107.0
+BuildDate:           2026-01-29T22:10:17Z`,
+			want: "0.107.0",
+		},
+		{
+			name:    "invalid output",
+			input:   "no version here",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseGrypeVersion(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseGrypeVersion() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseGrypeVersion() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

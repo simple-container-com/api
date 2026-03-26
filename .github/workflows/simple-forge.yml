@@ -32,11 +32,15 @@ on:
         description: 'JWT token for both AI gateway and forge service API access'
         required: false
         type: string
+      anthropic_base_url:
+        description: 'Anthropic API base URL (overrides secrets if provided)'
+        required: false
+        type: string
 
 jobs:
   generate-code:
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -62,7 +66,7 @@ jobs:
           model_name: ${{ inputs.model_name }}
           branch: ${{ inputs.branch }}
           anthropic_api_key: ${{ inputs.api_token || secrets.ANTHROPIC_API_KEY }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL || format('{0}/ai', inputs.service_url || 'https://forge.simple-container.com') || 'https://api.anthropic.com' }}
+          anthropic_base_url: ${{ inputs.anthropic_base_url || secrets.ANTHROPIC_BASE_URL || format('{0}/ai', inputs.service_url || 'https://forge.simple-container.com') || 'https://api.anthropic.com' }}
           simple_forge_api_key: ${{ inputs.api_token || secrets.SIMPLE_FORGE_API_KEY }}
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           script_version: ${{ inputs.script_version }}

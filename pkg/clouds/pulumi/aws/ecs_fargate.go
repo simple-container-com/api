@@ -29,6 +29,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	taggingUtil "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/util"
 )
 
@@ -129,10 +130,10 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		sdk.Provider(params.Provider),
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
 	}
-	tags := sdk.StringMap{
-		"simple-container.com/stack": sdk.String(deployParams.StackName),
-		"simple-container.com/env":   sdk.String(deployParams.Environment),
-	}
+
+	// Build unified tags using the tagging utility
+	tags := taggingUtil.BuildTagsFromStackParams(deployParams).ToAWSTags()
+
 	for _, img := range ref.Images {
 		opts = append(opts, img.AddOpts...)
 	}

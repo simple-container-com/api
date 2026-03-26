@@ -41,11 +41,15 @@ const (
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
 
-	LabelAppType     = "appType"
-	LabelAppName     = "appName"
-	LabelScEnv       = "appEnv"
-	LabelParentEnv   = "simplecontainer.com/parent-env"
-	LabelCustomStack = "simplecontainer.com/custom-stack"
+	// Standard Kubernetes labels - using hyphens instead of dots for GCP compatibility
+	// Kubernetes allows dots in label prefixes, but GCP labels do not
+	LabelAppType     = "simple-container-com/app-type"
+	LabelAppName     = "simple-container-com/app-name"
+	LabelScEnv       = "simple-container-com/env"
+	LabelParentEnv   = "simple-container-com/parent-env"
+	LabelParentStack = "simple-container-com/parent-stack"
+	LabelClientStack = "simple-container-com/client-stack"
+	LabelCustomStack = "simple-container-com/custom-stack"
 )
 
 // sanitizeK8sResourceName converts a name to be RFC 1123 compliant for Kubernetes resources
@@ -58,6 +62,30 @@ func sanitizeK8sResourceName(name string) string {
 	sanitized = reg.ReplaceAllString(strings.ToLower(sanitized), "")
 	// Ensure it starts and ends with alphanumeric (trim leading/trailing hyphens and dots)
 	sanitized = strings.Trim(sanitized, "-.")
+	return sanitized
+}
+
+// sanitizeK8sLabelValue sanitizes a value to be valid for Kubernetes labels
+// Kubernetes label values must be empty or consist of alphanumeric characters, '-', '_' or '.',
+// and must start and end with an alphanumeric character
+func sanitizeK8sLabelValue(value string) string {
+	if value == "" {
+		return value
+	}
+
+	// Replace forward slashes with hyphens (common in stack paths like "/demo/root")
+	sanitized := strings.ReplaceAll(value, "/", "-")
+	// Replace other invalid characters with hyphens
+	reg := regexp.MustCompile(`[^a-zA-Z0-9\-_\.]`)
+	sanitized = reg.ReplaceAllString(sanitized, "-")
+	// Remove leading/trailing hyphens, underscores, or dots to ensure alphanumeric start/end
+	sanitized = strings.Trim(sanitized, "-_.")
+
+	// If the result is empty after sanitization, provide a default
+	if sanitized == "" {
+		sanitized = "unknown"
+	}
+
 	return sanitized
 }
 
@@ -83,6 +111,7 @@ type SimpleContainerArgs struct {
 	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
 	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
+	PriorityClassName *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
 	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
@@ -90,6 +119,7 @@ type SimpleContainerArgs struct {
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
 	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes  []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
 	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
 	Scale             *k8s.Scale                   `json:"scale" yaml:"scale"`
 
@@ -108,6 +138,7 @@ type SimpleContainerArgs struct {
 	ComputeContext       pApi.ComputeContext
 	ImagePullSecret      *docker.RegistryCredentials
 	UseSSL               bool
+	EphemeralSize        string
 }
 
 type SimpleContainer struct {
@@ -143,8 +174,18 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 
 	// Add parentEnv labels for custom stacks
 	if args.ParentEnv != nil && lo.FromPtr(args.ParentEnv) != "" && lo.FromPtr(args.ParentEnv) != args.ScEnv {
-		appLabels[LabelParentEnv] = lo.FromPtr(args.ParentEnv)
+		appLabels[LabelParentEnv] = sanitizeK8sLabelValue(lo.FromPtr(args.ParentEnv))
 		appLabels[LabelCustomStack] = "true"
+	}
+
+	// Add parent-stack and client-stack labels if provided
+	if args.ParentStack != nil && *args.ParentStack != "" {
+		appLabels[LabelParentStack] = sanitizeK8sLabelValue(*args.ParentStack)
+	}
+	// Note: client-stack is typically same as parent-stack in nested scenarios
+	// but can be different in more complex hierarchies
+	if args.ParentStack != nil && *args.ParentStack != "" {
+		appLabels[LabelClientStack] = sanitizeK8sLabelValue(*args.ParentStack)
 	}
 
 	appAnnotations := map[string]string{
@@ -291,6 +332,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	addVolumeMountsFromOutputs(volumesSecretName, args.SecretVolumeOutputs, &volumeMounts)
 
 	// Volumes
+	emptyDirArgs := corev1.EmptyDirVolumeSourceArgs{}
+	if args.EphemeralSize != "" {
+		emptyDirArgs.SizeLimit = sdk.StringPtr(args.EphemeralSize)
+	}
 	volumes := corev1.VolumeArray{
 		corev1.VolumeArgs{
 			Name: sdk.String(volumesCfgName),
@@ -306,7 +351,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		},
 		corev1.VolumeArgs{
 			Name:     sdk.String("tmp"),
-			EmptyDir: corev1.EmptyDirVolumeSourceArgs{},
+			EmptyDir: emptyDirArgs,
 		},
 	}
 	volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
@@ -367,6 +412,63 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Name:      sdk.String(sanitizedName),
 			MountPath: sdk.String(pv.MountPath),
 		})
+	}
+
+	// Generic ephemeral volumes
+	// These use the generic ephemeral volume feature which creates a PVC for each pod
+	// and deletes it when the pod is deleted. This allows for larger temporary storage
+	// than the 10GB limit on GKE Autopilot regular ephemeral storage.
+	for _, ev := range args.EphemeralVolumes {
+		// Sanitize volume name for Kubernetes RFC 1123 compliance (no underscores allowed)
+		sanitizedName := sanitizeK8sResourceName(ev.Name)
+		if sanitizedName != ev.Name {
+			args.Log.Info(ctx.Context(), "📝 Sanitized ephemeral volume name %q -> %q for Kubernetes RFC 1123 compliance", ev.Name, sanitizedName)
+		}
+
+		// Set default storage class if not specified
+		storageClass := ev.StorageClassName
+		if storageClass == nil {
+			// Use the default standard-rwo storage class for GKE
+			defaultSC := "standard-rwo"
+			storageClass = &defaultSC
+			args.Log.Info(ctx.Context(), "📦 Using default storage class %q for ephemeral volume %q", defaultSC, sanitizedName)
+		}
+
+		// Create the generic ephemeral volume with volumeClaimTemplate
+		// This creates a PVC for each pod and deletes it when the pod is deleted
+		// Note: metadata.name cannot be set in volumeClaimTemplate - Kubernetes generates it automatically
+		volumes = append(volumes, corev1.VolumeArgs{
+			Name: sdk.String(sanitizedName),
+			Ephemeral: &corev1.EphemeralVolumeSourceArgs{
+				VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplateArgs{
+					Metadata: &metav1.ObjectMetaArgs{
+						// Name is intentionally omitted - Kubernetes generates it automatically
+						Labels:      sdk.ToStringMap(appLabels),
+						Annotations: sdk.ToStringMap(appAnnotations),
+					},
+					Spec: &corev1.PersistentVolumeClaimSpecArgs{
+						AccessModes: sdk.StringArray{
+							sdk.String("ReadWriteOnce"),
+						},
+						StorageClassName: sdk.StringPtrFromPtr(storageClass),
+						Resources: &corev1.VolumeResourceRequirementsArgs{
+							Requests: sdk.StringMap{
+								"storage": sdk.String(ev.Size),
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// Add the volume mount
+		volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
+			Name:      sdk.String(sanitizedName),
+			MountPath: sdk.String(ev.MountPath),
+		})
+
+		args.Log.Info(ctx.Context(), "✨ Added generic ephemeral volume %q at %q with size %q (storage class: %q)",
+			sanitizedName, ev.MountPath, ev.Size, lo.FromPtr(storageClass))
 	}
 
 	var strategy v1.DeploymentStrategyArgs
@@ -437,6 +539,11 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		}).(corev1.VolumeArrayOutput),
 		SecurityContext:    args.SecurityContext,
 		ServiceAccountName: args.ServiceAccountName,
+	}
+
+	// Set optional fields if provided
+	if args.PriorityClassName != nil {
+		podSpecArgs.PriorityClassName = sdk.String(*args.PriorityClassName)
 	}
 	if imagePullSecret != nil {
 		podSpecArgs.ImagePullSecrets = corev1.LocalObjectReferenceArray{
@@ -750,6 +857,9 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 			if args.VPA.MinAllowed.Memory != nil {
 				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
 			}
+			if args.VPA.MinAllowed.EphemeralStorage != nil {
+				minAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MinAllowed.EphemeralStorage)
+			}
 			if len(minAllowed) > 0 {
 				containerPolicy["minAllowed"] = minAllowed
 			}
@@ -762,6 +872,9 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 			}
 			if args.VPA.MaxAllowed.Memory != nil {
 				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
+			}
+			if args.VPA.MaxAllowed.EphemeralStorage != nil {
+				maxAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MaxAllowed.EphemeralStorage)
 			}
 			if len(maxAllowed) > 0 {
 				containerPolicy["maxAllowed"] = maxAllowed

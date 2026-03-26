@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -119,5 +120,97 @@ func TestTrivyScanner_CheckVersion(t *testing.T) {
 	err := scanner.CheckVersion(ctx)
 	if err != nil {
 		t.Logf("CheckVersion() error = %v (this is expected if trivy version is below minimum)", err)
+	}
+}
+
+func TestParseTrivyVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "current multiline format",
+			input: `Version: 0.69.0
+Vulnerability DB:
+  Version: 2`,
+			want: "0.69.0",
+		},
+		{
+			name:    "invalid output",
+			input:   "no version here",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseTrivyVersion(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseTrivyVersion() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseTrivyVersion() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTrivyCVSS_UnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    float64
+		wantErr bool
+	}{
+		{
+			name: "object format",
+			input: `{
+				"nvd": {"V3Score": 7.5},
+				"redhat": {"V2Score": 5.0}
+			}`,
+			want: 7.5,
+		},
+		{
+			name:  "array format",
+			input: `[{"V3Score": 4.2}, {"V2Score": 5.1}]`,
+			want:  5.1,
+		},
+		{
+			name:  "null",
+			input: `null`,
+			want:  0,
+		},
+		{
+			name:    "invalid",
+			input:   `"bad"`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cvss trivyCVSS
+			err := json.Unmarshal([]byte(tt.input), &cvss)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			if got := extractTrivyCVSS(cvss); got != tt.want {
+				t.Fatalf("extractTrivyCVSS() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

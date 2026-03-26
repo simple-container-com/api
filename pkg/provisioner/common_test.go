@@ -328,7 +328,7 @@ func Test_Deploy(t *testing.T) {
 				RegisterTestingT(t)
 				// Verify mock was NOT called
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring(tt.wantErr))
+				Expect(err.Error()).To(ContainSubstring(`stack "refapp-notexisting" is not configured`))
 			},
 		},
 	}

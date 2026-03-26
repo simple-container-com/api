@@ -1,9 +1,11 @@
 package scan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -35,10 +37,23 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	}
 
 	// Run grype scan
-	cmd := exec.CommandContext(ctx, "grype", "registry:"+image, "-o", "json")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("grype scan failed: %w (output: %s)", err, string(output))
+	cmd := exec.CommandContext(ctx, "grype", "--quiet", "-o", "json", "registry:"+image)
+	cmd.Env = append(os.Environ(),
+		"GRYPE_DB_AUTO_UPDATE=false",
+		"GRYPE_CHECK_FOR_APP_UPDATE=false",
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("grype scan failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+
+	output := bytes.TrimSpace(stdout.Bytes())
+	if len(output) == 0 {
+		return nil, fmt.Errorf("grype produced empty output (stderr: %s)", strings.TrimSpace(stderr.String()))
 	}
 
 	// Parse grype JSON output
@@ -72,13 +87,15 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	}
 
 	// Extract image digest from descriptor
-	imageDigest := ""
+	imageDigest := image
 	if grypeOutput.Descriptor.Name != "" {
 		imageDigest = extractImageDigestFromGrype(grypeOutput.Descriptor.Name)
 	}
 
 	result := NewScanResult(imageDigest, ScanToolGrype, vulns)
-	result.Metadata["grypeVersion"] = grypeOutput.Descriptor.Version
+	if version, err := g.Version(ctx); err == nil {
+		result.Metadata["grypeVersion"] = version
+	}
 
 	return result, nil
 }
@@ -91,14 +108,7 @@ func (g *GrypeScanner) Version(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to get grype version: %w", err)
 	}
 
-	// Parse version from output (format: "grype 0.106.0")
-	re := regexp.MustCompile(`grype\s+(\d+\.\d+\.\d+)`)
-	matches := re.FindStringSubmatch(string(output))
-	if len(matches) < 2 {
-		return "", fmt.Errorf("failed to parse grype version from: %s", string(output))
-	}
-
-	return matches[1], nil
+	return parseGrypeVersion(string(output))
 }
 
 // CheckInstalled checks if grype is installed
@@ -126,31 +136,43 @@ func (g *GrypeScanner) CheckVersion(ctx context.Context) error {
 
 // GrypeOutput represents grype JSON output structure
 type GrypeOutput struct {
-	Matches []struct {
-		Vulnerability struct {
-			ID          string `json:"id"`
-			Severity    string `json:"severity"`
-			Description string `json:"description"`
-			Fix         struct {
-				State    string   `json:"state"`
-				Versions []string `json:"versions"`
-			} `json:"fix"`
-			Cvss []struct {
-				Metrics struct {
-					BaseScore float64 `json:"baseScore"`
-				} `json:"metrics"`
-			} `json:"cvss"`
-			URLs []string `json:"urls"`
-		} `json:"vulnerability"`
-		Artifact struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"artifact"`
-	} `json:"matches"`
+	Matches    []grypeMatch `json:"matches"`
 	Descriptor struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	} `json:"descriptor"`
+}
+
+type grypeMatch struct {
+	Vulnerability grypeVulnerability `json:"vulnerability"`
+	Artifact      grypeArtifact      `json:"artifact"`
+}
+
+type grypeVulnerability struct {
+	ID          string      `json:"id"`
+	Severity    string      `json:"severity"`
+	Description string      `json:"description"`
+	Fix         grypeFix    `json:"fix"`
+	Cvss        []grypeCVSS `json:"cvss"`
+	URLs        []string    `json:"urls"`
+}
+
+type grypeFix struct {
+	State    string   `json:"state"`
+	Versions []string `json:"versions"`
+}
+
+type grypeCVSS struct {
+	Metrics grypeCVSSMetrics `json:"metrics"`
+}
+
+type grypeCVSSMetrics struct {
+	BaseScore float64 `json:"baseScore"`
+}
+
+type grypeArtifact struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // normalizeSeverity normalizes grype severity to our Severity type
@@ -172,49 +194,19 @@ func normalizeSeverity(s string) Severity {
 }
 
 // extractURLs extracts URLs from grype vulnerability
-func extractURLs(vuln interface{}) []string {
-	// Try to extract URLs from vulnerability struct
-	v, ok := vuln.(struct {
-		ID          string   `json:"id"`
-		Severity    string   `json:"severity"`
-		Description string   `json:"description"`
-		Fix         struct{} `json:"fix"`
-		Cvss        []struct {
-			Metrics struct {
-				BaseScore float64 `json:"baseScore"`
-			} `json:"metrics"`
-		} `json:"cvss"`
-		URLs []string `json:"urls"`
-	})
-	if !ok {
-		return []string{}
-	}
-	return v.URLs
+func extractURLs(vuln grypeVulnerability) []string {
+	return append([]string(nil), vuln.URLs...)
 }
 
 // extractCVSS extracts CVSS score from grype vulnerability
-func extractCVSS(vuln interface{}) float64 {
-	// Try to extract CVSS from vulnerability struct
-	v, ok := vuln.(struct {
-		ID          string   `json:"id"`
-		Severity    string   `json:"severity"`
-		Description string   `json:"description"`
-		Fix         struct{} `json:"fix"`
-		Cvss        []struct {
-			Metrics struct {
-				BaseScore float64 `json:"baseScore"`
-			} `json:"metrics"`
-		} `json:"cvss"`
-		URLs []string `json:"urls"`
-	})
-	if !ok {
-		return 0.0
+func extractCVSS(vuln grypeVulnerability) float64 {
+	var best float64
+	for _, cvss := range vuln.Cvss {
+		if cvss.Metrics.BaseScore > best {
+			best = cvss.Metrics.BaseScore
+		}
 	}
-
-	if len(v.Cvss) > 0 {
-		return v.Cvss[0].Metrics.BaseScore
-	}
-	return 0.0
+	return best
 }
 
 // extractImageDigestFromGrype extracts image digest from grype descriptor name
@@ -246,4 +238,21 @@ func isVersionGreaterOrEqual(version, minVersion string) bool {
 	}
 
 	return len(v1Parts) >= len(v2Parts)
+}
+
+func parseGrypeVersion(output string) (string, error) {
+	versionPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?m)^Version:\s*v?(\d+\.\d+\.\d+)\s*$`),
+		regexp.MustCompile(`(?m)^grype\s+v?(\d+\.\d+\.\d+)\s*$`),
+		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
+	}
+
+	for _, pattern := range versionPatterns {
+		matches := pattern.FindStringSubmatch(output)
+		if len(matches) >= 2 {
+			return matches[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to parse grype version from: %s", output)
 }
