@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,5 +92,17 @@ func TestKeyBasedSigner_Sign_WithRawKey(t *testing.T) {
 	}
 	if signer.Password != "password123" {
 		t.Errorf("Password = %v, want 'password123'", signer.Password)
+	}
+}
+
+func TestKeyBasedSignerPasswordHandling(t *testing.T) {
+	withoutPassword := NewKeyBasedSigner("/tmp/cosign.key", "", 5*time.Minute)
+	if withoutPassword.Password != "" {
+		t.Fatalf("Password = %q, want empty string", withoutPassword.Password)
+	}
+
+	withPassword := NewKeyBasedSigner("/tmp/cosign.key", "secret123", 5*time.Minute)
+	if !strings.Contains("COSIGN_PASSWORD="+withPassword.Password, "COSIGN_PASSWORD=secret123") {
+		t.Fatal("expected password to be propagated into COSIGN_PASSWORD")
 	}
 }

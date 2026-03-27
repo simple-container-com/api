@@ -3,6 +3,8 @@ package scan
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -212,5 +214,55 @@ func TestTrivyCVSS_UnmarshalJSON(t *testing.T) {
 				t.Fatalf("extractTrivyCVSS() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEnsureTrivyCacheDir(t *testing.T) {
+	cacheRoot := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheRoot)
+	t.Setenv("HOME", t.TempDir())
+
+	cacheDir, err := ensureTrivyCacheDir()
+	if err != nil {
+		t.Fatalf("ensureTrivyCacheDir() error = %v", err)
+	}
+
+	want := filepath.Join(cacheRoot, "trivy")
+	if cacheDir != want {
+		t.Fatalf("ensureTrivyCacheDir() = %s, want %s", cacheDir, want)
+	}
+}
+
+func TestTrivyDBPresenceHelpers(t *testing.T) {
+	cacheDir := t.TempDir()
+
+	if trivyDBPresent(cacheDir) {
+		t.Fatal("expected no trivy DB metadata in empty cache")
+	}
+	if trivyJavaDBPresent(cacheDir) {
+		t.Fatal("expected no trivy Java DB metadata in empty cache")
+	}
+
+	dbMeta := filepath.Join(cacheDir, "db", "metadata.json")
+	if err := os.MkdirAll(filepath.Dir(dbMeta), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(dbMeta, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	javaMeta := filepath.Join(cacheDir, "java-db", "metadata.json")
+	if err := os.MkdirAll(filepath.Dir(javaMeta), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(javaMeta, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if !trivyDBPresent(cacheDir) {
+		t.Fatal("expected trivy DB metadata to be detected")
+	}
+	if !trivyJavaDBPresent(cacheDir) {
+		t.Fatal("expected trivy Java DB metadata to be detected")
 	}
 }

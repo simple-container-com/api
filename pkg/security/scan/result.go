@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -127,14 +128,14 @@ func (s VulnerabilitySummary) HasLow() bool {
 	return s.Low > 0
 }
 
-// MergeResults merges multiple scan results, deduplicating by CVE ID
-// Keeps the highest severity when the same CVE is found by multiple tools
+// MergeResults merges multiple scan results, deduplicating by vulnerability ID and package coordinates.
+// When multiple scanners report the same package-level finding, the higher severity and richer metadata win.
 func MergeResults(results ...*ScanResult) *ScanResult {
 	if len(results) == 0 {
 		return nil
 	}
 
-	// Use map to deduplicate by CVE ID
+	// Use map to deduplicate by package-level finding identity.
 	vulnMap := make(map[string]Vulnerability)
 
 	var imageDigest string
@@ -152,15 +153,12 @@ func MergeResults(results ...*ScanResult) *ScanResult {
 		tools = append(tools, result.Tool)
 
 		for _, vuln := range result.Vulnerabilities {
-			existing, found := vulnMap[vuln.ID]
+			key := vulnerabilityKey(vuln)
+			existing, found := vulnMap[key]
 			if !found {
-				// New vulnerability
-				vulnMap[vuln.ID] = vuln
+				vulnMap[key] = vuln
 			} else {
-				// Keep higher severity
-				if severityPriority(vuln.Severity) > severityPriority(existing.Severity) {
-					vulnMap[vuln.ID] = vuln
-				}
+				vulnMap[key] = mergeVulnerability(existing, vuln)
 			}
 		}
 	}
@@ -170,11 +168,64 @@ func MergeResults(results ...*ScanResult) *ScanResult {
 	for _, vuln := range vulnMap {
 		vulns = append(vulns, vuln)
 	}
+	sort.Slice(vulns, func(i, j int) bool {
+		if severityPriority(vulns[i].Severity) != severityPriority(vulns[j].Severity) {
+			return severityPriority(vulns[i].Severity) > severityPriority(vulns[j].Severity)
+		}
+		if vulns[i].Package != vulns[j].Package {
+			return vulns[i].Package < vulns[j].Package
+		}
+		if vulns[i].Version != vulns[j].Version {
+			return vulns[i].Version < vulns[j].Version
+		}
+		return vulns[i].ID < vulns[j].ID
+	})
 
 	// Create merged result
 	merged := NewScanResult(imageDigest, ScanToolAll, vulns)
 	merged.Metadata["mergedTools"] = tools
 
+	return merged
+}
+
+func vulnerabilityKey(vuln Vulnerability) string {
+	return fmt.Sprintf("%s|%s|%s", vuln.ID, vuln.Package, vuln.Version)
+}
+
+func mergeVulnerability(existing, candidate Vulnerability) Vulnerability {
+	merged := existing
+	if severityPriority(candidate.Severity) > severityPriority(existing.Severity) {
+		merged.Severity = candidate.Severity
+	}
+	if merged.FixedIn == "" {
+		merged.FixedIn = candidate.FixedIn
+	}
+	if merged.Description == "" {
+		merged.Description = candidate.Description
+	}
+	if candidate.CVSS > merged.CVSS {
+		merged.CVSS = candidate.CVSS
+	}
+	merged.URLs = appendUnique(existing.URLs, candidate.URLs...)
+	return merged
+}
+
+func appendUnique(existing []string, candidates ...string) []string {
+	seen := make(map[string]struct{}, len(existing))
+	merged := append([]string(nil), existing...)
+	for _, value := range merged {
+		seen[value] = struct{}{}
+	}
+	for _, value := range candidates {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		merged = append(merged, value)
+		seen[value] = struct{}{}
+	}
 	return merged
 }
 

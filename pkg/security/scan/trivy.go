@@ -49,8 +49,14 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 		"--scanners", "vuln",
 		"--cache-dir", cacheDir,
 		"--format", "json",
-		image,
 	)
+	if trivyDBPresent(cacheDir) {
+		cmd.Args = append(cmd.Args, "--skip-db-update")
+	}
+	if trivyJavaDBPresent(cacheDir) {
+		cmd.Args = append(cmd.Args, "--skip-java-db-update")
+	}
+	cmd.Args = append(cmd.Args, image)
 	cmd.Env = append(os.Environ(), "TRIVY_CACHE_DIR="+cacheDir)
 
 	var stdout, stderr bytes.Buffer
@@ -255,9 +261,26 @@ func parseTrivyVersion(output string) (string, error) {
 }
 
 func ensureTrivyCacheDir() (string, error) {
-	cacheDir := filepath.Join(os.TempDir(), "simple-container", "trivy")
+	cacheRoot, err := os.UserCacheDir()
+	if err != nil {
+		cacheRoot = os.TempDir()
+	}
+	cacheDir := filepath.Join(cacheRoot, "trivy")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", fmt.Errorf("create trivy cache directory: %w", err)
 	}
 	return cacheDir, nil
+}
+
+func trivyDBPresent(cacheDir string) bool {
+	return fileExists(filepath.Join(cacheDir, "db", "metadata.json"))
+}
+
+func trivyJavaDBPresent(cacheDir string) bool {
+	return fileExists(filepath.Join(cacheDir, "java-db", "metadata.json"))
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

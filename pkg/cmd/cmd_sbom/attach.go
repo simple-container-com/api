@@ -18,6 +18,7 @@ type attachOptions struct {
 	format     string
 	keyless    bool
 	key        string
+	password   string
 	certIdent  string
 	certIssuer string
 }
@@ -48,6 +49,7 @@ func NewAttachCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.format, "format", "cyclonedx-json", "SBOM format")
 	cmd.Flags().BoolVar(&opts.keyless, "keyless", false, "Use keyless signing with OIDC")
 	cmd.Flags().StringVar(&opts.key, "key", "", "Path to private key for signing")
+	cmd.Flags().StringVar(&opts.password, "password", os.Getenv("COSIGN_PASSWORD"), "Password for encrypted private key")
 	cmd.Flags().StringVar(&opts.certIdent, "cert-identity", "", "Certificate identity for keyless verification")
 	cmd.Flags().StringVar(&opts.certIssuer, "cert-issuer", "", "Certificate OIDC issuer for keyless verification")
 
@@ -58,6 +60,10 @@ func NewAttachCommand() *cobra.Command {
 }
 
 func runAttach(ctx context.Context, opts *attachOptions) error {
+	if opts.key != "" && opts.keyless {
+		return fmt.Errorf("cannot specify both --keyless and --key")
+	}
+
 	// Validate format
 	format, err := sbom.ParseFormat(opts.format)
 	if err != nil {
@@ -76,11 +82,14 @@ func runAttach(ctx context.Context, opts *attachOptions) error {
 		ToolVersion: "unknown",
 	})
 
+	useKeyless := opts.keyless || opts.key == ""
+
 	// Create signing config
 	signingConfig := &signing.Config{
-		Enabled:        opts.keyless || opts.key != "",
-		Keyless:        opts.keyless,
+		Enabled:        true,
+		Keyless:        useKeyless,
 		PrivateKey:     opts.key,
+		Password:       opts.password,
 		IdentityRegexp: opts.certIdent,
 		OIDCIssuer:     opts.certIssuer,
 	}

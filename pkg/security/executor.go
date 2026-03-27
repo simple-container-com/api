@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/simple-container-com/api/pkg/security/provenance"
 	"github.com/simple-container-com/api/pkg/security/reporting"
 	"github.com/simple-container-com/api/pkg/security/sbom"
 	"github.com/simple-container-com/api/pkg/security/scan"
@@ -68,21 +70,34 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		return nil, nil
 	}
 
+	toolConfigs := e.enabledScanTools()
+	if len(toolConfigs) == 0 {
+		if e.Config.Scan.Required {
+			return nil, fmt.Errorf("no enabled scan tools configured")
+		}
+		fmt.Println("Warning: no enabled scan tools configured")
+		return nil, nil
+	}
+
+	cache, cacheErr := e.newScanCache()
+	if cacheErr != nil {
+		if e.Config.Scan.Required {
+			return nil, fmt.Errorf("creating scan cache: %w", cacheErr)
+		}
+		fmt.Printf("Warning: failed to initialize scan cache, continuing without cache: %v\n", cacheErr)
+	}
+
 	var results []*scan.ScanResult
+	var policyErr error
 
 	// Run each configured scanner
-	for _, toolConfig := range e.Config.Scan.Tools {
-		// Convert ScanToolConfig to ScanTool string
-		toolName := scan.ScanTool(toolConfig.Name)
-
-		// Handle "all" tool
-		if toolName == scan.ScanToolAll {
-			toolName = scan.ScanToolGrype
-		}
+	for _, toolConfig := range toolConfigs {
+		toolName := normalizedScanToolName(toolConfig.Name)
+		required := e.isScanToolRequired(toolConfig)
 
 		scanner, err := scan.NewScanner(toolName)
 		if err != nil {
-			if e.Config.Scan.Required {
+			if required {
 				return nil, fmt.Errorf("creating scanner %s: %w", toolName, err)
 			}
 			fmt.Printf("Warning: failed to create scanner %s, skipping: %v\n", toolName, err)
@@ -94,7 +109,7 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 
 		// Check if scanner is installed
 		if err := scanner.CheckInstalled(ctx); err != nil {
-			if e.Config.Scan.Required {
+			if required {
 				return nil, fmt.Errorf("scanner %s not installed: %w", toolName, err)
 			}
 			fmt.Printf("Warning: scanner %s not installed, skipping: %v\n", toolName, err)
@@ -104,6 +119,28 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 			continue
 		}
 
+		toolVersion, err := scanner.Version(ctx)
+		if err != nil {
+			toolVersion = ""
+		}
+
+		if cache != nil {
+			cachedResult, found, err := e.loadScanResultFromCache(cache, toolConfig, imageRef)
+			if err != nil {
+				fmt.Printf("Warning: failed to read cached %s scan result: %v\n", toolName, err)
+			} else if found {
+				fmt.Printf("Using cached %s vulnerability scan for %s...\n", toolName, imageRef)
+				results = append(results, cachedResult)
+				if e.Summary != nil {
+					e.Summary.RecordScan(toolName, cachedResult, nil, 0, toolVersion)
+				}
+				if err := e.enforceToolPolicy(toolConfig, cachedResult); err != nil && policyErr == nil {
+					policyErr = fmt.Errorf("%s vulnerability policy violation: %w", toolName, err)
+				}
+				continue
+			}
+		}
+
 		// Run scan with timing
 		fmt.Printf("Running %s vulnerability scan on %s...\n", toolName, imageRef)
 		startTime := time.Now()
@@ -111,7 +148,7 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		duration := time.Since(startTime)
 
 		if err != nil {
-			if e.Config.Scan.Required {
+			if required {
 				return nil, fmt.Errorf("scan with %s failed: %w", toolName, err)
 			}
 			fmt.Printf("Warning: scan with %s failed, continuing: %v\n", toolName, err)
@@ -124,9 +161,19 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		fmt.Printf("%s scan complete: %s\n", toolName, result.Summary.String())
 		results = append(results, result)
 
+		if cache != nil {
+			if err := e.saveScanResultToCache(cache, toolConfig, imageRef, result); err != nil {
+				fmt.Printf("Warning: failed to cache %s scan result: %v\n", toolName, err)
+			}
+		}
+
 		// Record in summary
 		if e.Summary != nil {
-			e.Summary.RecordScan(toolName, result, nil, duration, "")
+			e.Summary.RecordScan(toolName, result, nil, duration, toolVersion)
+		}
+
+		if err := e.enforceToolPolicy(toolConfig, result); err != nil && policyErr == nil {
+			policyErr = fmt.Errorf("%s vulnerability policy violation: %w", toolName, err)
 		}
 	}
 
@@ -142,7 +189,7 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 	var finalResult *scan.ScanResult
 	if len(results) > 1 {
 		finalResult = scan.MergeResults(results...)
-		fmt.Printf("Merged scan results (deduplicated by CVE ID): %s\n", finalResult.Summary.String())
+		fmt.Printf("Merged scan results (deduplicated by vulnerability and package): %s\n", finalResult.Summary.String())
 	} else {
 		finalResult = results[0]
 	}
@@ -158,10 +205,12 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		scanCfg := e.convertToScanConfig()
 		enforcer := scan.NewPolicyEnforcer(scanCfg)
 		if err := enforcer.Enforce(finalResult); err != nil {
-			// Policy violation - this should block deployment
-			return nil, fmt.Errorf("vulnerability policy violation: %w", err)
+			if policyErr == nil {
+				policyErr = fmt.Errorf("vulnerability policy violation: %w", err)
+			}
+		} else {
+			fmt.Printf("✓ Vulnerability policy check passed (failOn: %s)\n", e.Config.Scan.FailOn)
 		}
-		fmt.Printf("✓ Vulnerability policy check passed (failOn: %s)\n", e.Config.Scan.FailOn)
 	}
 
 	// Save locally if configured
@@ -174,22 +223,20 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		}
 	}
 
-	return finalResult, nil
+	return finalResult, policyErr
 }
 
 // shouldSaveScanLocal returns true if local output is configured
 func (e *SecurityExecutor) shouldSaveScanLocal() bool {
-	return e.Config.Scan != nil && len(e.Config.Scan.Tools) > 0 && e.getScanOutputPath() != ""
+	return e.Config.Scan != nil && e.getScanOutputPath() != ""
 }
 
-// getScanOutputPath returns the output path from the first tool config that has one
+// getScanOutputPath returns the configured local output path for merged scan results.
 func (e *SecurityExecutor) getScanOutputPath() string {
-	if e.Config.Scan == nil {
+	if e.Config.Scan == nil || e.Config.Scan.Output == nil {
 		return ""
 	}
-	// For now, we'll use a default path if tools exist
-	// In a real implementation, each tool config could have its own output path
-	return "./scan-results.json"
+	return e.Config.Scan.Output.Local
 }
 
 // convertToScanConfig converts our ScanConfig to scan.Config
@@ -200,8 +247,8 @@ func (e *SecurityExecutor) convertToScanConfig() *scan.Config {
 
 	// Convert tools from []ScanToolConfig to []ScanTool
 	var tools []scan.ScanTool
-	for _, tc := range e.Config.Scan.Tools {
-		tools = append(tools, scan.ScanTool(tc.Name))
+	for _, tc := range e.enabledScanTools() {
+		tools = append(tools, normalizedScanToolName(tc.Name))
 	}
 
 	return &scan.Config{
@@ -239,6 +286,141 @@ func (e *SecurityExecutor) saveScanLocal(result *scan.ScanResult) error {
 
 	fmt.Printf("Scan results saved to: %s\n", outputPath)
 	return nil
+}
+
+func (e *SecurityExecutor) enabledScanTools() []ScanToolConfig {
+	if e.Config == nil || e.Config.Scan == nil {
+		return nil
+	}
+
+	tools := make([]ScanToolConfig, 0, len(e.Config.Scan.Tools))
+	for _, tool := range e.Config.Scan.Tools {
+		if tool.Name == "" {
+			continue
+		}
+		if scanToolEnabled(tool) {
+			tools = append(tools, tool)
+		}
+	}
+
+	return tools
+}
+
+func scanToolEnabled(tool ScanToolConfig) bool {
+	if tool.Enabled != nil {
+		return *tool.Enabled
+	}
+	return tool.Required || tool.FailOn != "" || tool.WarnOn != "" || tool.Name != ""
+}
+
+func normalizedScanToolName(name string) scan.ScanTool {
+	toolName := scan.ScanTool(name)
+	if toolName == scan.ScanToolAll {
+		return scan.ScanToolGrype
+	}
+	return toolName
+}
+
+func (e *SecurityExecutor) isScanToolRequired(toolConfig ScanToolConfig) bool {
+	return e.Config.Scan.Required || toolConfig.Required
+}
+
+func (e *SecurityExecutor) enforceToolPolicy(toolConfig ScanToolConfig, result *scan.ScanResult) error {
+	failOn := toolConfig.FailOn
+	if failOn == "" {
+		failOn = e.Config.Scan.FailOn
+	}
+
+	warnOn := toolConfig.WarnOn
+	if warnOn == "" {
+		warnOn = e.Config.Scan.WarnOn
+	}
+
+	if failOn == "" && warnOn == "" {
+		return nil
+	}
+
+	enforcer := scan.NewPolicyEnforcer(&scan.Config{
+		Enabled: true,
+		Tools:   []scan.ScanTool{result.Tool},
+		FailOn:  scan.Severity(failOn),
+		WarnOn:  scan.Severity(warnOn),
+	})
+
+	return enforcer.Enforce(result)
+}
+
+func (e *SecurityExecutor) newScanCache() (*Cache, error) {
+	if e.Config == nil || e.Config.Scan == nil || e.Config.Scan.Cache == nil || !e.Config.Scan.Cache.Enabled {
+		return nil, nil
+	}
+
+	return NewCache(e.Config.Scan.Cache.Dir)
+}
+
+func (e *SecurityExecutor) loadScanResultFromCache(cache *Cache, toolConfig ScanToolConfig, imageRef string) (*scan.ScanResult, bool, error) {
+	cacheKey, err := e.scanCacheKey(toolConfig, imageRef)
+	if err != nil {
+		return nil, false, err
+	}
+
+	data, found, err := cache.Get(cacheKey)
+	if err != nil || !found {
+		return nil, found, err
+	}
+
+	var result scan.ScanResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, false, fmt.Errorf("unmarshaling cached scan result: %w", err)
+	}
+
+	return &result, true, nil
+}
+
+func (e *SecurityExecutor) saveScanResultToCache(cache *Cache, toolConfig ScanToolConfig, imageRef string, result *scan.ScanResult) error {
+	cacheKey, err := e.scanCacheKey(toolConfig, imageRef)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshaling scan result: %w", err)
+	}
+
+	return cache.SetWithTTL(cacheKey, data, e.scanCacheTTL())
+}
+
+func (e *SecurityExecutor) scanCacheKey(toolConfig ScanToolConfig, imageRef string) (CacheKey, error) {
+	configHash, err := ComputeConfigHash(struct {
+		ToolName string
+		ImageRef string
+	}{
+		ToolName: toolConfig.Name,
+		ImageRef: imageRef,
+	})
+	if err != nil {
+		return CacheKey{}, fmt.Errorf("computing scan cache hash: %w", err)
+	}
+
+	return CacheKey{
+		Operation:   "scan-" + toolConfig.Name,
+		ImageDigest: imageRef,
+		ConfigHash:  configHash,
+	}, nil
+}
+
+func (e *SecurityExecutor) scanCacheTTL() time.Duration {
+	if e.Config == nil || e.Config.Scan == nil || e.Config.Scan.Cache == nil || e.Config.Scan.Cache.TTL == "" {
+		return TTL_SCAN_GRYPE
+	}
+
+	ttl, err := time.ParseDuration(e.Config.Scan.Cache.TTL)
+	if err != nil || ttl <= 0 {
+		return TTL_SCAN_GRYPE
+	}
+
+	return ttl
 }
 
 // ExecuteSigning performs signing operations on the image
@@ -318,6 +500,46 @@ func (e *SecurityExecutor) ExecuteSBOM(ctx context.Context, imageRef string) (*s
 		return nil, nil
 	}
 
+	cache, cacheErr := e.newSBOMCache()
+	if cacheErr != nil {
+		if e.Config.SBOM.Required {
+			return nil, fmt.Errorf("creating SBOM cache: %w", cacheErr)
+		}
+		fmt.Printf("Warning: failed to initialize SBOM cache, continuing without cache: %v\n", cacheErr)
+	}
+	if cache != nil {
+		cachedSBOM, found, err := e.loadSBOMFromCache(cache, imageRef)
+		if err != nil {
+			fmt.Printf("Warning: failed to read cached SBOM: %v\n", err)
+		} else if found {
+			fmt.Printf("Using cached SBOM for %s...\n", imageRef)
+			outputPath := ""
+			if e.Config.SBOM.Output != nil && e.Config.SBOM.Output.Local != "" {
+				outputPath = e.Config.SBOM.Output.Local
+				if err := e.saveSBOMLocal(cachedSBOM); err != nil {
+					return nil, fmt.Errorf("saving cached SBOM locally: %w", err)
+				}
+			}
+			if e.Config.SBOM.ShouldAttach() {
+				if e.Config.Signing != nil && e.Config.Signing.Enabled {
+					if err := e.attachSBOM(ctx, cachedSBOM, imageRef); err != nil {
+						return nil, fmt.Errorf("attaching cached SBOM: %w", err)
+					}
+				} else {
+					err := fmt.Errorf("sbom attachment requires signing.enabled")
+					if e.Config.SBOM.Required {
+						return nil, err
+					}
+					fmt.Printf("Warning: %v\n", err)
+				}
+			}
+			if e.Summary != nil {
+				e.Summary.RecordSBOM(cachedSBOM, nil, 0, outputPath)
+			}
+			return cachedSBOM, nil
+		}
+	}
+
 	// Create generator
 	generator := sbom.NewSyftGenerator()
 
@@ -348,6 +570,12 @@ func (e *SecurityExecutor) ExecuteSBOM(ctx context.Context, imageRef string) (*s
 		return nil, nil
 	}
 
+	if cache != nil {
+		if err := e.saveSBOMToCache(cache, imageRef, generatedSBOM); err != nil {
+			fmt.Printf("Warning: failed to cache SBOM: %v\n", err)
+		}
+	}
+
 	outputPath := ""
 	// Save locally if configured
 	if e.Config.SBOM.Output != nil && e.Config.SBOM.Output.Local != "" {
@@ -366,19 +594,116 @@ func (e *SecurityExecutor) ExecuteSBOM(ctx context.Context, imageRef string) (*s
 	}
 
 	// Attach as attestation if configured
-	shouldAttach := e.Config.SBOM.Attach != nil && e.Config.SBOM.Attach.Enabled
-	shouldAttachToRegistry := e.Config.SBOM.Output != nil && e.Config.SBOM.Output.Registry
-
-	if (shouldAttach || shouldAttachToRegistry) && e.Config.Signing != nil && e.Config.Signing.Enabled {
-		if err := e.attachSBOM(ctx, generatedSBOM, imageRef); err != nil {
-			if e.Config.SBOM.Required {
-				return nil, fmt.Errorf("attaching SBOM: %w", err)
+	if e.Config.SBOM.ShouldAttach() {
+		if e.Config.Signing != nil && e.Config.Signing.Enabled {
+			if err := e.attachSBOM(ctx, generatedSBOM, imageRef); err != nil {
+				if e.Config.SBOM.Required {
+					return nil, fmt.Errorf("attaching SBOM: %w", err)
+				}
+				fmt.Printf("Warning: failed to attach SBOM, continuing: %v\n", err)
 			}
-			fmt.Printf("Warning: failed to attach SBOM, continuing: %v\n", err)
+		} else {
+			err := fmt.Errorf("sbom attachment requires signing.enabled")
+			if e.Config.SBOM.Required {
+				return nil, err
+			}
+			fmt.Printf("Warning: %v\n", err)
 		}
 	}
 
 	return generatedSBOM, nil
+}
+
+// ExecuteProvenance generates and optionally attaches provenance for the image.
+func (e *SecurityExecutor) ExecuteProvenance(ctx context.Context, imageRef string) (*provenance.Statement, error) {
+	if !e.Config.Enabled || e.Config.Provenance == nil || !e.Config.Provenance.Enabled {
+		return nil, nil
+	}
+
+	if err := e.Config.Provenance.Validate(); err != nil {
+		if e.Config.Provenance.Required {
+			return nil, fmt.Errorf("provenance validation failed: %w", err)
+		}
+		fmt.Printf("Warning: provenance validation failed, skipping: %v\n", err)
+		if e.Summary != nil {
+			e.Summary.RecordProvenance(e.Config.Provenance.Format, err, 0, false)
+		}
+		return nil, nil
+	}
+
+	format, err := provenance.ParseFormat(e.Config.Provenance.Format)
+	if err != nil {
+		if e.Config.Provenance.Required {
+			return nil, fmt.Errorf("invalid provenance format: %w", err)
+		}
+		fmt.Printf("Warning: invalid provenance format, skipping: %v\n", err)
+		if e.Summary != nil {
+			e.Summary.RecordProvenance(e.Config.Provenance.Format, err, 0, false)
+		}
+		return nil, nil
+	}
+
+	includeEnv := e.Config.Provenance.Metadata != nil && e.Config.Provenance.Metadata.IncludeEnv
+	includeMaterials := e.Config.Provenance.Metadata == nil || e.Config.Provenance.Metadata.IncludeMaterials
+
+	startTime := time.Now()
+	statement, err := provenance.Generate(ctx, imageRef, format, provenance.GenerateOptions{
+		BuilderID:         builderID(e.Config.Provenance),
+		SourceRoot:        ".",
+		IncludeGit:        e.Config.Provenance.IncludeGit,
+		IncludeDockerfile: e.Config.Provenance.IncludeDocker,
+		IncludeEnv:        includeEnv,
+		IncludeMaterials:  includeMaterials,
+	})
+	duration := time.Since(startTime)
+	if err != nil {
+		if e.Config.Provenance.Required {
+			return nil, fmt.Errorf("generating provenance: %w", err)
+		}
+		fmt.Printf("Warning: provenance generation failed, continuing: %v\n", err)
+		if e.Summary != nil {
+			e.Summary.RecordProvenance(string(format), err, duration, false)
+		}
+		return nil, nil
+	}
+
+	if e.Config.Provenance.Output != nil && e.Config.Provenance.Output.Local != "" {
+		if err := statement.Save(e.Config.Provenance.Output.Local); err != nil {
+			if e.Config.Provenance.Required {
+				return nil, fmt.Errorf("saving provenance locally: %w", err)
+			}
+			fmt.Printf("Warning: failed to save provenance locally: %v\n", err)
+		}
+	}
+
+	attached := false
+	if provenanceShouldAttach(e.Config.Provenance) {
+		if e.Config.Signing == nil || !e.Config.Signing.Enabled {
+			err := fmt.Errorf("provenance registry attachment requires signing.enabled")
+			if e.Config.Provenance.Required {
+				return nil, err
+			}
+			fmt.Printf("Warning: %v\n", err)
+			if e.Summary != nil {
+				e.Summary.RecordProvenance(string(format), nil, duration, false)
+			}
+			return statement, nil
+		}
+		if err := provenance.NewAttacher(e.Config.Signing).Attach(ctx, statement, imageRef); err != nil {
+			if e.Config.Provenance.Required {
+				return nil, fmt.Errorf("attaching provenance: %w", err)
+			}
+			fmt.Printf("Warning: failed to attach provenance, continuing: %v\n", err)
+		} else {
+			attached = true
+		}
+	}
+
+	if e.Summary != nil {
+		e.Summary.RecordProvenance(string(format), nil, duration, attached)
+	}
+
+	return statement, nil
 }
 
 // saveSBOMLocal saves SBOM to local file
@@ -400,6 +725,81 @@ func (e *SecurityExecutor) saveSBOMLocal(sbomObj *sbom.SBOM) error {
 	return nil
 }
 
+func (e *SecurityExecutor) newSBOMCache() (*Cache, error) {
+	if e.Config == nil || e.Config.SBOM == nil || e.Config.SBOM.Cache == nil || !e.Config.SBOM.Cache.Enabled {
+		return nil, nil
+	}
+
+	return NewCache(e.Config.SBOM.Cache.Dir)
+}
+
+func (e *SecurityExecutor) loadSBOMFromCache(cache *Cache, imageRef string) (*sbom.SBOM, bool, error) {
+	cacheKey, err := e.sbomCacheKey(imageRef)
+	if err != nil {
+		return nil, false, err
+	}
+
+	data, found, err := cache.Get(cacheKey)
+	if err != nil || !found {
+		return nil, found, err
+	}
+
+	var cachedSBOM sbom.SBOM
+	if err := json.Unmarshal(data, &cachedSBOM); err != nil {
+		return nil, false, fmt.Errorf("unmarshaling cached SBOM: %w", err)
+	}
+
+	return &cachedSBOM, true, nil
+}
+
+func (e *SecurityExecutor) saveSBOMToCache(cache *Cache, imageRef string, generatedSBOM *sbom.SBOM) error {
+	cacheKey, err := e.sbomCacheKey(imageRef)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(generatedSBOM)
+	if err != nil {
+		return fmt.Errorf("marshaling SBOM: %w", err)
+	}
+
+	return cache.SetWithTTL(cacheKey, data, e.sbomCacheTTL())
+}
+
+func (e *SecurityExecutor) sbomCacheKey(imageRef string) (CacheKey, error) {
+	configHash, err := ComputeConfigHash(struct {
+		Format    string
+		Generator string
+		ImageRef  string
+	}{
+		Format:    e.Config.SBOM.Format,
+		Generator: e.Config.SBOM.Generator,
+		ImageRef:  imageRef,
+	})
+	if err != nil {
+		return CacheKey{}, fmt.Errorf("computing SBOM cache hash: %w", err)
+	}
+
+	return CacheKey{
+		Operation:   "sbom",
+		ImageDigest: imageRef,
+		ConfigHash:  configHash,
+	}, nil
+}
+
+func (e *SecurityExecutor) sbomCacheTTL() time.Duration {
+	if e.Config == nil || e.Config.SBOM == nil || e.Config.SBOM.Cache == nil || e.Config.SBOM.Cache.TTL == "" {
+		return TTL_SBOM
+	}
+
+	ttl, err := time.ParseDuration(e.Config.SBOM.Cache.TTL)
+	if err != nil || ttl <= 0 {
+		return TTL_SBOM
+	}
+
+	return ttl
+}
+
 // attachSBOM attaches SBOM as signed attestation
 func (e *SecurityExecutor) attachSBOM(ctx context.Context, sbomObj *sbom.SBOM, imageRef string) error {
 	// Create attacher with signing config
@@ -413,6 +813,17 @@ func (e *SecurityExecutor) attachSBOM(ctx context.Context, sbomObj *sbom.SBOM, i
 
 	fmt.Printf("SBOM attestation attached successfully\n")
 	return nil
+}
+
+func builderID(config *ProvenanceConfig) string {
+	if config == nil || config.Builder == nil {
+		return ""
+	}
+	return config.Builder.ID
+}
+
+func provenanceShouldAttach(config *ProvenanceConfig) bool {
+	return config != nil && config.Output != nil && config.Output.Registry
 }
 
 // ValidateConfig validates the security configuration
@@ -434,13 +845,13 @@ func (e *SecurityExecutor) UploadReports(ctx context.Context, result *scan.ScanR
 	// Upload to DefectDojo if configured
 	if e.Config.Reporting.DefectDojo != nil && e.Config.Reporting.DefectDojo.Enabled && result != nil {
 		startTime := time.Now()
-		err := e.uploadToDefectDojo(ctx, result, imageRef)
+		importResp, err := e.uploadToDefectDojo(ctx, result, imageRef)
 		duration := time.Since(startTime)
 
 		if e.Summary != nil {
 			url := ""
-			if err == nil {
-				url = fmt.Sprintf("%s/engagement/%d", e.Config.Reporting.DefectDojo.URL, e.Config.Reporting.DefectDojo.EngagementID)
+			if err == nil && importResp != nil && importResp.Engagement > 0 {
+				url = fmt.Sprintf("%s/engagement/%d", e.Config.Reporting.DefectDojo.URL, importResp.Engagement)
 			}
 			e.Summary.RecordUpload("defectdojo", err, url, duration)
 		}
@@ -450,11 +861,17 @@ func (e *SecurityExecutor) UploadReports(ctx context.Context, result *scan.ScanR
 		}
 	}
 
+	if e.Config.Reporting.PRComment != nil && e.Config.Reporting.PRComment.Enabled && result != nil {
+		if err := e.writePRComment(result, imageRef); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 // uploadToDefectDojo uploads scan results to DefectDojo
-func (e *SecurityExecutor) uploadToDefectDojo(ctx context.Context, result *scan.ScanResult, imageRef string) error {
+func (e *SecurityExecutor) uploadToDefectDojo(ctx context.Context, result *scan.ScanResult, imageRef string) (*reporting.ImportScanResponse, error) {
 	config := e.Config.Reporting.DefectDojo
 
 	// Create DefectDojo client
@@ -476,10 +893,46 @@ func (e *SecurityExecutor) uploadToDefectDojo(ctx context.Context, result *scan.
 	fmt.Printf("Uploading scan results to DefectDojo at %s...\n", config.URL)
 	importResp, err := client.UploadScanResult(ctx, result, imageRef, uploaderConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	fmt.Printf("✓ Successfully uploaded to DefectDojo (test ID: %d, %d findings)\n",
-		importResp.ID, importResp.NumberOfFindings)
+	details := make([]string, 0, 2)
+	if importResp.Test > 0 {
+		details = append(details, fmt.Sprintf("test ID: %d", importResp.Test))
+	}
+	if importResp.NumberOfFindings > 0 {
+		details = append(details, fmt.Sprintf("%d findings", importResp.NumberOfFindings))
+	}
+	if len(details) == 0 {
+		fmt.Printf("✓ Successfully uploaded to DefectDojo\n")
+	} else {
+		fmt.Printf("✓ Successfully uploaded to DefectDojo (%s)\n", strings.Join(details, ", "))
+	}
+	return importResp, nil
+}
+
+func (e *SecurityExecutor) writePRComment(result *scan.ScanResult, imageRef string) error {
+	outputPath := e.Config.Reporting.PRComment.Output
+	if outputPath == "" {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("creating PR comment output directory: %w", err)
+	}
+
+	content := reporting.BuildScanResultsComment(imageRef, result, e.summaryUploads())
+	if err := os.WriteFile(outputPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("writing PR comment output: %w", err)
+	}
+
+	fmt.Printf("PR comment saved to: %s\n", outputPath)
 	return nil
+}
+
+func (e *SecurityExecutor) summaryUploads() []*reporting.UploadSummary {
+	if e.Summary == nil {
+		return nil
+	}
+	return e.Summary.UploadResults
 }

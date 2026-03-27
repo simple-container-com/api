@@ -51,7 +51,7 @@ func TestSecurityConfigValidation(t *testing.T) {
 				Scan: &ScanConfig{
 					Enabled: true,
 					Tools: []ScanToolConfig{
-						{Name: "grype", Enabled: true},
+						{Name: "grype", Enabled: boolPtr(true)},
 					},
 				},
 			},
@@ -123,6 +123,31 @@ func TestSBOMConfigValidation(t *testing.T) {
 			name:    "empty format is valid (will use default)",
 			config:  &SBOMConfig{Enabled: true, Format: ""},
 			wantErr: false,
+		},
+		{
+			name: "attach requires signed attestation",
+			config: &SBOMConfig{
+				Enabled: true,
+				Attach: &AttachConfig{
+					Enabled: true,
+					Sign:    false,
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "registry output cannot disable attachment",
+			config: &SBOMConfig{
+				Enabled: true,
+				Output: &OutputConfig{
+					Registry: true,
+				},
+				Attach: &AttachConfig{
+					Enabled: false,
+					Sign:    true,
+				},
+			},
+			wantErr: true,
 		},
 	}
 
@@ -221,6 +246,84 @@ func TestSeverityValidation(t *testing.T) {
 	}
 }
 
+func TestDefectDojoConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *DefectDojoConfig
+		wantErr bool
+	}{
+		{
+			name: "disabled config",
+			config: &DefectDojoConfig{
+				Enabled: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "existing engagement",
+			config: &DefectDojoConfig{
+				Enabled:      true,
+				URL:          "https://dojo.example.com",
+				APIKey:       "secret",
+				EngagementID: 123,
+			},
+			wantErr: false,
+		},
+		{
+			name: "auto-create with names",
+			config: &DefectDojoConfig{
+				Enabled:        true,
+				URL:            "https://dojo.example.com",
+				APIKey:         "secret",
+				AutoCreate:     true,
+				ProductName:    "demo",
+				EngagementName: "staging",
+			},
+			wantErr: false,
+		},
+		{
+			name: "auto-create missing engagement name",
+			config: &DefectDojoConfig{
+				Enabled:     true,
+				URL:         "https://dojo.example.com",
+				APIKey:      "secret",
+				AutoCreate:  true,
+				ProductName: "demo",
+			},
+			wantErr: true,
+		},
+		{
+			name: "auto-create missing product reference",
+			config: &DefectDojoConfig{
+				Enabled:        true,
+				URL:            "https://dojo.example.com",
+				APIKey:         "secret",
+				AutoCreate:     true,
+				EngagementName: "staging",
+			},
+			wantErr: true,
+		},
+		{
+			name: "non auto-create missing engagement id",
+			config: &DefectDojoConfig{
+				Enabled: true,
+				URL:     "https://dojo.example.com",
+				APIKey:  "secret",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSeverityIsAtLeast(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -298,9 +401,9 @@ func TestProvenanceConfigValidation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "valid slsa-v0.2 format",
+			name:    "legacy slsa-v0.2 format is rejected",
 			config:  &ProvenanceConfig{Enabled: true, Format: "slsa-v0.2"},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name:    "invalid format",

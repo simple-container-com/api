@@ -2,8 +2,13 @@ package security
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
@@ -207,5 +212,134 @@ func TestSecurityExecutor_ExecuteSigning_FailClosed(t *testing.T) {
 	_, err = executor.ExecuteSigning(ctx, "test-image:latest")
 	if err == nil {
 		t.Error("ExecuteSigning() with fail-closed should error on invalid config")
+	}
+}
+
+func TestSecurityExecutor_SBOMCacheKeyIgnoresOutputPath(t *testing.T) {
+	ctx := context.Background()
+	imageRef := "registry.example.com/demo@sha256:1234"
+
+	newExecutor := func(outputPath string) *SecurityExecutor {
+		executor, err := NewSecurityExecutor(ctx, &SecurityConfig{
+			Enabled: true,
+			SBOM: &SBOMConfig{
+				Enabled:   true,
+				Format:    "cyclonedx-json",
+				Generator: "syft",
+				Output: &OutputConfig{
+					Local: outputPath,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewSecurityExecutor() failed: %v", err)
+		}
+		return executor
+	}
+
+	keyA, err := newExecutor("/tmp/a/sbom.json").sbomCacheKey(imageRef)
+	if err != nil {
+		t.Fatalf("sbomCacheKey() error = %v", err)
+	}
+
+	keyB, err := newExecutor("/tmp/b/sbom.json").sbomCacheKey(imageRef)
+	if err != nil {
+		t.Fatalf("sbomCacheKey() error = %v", err)
+	}
+
+	if keyA != keyB {
+		t.Fatalf("sbomCacheKey() should ignore output path, got %v and %v", keyA, keyB)
+	}
+}
+
+func TestSecurityExecutor_ScanCacheKeyIgnoresPolicyAndOutput(t *testing.T) {
+	ctx := context.Background()
+	imageRef := "registry.example.com/demo@sha256:5678"
+	tool := ScanToolConfig{Name: "grype", WarnOn: SeverityHigh}
+
+	newExecutor := func(outputPath string, failOn Severity) *SecurityExecutor {
+		executor, err := NewSecurityExecutor(ctx, &SecurityConfig{
+			Enabled: true,
+			Scan: &ScanConfig{
+				Enabled: true,
+				FailOn:  failOn,
+				WarnOn:  SeverityHigh,
+				Output: &OutputConfig{
+					Local: outputPath,
+				},
+				Tools: []ScanToolConfig{tool},
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewSecurityExecutor() failed: %v", err)
+		}
+		return executor
+	}
+
+	keyA, err := newExecutor("/tmp/a/scan.json", SeverityCritical).scanCacheKey(tool, imageRef)
+	if err != nil {
+		t.Fatalf("scanCacheKey() error = %v", err)
+	}
+
+	keyB, err := newExecutor("/tmp/b/scan.json", SeverityLow).scanCacheKey(tool, imageRef)
+	if err != nil {
+		t.Fatalf("scanCacheKey() error = %v", err)
+	}
+
+	if keyA != keyB {
+		t.Fatalf("scanCacheKey() should ignore policy and output path, got %v and %v", keyA, keyB)
+	}
+}
+
+func TestSecurityExecutor_UploadReportsWritesPRComment(t *testing.T) {
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "scan-comment.md")
+
+	executor, err := NewSecurityExecutorWithSummary(context.Background(), &SecurityConfig{
+		Enabled: true,
+		Reporting: &ReportingConfig{
+			PRComment: &PRCommentConfig{
+				Enabled: true,
+				Output:  outputPath,
+			},
+		},
+	}, "registry.example.com/demo@sha256:1234")
+	if err != nil {
+		t.Fatalf("NewSecurityExecutorWithSummary() failed: %v", err)
+	}
+
+	executor.Summary.RecordUpload("defectdojo", nil, "https://dojo.example.com/engagement/42", time.Second)
+
+	result := &scan.ScanResult{
+		Tool:        scan.ScanToolAll,
+		ImageDigest: "sha256:1234",
+		Summary: scan.VulnerabilitySummary{
+			Critical: 1,
+			High:     2,
+			Total:    3,
+		},
+		Vulnerabilities: []scan.Vulnerability{
+			{ID: "CVE-1", Severity: scan.SeverityCritical, Package: "openssl", Version: "1.0.0"},
+		},
+	}
+
+	if err := executor.UploadReports(context.Background(), result, "registry.example.com/demo@sha256:1234"); err != nil {
+		t.Fatalf("UploadReports() error = %v", err)
+	}
+
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", outputPath, err)
+	}
+
+	text := string(content)
+	for _, expected := range []string{
+		"## Image Scan Results",
+		"registry.example.com/demo@sha256:1234",
+		"defectdojo",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("comment output missing %q: %s", expected, text)
+		}
 	}
 }

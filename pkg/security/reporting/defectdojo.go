@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/simple-container-com/api/pkg/security/scan"
@@ -32,52 +36,35 @@ type DefectDojoEngagement struct {
 
 // DefectDojoProduct represents a DefectDojo product
 type DefectDojoProduct struct {
-	ID           int    `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	ProductType  int    `json:"prod_type"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ProductType int    `json:"prod_type"`
 }
 
 // DefectDojoTest represents a DefectDojo test
 type DefectDojoTest struct {
-	ID              int    `json:"id"`
-	Title           string `json:"title"`
-	Engagement      int    `json:"engagement"`
-	TestType        int    `json:"test_type"`
-	TargetStart     string `json:"target_start"`
-	TargetEnd       string `json:"target_end"`
-}
-
-// ImportScanRequest represents a request to import scan results
-type ImportScanRequest struct {
-	ScanType        string            `json:"scan_type"`
-	EngagementID    int               `json:"engagement"`
-	ProductID       int               `json:"product,omitempty"`
-	SHA256          string            `json:"sha256,omitempty"`
-	Branch          string            `json:"branch,omitempty"`
-	FileName        string            `json:"file_name,omitempty"`
-	File            []byte            `json:"file,omitempty"`
-	ScanDate        string            `json:"scan_date,omitempty"`
-	MinimumSeverity string            `json:"minimum_severity,omitempty"`
-	Active          bool              `json:"active,omitempty"`
-	Verified        bool              `json:"verified,omitempty"`
-	Tags            []string          `json:"tags,omitempty"`
-	Environment     string            `json:"environment,omitempty"`
+	ID          int    `json:"id"`
+	Title       string `json:"title"`
+	Engagement  int    `json:"engagement"`
+	TestType    int    `json:"test_type"`
+	TargetStart string `json:"target_start"`
+	TargetEnd   string `json:"target_end"`
 }
 
 // ImportScanResponse represents the response from importing a scan
 type ImportScanResponse struct {
-	ID            int    `json:"id"`
-	Test          int    `json:"test"`
-	Product       int    `json:"product"`
-	Engagement    int    `json:"engagement"`
+	ID               int `json:"id"`
+	Test             int `json:"test"`
+	Product          int `json:"product"`
+	Engagement       int `json:"engagement"`
 	NumberOfFindings int `json:"number_of_findings"`
 }
 
 // NewDefectDojoClient creates a new DefectDojo client
 func NewDefectDojoClient(baseURL, apiKey string) *DefectDojoClient {
 	return &DefectDojoClient{
-		BaseURL: baseURL,
+		BaseURL: strings.TrimRight(baseURL, "/"),
 		APIKey:  apiKey,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -93,11 +80,13 @@ func (c *DefectDojoClient) UploadScanResult(ctx context.Context, result *scan.Sc
 		return nil, fmt.Errorf("getting engagement: %w", err)
 	}
 
-	// Convert scan result to DefectDojo format
-	scanData := c.convertScanToDefectDojoFormat(result, imageRef)
+	sarifData, err := NewSARIFFromScanResult(result, imageRef)
+	if err != nil {
+		return nil, fmt.Errorf("encoding SARIF: %w", err)
+	}
 
 	// Import scan
-	importResp, err := c.importScan(ctx, engagementID, scanData, config)
+	importResp, err := c.importScan(ctx, engagementID, sarifData, imageRef, config)
 	if err != nil {
 		return nil, fmt.Errorf("importing scan: %w", err)
 	}
@@ -118,12 +107,82 @@ func (c *DefectDojoClient) getOrCreateEngagement(ctx context.Context, config *De
 		}
 	}
 
+	if config.EngagementName != "" {
+		lookupConfig, err := c.engagementLookupConfig(ctx, config)
+		if err != nil {
+			return 0, fmt.Errorf("resolving engagement lookup config: %w", err)
+		}
+		engagements, err := c.listEngagements(ctx, lookupConfig)
+		if err != nil {
+			return 0, fmt.Errorf("listing engagements: %w", err)
+		}
+		if len(engagements) > 0 {
+			return engagements[0].ID, nil
+		}
+	}
+
 	// If auto-create is enabled, create engagement
 	if config.AutoCreate {
 		return c.createEngagement(ctx, config)
 	}
 
 	return 0, fmt.Errorf("engagement ID %d not found and auto-create is disabled", config.EngagementID)
+}
+
+func (c *DefectDojoClient) engagementLookupConfig(ctx context.Context, config *DefectDojoUploaderConfig) (*DefectDojoUploaderConfig, error) {
+	if config == nil {
+		return nil, nil
+	}
+
+	lookup := *config
+	if lookup.ProductID > 0 || lookup.ProductName == "" {
+		return &lookup, nil
+	}
+
+	products, err := c.listProducts(ctx, lookup.ProductName)
+	if err != nil {
+		return nil, err
+	}
+	if len(products) > 0 {
+		lookup.ProductID = products[0].ID
+	}
+
+	return &lookup, nil
+}
+
+func (c *DefectDojoClient) listEngagements(ctx context.Context, config *DefectDojoUploaderConfig) ([]DefectDojoEngagement, error) {
+	values := url.Values{}
+	if config.EngagementName != "" {
+		values.Set("name", config.EngagementName)
+	}
+	if config.ProductID > 0 {
+		values.Set("product", fmt.Sprintf("%d", config.ProductID))
+	}
+
+	req, err := c.createRequest(ctx, "GET", "/api/v2/engagements/?"+values.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Results []DefectDojoEngagement `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return response.Results, nil
 }
 
 // engagementExists checks if an engagement exists
@@ -160,12 +219,12 @@ func (c *DefectDojoClient) createEngagement(ctx context.Context, config *DefectD
 
 	// Create engagement
 	engagement := map[string]interface{}{
-		"name":        config.EngagementName,
-		"product":     productID,
-		"engagement_type": 1, // CI/CD
-		"target_start": time.Now().Format("2006-01-02"),
-		"target_end":   time.Now().Add(24 * time.Hour).Format("2006-01-02"),
-		"status":       "In Progress",
+		"name":            config.EngagementName,
+		"product":         productID,
+		"engagement_type": "CI/CD",
+		"target_start":    time.Now().Format("2006-01-02"),
+		"target_end":      time.Now().Add(24 * time.Hour).Format("2006-01-02"),
+		"status":          "In Progress",
 	}
 
 	body, err := json.Marshal(engagement)
@@ -219,7 +278,12 @@ func (c *DefectDojoClient) getOrCreateProduct(ctx context.Context, config *Defec
 
 // listProducts lists products by name
 func (c *DefectDojoClient) listProducts(ctx context.Context, name string) ([]DefectDojoProduct, error) {
-	req, err := c.createRequest(ctx, "GET", "/api/v2/products/?name="+name, nil)
+	values := url.Values{}
+	if name != "" {
+		values.Set("name", name)
+	}
+
+	req, err := c.createRequest(ctx, "GET", "/api/v2/products/?"+values.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -283,32 +347,48 @@ func (c *DefectDojoClient) createProduct(ctx context.Context, config *DefectDojo
 }
 
 // importScan imports scan results into DefectDojo
-func (c *DefectDojoClient) importScan(ctx context.Context, engagementID int, scanData map[string]interface{}, config *DefectDojoUploaderConfig) (*ImportScanResponse, error) {
-	// Create import scan request
-	importReq := ImportScanRequest{
-		ScanType:     "SARIF", // We'll convert to SARIF format
-		EngagementID: engagementID,
-		ScanDate:     time.Now().Format("2006-01-02"),
-		MinimumSeverity: "Info",
-		Active:       true,
-		Verified:     false,
-		Tags:         config.Tags,
-		Environment:  config.Environment,
+func (c *DefectDojoClient) importScan(ctx context.Context, engagementID int, sarifData []byte, imageRef string, config *DefectDojoUploaderConfig) (*ImportScanResponse, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	fields := map[string]string{
+		"scan_type":          "SARIF",
+		"engagement":         fmt.Sprintf("%d", engagementID),
+		"scan_date":          time.Now().Format("2006-01-02"),
+		"minimum_severity":   "Info",
+		"active":             "true",
+		"verified":           "false",
+		"close_old_findings": "true",
+		"test_title":         c.testTitle(config, imageRef),
+	}
+	if config.Environment != "" {
+		fields["environment"] = config.Environment
+	}
+	if len(config.Tags) > 0 {
+		fields["tags"] = strings.Join(config.Tags, ",")
+	}
+	for name, value := range fields {
+		if err := writer.WriteField(name, value); err != nil {
+			return nil, fmt.Errorf("writing multipart field %s: %w", name, err)
+		}
 	}
 
-	body, err := json.Marshal(importReq)
+	fileWriter, err := writer.CreateFormFile("file", "scan-results.sarif")
 	if err != nil {
-		return nil, fmt.Errorf("marshaling import request: %w", err)
+		return nil, fmt.Errorf("creating multipart file: %w", err)
+	}
+	if _, err := fileWriter.Write(sarifData); err != nil {
+		return nil, fmt.Errorf("writing SARIF payload: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart body: %w", err)
 	}
 
-	// Use multipart form data for file upload
-	// For simplicity, we're just sending JSON here
-	// In a production implementation, you'd use multipart with the actual SARIF file
-	req, err := c.createRequest(ctx, "POST", "/api/v2/import-scan/", bytes.NewReader(body))
+	req, err := c.createRequest(ctx, "POST", "/api/v2/import-scan/", &body)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -321,23 +401,18 @@ func (c *DefectDojoClient) importScan(ctx context.Context, engagementID int, sca
 		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var importResp ImportScanResponse
-	if err := json.NewDecoder(resp.Body).Decode(&importResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
-	return &importResp, nil
-}
-
-// convertScanToDefectDojoFormat converts scan results to DefectDojo format
-func (c *DefectDojoClient) convertScanToDefectDojoFormat(result *scan.ScanResult, imageRef string) map[string]interface{} {
-	return map[string]interface{}{
-		"image_ref":    imageRef,
-		"image_digest": result.ImageDigest,
-		"tool":         string(result.Tool),
-		"scan_date":    result.ScannedAt.Format(time.RFC3339),
-		"summary":      result.Summary,
+	importResp := decodeImportScanResponse(respBody)
+	importResp.Engagement = engagementID
+	if err := c.enrichImportScanResponse(ctx, importResp, engagementID, c.testTitle(config, imageRef)); err != nil {
+		return nil, fmt.Errorf("enriching import response: %w", err)
 	}
+
+	return importResp, nil
 }
 
 // createRequest creates an HTTP request with authentication
@@ -357,14 +432,206 @@ func (c *DefectDojoClient) createRequest(ctx context.Context, method, path strin
 	return req, nil
 }
 
+func (c *DefectDojoClient) testTitle(config *DefectDojoUploaderConfig, imageRef string) string {
+	title := config.TestType
+	if title == "" {
+		title = "Container Scan"
+	}
+
+	return fmt.Sprintf("%s - %s", title, imageRef)
+}
+
+func decodeImportScanResponse(data []byte) *ImportScanResponse {
+	resp := &ImportScanResponse{}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return resp
+	}
+
+	_ = json.Unmarshal(data, resp)
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return resp
+	}
+
+	if resp.ID == 0 {
+		resp.ID = intValue(raw["id"])
+	}
+	if resp.Test == 0 {
+		resp.Test = intValue(raw["test"])
+	}
+	if resp.Product == 0 {
+		resp.Product = intValue(raw["product"])
+	}
+	if resp.Engagement == 0 {
+		resp.Engagement = intValue(raw["engagement"])
+	}
+	if resp.NumberOfFindings == 0 {
+		resp.NumberOfFindings = intValue(raw["number_of_findings"])
+	}
+	if resp.NumberOfFindings == 0 {
+		resp.NumberOfFindings = intValue(raw["findings_count"])
+	}
+	if resp.NumberOfFindings == 0 {
+		if stats, ok := raw["statistics"].(map[string]interface{}); ok {
+			for _, key := range []string{"after_count", "count", "total", "new_findings"} {
+				if value := intValue(stats[key]); value > 0 {
+					resp.NumberOfFindings = value
+					break
+				}
+			}
+		}
+	}
+
+	return resp
+}
+
+func intValue(value interface{}) int {
+	switch typed := value.(type) {
+	case nil:
+		return 0
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case json.Number:
+		v, err := typed.Int64()
+		if err == nil {
+			return int(v)
+		}
+	case string:
+		v, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return v
+		}
+	case map[string]interface{}:
+		return intValue(typed["id"])
+	}
+
+	return 0
+}
+
+func (c *DefectDojoClient) enrichImportScanResponse(ctx context.Context, resp *ImportScanResponse, engagementID int, title string) error {
+	if resp == nil {
+		return nil
+	}
+	if resp.Engagement == 0 {
+		resp.Engagement = engagementID
+	}
+
+	if resp.Test == 0 {
+		tests, err := c.listTests(ctx, engagementID)
+		if err == nil {
+			if test := findLatestTestByTitle(tests, title); test != nil {
+				resp.Test = test.ID
+			}
+		}
+	}
+
+	if resp.NumberOfFindings == 0 {
+		count, err := c.countFindings(ctx, resp.Test, engagementID)
+		if err == nil {
+			resp.NumberOfFindings = count
+		}
+	}
+
+	return nil
+}
+
+func (c *DefectDojoClient) listTests(ctx context.Context, engagementID int) ([]DefectDojoTest, error) {
+	req, err := c.createRequest(ctx, "GET", fmt.Sprintf("/api/v2/tests/?engagement=%d", engagementID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Results []DefectDojoTest `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return response.Results, nil
+}
+
+func findLatestTestByTitle(tests []DefectDojoTest, title string) *DefectDojoTest {
+	var match *DefectDojoTest
+	for i := range tests {
+		if tests[i].Title != title {
+			continue
+		}
+		if match == nil || tests[i].ID > match.ID {
+			match = &tests[i]
+		}
+	}
+	return match
+}
+
+func (c *DefectDojoClient) countFindings(ctx context.Context, testID, engagementID int) (int, error) {
+	if testID > 0 {
+		count, err := c.countFindingsByQuery(ctx, fmt.Sprintf("/api/v2/findings/?test=%d", testID))
+		if err == nil {
+			return count, nil
+		}
+	}
+
+	if engagementID == 0 {
+		return 0, nil
+	}
+
+	return c.countFindingsByQuery(ctx, fmt.Sprintf("/api/v2/findings/?test__engagement=%d", engagementID))
+}
+
+func (c *DefectDojoClient) countFindingsByQuery(ctx context.Context, path string) (int, error) {
+	req, err := c.createRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return 0, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return response.Count, nil
+}
+
 // DefectDojoUploaderConfig contains configuration for uploading to DefectDojo
 type DefectDojoUploaderConfig struct {
-	EngagementID    int
-	EngagementName  string
-	ProductID       int
-	ProductName     string
-	TestType        string
-	Tags            []string
-	Environment     string
-	AutoCreate      bool
+	EngagementID   int
+	EngagementName string
+	ProductID      int
+	ProductName    string
+	TestType       string
+	Tags           []string
+	Environment    string
+	AutoCreate     bool
 }

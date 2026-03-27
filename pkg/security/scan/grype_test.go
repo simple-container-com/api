@@ -2,6 +2,8 @@ package scan
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -188,4 +190,66 @@ BuildDate:           2026-01-29T22:10:17Z`,
 			}
 		})
 	}
+}
+
+func TestGrypeCommandEnv(t *testing.T) {
+	tests := []struct {
+		name      string
+		dbPresent bool
+		wantAuto  bool
+	}{
+		{
+			name:      "cold cache allows database update",
+			dbPresent: false,
+			wantAuto:  false,
+		},
+		{
+			name:      "warm cache skips database update",
+			dbPresent: true,
+			wantAuto:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := grypeCommandEnv(tt.dbPresent)
+			if !containsString(env, "GRYPE_CHECK_FOR_APP_UPDATE=false") {
+				t.Fatalf("expected GRYPE_CHECK_FOR_APP_UPDATE=false in %v", env)
+			}
+			if got := containsString(env, "GRYPE_DB_AUTO_UPDATE=false"); got != tt.wantAuto {
+				t.Fatalf("GRYPE_DB_AUTO_UPDATE presence = %v, want %v", got, tt.wantAuto)
+			}
+		})
+	}
+}
+
+func TestHasGrypeVulnerabilityDB(t *testing.T) {
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+	t.Setenv("HOME", t.TempDir())
+
+	if hasGrypeVulnerabilityDB() {
+		t.Fatal("expected no grype DB in empty cache")
+	}
+
+	dbPath := filepath.Join(cacheDir, "grype", "db", "6", "vulnerability.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(dbPath, []byte("db"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if !hasGrypeVulnerabilityDB() {
+		t.Fatal("expected grype DB to be detected")
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/simple-container-com/api/pkg/security/attestation"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
@@ -178,8 +179,7 @@ func (a *Attacher) buildSigningEnv() []string {
 		return env
 	}
 
-	// Add COSIGN_PASSWORD if provided
-	if a.SigningConfig.Password != "" {
+	if !a.SigningConfig.Keyless && a.SigningConfig.PrivateKey != "" {
 		env = append(env, fmt.Sprintf("COSIGN_PASSWORD=%s", a.SigningConfig.Password))
 	}
 
@@ -191,27 +191,16 @@ func (a *Attacher) buildSigningEnv() []string {
 
 // parseAttestationOutput parses the cosign verify-attestation output
 func (a *Attacher) parseAttestationOutput(output []byte, format Format, image string) (*SBOM, error) {
-	// Cosign verify-attestation outputs JSON with the attestation payload
-	var attestations []struct {
-		Payload string `json:"payload"`
-	}
-
-	if err := json.Unmarshal(output, &attestations); err != nil {
-		return nil, fmt.Errorf("failed to parse attestation JSON: %w", err)
-	}
-
-	if len(attestations) == 0 {
-		return nil, fmt.Errorf("no attestations found")
-	}
-
-	// Decode the payload (base64-encoded in-toto statement)
-	// The payload contains the SBOM in the predicate field
+	// The payload contains the verified in-toto statement. Extract the predicate
+	// as the verified SBOM document.
 	var statement struct {
 		Predicate json.RawMessage `json:"predicate"`
 	}
 
-	// Parse the payload as JSON
-	payloadBytes := []byte(attestations[0].Payload)
+	payloadBytes, err := attestation.DecodeFirstPayload(output)
+	if err != nil {
+		return nil, err
+	}
 	if err := json.Unmarshal(payloadBytes, &statement); err != nil {
 		return nil, fmt.Errorf("failed to parse attestation payload: %w", err)
 	}

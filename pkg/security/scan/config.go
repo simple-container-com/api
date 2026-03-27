@@ -59,9 +59,9 @@ func DefaultConfig() *Config {
 	return &Config{
 		Enabled:  true,
 		Tools:    []ScanTool{ScanToolGrype},
-		FailOn:   SeverityCritical,
+		FailOn:   "",
 		WarnOn:   SeverityHigh,
-		Required: true,
+		Required: false,
 		Output:   &OutputConfig{},
 		Cache: &CacheConfig{
 			Enabled: true,

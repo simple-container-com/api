@@ -5,22 +5,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/sbom"
+	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
 // WorkflowSummary tracks the results of all security operations
 type WorkflowSummary struct {
-	ImageRef        string
-	StartTime       time.Time
-	EndTime         time.Time
-	SBOMResult      *SBOMSummary
-	ScanResults     []*ScanSummary
-	MergedResult    *ScanSummary
-	SigningResult   *SigningSummary
+	ImageRef         string
+	StartTime        time.Time
+	EndTime          time.Time
+	SBOMResult       *SBOMSummary
+	ScanResults      []*ScanSummary
+	MergedResult     *ScanSummary
+	SigningResult    *SigningSummary
 	ProvenanceResult *ProvenanceSummary
-	UploadResults   []*UploadSummary
+	UploadResults    []*UploadSummary
 }
 
 // SBOMSummary tracks SBOM generation results
@@ -38,12 +38,12 @@ type SBOMSummary struct {
 
 // ScanSummary tracks vulnerability scan results
 type ScanSummary struct {
-	Tool          scan.ScanTool
-	Success       bool
-	Error         error
-	ScanResult    *scan.ScanResult
-	Duration      time.Duration
-	ToolVersion   string
+	Tool        scan.ScanTool
+	Success     bool
+	Error       error
+	ScanResult  *scan.ScanResult
+	Duration    time.Duration
+	ToolVersion string
 }
 
 // SigningSummary tracks signing results
@@ -57,19 +57,19 @@ type SigningSummary struct {
 
 // ProvenanceSummary tracks provenance generation results
 type ProvenanceSummary struct {
-	Success   bool
-	Error     error
-	Format    string
-	Duration  time.Duration
-	Attached  bool
+	Success  bool
+	Error    error
+	Format   string
+	Duration time.Duration
+	Attached bool
 }
 
 // UploadSummary tracks report upload results
 type UploadSummary struct {
-	Target  string // "defectdojo"
-	Success bool
-	Error   error
-	URL     string
+	Target   string // "defectdojo"
+	Success  bool
+	Error    error
+	URL      string
 	Duration time.Duration
 }
 
@@ -83,11 +83,20 @@ func NewWorkflowSummary(imageRef string) *WorkflowSummary {
 
 // RecordSBOM records SBOM generation result
 func (w *WorkflowSummary) RecordSBOM(result *sbom.SBOM, err error, duration time.Duration, outputPath string) {
+	packageCount := 0
+	format := ""
+	if result != nil {
+		format = string(result.Format)
+		if result.Metadata != nil {
+			packageCount = int(result.Metadata.PackageCount)
+		}
+	}
+
 	w.SBOMResult = &SBOMSummary{
 		Success:      err == nil,
 		Error:        err,
-		PackageCount: int(result.Metadata.PackageCount),
-		Format:       string(result.Format),
+		PackageCount: packageCount,
+		Format:       format,
 		Generator:    "syft",
 		Duration:     duration,
 		OutputPath:   outputPath,

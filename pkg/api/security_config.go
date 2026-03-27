@@ -8,6 +8,7 @@ type SecurityDescriptor struct {
 	SBOM       *SBOMDescriptor       `json:"sbom,omitempty" yaml:"sbom,omitempty"`
 	Provenance *ProvenanceDescriptor `json:"provenance,omitempty" yaml:"provenance,omitempty"`
 	Scan       *ScanDescriptor       `json:"scan,omitempty" yaml:"scan,omitempty"`
+	Reporting  *ReportingDescriptor  `json:"reporting,omitempty" yaml:"reporting,omitempty"`
 }
 
 // SigningDescriptor configures image signing
@@ -35,6 +36,7 @@ type SBOMDescriptor struct {
 	Format    string            `json:"format,omitempty" yaml:"format,omitempty"`       // Default: "cyclonedx-json"
 	Generator string            `json:"generator,omitempty" yaml:"generator,omitempty"` // Default: "syft"
 	Output    *OutputDescriptor `json:"output,omitempty" yaml:"output,omitempty"`
+	Cache     *CacheDescriptor  `json:"cache,omitempty" yaml:"cache,omitempty"`
 	Attach    *AttachDescriptor `json:"attach,omitempty" yaml:"attach,omitempty"`
 	Required  bool              `json:"required,omitempty" yaml:"required,omitempty"`
 }
@@ -43,6 +45,13 @@ type SBOMDescriptor struct {
 type OutputDescriptor struct {
 	Local    string `json:"local,omitempty" yaml:"local,omitempty"`       // Local file path
 	Registry bool   `json:"registry,omitempty" yaml:"registry,omitempty"` // Upload to registry
+}
+
+// CacheDescriptor configures local artifact caching.
+type CacheDescriptor struct {
+	Enabled bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	TTL     string `json:"ttl,omitempty" yaml:"ttl,omitempty"`
+	Dir     string `json:"dir,omitempty" yaml:"dir,omitempty"`
 }
 
 // AttachDescriptor configures attestation attachment
@@ -80,16 +89,45 @@ type ScanDescriptor struct {
 	Tools    []ScanToolDescriptor `json:"tools,omitempty" yaml:"tools,omitempty"`
 	FailOn   string               `json:"failOn,omitempty" yaml:"failOn,omitempty"` // "critical", "high", "medium", "low"
 	WarnOn   string               `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // "critical", "high", "medium", "low"
+	Output   *OutputDescriptor    `json:"output,omitempty" yaml:"output,omitempty"`
+	Cache    *CacheDescriptor     `json:"cache,omitempty" yaml:"cache,omitempty"`
 	Required bool                 `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // ScanToolDescriptor configures a specific scanning tool
 type ScanToolDescriptor struct {
 	Name     string `json:"name,omitempty" yaml:"name,omitempty"` // "grype", "trivy"
-	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Enabled  *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Required bool   `json:"required,omitempty" yaml:"required,omitempty"`
 	FailOn   string `json:"failOn,omitempty" yaml:"failOn,omitempty"`
 	WarnOn   string `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`
+}
+
+// ReportingDescriptor configures external reporting and PR comment generation.
+type ReportingDescriptor struct {
+	DefectDojo *DefectDojoDescriptor `json:"defectdojo,omitempty" yaml:"defectdojo,omitempty"`
+	PRComment  *PRCommentDescriptor  `json:"prComment,omitempty" yaml:"prComment,omitempty"`
+}
+
+// DefectDojoDescriptor configures DefectDojo upload.
+type DefectDojoDescriptor struct {
+	Enabled        bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	URL            string   `json:"url,omitempty" yaml:"url,omitempty"`
+	APIKey         string   `json:"apiKey,omitempty" yaml:"apiKey,omitempty"`
+	EngagementID   int      `json:"engagementId,omitempty" yaml:"engagementId,omitempty"`
+	EngagementName string   `json:"engagementName,omitempty" yaml:"engagementName,omitempty"`
+	ProductID      int      `json:"productId,omitempty" yaml:"productId,omitempty"`
+	ProductName    string   `json:"productName,omitempty" yaml:"productName,omitempty"`
+	TestType       string   `json:"testType,omitempty" yaml:"testType,omitempty"`
+	Tags           []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Environment    string   `json:"environment,omitempty" yaml:"environment,omitempty"`
+	AutoCreate     bool     `json:"autoCreate,omitempty" yaml:"autoCreate,omitempty"`
+}
+
+// PRCommentDescriptor configures markdown output for PR comment workflows.
+type PRCommentDescriptor struct {
+	Enabled bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Output  string `json:"output,omitempty" yaml:"output,omitempty"`
 }
 
 // DefaultSecurityDescriptor returns a default security descriptor
@@ -105,6 +143,10 @@ func DefaultSecurityDescriptor() *SecurityDescriptor {
 			Enabled:   false,
 			Format:    "cyclonedx-json",
 			Generator: "syft",
+			Cache: &CacheDescriptor{
+				Enabled: true,
+				TTL:     "24h",
+			},
 			Output: &OutputDescriptor{
 				Registry: true,
 			},
@@ -125,17 +167,28 @@ func DefaultSecurityDescriptor() *SecurityDescriptor {
 			},
 		},
 		Scan: &ScanDescriptor{
-			Enabled:  false,
-			FailOn:   "critical",
+			Enabled: false,
+			FailOn:  "",
+			WarnOn:  "high",
+			Output:  &OutputDescriptor{},
+			Cache: &CacheDescriptor{
+				Enabled: true,
+				TTL:     "6h",
+			},
 			Required: false,
 			Tools: []ScanToolDescriptor{
 				{
 					Name:     "grype",
-					Enabled:  true,
-					Required: true,
-					FailOn:   "critical",
+					Enabled:  boolPtr(true),
+					Required: false,
+					WarnOn:   "high",
 				},
 			},
 		},
+		Reporting: &ReportingDescriptor{},
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

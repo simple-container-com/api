@@ -9,11 +9,40 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "cache": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dir": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "ttl": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "enabled": {
         "type": "boolean"
       },
       "failOn": {
         "type": "string"
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "local": {
+            "type": "string"
+          },
+          "registry": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
       },
       "required": {
         "type": "boolean"

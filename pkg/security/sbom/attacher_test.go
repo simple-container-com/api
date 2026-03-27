@@ -144,7 +144,8 @@ func TestAttacherBuildSigningEnv(t *testing.T) {
 		{
 			name: "With password",
 			config: &signing.Config{
-				Password: "secret123",
+				PrivateKey: "/tmp/cosign.key",
+				Password:   "secret123",
 			},
 			want: []string{"COSIGN_PASSWORD=secret123"},
 		},
@@ -154,6 +155,14 @@ func TestAttacherBuildSigningEnv(t *testing.T) {
 				Keyless: true,
 			},
 			want: []string{},
+		},
+		{
+			name: "Key based empty password still exports env",
+			config: &signing.Config{
+				PrivateKey: "/tmp/cosign.key",
+				Password:   "",
+			},
+			want: []string{"COSIGN_PASSWORD="},
 		},
 	}
 

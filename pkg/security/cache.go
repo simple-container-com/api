@@ -102,7 +102,14 @@ func (c *Cache) Get(key CacheKey) ([]byte, bool, error) {
 
 // Set stores a result in the cache with appropriate TTL
 func (c *Cache) Set(key CacheKey, data []byte) error {
-	ttl := c.getTTL(key.Operation)
+	return c.SetWithTTL(key, data, c.getTTL(key.Operation))
+}
+
+// SetWithTTL stores a result in the cache with an explicit TTL.
+func (c *Cache) SetWithTTL(key CacheKey, data []byte, ttl time.Duration) error {
+	if ttl <= 0 {
+		ttl = c.getTTL(key.Operation)
+	}
 	now := time.Now()
 
 	entry := CacheEntry{

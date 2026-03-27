@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
@@ -22,6 +23,7 @@ type SBOMConfig struct {
 	Format    string        `json:"format,omitempty" yaml:"format,omitempty"`       // Default: "cyclonedx-json"
 	Generator string        `json:"generator,omitempty" yaml:"generator,omitempty"` // Default: "syft"
 	Output    *OutputConfig `json:"output,omitempty" yaml:"output,omitempty"`
+	Cache     *CacheConfig  `json:"cache,omitempty" yaml:"cache,omitempty"`
 	Attach    *AttachConfig `json:"attach,omitempty" yaml:"attach,omitempty"`
 	Required  bool          `json:"required,omitempty" yaml:"required,omitempty"` // Fail if SBOM generation fails
 }
@@ -30,6 +32,13 @@ type SBOMConfig struct {
 type OutputConfig struct {
 	Local    string `json:"local,omitempty" yaml:"local,omitempty"`       // Local file path
 	Registry bool   `json:"registry,omitempty" yaml:"registry,omitempty"` // Upload to registry
+}
+
+// CacheConfig configures local caching for security artifacts.
+type CacheConfig struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	TTL     string `json:"ttl,omitempty" yaml:"ttl,omitempty"` // Cache TTL, e.g. 6h
+	Dir     string `json:"dir,omitempty" yaml:"dir,omitempty"` // Cache directory
 }
 
 // AttachConfig configures attestation attachment
@@ -65,15 +74,17 @@ type MetadataConfig struct {
 type ScanConfig struct {
 	Enabled  bool             `json:"enabled" yaml:"enabled"`
 	Tools    []ScanToolConfig `json:"tools,omitempty" yaml:"tools,omitempty"`
-	FailOn   Severity         `json:"failOn,omitempty" yaml:"failOn,omitempty"`     // Fail on this severity or higher
-	WarnOn   Severity         `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`     // Warn on this severity or higher
+	FailOn   Severity         `json:"failOn,omitempty" yaml:"failOn,omitempty"` // Fail on this severity or higher
+	WarnOn   Severity         `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // Warn on this severity or higher
+	Output   *OutputConfig    `json:"output,omitempty" yaml:"output,omitempty"`
+	Cache    *CacheConfig     `json:"cache,omitempty" yaml:"cache,omitempty"`
 	Required bool             `json:"required,omitempty" yaml:"required,omitempty"` // Fail if scan fails
 }
 
 // ScanToolConfig configures a specific scanning tool
 type ScanToolConfig struct {
 	Name     string   `json:"name" yaml:"name"`                             // grype, trivy
-	Enabled  bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`   // Enable this tool
+	Enabled  *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`   // Enable this tool (nil = use defaults)
 	Required bool     `json:"required,omitempty" yaml:"required,omitempty"` // Fail if this tool fails
 	FailOn   Severity `json:"failOn,omitempty" yaml:"failOn,omitempty"`     // Tool-specific failOn
 	WarnOn   Severity `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`     // Tool-specific warnOn
@@ -177,7 +188,37 @@ func (c *SBOMConfig) Validate() error {
 		}
 	}
 
+	if c.Cache != nil {
+		if err := c.Cache.Validate(); err != nil {
+			return fmt.Errorf("invalid sbom.cache: %w", err)
+		}
+	}
+
+	if c.Attach != nil && c.Attach.Enabled && !c.Attach.Sign {
+		return fmt.Errorf("sbom.attach.sign must be true when sbom.attach.enabled=true")
+	}
+
+	if c.Output != nil && c.Output.Registry && c.Attach != nil {
+		if !c.Attach.Enabled {
+			return fmt.Errorf("sbom.attach.enabled=false is not compatible with sbom.output.registry=true")
+		}
+		if !c.Attach.Sign {
+			return fmt.Errorf("sbom.attach.sign=false is not compatible with sbom.output.registry=true")
+		}
+	}
+
 	return nil
+}
+
+// ShouldAttach returns true when SBOM attestation attachment is requested.
+func (c *SBOMConfig) ShouldAttach() bool {
+	if c == nil || !c.Enabled {
+		return false
+	}
+	if c.Output != nil && c.Output.Registry {
+		return true
+	}
+	return c.Attach != nil && c.Attach.Enabled
 }
 
 // Validate validates provenance configuration
@@ -187,7 +228,7 @@ func (c *ProvenanceConfig) Validate() error {
 	}
 
 	// Validate format
-	validFormats := []string{"slsa-v1.0", "slsa-v0.2"}
+	validFormats := []string{"slsa-v1.0"}
 	if c.Format != "" {
 		valid := false
 		for _, f := range validFormats {
@@ -232,6 +273,12 @@ func (c *ScanConfig) Validate() error {
 	for i, tool := range c.Tools {
 		if err := tool.Validate(); err != nil {
 			return fmt.Errorf("scan.tools[%d] validation failed: %w", i, err)
+		}
+	}
+
+	if c.Cache != nil {
+		if err := c.Cache.Validate(); err != nil {
+			return fmt.Errorf("invalid scan.cache: %w", err)
 		}
 	}
 
@@ -292,21 +339,28 @@ func (s Severity) Validate() error {
 // ReportingConfig configures report uploading to external systems
 type ReportingConfig struct {
 	DefectDojo *DefectDojoConfig `json:"defectdojo,omitempty" yaml:"defectdojo,omitempty"`
+	PRComment  *PRCommentConfig  `json:"prComment,omitempty" yaml:"prComment,omitempty"`
 }
 
 // DefectDojoConfig configures DefectDojo integration
 type DefectDojoConfig struct {
-	Enabled      bool              `json:"enabled" yaml:"enabled"`
-	URL          string            `json:"url" yaml:"url"`                                 // DefectDojo instance URL
-	APIKey       string            `json:"apiKey" yaml:"apiKey"`                           // API key for authentication
-	EngagementID int               `json:"engagementId,omitempty" yaml:"engagementId"`     // Engagement ID (optional, can create new)
-	EngagementName string          `json:"engagementName,omitempty" yaml:"engagementName"` // Engagement name (if creating new)
-	ProductID    int               `json:"productId,omitempty" yaml:"productId"`           // Product ID (required if creating new engagement)
-	ProductName  string            `json:"productName,omitempty" yaml:"productName"`       // Product name (if creating new product)
-	TestType     string            `json:"testType,omitempty" yaml:"testType"`             // Test type (default: "Container Scan")
-	Tags         []string          `json:"tags,omitempty" yaml:"tags,omitempty"`           // Tags for the engagement
-	Environment  string            `json:"environment,omitempty" yaml:"environment"`       // Environment (e.g., "production", "staging")
-	AutoCreate  bool              `json:"autoCreate,omitempty" yaml:"autoCreate"`         // Auto-create product/engagement if not found
+	Enabled        bool     `json:"enabled" yaml:"enabled"`
+	URL            string   `json:"url" yaml:"url"`                                 // DefectDojo instance URL
+	APIKey         string   `json:"apiKey" yaml:"apiKey"`                           // API key for authentication
+	EngagementID   int      `json:"engagementId,omitempty" yaml:"engagementId"`     // Existing engagement ID
+	EngagementName string   `json:"engagementName,omitempty" yaml:"engagementName"` // Engagement name (if creating new)
+	ProductID      int      `json:"productId,omitempty" yaml:"productId"`           // Product ID (required if creating new engagement)
+	ProductName    string   `json:"productName,omitempty" yaml:"productName"`       // Product name (if creating new product)
+	TestType       string   `json:"testType,omitempty" yaml:"testType"`             // Test type title (default: "Container Scan")
+	Tags           []string `json:"tags,omitempty" yaml:"tags,omitempty"`           // Tags for the test
+	Environment    string   `json:"environment,omitempty" yaml:"environment"`       // Environment (e.g., "production", "staging")
+	AutoCreate     bool     `json:"autoCreate,omitempty" yaml:"autoCreate"`         // Auto-create product/engagement if not found
+}
+
+// PRCommentConfig configures markdown output for pull request comments.
+type PRCommentConfig struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Output  string `json:"output,omitempty" yaml:"output,omitempty"`
 }
 
 // IsAtLeast returns true if this severity is at least as severe as the given severity
@@ -335,6 +389,10 @@ func DefaultSecurityConfig() *SecurityConfig {
 			Enabled:   false,
 			Format:    "cyclonedx-json",
 			Generator: "syft",
+			Cache: &CacheConfig{
+				Enabled: true,
+				TTL:     "24h",
+			},
 			Output: &OutputConfig{
 				Registry: true,
 			},
@@ -355,15 +413,21 @@ func DefaultSecurityConfig() *SecurityConfig {
 			},
 		},
 		Scan: &ScanConfig{
-			Enabled:  false,
-			FailOn:   SeverityCritical,
+			Enabled: false,
+			FailOn:  SeverityNone,
+			WarnOn:  SeverityHigh,
+			Output:  &OutputConfig{},
+			Cache: &CacheConfig{
+				Enabled: true,
+				TTL:     "6h",
+			},
 			Required: false,
 			Tools: []ScanToolConfig{
 				{
 					Name:     "grype",
-					Enabled:  true,
-					Required: true,
-					FailOn:   SeverityCritical,
+					Enabled:  boolPtr(true),
+					Required: false,
+					WarnOn:   SeverityHigh,
 				},
 			},
 		},
@@ -380,6 +444,12 @@ func (c *ReportingConfig) Validate() error {
 	if c.DefectDojo != nil && c.DefectDojo.Enabled {
 		if err := c.DefectDojo.Validate(); err != nil {
 			return fmt.Errorf("defectdojo validation failed: %w", err)
+		}
+	}
+
+	if c.PRComment != nil && c.PRComment.Enabled {
+		if err := c.PRComment.Validate(); err != nil {
+			return fmt.Errorf("prComment validation failed: %w", err)
 		}
 	}
 
@@ -400,12 +470,50 @@ func (c *DefectDojoConfig) Validate() error {
 		return fmt.Errorf("defectdojo.apiKey is required when enabled")
 	}
 
-	// If engagementId is not provided, need productName and productId for auto-creation
+	if c.EngagementID == 0 && !c.AutoCreate {
+		return fmt.Errorf("defectdojo.engagementId is required when autoCreate is disabled")
+	}
+
 	if c.EngagementID == 0 && c.AutoCreate {
-		if c.ProductName == "" {
-			return fmt.Errorf("defectdojo.productName is required when autoCreate is enabled and engagementId is not provided")
+		if c.EngagementName == "" {
+			return fmt.Errorf("defectdojo.engagementName is required when autoCreate is enabled and engagementId is not provided")
+		}
+		if c.ProductID == 0 && c.ProductName == "" {
+			return fmt.Errorf("defectdojo.productId or defectdojo.productName is required when autoCreate is enabled and engagementId is not provided")
 		}
 	}
 
 	return nil
+}
+
+// Validate validates pull-request comment configuration.
+func (c *PRCommentConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+
+	return nil
+}
+
+// Validate validates cache configuration.
+func (c *CacheConfig) Validate() error {
+	if c == nil || !c.Enabled {
+		return nil
+	}
+
+	if c.TTL != "" {
+		ttl, err := time.ParseDuration(c.TTL)
+		if err != nil {
+			return fmt.Errorf("invalid ttl %q: %w", c.TTL, err)
+		}
+		if ttl <= 0 {
+			return fmt.Errorf("ttl must be greater than zero")
+		}
+	}
+
+	return nil
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }

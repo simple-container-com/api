@@ -3,19 +3,19 @@ package cmd_sbom
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/security"
 	"github.com/simple-container-com/api/pkg/security/sbom"
 )
 
 // generateOptions holds options for the generate command
 type generateOptions struct {
-	image  string
-	format string
-	output string
+	image    string
+	format   string
+	output   string
+	cacheDir string
 }
 
 // NewGenerateCommand creates the generate command
@@ -42,6 +42,7 @@ func NewGenerateCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.image, "image", "", "Container image reference (required)")
 	cmd.Flags().StringVar(&opts.format, "format", "cyclonedx-json", "SBOM format (cyclonedx-json, cyclonedx-xml, spdx-json, spdx-tag-value, syft-json)")
 	cmd.Flags().StringVar(&opts.output, "output", "", "Output file path (required)")
+	cmd.Flags().StringVar(&opts.cacheDir, "cache-dir", "", "Optional cache directory for generated SBOMs")
 
 	_ = cmd.MarkFlagRequired("image")
 	_ = cmd.MarkFlagRequired("output")
@@ -56,32 +57,36 @@ func runGenerate(ctx context.Context, opts *generateOptions) error {
 		return fmt.Errorf("invalid format: %w", err)
 	}
 
-	// Check if syft is installed
-	if err := sbom.CheckInstalled(ctx); err != nil {
-		return err
+	cfg := &security.SecurityConfig{
+		Enabled: true,
+		SBOM: &security.SBOMConfig{
+			Enabled:   true,
+			Format:    string(format),
+			Generator: "syft",
+			Output: &security.OutputConfig{
+				Local: opts.output,
+			},
+		},
 	}
-
-	// Create generator
-	generator := sbom.NewSyftGenerator()
-
-	// Generate SBOM
-	fmt.Printf("Generating %s SBOM for %s...\n", format, opts.image)
-	generatedSBOM, err := generator.Generate(ctx, opts.image, format)
-	if err != nil {
-		return fmt.Errorf("failed to generate SBOM: %w", err)
-	}
-
-	// Create output directory if needed
-	outputDir := filepath.Dir(opts.output)
-	if outputDir != "." && outputDir != "" {
-		if err := os.MkdirAll(outputDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create output directory: %w", err)
+	if opts.cacheDir != "" {
+		cfg.SBOM.Cache = &security.CacheConfig{
+			Enabled: true,
+			Dir:     opts.cacheDir,
+			TTL:     "24h",
 		}
 	}
 
-	// Write SBOM to file
-	if err := os.WriteFile(opts.output, generatedSBOM.Content, 0o644); err != nil {
-		return fmt.Errorf("failed to write SBOM to file: %w", err)
+	executor, err := security.NewSecurityExecutor(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("creating security executor: %w", err)
+	}
+
+	generatedSBOM, err := executor.ExecuteSBOM(ctx, opts.image)
+	if err != nil {
+		return fmt.Errorf("failed to generate SBOM: %w", err)
+	}
+	if generatedSBOM == nil {
+		return fmt.Errorf("no SBOM generated")
 	}
 
 	// Print summary

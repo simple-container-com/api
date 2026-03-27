@@ -65,9 +65,9 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 	}
 
 	// Prepare environment variables
-	env := []string{}
+	env := []string{"COSIGN_PASSWORD=" + s.Password}
 	if s.Password != "" {
-		env = append(env, "COSIGN_PASSWORD="+s.Password)
+		env[0] = "COSIGN_PASSWORD=" + s.Password
 	}
 
 	// Execute cosign sign command
@@ -105,10 +105,7 @@ func GenerateKeyPair(ctx context.Context, outputDir string, password string) (pr
 	publicKeyPath = filepath.Join(outputDir, "cosign.pub")
 
 	// Prepare environment
-	env := []string{}
-	if password != "" {
-		env = append(env, "COSIGN_PASSWORD="+password)
-	}
+	env := []string{"COSIGN_PASSWORD=" + password}
 
 	// Execute cosign generate-key-pair
 	args := []string{"generate-key-pair"}

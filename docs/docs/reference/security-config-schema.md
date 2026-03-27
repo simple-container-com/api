@@ -8,11 +8,12 @@ Top-level security configuration.
 
 ```yaml
 security:
-  enabled: boolean          # Enable security operations (default: false)
-  scan: ScanDescriptor     # Vulnerability scanning config
+  enabled: boolean            # Enable security operations (default: false)
+  scan: ScanDescriptor        # Vulnerability scanning config
   signing: SigningDescriptor # Image signing config
-  sbom: SBOMDescriptor     # SBOM generation config
+  sbom: SBOMDescriptor        # SBOM generation config
   provenance: ProvenanceDescriptor # Provenance attestation config
+  reporting: ReportingDescriptor   # External reporting / PR comment config
 ```
 
 ## ScanDescriptor
@@ -23,16 +24,21 @@ Vulnerability scanning configuration.
 scan:
   enabled: boolean          # Enable vulnerability scanning (default: false)
   tools:                    # Scanner tools to use
-    - name: string          # Tool name: grype, trivy, or all
-  failOn: string           # Block deployment on severity: critical, high, medium, low
-  warnOn: string           # Warn on severity (doesn't block)
+    - name: string          # Tool name: grype or trivy
+      enabled: boolean      # Enable this scanner entry (default: true when omitted, explicit false is respected)
+      required: boolean     # Fail if this specific scanner fails
+      failOn: string        # Override global fail threshold for this scanner
+      warnOn: string        # Override global warn threshold for this scanner
+  failOn: string           # Optional quality gate on severity: critical, high, medium, low
+  warnOn: string           # Warn on severity (doesn't block, default: high)
   required: boolean        # Fail deployment if scan fails (default: false)
   cache:
     enabled: boolean       # Enable scan result caching (default: true)
     ttl: duration         # Cache TTL (default: 6h)
+    dir: string           # Optional cache directory
   output:
-    local: string         # Local path to save results
-    registry: boolean     # Attach results to registry (default: false)
+    local: string         # Local file path for merged JSON results
+    registry: boolean     # Reserved for future registry export support; currently not used for vulnerability scans
 ```
 
 **Example:**
@@ -41,9 +47,7 @@ scan:
   enabled: true
   tools:
     - name: grype
-  failOn: critical
   warnOn: high
-  required: true
 ```
 
 ## SigningDescriptor
@@ -56,9 +60,11 @@ signing:
   keyless: boolean          # Use keyless signing with OIDC (default: true)
   privateKey: string        # Path to private key (for key-based signing)
   publicKey: string         # Path to public key (for verification)
-  oidcIssuer: string       # OIDC issuer URL (default: https://oauth2.sigstore.dev/auth)
-  identityRegexp: string   # Identity pattern for verification
   required: boolean        # Fail deployment if signing fails (default: false)
+  verify:
+    enabled: boolean
+    oidcIssuer: string       # OIDC issuer URL for verification
+    identityRegexp: string   # Identity pattern for keyless verification
 ```
 
 **Example (Keyless):**
@@ -67,6 +73,10 @@ signing:
   enabled: true
   keyless: true
   required: true
+  verify:
+    enabled: true
+    oidcIssuer: https://token.actions.githubusercontent.com
+    identityRegexp: ^https://github.com/myorg/myrepo/.github/workflows/.*$
 ```
 
 **Example (Key-based):**
@@ -76,6 +86,14 @@ signing:
   keyless: false
   privateKey: /secrets/cosign.key
   publicKey: /secrets/cosign.pub
+```
+
+For GitHub Actions keyless signing, the workflow job also needs:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
 ```
 
 ## SBOMDescriptor
@@ -88,11 +106,15 @@ sbom:
   format: string           # SBOM format: cyclonedx-json, cyclonedx-xml, spdx-json, spdx-tag-value, syft-json
   generator: string        # Generator tool: syft (default)
   required: boolean        # Fail deployment if SBOM generation fails (default: false)
+  attach:
+    enabled: boolean       # Attach SBOM attestation to the image (default: true)
+    sign: boolean          # Signed registry attestation (must be true when output.registry=true)
   cache:
     enabled: boolean       # Enable SBOM caching (default: true)
     ttl: duration         # Cache TTL (default: 24h)
+    dir: string           # Optional cache directory
   output:
-    local: string         # Local path to save SBOM
+    local: string         # Local file path to save the generated SBOM
     registry: boolean     # Attach SBOM as attestation to registry (default: false)
 ```
 
@@ -120,8 +142,13 @@ provenance:
   includeDocker: boolean   # Include Dockerfile metadata (default: true)
   required: boolean        # Fail deployment if provenance generation fails (default: false)
   output:
-    local: string         # Local path to save provenance
-    registry: boolean     # Attach provenance as attestation to registry (default: false)
+    local: string         # Local file path to save provenance
+    registry: boolean     # Preserve an attached registry attestation (default: false)
+  builder:
+    id: string            # Optional builder ID override
+  metadata:
+    includeEnv: boolean
+    includeMaterials: boolean
 ```
 
 **Example:**
@@ -135,6 +162,34 @@ provenance:
     registry: true
 ```
 
+## ReportingDescriptor
+
+Security report publication configuration.
+
+```yaml
+reporting:
+  defectdojo:
+    enabled: boolean
+    url: string              # Required when enabled
+    apiKey: string           # Required when enabled
+    engagementId: integer    # Required when using an existing engagement
+    engagementName: string   # Required when autoCreate=true and engagementId is not set
+    productId: integer       # Required when autoCreate=true and engagementId is not set, unless productName is used
+    productName: string      # Required when autoCreate=true and engagementId is not set, unless productId is used
+    testType: string
+    environment: string       # Optional; must match an existing DefectDojo environment if set
+    tags: [string]
+    autoCreate: boolean
+  prComment:
+    enabled: boolean
+    output: string           # Markdown file for CI to post as a sticky PR comment
+```
+
+Supported DefectDojo modes:
+
+- Existing engagement: `url`, `apiKey`, and `engagementId`
+- Auto-create product + engagement: `url`, `apiKey`, `autoCreate: true`, `engagementName`, and one of `productId` or `productName`
+
 ## Complete Example
 
 ```yaml
@@ -146,37 +201,56 @@ client:
       tools:
         - name: grype
         - name: trivy
-      failOn: critical
       warnOn: high
-      required: true
       cache:
         enabled: true
         ttl: 6h
+        dir: .sc/cache/security
       output:
-        local: .sc/scan-results/
+        local: .sc/scan-results/results.json
     signing:
       enabled: true
       keyless: true
-      required: true
+      verify:
+        enabled: true
+        oidcIssuer: https://token.actions.githubusercontent.com
+        identityRegexp: ^https://github.com/myorg/myrepo/.github/workflows/.*$
     sbom:
       enabled: true
       format: cyclonedx-json
       generator: syft
+      attach:
+        enabled: true
+        sign: true
       cache:
         enabled: true
         ttl: 24h
+        dir: .sc/cache/security
       output:
-        local: .sc/sbom/
+        local: .sc/sbom/sbom.json
         registry: true
-      required: true
     provenance:
       enabled: true
       format: slsa-v1.0
       includeGit: true
       includeDocker: true
       output:
+        local: .sc/provenance/provenance.json
         registry: true
       required: false
+    reporting:
+      defectdojo:
+        enabled: true
+        url: https://defectdojo.example.com
+        apiKey: ${secret:defectdojo-api-key}
+        productName: my-service
+        engagementName: staging
+        testType: Container Scan
+        environment: staging
+        autoCreate: true
+      prComment:
+        enabled: true
+        output: .sc/scan-results/comment.md
 ```
 
 ## Configuration Inheritance
@@ -189,7 +263,7 @@ client:
   security:
     enabled: true
     scan:
-      failOn: high
+      warnOn: high
 ```
 
 **Child (production.yaml):**
@@ -198,7 +272,7 @@ parent: base
 client:
   security:
     scan:
-      failOn: critical  # Overrides parent
+      failOn: critical  # Adds a stricter quality gate in production
 ```
 
-**Result:** Production has stricter scanning (critical) while inheriting other settings.
+**Result:** Production keeps inherited warnings while adding a stricter quality gate.

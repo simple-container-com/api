@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,10 +39,7 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 
 	// Run grype scan
 	cmd := exec.CommandContext(ctx, "grype", "--quiet", "-o", "json", "registry:"+image)
-	cmd.Env = append(os.Environ(),
-		"GRYPE_DB_AUTO_UPDATE=false",
-		"GRYPE_CHECK_FOR_APP_UPDATE=false",
-	)
+	cmd.Env = append(os.Environ(), grypeCommandEnv(hasGrypeVulnerabilityDB())...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -255,4 +253,24 @@ func parseGrypeVersion(output string) (string, error) {
 	}
 
 	return "", fmt.Errorf("failed to parse grype version from: %s", output)
+}
+
+func grypeCommandEnv(dbPresent bool) []string {
+	env := []string{
+		"GRYPE_CHECK_FOR_APP_UPDATE=false",
+	}
+	if dbPresent {
+		env = append(env, "GRYPE_DB_AUTO_UPDATE=false")
+	}
+	return env
+}
+
+func hasGrypeVulnerabilityDB() bool {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return false
+	}
+
+	matches, err := filepath.Glob(filepath.Join(cacheDir, "grype", "db", "*", "vulnerability.db"))
+	return err == nil && len(matches) > 0
 }

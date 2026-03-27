@@ -183,6 +183,69 @@
             "required": [],
             "type": "object"
           },
+          "reporting": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "defectdojo": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "autoCreate": {
+                    "type": "boolean"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "engagementId": {
+                    "type": "integer"
+                  },
+                  "engagementName": {
+                    "type": "string"
+                  },
+                  "environment": {
+                    "type": "string"
+                  },
+                  "productId": {
+                    "type": "integer"
+                  },
+                  "productName": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "testType": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "prComment": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "output": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "sbom": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
@@ -194,6 +257,22 @@
                   },
                   "sign": {
                     "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "cache": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "dir": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "ttl": {
+                    "type": "string"
                   }
                 },
                 "required": [],
@@ -231,11 +310,40 @@
           "scan": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
+              "cache": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "dir": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "ttl": {
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
               "enabled": {
                 "type": "boolean"
               },
               "failOn": {
                 "type": "string"
+              },
+              "output": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "local": {
+                    "type": "string"
+                  },
+                  "registry": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [],
+                "type": "object"
               },
               "required": {
                 "type": "boolean"

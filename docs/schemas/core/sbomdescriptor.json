@@ -22,6 +22,22 @@
         "required": [],
         "type": "object"
       },
+      "cache": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dir": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "ttl": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "enabled": {
         "type": "boolean"
       },

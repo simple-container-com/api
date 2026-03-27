@@ -22,7 +22,7 @@ security:
       productName: "MyProduct"
       autoCreate: true
       tags: ["ci", "production"]
-      environment: "production"
+      environment: "production"  # Optional; must already exist in DefectDojo if set
 ```
 
 **Programmatic Usage:**
@@ -31,7 +31,7 @@ client := reporting.NewDefectDojoClient(url, apiKey)
 config := &reporting.DefectDojoUploaderConfig{
     EngagementID: 123,
 }
-result, err := client.UploadScanResult(ctx, scanResult, "myimage:latest", config)
+result, err := client.UploadScanResult(ctx, scanResult, "myimage@sha256:...", config)
 ```
 
 ### Workflow Summary
@@ -58,7 +58,7 @@ summary.Display()
 ╔══════════════════════════════════════════════════════════════════╗
 ║                    SECURITY WORKFLOW SUMMARY                      ║
 ╠══════════════════════════════════════════════════════════════════╣
-║ Image: myimage:latest                                              ║
+║ Image: myimage@sha256:...                                          ║
 ║ Duration: 2m34s                                                    ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ 📋 SBOM Generation                                                 ║
@@ -86,7 +86,7 @@ summary.Display()
 ```bash
 # Scan and upload to DefectDojo
 sc image scan \
-  --image myimage:latest \
+  --image myimage@sha256:... \
   --tool all \
   --upload-defectdojo \
   --defectdojo-url https://defectdojo.example.com \
@@ -128,6 +128,8 @@ security:
       autoCreate: true
 ```
 
+If you set `environment`, the value must already exist in the target DefectDojo instance. Leave it unset if you do not manage environments there.
+
 ## Implementation Details
 
 ### DefectDojo API
@@ -158,7 +160,7 @@ if e.Summary != nil {
 ## Performance Considerations
 
 - DefectDojo upload: 1-3 seconds depending on network
-- All uploads run in parallel if configured
+- The import call is a single network round-trip after scan completion
 
 ## Security Best Practices
 
