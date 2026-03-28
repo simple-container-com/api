@@ -10,6 +10,7 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/security"
 	"github.com/simple-container-com/api/pkg/security/sbom"
 	"github.com/simple-container-com/api/pkg/security/scan"

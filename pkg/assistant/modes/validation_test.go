@@ -3,9 +3,10 @@ package modes
 import (
 	"context"
 	"fmt"
-	. "github.com/onsi/gomega"
 	"strings"
 	"testing"
+
+	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/assistant/analysis"
 	"github.com/simple-container-com/api/pkg/assistant/validation"

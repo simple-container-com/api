@@ -611,7 +611,8 @@ func normalizeDigest(value string) string {
 func subjectDigest(subjects []struct {
 	Name   string            `json:"name"`
 	Digest map[string]string `json:"digest"`
-}) string {
+},
+) string {
 	for _, subject := range subjects {
 		if digest := normalizeDigest(subject.Digest["sha256"]); digest != "" {
 			return digest
