@@ -2,8 +2,10 @@ package reporting
 
 import (
 	"fmt"
-	"strings"
 	"time"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/simple-container-com/api/pkg/security/sbom"
 	"github.com/simple-container-com/api/pkg/security/scan"
@@ -238,11 +240,11 @@ func (w *WorkflowSummary) displayScanning() {
 		for _, sr := range w.ScanResults {
 			if sr.Success {
 				fmt.Printf("║   %s: %-50s ║\n",
-					strings.Title(string(sr.Tool)),
+					cases.Title(language.English).String(string(sr.Tool)),
 					sr.ScanResult.Summary.String())
 			} else {
 				fmt.Printf("║   %s: ❌ FAILED                                           ║\n",
-					strings.Title(string(sr.Tool)))
+					cases.Title(language.English).String(string(sr.Tool)))
 			}
 		}
 
@@ -304,14 +306,14 @@ func (w *WorkflowSummary) displayUploads() {
 		for _, ur := range w.UploadResults {
 			if ur.Success {
 				fmt.Printf("║   %s: ✅ %-48s ║\n",
-					strings.Title(ur.Target),
+					cases.Title(language.English).String(ur.Target),
 					"uploaded")
 				if ur.URL != "" {
 					fmt.Printf("║   URL: %-52s ║\n", truncate(ur.URL, 52))
 				}
 			} else {
 				fmt.Printf("║   %s: ❌ FAILED                                           ║\n",
-					strings.Title(ur.Target))
+					cases.Title(language.English).String(ur.Target))
 			}
 		}
 	}
