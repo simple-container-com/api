@@ -65,66 +65,24 @@ Create the `client.yaml` file based on your deployment type:
 schemaVersion: 1.0
 
 stacks:
-  staging:
+  staging: &staging
     type: cloud-compose
     parent: myproject/devops
-    config:
+    config: &config
       domain: staging-myservice.myproject.com
-      dockerComposeFile: ./docker-compose.yaml
+      dockerComposeFile: ${git:root}/docker-compose.yaml
       uses:
-        - postgres-main      # Uses DB from server.yaml
-        - redis-cache       # Uses cache from server.yaml
+        - mongodb             # Uses MongoDB from server.yaml
+        - s3-storage         # Uses S3 storage from server.yaml
       runs:
-        - myservice         # Runs myservice container
-      size:
-        cpu: 512
-        memory: 1024
-      scale:
-        min: 1
-        max: 5
-        policy:
-          cpu:
-            max: 70
-      env:
-        DATABASE_HOST: "${resource:postgres-main.host}"
-        DATABASE_NAME: "${resource:postgres-main.database}"
-        DATABASE_USER: "${resource:postgres-main.user}"
-        REDIS_URL: "${resource:redis-cache.url}"
-      secrets:
-        DATABASE_PASSWORD: "${resource:postgres-main.password}"
-      healthCheck:
-        path: /health
-        port: 8080
-        initialDelaySeconds: 30
-        periodSeconds: 10
+        - api                # Container name from docker-compose.yaml
+        - ui                 # Container name from docker-compose.yaml
 
   prod:
-    type: cloud-compose
-    parent: myproject/devops
+    <<: *staging
     config:
+      <<: *config
       domain: myservice.myproject.com
-      dockerComposeFile: ./docker-compose.yaml
-      uses:
-        - postgres-main
-        - redis-cache
-      runs:
-        - myservice
-      size:
-        cpu: 1024
-        memory: 2048
-      scale:
-        min: 2
-        max: 10
-        policy:
-          cpu:
-            max: 70
-      env:
-        DATABASE_HOST: "${resource:postgres-main.host}"
-        DATABASE_NAME: "${resource:postgres-main.database}"
-        DATABASE_USER: "${resource:postgres-main.user}"
-        REDIS_URL: "${resource:redis-cache.url}"
-      secrets:
-        DATABASE_PASSWORD: "${resource:postgres-main.password}"
 ```
 
 #### single-image Example (AWS Lambda)
@@ -134,46 +92,19 @@ stacks:
 schemaVersion: 1.0
 
 stacks:
-  staging:
+  staging: &staging
     type: single-image
-    template: lambda-eu
     parent: myproject/devops
-    config:
+    config: &config
       domain: staging-myservice.myproject.com
       image:
         dockerfile: ${git:root}/Dockerfile
-      timeout: 180
-      maxMemory: 2048
-      staticEgressIP: true
-      cloudExtras:
-        lambdaRoutingType: function-url
-        lambdaInvokeMode: RESPONSE_STREAM
-      uses:
-        - postgres-main
-      env:
-        NODE_ENV: production
-      secrets:
-        MONGO_URI: "${resource:postgres-main.uri}"
 
   prod:
-    type: single-image
-    template: lambda-eu
-    parent: myproject/devops
+    <<: *staging
     config:
+      <<: *config
       domain: myservice.myproject.com
-      image:
-        dockerfile: ${git:root}/Dockerfile
-      timeout: 300
-      maxMemory: 4096
-      staticEgressIP: true
-      cloudExtras:
-        lambdaRoutingType: function-url
-      uses:
-        - postgres-main
-      env:
-        NODE_ENV: production
-      secrets:
-        MONGO_URI: "${resource:postgres-main.uri}"
 ```
 
 #### single-image Example (GCP Cloud Run)
@@ -183,25 +114,19 @@ stacks:
 schemaVersion: 1.0
 
 stacks:
-  staging:
+  staging: &staging
     type: single-image
-    template: cloud-run-eu
     parent: myproject/devops
-    config:
+    config: &config
       domain: staging-myservice.myproject.com
       image:
         dockerfile: ${git:root}/Dockerfile
-      port: 8080
-      cpu: 1
-      memory: 512Mi
-      minInstances: 0
-      maxInstances: 5
-      uses:
-        - cloudsql-postgres
-      env:
-        NODE_ENV: production
-      secrets:
-        DATABASE_URL: "${resource:cloudsql-postgres.url}"
+
+  prod:
+    <<: *staging
+    config:
+      <<: *config
+      domain: myservice.myproject.com
 ```
 
 #### static Example
@@ -211,25 +136,17 @@ stacks:
 schemaVersion: 1.0
 
 stacks:
-  staging:
+  staging: &staging
     type: static
     parent: myproject/devops
-    config:
-      bundleDir: ${git:root}/public
+    config: &config
       domain: staging.myproject.com
-      indexDocument: index.html
-      errorDocument: index.html
-      location: us-east-1
 
   prod:
-    type: static
-    parent: myproject/devops
+    <<: *staging
     config:
-      bundleDir: ${git:root}/public
+      <<: *config
       domain: myproject.com
-      indexDocument: index.html
-      errorDocument: index.html
-      location: us-east-1
 ```
 
 ### Step 4: Create Supporting Files
@@ -308,7 +225,7 @@ For complete configuration templates, see:
 Ensure the parent stack has the referenced resource:
 ```yaml
 uses:
-  - postgres-main  # Must exist in server.yaml
+  - mongodb  # Must exist in server.yaml resources section
 ```
 
 ### Incorrect Image Path
@@ -317,18 +234,6 @@ For single-image, ensure Dockerfile path is correct:
 ```yaml
 image:
   dockerfile: ${git:root}/Dockerfile
-```
-
-### Missing Environment Variables
-
-List all required environment variables:
-```yaml
-env:
-  DATABASE_HOST: "${resource:postgres-main.host}"
-  DATABASE_NAME: "${resource:postgres-main.database}"
-  DATABASE_USER: "${resource:postgres-main.user}"
-secrets:
-  DATABASE_PASSWORD: "${resource:postgres-main.password}"
 ```
 
 ## Next Steps
