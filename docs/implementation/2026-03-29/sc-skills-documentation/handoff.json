@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "role": "developer",
+  "summary": "Implementation complete for Skills Documentation Structure - all required documentation files created and mkdocs.yml updated with Skills navigation",
+  "testRequests": [
+    {
+      "title": "Validate: Skills Documentation Structure",
+      "description": "Verify that all skills documentation files exist and meet acceptance criteria. Documentation enables AI agents to install SC CLI, configure DevOps setup, create service configurations, determine deployment types, configure secrets, and set up cloud provider credentials.",
+      "scopeGroup": "skills-documentation",
+      "workflowType": "sequential",
+      "testTypes": ["documentation"],
+      "acceptanceCriteria": [
+        "All skills documentation files exist under docs/docs/skills/",
+        "AI agent can install SC CLI using installation.md",
+        "AI agent can create server.yaml with cloud authentication using devops-setup.md",
+        "AI agent can create client.yaml for any deployment type using service-setup.md",
+        "AI agent can determine deployment type using deployment-types.md",
+        "AI agent can configure secrets using secrets-management.md",
+        "AI agent can set up AWS, GCP, or Kubernetes credentials using cloud provider guides",
+        "All examples include complete YAML with credentials sections",
+        "mkdocs.yml updated with Skills navigation section"
+      ],
+      "filesOrAreas": [
+        "docs/docs/skills/index.md",
+        "docs/docs/skills/installation.md",
+        "docs/docs/skills/devops-setup.md",
+        "docs/docs/skills/service-setup.md",
+        "docs/docs/skills/deployment-types.md",
+        "docs/docs/skills/secrets-management.md",
+        "docs/docs/skills/cloud-providers/aws.md",
+        "docs/docs/skills/cloud-providers/gcp.md",
+        "docs/docs/skills/cloud-providers/kubernetes.md",
+        "docs/mkdocs.yml"
+      ],
+      "docs": {
+        "implementationDocsPaths": [
+          "docs/implementation/2026-03-29/sc-skills-documentation/implementation-notes.md"
+        ],
+        "implementationNotes": "All skills documentation files have been created with complete YAML examples using ${VARIABLE} placeholders. Each skill follows consistent structure: prerequisites, step-by-step instructions, complete examples, verification steps, and troubleshooting. The mkdocs.yml has been updated with the Skills navigation section.",
+        "knownIssues": "Documentation assumes AI agents have basic knowledge of shell commands and cloud CLIs"
+      },
+      "priority": "medium",
+      "dependencies": [],
+      "suggestedLabels": ["qa"]
+    }
+  ]
+}
