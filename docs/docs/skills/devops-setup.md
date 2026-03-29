@@ -63,55 +63,66 @@ Create the `server.yaml` file based on your provider:
 # File: myproject/.sc/stacks/devops/server.yaml
 schemaVersion: 1.0
 
-# Project and stack identification
-project: myproject
-name: devops
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      config:
+        credentials: "${auth:aws-main}"
+        provision: true
+        account: "${auth:aws-main.projectId}"
+        bucketName: myproject-sc-state
+        region: us-east-1
+    secrets-provider:
+      type: aws-kms
+      config:
+        credentials: "${auth:aws-main}"
+        provision: true
+        keyName: myproject-kms-key
 
-# Cloud provider configuration
-provider:
-  name: aws
-  region: us-east-1
-  accountId: "${AWS_ACCOUNT_ID}"
-
-# Authenticate using environment variables or IAM role
-auth:
-  - name: aws-main
-    provider: aws
+templates:
+  stack-per-app:
+    type: ecs-fargate
     config:
-      accessKeyId: "${AWS_ACCESS_KEY_ID}"
-      secretAccessKey: "${AWS_SECRET_ACCESS_KEY}"
+      credentials: "${auth:aws-main}"
+      account: "${auth:aws-main.projectId}"
 
-# Shared resources that services will use
 resources:
-  # Primary database
-  - name: postgres-main
-    type: aws:rds:postgres
+  registrar:
+    type: cloudflare
     config:
-      instanceClass: db.t3.micro
-      allocatedStorage: 20
-      multiAz: false
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: YOUR_CLOUDFLARE_ACCOUNT_ID
+      zoneName: myproject.com
 
-  # Object storage
-  - name: s3-assets
-    type: aws:s3:bucket
-    config:
-      publicAccess: false
-      versioning: true
+  resources:
+    staging:
+      template: stack-per-app
+      resources:
+        postgres-main:
+          type: mongodb-atlas
+          config:
+            admins: [ "admin" ]
+            developers: [ ]
+            instanceSize: "M0"
+            orgId: YOUR_MONGODB_ORG_ID
+            region: "US_EAST_1"
+            cloudProvider: AWS
+            privateKey: "${secret:MONGODB_ATLAS_PRIVATE_KEY}"
+            publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
 
-  # Cache layer
-  - name: redis-cache
-    type: aws:elasticache:redis
-    config:
-      nodeType: cache.t3.micro
-      numNodes: 1
+        s3-assets:
+          type: s3-bucket
+          config:
+            credentials: "${auth:aws-main}"
 
-# Network configuration
-networking:
-  vpc:
-    cidr: 10.0.0.0/16
-  subnets:
-    - 10.0.1.0/24  # us-east-1a
-    - 10.0.2.0/24  # us-east-1b
+        redis-cache:
+          type: aws-elasticache-redis
+          config:
+            credentials: "${auth:aws-main}"
+            nodeType: cache.t3.micro
+            numNodes: 1
 ```
 
 #### GCP Example
@@ -120,32 +131,65 @@ networking:
 # File: myproject/.sc/stacks/devops/server.yaml
 schemaVersion: 1.0
 
-project: myproject
-name: devops
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: gcp-bucket
+      config:
+        credentials: "${auth:gcloud}"
+        projectId: "${auth:gcloud.projectId}"
+        provision: true
+        bucketName: myproject-sc-state
+        location: us-central1
+    secrets-provider:
+      type: gcp-kms
+      config:
+        provision: true
+        projectId: "${auth:gcloud.projectId}"
+        keyName: myproject-kms-key
+        keyLocation: global
+        credentials: "${auth:gcloud}"
 
-provider:
-  name: gcp
-  region: us-central1
-  projectId: "${GCP_PROJECT_ID}"
-
-auth:
-  - name: gcp-main
-    provider: gcp
+templates:
+  stack-per-app-gke:
+    type: gcp-gke-autopilot
     config:
-      credentials: "${GCP_SERVICE_ACCOUNT_KEY}"
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+
+  static-website:
+    type: gcp-static-website
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
 
 resources:
-  - name: cloudsql-postgres
-    type: gcp:cloudsql:postgres
+  registrar:
+    type: cloudflare
     config:
-      tier: db-f1-micro
-      region: us-central1
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: YOUR_CLOUDFLARE_ACCOUNT_ID
+      zoneName: myproject.com
 
-  - name: gcs-assets
-    type: gcp:storage:bucket
-    config:
-      location: us-central1
-      publicAccess: false
+  resources:
+    staging:
+      template: stack-per-app-gke
+      resources:
+        cloudsql-postgres:
+          type: gcp-cloudsql
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            tier: db-f1-micro
+            region: us-central1
+
+        gcs-assets:
+          type: gcp-storage-bucket
+          config:
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: us-central1
 ```
 
 #### Kubernetes Example
@@ -154,53 +198,99 @@ resources:
 # File: myproject/.sc/stacks/devops/server.yaml
 schemaVersion: 1.0
 
-project: myproject
-name: devops
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: s3-bucket
+      config:
+        credentials: "${auth:aws-state}"
+        provision: true
+        account: "${auth:aws-state.projectId}"
+        bucketName: myproject-k8s-state
+        region: us-east-1
+    secrets-provider:
+      type: aws-kms
+      config:
+        credentials: "${auth:aws-state}"
+        provision: true
+        keyName: myproject-k8s-kms-key
 
-provider:
-  name: kubernetes
-  context: my-cluster
-
-auth:
-  - name: k8s-main
-    provider: kubernetes
+templates:
+  stack-per-app-k8s:
+    type: kubernetes-k8s
     config:
-      kubeconfig: "${KUBECONFIG_PATH}"
+      kubeconfig: "${auth:k8s.kubeconfig}"
 
 resources:
-  - name: postgres-db
-    type: kubernetes:postgres
+  registrar:
+    type: cloudflare
     config:
-      storage: 10Gi
-      className: standard
+      credentials: "${secret:CLOUDFLARE_API_TOKEN}"
+      accountId: YOUR_CLOUDFLARE_ACCOUNT_ID
+      zoneName: myproject.com
 
-  - name: s3-compatible
-    type: kubernetes:minio
-    config:
-      storage: 20Gi
+  resources:
+    staging:
+      template: stack-per-app-k8s
+      resources:
+        postgres-db:
+          type: kubernetes-postgres
+          config:
+            storage: 10Gi
+            className: standard
+
+        minio-storage:
+          type: kubernetes-minio
+          config:
+            storage: 20Gi
 ```
 
-### Step 4: Create secrets.yaml (Optional)
+### Step 4: Create secrets.yaml
 
-If your resources require secrets, create `secrets.yaml`:
+Create a separate `secrets.yaml` file to store sensitive values. The server.yaml references these using `${secret:NAME}` and `${auth:NAME}` placeholders:
 
 ```yaml
 # File: myproject/.sc/stacks/devops/secrets.yaml
 schemaVersion: 1.0
 
-secrets:
-  # Database passwords
-  - name: postgres-main-password
-    value: "${POSTGRES_PASSWORD}"
+# Authentication configuration for cloud providers
+# These are referenced by ${auth:NAME} in server.yaml
+auth:
+  aws-main:
+    accessKey: "AKIAIOSFODNN7EXAMPLE"
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    region: us-east-1
 
-  # API keys
-  - name: api-key
-    value: "${API_KEY}"
+  gcloud:
+    projectId: "my-gcp-project-id"
+    credentials: '{"type": "service_account", ...}'
 
-  # External service credentials
-  - name: stripe-key
-    value: "${STRIPE_SECRET_KEY}"
+  k8s:
+    kubeconfig: "/path/to/kubeconfig"
+
+# Secret values
+# These are referenced by ${secret:NAME} in server.yaml
+values:
+  # CloudFlare API token (for DNS management)
+  CLOUDFLARE_API_TOKEN: "your_cloudflare_api_token_here"
+
+  # MongoDB Atlas credentials (for database resources)
+  MONGODB_ATLAS_PUBLIC_KEY: "your_mongodb_public_key"
+  MONGODB_ATLAS_PRIVATE_KEY: "your_mongodb_private_key"
+
+  # Other secrets
+  POSTGRES_PASSWORD: "secure_password_here"
+  STRIPE_SECRET_KEY: "sk_live_..."
+  API_KEY: "your_api_key_here"
 ```
+
+**Important Security Notes:**
+- Never commit `secrets.yaml` to version control
+- Add `secrets.yaml` to your `.gitignore` file
+- Use environment-specific secret files (e.g., `secrets.staging.yaml`, `secrets.prod.yaml`)
+- Reference auth using `${auth:AUTH_NAME}` syntax for cloud credentials
+- Reference secrets using `${secret:SECRET_NAME}` syntax for application secrets
 
 ### Step 5: Verify Configuration
 
@@ -228,17 +318,27 @@ For complete working examples see:
 
 ### Authentication Failed
 
-Ensure your credentials are correct:
-- AWS: Check `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
-- GCP: Verify service account has required permissions
-- Kubernetes: Verify kubeconfig context is correct
+Ensure your credentials are correctly configured:
+- **AWS**: Verify `${auth:aws-*}` references match your secrets.yaml
+- **GCP**: Ensure service account JSON is valid in secrets.yaml
+- **Kubernetes**: Verify kubeconfig path is correct and accessible
+- Check that credentials are referenced as `${auth:NAME}` in templates and resources
+
+### Secret Not Found
+
+If SC can't find a secret:
+- Verify the secret is defined in `secrets.yaml`
+- Check the spelling matches exactly (case-sensitive)
+- Ensure secrets.yaml is in the same directory as server.yaml
+- Use `${secret:SECRET_NAME}` syntax in server.yaml to reference secrets
 
 ### Resource Creation Failed
 
 Check:
-- Account has required quotas
-- Permissions are sufficient
-- Region is available
+- Account has required quotas/limits
+- IAM permissions are sufficient for resource creation
+- Region/location is available in your cloud account
+- Resource type matches your cloud provider (e.g., `mongodb-atlas` vs `gcp-cloudsql`)
 
 ## Next Steps
 
