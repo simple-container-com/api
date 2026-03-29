@@ -1,1 +1,51 @@
-{"schemaVersion":1,"role":"architect","summary":"AI-friendly skills documentation structure for Simple Container with 8 skill files covering installation, DevOps config, service config, deployment types, secrets management, and cloud provider guides","implementationRequests":[{"title":"Create: Skills Documentation Structure","description":"Create AI-friendly skills documentation under docs/docs/skills/ including: index, installation, devops-setup, service-setup, deployment-types, secrets-management, and cloud-providers (aws, gcp, kubernetes)","scopeGroup":"sc-skills-docs","workflowType":"sequential","technicalNotes":"Each skill provides clear prerequisites, step-by-step instructions, complete YAML examples with placeholders, and troubleshooting sections. All examples use ${VARIABLE} placeholders for AI to replace with real values.","filesOrAreas":["docs/docs/skills/index.md","docs/docs/skills/installation.md","docs/docs/skills/devops-setup.md","docs/docs/skills/service-setup.md","docs/docs/skills/deployment-types.md","docs/docs/skills/secrets-management.md","docs/docs/skills/cloud-providers/aws.md","docs/docs/skills/cloud-providers/gcp.md","docs/docs/skills/cloud-providers/kubernetes.md","docs/mkdocs.yml"],"acceptanceCriteria":["AI agent can install SC CLI using installation.md","AI agent can create server.yaml with cloud authentication using devops-setup.md","AI agent can create client.yaml for any deployment type using service-setup.md","AI agent can determine deployment type using deployment-types.md","AI agent can configure secrets using secrets-management.md","AI agent can set up AWS, GCP, or Kubernetes credentials using cloud provider guides","All examples include complete YAML with credentials sections","mkdocs.yml updated with Skills navigation section"],"docs":{"designDocsPaths":["docs/design/2026-03-29/sc-ai-friendly-skills/architecture.md"],"notes":"Skills documentation integrates existing templates-config-requirements.md and service-available-deployment-schemas.md content through references"},"priority":"medium","dependencies":["docs/docs/ai-assistant/templates-config-requirements.md","docs/docs/ai-assistant/commands.md","docs/docs/reference/service-available-deployment-schemas.md"],"suggestedLabels":["dev"]}]}
+{
+  "schemaVersion": 1,
+  "role": "architect",
+  "summary": "AI-friendly skills documentation for SC has been fully implemented. Created 9 skill files covering installation, DevOps configuration, service configuration, deployment types, secrets management, and cloud provider guides (AWS, GCP, Kubernetes). All acceptance criteria met.",
+  "implementationRequests": [
+    {
+      "title": "Implemented: Skills Documentation Structure",
+      "description": "Full skills documentation structure created under docs/docs/skills/ with 9 markdown files: index, installation, devops-setup, service-setup, deployment-types, secrets-management, aws, gcp, kubernetes. mkdocs.yml updated with Skills navigation section.",
+      "scopeGroup": "sc-skills-docs",
+      "workflowType": "sequential",
+      "technicalNotes": "Skills format provides clear prerequisites, step-by-step numbered instructions, complete YAML examples with credentials sections, ${VARIABLE} placeholders for AI replacement, verification steps, and common issues sections. Frontmatter includes metadata for semantic search.",
+      "filesOrAreas": [
+        "docs/docs/skills/index.md",
+        "docs/docs/skills/installation.md",
+        "docs/docs/skills/devops-setup.md",
+        "docs/docs/skills/service-setup.md",
+        "docs/docs/skills/deployment-types.md",
+        "docs/docs/skills/secrets-management.md",
+        "docs/docs/skills/cloud-providers/aws.md",
+        "docs/docs/skills/cloud-providers/gcp.md",
+        "docs/docs/skills/cloud-providers/kubernetes.md",
+        "docs/mkdocs.yml"
+      ],
+      "acceptanceCriteria": [
+        "AI agent can install SC CLI using installation.md",
+        "AI agent can create server.yaml with cloud authentication using devops-setup.md",
+        "AI agent can create client.yaml for any deployment type using service-setup.md",
+        "AI agent can determine deployment type using deployment-types.md",
+        "AI agent can configure secrets using secrets-management.md",
+        "AI agent can set up AWS, GCP, or Kubernetes credentials using cloud provider guides",
+        "All examples include complete YAML with credentials sections",
+        "mkdocs.yml updated with Skills navigation section"
+      ],
+      "docs": {
+        "designDocsPaths": [
+          "docs/design/2026-03-29/sc-ai-friendly-skills/architecture.md"
+        ],
+        "notes": "Skills documentation integrates existing templates-config-requirements.md and service-available-deployment-schemas.md content through references in service-setup.md and deployment-types.md"
+      },
+      "priority": "medium",
+      "dependencies": [
+        "docs/docs/ai-assistant/templates-config-requirements.md",
+        "docs/docs/ai-assistant/commands.md",
+        "docs/docs/reference/service-available-deployment-schemas.md"
+      ],
+      "suggestedLabels": [
+        "dev"
+      ]
+    }
+  ]
+}
