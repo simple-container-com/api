@@ -43,6 +43,7 @@ type CaddyConfig struct {
 	Replicas         *int       `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 	Resources        *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`               // CPU and memory limits/requests for Caddy container
 	VPA              *VPAConfig `json:"vpa,omitempty" yaml:"vpa,omitempty"`                           // Vertical Pod Autoscaler configuration for Caddy
+	TrustedProxies   []string   `json:"trustedProxies,omitempty" yaml:"trustedProxies,omitempty"`     // CIDR ranges trusted as reverse proxies (preserves X-Forwarded-For from these sources)
 	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
 	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
 	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)

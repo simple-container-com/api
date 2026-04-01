@@ -217,21 +217,26 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		}
 
 		// Build Caddyfile prefix with GCS storage configuration
-		// Merge with user-provided prefix if it exists
+		// Merge with user-provided prefix and trusted proxies if configured
 		caddyfilePrefix := bucket.Name.ApplyT(func(bucketName string) string {
-			gcsStorageConfig := fmt.Sprintf(`{
-  storage gcs {
-    bucket-name %s
-  }
-}`, bucketName)
+			var globalOpts []string
 
-			// If user provided custom prefix, merge it
-			if gkeInput.Caddy.CaddyfilePrefix != nil && *gkeInput.Caddy.CaddyfilePrefix != "" {
-				// User prefix first, then GCS storage config
-				return fmt.Sprintf("%s\n\n%s", gcsStorageConfig, *gkeInput.Caddy.CaddyfilePrefix)
+			globalOpts = append(globalOpts, fmt.Sprintf("  storage gcs {\n    bucket-name %s\n  }", bucketName))
+
+			// Add trusted_proxies if configured (preserves X-Forwarded-For from these CIDRs)
+			if len(gkeInput.Caddy.TrustedProxies) > 0 {
+				cidrs := strings.Join(gkeInput.Caddy.TrustedProxies, " ")
+				globalOpts = append(globalOpts, fmt.Sprintf("  servers {\n    trusted_proxies static %s\n  }", cidrs))
 			}
 
-			return gcsStorageConfig
+			result := fmt.Sprintf("{\n%s\n}", strings.Join(globalOpts, "\n"))
+
+			// If user provided custom prefix, append after global block
+			if gkeInput.Caddy.CaddyfilePrefix != nil && *gkeInput.Caddy.CaddyfilePrefix != "" {
+				return fmt.Sprintf("%s\n\n%s", result, *gkeInput.Caddy.CaddyfilePrefix)
+			}
+
+			return result
 		}).(sdk.StringOutput)
 
 		// Prepare GCP credentials as a secret volume output (Pulumi output)
