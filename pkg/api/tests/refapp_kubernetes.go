@@ -16,10 +16,9 @@ var RefappKubernetesServerResources = map[string]api.ResourceDescriptor{
 				Kubeconfig: "${auth:kubernetes}",
 			},
 			CaddyConfig: &k8s.CaddyConfig{
-				Enable:         lo.ToPtr(true),
-				Namespace:      lo.ToPtr("caddy"),
-				Replicas:       lo.ToPtr(2),
-				TrustedProxies: []string{},
+				Enable:    lo.ToPtr(true),
+				Namespace: lo.ToPtr("caddy"),
+				Replicas:  lo.ToPtr(2),
 			},
 		}},
 	},
@@ -79,7 +78,7 @@ var ResolvedRefappKubernetesServerResources = map[string]api.ResourceDescriptor{
 				Enable:         lo.ToPtr(true),
 				Namespace:      lo.ToPtr("caddy"),
 				Replicas:       lo.ToPtr(2),
-				TrustedProxies: []string{},
+				TrustedProxies: []string{}, // placeholder resolution converts nil → empty slice
 			},
 		}},
 	},

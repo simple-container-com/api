@@ -14,7 +14,8 @@ func CaddyReadConfig(config *api.Config) (api.Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	// Normalize empty slices to nil for consistent serialization
+	// Normalize empty slices to nil — yaml.Unmarshal into inline pointer
+	// structs can produce []string{} instead of nil for absent fields.
 	if res, ok := cfg.Config.(*CaddyResource); ok && res.CaddyConfig != nil {
 		if len(res.CaddyConfig.TrustedProxies) == 0 {
 			res.CaddyConfig.TrustedProxies = nil
