@@ -1,13 +1,13 @@
 # Simple Container Project Analysis Report
 
-**Generated:** 2026-02-27 17:41:10 +00
+**Generated:** 2026-03-26 16:47:31 +04
 **Analyzer Version:** 1.0
 **Overall Confidence:** 70.0%
 
 ## Project Overview
 
 - **Name:** mcp
-- **Path:** /home/runner/_work/api/api/pkg/assistant/mcp
+- **Path:** /home/creed/sc/api/pkg/assistant/mcp
 - **Architecture:** standard-web-app
 - **Primary Technology:** go  (70.0% confidence)
 
