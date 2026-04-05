@@ -21,6 +21,7 @@ type ProvisionParams struct {
 // ServerDescriptor describes the server schema
 type ServerDescriptor struct {
 	SchemaVersion string                        `json:"schemaVersion" yaml:"schemaVersion"`
+	Environment   string                        `json:"environment,omitempty" yaml:"environment,omitempty"` // Environment for secret resolution
 	Provisioner   ProvisionerDescriptor         `json:"provisioner" yaml:"provisioner"`
 	Secrets       SecretsConfigDescriptor       `json:"secrets" yaml:"secrets"`
 	CiCd          CiCdDescriptor                `json:"cicd" yaml:"cicd"`
@@ -33,6 +34,7 @@ type ServerDescriptor struct {
 func (sd *ServerDescriptor) ValuesOnly() *ServerDescriptor {
 	return &ServerDescriptor{
 		SchemaVersion: sd.SchemaVersion,
+		Environment:   sd.Environment,
 		Provisioner:   sd.Provisioner.ValuesOnly(),
 		Secrets:       sd.Secrets,
 		CiCd:          sd.CiCd,
