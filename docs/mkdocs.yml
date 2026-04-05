@@ -29,6 +29,17 @@ nav:
     - Pure Kubernetes: guides/parent-pure-kubernetes.md
     - Secrets Management: guides/secrets-management.md
     - Migration: guides/migration.md
+  - Skills:
+    - Overview: skills/index.md
+    - Installation: skills/installation.md
+    - DevOps Setup: skills/devops-setup.md
+    - Service Setup: skills/service-setup.md
+    - Deployment Types: skills/deployment-types.md
+    - Secrets Management: skills/secrets-management.md
+    - Cloud Providers:
+      - AWS: skills/cloud-providers/aws.md
+      - GCP: skills/cloud-providers/gcp.md
+      - Kubernetes: skills/cloud-providers/kubernetes.md
   - Examples:
     - Overview: examples/README.md
     - Static Websites: examples/static-websites/index.md
