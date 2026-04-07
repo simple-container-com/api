@@ -285,11 +285,12 @@ jobs:
           echo "Bundle contents:"
           ls -la .sc/stacks/dist/bundle/
       - name: publish preview sc binaries
-        shell: bash
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: |-
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") deploy -e prod --timestamps
+        run: |
+          # Deploy only the dist stack — welder deploy -e prod would also deploy
+          # the docs stack which requires docs/site/ that we don't build in preview.
+          ./bin/sc deploy -s dist -e prod --skip-refresh
 
   publish-git-tag:
     name: Create release commit and push git tag
