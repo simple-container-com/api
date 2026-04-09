@@ -3,7 +3,7 @@ package mongodb
 import (
 	"github.com/pkg/errors"
 
-	"github.com/pulumi/pulumi-mongodbatlas/sdk/v3/go/mongodbatlas"
+	"github.com/pulumi/pulumi-mongodbatlas/sdk/v4/go/mongodbatlas"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
