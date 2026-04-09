@@ -105,21 +105,22 @@ type SimpleContainerArgs struct {
 	KubeProvider           sdk.ProviderResource
 
 	// optional properties
-	PodDisruption     *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
-	LbConfig          *api.SimpleContainerLBConfig `json:"lbConfig" yaml:"lbConfig"`
-	SecretEnvs        map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
-	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
-	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
-	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
-	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
-	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
-	Headers           *k8s.Headers                 `json:"headers" yaml:"headers"`
-	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
-	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
-	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
-	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
-	Scale             *k8s.Scale                   `json:"scale" yaml:"scale"`
+	PodDisruption         *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
+	LbConfig              *api.SimpleContainerLBConfig `json:"lbConfig" yaml:"lbConfig"`
+	SecretEnvs            map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
+	Annotations           map[string]string            `json:"annotations" yaml:"annotations"`
+	NodeSelector          map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity              *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
+	IngressContainer      *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
+	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
+	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
+	ProvisionIngress      bool                         `json:"provisionIngress" yaml:"provisionIngress"`
+	Headers               *k8s.Headers                 `json:"headers" yaml:"headers"`
+	Volumes               []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
+	SecretVolumes         []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
+	PersistentVolumes     []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	VPA                   *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
+	Scale                 *k8s.Scale                   `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
@@ -510,10 +511,11 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	}
 
 	// Expose service
-	serviceType := sdk.String("ClusterIP")
+	serviceTypeStr := "ClusterIP"
 	if args.ServiceType != nil {
-		serviceType = sdk.String(lo.FromPtr(args.ServiceType))
+		serviceTypeStr = lo.FromPtr(args.ServiceType)
 	}
+	serviceType := sdk.String(serviceTypeStr)
 
 	serviceAnnotations := lo.Assign(appAnnotations)
 
@@ -589,11 +591,7 @@ ${proto}://${domain} {
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(serviceAnnotations),
 			},
-			Spec: &corev1.ServiceSpecArgs{
-				Selector: sdk.ToStringMap(appLabels),
-				Ports:    servicePorts,
-				Type:     serviceType,
-			},
+			Spec: serviceSpec(appLabels, servicePorts, serviceType, serviceTypeStr, args.ExternalTrafficPolicy),
 		}, opts...)
 		if err != nil {
 			return nil, err
@@ -848,6 +846,23 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 
 	args.Log.Info(ctx.Context(), "Created VPA %s for deployment %s", vpaName, deploymentName)
 	return nil
+}
+
+// serviceSpec builds a ServiceSpecArgs, optionally setting ExternalTrafficPolicy
+// when the service type is LoadBalancer. "Local" preserves the client source IP
+// by skipping SNAT — required for correct X-Forwarded-For behind an L4 LB.
+func serviceSpec(appLabels map[string]string, ports corev1.ServicePortArray, serviceType sdk.StringInput, serviceTypeStr string, externalTrafficPolicy *string) *corev1.ServiceSpecArgs {
+	spec := &corev1.ServiceSpecArgs{
+		Selector: sdk.ToStringMap(appLabels),
+		Ports:    ports,
+		Type:     serviceType,
+	}
+	// ExternalTrafficPolicy only applies to LoadBalancer and NodePort services.
+	// Setting it on ClusterIP produces an invalid k8s Service spec.
+	if externalTrafficPolicy != nil && serviceTypeStr != "ClusterIP" {
+		spec.ExternalTrafficPolicy = sdk.StringPtr(*externalTrafficPolicy)
+	}
+	return spec
 }
 
 func ToImagePullSecretName(deploymentName string) string {

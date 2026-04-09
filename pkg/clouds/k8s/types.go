@@ -47,6 +47,9 @@ type CaddyConfig struct {
 	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 	// Deployment name override for existing Caddy deployments (used when adopting clusters)
 	DeploymentName *string `json:"deploymentName,omitempty" yaml:"deploymentName,omitempty"` // override deployment name when adopting existing Caddy
+	// ExternalTrafficPolicy for LoadBalancer service. "Local" preserves client source IP
+	// (required for correct X-Forwarded-For when behind L4 LB). Default: "Cluster".
+	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 }
 
 type DisruptionBudget struct {

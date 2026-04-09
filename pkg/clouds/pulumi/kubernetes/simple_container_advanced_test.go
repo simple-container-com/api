@@ -660,3 +660,94 @@ func TestSimpleContainer_ServiceTypeVariations(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceSpec_ExternalTrafficPolicy(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("nil policy uses default", func(t *testing.T) {
+		spec := serviceSpec(
+			map[string]string{"app": "test"},
+			corev1.ServicePortArray{},
+			sdk.String("LoadBalancer"),
+			"LoadBalancer",
+			nil,
+		)
+		Expect(spec).ToNot(BeNil())
+		Expect(spec.ExternalTrafficPolicy).To(BeNil())
+	})
+
+	t.Run("Local policy is set", func(t *testing.T) {
+		policy := "Local"
+		spec := serviceSpec(
+			map[string]string{"app": "test"},
+			corev1.ServicePortArray{},
+			sdk.String("LoadBalancer"),
+			"LoadBalancer",
+			&policy,
+		)
+		Expect(spec).ToNot(BeNil())
+		Expect(spec.ExternalTrafficPolicy).ToNot(BeNil())
+	})
+
+	t.Run("ClusterIP ignores policy", func(t *testing.T) {
+		policy := "Cluster"
+		spec := serviceSpec(
+			map[string]string{"app": "test"},
+			corev1.ServicePortArray{},
+			sdk.String("ClusterIP"),
+			"ClusterIP",
+			&policy,
+		)
+		Expect(spec).ToNot(BeNil())
+		Expect(spec.ExternalTrafficPolicy).To(BeNil())
+	})
+}
+
+func TestSimpleContainer_ExternalTrafficPolicy(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("LoadBalancer with Local traffic policy", func(t *testing.T) {
+		mocks := NewSimpleContainerMocks()
+
+		err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+			policy := "Local"
+			args := &SimpleContainerArgs{
+				Namespace:  "traffic-test",
+				Service:    "traffic-test",
+				ScEnv:      "test",
+				Deployment: "traffic-deployment",
+				Replicas:   1,
+				Log:        logger.New(),
+
+				IngressContainer: &k8s.CloudRunContainer{
+					Name:     "traffic-container",
+					Ports:    []int{8080},
+					MainPort: lo.ToPtr(8080),
+				},
+				ServiceType:           lo.ToPtr("LoadBalancer"),
+				ExternalTrafficPolicy: &policy,
+
+				Containers: []corev1.ContainerArgs{
+					{
+						Name:  sdk.String("traffic-container"),
+						Image: sdk.String("nginx:latest"),
+						Ports: corev1.ContainerPortArray{
+							&corev1.ContainerPortArgs{
+								ContainerPort: sdk.Int(8080),
+							},
+						},
+					},
+				},
+			}
+
+			sc, err := NewSimpleContainer(ctx, args)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sc).ToNot(BeNil())
+			Expect(sc.Service).ToNot(BeNil())
+
+			return nil
+		}, pulumi.WithMocks("project", "stack", mocks))
+
+		Expect(err).ToNot(HaveOccurred())
+	})
+}

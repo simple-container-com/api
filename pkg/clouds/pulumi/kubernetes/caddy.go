@@ -239,18 +239,19 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 
 	sc, err := DeploySimpleContainer(ctx, Args{
-		ServiceType:         serviceType, // to provision external IP
-		ProvisionIngress:    caddy.ProvisionIngress,
-		UseSSL:              useSSL,
-		Namespace:           namespace,
-		DeploymentName:      deploymentName,
-		Input:               input,
-		ServiceAccountName:  lo.ToPtr(serviceAccount.Name),
-		Deployment:          deploymentConfig,
-		SecretVolumes:       caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
-		SecretVolumeOutputs: caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
-		SecretEnvs:          secretEnvs,                // Secret environment variables
-		VPA:                 caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
+		ServiceType:           serviceType, // to provision external IP
+		ProvisionIngress:      caddy.ProvisionIngress,
+		UseSSL:                useSSL,
+		Namespace:             namespace,
+		DeploymentName:        deploymentName,
+		Input:                 input,
+		ServiceAccountName:    lo.ToPtr(serviceAccount.Name),
+		Deployment:            deploymentConfig,
+		SecretVolumes:         caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
+		SecretVolumeOutputs:   caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
+		SecretEnvs:            secretEnvs,                // Secret environment variables
+		VPA:                   caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
+		ExternalTrafficPolicy: lo.FromPtr(caddy.CaddyConfig).ExternalTrafficPolicy,
 		Images: []*ContainerImage{
 			{
 				Container: caddyContainer,

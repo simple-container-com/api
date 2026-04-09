@@ -45,6 +45,7 @@ type Args struct {
 	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
+	ExternalTrafficPolicy  *string            // "Local" preserves client IP on LoadBalancer services
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -238,6 +239,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Sidecars:               args.Sidecars,
 		VPA:                    args.VPA,              // Pass VPA configuration to SimpleContainer
 		Scale:                  args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
+		ExternalTrafficPolicy:  args.ExternalTrafficPolicy,
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
