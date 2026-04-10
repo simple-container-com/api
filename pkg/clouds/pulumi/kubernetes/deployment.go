@@ -46,6 +46,10 @@ type Args struct {
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
 	EphemeralSize          string
+	// TerminationGracePeriodSeconds overrides pod-level terminationGracePeriodSeconds.
+	TerminationGracePeriodSeconds *int
+	// PreStopSleepSeconds injects a preStop exec sleep on all containers, allowing LB drain before SIGTERM.
+	PreStopSleepSeconds *int
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -181,13 +185,24 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			resources.Requests = sdk.ToStringMap(c.Container.Resources.Requests)
 		}
 
+		var lifecycle *corev1.LifecycleArgs
+		if args.PreStopSleepSeconds != nil && *args.PreStopSleepSeconds > 0 {
+			lifecycle = &corev1.LifecycleArgs{
+				PreStop: &corev1.LifecycleHandlerArgs{
+					Exec: &corev1.ExecActionArgs{
+						Command: sdk.ToStringArray([]string{"sleep", fmt.Sprintf("%d", *args.PreStopSleepSeconds)}),
+					},
+				},
+			}
+		}
+
 		return corev1.ContainerArgs{
 			Args:            sdk.ToStringArray(c.Container.Args),
 			Command:         sdk.ToStringArray(c.Container.Command),
 			Env:             env,
 			Image:           c.ImageName,
 			ImagePullPolicy: sdk.String(lo.If(c.Container.ImagePullPolicy != nil, lo.FromPtr(c.Container.ImagePullPolicy)).Else("IfNotPresent")),
-			Lifecycle:       nil, // TODO
+			Lifecycle:       lifecycle,
 			LivenessProbe:   livenessProbe,
 			Name:            sdk.String(c.Container.Name),
 			Ports:           ports,
@@ -250,7 +265,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		SecretVolumes:       args.SecretVolumes,
 		SecretVolumeOutputs: args.SecretVolumeOutputs,
 		ImagePullSecret:     args.ImagePullSecret,
-		EphemeralSize:       args.EphemeralSize,
+		EphemeralSize:                 args.EphemeralSize,
+		TerminationGracePeriodSeconds: args.TerminationGracePeriodSeconds,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)

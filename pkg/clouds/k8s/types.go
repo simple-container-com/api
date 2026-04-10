@@ -50,6 +50,13 @@ type CaddyConfig struct {
 	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 	// Deployment name override for existing Caddy deployments (used when adopting clusters)
 	DeploymentName *string `json:"deploymentName,omitempty" yaml:"deploymentName,omitempty"` // override deployment name when adopting existing Caddy
+	// TerminationGracePeriodSeconds overrides the pod-level terminationGracePeriodSeconds for Caddy.
+	// Should be greater than preStopSleepSeconds. Default: Kubernetes default (30s).
+	TerminationGracePeriodSeconds *int `json:"terminationGracePeriodSeconds,omitempty" yaml:"terminationGracePeriodSeconds,omitempty"`
+	// PreStopSleepSeconds inserts a preStop exec sleep before SIGTERM is sent to Caddy.
+	// Allows load-balancer endpoint propagation and in-flight connection drain before shutdown.
+	// Prevents Cloudflare 521 errors during rolling updates. Default: 0 (disabled).
+	PreStopSleepSeconds *int `json:"preStopSleepSeconds,omitempty" yaml:"preStopSleepSeconds,omitempty"`
 }
 
 type DisruptionBudget struct {

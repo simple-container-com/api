@@ -138,7 +138,8 @@ type SimpleContainerArgs struct {
 	ComputeContext       pApi.ComputeContext
 	ImagePullSecret      *docker.RegistryCredentials
 	UseSSL               bool
-	EphemeralSize        string
+	EphemeralSize                 string
+	TerminationGracePeriodSeconds *int
 }
 
 type SimpleContainer struct {
@@ -517,8 +518,14 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	args.Log.Info(ctx.Context(), "🔍 DEBUG: Converted affinity result: %+v", convertedAffinity)
 
 	podSpecArgs := &corev1.PodSpecArgs{
-		NodeSelector: sdk.ToStringMap(args.NodeSelector),
-		Affinity:     convertedAffinity,
+		NodeSelector:                  sdk.ToStringMap(args.NodeSelector),
+		Affinity:                      convertedAffinity,
+		TerminationGracePeriodSeconds: func() sdk.IntPtrInput {
+			if args.TerminationGracePeriodSeconds != nil {
+				return sdk.IntPtr(*args.TerminationGracePeriodSeconds)
+			}
+			return nil
+		}(),
 		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
 			for _, c := range scOuts {
 				initContainers = append(initContainers, c.(corev1.ContainerInput))
