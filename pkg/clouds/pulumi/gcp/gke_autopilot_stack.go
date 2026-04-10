@@ -232,20 +232,21 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			Namespace:    namespace,
 			KubeProvider: kubeProvider,
 			Kubeconfig:   &kubeConfigOutput,
+			// caddy-update-hash goes into spec.template.metadata so Caddy pods roll only when
+			// the Caddyfile actually changes. Content-hash, not wall-clock time, prevents
+			// spurious restarts (and Cloudflare 521s) on every pulumi up.
 			Annotations: map[string]sdk.StringOutput{
-				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				// caddy-updated-at is derived from the Caddyfile hash, NOT from time.Now().
-				// Using time.Now() at pulumi eval time would dirty the pod template on every
-				// pulumi up even when the Caddyfile didn't change, causing spurious Caddy rolling
-				// restarts and downstream Cloudflare 521 errors. The value here is informational
-				// (shows which hash revision was last deployed) rather than a wall-clock timestamp.
-				"simple-container.com/caddy-updated-at": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
-					sum := md5.Sum([]byte(entry[0].(string)))
-					return hex.EncodeToString(sum[:])[:8] // short prefix — readable, stable, content-driven
-				}).(sdk.StringOutput),
 				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
+				}).(sdk.StringOutput),
+			},
+			// Informational annotations live on deployment metadata only — no pod restarts.
+			DeploymentAnnotations: map[string]sdk.StringOutput{
+				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
+				"simple-container.com/caddy-updated-at": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+					sum := md5.Sum([]byte(entry[0].(string)))
+					return hex.EncodeToString(sum[:])[:8]
 				}).(sdk.StringOutput),
 			},
 			Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},

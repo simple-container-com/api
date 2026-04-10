@@ -125,19 +125,19 @@ type SimpleContainerArgs struct {
 
 	Log logger.Logger
 	// ...
-	RollingUpdate        *v1.RollingUpdateDeploymentArgs
-	InitContainers       []corev1.ContainerArgs
-	Containers           []corev1.ContainerArgs
-	SecurityContext      *corev1.PodSecurityContextArgs
-	ServiceAccountName   *sdk.StringOutput
-	Sidecars             []corev1.ContainerArgs
-	SidecarOutputs       []corev1.ContainerOutput
-	InitContainerOutputs []corev1.ContainerOutput
-	VolumeOutputs        []corev1.VolumeOutput
-	SecretVolumeOutputs  []any
-	ComputeContext       pApi.ComputeContext
-	ImagePullSecret      *docker.RegistryCredentials
-	UseSSL               bool
+	RollingUpdate                 *v1.RollingUpdateDeploymentArgs
+	InitContainers                []corev1.ContainerArgs
+	Containers                    []corev1.ContainerArgs
+	SecurityContext               *corev1.PodSecurityContextArgs
+	ServiceAccountName            *sdk.StringOutput
+	Sidecars                      []corev1.ContainerArgs
+	SidecarOutputs                []corev1.ContainerOutput
+	InitContainerOutputs          []corev1.ContainerOutput
+	VolumeOutputs                 []corev1.VolumeOutput
+	SecretVolumeOutputs           []any
+	ComputeContext                pApi.ComputeContext
+	ImagePullSecret               *docker.RegistryCredentials
+	UseSSL                        bool
 	EphemeralSize                 string
 	TerminationGracePeriodSeconds *int
 }
@@ -518,8 +518,8 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	args.Log.Info(ctx.Context(), "🔍 DEBUG: Converted affinity result: %+v", convertedAffinity)
 
 	podSpecArgs := &corev1.PodSpecArgs{
-		NodeSelector:                  sdk.ToStringMap(args.NodeSelector),
-		Affinity:                      convertedAffinity,
+		NodeSelector: sdk.ToStringMap(args.NodeSelector),
+		Affinity:     convertedAffinity,
 		TerminationGracePeriodSeconds: func() sdk.IntPtrInput {
 			if args.TerminationGracePeriodSeconds != nil {
 				return sdk.IntPtr(*args.TerminationGracePeriodSeconds)

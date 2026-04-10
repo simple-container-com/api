@@ -17,20 +17,50 @@ import (
 )
 
 type DeploymentPatchArgs struct {
-	PatchName    string
-	ServiceName  string
-	Namespace    string
-	Annotations  map[string]sdk.StringOutput
-	KubeProvider *sdkK8s.Provider  // Main Kubernetes provider (for dependencies)
-	Kubeconfig   *sdk.StringOutput // Optional: Kubeconfig for creating patch-specific provider
-	Opts         []sdk.ResourceOption
+	PatchName   string
+	ServiceName string
+	Namespace   string
+	// Annotations are applied to spec.template.metadata — changes here trigger a pod rolling update.
+	// Use only for values that should restart pods when changed (e.g. content hashes).
+	Annotations map[string]sdk.StringOutput
+	// DeploymentAnnotations are applied to metadata only — changes do NOT trigger pod restarts.
+	// Use for informational labels (e.g. caddy-updated-at, caddy-updated-by).
+	DeploymentAnnotations map[string]sdk.StringOutput
+	KubeProvider          *sdkK8s.Provider  // Main Kubernetes provider (for dependencies)
+	Kubeconfig            *sdk.StringOutput // Optional: Kubeconfig for creating patch-specific provider
+	Opts                  []sdk.ResourceOption
 }
 
 type deploymentPatchInputs struct {
-	Kubeconfig  string
-	Namespace   string
-	ServiceName string
-	Annotations map[string]string
+	Kubeconfig            string
+	Namespace             string
+	ServiceName           string
+	Annotations           map[string]string
+	DeploymentAnnotations map[string]string
+}
+
+// buildPodTemplatePatch returns the JSON patch that targets spec.template.metadata.annotations.
+// Changes here cause a rolling restart of pods.
+func buildPodTemplatePatch(annotations map[string]string) ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"annotations": annotations,
+				},
+			},
+		},
+	})
+}
+
+// buildDeploymentMetadataPatch returns the JSON patch that targets metadata.annotations.
+// Changes here do NOT trigger pod restarts.
+func buildDeploymentMetadataPatch(annotations map[string]string) ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"annotations": annotations,
+		},
+	})
 }
 
 func patchDeploymentWithK8sClient(ctx context.Context, inputs deploymentPatchInputs) error {
@@ -45,40 +75,48 @@ func patchDeploymentWithK8sClient(ctx context.Context, inputs deploymentPatchInp
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
-	// Build the patch payload - only the annotations we want to update
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"template": map[string]interface{}{
-				"metadata": map[string]interface{}{
-					"annotations": inputs.Annotations,
-				},
-			},
-		},
-	}
-
-	// Marshal to JSON
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		return fmt.Errorf("failed to marshal patch: %w", err)
-	}
-
-	// Apply the patch using Strategic Merge Patch
-	// This is a true partial update that doesn't require full deployment spec
 	patchOptions := metav1.PatchOptions{
 		FieldManager: "simple-container",
 	}
 
-	_, err = clientSet.AppsV1().Deployments(inputs.Namespace).Patch(
-		ctx,
-		inputs.ServiceName,
-		types.StrategicMergePatchType,
-		patchBytes,
-		patchOptions,
-	)
-	if err != nil {
-		// Log detailed error information for debugging
-		_, _ = fmt.Fprintf(os.Stderr, "❌ PATCH ERROR: failed to patch deployment %s/%s: %v\n", inputs.Namespace, inputs.ServiceName, err)
-		return fmt.Errorf("failed to patch deployment %s/%s: %w", inputs.Namespace, inputs.ServiceName, err)
+	// Patch spec.template.metadata.annotations — triggers rolling restart when values change.
+	if len(inputs.Annotations) > 0 {
+		patchBytes, err := buildPodTemplatePatch(inputs.Annotations)
+		if err != nil {
+			return fmt.Errorf("failed to marshal pod-template annotations patch: %w", err)
+		}
+
+		_, err = clientSet.AppsV1().Deployments(inputs.Namespace).Patch(
+			ctx,
+			inputs.ServiceName,
+			types.StrategicMergePatchType,
+			patchBytes,
+			patchOptions,
+		)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "❌ PATCH ERROR: failed to patch deployment pod-template annotations %s/%s: %v\n", inputs.Namespace, inputs.ServiceName, err)
+			return fmt.Errorf("failed to patch deployment %s/%s: %w", inputs.Namespace, inputs.ServiceName, err)
+		}
+	}
+
+	// Patch metadata.annotations — informational only, does NOT trigger pod restarts.
+	if len(inputs.DeploymentAnnotations) > 0 {
+		patchBytes, err := buildDeploymentMetadataPatch(inputs.DeploymentAnnotations)
+		if err != nil {
+			return fmt.Errorf("failed to marshal deployment annotations patch: %w", err)
+		}
+
+		_, err = clientSet.AppsV1().Deployments(inputs.Namespace).Patch(
+			ctx,
+			inputs.ServiceName,
+			types.StrategicMergePatchType,
+			patchBytes,
+			patchOptions,
+		)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "❌ PATCH ERROR: failed to patch deployment metadata annotations %s/%s: %v\n", inputs.Namespace, inputs.ServiceName, err)
+			return fmt.Errorf("failed to patch deployment metadata annotations %s/%s: %w", inputs.Namespace, inputs.ServiceName, err)
+		}
 	}
 
 	return nil
@@ -90,10 +128,11 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*sdk.StringOu
 
 	// Convert map[string]StringOutput to StringMapOutput for proper resolution
 	annotationsOutput := sdk.ToStringMapOutput(args.Annotations)
+	deploymentAnnotationsOutput := sdk.ToStringMapOutput(args.DeploymentAnnotations)
 
 	// Apply the patch when all outputs are resolved
 	// Use ApplyTWithContext to get access to Pulumi's context
-	result := sdk.All(args.Kubeconfig, annotationsOutput).ApplyTWithContext(ctx.Context(), func(goCtx context.Context, vals []interface{}) (string, error) {
+	result := sdk.All(args.Kubeconfig, annotationsOutput, deploymentAnnotationsOutput).ApplyTWithContext(ctx.Context(), func(goCtx context.Context, vals []interface{}) (string, error) {
 		kubeconfigStr, ok := vals[0].(string)
 		if !ok || kubeconfigStr == "" {
 			return "", fmt.Errorf("kubeconfig is required for native Kubernetes client patching")
@@ -104,11 +143,17 @@ func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*sdk.StringOu
 			return "", fmt.Errorf("failed to resolve annotations: got type %T", vals[1])
 		}
 
+		deploymentAnnotations, ok := vals[2].(map[string]string)
+		if !ok {
+			return "", fmt.Errorf("failed to resolve deployment annotations: got type %T", vals[2])
+		}
+
 		inputs := deploymentPatchInputs{
-			Kubeconfig:  kubeconfigStr,
-			Namespace:   args.Namespace,
-			ServiceName: args.ServiceName,
-			Annotations: annotations,
+			Kubeconfig:            kubeconfigStr,
+			Namespace:             args.Namespace,
+			ServiceName:           args.ServiceName,
+			Annotations:           annotations,
+			DeploymentAnnotations: deploymentAnnotations,
 		}
 
 		// Create a context that respects parent cancellation but allows extra time for patch to complete

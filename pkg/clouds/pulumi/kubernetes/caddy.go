@@ -251,10 +251,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		Input:                         input,
 		ServiceAccountName:            lo.ToPtr(serviceAccount.Name),
 		Deployment:                    deploymentConfig,
-		SecretVolumes:                 caddy.SecretVolumes,                 // Cloud credentials volumes (e.g., GCP service account)
-		SecretVolumeOutputs:           caddy.SecretVolumeOutputs,           // Pulumi outputs for secret volumes
-		SecretEnvs:                    secretEnvs,                          // Secret environment variables
-		VPA:                           caddy.VPA,                           // Vertical Pod Autoscaler configuration for Caddy
+		SecretVolumes:                 caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
+		SecretVolumeOutputs:           caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
+		SecretEnvs:                    secretEnvs,                // Secret environment variables
+		VPA:                           caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
 		TerminationGracePeriodSeconds: lo.FromPtr(caddy.CaddyConfig).TerminationGracePeriodSeconds,
 		PreStopSleepSeconds:           lo.FromPtr(caddy.CaddyConfig).PreStopSleepSeconds,
 		Images: []*ContainerImage{

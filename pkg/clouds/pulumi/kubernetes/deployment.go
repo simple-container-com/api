@@ -185,16 +185,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			resources.Requests = sdk.ToStringMap(c.Container.Resources.Requests)
 		}
 
-		var lifecycle *corev1.LifecycleArgs
-		if args.PreStopSleepSeconds != nil && *args.PreStopSleepSeconds > 0 {
-			lifecycle = &corev1.LifecycleArgs{
-				PreStop: &corev1.LifecycleHandlerArgs{
-					Exec: &corev1.ExecActionArgs{
-						Command: sdk.ToStringArray([]string{"sleep", fmt.Sprintf("%d", *args.PreStopSleepSeconds)}),
-					},
-				},
-			}
-		}
+		lifecycle := buildPreStopLifecycle(args.PreStopSleepSeconds)
 
 		return corev1.ContainerArgs{
 			Args:            sdk.ToStringArray(c.Container.Args),
@@ -259,12 +250,12 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
-		RollingUpdate:       lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
-		SecurityContext:     nil, // TODO
-		Log:                 args.Params.Log,
-		SecretVolumes:       args.SecretVolumes,
-		SecretVolumeOutputs: args.SecretVolumeOutputs,
-		ImagePullSecret:     args.ImagePullSecret,
+		RollingUpdate:                 lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
+		SecurityContext:               nil, // TODO
+		Log:                           args.Params.Log,
+		SecretVolumes:                 args.SecretVolumes,
+		SecretVolumeOutputs:           args.SecretVolumeOutputs,
+		ImagePullSecret:               args.ImagePullSecret,
 		EphemeralSize:                 args.EphemeralSize,
 		TerminationGracePeriodSeconds: args.TerminationGracePeriodSeconds,
 	}, opts...)
@@ -287,6 +278,23 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	}
 
 	return sc, nil
+}
+
+// buildPreStopLifecycle returns a LifecycleArgs with an exec sleep preStop hook when
+// preStopSleepSeconds is set and > 0. The sleep lets the load-balancer finish draining
+// connections before the container receives SIGTERM, preventing 502/521 errors during
+// rolling updates.
+func buildPreStopLifecycle(preStopSleepSeconds *int) *corev1.LifecycleArgs {
+	if preStopSleepSeconds == nil || *preStopSleepSeconds <= 0 {
+		return nil
+	}
+	return &corev1.LifecycleArgs{
+		PreStop: &corev1.LifecycleHandlerArgs{
+			Exec: &corev1.ExecActionArgs{
+				Command: sdk.ToStringArray([]string{"sleep", fmt.Sprintf("%d", *preStopSleepSeconds)}),
+			},
+		},
+	}
 }
 
 func toRollingUpdateArgs(update *k8s.RollingUpdate) *v1.RollingUpdateDeploymentArgs {
