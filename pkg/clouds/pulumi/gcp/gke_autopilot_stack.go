@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	auth "golang.org/x/oauth2/google"
 
@@ -235,7 +234,15 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			Kubeconfig:   &kubeConfigOutput,
 			Annotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				"simple-container.com/caddy-updated-at": sdk.String(time.Now().UTC().Format(time.RFC3339)).ToStringOutput(),
+				// caddy-updated-at is derived from the Caddyfile hash, NOT from time.Now().
+				// Using time.Now() at pulumi eval time would dirty the pod template on every
+				// pulumi up even when the Caddyfile didn't change, causing spurious Caddy rolling
+				// restarts and downstream Cloudflare 521 errors. The value here is informational
+				// (shows which hash revision was last deployed) rather than a wall-clock timestamp.
+				"simple-container.com/caddy-updated-at": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+					sum := md5.Sum([]byte(entry[0].(string)))
+					return hex.EncodeToString(sum[:])[:8] // short prefix — readable, stable, content-driven
+				}).(sdk.StringOutput),
 				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
