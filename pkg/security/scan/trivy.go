@@ -133,6 +133,31 @@ func (t *TrivyScanner) CheckInstalled(ctx context.Context) error {
 	return nil
 }
 
+// Install installs trivy if not already present using the official install script
+func (t *TrivyScanner) Install(ctx context.Context) error {
+	if err := t.CheckInstalled(ctx); err == nil {
+		return nil // already installed
+	}
+	fmt.Printf("Installing trivy %s...\n", t.minVersion)
+	installDir := "/usr/local/bin"
+	if _, err := exec.LookPath("sudo"); err != nil {
+		home, _ := os.UserHomeDir()
+		installDir = filepath.Join(home, ".local", "bin")
+		if err := os.MkdirAll(installDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create install directory %s: %w", installDir, err)
+		}
+	}
+	cmd := exec.CommandContext(ctx, "sh", "-c",
+		fmt.Sprintf("curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b %s v%s",
+			installDir, t.minVersion))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to install trivy: %w", err)
+	}
+	return t.CheckInstalled(ctx)
+}
+
 // CheckVersion checks if trivy meets minimum version requirements
 func (t *TrivyScanner) CheckVersion(ctx context.Context) error {
 	version, err := t.Version(ctx)

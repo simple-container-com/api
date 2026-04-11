@@ -83,11 +83,12 @@ type ScanConfig struct {
 
 // ScanToolConfig configures a specific scanning tool
 type ScanToolConfig struct {
-	Name     string   `json:"name" yaml:"name"`                             // grype, trivy
-	Enabled  *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`   // Enable this tool (nil = use defaults)
-	Required bool     `json:"required,omitempty" yaml:"required,omitempty"` // Fail if this tool fails
-	FailOn   Severity `json:"failOn,omitempty" yaml:"failOn,omitempty"`     // Tool-specific failOn
-	WarnOn   Severity `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`     // Tool-specific warnOn
+	Name     string   `json:"name" yaml:"name"`                               // grype, trivy
+	Version  string   `json:"version,omitempty" yaml:"version,omitempty"`     // Pin specific version (install target + minimum); default: built-in minimum
+	Enabled  *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`     // Enable this tool (nil = use defaults)
+	Required bool     `json:"required,omitempty" yaml:"required,omitempty"`   // Fail if this tool fails
+	FailOn   Severity `json:"failOn,omitempty" yaml:"failOn,omitempty"`       // Tool-specific failOn
+	WarnOn   Severity `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`       // Tool-specific warnOn
 }
 
 // Severity represents vulnerability severity levels

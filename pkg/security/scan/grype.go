@@ -118,6 +118,33 @@ func (g *GrypeScanner) CheckInstalled(ctx context.Context) error {
 	return nil
 }
 
+// Install installs grype if not already present using the official install script
+func (g *GrypeScanner) Install(ctx context.Context) error {
+	if err := g.CheckInstalled(ctx); err == nil {
+		return nil // already installed
+	}
+	fmt.Printf("Installing grype %s...\n", g.minVersion)
+	// Use the official install script to install to a writable location
+	installDir := "/usr/local/bin"
+	if _, err := exec.LookPath("sudo"); err != nil {
+		// No sudo available, try user-local bin
+		home, _ := os.UserHomeDir()
+		installDir = filepath.Join(home, ".local", "bin")
+		if err := os.MkdirAll(installDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create install directory %s: %w", installDir, err)
+		}
+	}
+	cmd := exec.CommandContext(ctx, "sh", "-c",
+		fmt.Sprintf("curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b %s v%s",
+			installDir, g.minVersion))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to install grype: %w", err)
+	}
+	return g.CheckInstalled(ctx)
+}
+
 // CheckVersion checks if grype meets minimum version requirements
 func (g *GrypeScanner) CheckVersion(ctx context.Context) error {
 	version, err := g.Version(ctx)

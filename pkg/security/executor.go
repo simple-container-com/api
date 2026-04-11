@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/simple-container-com/api/pkg/security/provenance"
@@ -53,8 +54,21 @@ func NewSecurityExecutorWithSummary(ctx context.Context, config *SecurityConfig,
 	return executor, nil
 }
 
-// ExecuteScanning performs vulnerability scanning on the image
-// This runs FIRST in the security workflow (fail-fast pattern)
+// scanToolOutcome holds the result of scanning with a single tool.
+// It is sent over a channel from parallel goroutines to the main goroutine.
+type scanToolOutcome struct {
+	toolName  scan.ScanTool
+	result    *scan.ScanResult
+	policyErr error
+	err       error
+	duration  time.Duration
+	version   string
+	required  bool
+}
+
+// ExecuteScanning performs vulnerability scanning on the image.
+// All configured scan tools run in parallel; results are merged and deduplicated.
+// This runs FIRST in the security workflow (fail-fast pattern).
 func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string) (*scan.ScanResult, error) {
 	if !e.Config.Enabled || e.Config.Scan == nil || !e.Config.Scan.Enabled {
 		return nil, nil // Scanning disabled
@@ -87,93 +101,43 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		fmt.Printf("Warning: failed to initialize scan cache, continuing without cache: %v\n", cacheErr)
 	}
 
+	// Run all scanners in parallel; each goroutine sends exactly one outcome.
+	outcomeCh := make(chan scanToolOutcome, len(toolConfigs))
+	var wg sync.WaitGroup
+	for _, tc := range toolConfigs {
+		wg.Add(1)
+		go func(toolConfig ScanToolConfig) {
+			defer wg.Done()
+			outcomeCh <- e.runScannerForTool(ctx, toolConfig, imageRef, cache)
+		}(tc)
+	}
+	go func() {
+		wg.Wait()
+		close(outcomeCh)
+	}()
+
+	// Collect outcomes in the main goroutine — keeps WorkflowSummary single-threaded.
 	var results []*scan.ScanResult
 	var policyErr error
-
-	// Run each configured scanner
-	for _, toolConfig := range toolConfigs {
-		toolName := normalizedScanToolName(toolConfig.Name)
-		required := e.isScanToolRequired(toolConfig)
-
-		scanner, err := scan.NewScanner(toolName)
-		if err != nil {
-			if required {
-				return nil, fmt.Errorf("creating scanner %s: %w", toolName, err)
-			}
-			fmt.Printf("Warning: failed to create scanner %s, skipping: %v\n", toolName, err)
-			if e.Summary != nil {
-				e.Summary.RecordScan(toolName, nil, err, 0, "")
-			}
-			continue
-		}
-
-		// Check if scanner is installed
-		if err := scanner.CheckInstalled(ctx); err != nil {
-			if required {
-				return nil, fmt.Errorf("scanner %s not installed: %w", toolName, err)
-			}
-			fmt.Printf("Warning: scanner %s not installed, skipping: %v\n", toolName, err)
-			if e.Summary != nil {
-				e.Summary.RecordScan(toolName, nil, err, 0, "")
-			}
-			continue
-		}
-
-		toolVersion, err := scanner.Version(ctx)
-		if err != nil {
-			toolVersion = ""
-		}
-
-		if cache != nil {
-			cachedResult, found, err := e.loadScanResultFromCache(cache, toolConfig, imageRef)
-			if err != nil {
-				fmt.Printf("Warning: failed to read cached %s scan result: %v\n", toolName, err)
-			} else if found {
-				fmt.Printf("Using cached %s vulnerability scan for %s...\n", toolName, imageRef)
-				results = append(results, cachedResult)
-				if e.Summary != nil {
-					e.Summary.RecordScan(toolName, cachedResult, nil, 0, toolVersion)
-				}
-				if err := e.enforceToolPolicy(toolConfig, cachedResult); err != nil && policyErr == nil {
-					policyErr = fmt.Errorf("%s vulnerability policy violation: %w", toolName, err)
-				}
-				continue
-			}
-		}
-
-		// Run scan with timing
-		fmt.Printf("Running %s vulnerability scan on %s...\n", toolName, imageRef)
-		startTime := time.Now()
-		result, err := scanner.Scan(ctx, imageRef)
-		duration := time.Since(startTime)
-
-		if err != nil {
-			if required {
-				return nil, fmt.Errorf("scan with %s failed: %w", toolName, err)
-			}
-			fmt.Printf("Warning: scan with %s failed, continuing: %v\n", toolName, err)
-			if e.Summary != nil {
-				e.Summary.RecordScan(toolName, nil, err, duration, "")
-			}
-			continue
-		}
-
-		fmt.Printf("%s scan complete: %s\n", toolName, result.Summary.String())
-		results = append(results, result)
-
-		if cache != nil {
-			if err := e.saveScanResultToCache(cache, toolConfig, imageRef, result); err != nil {
-				fmt.Printf("Warning: failed to cache %s scan result: %v\n", toolName, err)
-			}
-		}
-
-		// Record in summary
+	for outcome := range outcomeCh {
 		if e.Summary != nil {
-			e.Summary.RecordScan(toolName, result, nil, duration, toolVersion)
+			e.Summary.RecordScan(outcome.toolName, outcome.result, outcome.err, outcome.duration, outcome.version)
 		}
 
-		if err := e.enforceToolPolicy(toolConfig, result); err != nil && policyErr == nil {
-			policyErr = fmt.Errorf("%s vulnerability policy violation: %w", toolName, err)
+		if outcome.err != nil {
+			if outcome.required {
+				return nil, fmt.Errorf("scan with %s failed: %w", outcome.toolName, outcome.err)
+			}
+			fmt.Printf("Warning: scan with %s failed, continuing: %v\n", outcome.toolName, outcome.err)
+			continue
+		}
+
+		if outcome.result != nil {
+			results = append(results, outcome.result)
+		}
+
+		if outcome.policyErr != nil && policyErr == nil {
+			policyErr = fmt.Errorf("%s vulnerability policy violation: %w", outcome.toolName, outcome.policyErr)
 		}
 	}
 
@@ -199,9 +163,8 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		e.Summary.RecordMergedScan(finalResult)
 	}
 
-	// Enforce policy
+	// Enforce global policy on merged result
 	if e.Config.Scan.FailOn != "" {
-		// Convert our ScanConfig to scan.Config for the policy enforcer
 		scanCfg := e.convertToScanConfig()
 		enforcer := scan.NewPolicyEnforcer(scanCfg)
 		if err := enforcer.Enforce(finalResult); err != nil {
@@ -224,6 +187,79 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 	}
 
 	return finalResult, policyErr
+}
+
+// runScannerForTool runs a single scanner and returns its outcome.
+// Safe to call from a goroutine — does not touch shared state.
+func (e *SecurityExecutor) runScannerForTool(ctx context.Context, toolConfig ScanToolConfig, imageRef string, cache *Cache) scanToolOutcome {
+	toolName := normalizedScanToolName(toolConfig.Name)
+	outcome := scanToolOutcome{
+		toolName: toolName,
+		required: e.isScanToolRequired(toolConfig),
+	}
+
+	scanner, err := scan.NewScannerWithVersion(toolName, toolConfig.Version)
+	if err != nil {
+		outcome.err = fmt.Errorf("creating scanner: %w", err)
+		return outcome
+	}
+
+	// Auto-install if not present
+	if err := scanner.CheckInstalled(ctx); err != nil {
+		fmt.Printf("Scanner %s not found, attempting auto-install...\n", toolName)
+		if installErr := scanner.Install(ctx); installErr != nil {
+			outcome.err = fmt.Errorf("not installed and auto-install failed: %w (install error: %v)", err, installErr)
+			return outcome
+		}
+		fmt.Printf("Scanner %s installed successfully\n", toolName)
+	}
+
+	toolVersion, err := scanner.Version(ctx)
+	if err != nil {
+		toolVersion = ""
+	}
+	outcome.version = toolVersion
+
+	// Check cache
+	if cache != nil {
+		cachedResult, found, err := e.loadScanResultFromCache(cache, toolConfig, imageRef)
+		if err != nil {
+			fmt.Printf("Warning: failed to read cached %s scan result: %v\n", toolName, err)
+		} else if found {
+			fmt.Printf("Using cached %s vulnerability scan for %s...\n", toolName, imageRef)
+			outcome.result = cachedResult
+			if err := e.enforceToolPolicy(toolConfig, cachedResult); err != nil {
+				outcome.policyErr = err
+			}
+			return outcome
+		}
+	}
+
+	// Run scan
+	fmt.Printf("Running %s vulnerability scan on %s...\n", toolName, imageRef)
+	startTime := time.Now()
+	result, err := scanner.Scan(ctx, imageRef)
+	outcome.duration = time.Since(startTime)
+
+	if err != nil {
+		outcome.err = err
+		return outcome
+	}
+
+	fmt.Printf("%s scan complete: %s\n", toolName, result.Summary.String())
+	outcome.result = result
+
+	if cache != nil {
+		if err := e.saveScanResultToCache(cache, toolConfig, imageRef, result); err != nil {
+			fmt.Printf("Warning: failed to cache %s scan result: %v\n", toolName, err)
+		}
+	}
+
+	if err := e.enforceToolPolicy(toolConfig, result); err != nil {
+		outcome.policyErr = err
+	}
+
+	return outcome
 }
 
 // shouldSaveScanLocal returns true if local output is configured
