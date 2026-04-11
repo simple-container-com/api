@@ -1,0 +1,431 @@
+name: Build and publish preview version
+on:
+  workflow_dispatch:
+
+# Cancel previous runs for the same branch when a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare preview build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get next version
+        uses: reecetech/version-increment@2023.10.2
+        id: base-version
+        with:
+          scheme: "calver"
+          increment: "patch"
+          use_api: "false"
+      - name: Build preview version string
+        id: version
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          VERSION="${{ steps.base-version.outputs.version }}-preview.${SHORT_SHA}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  build-setup:
+    name: Build Setup (clean, tools, schemas, lint, fmt)
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: prepare
+    outputs:
+      cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
+      cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fregante/setup-git-user@v2
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: install sc tool (latest release)
+        shell: bash
+        run: |-
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+      - name: get openai key
+        id: get-openai-key
+        run: |
+          echo "openai-key=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+      - name: prepare sc tool (rebuild)
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
+          SKIP_EMBEDDINGS: "true"
+        run: |-
+          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run rebuild
+      - name: clean
+        run: |
+          mkdir -p dist
+          rm -fR dist/*
+          mkdir -p .sc/stacks/dist/bundle
+          rm -fR .sc/stacks/dist/bundle/*
+          mkdir -p docs/site
+          rm -fR docs/site/*
+          mkdir -p docs/schemas
+          rm -fR docs/schemas/*
+      - name: tools
+        run: |
+          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          go mod download
+          go generate -tags tools
+          go mod tidy
+      - name: generate-schemas
+        run: |
+          echo "Generating JSON Schema files for Simple Container resources..."
+          go build -o bin/schema-gen ./cmd/schema-gen
+          bin/schema-gen docs/schemas
+          echo "Successfully generated JSON Schema files in docs/schemas/"
+      - name: fmt
+        run: |
+          go mod tidy
+          bin/gofumpt -l -w ./
+          bin/golangci-lint run --fix --timeout 3m -v
+      - name: get telegram secrets
+        id: telegram-secrets
+        run: |
+          echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
+      - name: upload bin directory artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-tools
+          path: bin
+          retention-days: 1
+
+  build-platforms:
+    name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: darwin
+            arch: arm64
+          - os: darwin
+            arch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: create build directories
+        run: |
+          mkdir -p dist
+          mkdir -p .sc/stacks/dist/bundle
+      - name: build sc for ${{ matrix.os }}/${{ matrix.arch }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          echo "Building for ${GOOS}/${GOARCH}..."
+          if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
+          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+          tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
+          cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
+      - name: upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sc-${{ matrix.os }}-${{ matrix.arch }}
+          path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz
+          retention-days: 1
+
+  build-binaries:
+    name: Build github-actions binary
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: create build directories
+        run: |
+          mkdir -p dist
+      - name: build github-actions
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/github-actions ./cmd/github-actions
+      - name: upload github-actions binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-actions-binary
+          path: dist/github-actions
+          retention-days: 1
+
+  test:
+    name: Run tests
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: [prepare, build-setup]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: test
+        run: |
+          go test ./...
+
+  docker-build:
+    name: Docker build and push preview github-actions image
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    # Does not need build-platforms — SC binaries are not used in the github-actions Docker image.
+    # Starts as soon as build-binaries + test finish, in parallel with build-platforms.
+    needs: [prepare, build-setup, build-binaries, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: download github-actions binary
+        uses: actions/download-artifact@v4
+        with:
+          name: github-actions-binary
+          path: dist
+      - name: fix binary permissions
+        run: chmod +x dist/github-actions
+      - name: install sc tool (latest release)
+        shell: bash
+        run: |-
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+      - name: Setup Docker Buildx with advanced caching
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
+      - name: Docker login using SC secrets
+        run: |
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+      - name: Build and push preview github-actions image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file github-actions.Dockerfile \
+            --tag "simplecontainer/github-actions:${VERSION}" \
+            --push \
+            .
+
+  publish-sc-preview:
+    name: Publish preview SC binaries to dist
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    # Does not need docker-build — SC binary publishing is independent of the Docker image.
+    # Runs in parallel with publish-git-tag.
+    needs: [prepare, build-setup, build-platforms, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: download all sc platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: sc-*
+      - name: download bin tools artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bin-tools
+          path: bin
+      - name: fix bin tools permissions
+        run: chmod +x bin/*
+      - name: install sc tool (latest release)
+        shell: bash
+        run: |-
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          cat << EOF > ./.sc/cfg.test.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+      - name: assemble preview dist bundle (versioned tarballs only)
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p .sc/stacks/dist/bundle
+          rm -fR .sc/stacks/dist/bundle/*
+          # Copy only versioned tarballs — do NOT add sc.sh or the version file.
+          # This prevents overwriting the latest pointer for users running sc.sh without a version pin.
+          cp artifacts/sc-*/*-v${VERSION}.tar.gz .sc/stacks/dist/bundle/
+          echo "Bundle contents:"
+          ls -la .sc/stacks/dist/bundle/
+      - name: publish preview sc binaries
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          # Deploy only the dist stack — welder deploy -e prod would also deploy
+          # the docs stack which requires docs/site/ that we don't build in preview.
+          ./bin/sc deploy -s dist -e prod --skip-refresh
+
+  publish-git-tag:
+    name: Create release commit and push git tag
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    # Only needs docker-build — the tag must point to a commit referencing a published Docker image.
+    # Does not need build-platforms or publish-sc-preview. Runs in parallel with publish-sc-preview.
+    needs: [prepare, docker-build]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: fregante/setup-git-user@v2
+      - name: configure git remote with token
+        run: |
+          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+      - name: create release branch and update action.yml image tags
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          RELEASE_BRANCH="release/${VERSION}"
+          git checkout -b "${RELEASE_BRANCH}"
+
+          # Replace :staging image tag with the preview version tag in all action.yml files
+          find .github/actions -name "action.yml" | while read f; do
+            sed -i "s|docker://simplecontainer/github-actions:staging|docker://simplecontainer/github-actions:${VERSION}|g" "$f"
+          done
+
+          echo "Updated action.yml files:"
+          grep -r "docker://simplecontainer/github-actions:" .github/actions/
+      - name: commit, tag and push
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          RELEASE_BRANCH="release/${VERSION}"
+          git add .github/actions/*/action.yml
+          git commit -m "chore: release preview v${VERSION} - update github-actions image tag"
+          git tag "v${VERSION}"
+          git push origin "${RELEASE_BRANCH}"
+          git push origin "v${VERSION}"
+
+  finalize:
+    name: Finalize preview build
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    permissions:
+      contents: write
+    needs:
+      - prepare
+      - build-setup
+      - publish-sc-preview
+      - publish-git-tag
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ always() }}
+
+      - name: Extract git reference
+        id: extract_git_ref
+        if: ${{ always() }}
+        shell: bash
+        run: |-
+          cat <<'EOF' > /tmp/commit_message.txt
+            ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
+          EOF
+          message="$(cat /tmp/commit_message.txt | tr -d '\n')"
+          if [ ${#message} -gt 200 ]; then
+            truncated_message="${message:0:80}...${message: -80}"
+            message="$truncated_message"
+          fi
+          echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
+          echo "message=$message" >> $GITHUB_OUTPUT
+          echo "author=$GITHUB_ACTOR" >> $GITHUB_OUTPUT
+          echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+
+      - name: Write build summary
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+          # GHA evaluates ${{ '${{' }} to the literal string ${{ so SC_CONFIG_EXPR becomes
+          # the printable text "${{ secrets.SC_CONFIG }}" for use in markdown examples.
+          SC_CONFIG_EXPR: "${{ '${{' }} secrets.SC_CONFIG }}"
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" << ENDSUMMARY
+          ## Preview build \`v${VERSION}\`
+
+          ### Use SC GitHub Actions at this version
+
+          Reference any SC action with the \`@v${VERSION}\` tag:
+
+          \`\`\`yaml
+          - uses: simple-container-com/api/.github/actions/deploy-client-stack@v${VERSION}
+            with:
+              stack-name: my-stack
+              sc-config: ${SC_CONFIG_EXPR}
+
+          - uses: simple-container-com/api/.github/actions/provision-parent-stack@v${VERSION}
+            with:
+              stack-name: my-stack
+              sc-config: ${SC_CONFIG_EXPR}
+
+          - uses: simple-container-com/api/.github/actions/destroy@v${VERSION}
+            with:
+              stack-name: my-stack
+              sc-config: ${SC_CONFIG_EXPR}
+          \`\`\`
+
+          Docker image: \`simplecontainer/github-actions:${VERSION}\`
+
+          ### Install this SC version via CLI
+
+          \`\`\`bash
+          SIMPLE_CONTAINER_VERSION=${VERSION} curl -s "https://dist.simple-container.com/sc.sh" | bash
+          \`\`\`
+
+          > Preview build from branch \`${BRANCH}\`. Running \`sc.sh\` without \`SIMPLE_CONTAINER_VERSION\` will **not** pick up this version.
+          ENDSUMMARY
+
+      - uses: yanzay/notify-telegram@v0.1.0
+        if: ${{ success() && !contains(needs.*.result, 'failure') }}
+        continue-on-error: true
+        with:
+          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
+          status: ✅ preview published (${{ steps.extract_git_ref.outputs.branch }}) (v${{ needs.prepare.outputs.version }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+      - uses: yanzay/notify-telegram@v0.1.0
+        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        continue-on-error: true
+        with:
+          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
+          status: ❗ preview failed (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+
+      - name: Build failed due to previously failed steps
+        id: fail_if_needed
+        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        shell: bash
+        run: |-
+          exit 1

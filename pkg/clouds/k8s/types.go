@@ -43,12 +43,20 @@ type CaddyConfig struct {
 	Replicas         *int       `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 	Resources        *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`               // CPU and memory limits/requests for Caddy container
 	VPA              *VPAConfig `json:"vpa,omitempty" yaml:"vpa,omitempty"`                           // Vertical Pod Autoscaler configuration for Caddy
+	TrustedProxies   []string   `json:"trustedProxies,omitempty" yaml:"trustedProxies,omitempty"`     // CIDR ranges trusted as reverse proxies (preserves X-Forwarded-For from these sources)
 	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
 	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
 	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
 	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 	// Deployment name override for existing Caddy deployments (used when adopting clusters)
 	DeploymentName *string `json:"deploymentName,omitempty" yaml:"deploymentName,omitempty"` // override deployment name when adopting existing Caddy
+	// TerminationGracePeriodSeconds overrides the pod-level terminationGracePeriodSeconds for Caddy.
+	// Should be greater than preStopSleepSeconds. Default: Kubernetes default (30s).
+	TerminationGracePeriodSeconds *int `json:"terminationGracePeriodSeconds,omitempty" yaml:"terminationGracePeriodSeconds,omitempty"`
+	// PreStopSleepSeconds inserts a preStop exec sleep before SIGTERM is sent to Caddy.
+	// Allows load-balancer endpoint propagation and in-flight connection drain before shutdown.
+	// Prevents Cloudflare 521 errors during rolling updates. Default: 0 (disabled).
+	PreStopSleepSeconds *int `json:"preStopSleepSeconds,omitempty" yaml:"preStopSleepSeconds,omitempty"`
 }
 
 type DisruptionBudget struct {
