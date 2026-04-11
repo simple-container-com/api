@@ -345,6 +345,58 @@ When this resource is used in a client stack via the `uses` section, Simple Cont
 
 📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
 
+#### **CloudTrail Security Alerts** (`aws-cloudtrail-security-alerts`)
+
+Creates CloudWatch metric filters and alarms for security-relevant CloudTrail events, aligned with the AWS Security Hub/CIS CloudWatch controls (CloudWatch.1 through CloudWatch.14).
+
+**Golang Struct Reference:** `pkg/clouds/aws/cloudtrail_security_alerts.go:CloudTrailSecurityAlertsConfig`
+
+```yaml
+# server.yaml - Parent Stack
+resources:
+  resources:
+    production:
+      resources:
+        cloudtrail-security:
+          type: aws-cloudtrail-security-alerts
+          config:
+            # AWS account configuration (inherited from AccountConfig)
+            credentials: "${auth:aws-us}"
+            account: "${auth:aws-us.projectId}"
+
+            # CloudTrail log group (required)
+            logGroupName: "aws-cloudtrail-logs-s3-buckets"
+            logGroupRegion: "us-west-2"  # Optional: if different from default region
+
+            # Notification channels
+            email:
+              addresses:
+                - security@company.com
+            # slack:
+            #   webhookUrl: "${secret:security-slack-webhook}"  # TODO: not yet wired
+
+            # Alert selectors (all default to false)
+            alerts:
+              rootAccountUsage: true        # CIS CloudWatch.1
+              unauthorizedApiCalls: true     # CIS CloudWatch.2  (threshold: 5)
+              consoleLoginWithoutMfa: true   # CIS CloudWatch.3
+              iamPolicyChanges: true         # CIS CloudWatch.4
+              cloudTrailTampering: true      # CIS CloudWatch.5
+              failedConsoleLogins: true      # CIS CloudWatch.6
+              kmsKeyDeletion: true           # CIS CloudWatch.7
+              s3BucketPolicyChanges: true    # CIS CloudWatch.8
+              configChanges: true            # CIS CloudWatch.9
+              securityGroupChanges: true     # CIS CloudWatch.10
+              naclChanges: true              # CIS CloudWatch.11
+              networkGatewayChanges: true    # CIS CloudWatch.12
+              routeTableChanges: true        # CIS CloudWatch.13
+              vpcChanges: true               # CIS CloudWatch.14
+```
+
+**Compliance:** SOC 2 (CC6/CC7), ISO 27001:2022 (A.5/A.8), NIST 800-53 (AU-6, AC-2, SI-4)
+
+**Note:** This resource is provisioned once per AWS account (not per service). It monitors the CloudTrail log group and does not require `uses` in client stacks.
+
 ### **Authentication** (`AuthType` → `auth` section in `secrets.yaml`)
 
 #### **AWS Token Authentication** (`aws-token`)
