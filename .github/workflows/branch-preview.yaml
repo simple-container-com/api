@@ -153,9 +153,18 @@ jobs:
           retention-days: 1
 
   build-binaries:
-    name: Build github-actions binary
+    name: Build ${{ matrix.target }} binary
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup]
+    strategy:
+      matrix:
+        include:
+          - target: github-actions
+            cmd: github-actions
+            output: dist/github-actions
+          - target: cloud-helpers
+            cmd: cloud-helpers
+            output: dist/cloud-helpers
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go with Blacksmith caching
@@ -165,17 +174,17 @@ jobs:
       - name: create build directories
         run: |
           mkdir -p dist
-      - name: build github-actions
+      - name: build ${{ matrix.target }}
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           CGO_ENABLED: "0"
         run: |
-          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/github-actions ./cmd/github-actions
-      - name: upload github-actions binary
+          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
+      - name: upload ${{ matrix.target }} binary
         uses: actions/upload-artifact@v4
         with:
-          name: github-actions-binary
-          path: dist/github-actions
+          name: ${{ matrix.target }}-binary
+          path: ${{ matrix.output }}
           retention-days: 1
 
   test:
@@ -240,6 +249,53 @@ jobs:
             --push \
             .
 
+  docker-build-cloud-helpers:
+    name: Docker build and push preview cloud-helpers-aws image
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    # Runs in parallel with docker-build (github-actions image).
+    needs: [prepare, build-setup, build-binaries, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: download cloud-helpers binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cloud-helpers-binary
+          path: dist
+      - name: fix binary permissions
+        run: chmod +x dist/cloud-helpers
+      - name: install sc tool (latest release)
+        shell: bash
+        run: |-
+          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: prepare secrets for build
+        run: |
+          cat << EOF > ./.sc/cfg.default.yaml
+          ${{ secrets.SC_CONFIG }}
+          EOF
+          sc secrets reveal
+      - name: Setup Docker Buildx with advanced caching
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:buildx-stable-1
+          buildkitd-flags: --allow-insecure-entitlement security.insecure
+      - name: Docker login using SC secrets
+        run: |
+          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
+      - name: Build and push preview cloud-helpers-aws image
+        env:
+          DOCKER_BUILDKIT: 1
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            --file cloud-helpers.aws.Dockerfile \
+            --tag "simplecontainer/cloud-helpers:aws-${VERSION}" \
+            --push \
+            .
+
   publish-sc-preview:
     name: Publish preview SC binaries to dist
     runs-on: blacksmith-8vcpu-ubuntu-2204
@@ -297,7 +353,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     # Only needs docker-build — the tag must point to a commit referencing a published Docker image.
     # Does not need build-platforms or publish-sc-preview. Runs in parallel with publish-sc-preview.
-    needs: [prepare, docker-build]
+    needs: [prepare, docker-build, docker-build-cloud-helpers]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -342,6 +398,7 @@ jobs:
       - build-setup
       - publish-sc-preview
       - publish-git-tag
+      - docker-build-cloud-helpers
     steps:
       - uses: actions/checkout@v4
         if: ${{ always() }}
