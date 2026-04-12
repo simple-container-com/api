@@ -12,15 +12,21 @@ import (
 	"strings"
 )
 
+// DefaultTrivyVersion is the pinned install version. Bump here to upgrade cluster-wide,
+// or override per-scan via SC config (ScanToolConfig.Version) or SC_TRIVY_VERSION env var.
+const DefaultTrivyVersion = "0.69.3"
+
 // TrivyScanner implements Scanner interface using Trivy
 type TrivyScanner struct {
-	minVersion string
+	installVersion string // exact version to install
+	minVersion     string // minimum acceptable (CheckVersion)
 }
 
-// NewTrivyScanner creates a new TrivyScanner
+// NewTrivyScanner creates a new TrivyScanner pinned to DefaultTrivyVersion.
 func NewTrivyScanner() *TrivyScanner {
 	return &TrivyScanner{
-		minVersion: "0.68.2",
+		installVersion: DefaultTrivyVersion,
+		minVersion:     DefaultTrivyVersion,
 	}
 }
 
@@ -41,7 +47,10 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 		return nil, err
 	}
 
-	// Run trivy scan — do NOT use --quiet: it suppresses error messages on failure.
+	// Scan from the local Docker daemon (docker-daemon: prefix).
+	// The image must already be present locally — callers are expected to scan
+	// BEFORE pushing to the registry so this acts as a fail-gate.
+	// Do NOT use --quiet: it suppresses error messages on failure.
 	cmd := exec.CommandContext(
 		ctx,
 		"trivy", "image",
@@ -55,7 +64,7 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	if trivyJavaDBPresent(cacheDir) {
 		cmd.Args = append(cmd.Args, "--skip-java-db-update")
 	}
-	cmd.Args = append(cmd.Args, image)
+	cmd.Args = append(cmd.Args, "docker-daemon:"+image)
 	cmd.Env = append(os.Environ(), "TRIVY_CACHE_DIR="+cacheDir)
 
 	var stdout, stderr bytes.Buffer
@@ -138,7 +147,7 @@ func (t *TrivyScanner) Install(ctx context.Context) error {
 	if err := t.CheckInstalled(ctx); err == nil {
 		return nil // already installed
 	}
-	fmt.Printf("Installing trivy %s...\n", t.minVersion)
+	fmt.Printf("Installing trivy %s...\n", t.installVersion)
 	installDir := "/usr/local/bin"
 	if _, err := exec.LookPath("sudo"); err != nil {
 		home, _ := os.UserHomeDir()
@@ -147,18 +156,17 @@ func (t *TrivyScanner) Install(ctx context.Context) error {
 			return fmt.Errorf("failed to create install directory %s: %w", installDir, err)
 		}
 	}
-	// Download the binary directly from GitHub releases rather than piping to an
-	// install script — the shell script approach has proven unreliable on Blacksmith
-	// runners (binary download fails silently within ~250ms of starting).
+	// Download the binary directly from GitHub releases.
+	// Asset name format: trivy_VERSION_Linux-64bit.tar.gz (confirmed stable across releases).
 	cmd := exec.CommandContext(ctx, "sh", "-c",
 		fmt.Sprintf(`set -e
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
-curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_Linux-64bit.tar.gz" \
+curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v%[1]s/trivy_%[1]s_Linux-64bit.tar.gz" \
   -o "$TMP_DIR/trivy.tar.gz"
 tar -xzf "$TMP_DIR/trivy.tar.gz" -C "$TMP_DIR" trivy
-mv "$TMP_DIR/trivy" %s/trivy`,
-			t.minVersion, t.minVersion, installDir))
+mv "$TMP_DIR/trivy" %[2]s/trivy`,
+			t.installVersion, installDir))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -175,7 +183,7 @@ func (t *TrivyScanner) CheckVersion(ctx context.Context) error {
 	}
 
 	if !isVersionGreaterOrEqual(version, t.minVersion) {
-		return fmt.Errorf("trivy version %s is below minimum required version %s", version, t.minVersion)
+		return fmt.Errorf("trivy version %s is below minimum required version %s — bump DefaultTrivyVersion or set SC_TRIVY_VERSION", version, t.minVersion)
 	}
 
 	return nil

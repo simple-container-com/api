@@ -13,15 +13,21 @@ import (
 	"strings"
 )
 
+// DefaultGrypeVersion is the pinned install version. Bump here to upgrade cluster-wide,
+// or override per-scan via SC config (ScanToolConfig.Version) or SC_GRYPE_VERSION env var.
+const DefaultGrypeVersion = "0.111.0"
+
 // GrypeScanner implements Scanner interface using Grype
 type GrypeScanner struct {
-	minVersion string
+	installVersion string // exact version to install
+	minVersion     string // minimum acceptable (CheckVersion)
 }
 
-// NewGrypeScanner creates a new GrypeScanner
+// NewGrypeScanner creates a new GrypeScanner pinned to DefaultGrypeVersion.
 func NewGrypeScanner() *GrypeScanner {
 	return &GrypeScanner{
-		minVersion: "0.106.0",
+		installVersion: DefaultGrypeVersion,
+		minVersion:     DefaultGrypeVersion,
 	}
 }
 
@@ -37,17 +43,14 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 		return nil, fmt.Errorf("grype not installed: %w", err)
 	}
 
-	// Run grype scan — do NOT use --quiet: it suppresses ALL log output including
-	// error messages, making scan failures completely silent.
-	cmd := exec.CommandContext(ctx, "grype", "-o", "json", "registry:"+image)
+	// Scan from the local Docker daemon ("docker:" prefix).
+	// The image must already be present locally — callers are expected to scan
+	// BEFORE pushing to the registry so this acts as a fail-gate.
+	// Do NOT use "registry:" — that forces a remote pull and requires registry
+	// credentials, which are unreliable on CI runners.
+	// Do NOT use --quiet: it suppresses ALL log output including error messages.
+	cmd := exec.CommandContext(ctx, "grype", "-o", "json", "docker:"+image)
 	cmd.Env = append(os.Environ(), grypeCommandEnv(hasGrypeVulnerabilityDB())...)
-
-	// For ECR registries, grype's go-containerregistry may not pick up Docker
-	// credentials from ~/.docker/config.json. Fetch a fresh token and pass it
-	// explicitly via GRYPE_REGISTRY_AUTH_* environment variables.
-	if ecrCreds := ecrAuthEnv(ctx, image); len(ecrCreds) > 0 {
-		cmd.Env = append(cmd.Env, ecrCreds...)
-	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -132,7 +135,7 @@ func (g *GrypeScanner) Install(ctx context.Context) error {
 	if err := g.CheckInstalled(ctx); err == nil {
 		return nil // already installed
 	}
-	fmt.Printf("Installing grype %s...\n", g.minVersion)
+	fmt.Printf("Installing grype %s...\n", g.installVersion)
 	// Use the official install script to install to a writable location
 	installDir := "/usr/local/bin"
 	if _, err := exec.LookPath("sudo"); err != nil {
@@ -145,7 +148,7 @@ func (g *GrypeScanner) Install(ctx context.Context) error {
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c",
 		fmt.Sprintf("curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b %s v%s",
-			installDir, g.minVersion))
+			installDir, g.installVersion))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -311,46 +314,3 @@ func hasGrypeVulnerabilityDB() bool {
 	return err == nil && len(matches) > 0
 }
 
-// ecrAuthEnv returns GRYPE_REGISTRY_AUTH_* env vars for ECR images by fetching
-// a fresh token via the AWS CLI. grype's go-containerregistry library may not
-// read Docker credentials from ~/.docker/config.json on all runner configurations,
-// so we supply credentials explicitly to guarantee authentication succeeds.
-// Returns nil for non-ECR images or when AWS CLI is unavailable.
-func ecrAuthEnv(ctx context.Context, image string) []string {
-	// ECR URL format: ACCOUNT.dkr.ecr.REGION.amazonaws.com/REPO[:TAG][@DIGEST]
-	if !strings.Contains(image, ".dkr.ecr.") || !strings.Contains(image, ".amazonaws.com") {
-		return nil
-	}
-
-	// Extract registry hostname (everything before the first "/")
-	authority := image
-	if idx := strings.Index(image, "/"); idx != -1 {
-		authority = image[:idx]
-	}
-
-	// Extract region: "ACCOUNT.dkr.ecr.REGION.amazonaws.com" → "REGION"
-	ecrParts := strings.SplitN(authority, ".dkr.ecr.", 2)
-	if len(ecrParts) != 2 {
-		return nil
-	}
-	region := strings.SplitN(ecrParts[1], ".amazonaws.com", 2)[0]
-	if region == "" {
-		return nil
-	}
-
-	out, err := exec.CommandContext(ctx, "aws", "ecr", "get-login-password", "--region", region).Output()
-	if err != nil {
-		fmt.Printf("Warning: failed to get ECR token for grype (region %s): %v\n", region, err)
-		return nil
-	}
-	token := strings.TrimSpace(string(out))
-	if token == "" {
-		return nil
-	}
-
-	return []string{
-		"GRYPE_REGISTRY_AUTH_AUTHORITY=" + authority,
-		"GRYPE_REGISTRY_AUTH_USERNAME=AWS",
-		"GRYPE_REGISTRY_AUTH_PASSWORD=" + token,
-	}
-}
