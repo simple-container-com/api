@@ -41,11 +41,10 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 		return nil, err
 	}
 
-	// Run trivy scan
+	// Run trivy scan — do NOT use --quiet: it suppresses error messages on failure.
 	cmd := exec.CommandContext(
 		ctx,
 		"trivy", "image",
-		"--quiet",
 		"--scanners", "vuln",
 		"--cache-dir", cacheDir,
 		"--format", "json",
@@ -148,9 +147,11 @@ func (t *TrivyScanner) Install(ctx context.Context) error {
 			return fmt.Errorf("failed to create install directory %s: %w", installDir, err)
 		}
 	}
+	// Pin install script to the same version tag — the main-branch script may not
+	// be backward-compatible with older release naming conventions.
 	cmd := exec.CommandContext(ctx, "sh", "-c",
-		fmt.Sprintf("curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b %s v%s",
-			installDir, t.minVersion))
+		fmt.Sprintf("curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v%s/contrib/install.sh | sh -s -- -b %s v%s",
+			t.minVersion, installDir, t.minVersion))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

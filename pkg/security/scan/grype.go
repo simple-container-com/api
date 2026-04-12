@@ -37,8 +37,9 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 		return nil, fmt.Errorf("grype not installed: %w", err)
 	}
 
-	// Run grype scan
-	cmd := exec.CommandContext(ctx, "grype", "--quiet", "-o", "json", "registry:"+image)
+	// Run grype scan — do NOT use --quiet: it suppresses ALL log output including
+	// error messages, making scan failures completely silent.
+	cmd := exec.CommandContext(ctx, "grype", "-o", "json", "registry:"+image)
 	cmd.Env = append(os.Environ(), grypeCommandEnv(hasGrypeVulnerabilityDB())...)
 
 	var stdout, stderr bytes.Buffer
