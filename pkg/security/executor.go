@@ -101,6 +101,25 @@ func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string)
 		fmt.Printf("Warning: failed to initialize scan cache, continuing without cache: %v\n", cacheErr)
 	}
 
+	// Pre-install scanners sequentially to avoid simultaneous GitHub API calls
+	// (parallel installs hit the release API at the same time and get rate-limited).
+	// Goroutines below will find scanners already installed and skip re-install.
+	for _, tc := range toolConfigs {
+		toolName := normalizedScanToolName(tc.Name)
+		s, err := scan.NewScannerWithVersion(toolName, tc.Version)
+		if err != nil {
+			continue
+		}
+		if err := s.CheckInstalled(ctx); err != nil {
+			fmt.Printf("Scanner %s not found, attempting auto-install...\n", toolName)
+			if installErr := s.Install(ctx); installErr != nil {
+				fmt.Printf("Warning: scanner %s auto-install failed: %v\n", toolName, installErr)
+			} else {
+				fmt.Printf("Scanner %s installed successfully\n", toolName)
+			}
+		}
+	}
+
 	// Run all scanners in parallel; each goroutine sends exactly one outcome.
 	outcomeCh := make(chan scanToolOutcome, len(toolConfigs))
 	var wg sync.WaitGroup

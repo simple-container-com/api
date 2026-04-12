@@ -46,7 +46,8 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("grype scan failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("grype scan failed: %w\nstdout: %s\nstderr: %s",
+			err, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()))
 	}
 
 	output := bytes.TrimSpace(stdout.Bytes())
