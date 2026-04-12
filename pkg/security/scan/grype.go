@@ -42,6 +42,13 @@ func (g *GrypeScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	cmd := exec.CommandContext(ctx, "grype", "-o", "json", "registry:"+image)
 	cmd.Env = append(os.Environ(), grypeCommandEnv(hasGrypeVulnerabilityDB())...)
 
+	// For ECR registries, grype's go-containerregistry may not pick up Docker
+	// credentials from ~/.docker/config.json. Fetch a fresh token and pass it
+	// explicitly via GRYPE_REGISTRY_AUTH_* environment variables.
+	if ecrCreds := ecrAuthEnv(ctx, image); len(ecrCreds) > 0 {
+		cmd.Env = append(cmd.Env, ecrCreds...)
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -302,4 +309,48 @@ func hasGrypeVulnerabilityDB() bool {
 
 	matches, err := filepath.Glob(filepath.Join(cacheDir, "grype", "db", "*", "vulnerability.db"))
 	return err == nil && len(matches) > 0
+}
+
+// ecrAuthEnv returns GRYPE_REGISTRY_AUTH_* env vars for ECR images by fetching
+// a fresh token via the AWS CLI. grype's go-containerregistry library may not
+// read Docker credentials from ~/.docker/config.json on all runner configurations,
+// so we supply credentials explicitly to guarantee authentication succeeds.
+// Returns nil for non-ECR images or when AWS CLI is unavailable.
+func ecrAuthEnv(ctx context.Context, image string) []string {
+	// ECR URL format: ACCOUNT.dkr.ecr.REGION.amazonaws.com/REPO[:TAG][@DIGEST]
+	if !strings.Contains(image, ".dkr.ecr.") || !strings.Contains(image, ".amazonaws.com") {
+		return nil
+	}
+
+	// Extract registry hostname (everything before the first "/")
+	authority := image
+	if idx := strings.Index(image, "/"); idx != -1 {
+		authority = image[:idx]
+	}
+
+	// Extract region: ACCOUNT.dkr.ecr.REGION.amazonaws.com
+	after, found := strings.CutPrefix(authority, strings.SplitN(authority, ".dkr.ecr.", 2)[0]+".dkr.ecr.")
+	if !found {
+		return nil
+	}
+	region := strings.SplitN(after, ".amazonaws.com", 2)[0]
+	if region == "" {
+		return nil
+	}
+
+	out, err := exec.CommandContext(ctx, "aws", "ecr", "get-login-password", "--region", region).Output()
+	if err != nil {
+		fmt.Printf("Warning: failed to get ECR token for grype (region %s): %v\n", region, err)
+		return nil
+	}
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		return nil
+	}
+
+	return []string{
+		"GRYPE_REGISTRY_AUTH_AUTHORITY=" + authority,
+		"GRYPE_REGISTRY_AUTH_USERNAME=AWS",
+		"GRYPE_REGISTRY_AUTH_PASSWORD=" + token,
+	}
 }

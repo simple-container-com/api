@@ -147,11 +147,18 @@ func (t *TrivyScanner) Install(ctx context.Context) error {
 			return fmt.Errorf("failed to create install directory %s: %w", installDir, err)
 		}
 	}
-	// Pin install script to the same version tag — the main-branch script may not
-	// be backward-compatible with older release naming conventions.
+	// Download the binary directly from GitHub releases rather than piping to an
+	// install script — the shell script approach has proven unreliable on Blacksmith
+	// runners (binary download fails silently within ~250ms of starting).
 	cmd := exec.CommandContext(ctx, "sh", "-c",
-		fmt.Sprintf("curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v%s/contrib/install.sh | sh -s -- -b %s v%s",
-			t.minVersion, installDir, t.minVersion))
+		fmt.Sprintf(`set -e
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v%s/trivy_%s_Linux-64bit.tar.gz" \
+  -o "$TMP_DIR/trivy.tar.gz"
+tar -xzf "$TMP_DIR/trivy.tar.gz" -C "$TMP_DIR" trivy
+mv "$TMP_DIR/trivy" %s/trivy`,
+			t.minVersion, t.minVersion, installDir))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
