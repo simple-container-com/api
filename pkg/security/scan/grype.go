@@ -328,12 +328,12 @@ func ecrAuthEnv(ctx context.Context, image string) []string {
 		authority = image[:idx]
 	}
 
-	// Extract region: ACCOUNT.dkr.ecr.REGION.amazonaws.com
-	after, found := strings.CutPrefix(authority, strings.SplitN(authority, ".dkr.ecr.", 2)[0]+".dkr.ecr.")
-	if !found {
+	// Extract region: "ACCOUNT.dkr.ecr.REGION.amazonaws.com" → "REGION"
+	ecrParts := strings.SplitN(authority, ".dkr.ecr.", 2)
+	if len(ecrParts) != 2 {
 		return nil
 	}
-	region := strings.SplitN(after, ".amazonaws.com", 2)[0]
+	region := strings.SplitN(ecrParts[1], ".amazonaws.com", 2)[0]
 	if region == "" {
 		return nil
 	}
