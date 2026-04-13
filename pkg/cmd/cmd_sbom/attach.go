@@ -60,6 +60,9 @@ func NewAttachCommand() *cobra.Command {
 }
 
 func runAttach(ctx context.Context, opts *attachOptions) error {
+	if err := ensureTool(ctx, "cosign"); err != nil {
+		return err
+	}
 	if opts.key != "" && opts.keyless {
 		return fmt.Errorf("cannot specify both --keyless and --key")
 	}

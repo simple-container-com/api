@@ -2,8 +2,17 @@
 package cmd_sbom
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/security/tools"
 )
+
+// ensureTool checks if a tool is installed and auto-installs it if missing.
+func ensureTool(ctx context.Context, name string) error {
+	return tools.NewToolInstaller().InstallIfMissing(ctx, name)
+}
 
 // NewSBOMCommand creates the sbom command group
 func NewSBOMCommand() *cobra.Command {

@@ -42,6 +42,9 @@ func NewAttachCommand() *cobra.Command {
 }
 
 func runAttach(ctx context.Context, opts *attachOptions) error {
+	if err := ensureTool(ctx, "cosign"); err != nil {
+		return err
+	}
 	statement, err := generateStatement(ctx, opts.statementOptions)
 	if err != nil {
 		return fmt.Errorf("generating provenance: %w", err)

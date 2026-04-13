@@ -51,6 +51,9 @@ func NewGenerateCommand() *cobra.Command {
 }
 
 func runGenerate(ctx context.Context, opts *generateOptions) error {
+	if err := ensureTool(ctx, "syft"); err != nil {
+		return err
+	}
 	// Validate format
 	format, err := sbom.ParseFormat(opts.format)
 	if err != nil {
