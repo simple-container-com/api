@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,8 +33,9 @@ func NewExecutionContext(ctx context.Context) (*ExecutionContext, error) {
 
 	if execCtx.IsCI {
 		if err := execCtx.GetOIDCToken(ctx); err != nil {
-			// Non-fatal: OIDC token is optional
-			_ = err
+			// Non-fatal: OIDC token is optional (only needed for keyless signing).
+			// Log to stderr so callers that need the token get diagnostic info.
+			fmt.Fprintf(os.Stderr, "OIDC token not acquired: %v\n", err)
 		}
 	}
 
@@ -105,19 +107,17 @@ func (e *ExecutionContext) GetOIDCToken(ctx context.Context) error {
 			return fmt.Errorf("reading token response: %w", err)
 		}
 
-		// Parse JSON response (simple extraction)
-		token := string(body)
-		// Token is in format: {"value":"TOKEN"}
-		if len(token) > 10 {
-			start := 10           // Skip {"value":"
-			end := len(token) - 2 // Skip "}
-			if start < end {
-				e.OIDCToken = token[start:end]
-				return nil
-			}
+		var tokenResp struct {
+			Value string `json:"value"`
 		}
-
-		return fmt.Errorf("invalid token response format")
+		if err := json.Unmarshal(body, &tokenResp); err != nil {
+			return fmt.Errorf("parsing OIDC token response: %w", err)
+		}
+		if tokenResp.Value == "" {
+			return fmt.Errorf("OIDC token response has empty value field")
+		}
+		e.OIDCToken = tokenResp.Value
+		return nil
 	}
 
 	return fmt.Errorf("OIDC token not available")
