@@ -13,8 +13,12 @@ type Config struct {
 	Keyless    bool
 	PrivateKey string
 	PublicKey  string
-	Password   string
-	Timeout    string
+	// Password is the cosign private key passphrase.
+	// json:"-" prevents accidental serialization if this struct is ever marshaled
+	// as part of a larger config object (e.g., debug logging, cache key hashing).
+	// It is always populated programmatically from CLI flags or env vars, never loaded from JSON.
+	Password string `json:"-" yaml:"-"`
+	Timeout  string
 
 	// Verification settings
 	OIDCIssuer     string

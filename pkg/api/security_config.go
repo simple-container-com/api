@@ -13,14 +13,17 @@ type SecurityDescriptor struct {
 
 // SigningDescriptor configures image signing
 type SigningDescriptor struct {
-	Enabled    bool              `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Provider   string            `json:"provider,omitempty" yaml:"provider,omitempty"` // Default: "sigstore"
-	Keyless    bool              `json:"keyless,omitempty" yaml:"keyless,omitempty"`   // Default: true
-	PrivateKey string            `json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
-	PublicKey  string            `json:"publicKey,omitempty" yaml:"publicKey,omitempty"`
-	Password   string            `json:"password,omitempty" yaml:"password,omitempty"`
-	Required   bool              `json:"required,omitempty" yaml:"required,omitempty"`
-	Verify     *VerifyDescriptor `json:"verify,omitempty" yaml:"verify,omitempty"`
+	Enabled    bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Provider   string `json:"provider,omitempty" yaml:"provider,omitempty"` // Default: "sigstore"
+	Keyless    bool   `json:"keyless,omitempty" yaml:"keyless,omitempty"`   // Default: true
+	PrivateKey string `json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
+	PublicKey  string `json:"publicKey,omitempty" yaml:"publicKey,omitempty"`
+	// Password is the cosign private key passphrase.
+	// json:"-" prevents accidental serialization in debug logs and config dumps.
+	// yaml tag is preserved because the field is loaded from stack YAML configs.
+	Password string            `json:"-" yaml:"password,omitempty"`
+	Required bool              `json:"required,omitempty" yaml:"required,omitempty"`
+	Verify   *VerifyDescriptor `json:"verify,omitempty" yaml:"verify,omitempty"`
 }
 
 // VerifyDescriptor configures signature verification
@@ -85,13 +88,17 @@ type MetadataDescriptor struct {
 
 // ScanDescriptor configures vulnerability scanning
 type ScanDescriptor struct {
-	Enabled  bool                 `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Tools    []ScanToolDescriptor `json:"tools,omitempty" yaml:"tools,omitempty"`
-	FailOn   string               `json:"failOn,omitempty" yaml:"failOn,omitempty"` // "critical", "high", "medium", "low"
-	WarnOn   string               `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // "critical", "high", "medium", "low"
-	Output   *OutputDescriptor    `json:"output,omitempty" yaml:"output,omitempty"`
-	Cache    *CacheDescriptor     `json:"cache,omitempty" yaml:"cache,omitempty"`
-	Required bool                 `json:"required,omitempty" yaml:"required,omitempty"`
+	Enabled bool                 `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Tools   []ScanToolDescriptor `json:"tools,omitempty" yaml:"tools,omitempty"`
+	FailOn  string               `json:"failOn,omitempty" yaml:"failOn,omitempty"` // "critical", "high", "medium", "low"
+	WarnOn  string               `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // "critical", "high", "medium", "low"
+	// SoftFail converts policy violations (failOn threshold exceeded) from hard errors to
+	// warnings. The scan still runs and results are reported/uploaded, but a policy
+	// violation never blocks the deployment (exit 0 instead of exit 1).
+	SoftFail bool              `json:"softFail,omitempty" yaml:"softFail,omitempty"`
+	Output   *OutputDescriptor `json:"output,omitempty" yaml:"output,omitempty"`
+	Cache    *CacheDescriptor  `json:"cache,omitempty" yaml:"cache,omitempty"`
+	Required bool              `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // ScanToolDescriptor configures a specific scanning tool
@@ -122,6 +129,16 @@ type DefectDojoDescriptor struct {
 	Tags           []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 	Environment    string   `json:"environment,omitempty" yaml:"environment,omitempty"`
 	AutoCreate     bool     `json:"autoCreate,omitempty" yaml:"autoCreate,omitempty"`
+}
+
+// Sanitize returns a copy of this descriptor with the API key replaced by a
+// placeholder string, safe for logging or debug serialization.
+func (d *DefectDojoDescriptor) Sanitize() DefectDojoDescriptor {
+	cp := *d
+	if cp.APIKey != "" {
+		cp.APIKey = "[REDACTED]"
+	}
+	return cp
 }
 
 // PRCommentDescriptor configures markdown output for PR comment workflows.
@@ -168,7 +185,7 @@ func DefaultSecurityDescriptor() *SecurityDescriptor {
 		},
 		Scan: &ScanDescriptor{
 			Enabled: false,
-			FailOn:  "",
+			FailOn:  "high",
 			WarnOn:  "high",
 			Output:  &OutputDescriptor{},
 			Cache: &CacheDescriptor{

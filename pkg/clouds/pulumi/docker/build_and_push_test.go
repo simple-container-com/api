@@ -184,6 +184,32 @@ func TestSigningCLIArgs(t *testing.T) {
 	}
 }
 
+func TestRepoDigestRegex(t *testing.T) {
+	valid := []string{
+		"registry.example.com/repo@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+		"ghcr.io/org/image@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		"index.docker.io/library/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	invalid := []string{
+		"registry.example.com/repo:latest",
+		"registry.example.com/repo@sha256:abc123", // too short
+		"registry.example.com/repo@sha256:ABCDEF" + // uppercase not allowed
+			"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+		"",
+	}
+
+	for _, ref := range valid {
+		if !repoDigestRe.MatchString(ref) {
+			t.Errorf("repoDigestRe should match %q but did not", ref)
+		}
+	}
+	for _, ref := range invalid {
+		if repoDigestRe.MatchString(ref) {
+			t.Errorf("repoDigestRe should not match %q but did", ref)
+		}
+	}
+}
+
 func TestSigningCommandEnvironment(t *testing.T) {
 	if got := signingCommandEnvironment(nil); got != nil {
 		t.Fatalf("signingCommandEnvironment(nil) = %#v, want nil", got)

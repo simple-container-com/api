@@ -16,8 +16,17 @@ func NewPolicyEnforcer(config *Config) *PolicyEnforcer {
 	}
 }
 
-// Enforce enforces the vulnerability policy on scan results
-// Returns error if policy is violated (deployment should be blocked)
+// PolicyViolationError is returned when scan results exceed the configured severity threshold.
+// It is distinct from tool errors so callers can apply soft-fail logic (warn but continue).
+type PolicyViolationError struct {
+	Message string
+}
+
+func (e *PolicyViolationError) Error() string { return e.Message }
+
+// Enforce enforces the vulnerability policy on scan results.
+// Returns *PolicyViolationError if the failOn threshold is exceeded,
+// or nil for configuration problems / no violations.
 func (p *PolicyEnforcer) Enforce(result *ScanResult) error {
 	if result == nil {
 		return nil
@@ -40,27 +49,37 @@ func (p *PolicyEnforcer) Enforce(result *ScanResult) error {
 	return nil
 }
 
-// checkFailOn checks if scan results violate the failOn threshold
+// checkFailOn checks if scan results violate the failOn threshold.
+// Returns *PolicyViolationError so callers can distinguish policy violations from tool errors.
 func (p *PolicyEnforcer) checkFailOn(summary VulnerabilitySummary) error {
+	var msg string
 	switch p.config.FailOn {
 	case SeverityCritical:
 		if summary.HasCritical() {
-			return fmt.Errorf("policy violation: found %d critical vulnerabilities (failOn: critical)", summary.Critical)
+			msg = fmt.Sprintf("policy violation: found %d critical vulnerabilities (failOn: critical)", summary.Critical)
 		}
 	case SeverityHigh:
 		if summary.HasCritical() || summary.HasHigh() {
-			return fmt.Errorf("policy violation: found %d critical and %d high vulnerabilities (failOn: high)", summary.Critical, summary.High)
+			msg = fmt.Sprintf("policy violation: found %d critical and %d high vulnerabilities (failOn: high)", summary.Critical, summary.High)
 		}
 	case SeverityMedium:
 		if summary.HasCritical() || summary.HasHigh() || summary.HasMedium() {
-			return fmt.Errorf("policy violation: found %d critical, %d high, %d medium vulnerabilities (failOn: medium)", summary.Critical, summary.High, summary.Medium)
+			msg = fmt.Sprintf("policy violation: found %d critical, %d high, %d medium vulnerabilities (failOn: medium)", summary.Critical, summary.High, summary.Medium)
 		}
 	case SeverityLow:
 		if summary.HasCritical() || summary.HasHigh() || summary.HasMedium() || summary.HasLow() {
-			return fmt.Errorf("policy violation: found %d critical, %d high, %d medium, %d low vulnerabilities (failOn: low)", summary.Critical, summary.High, summary.Medium, summary.Low)
+			msg = fmt.Sprintf("policy violation: found %d critical, %d high, %d medium, %d low vulnerabilities (failOn: low)", summary.Critical, summary.High, summary.Medium, summary.Low)
+		}
+	default:
+		// Unknown severity string — validate() should have caught this earlier, but be
+		// conservative: block if any vulnerability was found rather than silently passing.
+		if summary.Total > 0 {
+			msg = fmt.Sprintf("policy violation: unrecognized failOn severity %q; found %d total vulnerabilities", p.config.FailOn, summary.Total)
 		}
 	}
-
+	if msg != "" {
+		return &PolicyViolationError{Message: msg}
+	}
 	return nil
 }
 

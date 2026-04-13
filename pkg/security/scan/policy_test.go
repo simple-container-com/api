@@ -248,6 +248,67 @@ func TestPolicyEnforcer_ShouldBlock(t *testing.T) {
 	}
 }
 
+func TestPolicyEnforcer_UnknownSeverity(t *testing.T) {
+	cfg := &Config{FailOn: "bogus"}
+	enforcer := NewPolicyEnforcer(cfg)
+
+	t.Run("blocks when any vulnerability found", func(t *testing.T) {
+		result := &ScanResult{
+			Summary: VulnerabilitySummary{Total: 1, Low: 1},
+		}
+		err := enforcer.Enforce(result)
+		if err == nil {
+			t.Fatal("Enforce() should block on unknown severity when vulnerabilities are present")
+		}
+		var pve *PolicyViolationError
+		if !isPolicyViolation(err, &pve) {
+			t.Errorf("Enforce() error type = %T, want *PolicyViolationError", err)
+		}
+	})
+
+	t.Run("passes when no vulnerabilities", func(t *testing.T) {
+		result := &ScanResult{
+			Summary: VulnerabilitySummary{},
+		}
+		if err := enforcer.Enforce(result); err != nil {
+			t.Errorf("Enforce() unexpected error = %v", err)
+		}
+	})
+}
+
+func TestPolicyViolationError_IsDistinctType(t *testing.T) {
+	cfg := &Config{FailOn: SeverityCritical}
+	enforcer := NewPolicyEnforcer(cfg)
+
+	result := &ScanResult{
+		Summary: VulnerabilitySummary{Critical: 1},
+	}
+	err := enforcer.Enforce(result)
+	if err == nil {
+		t.Fatal("expected PolicyViolationError, got nil")
+	}
+
+	var pve *PolicyViolationError
+	if !isPolicyViolation(err, &pve) {
+		t.Fatalf("error type = %T, want *PolicyViolationError", err)
+	}
+	if pve.Message == "" {
+		t.Error("PolicyViolationError.Message must not be empty")
+	}
+	if pve.Error() != pve.Message {
+		t.Errorf("Error() = %q, want %q", pve.Error(), pve.Message)
+	}
+}
+
+// isPolicyViolation is a helper that mirrors errors.As without importing errors in this package.
+func isPolicyViolation(err error, target **PolicyViolationError) bool {
+	pve, ok := err.(*PolicyViolationError)
+	if ok && target != nil {
+		*target = pve
+	}
+	return ok
+}
+
 func TestPolicyEnforcer_Enforce_NilResult(t *testing.T) {
 	config := &Config{
 		FailOn: SeverityCritical,

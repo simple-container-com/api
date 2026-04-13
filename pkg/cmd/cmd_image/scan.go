@@ -3,6 +3,7 @@ package cmd_image
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ type scanOptions struct {
 	tool              string
 	failOn            string
 	warnOn            string
+	softFail          bool
 	output            string
 	sarifOutput       string
 	cacheDir          string
@@ -55,6 +57,7 @@ func NewScanCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.tool, "tool", "grype", "Scanning tool to use: grype, trivy, or all")
 	cmd.Flags().StringVar(&opts.failOn, "fail-on", "", "Fail on vulnerabilities at or above this severity: critical, high, medium, low")
 	cmd.Flags().StringVar(&opts.warnOn, "warn-on", "high", "Warn on vulnerabilities at or above this severity: critical, high, medium, low")
+	cmd.Flags().BoolVar(&opts.softFail, "soft-fail", false, "Treat failOn policy violations as warnings (exit 0). Findings are still reported and uploaded.")
 	cmd.Flags().StringVar(&opts.output, "output", "", "Output file for merged scan results (JSON format)")
 	cmd.Flags().StringVar(&opts.sarifOutput, "sarif-output", "", "Optional path to write merged scan results in SARIF format")
 	cmd.Flags().StringVar(&opts.cacheDir, "cache-dir", "", "Cache directory for scan results")
@@ -137,6 +140,16 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 		executor.Summary.Display()
 	}
 
+	// Soft-fail: convert policy violations to warnings so the deployment continues.
+	// Tool errors (scanner not installed, I/O failures) are still hard failures.
+	if err != nil && opts.softFail {
+		var pve *scan.PolicyViolationError
+		if errors.As(err, &pve) {
+			fmt.Printf("WARNING (soft-fail): %s — deployment will continue\n", pve.Message)
+			return nil
+		}
+	}
+
 	return err
 }
 
@@ -150,6 +163,13 @@ func loadMergedScanResult(paths []string) (*scan.ScanResult, error) {
 		var result scan.ScanResult
 		if err := json.Unmarshal(data, &result); err != nil {
 			return nil, fmt.Errorf("parsing scan result %s: %w", path, err)
+		}
+		// Validate content integrity — catches truncation, corruption, or
+		// in-place tampering of intermediate result files on shared runners.
+		if result.Digest != "" {
+			if err := result.ValidateDigest(); err != nil {
+				return nil, fmt.Errorf("scan result integrity check failed for %s: %w", path, err)
+			}
 		}
 		results = append(results, &result)
 	}

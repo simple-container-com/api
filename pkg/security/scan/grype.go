@@ -313,4 +313,3 @@ func hasGrypeVulnerabilityDB() bool {
 	matches, err := filepath.Glob(filepath.Join(cacheDir, "grype", "db", "*", "vulnerability.db"))
 	return err == nil && len(matches) > 0
 }
-

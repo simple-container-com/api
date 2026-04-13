@@ -72,23 +72,26 @@ type MetadataConfig struct {
 
 // ScanConfig configures vulnerability scanning
 type ScanConfig struct {
-	Enabled  bool             `json:"enabled" yaml:"enabled"`
-	Tools    []ScanToolConfig `json:"tools,omitempty" yaml:"tools,omitempty"`
-	FailOn   Severity         `json:"failOn,omitempty" yaml:"failOn,omitempty"` // Fail on this severity or higher
-	WarnOn   Severity         `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // Warn on this severity or higher
-	Output   *OutputConfig    `json:"output,omitempty" yaml:"output,omitempty"`
-	Cache    *CacheConfig     `json:"cache,omitempty" yaml:"cache,omitempty"`
-	Required bool             `json:"required,omitempty" yaml:"required,omitempty"` // Fail if scan fails
+	Enabled bool             `json:"enabled" yaml:"enabled"`
+	Tools   []ScanToolConfig `json:"tools,omitempty" yaml:"tools,omitempty"`
+	FailOn  Severity         `json:"failOn,omitempty" yaml:"failOn,omitempty"` // Fail on this severity or higher
+	WarnOn  Severity         `json:"warnOn,omitempty" yaml:"warnOn,omitempty"` // Warn on this severity or higher
+	// SoftFail converts policy violations (failOn threshold exceeded) from hard errors
+	// to warnings. The scan still runs and results are reported/uploaded, but exit 0.
+	SoftFail bool          `json:"softFail,omitempty" yaml:"softFail,omitempty"`
+	Output   *OutputConfig `json:"output,omitempty" yaml:"output,omitempty"`
+	Cache    *CacheConfig  `json:"cache,omitempty" yaml:"cache,omitempty"`
+	Required bool          `json:"required,omitempty" yaml:"required,omitempty"` // Fail if scan fails
 }
 
 // ScanToolConfig configures a specific scanning tool
 type ScanToolConfig struct {
-	Name     string   `json:"name" yaml:"name"`                               // grype, trivy
-	Version  string   `json:"version,omitempty" yaml:"version,omitempty"`     // Pin specific version (install target + minimum); default: built-in minimum
-	Enabled  *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`     // Enable this tool (nil = use defaults)
-	Required bool     `json:"required,omitempty" yaml:"required,omitempty"`   // Fail if this tool fails
-	FailOn   Severity `json:"failOn,omitempty" yaml:"failOn,omitempty"`       // Tool-specific failOn
-	WarnOn   Severity `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`       // Tool-specific warnOn
+	Name     string   `json:"name" yaml:"name"`                             // grype, trivy
+	Version  string   `json:"version,omitempty" yaml:"version,omitempty"`   // Pin specific version (install target + minimum); default: built-in minimum
+	Enabled  *bool    `json:"enabled,omitempty" yaml:"enabled,omitempty"`   // Enable this tool (nil = use defaults)
+	Required bool     `json:"required,omitempty" yaml:"required,omitempty"` // Fail if this tool fails
+	FailOn   Severity `json:"failOn,omitempty" yaml:"failOn,omitempty"`     // Tool-specific failOn
+	WarnOn   Severity `json:"warnOn,omitempty" yaml:"warnOn,omitempty"`     // Tool-specific warnOn
 }
 
 // Severity represents vulnerability severity levels
@@ -271,10 +274,15 @@ func (c *ScanConfig) Validate() error {
 		return fmt.Errorf("scan.tools is required when scanning is enabled")
 	}
 
+	seen := make(map[string]bool, len(c.Tools))
 	for i, tool := range c.Tools {
 		if err := tool.Validate(); err != nil {
 			return fmt.Errorf("scan.tools[%d] validation failed: %w", i, err)
 		}
+		if seen[tool.Name] {
+			return fmt.Errorf("scan.tools: duplicate tool name %q at index %d", tool.Name, i)
+		}
+		seen[tool.Name] = true
 	}
 
 	if c.Cache != nil {
@@ -415,7 +423,7 @@ func DefaultSecurityConfig() *SecurityConfig {
 		},
 		Scan: &ScanConfig{
 			Enabled: false,
-			FailOn:  SeverityNone,
+			FailOn:  SeverityHigh,
 			WarnOn:  SeverityHigh,
 			Output:  &OutputConfig{},
 			Cache: &CacheConfig{
@@ -455,6 +463,16 @@ func (c *ReportingConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// Sanitize returns a copy of this config with the API key replaced by a
+// placeholder string, safe for logging or debug serialization.
+func (c *DefectDojoConfig) Sanitize() DefectDojoConfig {
+	cp := *c
+	if cp.APIKey != "" {
+		cp.APIKey = "[REDACTED]"
+	}
+	return cp
 }
 
 // Validate validates DefectDojo configuration

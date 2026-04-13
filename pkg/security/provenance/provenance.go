@@ -564,6 +564,9 @@ func detectBuilderID(configured string) string {
 	if configured != "" {
 		return configured
 	}
+	// GitHub Actions (standard runners, Blacksmith runners, self-hosted with Actions).
+	// GITHUB_SERVER_URL is set on all GitHub-hosted and self-hosted runners that
+	// execute via Actions — covers ubuntu-latest, blacksmith-*, and integrail runners.
 	if server := os.Getenv("GITHUB_SERVER_URL"); server != "" {
 		repo := os.Getenv("GITHUB_REPOSITORY")
 		runID := os.Getenv("GITHUB_RUN_ID")
@@ -571,8 +574,15 @@ func detectBuilderID(configured string) string {
 			return fmt.Sprintf("%s/%s/actions/runs/%s", server, repo, runID)
 		}
 	}
+	// GitLab CI
+	if projectURL := os.Getenv("CI_PROJECT_URL"); projectURL != "" {
+		if pipelineID := os.Getenv("CI_PIPELINE_ID"); pipelineID != "" {
+			return fmt.Sprintf("%s/-/pipelines/%s", projectURL, pipelineID)
+		}
+	}
 	hostname, err := os.Hostname()
 	if err == nil && hostname != "" {
+		fmt.Fprintf(os.Stderr, "WARNING: builder identity auto-detection failed — using hostname %q; set provenance.builder.id for SLSA L3 compliance\n", hostname)
 		return "local://" + hostname
 	}
 	return "local://simple-container"

@@ -384,6 +384,98 @@ func TestDefaultSecurityConfig(t *testing.T) {
 	}
 }
 
+func TestScanConfig_DuplicateTools(t *testing.T) {
+	tests := []struct {
+		name    string
+		tools   []ScanToolConfig
+		wantErr bool
+	}{
+		{
+			name: "unique tool names are accepted",
+			tools: []ScanToolConfig{
+				{Name: "grype"},
+				{Name: "trivy"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "duplicate grype rejected",
+			tools: []ScanToolConfig{
+				{Name: "grype"},
+				{Name: "grype"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "duplicate trivy rejected",
+			tools: []ScanToolConfig{
+				{Name: "trivy"},
+				{Name: "grype"},
+				{Name: "trivy"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &ScanConfig{Enabled: true, Tools: tt.tools}
+			err := cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDefectDojoConfig_Sanitize(t *testing.T) {
+	t.Run("redacts non-empty api key", func(t *testing.T) {
+		cfg := &DefectDojoConfig{
+			Enabled:      true,
+			URL:          "https://dojo.example.com",
+			APIKey:       "super-secret-token",
+			EngagementID: 1,
+		}
+		sanitized := cfg.Sanitize()
+		if sanitized.APIKey != "[REDACTED]" {
+			t.Errorf("Sanitize() APIKey = %q, want %q", sanitized.APIKey, "[REDACTED]")
+		}
+		// Original must be unchanged.
+		if cfg.APIKey != "super-secret-token" {
+			t.Errorf("Sanitize() mutated original APIKey to %q", cfg.APIKey)
+		}
+	})
+
+	t.Run("empty api key stays empty", func(t *testing.T) {
+		cfg := &DefectDojoConfig{}
+		sanitized := cfg.Sanitize()
+		if sanitized.APIKey != "" {
+			t.Errorf("Sanitize() empty APIKey = %q, want empty string", sanitized.APIKey)
+		}
+	})
+
+	t.Run("other fields are preserved", func(t *testing.T) {
+		cfg := &DefectDojoConfig{
+			Enabled:        true,
+			URL:            "https://dojo.example.com",
+			APIKey:         "secret",
+			EngagementID:   42,
+			EngagementName: "ci-run",
+			ProductName:    "myapp",
+		}
+		sanitized := cfg.Sanitize()
+		if sanitized.URL != cfg.URL {
+			t.Errorf("Sanitize() changed URL: got %q", sanitized.URL)
+		}
+		if sanitized.EngagementID != cfg.EngagementID {
+			t.Errorf("Sanitize() changed EngagementID: got %d", sanitized.EngagementID)
+		}
+		if sanitized.ProductName != cfg.ProductName {
+			t.Errorf("Sanitize() changed ProductName: got %q", sanitized.ProductName)
+		}
+	})
+}
+
 func TestProvenanceConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
