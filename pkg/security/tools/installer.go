@@ -73,8 +73,13 @@ func (i *ToolInstaller) InstallIfMissing(ctx context.Context, toolName string) e
 }
 
 // resolveInstallDir returns a writable bin directory.
+// Prefers /usr/local/bin when writable (root or writable dir), falls back to ~/.local/bin.
 func resolveInstallDir() string {
-	if _, err := exec.LookPath("sudo"); err == nil {
+	// Check if /usr/local/bin is directly writable (e.g., running as root on Blacksmith)
+	testFile := "/usr/local/bin/.sc-write-test"
+	if f, err := os.Create(testFile); err == nil {
+		f.Close()
+		os.Remove(testFile)
 		return "/usr/local/bin"
 	}
 	home, _ := os.UserHomeDir()

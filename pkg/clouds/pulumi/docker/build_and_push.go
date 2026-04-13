@@ -98,7 +98,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	}
 
 	var addOpts []sdk.ResourceOption
-	if stack.Client.Security != nil {
+	if stack.Client.Security != nil && stack.Client.Security.Enabled {
 		securityOpts, err := executeSecurityOperations(ctx, stack, res, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to execute security operations for image %q", image.Name)
