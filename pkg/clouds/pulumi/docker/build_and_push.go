@@ -137,6 +137,29 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
 
+	// Ensure Docker is authenticated to the image registry so cosign and other
+	// tools can access image manifests for signing, verification, and attestation.
+	// The Pulumi Docker provider uses its own auth mechanism that doesn't populate
+	// the Docker credential store — we need an explicit docker login.
+	if image.Registry.Server != nil && image.Registry.Password != nil {
+		loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
+			Create: sdk.All(image.Registry.Server, image.Registry.Username, image.Registry.Password).ApplyT(func(args []interface{}) string {
+				server, _ := args[0].(string)
+				username, _ := args[1].(string)
+				password, _ := args[2].(string)
+				if username == "" {
+					username = "AWS" // ECR default
+				}
+				return fmt.Sprintf("echo %s | docker login --username %s --password-stdin %s",
+					shellQuote(password), shellQuote(username), shellQuote(server))
+			}).(sdk.StringOutput),
+		}, sdk.DependsOn(baseDeps))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create registry login for image %q", imageName)
+		}
+		baseDeps = []sdk.Resource{loginCmd}
+	}
+
 	softFail := security.Scan != nil && security.Scan.SoftFail
 
 	// --- Scan (parallel from push, reports findings, gates sign only when softFail=false) ---
@@ -168,13 +191,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				for i, arg := range args {
 					args[i] = shellQuote(arg)
 				}
-				// Prepend ECR auth if the image is in an ECR registry.
-				// Cosign needs Docker credentials to access the image manifest.
-				cmd := strings.Join(args, " ")
-				if ecrLoginCmd := ecrDockerLogin(img); ecrLoginCmd != "" {
-					cmd = ecrLoginCmd + " && " + cmd
-				}
-				return cmd
+				return strings.Join(args, " ")
 			}).(sdk.StringOutput),
 			Environment: signingCommandEnvironment(security.Signing),
 		}, sdk.DependsOn(signDeps))
@@ -211,11 +228,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				for i, arg := range args {
 					args[i] = shellQuote(arg)
 				}
-				cmd := strings.Join(args, " ")
-				if ecrLoginCmd := ecrDockerLogin(img); ecrLoginCmd != "" {
-					cmd = ecrLoginCmd + " && " + cmd
-				}
-				return cmd
+				return strings.Join(args, " ")
 			}).(sdk.StringOutput),
 			Environment: verifyCommandEnvironment(security.Signing),
 		}, sdk.DependsOn([]sdk.Resource{signCmd}))
@@ -281,11 +294,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 						for i, arg := range args {
 							args[i] = shellQuote(arg)
 						}
-						cmd := strings.Join(args, " ")
-						if ecrLoginCmd := ecrDockerLogin(img); ecrLoginCmd != "" {
-							cmd = ecrLoginCmd + " && " + cmd
-						}
-						return cmd
+						return strings.Join(args, " ")
 					}).(sdk.StringOutput),
 					Environment: signingCommandEnvironment(security.Signing),
 				}, sdk.DependsOn(sbomAttDeps))
@@ -371,13 +380,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 					for i, arg := range args {
 						args[i] = shellQuote(arg)
 					}
-					cmd := strings.Join(args, " ")
-					if provenanceCommand == "attach" {
-						if ecrLoginCmd := ecrDockerLogin(img); ecrLoginCmd != "" {
-							cmd = ecrLoginCmd + " && " + cmd
-						}
-					}
-					return cmd
+					return strings.Join(args, " ")
 				}).(sdk.StringOutput),
 				Environment: provEnv,
 			}, sdk.DependsOn(provGenDeps))
@@ -852,30 +855,6 @@ func appendDefectDojoFlags(args []string, config *api.DefectDojoDescriptor) []st
 		args = append(args, "--defectdojo-tag", tag)
 	}
 	return args
-}
-
-// ecrDockerLogin returns a shell command that authenticates Docker to an ECR
-// registry, or "" if the image reference is not an ECR URL. This ensures cosign
-// and other tools that access the registry have valid credentials.
-func ecrDockerLogin(imageRef string) string {
-	// ECR URLs follow the pattern: ACCOUNT.dkr.ecr.REGION.amazonaws.com/...
-	if !strings.Contains(imageRef, ".dkr.ecr.") || !strings.Contains(imageRef, ".amazonaws.com") {
-		return ""
-	}
-	// Extract registry URL (everything before the first /)
-	registry := imageRef
-	if idx := strings.Index(registry, "/"); idx > 0 {
-		registry = registry[:idx]
-	}
-	// Extract region from the registry URL
-	parts := strings.Split(registry, ".")
-	if len(parts) < 4 {
-		return ""
-	}
-	region := parts[3] // ACCOUNT.dkr.ecr.REGION.amazonaws.com
-	return fmt.Sprintf(
-		"aws ecr get-login-password --region %s | docker login --username AWS --password-stdin %s",
-		shellQuote(region), shellQuote(registry))
 }
 
 // shellQuote wraps value in POSIX single quotes, escaping embedded quotes.

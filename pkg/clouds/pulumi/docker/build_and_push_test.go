@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"strings"
 	"testing"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -208,38 +207,6 @@ func TestRepoDigestRegex(t *testing.T) {
 		if repoDigestRe.MatchString(ref) {
 			t.Errorf("repoDigestRe should not match %q but did", ref)
 		}
-	}
-}
-
-func TestEcrDockerLogin(t *testing.T) {
-	tests := []struct {
-		name     string
-		imageRef string
-		wantECR  bool
-	}{
-		{"ecr image", "471112843480.dkr.ecr.eu-central-1.amazonaws.com/repo/img@sha256:abc123", true},
-		{"docker hub", "docker.io/library/ubuntu:latest", false},
-		{"ghcr", "ghcr.io/org/image:v1", false},
-		{"empty", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ecrDockerLogin(tt.imageRef)
-			if tt.wantECR && result == "" {
-				t.Errorf("ecrDockerLogin(%q) = empty, want ECR login command", tt.imageRef)
-			}
-			if !tt.wantECR && result != "" {
-				t.Errorf("ecrDockerLogin(%q) = %q, want empty", tt.imageRef, result)
-			}
-			if tt.wantECR && result != "" {
-				if !strings.Contains(result, "eu-central-1") {
-					t.Errorf("ecrDockerLogin() missing region, got: %s", result)
-				}
-				if !strings.Contains(result, "aws ecr get-login-password") {
-					t.Errorf("ecrDockerLogin() missing aws command, got: %s", result)
-				}
-			}
-		})
 	}
 }
 
