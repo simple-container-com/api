@@ -964,6 +964,37 @@ fi
 
 	sb.WriteString("REPORT=\"${REPORT}\\n\"\n")
 
+	// Detailed vulnerability table — collapsible if many findings.
+	// Requires jq and the scan results JSON file.
+	if scanResultsPath != "" && security.Scan != nil && security.Scan.Enabled {
+		sb.WriteString(fmt.Sprintf(`if [ -f %[1]s ] && command -v jq >/dev/null 2>&1; then
+  VULN_COUNT=$(jq -r '.vulnerabilities | length' %[1]s 2>/dev/null || echo 0)
+  if [ "$VULN_COUNT" -gt 0 ] 2>/dev/null; then
+    VULN_TABLE=$(jq -r '
+      .vulnerabilities
+      | sort_by(-({"critical":4,"high":3,"medium":2,"low":1}[.severity] // 0))
+      | .[]
+      | "| \(.severity | ascii_upcase) | \(.id) | \(.package) | \(.version) | \(.fixedIn // "-") |"
+    ' %[1]s 2>/dev/null)
+    if [ -n "$VULN_TABLE" ]; then
+      if [ "$VULN_COUNT" -gt 10 ]; then
+        REPORT="${REPORT}<details>\n<summary>Vulnerabilities (${VULN_COUNT} findings)</summary>\n\n"
+      else
+        REPORT="${REPORT}### Vulnerabilities (${VULN_COUNT} findings)\n\n"
+      fi
+      REPORT="${REPORT}| Severity | CVE | Package | Installed | Fixed |\n"
+      REPORT="${REPORT}| --- | --- | --- | --- | --- |\n"
+      REPORT="${REPORT}${VULN_TABLE}\n"
+      if [ "$VULN_COUNT" -gt 10 ]; then
+        REPORT="${REPORT}\n</details>\n"
+      fi
+      REPORT="${REPORT}\n"
+    fi
+  fi
+fi
+`, shellQuote(scanResultsPath)))
+	}
+
 	// Print to console
 	sb.WriteString("printf '%b' \"$REPORT\"\n")
 
