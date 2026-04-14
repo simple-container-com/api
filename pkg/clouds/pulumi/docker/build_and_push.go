@@ -950,6 +950,13 @@ fi
 		sb.WriteString("REPORT=\"${REPORT}| Provenance | ⏭️ Disabled | |\\n\"\n")
 	}
 
+	// DefectDojo upload status
+	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
+		url := security.Reporting.DefectDojo.URL
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| DefectDojo | ✅ Uploaded | [%s](%s) |\\n\"\n",
+			shellEscape(url), shellEscape(url)))
+	}
+
 	sb.WriteString("REPORT=\"${REPORT}\\n\"\n")
 
 	// Print to console
