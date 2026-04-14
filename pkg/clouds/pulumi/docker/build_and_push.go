@@ -891,24 +891,33 @@ func buildSecurityReportScript(imageRef, imageName string, security *api.Securit
 	sb.WriteString("REPORT=\"${REPORT}| Step | Status | Details |\\n\"\n")
 	sb.WriteString("REPORT=\"${REPORT}| --- | --- | --- |\\n\"\n")
 
-	// Scan status — read from scan results JSON
-	if scanResultsPath != "" {
-		sb.WriteString(fmt.Sprintf(`if [ -f %s ] && command -v jq >/dev/null 2>&1; then
-  CRITICAL=$(jq -r '.summary.critical // 0' %s)
-  HIGH=$(jq -r '.summary.high // 0' %s)
-  TOTAL=$(jq -r '.summary.total // 0' %s)
-  SCAN_DETAIL="${CRITICAL} critical, ${HIGH} high, ${TOTAL} total"
-`, shellQuote(scanResultsPath), shellQuote(scanResultsPath), shellQuote(scanResultsPath), shellQuote(scanResultsPath)))
-		if security.Scan != nil && security.Scan.SoftFail {
-			sb.WriteString("  REPORT=\"${REPORT}| Scan | ⚠️ Warning (soft-fail) | ${SCAN_DETAIL} |\\n\"\n")
-		} else {
-			sb.WriteString("  REPORT=\"${REPORT}| Scan | ✅ Pass | ${SCAN_DETAIL} |\\n\"\n")
+	// Scan status — if we reached the report, scan completed (Pulumi deps).
+	// Read details from results JSON if available, otherwise report from config.
+	if security.Scan != nil && security.Scan.Enabled {
+		scanStatus := "✅ Completed"
+		if security.Scan.SoftFail {
+			scanStatus = "⚠️ Warning (soft-fail)"
 		}
-		sb.WriteString("else\n")
-		sb.WriteString("  REPORT=\"${REPORT}| Scan | ⏭️ Skipped | No results file |\\n\"\n")
-		sb.WriteString("fi\n")
-	} else if security.Scan != nil && security.Scan.Enabled {
-		sb.WriteString("REPORT=\"${REPORT}| Scan | ✅ Completed | Results in logs |\\n\"\n")
+		if scanResultsPath != "" {
+			// Try to read vulnerability counts from the results file.
+			// jq may not be available — use grep as fallback.
+			sb.WriteString(fmt.Sprintf(`SCAN_DETAIL="see logs"
+if [ -f %[1]s ]; then
+  if command -v jq >/dev/null 2>&1; then
+    CRITICAL=$(jq -r '.summary.critical // 0' %[1]s 2>/dev/null)
+    HIGH=$(jq -r '.summary.high // 0' %[1]s 2>/dev/null)
+    TOTAL=$(jq -r '.summary.total // 0' %[1]s 2>/dev/null)
+    SCAN_DETAIL="${CRITICAL} critical, ${HIGH} high, ${TOTAL} total"
+  else
+    TOTAL=$(grep -o '"total":[0-9]*' %[1]s 2>/dev/null | head -1 | cut -d: -f2)
+    SCAN_DETAIL="${TOTAL:-?} total vulnerabilities"
+  fi
+fi
+`, shellQuote(scanResultsPath)))
+		} else {
+			sb.WriteString("SCAN_DETAIL=\"see logs\"\n")
+		}
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Scan | %s | ${SCAN_DETAIL} |\\n\"\n", scanStatus))
 	} else {
 		sb.WriteString("REPORT=\"${REPORT}| Scan | ⏭️ Disabled | |\\n\"\n")
 	}
