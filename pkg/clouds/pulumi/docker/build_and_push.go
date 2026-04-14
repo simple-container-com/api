@@ -955,11 +955,14 @@ fi
 		sb.WriteString("REPORT=\"${REPORT}| Provenance | ⏭️ Disabled | |\\n\"\n")
 	}
 
-	// DefectDojo upload status
+	// DefectDojo upload status — show product, engagement, and link
 	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
-		url := security.Reporting.DefectDojo.URL
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| DefectDojo | ✅ Uploaded | [%s](%s) |\\n\"\n",
-			shellEscape(url), shellEscape(url)))
+		ddCfg := security.Reporting.DefectDojo
+		detail := fmt.Sprintf("[%s](%s) · %s / %s",
+			ddCfg.URL, ddCfg.URL,
+			ddCfg.ProductName, ddCfg.EngagementName)
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| DefectDojo | ✅ Uploaded | %s |\\n\"\n",
+			shellEscape(detail)))
 	}
 
 	sb.WriteString("REPORT=\"${REPORT}\\n\"\n")
