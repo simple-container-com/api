@@ -416,6 +416,21 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		finalResources = append(finalResources, dockerImage)
 	}
 
+	// --- Security Report: unified summary for GitHub Step Summary + PR comments ---
+	// Runs after all security ops complete. Reads scan results and reports
+	// the status of each operation. Writes to $GITHUB_STEP_SUMMARY (visible in
+	// Actions UI) and to the configured comment output file (for PR comments).
+	reportCmd, err := local.NewCommand(ctx, fmt.Sprintf("security-report-%s", imageName), &local.CommandArgs{
+		Create: securityImageRef.ApplyT(func(img string) string {
+			commentOutput := resolveCommentOutputPath(security, imageName)
+			return buildSecurityReportScript(img, imageName, security, commentOutput)
+		}).(sdk.StringOutput),
+	}, sdk.DependsOn(finalResources))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create security report for image %q", imageName)
+	}
+	finalResources = []sdk.Resource{reportCmd}
+
 	opts = append(opts, sdk.DependsOn(finalResources))
 	return opts, nil
 }
@@ -855,6 +870,99 @@ func appendDefectDojoFlags(args []string, config *api.DefectDojoDescriptor) []st
 		args = append(args, "--defectdojo-tag", tag)
 	}
 	return args
+}
+
+// buildSecurityReportScript generates a shell script that reads scan results and
+// outputs a unified security summary to the console, $GITHUB_STEP_SUMMARY, and
+// an optional markdown file for PR comments.
+func buildSecurityReportScript(imageRef, imageName string, security *api.SecurityDescriptor, commentOutputPath string) string {
+	scanResultsPath := ""
+	if security.Scan != nil && security.Scan.Output != nil && security.Scan.Output.Local != "" {
+		scanResultsPath = security.Scan.Output.Local
+	}
+
+	// Build the report script. Uses jq for JSON parsing if available, falls back to grep.
+	// The script is self-contained — no SC CLI dependency.
+	var sb strings.Builder
+	sb.WriteString("set +e\n") // Don't exit on error — report is best-effort
+	sb.WriteString("REPORT=''\n")
+	sb.WriteString("REPORT=\"${REPORT}## Security Pipeline Summary\\n\\n\"\n")
+	sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}**Image:** \\`%s\\`\\n\\n\"\n", shellEscape(imageRef)))
+	sb.WriteString("REPORT=\"${REPORT}| Step | Status | Details |\\n\"\n")
+	sb.WriteString("REPORT=\"${REPORT}| --- | --- | --- |\\n\"\n")
+
+	// Scan status — read from scan results JSON
+	if scanResultsPath != "" {
+		sb.WriteString(fmt.Sprintf(`if [ -f %s ] && command -v jq >/dev/null 2>&1; then
+  CRITICAL=$(jq -r '.summary.critical // 0' %s)
+  HIGH=$(jq -r '.summary.high // 0' %s)
+  TOTAL=$(jq -r '.summary.total // 0' %s)
+  SCAN_DETAIL="${CRITICAL} critical, ${HIGH} high, ${TOTAL} total"
+`, shellQuote(scanResultsPath), shellQuote(scanResultsPath), shellQuote(scanResultsPath), shellQuote(scanResultsPath)))
+		if security.Scan != nil && security.Scan.SoftFail {
+			sb.WriteString("  REPORT=\"${REPORT}| Scan | ⚠️ Warning (soft-fail) | ${SCAN_DETAIL} |\\n\"\n")
+		} else {
+			sb.WriteString("  REPORT=\"${REPORT}| Scan | ✅ Pass | ${SCAN_DETAIL} |\\n\"\n")
+		}
+		sb.WriteString("else\n")
+		sb.WriteString("  REPORT=\"${REPORT}| Scan | ⏭️ Skipped | No results file |\\n\"\n")
+		sb.WriteString("fi\n")
+	} else if security.Scan != nil && security.Scan.Enabled {
+		sb.WriteString("REPORT=\"${REPORT}| Scan | ✅ Completed | Results in logs |\\n\"\n")
+	} else {
+		sb.WriteString("REPORT=\"${REPORT}| Scan | ⏭️ Disabled | |\\n\"\n")
+	}
+
+	// Sign/verify status — if we got here, they succeeded (Pulumi dependency ordering)
+	if security.Signing != nil && security.Signing.Enabled {
+		mode := "key-based"
+		if security.Signing.Keyless {
+			mode = "keyless (OIDC)"
+		}
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Sign | ✅ Signed | %s |\\n\"\n", mode))
+		if security.Signing.Verify != nil && security.Signing.Verify.Enabled {
+			sb.WriteString("REPORT=\"${REPORT}| Verify | ✅ Verified | Signature valid |\\n\"\n")
+		}
+	} else {
+		sb.WriteString("REPORT=\"${REPORT}| Sign | ⏭️ Disabled | |\\n\"\n")
+	}
+
+	// SBOM status
+	if security.SBOM != nil && security.SBOM.Enabled {
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| SBOM | ✅ Generated | %s |\\n\"\n", security.SBOM.Format))
+	} else {
+		sb.WriteString("REPORT=\"${REPORT}| SBOM | ⏭️ Disabled | |\\n\"\n")
+	}
+
+	// Provenance status
+	if security.Provenance != nil && security.Provenance.Enabled {
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Provenance | ✅ Attached | %s |\\n\"\n", security.Provenance.Format))
+	} else {
+		sb.WriteString("REPORT=\"${REPORT}| Provenance | ⏭️ Disabled | |\\n\"\n")
+	}
+
+	sb.WriteString("REPORT=\"${REPORT}\\n\"\n")
+
+	// Print to console
+	sb.WriteString("printf '%b' \"$REPORT\"\n")
+
+	// Write to GITHUB_STEP_SUMMARY if available (GitHub Actions)
+	sb.WriteString("if [ -n \"$GITHUB_STEP_SUMMARY\" ]; then\n")
+	sb.WriteString("  printf '%b' \"$REPORT\" >> \"$GITHUB_STEP_SUMMARY\"\n")
+	sb.WriteString("fi\n")
+
+	// Write to comment output file if configured
+	if commentOutputPath != "" {
+		sb.WriteString(fmt.Sprintf("mkdir -p %s\n", shellQuote(filepath.Dir(commentOutputPath))))
+		sb.WriteString(fmt.Sprintf("printf '%%b' \"$REPORT\" > %s\n", shellQuote(commentOutputPath)))
+	}
+
+	return sb.String()
+}
+
+// shellEscape escapes a string for use in a double-quoted shell string.
+func shellEscape(s string) string {
+	return strings.NewReplacer("`", "\\`", "$", "\\$", "\"", "\\\"", "\\", "\\\\").Replace(s)
 }
 
 // shellQuote wraps value in POSIX single quotes, escaping embedded quotes.
