@@ -99,7 +99,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 	var addOpts []sdk.ResourceOption
 	if stack.Client.Security != nil && stack.Client.Security.Enabled {
-		securityOpts, err := executeSecurityOperations(ctx, stack, res, image)
+		securityOpts, err := executeSecurityOperations(ctx, stack, res, image, deployParams.Environment)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to execute security operations for image %q", image.Name)
 		}
@@ -129,10 +129,16 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 //
 // All operations use the immutable content digest (name@sha256:...) returned
 // by the push step. No mutable tags are used after push.
-func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, image Image) ([]sdk.ResourceOption, error) {
+func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, image Image, environment string) ([]sdk.ResourceOption, error) {
 	security := stack.Client.Security
 	var opts []sdk.ResourceOption
 	imageName := image.Name
+
+	// Override DefectDojo engagement name to match PR convention (PR-NNNN).
+	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
+		security.Reporting.DefectDojo.EngagementName = deriveEngagementName(
+			security.Reporting.DefectDojo.EngagementName, environment)
+	}
 
 	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
@@ -845,6 +851,19 @@ func signingCLIArgs(cfg *api.SigningDescriptor) []string {
 		return []string{"--key", cfg.PrivateKey}
 	}
 	return nil
+}
+
+// deriveEngagementName returns a DefectDojo engagement name from the deployment
+// environment, matching the existing PR-based convention used by pr-security-scan.
+// PR deploys ("pr2209") → "PR-2209". All other deploys use the configured name.
+func deriveEngagementName(configured, environment string) string {
+	if strings.HasPrefix(environment, "pr") {
+		num := strings.TrimPrefix(environment, "pr")
+		if num != "" {
+			return "PR-" + num
+		}
+	}
+	return configured
 }
 
 func appendDefectDojoFlags(args []string, config *api.DefectDojoDescriptor) []string {
