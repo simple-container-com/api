@@ -417,15 +417,20 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	}
 
 	// --- Security Report: unified summary for GitHub Step Summary + PR comments ---
-	// Runs after all security ops complete. Reads scan results and reports
-	// the status of each operation. Writes to $GITHUB_STEP_SUMMARY (visible in
-	// Actions UI) and to the configured comment output file (for PR comments).
+	// Runs after ALL security ops complete — including scan, which runs parallel
+	// with sign and may finish after the fan-in. The report reads scan results
+	// from disk, so it must wait for scan to write them.
+	reportDeps := make([]sdk.Resource, len(finalResources))
+	copy(reportDeps, finalResources)
+	if scanGate != nil {
+		reportDeps = append(reportDeps, scanGate)
+	}
 	reportCmd, err := local.NewCommand(ctx, fmt.Sprintf("security-report-%s", imageName), &local.CommandArgs{
 		Create: securityImageRef.ApplyT(func(img string) string {
 			commentOutput := resolveCommentOutputPath(security, imageName)
 			return buildSecurityReportScript(img, imageName, security, commentOutput)
 		}).(sdk.StringOutput),
-	}, sdk.DependsOn(finalResources))
+	}, sdk.DependsOn(reportDeps))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create security report for image %q", imageName)
 	}
