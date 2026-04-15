@@ -1,42 +1,43 @@
-# Container Image Security - Architecture Design
+# Container Image Security — Architecture
 
-**Issue:** #105 - Feature: Container Image Security (Signing, SBOM, Attestation, Scanning)
-**Architecture Phase:** Complete
-**Date:** 2026-02-05
-**Architect:** Claude (AI Assistant)
+**Last Updated:** April 2026
 
----
+## Architecture
 
-## Quick Navigation
+```
+Build+Push → sign (5s) → verify (5s)    ← deploy waits here
+               ↑ softFail=false: scan gates sign
+Build+Push → scan (~50s, parallel)      ← reports to DefectDojo + step summary
+Build+Push → sbom-gen → sbom-att        ← att waits for sign + gen
+Build+Push → prov-gen → prov-att        ← att waits for sign + gen
+```
 
-- **[Architecture Overview](./architecture-overview.md)** - System design and high-level architecture
-- **[Component Design](./component-design.md)** - Detailed design of security package components
-- **[API Contracts](./api-contracts.md)** - Interfaces, types, and function signatures
-- **[Integration & Data Flow](./integration-dataflow.md)** - Integration points and execution flow
-- **[Implementation Plan](./implementation-plan.md)** - Implementation strategy and file modifications
+All operations use the immutable content digest (`@sha256:...`) returned by push.
 
----
+## Features
 
-## Executive Summary
+1. **Vulnerability Scanning** — Grype + Trivy dual-tool with merge deduplication
+2. **Image Signing** — Cosign keyless (GitHub OIDC) or key-based
+3. **Post-Sign Verification** — Immediate cosign verify after signing
+4. **SBOM Generation** — Syft CycloneDX with signed attestation
+5. **SLSA Provenance** — v1.0 build provenance with signed attestation
+6. **Reporting** — GitHub Step Summary, PR comment file, DefectDojo upload
 
-This architecture design implements **optional container image security features** for Simple Container CLI, enabling:
+## Design Principles
 
-1. **Image Signing** - Cosign integration with keyless (OIDC) and key-based signing
-2. **SBOM Generation** - Syft integration for Software Bill of Materials
-3. **SLSA Provenance** - Automated build provenance attestation
-4. **Vulnerability Scanning** - Grype and Trivy integration with policy enforcement
+**Opt-In & Backward Compatible** — all features disabled by default, zero overhead when disabled.
 
-### Design Principles
+**softFail controls velocity vs enforcement:**
+- `softFail: true` (default) — sign runs from push, scan parallel, deploy not blocked
+- `softFail: false` — scan gates sign, unsigned images can't deploy (config-only change)
 
-**1. Opt-In & Backward Compatible**
-- All features disabled by default
-- Zero performance impact when disabled
-- Existing workflows remain unchanged
+**SC owns its dependencies** — cosign, syft, grype, trivy auto-installed on demand.
 
-**2. Fail-Open by Default**
-- Security operations warn but don't block
-- Configurable fail-closed behavior per feature
-- Graceful degradation when tools missing
+## Reference Docs
+
+- **[Component Design](./component-design.md)** — package structure and interfaces
+- **[API Contracts](./api-contracts.md)** — types, function signatures
+- **[Integration & Data Flow](./integration-dataflow.md)** — execution flow
 
 **3. Minimal Invasiveness**
 - Leverage external tools (Cosign, Syft, Grype)

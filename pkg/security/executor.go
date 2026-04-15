@@ -932,13 +932,36 @@ func (e *SecurityExecutor) uploadToDefectDojo(ctx context.Context, result *scan.
 	// Create DefectDojo client
 	client := reporting.NewDefectDojoClient(config.URL, config.APIKey)
 
-	// Create uploader config
+	// Create uploader config. Append scanner tool names to the test type
+	// so DefectDojo shows "Container Image Scan (grype, trivy)" instead of
+	// a generic title.
+	testType := config.TestType
+	if testType == "" {
+		testType = "Container Image Scan"
+	}
+	if result != nil && result.Tool != "" {
+		toolName := string(result.Tool)
+		if result.Metadata != nil {
+			if mergedTools, ok := result.Metadata["mergedTools"]; ok {
+				switch tools := mergedTools.(type) {
+				case []scan.ScanTool:
+					names := make([]string, 0, len(tools))
+					for _, t := range tools {
+						names = append(names, string(t))
+					}
+					toolName = strings.Join(names, ", ")
+				}
+			}
+		}
+		testType = fmt.Sprintf("%s (%s)", testType, toolName)
+	}
+
 	uploaderConfig := &reporting.DefectDojoUploaderConfig{
 		EngagementID:   config.EngagementID,
 		EngagementName: config.EngagementName,
 		ProductID:      config.ProductID,
 		ProductName:    config.ProductName,
-		TestType:       config.TestType,
+		TestType:       testType,
 		Tags:           config.Tags,
 		Environment:    config.Environment,
 		AutoCreate:     config.AutoCreate,

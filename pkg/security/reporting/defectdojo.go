@@ -438,7 +438,19 @@ func (c *DefectDojoClient) testTitle(config *DefectDojoUploaderConfig, imageRef 
 		title = "Container Scan"
 	}
 
-	return fmt.Sprintf("%s - %s", title, imageRef)
+	// Use a short image reference for the test title — the full ECR URL
+	// with digest is too long for DefectDojo's UI. Extract the image name
+	// and a short digest suffix.
+	short := imageRef
+	if idx := strings.LastIndex(imageRef, "/"); idx >= 0 {
+		short = imageRef[idx+1:]
+	}
+	// Truncate digest: "aimeteor-ecr@sha256:737107dc..." → "aimeteor-ecr@sha256:737107dc"
+	if idx := strings.Index(short, "@sha256:"); idx >= 0 && len(short) > idx+16 {
+		short = short[:idx+16]
+	}
+
+	return fmt.Sprintf("%s - %s", title, short)
 }
 
 func decodeImportScanResponse(data []byte) *ImportScanResponse {
