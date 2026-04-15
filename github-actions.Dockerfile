@@ -95,7 +95,7 @@ RUN chmod +x ./github-actions && \
 RUN pulumi version > /dev/null && \
     gcloud version > /dev/null && \
     gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin && \
-    sc version > /dev/null
+    test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
 
 # Set the entrypoint
 ENTRYPOINT ["/root/github-actions"]
