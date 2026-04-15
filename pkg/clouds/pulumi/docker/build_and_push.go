@@ -161,6 +161,13 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				server, _ := args[0].(string)
 				username, _ := args[1].(string)
 				password, _ := args[2].(string)
+				// Skip config.json when password is empty — the Pulumi Docker
+				// provider handles auth internally (e.g., GCP workload identity,
+				// gcloud ADC). Writing empty credentials would break tools that
+				// try to use config.json. Let them fall back to ambient auth.
+				if password == "" {
+					return "echo 'Registry credentials not available — using ambient auth'"
+				}
 				if username == "" {
 					username = "AWS"
 				}
@@ -222,7 +229,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				for i, arg := range args {
 					args[i] = shellQuote(arg)
 				}
-				return strings.Join(args, " ")
+				return securityPATHPrefix + strings.Join(args, " ")
 			}).(sdk.StringOutput),
 			Environment: signingCommandEnvironment(security.Signing),
 		}, sdk.DependsOn(signDeps))
@@ -259,7 +266,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				for i, arg := range args {
 					args[i] = shellQuote(arg)
 				}
-				return strings.Join(args, " ")
+				return securityPATHPrefix + strings.Join(args, " ")
 			}).(sdk.StringOutput),
 			Environment: verifyCommandEnvironment(security.Signing),
 		}, sdk.DependsOn([]sdk.Resource{signCmd}))
@@ -299,7 +306,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				for i, arg := range args {
 					args[i] = shellQuote(arg)
 				}
-				return strings.Join(args, " ")
+				return securityPATHPrefix + strings.Join(args, " ")
 			}).(sdk.StringOutput),
 		}, sdk.DependsOn(baseDeps))
 		if err != nil {
@@ -325,7 +332,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 						for i, arg := range args {
 							args[i] = shellQuote(arg)
 						}
-						return strings.Join(args, " ")
+						return securityPATHPrefix + strings.Join(args, " ")
 					}).(sdk.StringOutput),
 					Environment: signingCommandEnvironment(security.Signing),
 				}, sdk.DependsOn(sbomAttDeps))
@@ -342,7 +349,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 							for i, arg := range args {
 								args[i] = shellQuote(arg)
 							}
-							return strings.Join(args, " ")
+							return securityPATHPrefix + strings.Join(args, " ")
 						}).(sdk.StringOutput),
 						Environment: verifyCommandEnvironment(security.Signing),
 					}, sdk.DependsOn([]sdk.Resource{sbomAttCmd}))
@@ -431,7 +438,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 					for i, arg := range args {
 						args[i] = shellQuote(arg)
 					}
-					return strings.Join(args, " ")
+					return securityPATHPrefix + strings.Join(args, " ")
 				}).(sdk.StringOutput),
 				Environment: provEnv,
 			}, sdk.DependsOn(provGenDeps))
@@ -449,7 +456,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 						for i, arg := range args {
 							args[i] = shellQuote(arg)
 						}
-						return strings.Join(args, " ")
+						return securityPATHPrefix + strings.Join(args, " ")
 					}).(sdk.StringOutput),
 					Environment: verifyCommandEnvironment(security.Signing),
 				}, sdk.DependsOn([]sdk.Resource{provCmd}))
@@ -680,7 +687,7 @@ func createScanLocalCommand(ctx *sdk.Context, name string, imageRef sdk.StringOu
 				}
 				parts = append(parts, shellQuote(arg))
 			}
-			return strings.Join(parts, " ")
+			return securityPATHPrefix + strings.Join(parts, " ")
 		}).(sdk.StringOutput),
 		Environment: env,
 	}, sdk.DependsOn(deps))
@@ -1129,3 +1136,10 @@ func verifyIdentityArgs(signing *api.SigningDescriptor) []string {
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
+
+// securityPATHPrefix returns a shell snippet that ensures $HOME/.local/bin and
+// /usr/local/bin are on PATH before running security tools. This is necessary
+// because the Go-side os.Setenv("PATH", ...) in tool auto-install only affects
+// the Go process — Pulumi local.Command runs in a separate shell that inherits
+// the original PATH without the install directory.
+const securityPATHPrefix = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && `
