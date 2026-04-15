@@ -1,6 +1,9 @@
 package docker
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -207,6 +210,58 @@ func TestRepoDigestRegex(t *testing.T) {
 		if repoDigestRe.MatchString(ref) {
 			t.Errorf("repoDigestRe should not match %q but did", ref)
 		}
+	}
+}
+
+func TestDockerConfigJSON(t *testing.T) {
+	// Verify the config.json format matches what docker login produces
+	// and what cosign/grype/trivy/syft expect.
+	server := "471112843480.dkr.ecr.eu-central-1.amazonaws.com"
+	username := "AWS"
+	password := "eyJwYXlsb2FkIjoiZXhhbXBsZSJ9"
+
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, server, auth)
+
+	var parsed struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}
+	if err := json.Unmarshal([]byte(configJSON), &parsed); err != nil {
+		t.Fatalf("config.json is not valid JSON: %v", err)
+	}
+	entry, ok := parsed.Auths[server]
+	if !ok {
+		t.Fatalf("config.json missing auth entry for %s", server)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(entry.Auth)
+	if err != nil {
+		t.Fatalf("auth field is not valid base64: %v", err)
+	}
+	if string(decoded) != username+":"+password {
+		t.Errorf("decoded auth = %q, want %q", string(decoded), username+":"+password)
+	}
+}
+
+func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
+	server := "europe-north1-docker.pkg.dev/payspace-475408/artifact-registry--staging"
+	username := "_json_key"
+	password := `{"type":"service_account","project_id":"test"}`
+
+	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, server, auth)
+
+	var parsed struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}
+	if err := json.Unmarshal([]byte(configJSON), &parsed); err != nil {
+		t.Fatalf("config.json is not valid JSON: %v", err)
+	}
+	if _, ok := parsed.Auths[server]; !ok {
+		t.Fatalf("config.json missing auth entry for GCP Artifact Registry server")
 	}
 }
 

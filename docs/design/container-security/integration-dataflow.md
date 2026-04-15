@@ -24,45 +24,26 @@
 
 **Primary Integration Point:** `pkg/clouds/pulumi/docker/build_and_push.go`
 
-**Current Flow:**
+**Flow (April 2026):**
 ```
 BuildAndPushImage()
-  → Build image with Docker
-  → Push to registry
-  → Return ImageOut with resource options
+  → Build + push image
+  → Write ~/.docker/config.json (registry creds for security tools)
+  → executeSecurityOperations() — parallel Pulumi commands:
+      push → sign (5s) → verify (5s)        ← deploy waits here
+      push → scan (~50s, parallel)           ← reports only
+      push → sbom-gen → sbom-att             ← att waits for sign
+      push → prov-gen → prov-att             ← att waits for sign
+      all  → security-report                 ← GITHUB_STEP_SUMMARY + PR comment
+  → Return ImageOut (AddOpts depends on verify, not scan)
 ```
 
-**Enhanced Flow:**
-```
-BuildAndPushImage()
-  → Build image with Docker
-  → Push to registry
-  → Check if SecurityDescriptor configured
-  → IF security enabled:
-      → Execute security operations
-      → Add security commands to Pulumi DAG
-  → Return ImageOut with extended resource options
-```
+**Registry credentials:** Written directly to `~/.docker/config.json` using
+base64-encoded credentials from Pulumi `RegistryArgs`. No `docker login` CLI
+dependency — works in Docker containers (SC GitHub Action) and bare runners.
 
-**Code Integration:**
-
-```go
-// File: pkg/clouds/pulumi/docker/build_and_push.go
-
-func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, image Image) (*ImageOut, error) {
-    // ... existing build and push logic ...
-
-    // NEW: Security operations integration
-    if stack.Client != nil && stack.Client.Security != nil {
-        securityOpts, err := executeSecurityOperations(ctx, res, stack, params, deployParams, image)
-        if err != nil {
-            // Log error but continue (fail-open by default)
-            params.Log.Warn(ctx.Context(), "Security operations failed: %v", err)
-        } else {
-            // Add security command dependencies
-            addOpts = append(addOpts, securityOpts...)
-        }
-    }
+**softFail:** Controls whether scan gates sign. `softFail=true` (default) means
+sign runs from push, scan runs parallel. `softFail=false` means scan gates sign.
 
     addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{res}))
     return &ImageOut{
