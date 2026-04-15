@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -143,10 +144,11 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
 
-	// Ensure Docker is authenticated to the image registry so cosign and other
-	// tools can access image manifests for signing, verification, and attestation.
-	// The Pulumi Docker provider uses its own auth mechanism that doesn't populate
-	// the Docker credential store — we need an explicit docker login.
+	// Ensure registry credentials are available for cosign, grype, trivy, and syft.
+	// The Pulumi Docker provider uses its own auth mechanism (RegistryArgs) that
+	// doesn't populate ~/.docker/config.json. Security tools read credentials from
+	// this file. We write it directly instead of using 'docker login' because the
+	// Docker CLI may not be installed (e.g., SC GitHub Action Docker containers).
 	if image.Registry.Server != nil && image.Registry.Password != nil {
 		loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
 			Create: sdk.All(image.Registry.Server, image.Registry.Username, image.Registry.Password).ApplyT(func(args []interface{}) string {
@@ -154,10 +156,12 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				username, _ := args[1].(string)
 				password, _ := args[2].(string)
 				if username == "" {
-					username = "AWS" // ECR default
+					username = "AWS"
 				}
-				return fmt.Sprintf("echo %s | docker login --username %s --password-stdin %s",
-					shellQuote(password), shellQuote(username), shellQuote(server))
+				auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+				return fmt.Sprintf(
+					`mkdir -p ~/.docker && printf '{"auths":{"%s":{"auth":"%s"}}}' > ~/.docker/config.json`,
+					server, auth)
 			}).(sdk.StringOutput),
 		}, sdk.DependsOn(baseDeps))
 		if err != nil {
