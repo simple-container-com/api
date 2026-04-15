@@ -94,7 +94,8 @@ RUN chmod +x ./github-actions && \
 # Verify installations work (but remove verification output to reduce layer size)
 RUN pulumi version > /dev/null && \
     gcloud version > /dev/null && \
-    gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin
+    gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin && \
+    sc version > /dev/null
 
 # Set the entrypoint
 ENTRYPOINT ["/root/github-actions"]
