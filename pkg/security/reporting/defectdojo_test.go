@@ -12,7 +12,7 @@ import (
 
 func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
 	imageRef := "registry.example.com/demo@sha256:1234"
-	config := &DefectDojoUploaderConfig{TestType: "Container Scan"}
+	config := &DefectDojoUploaderConfig{TestType: "Container Scan", ProductName: "everworker"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -22,7 +22,7 @@ func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/tests/":
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"results": []map[string]interface{}{
-					{"id": 99, "title": "Container Scan - demo@sha256:1234", "engagement": 42},
+					{"id": 99, "title": "Container Scan - everworker", "engagement": 42},
 					{"id": 98, "title": "older", "engagement": 42},
 				},
 			})

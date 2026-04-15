@@ -135,13 +135,8 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	var opts []sdk.ResourceOption
 	imageName := image.Name
 
-	// Derive DefectDojo engagement name from environment (PR-NNNN for PR deploys).
-	// Safe to mutate: the Pulumi program runs once per `pulumi up`, and the
-	// derived name is idempotent (deriving from "PR-2209" returns "PR-2209").
-	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
-		security.Reporting.DefectDojo.EngagementName = deriveEngagementName(
-			security.Reporting.DefectDojo.EngagementName, environment)
-	}
+	// DefectDojo engagement name comes directly from config (e.g., "Container-Scan").
+	// Product scoping isolates findings — no need to derive from environment/PR number.
 
 	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
@@ -907,19 +902,6 @@ func signingCLIArgs(cfg *api.SigningDescriptor) []string {
 		return []string{"--key", cfg.PrivateKey}
 	}
 	return nil
-}
-
-// deriveEngagementName returns a DefectDojo engagement name from the deployment
-// environment, matching the existing PR-based convention used by pr-security-scan.
-// PR deploys ("pr2209") → "PR-2209". All other deploys use the configured name.
-func deriveEngagementName(configured, environment string) string {
-	if strings.HasPrefix(environment, "pr") {
-		num := strings.TrimPrefix(environment, "pr")
-		if num != "" {
-			return "PR-" + num
-		}
-	}
-	return configured
 }
 
 func appendDefectDojoFlags(args []string, config *api.DefectDojoDescriptor) []string {
