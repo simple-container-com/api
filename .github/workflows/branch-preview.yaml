@@ -232,6 +232,8 @@ jobs:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
           buildkitd-flags: --allow-insecure-entitlement security.insecure
+      - name: Disable IPv6 (Blacksmith runners have broken IPv6 to Docker Hub)
+        run: sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
@@ -279,6 +281,8 @@ jobs:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
           buildkitd-flags: --allow-insecure-entitlement security.insecure
+      - name: Disable IPv6 (Blacksmith runners have broken IPv6 to Docker Hub)
+        run: sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
