@@ -41,6 +41,11 @@ via the `sc` symlink and dispatches to the full SC CLI command tree. Security
 subcommands (`image sign/scan/verify`, `sbom generate/attach`, `provenance
 generate/attach`) work identically in bare runners and Docker action containers.
 
+**DefectDojo integration:**
+- Engagement: `Container-Scan` for main deploys, `PR-{number}` for PR deploys
+- Test title: `Container Scan - {productName}` (stable, no digests/dates — dedup key for reimport)
+- Upload uses reimport with `close_old_findings=true` — resolved vulns auto-mitigated
+
 ## Reference Docs
 
 - **[Component Design](./component-design.md)** — package structure and interfaces

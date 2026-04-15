@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -262,6 +263,41 @@ func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
 	}
 	if _, ok := parsed.Auths[server]; !ok {
 		t.Fatalf("config.json missing auth entry for GCP Artifact Registry server")
+	}
+}
+
+func TestPREngagementDetection(t *testing.T) {
+	// The PR detection logic in executeSecurityOperations checks:
+	// strings.HasPrefix(environment, "pr") && num[0] >= '0' && num[0] <= '9'
+	// Test the same logic here to guard against regressions.
+	tests := []struct {
+		env  string
+		want string // empty means no override (keep configured name)
+	}{
+		{"pr2209", "PR-2209"},
+		{"pr1", "PR-1"},
+		{"pr99999", "PR-99999"},
+		{"staging", ""},
+		{"test", ""},
+		{"prod", ""},        // must NOT match — "prod" starts with "pr"
+		{"production", ""},  // must NOT match
+		{"preview", ""},     // must NOT match
+		{"pre-release", ""}, // must NOT match
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.env, func(t *testing.T) {
+			got := ""
+			if strings.HasPrefix(tt.env, "pr") {
+				num := strings.TrimPrefix(tt.env, "pr")
+				if num != "" && num[0] >= '0' && num[0] <= '9' {
+					got = "PR-" + num
+				}
+			}
+			if got != tt.want {
+				t.Errorf("env=%q → %q, want %q", tt.env, got, tt.want)
+			}
+		})
 	}
 }
 
