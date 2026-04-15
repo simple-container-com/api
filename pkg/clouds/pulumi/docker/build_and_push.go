@@ -437,7 +437,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				security.Signing.Verify != nil && security.Signing.Verify.Enabled {
 				provVerifyCmd, err := local.NewCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), &local.CommandArgs{
 					Create: securityImageRef.ApplyT(func(img string) string {
-						args := []string{"cosign", "verify-attestation", "--type", "slsaprovenance"}
+						args := []string{"cosign", "verify-attestation", "--type", "https://slsa.dev/provenance/v1"}
 						args = append(args, verifyIdentityArgs(security.Signing)...)
 						args = append(args, img)
 						for i, arg := range args {
