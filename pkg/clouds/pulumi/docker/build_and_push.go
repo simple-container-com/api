@@ -165,16 +165,22 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 					username = "AWS"
 				}
 				auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-				// Write to ~/.docker/config.json. If an existing config exists
-				// (e.g., from a prior docker login in the workflow), append the
-				// new registry entry using jq if available, otherwise overwrite.
+				// Write registry credentials to ~/.docker/config.json AND
+				// /root/.docker/config.json (in Docker containers, HOME may differ
+				// from /root, causing tools to look in different locations).
+				// Write to $HOME/.docker first (always works), then try /root/.docker
+				// as a best-effort fallback (may fail silently if non-root).
 				return fmt.Sprintf(
-					`mkdir -p ~/.docker && `+
-						`if [ -f ~/.docker/config.json ] && command -v jq >/dev/null 2>&1; then `+
-						`jq '.auths["%[1]s"]={"auth":"%[2]s"}' ~/.docker/config.json > ~/.docker/config.json.tmp && `+
-						`mv ~/.docker/config.json.tmp ~/.docker/config.json; `+
+					`CREDS='{"auths":{"%[1]s":{"auth":"%[2]s"}}}' && `+
+						`mkdir -p "$HOME/.docker" && `+
+						`if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then `+
+						`jq '.auths["%[1]s"]={"auth":"%[2]s"}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && `+
+						`mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"; `+
 						`else `+
-						`printf '{"auths":{"%[1]s":{"auth":"%[2]s"}}}' > ~/.docker/config.json; `+
+						`printf '%%s' "$CREDS" > "$HOME/.docker/config.json"; `+
+						`fi && `+
+						`if [ "$HOME" != "/root" ]; then `+
+						`mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true; `+
 						`fi`,
 					server, auth)
 			}).(sdk.StringOutput),

@@ -63,6 +63,22 @@ func (i *ToolInstaller) InstallIfMissing(ctx context.Context, toolName string) e
 		return fmt.Errorf("auto-install of %s failed: %w — install manually from %s", toolName, err, tool.InstallURL)
 	}
 
+	// Ensure the install directory is in PATH for this process and subprocesses.
+	// Inside Docker containers, ~/.local/bin may not be in the default PATH.
+	// Use filepath.SplitList + exact match to avoid substring false positives
+	// (e.g., "/usr/local/binutils" should not match "/usr/local/bin").
+	currentPath := os.Getenv("PATH")
+	found := false
+	for _, dir := range filepath.SplitList(currentPath) {
+		if dir == installDir {
+			found = true
+			break
+		}
+	}
+	if !found {
+		os.Setenv("PATH", installDir+":"+currentPath)
+	}
+
 	// Verify installation succeeded
 	if err := i.CheckInstalled(ctx, toolName); err != nil {
 		return fmt.Errorf("%s installed but not found in PATH — check %s", toolName, installDir)
