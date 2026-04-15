@@ -117,16 +117,16 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 //
 // Dependency graph (softFail=true, default):
 //
-//	push ──→ sign ──→ verify          ← deploy waits here (10s overhead)
-//	push ──→ scan ──→ report          ← parallel, does not block deploy
-//	push ──→ sbom-gen ──→ sbom-att    ← sbom-att waits for sign + sbom-gen
-//	push ──→ prov-gen ──→ prov-att    ← prov-att waits for sign + prov-gen
+//	push ──→ sign ──→ verify-image                ← deploy waits here
+//	push ──→ scan ──→ report                     ← parallel, does not block deploy
+//	push ──→ sbom-gen ──→ sbom-att ──→ verify-sbom  ← attestation verified
+//	push ──→ prov-gen ──→ prov-att ──→ verify-prov  ← attestation verified
 //
 // Dependency graph (softFail=false, future enforcement):
 //
-//	push ──→ scan ──→ sign ──→ verify ← scan gates sign; deploy waits here
-//	push ──→ sbom-gen ──→ sbom-att    ← sbom-att waits for sign + sbom-gen
-//	push ──→ prov-gen ──→ prov-att    ← prov-att waits for sign + prov-gen
+//	push ──→ scan ──→ sign ──→ verify-image      ← scan gates sign
+//	push ──→ sbom-gen ──→ sbom-att ──→ verify-sbom
+//	push ──→ prov-gen ──→ prov-att ──→ verify-prov
 //
 // All operations use the immutable content digest (name@sha256:...) returned
 // by the push step. No mutable tags are used after push.
@@ -322,7 +322,27 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				if err != nil {
 					return nil, errors.Wrapf(err, "failed to create sbom attach command for image %q", imageName)
 				}
-				sbomResource = sbomAttCmd
+				// Verify the SBOM attestation immediately after attaching it.
+				if security.Signing.Verify != nil && security.Signing.Verify.Enabled {
+					sbomVerifyCmd, err := local.NewCommand(ctx, fmt.Sprintf("verify-sbom-%s", imageName), &local.CommandArgs{
+						Create: securityImageRef.ApplyT(func(img string) string {
+							args := []string{"cosign", "verify-attestation", "--type", "cyclonedx"}
+							args = append(args, verifyIdentityArgs(security.Signing)...)
+							args = append(args, img)
+							for i, arg := range args {
+								args[i] = shellQuote(arg)
+							}
+							return strings.Join(args, " ")
+						}).(sdk.StringOutput),
+						Environment: verifyCommandEnvironment(security.Signing),
+					}, sdk.DependsOn([]sdk.Resource{sbomAttCmd}))
+					if err != nil {
+						return nil, errors.Wrapf(err, "failed to create SBOM attestation verification for image %q", imageName)
+					}
+					sbomResource = sbomVerifyCmd
+				} else {
+					sbomResource = sbomAttCmd
+				}
 			}
 		} else {
 			sbomResource = sbomGenCmd
@@ -408,7 +428,28 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create provenance command for image %q", imageName)
 			}
-			provenanceResource = provCmd
+			// Verify the provenance attestation immediately after attaching it.
+			if provenanceCommand == "attach" && security.Signing != nil &&
+				security.Signing.Verify != nil && security.Signing.Verify.Enabled {
+				provVerifyCmd, err := local.NewCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), &local.CommandArgs{
+					Create: securityImageRef.ApplyT(func(img string) string {
+						args := []string{"cosign", "verify-attestation", "--type", "slsaprovenance"}
+						args = append(args, verifyIdentityArgs(security.Signing)...)
+						args = append(args, img)
+						for i, arg := range args {
+							args[i] = shellQuote(arg)
+						}
+						return strings.Join(args, " ")
+					}).(sdk.StringOutput),
+					Environment: verifyCommandEnvironment(security.Signing),
+				}, sdk.DependsOn([]sdk.Resource{provCmd}))
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to create provenance attestation verification for image %q", imageName)
+				}
+				provenanceResource = provVerifyCmd
+			} else {
+				provenanceResource = provCmd
+			}
 		}
 	}
 
@@ -976,15 +1017,32 @@ fi
 	}
 
 	// SBOM status
+	verifyEnabled := security.Signing != nil && security.Signing.Verify != nil && security.Signing.Verify.Enabled
 	if security.SBOM != nil && security.SBOM.Enabled {
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| SBOM | ✅ Generated | %s |\\n\"\n", security.SBOM.Format))
+		sbomDetail := security.SBOM.Format
+		if shouldAttachSBOM(security.SBOM) && signingEnabled(security) {
+			if verifyEnabled {
+				sbomDetail += ", attestation verified"
+			} else {
+				sbomDetail += ", attestation attached"
+			}
+		}
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| SBOM | ✅ Generated | %s |\\n\"\n", sbomDetail))
 	} else {
 		sb.WriteString("REPORT=\"${REPORT}| SBOM | ⏭️ Disabled | |\\n\"\n")
 	}
 
 	// Provenance status
 	if security.Provenance != nil && security.Provenance.Enabled {
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Provenance | ✅ Attached | %s |\\n\"\n", security.Provenance.Format))
+		provDetail := security.Provenance.Format
+		if shouldAttachProvenance(security.Provenance) && signingEnabled(security) {
+			if verifyEnabled {
+				provDetail += ", attestation verified"
+			} else {
+				provDetail += ", attestation attached"
+			}
+		}
+		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Provenance | ✅ Attached | %s |\\n\"\n", provDetail))
 	} else {
 		sb.WriteString("REPORT=\"${REPORT}| Provenance | ⏭️ Disabled | |\\n\"\n")
 	}
@@ -1052,6 +1110,22 @@ fi
 // shellEscape escapes a string for use in a double-quoted shell string.
 func shellEscape(s string) string {
 	return strings.NewReplacer("`", "\\`", "$", "\\$", "\"", "\\\"", "\\", "\\\\").Replace(s)
+}
+
+// verifyIdentityArgs returns cosign verify/verify-attestation args for identity
+// checking. For keyless: --certificate-oidc-issuer + --certificate-identity-regexp.
+// For key-based: --key.
+func verifyIdentityArgs(signing *api.SigningDescriptor) []string {
+	if signing.Keyless && signing.Verify != nil {
+		return []string{
+			"--certificate-oidc-issuer", signing.Verify.OIDCIssuer,
+			"--certificate-identity-regexp", signing.Verify.IdentityRegexp,
+		}
+	}
+	if signing.PublicKey != "" {
+		return []string{"--key", signing.PublicKey}
+	}
+	return nil
 }
 
 // shellQuote wraps value in POSIX single quotes, escaping embedded quotes.

@@ -265,6 +265,41 @@ func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
 	}
 }
 
+func TestVerifyIdentityArgs(t *testing.T) {
+	t.Run("keyless", func(t *testing.T) {
+		cfg := &api.SigningDescriptor{
+			Keyless: true,
+			Verify: &api.VerifyDescriptor{
+				OIDCIssuer:     "https://token.actions.githubusercontent.com",
+				IdentityRegexp: "^https://github.com/org/.*$",
+			},
+		}
+		args := verifyIdentityArgs(cfg)
+		if len(args) != 4 {
+			t.Fatalf("verifyIdentityArgs() len = %d, want 4", len(args))
+		}
+		if args[0] != "--certificate-oidc-issuer" {
+			t.Errorf("args[0] = %q, want --certificate-oidc-issuer", args[0])
+		}
+	})
+
+	t.Run("key-based", func(t *testing.T) {
+		cfg := &api.SigningDescriptor{PublicKey: "cosign.pub"}
+		args := verifyIdentityArgs(cfg)
+		if len(args) != 2 || args[0] != "--key" {
+			t.Errorf("verifyIdentityArgs() = %v, want [--key cosign.pub]", args)
+		}
+	})
+
+	t.Run("nil verify", func(t *testing.T) {
+		cfg := &api.SigningDescriptor{Keyless: true}
+		args := verifyIdentityArgs(cfg)
+		if args != nil {
+			t.Errorf("verifyIdentityArgs() = %v, want nil", args)
+		}
+	})
+}
+
 func TestSigningCommandEnvironment(t *testing.T) {
 	if got := signingCommandEnvironment(nil); got != nil {
 		t.Fatalf("signingCommandEnvironment(nil) = %#v, want nil", got)

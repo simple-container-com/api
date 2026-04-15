@@ -19,9 +19,12 @@ All operations use the immutable content digest (`@sha256:...`) returned by push
 1. **Vulnerability Scanning** — Grype + Trivy dual-tool with merge deduplication
 2. **Image Signing** — Cosign keyless (GitHub OIDC) or key-based
 3. **Post-Sign Verification** — Immediate cosign verify after signing
-4. **SBOM Generation** — Syft CycloneDX with signed attestation
-5. **SLSA Provenance** — v1.0 build provenance with signed attestation
+4. **SBOM Generation** — Syft CycloneDX with signed attestation + attestation verification
+5. **SLSA Provenance** — v1.0 build provenance with signed attestation + attestation verification
 6. **Reporting** — GitHub Step Summary, PR comment file, DefectDojo upload
+
+All three artifact types (image signature, SBOM attestation, provenance attestation)
+are verified after creation using `cosign verify` / `cosign verify-attestation`.
 
 ## Design Principles
 
