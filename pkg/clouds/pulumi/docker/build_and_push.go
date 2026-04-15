@@ -349,7 +349,10 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 							for i, arg := range args {
 								args[i] = shellQuote(arg)
 							}
-							return securityPATHPrefix + strings.Join(args, " ")
+							// Redirect stdout to /dev/null — cosign dumps the full
+							// attestation payload, which can deadlock Pulumi's pipe
+							// buffer for large payloads. We only need the exit code.
+							return securityPATHPrefix + strings.Join(args, " ") + " > /dev/null"
 						}).(sdk.StringOutput),
 						Environment: verifyCommandEnvironment(security.Signing),
 					}, sdk.DependsOn([]sdk.Resource{sbomAttCmd}))
@@ -456,7 +459,10 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 						for i, arg := range args {
 							args[i] = shellQuote(arg)
 						}
-						return securityPATHPrefix + strings.Join(args, " ")
+						// Redirect stdout to /dev/null — cosign dumps the full
+						// attestation payload, which can deadlock Pulumi's pipe
+						// buffer for large payloads. We only need the exit code.
+						return securityPATHPrefix + strings.Join(args, " ") + " > /dev/null"
 					}).(sdk.StringOutput),
 					Environment: verifyCommandEnvironment(security.Signing),
 				}, sdk.DependsOn([]sdk.Resource{provCmd}))
