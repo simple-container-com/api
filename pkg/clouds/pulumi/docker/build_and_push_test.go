@@ -216,9 +216,9 @@ func TestRepoDigestRegex(t *testing.T) {
 func TestDockerConfigJSON(t *testing.T) {
 	// Verify the config.json format matches what docker login produces
 	// and what cosign/grype/trivy/syft expect.
-	server := "471112843480.dkr.ecr.eu-central-1.amazonaws.com"
+	server := "000000000000.dkr.ecr.eu-central-1.amazonaws.com"
 	username := "AWS"
-	password := "eyJwYXlsb2FkIjoiZXhhbXBsZSJ9"
+	password := "test-ecr-token-not-real"
 
 	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, server, auth)
@@ -245,9 +245,9 @@ func TestDockerConfigJSON(t *testing.T) {
 }
 
 func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
-	server := "europe-north1-docker.pkg.dev/payspace-475408/artifact-registry--staging"
-	username := "_json_key"
-	password := `{"type":"service_account","project_id":"test"}`
+	server := "europe-north1-docker.pkg.dev/example-project/example-registry"
+	username := "oauth2accesstoken"
+	password := "test-gcp-token-not-real"
 
 	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, server, auth)
