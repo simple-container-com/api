@@ -84,6 +84,9 @@ COPY dist/github-actions ./github-actions
 RUN chmod +x ./github-actions && \
     # Strip debug symbols if not already done (reduces binary size)
     strip ./github-actions 2>/dev/null || true && \
+    # Make 'sc' available in PATH for Pulumi local.Command subprocesses
+    # (security pipeline runs: sc image sign, sc image scan, sc sbom generate, etc.)
+    ln -s /root/github-actions /usr/local/bin/sc && \
     # Remove build tools no longer needed
     apk del upx binutils && \
     rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
