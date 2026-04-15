@@ -36,6 +36,11 @@ are verified after creation using `cosign verify` / `cosign verify-attestation`.
 
 **SC owns its dependencies** — cosign, syft, grype, trivy auto-installed on demand.
 
+**Works in Docker containers** — the `github-actions` binary detects when invoked
+via the `sc` symlink and dispatches to the full SC CLI command tree. Security
+subcommands (`image sign/scan/verify`, `sbom generate/attach`, `provenance
+generate/attach`) work identically in bare runners and Docker action containers.
+
 ## Reference Docs
 
 - **[Component Design](./component-design.md)** — package structure and interfaces
