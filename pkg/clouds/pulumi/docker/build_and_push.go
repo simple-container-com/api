@@ -135,8 +135,17 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	var opts []sdk.ResourceOption
 	imageName := image.Name
 
-	// DefectDojo engagement name comes directly from config (e.g., "Container-Scan").
-	// Product scoping isolates findings — no need to derive from environment/PR number.
+	// DefectDojo engagement: "PR-{number}" for PR deploys, configured name for main.
+	// PR environments use "prNNNN" format (digits only after "pr").
+	// Must not match "prod", "production", or other pr-prefixed env names.
+	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
+		if strings.HasPrefix(environment, "pr") {
+			num := strings.TrimPrefix(environment, "pr")
+			if num != "" && num[0] >= '0' && num[0] <= '9' {
+				security.Reporting.DefectDojo.EngagementName = "PR-" + num
+			}
+		}
+	}
 
 	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
