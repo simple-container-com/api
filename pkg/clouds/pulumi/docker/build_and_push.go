@@ -135,7 +135,9 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	var opts []sdk.ResourceOption
 	imageName := image.Name
 
-	// Override DefectDojo engagement name to match PR convention (PR-NNNN).
+	// Derive DefectDojo engagement name from environment (PR-NNNN for PR deploys).
+	// Safe to mutate: the Pulumi program runs once per `pulumi up`, and the
+	// derived name is idempotent (deriving from "PR-2209" returns "PR-2209").
 	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
 		security.Reporting.DefectDojo.EngagementName = deriveEngagementName(
 			security.Reporting.DefectDojo.EngagementName, environment)
@@ -159,8 +161,17 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 					username = "AWS"
 				}
 				auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+				// Write to ~/.docker/config.json. If an existing config exists
+				// (e.g., from a prior docker login in the workflow), append the
+				// new registry entry using jq if available, otherwise overwrite.
 				return fmt.Sprintf(
-					`mkdir -p ~/.docker && printf '{"auths":{"%s":{"auth":"%s"}}}' > ~/.docker/config.json`,
+					`mkdir -p ~/.docker && `+
+						`if [ -f ~/.docker/config.json ] && command -v jq >/dev/null 2>&1; then `+
+						`jq '.auths["%[1]s"]={"auth":"%[2]s"}' ~/.docker/config.json > ~/.docker/config.json.tmp && `+
+						`mv ~/.docker/config.json.tmp ~/.docker/config.json; `+
+						`else `+
+						`printf '{"auths":{"%[1]s":{"auth":"%[2]s"}}}' > ~/.docker/config.json; `+
+						`fi`,
 					server, auth)
 			}).(sdk.StringOutput),
 		}, sdk.DependsOn(baseDeps))
