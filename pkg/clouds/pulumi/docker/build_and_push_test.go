@@ -266,20 +266,59 @@ func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
 	}
 }
 
-func TestRegistryLoginSkipsEmptyPassword(t *testing.T) {
-	// When password is empty (e.g., GCP Artifact Registry where Pulumi handles auth
-	// internally via workload identity), the registry-login command should produce
-	// a no-op echo instead of writing broken config.json with empty credentials.
-	password := ""
-	if password != "" {
-		t.Fatal("this test verifies the empty-password path")
+func TestIsGCPRegistry(t *testing.T) {
+	gcpServers := []string{
+		"europe-north1-docker.pkg.dev",
+		"europe-north1-docker.pkg.dev/project/repo",
+		"us-docker.pkg.dev/my-project/my-repo",
+		"gcr.io/my-project",
+		"eu.gcr.io/my-project",
 	}
-	// The logic in executeSecurityOperations checks:
-	//   if password == "" { return "echo 'Registry credentials not available...'" }
-	// Verify the skip message matches what we expect (guards against regressions).
-	expected := "echo 'Registry credentials not available — using ambient auth'"
-	if !strings.Contains(expected, "ambient auth") {
-		t.Fatal("expected skip message to mention ambient auth")
+	nonGCPServers := []string{
+		"000000000000.dkr.ecr.eu-central-1.amazonaws.com",
+		"registry-1.docker.io",
+		"ghcr.io/org",
+		"",
+	}
+	for _, s := range gcpServers {
+		if !isGCPRegistry(s) {
+			t.Errorf("isGCPRegistry(%q) = false, want true", s)
+		}
+	}
+	for _, s := range nonGCPServers {
+		if isGCPRegistry(s) {
+			t.Errorf("isGCPRegistry(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestGCPRegistryLoginScript(t *testing.T) {
+	script := gcpRegistryLoginScript("europe-north1-docker.pkg.dev/project/repo")
+	// Should extract host only (no project/repo path)
+	if !strings.Contains(script, "europe-north1-docker.pkg.dev") {
+		t.Error("script should contain the registry host")
+	}
+	if strings.Contains(script, "project/repo") {
+		t.Error("script should NOT contain the project/repo path, only the host")
+	}
+	if !strings.Contains(script, "gcloud auth print-access-token") {
+		t.Error("script should use gcloud auth print-access-token")
+	}
+	if !strings.Contains(script, "oauth2accesstoken") {
+		t.Error("script should use oauth2accesstoken as username")
+	}
+}
+
+func TestWriteDockerConfigScript(t *testing.T) {
+	script := writeDockerConfigScript("registry.example.com", "dGVzdC1hdXRo")
+	if !strings.Contains(script, "registry.example.com") {
+		t.Error("script should contain server")
+	}
+	if !strings.Contains(script, "dGVzdC1hdXRo") {
+		t.Error("script should contain auth token")
+	}
+	if !strings.Contains(script, ".docker/config.json") {
+		t.Error("script should write to .docker/config.json")
 	}
 }
 

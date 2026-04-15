@@ -155,41 +155,34 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	// doesn't populate ~/.docker/config.json. Security tools read credentials from
 	// this file. We write it directly instead of using 'docker login' because the
 	// Docker CLI may not be installed (e.g., SC GitHub Action Docker containers).
-	if image.Registry.Server != nil && image.Registry.Password != nil {
+	if image.Registry.Server != nil {
+		var loginInputs sdk.ArrayOutput
+		if image.Registry.Password != nil && image.Registry.Username != nil {
+			loginInputs = sdk.All(image.Registry.Server, image.Registry.Username, image.Registry.Password)
+		} else if image.Registry.Password != nil {
+			loginInputs = sdk.All(image.Registry.Server, sdk.String(""), image.Registry.Password)
+		} else {
+			loginInputs = sdk.All(image.Registry.Server, sdk.String(""), sdk.String(""))
+		}
 		loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
-			Create: sdk.All(image.Registry.Server, image.Registry.Username, image.Registry.Password).ApplyT(func(args []interface{}) string {
+			Create: loginInputs.ApplyT(func(args []interface{}) string {
 				server, _ := args[0].(string)
 				username, _ := args[1].(string)
 				password, _ := args[2].(string)
-				// Skip config.json when password is empty — the Pulumi Docker
-				// provider handles auth internally (e.g., GCP workload identity,
-				// gcloud ADC). Writing empty credentials would break tools that
-				// try to use config.json. Let them fall back to ambient auth.
 				if password == "" {
+					// No explicit credentials. For GCP registries, try gcloud
+					// to get an access token — the SC Docker container has gcloud
+					// but ambient auth (credential helpers) may not be configured.
+					if isGCPRegistry(server) {
+						return gcpRegistryLoginScript(server)
+					}
 					return "echo 'Registry credentials not available — using ambient auth'"
 				}
 				if username == "" {
 					username = "AWS"
 				}
 				auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-				// Write registry credentials to ~/.docker/config.json AND
-				// /root/.docker/config.json (in Docker containers, HOME may differ
-				// from /root, causing tools to look in different locations).
-				// Write to $HOME/.docker first (always works), then try /root/.docker
-				// as a best-effort fallback (may fail silently if non-root).
-				return fmt.Sprintf(
-					`CREDS='{"auths":{"%[1]s":{"auth":"%[2]s"}}}' && `+
-						`mkdir -p "$HOME/.docker" && `+
-						`if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then `+
-						`jq '.auths["%[1]s"]={"auth":"%[2]s"}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && `+
-						`mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"; `+
-						`else `+
-						`printf '%%s' "$CREDS" > "$HOME/.docker/config.json"; `+
-						`fi && `+
-						`if [ "$HOME" != "/root" ]; then `+
-						`mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true; `+
-						`fi`,
-					server, auth)
+				return writeDockerConfigScript(server, auth)
 			}).(sdk.StringOutput),
 		}, sdk.DependsOn(baseDeps))
 		if err != nil {
@@ -1149,3 +1142,64 @@ func shellQuote(value string) string {
 // the Go process — Pulumi local.Command runs in a separate shell that inherits
 // the original PATH without the install directory.
 const securityPATHPrefix = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && `
+
+// isGCPRegistry returns true if the server is a GCP Artifact Registry or
+// Container Registry host.
+func isGCPRegistry(server string) bool {
+	return strings.Contains(server, "pkg.dev") || strings.Contains(server, "gcr.io")
+}
+
+// gcpRegistryLoginScript returns a shell script that authenticates to GCP
+// Artifact Registry using gcloud. This handles the case where Pulumi's Docker
+// provider uses GCP auth internally but doesn't expose the token via
+// RegistryArgs.Password (e.g., when using workload identity or ADC).
+func gcpRegistryLoginScript(server string) string {
+	// Extract the registry host (e.g., "europe-north1-docker.pkg.dev" from
+	// "europe-north1-docker.pkg.dev/project/repo").
+	registryHost := server
+	if idx := strings.Index(server, "/"); idx > 0 {
+		registryHost = server[:idx]
+	}
+	return fmt.Sprintf(`set -e
+echo "GCP registry detected — acquiring credentials via gcloud..."
+if command -v gcloud >/dev/null 2>&1; then
+  TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
+  if [ -n "$TOKEN" ]; then
+    AUTH=$(printf 'oauth2accesstoken:%%s' "$TOKEN" | base64 | tr -d '\n')
+    CREDS="{\"auths\":{\"%[1]s\":{\"auth\":\"${AUTH}\"}}}"
+    mkdir -p "$HOME/.docker"
+    if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then
+      jq --arg server '%[1]s' --arg auth "$AUTH" '.auths[$server]={"auth":$auth}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && \
+      mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"
+    else
+      printf '%%s' "$CREDS" > "$HOME/.docker/config.json"
+    fi
+    if [ "$HOME" != "/root" ]; then
+      mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true
+    fi
+    echo "GCP registry auth configured for %[1]s"
+  else
+    echo "WARNING: gcloud auth print-access-token returned empty — GCP registry auth may fail"
+  fi
+else
+  echo "WARNING: gcloud not found — GCP registry auth not configured"
+fi`, registryHost)
+}
+
+// writeDockerConfigScript returns a shell script that writes registry
+// credentials to ~/.docker/config.json (and /root/.docker as fallback).
+func writeDockerConfigScript(server, auth string) string {
+	return fmt.Sprintf(
+		`CREDS='{"auths":{"%[1]s":{"auth":"%[2]s"}}}' && `+
+			`mkdir -p "$HOME/.docker" && `+
+			`if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then `+
+			`jq '.auths["%[1]s"]={"auth":"%[2]s"}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && `+
+			`mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"; `+
+			`else `+
+			`printf '%%s' "$CREDS" > "$HOME/.docker/config.json"; `+
+			`fi && `+
+			`if [ "$HOME" != "/root" ]; then `+
+			`mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true; `+
+			`fi`,
+		server, auth)
+}
