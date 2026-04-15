@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // ToolInstaller checks tool availability and auto-installs missing tools.
@@ -61,6 +62,13 @@ func (i *ToolInstaller) InstallIfMissing(ctx context.Context, toolName string) e
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("auto-install of %s failed: %w — install manually from %s", toolName, err, tool.InstallURL)
+	}
+
+	// Ensure the install directory is in PATH for this process and subprocesses.
+	// Inside Docker containers, ~/.local/bin may not be in the default PATH.
+	currentPath := os.Getenv("PATH")
+	if !strings.Contains(currentPath, installDir) {
+		os.Setenv("PATH", installDir+":"+currentPath)
 	}
 
 	// Verify installation succeeded
