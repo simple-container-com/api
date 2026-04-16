@@ -28,11 +28,14 @@ func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/findings/":
 			if got := r.URL.Query().Get("test"); got != "99" {
-				t.Fatalf("findings test filter = %q, want %q", got, "99")
+				t.Errorf("findings test filter = %q, want %q", got, "99")
+				http.Error(w, "bad filter", http.StatusBadRequest)
+				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"count": 24})
 		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "unexpected", http.StatusInternalServerError)
 		}
 	}))
 	defer server.Close()
@@ -65,15 +68,18 @@ func TestCreateEngagementUsesCICDType(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/engagements/":
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				t.Fatalf("reading request body: %v", err)
+				t.Errorf("reading request body: %v", err)
+				http.Error(w, "read error", http.StatusInternalServerError)
+				return
 			}
 			if !strings.Contains(string(body), `"engagement_type":"CI/CD"`) {
-				t.Fatalf("request body = %s, want CI/CD engagement type", string(body))
+				t.Errorf("request body = %s, want CI/CD engagement type", string(body))
 			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"id": 42})
 		default:
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
+			http.Error(w, "unexpected", http.StatusInternalServerError)
 		}
 	}))
 	defer server.Close()

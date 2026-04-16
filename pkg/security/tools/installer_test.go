@@ -68,10 +68,13 @@ func TestToolInstallerIsToolAvailable(t *testing.T) {
 	installer := NewToolInstaller()
 	ctx := context.Background()
 
-	// This test will depend on what's actually installed on the system
-	// We can only test that it doesn't panic
+	// Unknown tool should never be available
+	if installer.IsToolAvailable(ctx, "nonexistent-tool-that-does-not-exist") {
+		t.Error("IsToolAvailable() should return false for nonexistent tool")
+	}
+
+	// Known tools: result depends on system state, but should not panic
 	_ = installer.IsToolAvailable(ctx, "cosign")
-	_ = installer.IsToolAvailable(ctx, "nonexistent-tool")
 }
 
 func TestToolInstallerGetToolCommand(t *testing.T) {

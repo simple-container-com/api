@@ -1,6 +1,7 @@
 package security
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,9 @@ func TestNewCache(t *testing.T) {
 		t.Errorf("Cache directory was not created")
 	}
 
-	// Test with empty directory (should use default)
+	// Test with empty directory (should use default).
+	// Override HOME to avoid writing to real home directory.
+	t.Setenv("HOME", t.TempDir())
 	cache2, err := NewCache("")
 	if err != nil {
 		t.Fatalf("NewCache with empty dir failed: %v", err)
@@ -141,8 +144,7 @@ func TestCacheTTLExpiration(t *testing.T) {
 }
 
 func marshalJSON(v interface{}) ([]byte, error) {
-	// Simple JSON marshal for testing
-	return []byte("{}"), nil
+	return json.Marshal(v)
 }
 
 func TestCacheInvalidate(t *testing.T) {
