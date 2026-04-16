@@ -166,20 +166,17 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		}
 		loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
 			Create: loginInputs.ApplyT(func(args []interface{}) string {
-				server, _ := args[0].(string)
-				username, _ := args[1].(string)
-				password, _ := args[2].(string)
+				// Use resolveStringArg because sdk.All may pass through *string
+				// (from sdk.StringPtr in RegistryArgs) without dereferencing.
+				// A bare .(string) type assertion silently returns "" for *string.
+				server := resolveStringArg(args[0])
+				username := resolveStringArg(args[1])
+				password := resolveStringArg(args[2])
 				if password == "" {
-					// No explicit credentials. For GCP registries, try gcloud
-					// to get an access token — the SC Docker container has gcloud
-					// but ambient auth (credential helpers) may not be configured.
-					if isGCPRegistry(server) {
-						return gcpRegistryLoginScript(server)
-					}
-					return "echo 'Registry credentials not available — using ambient auth'"
+					return "echo 'WARNING: Registry password is empty — security tools may fail to authenticate. Check RegistryArgs credential flow.'"
 				}
 				if username == "" {
-					username = "AWS"
+					username = "_token"
 				}
 				auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 				return writeDockerConfigScript(server, auth)
@@ -215,17 +212,11 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	var signCmd *local.Command
 	if security.Signing != nil && security.Signing.Enabled {
 		var err error
-		signCmd, err = local.NewCommand(ctx, fmt.Sprintf("sign-%s", imageName), &local.CommandArgs{
-			Create: securityImageRef.ApplyT(func(img string) string {
+		signCmd, err = newSecurityCommand(ctx, fmt.Sprintf("sign-%s", imageName), securityImageRef,
+			func(img string) []string {
 				args := []string{"sc", "image", "sign", "--image", img}
-				args = append(args, signingCLIArgs(security.Signing)...)
-				for i, arg := range args {
-					args[i] = shellQuote(arg)
-				}
-				return securityPATHPrefix + strings.Join(args, " ")
-			}).(sdk.StringOutput),
-			Environment: signingCommandEnvironment(security.Signing),
-		}, sdk.DependsOn(signDeps))
+				return append(args, signingCLIArgs(security.Signing)...)
+			}, "", signingCommandEnvironment(security.Signing), signDeps)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create sign command for image %q", imageName)
 		}
@@ -245,8 +236,8 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		}
 
 		var err error
-		verifyCmd, err = local.NewCommand(ctx, fmt.Sprintf("verify-%s", imageName), &local.CommandArgs{
-			Create: securityImageRef.ApplyT(func(img string) string {
+		verifyCmd, err = newSecurityCommand(ctx, fmt.Sprintf("verify-%s", imageName), securityImageRef,
+			func(img string) []string {
 				args := []string{"sc", "image", "verify", "--image", img}
 				if security.Signing.Keyless {
 					args = append(args,
@@ -256,13 +247,8 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				} else {
 					args = append(args, "--public-key", security.Signing.PublicKey)
 				}
-				for i, arg := range args {
-					args[i] = shellQuote(arg)
-				}
-				return securityPATHPrefix + strings.Join(args, " ")
-			}).(sdk.StringOutput),
-			Environment: verifyCommandEnvironment(security.Signing),
-		}, sdk.DependsOn([]sdk.Resource{signCmd}))
+				return args
+			}, "", verifyCommandEnvironment(security.Signing), []sdk.Resource{signCmd})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create verify command for image %q", imageName)
 		}
@@ -285,23 +271,14 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		}
 		sbomOutputPath := resolveSBOMOutputPath(security, imageName)
 
-		sbomGenCmd, err := local.NewCommand(ctx, fmt.Sprintf("sbom-gen-%s", imageName), &local.CommandArgs{
-			Create: securityImageRef.ApplyT(func(img string) string {
-				args := []string{
-					"sc", "sbom", "generate",
-					"--image", img,
-					"--format", format,
-					"--output", sbomOutputPath,
-				}
+		sbomGenCmd, err := newSecurityCommand(ctx, fmt.Sprintf("sbom-gen-%s", imageName), securityImageRef,
+			func(img string) []string {
+				args := []string{"sc", "sbom", "generate", "--image", img, "--format", format, "--output", sbomOutputPath}
 				if security.SBOM.Cache != nil && security.SBOM.Cache.Enabled && security.SBOM.Cache.Dir != "" {
 					args = append(args, "--cache-dir", security.SBOM.Cache.Dir)
 				}
-				for i, arg := range args {
-					args[i] = shellQuote(arg)
-				}
-				return securityPATHPrefix + strings.Join(args, " ")
-			}).(sdk.StringOutput),
-		}, sdk.DependsOn(baseDeps))
+				return args
+			}, "", nil, baseDeps)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create sbom generate command for image %q", imageName)
 		}
@@ -318,37 +295,22 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				if signCmd != nil {
 					sbomAttDeps = append(sbomAttDeps, signCmd)
 				}
-				sbomAttCmd, err := local.NewCommand(ctx, fmt.Sprintf("sbom-att-%s", imageName), &local.CommandArgs{
-					Create: securityImageRef.ApplyT(func(img string) string {
+				sbomAttCmd, err := newSecurityCommand(ctx, fmt.Sprintf("sbom-att-%s", imageName), securityImageRef,
+					func(img string) []string {
 						args := []string{"sc", "sbom", "attach", "--image", img, "--sbom", sbomOutputPath}
-						args = append(args, signingCLIArgs(security.Signing)...)
-						for i, arg := range args {
-							args[i] = shellQuote(arg)
-						}
-						return securityPATHPrefix + strings.Join(args, " ")
-					}).(sdk.StringOutput),
-					Environment: signingCommandEnvironment(security.Signing),
-				}, sdk.DependsOn(sbomAttDeps))
+						return append(args, signingCLIArgs(security.Signing)...)
+					}, "", signingCommandEnvironment(security.Signing), sbomAttDeps)
 				if err != nil {
 					return nil, errors.Wrapf(err, "failed to create sbom attach command for image %q", imageName)
 				}
 				// Verify the SBOM attestation immediately after attaching it.
 				if security.Signing.Verify != nil && security.Signing.Verify.Enabled {
-					sbomVerifyCmd, err := local.NewCommand(ctx, fmt.Sprintf("verify-sbom-%s", imageName), &local.CommandArgs{
-						Create: securityImageRef.ApplyT(func(img string) string {
+					sbomVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-sbom-%s", imageName), securityImageRef,
+						func(img string) []string {
 							args := []string{"cosign", "verify-attestation", "--type", "cyclonedx"}
 							args = append(args, verifyIdentityArgs(security.Signing)...)
-							args = append(args, img)
-							for i, arg := range args {
-								args[i] = shellQuote(arg)
-							}
-							// Redirect stdout to /dev/null — cosign dumps the full
-							// attestation payload, which can deadlock Pulumi's pipe
-							// buffer for large payloads. We only need the exit code.
-							return securityPATHPrefix + strings.Join(args, " ") + " > /dev/null"
-						}).(sdk.StringOutput),
-						Environment: verifyCommandEnvironment(security.Signing),
-					}, sdk.DependsOn([]sdk.Resource{sbomAttCmd}))
+							return append(args, img)
+						}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{sbomAttCmd})
 					if err != nil {
 						return nil, errors.Wrapf(err, "failed to create SBOM attestation verification for image %q", imageName)
 					}
@@ -400,8 +362,8 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 				}
 			}
 
-			provCmd, err := local.NewCommand(ctx, fmt.Sprintf("prov-att-%s", imageName), &local.CommandArgs{
-				Create: securityImageRef.ApplyT(func(img string) string {
+			provCmd, err := newSecurityCommand(ctx, fmt.Sprintf("prov-att-%s", imageName), securityImageRef,
+				func(img string) []string {
 					args := []string{
 						"sc", "provenance", provenanceCommand,
 						"--image", img,
@@ -431,34 +393,20 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 					if provenanceCommand == "attach" {
 						args = append(args, signingCLIArgs(security.Signing)...)
 					}
-					for i, arg := range args {
-						args[i] = shellQuote(arg)
-					}
-					return securityPATHPrefix + strings.Join(args, " ")
-				}).(sdk.StringOutput),
-				Environment: provEnv,
-			}, sdk.DependsOn(provGenDeps))
+					return args
+				}, "", provEnv, provGenDeps)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to create provenance command for image %q", imageName)
 			}
 			// Verify the provenance attestation immediately after attaching it.
 			if provenanceCommand == "attach" && security.Signing != nil &&
 				security.Signing.Verify != nil && security.Signing.Verify.Enabled {
-				provVerifyCmd, err := local.NewCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), &local.CommandArgs{
-					Create: securityImageRef.ApplyT(func(img string) string {
+				provVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), securityImageRef,
+					func(img string) []string {
 						args := []string{"cosign", "verify-attestation", "--type", "https://slsa.dev/provenance/v1"}
 						args = append(args, verifyIdentityArgs(security.Signing)...)
-						args = append(args, img)
-						for i, arg := range args {
-							args[i] = shellQuote(arg)
-						}
-						// Redirect stdout to /dev/null — cosign dumps the full
-						// attestation payload, which can deadlock Pulumi's pipe
-						// buffer for large payloads. We only need the exit code.
-						return securityPATHPrefix + strings.Join(args, " ") + " > /dev/null"
-					}).(sdk.StringOutput),
-					Environment: verifyCommandEnvironment(security.Signing),
-				}, sdk.DependsOn([]sdk.Resource{provCmd}))
+						return append(args, img)
+					}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{provCmd})
 				if err != nil {
 					return nil, errors.Wrapf(err, "failed to create provenance attestation verification for image %q", imageName)
 				}
@@ -1136,6 +1084,40 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
+// buildShellCommand constructs a shell command string from args with PATH prefix
+// and shell quoting. Used by all security local.Command resources.
+func buildShellCommand(args []string, suffix string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+	cmd := securityPATHPrefix + strings.Join(quoted, " ")
+	if suffix != "" {
+		cmd += " " + suffix
+	}
+	return cmd
+}
+
+// newSecurityCommand creates a Pulumi local.Command that runs a shell command
+// derived from the image digest reference. Reduces boilerplate across sign,
+// verify, sbom, provenance commands that all follow the same pattern.
+func newSecurityCommand(
+	ctx *sdk.Context,
+	name string,
+	imageRef sdk.StringOutput,
+	buildArgs func(img string) []string,
+	suffix string,
+	env sdk.StringMap,
+	deps []sdk.Resource,
+) (*local.Command, error) {
+	return local.NewCommand(ctx, name, &local.CommandArgs{
+		Create: imageRef.ApplyT(func(img string) string {
+			return buildShellCommand(buildArgs(img), suffix)
+		}).(sdk.StringOutput),
+		Environment: env,
+	}, sdk.DependsOn(deps))
+}
+
 // securityPATHPrefix returns a shell snippet that ensures $HOME/.local/bin and
 // /usr/local/bin are on PATH before running security tools. This is necessary
 // because the Go-side os.Setenv("PATH", ...) in tool auto-install only affects
@@ -1143,47 +1125,18 @@ func shellQuote(value string) string {
 // the original PATH without the install directory.
 const securityPATHPrefix = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && `
 
-// isGCPRegistry returns true if the server is a GCP Artifact Registry or
-// Container Registry host.
-func isGCPRegistry(server string) bool {
-	return strings.Contains(server, "pkg.dev") || strings.Contains(server, "gcr.io")
-}
-
-// gcpRegistryLoginScript returns a shell script that authenticates to GCP
-// Artifact Registry using gcloud. This handles the case where Pulumi's Docker
-// provider uses GCP auth internally but doesn't expose the token via
-// RegistryArgs.Password (e.g., when using workload identity or ADC).
-func gcpRegistryLoginScript(server string) string {
-	// Extract the registry host (e.g., "europe-north1-docker.pkg.dev" from
-	// "europe-north1-docker.pkg.dev/project/repo").
-	registryHost := server
-	if idx := strings.Index(server, "/"); idx > 0 {
-		registryHost = server[:idx]
+// resolveStringArg extracts a string from an interface{} value that may be
+// either a string or a *string. This is needed because sdk.All may pass through
+// *string values (from sdk.StringPtr used in RegistryArgs) without dereferencing,
+// causing bare .(string) type assertions to silently return "".
+func resolveStringArg(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
 	}
-	return fmt.Sprintf(`set -e
-echo "GCP registry detected — acquiring credentials via gcloud..."
-if command -v gcloud >/dev/null 2>&1; then
-  TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
-  if [ -n "$TOKEN" ]; then
-    AUTH=$(printf 'oauth2accesstoken:%%s' "$TOKEN" | base64 | tr -d '\n')
-    CREDS="{\"auths\":{\"%[1]s\":{\"auth\":\"${AUTH}\"}}}"
-    mkdir -p "$HOME/.docker"
-    if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then
-      jq --arg server '%[1]s' --arg auth "$AUTH" '.auths[$server]={"auth":$auth}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && \
-      mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"
-    else
-      printf '%%s' "$CREDS" > "$HOME/.docker/config.json"
-    fi
-    if [ "$HOME" != "/root" ]; then
-      mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true
-    fi
-    echo "GCP registry auth configured for %[1]s"
-  else
-    echo "WARNING: gcloud auth print-access-token returned empty — GCP registry auth may fail"
-  fi
-else
-  echo "WARNING: gcloud not found — GCP registry auth not configured"
-fi`, registryHost)
+	if p, ok := v.(*string); ok && p != nil {
+		return *p
+	}
+	return ""
 }
 
 // writeDockerConfigScript returns a shell script that writes registry

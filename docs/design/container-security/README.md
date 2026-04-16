@@ -1,15 +1,15 @@
 # Container Image Security — Architecture
 
-**Last Updated:** April 2026
+**Last Updated:** April 15, 2026
 
 ## Architecture
 
 ```
-Build+Push → sign (5s) → verify (5s)    ← deploy waits here
+Build+Push → sign (5s) → verify-image (2s)        ← deploy waits here
                ↑ softFail=false: scan gates sign
-Build+Push → scan (~50s, parallel)      ← reports to DefectDojo + step summary
-Build+Push → sbom-gen → sbom-att        ← att waits for sign + gen
-Build+Push → prov-gen → prov-att        ← att waits for sign + gen
+Build+Push → scan (~50s, parallel)                ← reports to DefectDojo + step summary
+Build+Push → sbom-gen → sbom-att → verify-sbom    ← all 3 artifacts verified
+Build+Push → prov-gen → prov-att → verify-prov    ← all 3 artifacts verified
 ```
 
 All operations use the immutable content digest (`@sha256:...`) returned by push.
@@ -25,6 +25,8 @@ All operations use the immutable content digest (`@sha256:...`) returned by push
 
 All three artifact types (image signature, SBOM attestation, provenance attestation)
 are verified after creation using `cosign verify` / `cosign verify-attestation`.
+Verification stdout is redirected to `/dev/null` to prevent Pulumi pipe buffer
+deadlocks on large attestation payloads (only exit code matters).
 
 ## Design Principles
 
@@ -40,6 +42,18 @@ are verified after creation using `cosign verify` / `cosign verify-attestation`.
 via the `sc` symlink and dispatches to the full SC CLI command tree. Security
 subcommands (`image sign/scan/verify`, `sbom generate/attach`, `provenance
 generate/attach`) work identically in bare runners and Docker action containers.
+
+**Registry auth (cloud-agnostic):** Writes `config.json` from Pulumi `RegistryArgs`
+credentials (server + username + password). Uses `resolveStringArg` to handle both
+`string` and `*string` types from `sdk.StringPtr` in RegistryArgs. Writes to both
+`$HOME/.docker/config.json` and `/root/.docker/config.json` (Docker containers may
+differ in HOME vs tool expectations). No cloud-specific logic — all registries
+(ECR, GCP Artifact Registry, GHCR, Docker Hub) use the same path.
+
+**PATH propagation** — every Pulumi `local.Command` for security ops prepends
+`export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"` because `os.Setenv` in the
+Go process does not propagate to Pulumi shell subprocesses. This ensures tools
+auto-installed to `~/.local/bin` are findable.
 
 **DefectDojo integration:**
 - Engagement: `Container-Scan` for main deploys, `PR-{number}` for PR deploys
