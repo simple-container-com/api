@@ -20,6 +20,11 @@ type Config struct {
 	Password string `json:"-" yaml:"-"`
 	Timeout  string
 
+	// OIDCToken is the OIDC identity token for keyless signing/attestation.
+	// Set at runtime from CI environment (ACTIONS_ID_TOKEN_REQUEST_*).
+	// Used by SBOM attacher and provenance attacher for cosign attestations.
+	OIDCToken string `json:"-" yaml:"-"`
+
 	// Verification settings
 	OIDCIssuer     string
 	IdentityRegexp string

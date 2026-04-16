@@ -59,6 +59,11 @@ func NewVerifyCommand() *cobra.Command {
 }
 
 func runVerify(ctx context.Context, opts *verifyOptions) error {
+	// Require an explicit trust policy — verifying without one is meaningless.
+	if !opts.keyless && opts.key == "" {
+		return fmt.Errorf("either --keyless or --key is required for SBOM verification")
+	}
+
 	// Validate format
 	format, err := sbom.ParseFormat(opts.format)
 	if err != nil {
@@ -67,7 +72,7 @@ func runVerify(ctx context.Context, opts *verifyOptions) error {
 
 	// Create signing config for verification
 	signingConfig := &signing.Config{
-		Enabled:        opts.keyless || opts.key != "",
+		Enabled:        true,
 		Keyless:        opts.keyless,
 		PublicKey:      opts.key,
 		IdentityRegexp: opts.certIdent,

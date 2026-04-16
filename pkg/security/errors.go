@@ -1,6 +1,25 @@
 package security
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
+
+// imageRefRe validates container image references to prevent argv confusion.
+// Accepts: registry/repo:tag, registry/repo@sha256:hex, repo:tag
+// Rejects: refs starting with "-" (flag injection) or containing shell metacharacters.
+var imageRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$`)
+
+// ValidateImageRef checks that an image reference is safe to pass to external tools.
+func ValidateImageRef(imageRef string) error {
+	if imageRef == "" {
+		return fmt.Errorf("image reference is empty")
+	}
+	if !imageRefRe.MatchString(imageRef) {
+		return fmt.Errorf("image reference %q contains invalid characters", imageRef)
+	}
+	return nil
+}
 
 // SecurityError represents a security operation error
 type SecurityError struct {

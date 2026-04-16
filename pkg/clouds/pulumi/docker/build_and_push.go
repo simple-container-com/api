@@ -214,12 +214,16 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	}
 
 	// --- Security Report ---
+	// The report depends on all security ops (including scan) so it can read
+	// results from disk. But the DEPLOY depends only on finalResources
+	// (sign/verify/sbom/prov) — NOT on the report. This prevents the report
+	// (which waits for scan) from blocking the deploy when softFail=true.
 	reportDeps := make([]sdk.Resource, len(finalResources))
 	copy(reportDeps, finalResources)
 	if scanGate != nil {
 		reportDeps = append(reportDeps, scanGate)
 	}
-	reportCmd, err := local.NewCommand(ctx, fmt.Sprintf("security-report-%s", imageName), &local.CommandArgs{
+	_, err = local.NewCommand(ctx, fmt.Sprintf("security-report-%s", imageName), &local.CommandArgs{
 		Create: securityImageRef.ApplyT(func(img string) string {
 			commentOutput := resolveCommentOutputPath(security, imageName)
 			return buildSecurityReportScript(img, imageName, security, commentOutput)
@@ -228,7 +232,6 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create security report for image %q", imageName)
 	}
-	finalResources = []sdk.Resource{reportCmd}
 
 	opts = append(opts, sdk.DependsOn(finalResources))
 	return opts, nil

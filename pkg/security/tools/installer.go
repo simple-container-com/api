@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 )
 
 // ToolInstaller checks tool availability and auto-installs missing tools.
@@ -104,11 +105,21 @@ func resolveInstallDir() string {
 	return dir
 }
 
+// versionRe validates tool version strings to prevent shell injection.
+// Only allows digits, dots, and hyphens (e.g., "2.4.1", "0.98.0-rc1").
+var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`)
+
 // installScript returns a shell script that installs the named tool.
+// All tools are downloaded as direct binaries or tarballs from GitHub releases
+// (no piping remote scripts to sh). Version strings are validated to prevent
+// shell injection.
 func installScript(toolName, version, installDir string) (string, error) {
+	if !versionRe.MatchString(version) {
+		return "", fmt.Errorf("invalid version format %q for tool %s", version, toolName)
+	}
+
 	switch toolName {
 	case "cosign":
-		// Official Sigstore install script (same approach used by cosign-installer action).
 		return fmt.Sprintf(`set -e
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -118,14 +129,26 @@ chmod +x "$TMP_DIR/cosign"
 mv "$TMP_DIR/cosign" %[2]s/cosign`, version, installDir), nil
 
 	case "syft":
-		return fmt.Sprintf(
-			`curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b %s v%s`,
-			installDir, version), nil
+		// Direct tarball download from GitHub releases (no curl|sh).
+		return fmt.Sprintf(`set -e
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+curl -sSfL "https://github.com/anchore/syft/releases/download/v%[1]s/syft_%[1]s_linux_amd64.tar.gz" \
+  -o "$TMP_DIR/syft.tar.gz"
+tar -xzf "$TMP_DIR/syft.tar.gz" -C "$TMP_DIR" syft
+chmod +x "$TMP_DIR/syft"
+mv "$TMP_DIR/syft" %[2]s/syft`, version, installDir), nil
 
 	case "grype":
-		return fmt.Sprintf(
-			`curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b %s v%s`,
-			installDir, version), nil
+		// Direct tarball download from GitHub releases (no curl|sh).
+		return fmt.Sprintf(`set -e
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+curl -sSfL "https://github.com/anchore/grype/releases/download/v%[1]s/grype_%[1]s_linux_amd64.tar.gz" \
+  -o "$TMP_DIR/grype.tar.gz"
+tar -xzf "$TMP_DIR/grype.tar.gz" -C "$TMP_DIR" grype
+chmod +x "$TMP_DIR/grype"
+mv "$TMP_DIR/grype" %[2]s/grype`, version, installDir), nil
 
 	case "trivy":
 		return fmt.Sprintf(`set -e

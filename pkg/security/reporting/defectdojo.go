@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -61,10 +62,15 @@ type ImportScanResponse struct {
 	NumberOfFindings int `json:"number_of_findings"`
 }
 
-// NewDefectDojoClient creates a new DefectDojo client
+// NewDefectDojoClient creates a new DefectDojo client.
+// Warns if the URL is not HTTPS (API key would be sent in cleartext).
 func NewDefectDojoClient(baseURL, apiKey string) *DefectDojoClient {
+	trimmed := strings.TrimRight(baseURL, "/")
+	if !strings.HasPrefix(trimmed, "https://") {
+		fmt.Fprintf(os.Stderr, "WARNING: DefectDojo URL %q is not HTTPS — API key will be sent in cleartext\n", trimmed)
+	}
 	return &DefectDojoClient{
-		BaseURL: strings.TrimRight(baseURL, "/"),
+		BaseURL: trimmed,
 		APIKey:  apiKey,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -89,19 +95,22 @@ func (c *DefectDojoClient) UploadScanResult(ctx context.Context, result *scan.Sc
 	title := c.testTitle(config, imageRef)
 
 	// Check for existing test by title — reimport into it to avoid duplicates.
-	tests, err := c.listTests(ctx, engagementID)
-	if err == nil {
-		if existing := findLatestTestByTitle(tests, title); existing != nil {
-			resp, err := c.reimportScan(ctx, existing.ID, sarifData, config)
-			if err != nil {
-				return nil, fmt.Errorf("reimporting scan into test %d: %w", existing.ID, err)
-			}
-			resp.Engagement = engagementID
-			return resp, nil
+	// If the test lookup fails (API error, auth issue), log warning and fall
+	// through to import-scan rather than failing the entire upload.
+	tests, listErr := c.listTestsPaginated(ctx, engagementID)
+	if listErr != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: failed to list existing tests in engagement %d: %v — will use import-scan\n", engagementID, listErr)
+	}
+	if existing := findLatestTestByTitle(tests, title); existing != nil {
+		resp, err := c.reimportScan(ctx, existing.ID, sarifData, config)
+		if err != nil {
+			return nil, fmt.Errorf("reimporting scan into test %d: %w", existing.ID, err)
 		}
+		resp.Engagement = engagementID
+		return resp, nil
 	}
 
-	// No existing test — use import-scan (creates new test)
+	// No existing test found — use import-scan (creates new test)
 	importResp, err := c.importScan(ctx, engagementID, sarifData, imageRef, config)
 	if err != nil {
 		return nil, fmt.Errorf("importing scan: %w", err)
@@ -654,6 +663,56 @@ func (c *DefectDojoClient) listTests(ctx context.Context, engagementID int) ([]D
 	}
 
 	return response.Results, nil
+}
+
+// listTestsPaginated fetches all tests for an engagement, following pagination.
+// DefectDojo paginates /api/v2/tests/ — if we only read the first page, we may
+// miss the target test and incorrectly fall through to import-scan.
+func (c *DefectDojoClient) listTestsPaginated(ctx context.Context, engagementID int) ([]DefectDojoTest, error) {
+	var all []DefectDojoTest
+	path := fmt.Sprintf("/api/v2/tests/?engagement=%d&limit=200", engagementID)
+
+	for path != "" {
+		req, err := c.createRequest(ctx, "GET", path, nil)
+		if err != nil {
+			return all, err
+		}
+
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			return all, fmt.Errorf("making request: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return all, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+		}
+
+		var page struct {
+			Results []DefectDojoTest `json:"results"`
+			Next    *string          `json:"next"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+			resp.Body.Close()
+			return all, fmt.Errorf("decoding response: %w", err)
+		}
+		resp.Body.Close()
+
+		all = append(all, page.Results...)
+
+		if page.Next == nil || *page.Next == "" {
+			break
+		}
+		// Next is a full URL — extract the path portion
+		nextURL, err := url.Parse(*page.Next)
+		if err != nil {
+			break
+		}
+		path = nextURL.RequestURI()
+	}
+
+	return all, nil
 }
 
 func findLatestTestByTitle(tests []DefectDojoTest, title string) *DefectDojoTest {

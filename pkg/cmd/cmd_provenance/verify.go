@@ -64,14 +64,16 @@ func runVerify(ctx context.Context, opts *verifyOptions) error {
 	if opts.key != "" && opts.keyless {
 		return fmt.Errorf("cannot specify both --keyless and --key")
 	}
+	if !opts.keyless && opts.key == "" {
+		return fmt.Errorf("either --keyless or --key is required for provenance verification")
+	}
 
-	useKeyless := opts.keyless || opts.key == ""
-	if useKeyless && (opts.certIdent == "" || opts.certIssuer == "") {
+	if opts.keyless && (opts.certIdent == "" || opts.certIssuer == "") {
 		return fmt.Errorf("--cert-identity and --cert-issuer are required for keyless verification")
 	}
 	attacher := provenance.NewAttacher(&signing.Config{
 		Enabled:        true,
-		Keyless:        useKeyless,
+		Keyless:        opts.keyless,
 		PublicKey:      opts.key,
 		IdentityRegexp: opts.certIdent,
 		OIDCIssuer:     opts.certIssuer,

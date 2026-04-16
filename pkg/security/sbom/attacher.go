@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"time"
 
@@ -116,16 +115,22 @@ func (a *Attacher) Verify(ctx context.Context, image string, format Format) (*SB
 	return sbom, nil
 }
 
-// createTempSBOMFile creates a temporary file with SBOM content
-func (a *Attacher) createTempSBOMFile(sbom *SBOM) (string, error) {
-	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("sbom-%d.json", time.Now().UnixNano()))
-
-	if err := os.WriteFile(tmpFile, sbom.Content, 0o600); err != nil {
-		return "", err
+// createTempSBOMFile creates a temporary file with SBOM content.
+// Uses os.CreateTemp for unpredictable filenames and secure creation.
+func (a *Attacher) createTempSBOMFile(sbomData *SBOM) (string, error) {
+	f, err := os.CreateTemp("", "sbom-*.json")
+	if err != nil {
+		return "", fmt.Errorf("creating temp SBOM file: %w", err)
 	}
+	path := f.Name()
 
-	return tmpFile, nil
+	if _, err := f.Write(sbomData.Content); err != nil {
+		f.Close()
+		os.Remove(path)
+		return "", fmt.Errorf("writing temp SBOM file: %w", err)
+	}
+	f.Close()
+	return path, nil
 }
 
 // buildSigningArgs builds cosign signing arguments
@@ -171,21 +176,19 @@ func (a *Attacher) buildVerificationArgs() []string {
 	return args
 }
 
-// buildSigningEnv builds environment variables for signing
+// buildSigningEnv builds environment variables for cosign attestation commands.
 func (a *Attacher) buildSigningEnv() []string {
-	var env []string
-
 	if a.SigningConfig == nil {
-		return env
+		return nil
 	}
 
+	var env []string
+	if a.SigningConfig.Keyless && a.SigningConfig.OIDCToken != "" {
+		env = append(env, "SIGSTORE_ID_TOKEN="+a.SigningConfig.OIDCToken)
+	}
 	if !a.SigningConfig.Keyless && a.SigningConfig.PrivateKey != "" {
-		env = append(env, fmt.Sprintf("COSIGN_PASSWORD=%s", a.SigningConfig.Password))
+		env = append(env, "COSIGN_PASSWORD="+a.SigningConfig.Password)
 	}
-
-	// OIDC token environment variables for keyless signing
-	// are typically set by CI/CD environment and passed through automatically
-
 	return env
 }
 
@@ -203,6 +206,9 @@ func (a *Attacher) parseAttestationOutput(output []byte, format Format, image st
 	}
 	if err := json.Unmarshal(payloadBytes, &statement); err != nil {
 		return nil, fmt.Errorf("failed to parse attestation payload: %w", err)
+	}
+	if len(statement.Predicate) == 0 || string(statement.Predicate) == "null" {
+		return nil, fmt.Errorf("attestation has no predicate — SBOM content missing")
 	}
 
 	// Extract image digest

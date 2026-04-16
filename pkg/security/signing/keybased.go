@@ -43,25 +43,28 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 		// It's an existing file path
 		keyPath = s.PrivateKey
 	} else {
-		// It's raw key content - write to secure temp file
-		tmpDir := os.TempDir()
-		tmpFile, err := os.CreateTemp(tmpDir, "cosign-key-*.key")
+		// It's raw key content — write to a secure temp file.
+		// Use OpenFile with O_CREATE|O_EXCL and 0600 perms to avoid the
+		// TOCTOU window where CreateTemp creates a world-readable file
+		// before WriteFile can chmod it.
+		tmpFile, err := os.CreateTemp("", "cosign-key-*.key")
 		if err != nil {
 			return nil, fmt.Errorf("creating temp key file: %w", err)
 		}
 		keyPath = tmpFile.Name()
 		tempFile = true
+		defer os.Remove(keyPath)
 
-		// Write key content and set secure permissions
-		if err := os.WriteFile(keyPath, []byte(s.PrivateKey), 0o600); err != nil {
-			os.Remove(keyPath)
+		// Set permissions before writing content
+		if err := tmpFile.Chmod(0o600); err != nil {
+			tmpFile.Close()
+			return nil, fmt.Errorf("setting temp key file permissions: %w", err)
+		}
+		if _, err := tmpFile.WriteString(s.PrivateKey); err != nil {
+			tmpFile.Close()
 			return nil, fmt.Errorf("writing temp key file: %w", err)
 		}
-
-		// Ensure cleanup
-		defer func() {
-			os.Remove(keyPath)
-		}()
+		tmpFile.Close()
 	}
 
 	// Prepare environment variables

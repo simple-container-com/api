@@ -64,10 +64,8 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	if trivyJavaDBPresent(cacheDir) {
 		cmd.Args = append(cmd.Args, "--skip-java-db-update")
 	}
-	// Pass image directly — trivy checks local Docker daemon first before attempting
-	// a remote pull, so no prefix needed. docker-daemon: prefix does not support
-	// full registry URLs with @sha256 digests.
-	cmd.Args = append(cmd.Args, image)
+	// Use -- to prevent image ref from being parsed as flags.
+	cmd.Args = append(cmd.Args, "--", image)
 	cmd.Env = append(os.Environ(), "TRIVY_CACHE_DIR="+cacheDir)
 
 	var stdout, stderr bytes.Buffer

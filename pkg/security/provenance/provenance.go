@@ -233,9 +233,10 @@ func (a *Attacher) Verify(ctx context.Context, imageRef string, format Format) (
 	}
 
 	detectedFormat, detectErr := DetectFormat(payload)
-	if detectErr == nil {
-		format = detectedFormat
+	if detectErr != nil {
+		return nil, fmt.Errorf("unsupported provenance format in attestation: %w", detectErr)
 	}
+	format = detectedFormat
 
 	return NewStatement(format, payload, imageRef, nil), nil
 }
@@ -416,11 +417,14 @@ func (a *Attacher) buildSigningEnv() []string {
 		return nil
 	}
 
-	if !a.SigningConfig.Keyless && a.SigningConfig.PrivateKey != "" {
-		return []string{fmt.Sprintf("COSIGN_PASSWORD=%s", a.SigningConfig.Password)}
+	var env []string
+	if a.SigningConfig.Keyless && a.SigningConfig.OIDCToken != "" {
+		env = append(env, "SIGSTORE_ID_TOKEN="+a.SigningConfig.OIDCToken)
 	}
-
-	return nil
+	if !a.SigningConfig.Keyless && a.SigningConfig.PrivateKey != "" {
+		env = append(env, "COSIGN_PASSWORD="+a.SigningConfig.Password)
+	}
+	return env
 }
 
 func buildPredicate(format Format, imageRef string, metadata *Metadata, opts GenerateOptions) ([]byte, error) {
