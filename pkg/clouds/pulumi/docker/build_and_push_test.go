@@ -7,12 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
 
 func TestCanUseMergedScanCommand(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name  string
 		tools []api.ScanToolDescriptor
@@ -53,14 +57,15 @@ func TestCanUseMergedScanCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := canUseMergedScanCommand(tt.tools); got != tt.want {
-				t.Fatalf("canUseMergedScanCommand() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(canUseMergedScanCommand(tt.tools)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestNeedsMergedScanArtifacts(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		security *api.SecurityDescriptor
@@ -106,30 +111,25 @@ func TestNeedsMergedScanArtifacts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := needsMergedScanArtifacts(tt.security, "demo"); got != tt.want {
-				t.Fatalf("needsMergedScanArtifacts() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(needsMergedScanArtifacts(tt.security, "demo")).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestShouldAttachProvenance(t *testing.T) {
-	if shouldAttachProvenance(nil) {
-		t.Fatal("shouldAttachProvenance(nil) = true, want false")
-	}
+	RegisterTestingT(t)
 
-	if shouldAttachProvenance(&api.ProvenanceDescriptor{}) {
-		t.Fatal("shouldAttachProvenance(empty) = true, want false")
-	}
-
-	if !shouldAttachProvenance(&api.ProvenanceDescriptor{
+	Expect(shouldAttachProvenance(nil)).To(BeFalse(), "shouldAttachProvenance(nil) should be false")
+	Expect(shouldAttachProvenance(&api.ProvenanceDescriptor{})).To(BeFalse(), "shouldAttachProvenance(empty) should be false")
+	Expect(shouldAttachProvenance(&api.ProvenanceDescriptor{
 		Output: &api.OutputDescriptor{Registry: true},
-	}) {
-		t.Fatal("shouldAttachProvenance(registry=true) = false, want true")
-	}
+	})).To(BeTrue(), "shouldAttachProvenance(registry=true) should be true")
 }
 
 func TestAppendScanCacheArg(t *testing.T) {
+	RegisterTestingT(t)
+
 	args := []string{"sc", "image", "scan"}
 	appendScanCacheArg(&args, &api.ScanDescriptor{
 		Cache: &api.CacheDescriptor{
@@ -138,15 +138,13 @@ func TestAppendScanCacheArg(t *testing.T) {
 		},
 	})
 
-	if got, want := args[len(args)-2], "--cache-dir"; got != want {
-		t.Fatalf("cache flag = %q, want %q", got, want)
-	}
-	if got, want := args[len(args)-1], ".sc/cache/security"; got != want {
-		t.Fatalf("cache dir = %q, want %q", got, want)
-	}
+	Expect(args[len(args)-2]).To(Equal("--cache-dir"))
+	Expect(args[len(args)-1]).To(Equal(".sc/cache/security"))
 }
 
 func TestSigningCLIArgs(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name string
 		cfg  *api.SigningDescriptor
@@ -175,20 +173,19 @@ func TestSigningCLIArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got := signingCLIArgs(tt.cfg)
-			if len(got) != len(tt.want) {
-				t.Fatalf("signingCLIArgs() len = %d, want %d (%v)", len(got), len(tt.want), got)
-			}
+			Expect(got).To(HaveLen(len(tt.want)))
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Fatalf("signingCLIArgs()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
+				Expect(got[i]).To(Equal(tt.want[i]))
 			}
 		})
 	}
 }
 
 func TestRepoDigestRegex(t *testing.T) {
+	RegisterTestingT(t)
+
 	valid := []string{
 		"registry.example.com/repo@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
 		"ghcr.io/org/image@sha256:0000000000000000000000000000000000000000000000000000000000000000",
@@ -203,18 +200,16 @@ func TestRepoDigestRegex(t *testing.T) {
 	}
 
 	for _, ref := range valid {
-		if !repoDigestRe.MatchString(ref) {
-			t.Errorf("repoDigestRe should match %q but did not", ref)
-		}
+		Expect(repoDigestRe.MatchString(ref)).To(BeTrue(), "repoDigestRe should match %q", ref)
 	}
 	for _, ref := range invalid {
-		if repoDigestRe.MatchString(ref) {
-			t.Errorf("repoDigestRe should not match %q but did", ref)
-		}
+		Expect(repoDigestRe.MatchString(ref)).To(BeFalse(), "repoDigestRe should not match %q", ref)
 	}
 }
 
 func TestDockerConfigJSON(t *testing.T) {
+	RegisterTestingT(t)
+
 	// Verify the config.json format matches what docker login produces
 	// and what cosign/grype/trivy/syft expect.
 	server := "000000000000.dkr.ecr.eu-central-1.amazonaws.com"
@@ -229,23 +224,20 @@ func TestDockerConfigJSON(t *testing.T) {
 			Auth string `json:"auth"`
 		} `json:"auths"`
 	}
-	if err := json.Unmarshal([]byte(configJSON), &parsed); err != nil {
-		t.Fatalf("config.json is not valid JSON: %v", err)
-	}
+	err := json.Unmarshal([]byte(configJSON), &parsed)
+	Expect(err).ToNot(HaveOccurred(), "config.json is not valid JSON")
+
 	entry, ok := parsed.Auths[server]
-	if !ok {
-		t.Fatalf("config.json missing auth entry for %s", server)
-	}
+	Expect(ok).To(BeTrue(), "config.json missing auth entry for %s", server)
+
 	decoded, err := base64.StdEncoding.DecodeString(entry.Auth)
-	if err != nil {
-		t.Fatalf("auth field is not valid base64: %v", err)
-	}
-	if string(decoded) != username+":"+password {
-		t.Errorf("decoded auth = %q, want %q", string(decoded), username+":"+password)
-	}
+	Expect(err).ToNot(HaveOccurred(), "auth field is not valid base64")
+	Expect(string(decoded)).To(Equal(username + ":" + password))
 }
 
 func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
+	RegisterTestingT(t)
+
 	server := "europe-north1-docker.pkg.dev/example-project/example-registry"
 	username := "oauth2accesstoken"
 	password := "test-gcp-token-not-real"
@@ -258,51 +250,40 @@ func TestDockerConfigJSON_GCPArtifactRegistry(t *testing.T) {
 			Auth string `json:"auth"`
 		} `json:"auths"`
 	}
-	if err := json.Unmarshal([]byte(configJSON), &parsed); err != nil {
-		t.Fatalf("config.json is not valid JSON: %v", err)
-	}
-	if _, ok := parsed.Auths[server]; !ok {
-		t.Fatalf("config.json missing auth entry for GCP Artifact Registry server")
-	}
+	err := json.Unmarshal([]byte(configJSON), &parsed)
+	Expect(err).ToNot(HaveOccurred(), "config.json is not valid JSON")
+
+	_, ok := parsed.Auths[server]
+	Expect(ok).To(BeTrue(), "config.json missing auth entry for GCP Artifact Registry server")
 }
 
 func TestResolveStringArg(t *testing.T) {
+	RegisterTestingT(t)
+
 	// sdk.All may pass through *string (from sdk.StringPtr) without dereferencing.
 	// resolveStringArg handles both string and *string.
 	token := "ya29.test-gcp-access-token"
 	ptr := &token
 
-	if got := resolveStringArg("direct-string"); got != "direct-string" {
-		t.Errorf("resolveStringArg(string) = %q, want %q", got, "direct-string")
-	}
-	if got := resolveStringArg(ptr); got != token {
-		t.Errorf("resolveStringArg(*string) = %q, want %q", got, token)
-	}
-	if got := resolveStringArg((*string)(nil)); got != "" {
-		t.Errorf("resolveStringArg(nil *string) = %q, want empty", got)
-	}
-	if got := resolveStringArg(nil); got != "" {
-		t.Errorf("resolveStringArg(nil) = %q, want empty", got)
-	}
-	if got := resolveStringArg(42); got != "" {
-		t.Errorf("resolveStringArg(int) = %q, want empty", got)
-	}
+	Expect(resolveStringArg("direct-string")).To(Equal("direct-string"))
+	Expect(resolveStringArg(ptr)).To(Equal(token))
+	Expect(resolveStringArg((*string)(nil))).To(BeEmpty())
+	Expect(resolveStringArg(nil)).To(BeEmpty())
+	Expect(resolveStringArg(42)).To(BeEmpty())
 }
 
 func TestWriteDockerConfigScript(t *testing.T) {
+	RegisterTestingT(t)
+
 	script := writeDockerConfigScript("registry.example.com", "dGVzdC1hdXRo")
-	if !strings.Contains(script, "registry.example.com") {
-		t.Error("script should contain server")
-	}
-	if !strings.Contains(script, "dGVzdC1hdXRo") {
-		t.Error("script should contain auth token")
-	}
-	if !strings.Contains(script, ".docker/config.json") {
-		t.Error("script should write to .docker/config.json")
-	}
+	Expect(script).To(ContainSubstring("registry.example.com"))
+	Expect(script).To(ContainSubstring("dGVzdC1hdXRo"))
+	Expect(script).To(ContainSubstring(".docker/config.json"))
 }
 
 func TestVerifyAttestationStdoutRedirect(t *testing.T) {
+	RegisterTestingT(t)
+
 	// Verify that cosign verify-attestation commands redirect stdout to /dev/null
 	// to prevent Pulumi pipe buffer deadlocks on large attestation payloads.
 	// The actual commands are built inside ApplyT callbacks (not directly testable
@@ -314,36 +295,28 @@ func TestVerifyAttestationStdoutRedirect(t *testing.T) {
 	// This test guards against someone removing the redirect.
 	prefix := securityPATHPrefix
 	verifyCmd := prefix + "'cosign' 'verify-attestation' '--type' 'cyclonedx' 'img@sha256:abc'" + " > /dev/null"
-	if !strings.HasSuffix(verifyCmd, "> /dev/null") {
-		t.Error("verify-attestation command should end with > /dev/null")
-	}
-	if !strings.HasPrefix(verifyCmd, "export PATH=") {
-		t.Error("verify-attestation command should start with PATH export")
-	}
+	Expect(verifyCmd).To(HaveSuffix("> /dev/null"))
+	Expect(verifyCmd).To(HavePrefix("export PATH="))
 }
 
 func TestSecurityPATHPrefix(t *testing.T) {
+	RegisterTestingT(t)
+
 	// The PATH prefix ensures tools installed to ~/.local/bin are findable by
 	// Pulumi local.Command subshells, which don't inherit Go-side os.Setenv.
 	prefix := securityPATHPrefix
-	if !strings.Contains(prefix, "$HOME/.local/bin") {
-		t.Error("securityPATHPrefix should include $HOME/.local/bin")
-	}
-	if !strings.Contains(prefix, "/usr/local/bin") {
-		t.Error("securityPATHPrefix should include /usr/local/bin")
-	}
-	if !strings.HasPrefix(prefix, "export PATH=") {
-		t.Error("securityPATHPrefix should start with export PATH=")
-	}
-	if !strings.HasSuffix(prefix, "&& ") {
-		t.Error("securityPATHPrefix should end with '&& ' for command chaining")
-	}
+	Expect(prefix).To(ContainSubstring("$HOME/.local/bin"))
+	Expect(prefix).To(ContainSubstring("/usr/local/bin"))
+	Expect(prefix).To(HavePrefix("export PATH="))
+	Expect(prefix).To(HaveSuffix("&& "))
 }
 
 func TestEngagementRouting(t *testing.T) {
+	RegisterTestingT(t)
+
 	// Engagement routing must match conventions used by Semgrep, Trivy, Grype:
-	//   PR deploy  → "PR-{number}"
-	//   Non-PR     → "Source-Scan" (default when engagement name not configured)
+	//   PR deploy  -> "PR-{number}"
+	//   Non-PR     -> "Source-Scan" (default when engagement name not configured)
 	tests := []struct {
 		env            string
 		configuredName string
@@ -354,7 +327,7 @@ func TestEngagementRouting(t *testing.T) {
 		{"pr99999", "", "PR-99999"},
 		{"staging", "", "Source-Scan"},      // default for non-PR
 		{"test", "", "Source-Scan"},         // default for non-PR
-		{"prod", "", "Source-Scan"},         // must NOT match "pr" — "prod" starts with "pr"
+		{"prod", "", "Source-Scan"},         // must NOT match "pr" -- "prod" starts with "pr"
 		{"production", "", "Source-Scan"},   // must NOT match
 		{"preview", "", "Source-Scan"},      // must NOT match
 		{"pre-release", "", "Source-Scan"},  // must NOT match
@@ -364,6 +337,7 @@ func TestEngagementRouting(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.env+"_"+tt.configuredName, func(t *testing.T) {
+			RegisterTestingT(t)
 			name := tt.configuredName
 			if strings.HasPrefix(tt.env, "pr") {
 				num := strings.TrimPrefix(tt.env, "pr")
@@ -374,15 +348,16 @@ func TestEngagementRouting(t *testing.T) {
 			if name == "" {
 				name = "Source-Scan"
 			}
-			if name != tt.want {
-				t.Errorf("env=%q configured=%q → %q, want %q", tt.env, tt.configuredName, name, tt.want)
-			}
+			Expect(name).To(Equal(tt.want), "env=%q configured=%q", tt.env, tt.configuredName)
 		})
 	}
 }
 
 func TestVerifyIdentityArgs(t *testing.T) {
+	RegisterTestingT(t)
+
 	t.Run("keyless", func(t *testing.T) {
+		RegisterTestingT(t)
 		cfg := &api.SigningDescriptor{
 			Keyless: true,
 			Verify: &api.VerifyDescriptor{
@@ -391,47 +366,38 @@ func TestVerifyIdentityArgs(t *testing.T) {
 			},
 		}
 		args := verifyIdentityArgs(cfg)
-		if len(args) != 4 {
-			t.Fatalf("verifyIdentityArgs() len = %d, want 4", len(args))
-		}
-		if args[0] != "--certificate-oidc-issuer" {
-			t.Errorf("args[0] = %q, want --certificate-oidc-issuer", args[0])
-		}
+		Expect(args).To(HaveLen(4))
+		Expect(args[0]).To(Equal("--certificate-oidc-issuer"))
 	})
 
 	t.Run("key-based", func(t *testing.T) {
+		RegisterTestingT(t)
 		cfg := &api.SigningDescriptor{PublicKey: "cosign.pub"}
 		args := verifyIdentityArgs(cfg)
-		if len(args) != 2 || args[0] != "--key" {
-			t.Errorf("verifyIdentityArgs() = %v, want [--key cosign.pub]", args)
-		}
+		Expect(args).To(HaveLen(2))
+		Expect(args[0]).To(Equal("--key"))
 	})
 
 	t.Run("nil verify", func(t *testing.T) {
+		RegisterTestingT(t)
 		cfg := &api.SigningDescriptor{Keyless: true}
 		args := verifyIdentityArgs(cfg)
-		if args != nil {
-			t.Errorf("verifyIdentityArgs() = %v, want nil", args)
-		}
+		Expect(args).To(BeNil())
 	})
 }
 
 func TestSigningCommandEnvironment(t *testing.T) {
-	if got := signingCommandEnvironment(nil); got != nil {
-		t.Fatalf("signingCommandEnvironment(nil) = %#v, want nil", got)
-	}
+	RegisterTestingT(t)
+
+	Expect(signingCommandEnvironment(nil)).To(BeNil())
 
 	keylessEnv := signingCommandEnvironment(&api.SigningDescriptor{Keyless: true})
-	if _, ok := keylessEnv["COSIGN_EXPERIMENTAL"]; !ok {
-		t.Fatal("expected COSIGN_EXPERIMENTAL for keyless signing")
-	}
+	_, ok := keylessEnv["COSIGN_EXPERIMENTAL"]
+	Expect(ok).To(BeTrue(), "expected COSIGN_EXPERIMENTAL for keyless signing")
 
 	keyEnv := signingCommandEnvironment(&api.SigningDescriptor{PrivateKey: ".keys/cosign.key"})
 	value, ok := keyEnv["COSIGN_PASSWORD"]
-	if !ok {
-		t.Fatal("expected COSIGN_PASSWORD for key-based signing")
-	}
-	if _, ok := interface{}(value).(sdk.StringOutput); !ok {
-		t.Fatalf("COSIGN_PASSWORD env value type = %T, want pulumi StringOutput", value)
-	}
+	Expect(ok).To(BeTrue(), "expected COSIGN_PASSWORD for key-based signing")
+	_, isStringOutput := interface{}(value).(sdk.StringOutput)
+	Expect(isStringOutput).To(BeTrue(), "COSIGN_PASSWORD env value type = %T, want pulumi StringOutput", value)
 }

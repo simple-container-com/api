@@ -7,9 +7,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNewKeyBasedSigner(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name       string
 		privateKey string
@@ -38,71 +42,61 @@ func TestNewKeyBasedSigner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			signer := NewKeyBasedSigner(tt.privateKey, tt.password, tt.timeout)
-			if signer == nil {
-				t.Fatal("NewKeyBasedSigner() returned nil")
-			}
-			if signer.PrivateKey != tt.privateKey {
-				t.Errorf("PrivateKey = %v, want %v", signer.PrivateKey, tt.privateKey)
-			}
-			if signer.Password != tt.password {
-				t.Errorf("Password = %v, want %v", signer.Password, tt.password)
-			}
-			if tt.timeout == 0 && signer.Timeout != 5*time.Minute {
-				t.Errorf("Timeout = %v, want default 5m", signer.Timeout)
+			Expect(signer).ToNot(BeNil())
+			Expect(signer.PrivateKey).To(Equal(tt.privateKey))
+			Expect(signer.Password).To(Equal(tt.password))
+			if tt.timeout == 0 {
+				Expect(signer.Timeout).To(Equal(5 * time.Minute))
 			}
 		})
 	}
 }
 
 func TestKeyBasedSigner_Sign_EmptyKey(t *testing.T) {
+	RegisterTestingT(t)
+
 	signer := NewKeyBasedSigner("", "", 5*time.Minute)
 	ctx := context.Background()
 
 	_, err := signer.Sign(ctx, "test-image:latest")
-	if err == nil {
-		t.Error("Sign() with empty key should return error")
-	}
+	Expect(err).To(HaveOccurred())
 }
 
 func TestKeyBasedSigner_Sign_WithExistingFile(t *testing.T) {
+	RegisterTestingT(t)
+
 	// Create a temporary key file
 	tmpDir := t.TempDir()
 	keyPath := filepath.Join(tmpDir, "test.key")
 	keyContent := "-----BEGIN PRIVATE KEY-----\ntest-key-content\n-----END PRIVATE KEY-----"
 
-	if err := os.WriteFile(keyPath, []byte(keyContent), 0o600); err != nil {
-		t.Fatalf("Failed to create test key file: %v", err)
-	}
+	err := os.WriteFile(keyPath, []byte(keyContent), 0o600)
+	Expect(err).ToNot(HaveOccurred())
 
 	signer := NewKeyBasedSigner(keyPath, "", 5*time.Minute)
 
 	// We can't actually sign without cosign installed, but we can verify the signer was created
-	if signer.PrivateKey != keyPath {
-		t.Errorf("PrivateKey = %v, want %v", signer.PrivateKey, keyPath)
-	}
+	Expect(signer.PrivateKey).To(Equal(keyPath))
 }
 
 func TestKeyBasedSigner_Sign_WithRawKey(t *testing.T) {
+	RegisterTestingT(t)
+
 	rawKey := "-----BEGIN PRIVATE KEY-----\ntest-key-content\n-----END PRIVATE KEY-----"
 	signer := NewKeyBasedSigner(rawKey, "password123", 5*time.Minute)
 
-	if signer.PrivateKey != rawKey {
-		t.Errorf("PrivateKey = %v, want %v", signer.PrivateKey, rawKey)
-	}
-	if signer.Password != "password123" {
-		t.Errorf("Password = %v, want 'password123'", signer.Password)
-	}
+	Expect(signer.PrivateKey).To(Equal(rawKey))
+	Expect(signer.Password).To(Equal("password123"))
 }
 
 func TestKeyBasedSignerPasswordHandling(t *testing.T) {
+	RegisterTestingT(t)
+
 	withoutPassword := NewKeyBasedSigner("/tmp/cosign.key", "", 5*time.Minute)
-	if withoutPassword.Password != "" {
-		t.Fatalf("Password = %q, want empty string", withoutPassword.Password)
-	}
+	Expect(withoutPassword.Password).To(BeEmpty())
 
 	withPassword := NewKeyBasedSigner("/tmp/cosign.key", "secret123", 5*time.Minute)
-	if !strings.Contains("COSIGN_PASSWORD="+withPassword.Password, "COSIGN_PASSWORD=secret123") {
-		t.Fatal("expected password to be propagated into COSIGN_PASSWORD")
-	}
+	Expect(strings.Contains("COSIGN_PASSWORD="+withPassword.Password, "COSIGN_PASSWORD=secret123")).To(BeTrue())
 }

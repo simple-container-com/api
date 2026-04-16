@@ -4,9 +4,13 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNewKeylessSigner(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name      string
 		oidcToken string
@@ -35,21 +39,20 @@ func TestNewKeylessSigner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			signer := NewKeylessSigner(tt.oidcToken, tt.timeout)
-			if signer == nil {
-				t.Fatal("NewKeylessSigner() returned nil")
-			}
-			if signer.OIDCToken != tt.oidcToken {
-				t.Errorf("OIDCToken = %v, want %v", signer.OIDCToken, tt.oidcToken)
-			}
-			if tt.timeout == 0 && signer.Timeout != 5*time.Minute {
-				t.Errorf("Timeout = %v, want default 5m", signer.Timeout)
+			Expect(signer).ToNot(BeNil())
+			Expect(signer.OIDCToken).To(Equal(tt.oidcToken))
+			if tt.timeout == 0 {
+				Expect(signer.Timeout).To(Equal(5 * time.Minute))
 			}
 		})
 	}
 }
 
 func TestValidateOIDCToken(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		token   string
@@ -79,15 +82,20 @@ func TestValidateOIDCToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := ValidateOIDCToken(tt.token)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateOIDCToken() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestParseRekorEntry(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		output string
@@ -112,30 +120,27 @@ func TestParseRekorEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseRekorEntry(tt.output)
-			if got != tt.want {
-				t.Errorf("parseRekorEntry() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(parseRekorEntry(tt.output)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestKeylessSigner_Sign_EmptyToken(t *testing.T) {
+	RegisterTestingT(t)
+
 	signer := NewKeylessSigner("", 5*time.Minute)
 	ctx := context.Background()
 
 	_, err := signer.Sign(ctx, "test-image:latest")
-	if err == nil {
-		t.Error("Sign() with empty token should return error")
-	}
+	Expect(err).To(HaveOccurred())
 }
 
 func TestGetRekorEntryFromOutput(t *testing.T) {
+	RegisterTestingT(t)
+
 	output := "tlog entry created with index: 999"
 	expected := "https://rekor.sigstore.dev/api/v1/log/entries?logIndex=999"
 
-	got := GetRekorEntryFromOutput(output)
-	if got != expected {
-		t.Errorf("GetRekorEntryFromOutput() = %v, want %v", got, expected)
-	}
+	Expect(GetRekorEntryFromOutput(output)).To(Equal(expected))
 }

@@ -2,9 +2,13 @@ package tools
 
 import (
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestParseVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		input   string
 		wantErr bool
@@ -25,22 +29,23 @@ func TestParseVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			RegisterTestingT(t)
 			v, err := ParseVersion(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseVersion(%s) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
 				return
 			}
-			if !tt.wantErr {
-				if v.Major != tt.major || v.Minor != tt.minor || v.Patch != tt.patch {
-					t.Errorf("ParseVersion(%s) = %d.%d.%d, want %d.%d.%d",
-						tt.input, v.Major, v.Minor, v.Patch, tt.major, tt.minor, tt.patch)
-				}
-			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(v.Major).To(Equal(tt.major))
+			Expect(v.Minor).To(Equal(tt.minor))
+			Expect(v.Patch).To(Equal(tt.patch))
 		})
 	}
 }
 
 func TestVersionIsAtLeast(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name string
 		v1   string
@@ -61,24 +66,20 @@ func TestVersionIsAtLeast(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			v1, err := ParseVersion(tt.v1)
-			if err != nil {
-				t.Fatalf("ParseVersion(%s) failed: %v", tt.v1, err)
-			}
+			Expect(err).ToNot(HaveOccurred())
 			v2, err := ParseVersion(tt.v2)
-			if err != nil {
-				t.Fatalf("ParseVersion(%s) failed: %v", tt.v2, err)
-			}
+			Expect(err).ToNot(HaveOccurred())
 
-			got := v1.IsAtLeast(v2)
-			if got != tt.want {
-				t.Errorf("Version(%s).IsAtLeast(%s) = %v, want %v", tt.v1, tt.v2, got, tt.want)
-			}
+			Expect(v1.IsAtLeast(v2)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestVersionCompare(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name string
 		v1   string
@@ -96,18 +97,18 @@ func TestVersionCompare(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			v1, _ := ParseVersion(tt.v1)
 			v2, _ := ParseVersion(tt.v2)
 
-			got := v1.Compare(v2)
-			if got != tt.want {
-				t.Errorf("Version(%s).Compare(%s) = %d, want %d", tt.v1, tt.v2, got, tt.want)
-			}
+			Expect(v1.Compare(v2)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestVersionString(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		major int
 		minor int
@@ -121,20 +122,20 @@ func TestVersionString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
+			RegisterTestingT(t)
 			v := &Version{
 				Major: tt.major,
 				Minor: tt.minor,
 				Patch: tt.patch,
 			}
-			got := v.String()
-			if got != tt.want {
-				t.Errorf("Version.String() = %s, want %s", got, tt.want)
-			}
+			Expect(v.String()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestVersionCheckerExtractVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	checker := NewVersionChecker()
 
 	tests := []struct {
@@ -151,10 +152,8 @@ func TestVersionCheckerExtractVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := checker.extractVersion(tt.output)
-			if got != tt.want {
-				t.Errorf("extractVersion(%q) = %q, want %q", tt.output, got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(checker.extractVersion(tt.output)).To(Equal(tt.want))
 		})
 	}
 }

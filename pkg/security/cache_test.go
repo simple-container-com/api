@@ -6,41 +6,36 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNewCache(t *testing.T) {
+	RegisterTestingT(t)
+
 	// Test with custom directory
 	customDir := filepath.Join(t.TempDir(), "custom-cache")
 	cache, err := NewCache(customDir)
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
-	if cache.baseDir != customDir {
-		t.Errorf("Expected baseDir %s, got %s", customDir, cache.baseDir)
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(cache.baseDir).To(Equal(customDir))
 
 	// Verify directory was created
-	if _, err := os.Stat(customDir); os.IsNotExist(err) {
-		t.Errorf("Cache directory was not created")
-	}
+	_, err = os.Stat(customDir)
+	Expect(os.IsNotExist(err)).To(BeFalse(), "Cache directory was not created")
 
 	// Test with empty directory (should use default).
 	// Override HOME to avoid writing to real home directory.
 	t.Setenv("HOME", t.TempDir())
 	cache2, err := NewCache("")
-	if err != nil {
-		t.Fatalf("NewCache with empty dir failed: %v", err)
-	}
-	if cache2.baseDir == "" {
-		t.Errorf("Expected non-empty baseDir for default cache")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(cache2.baseDir).ToNot(BeEmpty())
 }
 
 func TestCacheSetAndGet(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	key := CacheKey{
 		Operation:   "sbom",
@@ -51,21 +46,14 @@ func TestCacheSetAndGet(t *testing.T) {
 	data := []byte("test data")
 
 	// Test Set
-	if err := cache.Set(key, data); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	err = cache.Set(key, data)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Test Get
 	retrieved, found, err := cache.Get(key)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if !found {
-		t.Errorf("Expected cache hit, got miss")
-	}
-	if string(retrieved) != string(data) {
-		t.Errorf("Expected data %s, got %s", string(data), string(retrieved))
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue(), "Expected cache hit, got miss")
+	Expect(string(retrieved)).To(Equal(string(data)))
 
 	// Test Get with non-existent key
 	nonExistentKey := CacheKey{
@@ -74,22 +62,15 @@ func TestCacheSetAndGet(t *testing.T) {
 		ConfigHash:  "hash999",
 	}
 	_, found, err = cache.Get(nonExistentKey)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if found {
-		t.Errorf("Expected cache miss, got hit")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "Expected cache miss, got hit")
 }
 
 func TestCacheTTLExpiration(t *testing.T) {
-	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	RegisterTestingT(t)
 
-	// Note: TTL is a constant and cannot be overridden at runtime
-	// This test simulates expiration by manually modifying cache entries
+	cache, err := NewCache(t.TempDir())
+	Expect(err).ToNot(HaveOccurred())
 
 	key := CacheKey{
 		Operation:   "sbom",
@@ -100,18 +81,13 @@ func TestCacheTTLExpiration(t *testing.T) {
 	data := []byte("test data")
 
 	// Set data
-	if err := cache.Set(key, data); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	err = cache.Set(key, data)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Verify it's there
 	_, found, err := cache.Get(key)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if !found {
-		t.Errorf("Expected cache hit immediately after set")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue(), "Expected cache hit immediately after set")
 
 	// Manually modify the cache entry to be expired
 	path := cache.getPath(key)
@@ -124,23 +100,17 @@ func TestCacheTTLExpiration(t *testing.T) {
 
 	// Write expired entry
 	entryData, _ := marshalJSON(entry)
-	if err := os.WriteFile(path, entryData, 0o600); err != nil {
-		t.Fatalf("Failed to write expired entry: %v", err)
-	}
+	err = os.WriteFile(path, entryData, 0o600)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Try to get expired entry
 	_, found, err = cache.Get(key)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if found {
-		t.Errorf("Expected cache miss for expired entry, got hit")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "Expected cache miss for expired entry, got hit")
 
 	// Verify file was deleted
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("Expected expired cache file to be deleted")
-	}
+	_, err = os.Stat(path)
+	Expect(os.IsNotExist(err)).To(BeTrue(), "Expected expired cache file to be deleted")
 }
 
 func marshalJSON(v interface{}) ([]byte, error) {
@@ -148,10 +118,10 @@ func marshalJSON(v interface{}) ([]byte, error) {
 }
 
 func TestCacheInvalidate(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	key := CacheKey{
 		Operation:   "sbom",
@@ -162,35 +132,28 @@ func TestCacheInvalidate(t *testing.T) {
 	data := []byte("test data")
 
 	// Set data
-	if err := cache.Set(key, data); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	err = cache.Set(key, data)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Invalidate
-	if err := cache.Invalidate(key); err != nil {
-		t.Fatalf("Invalidate failed: %v", err)
-	}
+	err = cache.Invalidate(key)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Verify it's gone
 	_, found, err := cache.Get(key)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if found {
-		t.Errorf("Expected cache miss after invalidation, got hit")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "Expected cache miss after invalidation, got hit")
 
 	// Invalidate non-existent key should not error
-	if err := cache.Invalidate(key); err != nil {
-		t.Errorf("Invalidate of non-existent key should not error: %v", err)
-	}
+	err = cache.Invalidate(key)
+	Expect(err).ToNot(HaveOccurred())
 }
 
 func TestCacheClean(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Create multiple cache entries
 	for i := 0; i < 5; i++ {
@@ -200,15 +163,13 @@ func TestCacheClean(t *testing.T) {
 			ConfigHash:  "hash",
 		}
 		data := []byte("test data")
-		if err := cache.Set(key, data); err != nil {
-			t.Fatalf("Set failed: %v", err)
-		}
+		err = cache.Set(key, data)
+		Expect(err).ToNot(HaveOccurred())
 	}
 
 	// Clean should not remove valid entries
-	if err := cache.Clean(); err != nil {
-		t.Fatalf("Clean failed: %v", err)
-	}
+	err = cache.Clean()
+	Expect(err).ToNot(HaveOccurred())
 
 	// Verify entries still exist
 	key := CacheKey{
@@ -217,24 +178,18 @@ func TestCacheClean(t *testing.T) {
 		ConfigHash:  "hash",
 	}
 	_, found, err := cache.Get(key)
-	if err != nil {
-		t.Fatalf("Get failed: %v", err)
-	}
-	if !found {
-		t.Errorf("Valid entry should not be cleaned")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue(), "Valid entry should not be cleaned")
 }
 
 func TestCacheSize(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	initialSize, err := cache.Size()
-	if err != nil {
-		t.Fatalf("Size failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Add some data
 	key := CacheKey{
@@ -243,25 +198,19 @@ func TestCacheSize(t *testing.T) {
 		ConfigHash:  "hash456",
 	}
 	data := []byte("test data with some content")
-	if err := cache.Set(key, data); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	err = cache.Set(key, data)
+	Expect(err).ToNot(HaveOccurred())
 
 	newSize, err := cache.Size()
-	if err != nil {
-		t.Fatalf("Size failed: %v", err)
-	}
-
-	if newSize <= initialSize {
-		t.Errorf("Expected size to increase after adding data")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(newSize).To(BeNumerically(">", initialSize))
 }
 
 func TestCacheClear(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Add some data
 	key := CacheKey{
@@ -270,49 +219,40 @@ func TestCacheClear(t *testing.T) {
 		ConfigHash:  "hash456",
 	}
 	data := []byte("test data")
-	if err := cache.Set(key, data); err != nil {
-		t.Fatalf("Set failed: %v", err)
-	}
+	err = cache.Set(key, data)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Clear
-	if err := cache.Clear(); err != nil {
-		t.Fatalf("Clear failed: %v", err)
-	}
+	err = cache.Clear()
+	Expect(err).ToNot(HaveOccurred())
 
 	// Verify it's gone
 	_, found, err := cache.Get(key)
-	if err == nil && found {
-		t.Errorf("Expected cache miss after clear, got hit")
+	if err == nil {
+		Expect(found).To(BeFalse(), "Expected cache miss after clear, got hit")
 	}
 
 	// Verify directory is gone
-	if _, err := os.Stat(cache.baseDir); !os.IsNotExist(err) {
-		t.Errorf("Expected cache directory to be deleted after clear")
-	}
+	_, err = os.Stat(cache.baseDir)
+	Expect(os.IsNotExist(err)).To(BeTrue(), "Expected cache directory to be deleted after clear")
 }
 
 func TestComputeConfigHash(t *testing.T) {
+	RegisterTestingT(t)
+
 	config1 := map[string]interface{}{
 		"key1": "value1",
 		"key2": "value2",
 	}
 
 	hash1, err := ComputeConfigHash(config1)
-	if err != nil {
-		t.Fatalf("ComputeConfigHash failed: %v", err)
-	}
-	if hash1 == "" {
-		t.Errorf("Expected non-empty hash")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(hash1).ToNot(BeEmpty())
 
 	// Same config should produce same hash
 	hash2, err := ComputeConfigHash(config1)
-	if err != nil {
-		t.Fatalf("ComputeConfigHash failed: %v", err)
-	}
-	if hash1 != hash2 {
-		t.Errorf("Expected same hash for same config, got %s and %s", hash1, hash2)
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(hash1).To(Equal(hash2))
 
 	// Different config should produce different hash
 	config2 := map[string]interface{}{
@@ -320,19 +260,15 @@ func TestComputeConfigHash(t *testing.T) {
 		"key2": "value2",
 	}
 	hash3, err := ComputeConfigHash(config2)
-	if err != nil {
-		t.Fatalf("ComputeConfigHash failed: %v", err)
-	}
-	if hash1 == hash3 {
-		t.Errorf("Expected different hash for different config")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(hash1).ToNot(Equal(hash3))
 }
 
 func TestCacheGetTTL(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	tests := []struct {
 		operation string
@@ -346,19 +282,18 @@ func TestCacheGetTTL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.operation, func(t *testing.T) {
+			RegisterTestingT(t)
 			ttl := cache.getTTL(tt.operation)
-			if ttl != tt.expected {
-				t.Errorf("Expected TTL %v for %s, got %v", tt.expected, tt.operation, ttl)
-			}
+			Expect(ttl).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestCacheKeyPath(t *testing.T) {
+	RegisterTestingT(t)
+
 	cache, err := NewCache(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewCache failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	key := CacheKey{
 		Operation:   "sbom",
@@ -369,20 +304,14 @@ func TestCacheKeyPath(t *testing.T) {
 	path := cache.getPath(key)
 
 	// Verify path structure
-	if !filepath.IsAbs(path) {
-		t.Errorf("Expected absolute path, got %s", path)
-	}
+	Expect(filepath.IsAbs(path)).To(BeTrue(), "Expected absolute path, got %s", path)
 
 	// Verify operation directory is in path
-	if !containsSubstring(path, key.Operation) {
-		t.Errorf("Expected operation %s in path %s", key.Operation, path)
-	}
+	Expect(containsSubstring(path, key.Operation)).To(BeTrue(), "Expected operation %s in path %s", key.Operation, path)
 
 	// Two keys with same data should produce same path
 	path2 := cache.getPath(key)
-	if path != path2 {
-		t.Errorf("Expected consistent path for same key")
-	}
+	Expect(path).To(Equal(path2))
 
 	// Different keys should produce different paths
 	key2 := CacheKey{
@@ -391,9 +320,7 @@ func TestCacheKeyPath(t *testing.T) {
 		ConfigHash:  "hash999",
 	}
 	path3 := cache.getPath(key2)
-	if path == path3 {
-		t.Errorf("Expected different paths for different keys")
-	}
+	Expect(path).ToNot(Equal(path3))
 }
 
 func containsSubstring(s, substr string) bool {

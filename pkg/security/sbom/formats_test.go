@@ -3,9 +3,13 @@ package sbom
 import (
 	"strings"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestFormatIsValid(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		format Format
@@ -22,14 +26,15 @@ func TestFormatIsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.format.IsValid(); got != tt.want {
-				t.Errorf("Format.IsValid() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.format.IsValid()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestFormatPredicateType(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		format Format
@@ -45,14 +50,15 @@ func TestFormatPredicateType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.format.PredicateType(); got != tt.want {
-				t.Errorf("Format.PredicateType() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.format.PredicateType()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestFormatAttestationType(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		format Format
@@ -68,14 +74,15 @@ func TestFormatAttestationType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.format.AttestationType(); got != tt.want {
-				t.Errorf("Format.AttestationType() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.format.AttestationType()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestFormatIsCycloneDX(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		format Format
@@ -89,14 +96,15 @@ func TestFormatIsCycloneDX(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.format.IsCycloneDX(); got != tt.want {
-				t.Errorf("Format.IsCycloneDX() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.format.IsCycloneDX()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestFormatIsSPDX(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		format Format
@@ -110,14 +118,15 @@ func TestFormatIsSPDX(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.format.IsSPDX(); got != tt.want {
-				t.Errorf("Format.IsSPDX() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.format.IsSPDX()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestParseFormat(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		input   string
@@ -137,19 +146,21 @@ func TestParseFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := ParseFormat(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseFormat() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("ParseFormat() = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got).To(Equal(tt.want))
 			}
 		})
 	}
 }
 
 func TestValidateFormat(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		input   string
@@ -163,19 +174,22 @@ func TestValidateFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := ValidateFormat(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateFormat() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestAllFormats(t *testing.T) {
+	RegisterTestingT(t)
+
 	formats := AllFormats()
-	if len(formats) != 5 {
-		t.Errorf("AllFormats() returned %d formats, want 5", len(formats))
-	}
+	Expect(formats).To(HaveLen(5))
 
 	// Check all expected formats are present
 	expected := map[Format]bool{
@@ -187,28 +201,23 @@ func TestAllFormats(t *testing.T) {
 	}
 
 	for _, f := range formats {
-		if _, ok := expected[f]; !ok {
-			t.Errorf("Unexpected format in AllFormats(): %v", f)
-		}
+		_, ok := expected[f]
+		Expect(ok).To(BeTrue(), "Unexpected format in AllFormats(): %v", f)
 		expected[f] = true
 	}
 
 	for f, found := range expected {
-		if !found {
-			t.Errorf("Format %v missing from AllFormats()", f)
-		}
+		Expect(found).To(BeTrue(), "Format %v missing from AllFormats()", f)
 	}
 }
 
 func TestAllFormatStrings(t *testing.T) {
+	RegisterTestingT(t)
+
 	formatStrings := AllFormatStrings()
-	if len(formatStrings) != 5 {
-		t.Errorf("AllFormatStrings() returned %d formats, want 5", len(formatStrings))
-	}
+	Expect(formatStrings).To(HaveLen(5))
 
 	for _, s := range formatStrings {
-		if !strings.Contains(s, "-") {
-			t.Errorf("Format string %q doesn't look like a valid format", s)
-		}
+		Expect(strings.Contains(s, "-")).To(BeTrue(), "Format string %q doesn't look like a valid format", s)
 	}
 }

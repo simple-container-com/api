@@ -4,15 +4,18 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/security/scan"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
 func TestNewSecurityExecutor(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *SecurityConfig
@@ -45,19 +48,22 @@ func TestNewSecurityExecutor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			ctx := context.Background()
 			executor, err := NewSecurityExecutor(ctx, tt.config)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewSecurityExecutor() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if !tt.wantErr && executor == nil {
-				t.Error("NewSecurityExecutor() returned nil without error")
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(executor).ToNot(BeNil())
 			}
 		})
 	}
 }
 
 func TestSecurityExecutor_ValidateConfig(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *SecurityConfig
@@ -99,21 +105,23 @@ func TestSecurityExecutor_ValidateConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			ctx := context.Background()
 			executor, err := NewSecurityExecutor(ctx, tt.config)
-			if err != nil {
-				t.Fatalf("NewSecurityExecutor() failed: %v", err)
-			}
+			Expect(err).ToNot(HaveOccurred())
 
 			err = executor.ValidateConfig()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestSecurityExecutor_ExecuteSigning_Disabled(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -146,23 +154,19 @@ func TestSecurityExecutor_ExecuteSigning_Disabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			executor, err := NewSecurityExecutor(ctx, tt.config)
-			if err != nil {
-				t.Fatalf("NewSecurityExecutor() failed: %v", err)
-			}
+			Expect(err).ToNot(HaveOccurred())
 
 			result, err := executor.ExecuteSigning(ctx, "test-image:latest")
-			if err != nil {
-				t.Errorf("ExecuteSigning() returned error for disabled config: %v", err)
-			}
-			if result != nil {
-				t.Error("ExecuteSigning() should return nil for disabled config")
-			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result).To(BeNil(), "ExecuteSigning() should return nil for disabled config")
 		})
 	}
 }
 
 func TestSecurityExecutor_ExecuteSigning_FailOpen(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	config := &SecurityConfig{
@@ -176,21 +180,16 @@ func TestSecurityExecutor_ExecuteSigning_FailOpen(t *testing.T) {
 	}
 
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("NewSecurityExecutor() failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Should not error because fail-open is enabled
 	result, err := executor.ExecuteSigning(ctx, "test-image:latest")
-	if err != nil {
-		t.Errorf("ExecuteSigning() with fail-open should not error: %v", err)
-	}
-	if result != nil {
-		t.Error("ExecuteSigning() should return nil when validation fails with fail-open")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(result).To(BeNil(), "ExecuteSigning() should return nil when validation fails with fail-open")
 }
 
 func TestSecurityExecutor_ExecuteSigning_FailClosed(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	config := &SecurityConfig{
@@ -204,18 +203,15 @@ func TestSecurityExecutor_ExecuteSigning_FailClosed(t *testing.T) {
 	}
 
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("NewSecurityExecutor() failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Should error because fail-closed is enabled
 	_, err = executor.ExecuteSigning(ctx, "test-image:latest")
-	if err == nil {
-		t.Error("ExecuteSigning() with fail-closed should error on invalid config")
-	}
+	Expect(err).To(HaveOccurred())
 }
 
 func TestSecurityExecutor_SBOMCacheKeyIgnoresOutputPath(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 	imageRef := "registry.example.com/demo@sha256:1234"
 
@@ -231,28 +227,21 @@ func TestSecurityExecutor_SBOMCacheKeyIgnoresOutputPath(t *testing.T) {
 				},
 			},
 		})
-		if err != nil {
-			t.Fatalf("NewSecurityExecutor() failed: %v", err)
-		}
+		Expect(err).ToNot(HaveOccurred())
 		return executor
 	}
 
 	keyA, err := newExecutor("/tmp/a/sbom.json").sbomCacheKey(imageRef)
-	if err != nil {
-		t.Fatalf("sbomCacheKey() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	keyB, err := newExecutor("/tmp/b/sbom.json").sbomCacheKey(imageRef)
-	if err != nil {
-		t.Fatalf("sbomCacheKey() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
-	if keyA != keyB {
-		t.Fatalf("sbomCacheKey() should ignore output path, got %v and %v", keyA, keyB)
-	}
+	Expect(keyA).To(Equal(keyB), "sbomCacheKey() should ignore output path")
 }
 
 func TestSecurityExecutor_ScanCacheKeyIgnoresPolicyAndOutput(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 	imageRef := "registry.example.com/demo@sha256:5678"
 	tool := ScanToolConfig{Name: "grype", WarnOn: SeverityHigh}
@@ -270,28 +259,22 @@ func TestSecurityExecutor_ScanCacheKeyIgnoresPolicyAndOutput(t *testing.T) {
 				Tools: []ScanToolConfig{tool},
 			},
 		})
-		if err != nil {
-			t.Fatalf("NewSecurityExecutor() failed: %v", err)
-		}
+		Expect(err).ToNot(HaveOccurred())
 		return executor
 	}
 
 	keyA, err := newExecutor("/tmp/a/scan.json", SeverityCritical).scanCacheKey(tool, imageRef)
-	if err != nil {
-		t.Fatalf("scanCacheKey() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	keyB, err := newExecutor("/tmp/b/scan.json", SeverityLow).scanCacheKey(tool, imageRef)
-	if err != nil {
-		t.Fatalf("scanCacheKey() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
-	if keyA != keyB {
-		t.Fatalf("scanCacheKey() should ignore policy and output path, got %v and %v", keyA, keyB)
-	}
+	Expect(keyA).To(Equal(keyB), "scanCacheKey() should ignore policy and output path")
 }
 
 func TestSecurityExecutor_UploadReportsWritesPRComment(t *testing.T) {
+	RegisterTestingT(t)
+
 	tempDir := t.TempDir()
 	outputPath := filepath.Join(tempDir, "scan-comment.md")
 
@@ -304,9 +287,7 @@ func TestSecurityExecutor_UploadReportsWritesPRComment(t *testing.T) {
 			},
 		},
 	}, "registry.example.com/demo@sha256:1234")
-	if err != nil {
-		t.Fatalf("NewSecurityExecutorWithSummary() failed: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	executor.Summary.RecordUpload("defectdojo", nil, "https://dojo.example.com/engagement/42", time.Second)
 
@@ -323,14 +304,11 @@ func TestSecurityExecutor_UploadReportsWritesPRComment(t *testing.T) {
 		},
 	}
 
-	if err := executor.UploadReports(context.Background(), result, "registry.example.com/demo@sha256:1234"); err != nil {
-		t.Fatalf("UploadReports() error = %v", err)
-	}
+	err = executor.UploadReports(context.Background(), result, "registry.example.com/demo@sha256:1234")
+	Expect(err).ToNot(HaveOccurred())
 
 	content, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("ReadFile(%s) error = %v", outputPath, err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	text := string(content)
 	for _, expected := range []string{
@@ -338,13 +316,13 @@ func TestSecurityExecutor_UploadReportsWritesPRComment(t *testing.T) {
 		"registry.example.com/demo@sha256:1234",
 		"defectdojo",
 	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("comment output missing %q: %s", expected, text)
-		}
+		Expect(text).To(ContainSubstring(expected))
 	}
 }
 
 func TestValidateImageRef(t *testing.T) {
+	RegisterTestingT(t)
+
 	valid := []string{
 		"registry.example.com/repo:tag",
 		"registry.example.com/repo@sha256:abcdef1234567890",
@@ -363,13 +341,9 @@ func TestValidateImageRef(t *testing.T) {
 	}
 
 	for _, ref := range valid {
-		if err := ValidateImageRef(ref); err != nil {
-			t.Errorf("ValidateImageRef(%q) = %v, want nil", ref, err)
-		}
+		Expect(ValidateImageRef(ref)).ToNot(HaveOccurred(), "ValidateImageRef(%q) should be nil", ref)
 	}
 	for _, ref := range invalid {
-		if err := ValidateImageRef(ref); err == nil {
-			t.Errorf("ValidateImageRef(%q) = nil, want error", ref)
-		}
+		Expect(ValidateImageRef(ref)).To(HaveOccurred(), "ValidateImageRef(%q) should error", ref)
 	}
 }

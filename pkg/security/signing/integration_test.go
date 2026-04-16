@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
@@ -27,6 +29,7 @@ func skipIfCosignNotInstalled(t *testing.T) {
 // TestKeyBasedSigningIntegration tests real key-based signing with cosign
 func TestKeyBasedSigningIntegration(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
@@ -34,33 +37,22 @@ func TestKeyBasedSigningIntegration(t *testing.T) {
 	// Generate test key pair
 	password := "test-password"
 	privateKeyPath, publicKeyPath, err := GenerateKeyPair(ctx, tempDir, password)
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	// Verify key files exist
-	if _, err := os.Stat(privateKeyPath); err != nil {
-		t.Fatalf("Private key file not created: %v", err)
-	}
-	if _, err := os.Stat(publicKeyPath); err != nil {
-		t.Fatalf("Public key file not created: %v", err)
-	}
+	_, err = os.Stat(privateKeyPath)
+	Expect(err).ToNot(HaveOccurred(), "Private key file not created")
+	_, err = os.Stat(publicKeyPath)
+	Expect(err).ToNot(HaveOccurred(), "Public key file not created")
 
 	// Verify private key has secure permissions (0600)
 	info, err := os.Stat(privateKeyPath)
-	if err != nil {
-		t.Fatalf("Failed to stat private key: %v", err)
-	}
-	mode := info.Mode().Perm()
-	if mode != 0o600 {
-		t.Errorf("Private key has insecure permissions: got %o, want 0600", mode)
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(info.Mode().Perm()).To(Equal(os.FileMode(0o600)))
 
 	t.Logf("Generated test keys: private=%s, public=%s", privateKeyPath, publicKeyPath)
 
 	// Test signing with generated keys
-	// Note: We use a test image that doesn't need to exist for signing to work
-	// The actual push would happen in e2e tests
 	testImage := "test.registry.io/test-image:test"
 
 	signer := NewKeyBasedSigner(privateKeyPath, password, 30*time.Second)
@@ -70,18 +62,11 @@ func TestKeyBasedSigningIntegration(t *testing.T) {
 	result, err := signer.Sign(ctx, testImage)
 
 	// We expect an error because the image doesn't exist
-	// But we can verify the error is from cosign, not our code
 	if err != nil {
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "cosign sign failed") {
-			t.Errorf("Expected cosign error, got: %v", err)
-		}
+		Expect(err.Error()).To(ContainSubstring("cosign sign failed"))
 		t.Logf("Expected error from cosign (image doesn't exist): %v", err)
 	} else {
-		// If somehow it succeeded (shouldn't happen with fake image)
-		if result == nil {
-			t.Error("Expected non-nil result on success")
-		}
+		Expect(result).ToNot(BeNil())
 		t.Logf("Sign result: %+v", result)
 	}
 }
@@ -89,6 +74,7 @@ func TestKeyBasedSigningIntegration(t *testing.T) {
 // TestKeyBasedSigningWithRawKeyContent tests signing with raw key content
 func TestKeyBasedSigningWithRawKeyContent(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
@@ -96,15 +82,11 @@ func TestKeyBasedSigningWithRawKeyContent(t *testing.T) {
 	// Generate test key pair
 	password := "test-password"
 	privateKeyPath, _, err := GenerateKeyPair(ctx, tempDir, password)
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	// Read key content
 	keyContent, err := os.ReadFile(privateKeyPath)
-	if err != nil {
-		t.Fatalf("Failed to read private key: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Create signer with raw key content (not file path)
 	signer := NewKeyBasedSigner(string(keyContent), password, 30*time.Second)
@@ -113,10 +95,7 @@ func TestKeyBasedSigningWithRawKeyContent(t *testing.T) {
 	_, err = signer.Sign(ctx, testImage)
 	// We expect an error because the image doesn't exist
 	if err != nil {
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "cosign sign failed") {
-			t.Errorf("Expected cosign error, got: %v", err)
-		}
+		Expect(err.Error()).To(ContainSubstring("cosign sign failed"))
 		t.Logf("Expected error (raw key content test): %v", err)
 	}
 }
@@ -124,6 +103,7 @@ func TestKeyBasedSigningWithRawKeyContent(t *testing.T) {
 // TestKeylessSigningIntegration tests keyless signing (requires OIDC token)
 func TestKeylessSigningIntegration(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	// Check for test OIDC token in environment
 	oidcToken := os.Getenv("TEST_OIDC_TOKEN")
@@ -139,19 +119,11 @@ func TestKeylessSigningIntegration(t *testing.T) {
 
 	// We expect an error because the image doesn't exist
 	if err != nil {
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "cosign sign failed") {
-			t.Errorf("Expected cosign error, got: %v", err)
-		}
+		Expect(err.Error()).To(ContainSubstring("cosign sign failed"))
 		t.Logf("Expected error from cosign: %v", err)
 	} else {
-		// If it succeeded (with proper OIDC token and accessible image)
-		if result == nil {
-			t.Error("Expected non-nil result on success")
-		}
-		if result.RekorEntry == "" {
-			t.Error("Expected Rekor entry URL in result")
-		}
+		Expect(result).ToNot(BeNil())
+		Expect(result.RekorEntry).ToNot(BeEmpty())
 		t.Logf("Sign result with Rekor entry: %+v", result)
 	}
 }
@@ -159,6 +131,7 @@ func TestKeylessSigningIntegration(t *testing.T) {
 // TestSignatureVerificationIntegration tests signature verification
 func TestSignatureVerificationIntegration(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
@@ -166,9 +139,7 @@ func TestSignatureVerificationIntegration(t *testing.T) {
 	// Generate test key pair
 	password := "test-password"
 	_, publicKeyPath, err := GenerateKeyPair(ctx, tempDir, password)
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	// Create verifier with public key
 	verifier := NewKeyBasedVerifier(publicKeyPath, 30*time.Second)
@@ -178,30 +149,21 @@ func TestSignatureVerificationIntegration(t *testing.T) {
 
 	// We expect an error because the image doesn't exist or isn't signed
 	if err != nil {
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "cosign verify failed") {
-			t.Errorf("Expected cosign verify error, got: %v", err)
-		}
-		if result == nil {
-			t.Error("Expected non-nil result even on verification failure")
-		} else if result.Verified {
-			t.Error("Expected Verified=false on error")
-		}
+		Expect(err.Error()).To(ContainSubstring("cosign verify failed"))
+		Expect(result).ToNot(BeNil())
+		Expect(result.Verified).To(BeFalse())
 		t.Logf("Expected verification error: %v", err)
 	} else {
-		// Verification succeeded (image was actually signed)
-		if result == nil {
-			t.Error("Expected non-nil result on success")
-		}
-		if !result.Verified {
-			t.Error("Expected Verified=true on success")
-		}
+		Expect(result).ToNot(BeNil())
+		Expect(result.Verified).To(BeTrue())
 		t.Logf("Verification result: %+v", result)
 	}
 }
 
 // TestRekorEntryValidation tests Rekor transparency log validation
 func TestRekorEntryValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		output   string
@@ -226,10 +188,8 @@ func TestRekorEntryValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseRekorEntry(tt.output)
-			if result != tt.expected {
-				t.Errorf("parseRekorEntry() = %q, want %q", result, tt.expected)
-			}
+			RegisterTestingT(t)
+			Expect(parseRekorEntry(tt.output)).To(Equal(tt.expected))
 		})
 	}
 }
@@ -237,22 +197,20 @@ func TestRekorEntryValidation(t *testing.T) {
 // TestCosignVersionCheck tests that cosign version meets minimum requirements
 func TestCosignVersionCheck(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Execute cosign version command
 	stdout, stderr, err := tools.ExecCommand(ctx, "cosign", []string{"version"}, nil, 10*time.Second)
-	if err != nil {
-		t.Fatalf("Failed to get cosign version: %v\nStderr: %s", err, stderr)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to get cosign version. Stderr: %s", stderr)
 
 	t.Logf("Cosign version output: %s", stdout)
 
 	// Check for version information
-	if !strings.Contains(stdout, "GitVersion") && !strings.Contains(stdout, "v") {
-		t.Error("Cosign version output doesn't contain version information")
-	}
+	Expect(strings.Contains(stdout, "GitVersion") || strings.Contains(stdout, "v")).To(BeTrue(),
+		"Cosign version output doesn't contain version information")
 
 	// Verify minimum version (v3.0.2+)
 	versionChecker := tools.NewVersionChecker()
@@ -270,6 +228,7 @@ func TestCosignVersionCheck(t *testing.T) {
 // TestFailOpenBehavior tests that signing failures don't crash
 func TestFailOpenBehavior(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 
@@ -278,18 +237,16 @@ func TestFailOpenBehavior(t *testing.T) {
 	result, err := signer.Sign(ctx, "test-image:latest")
 
 	// Should return error, not crash
-	if err == nil {
-		t.Error("Expected error with invalid key path")
-	}
-	if result != nil {
-		t.Error("Expected nil result on error")
-	}
+	Expect(err).To(HaveOccurred())
+	Expect(result).To(BeNil())
 
 	t.Logf("Fail-open test passed: error=%v", err)
 }
 
 // TestSigningConfigValidation tests configuration validation
 func TestSigningConfigValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name      string
 		config    *Config
@@ -344,9 +301,12 @@ func TestSigningConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantError {
-				t.Errorf("Validate() error = %v, wantError %v", err, tt.wantError)
+			if tt.wantError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
@@ -355,32 +315,26 @@ func TestSigningConfigValidation(t *testing.T) {
 // TestKeyPairGenerationIntegration tests cosign key pair generation
 func TestKeyPairGenerationIntegration(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
 	t.Run("with password", func(t *testing.T) {
+		RegisterTestingT(t)
 		privateKey, publicKey, err := GenerateKeyPair(ctx, tempDir, "test-password")
-		if err != nil {
-			t.Fatalf("GenerateKeyPair() error = %v", err)
-		}
+		Expect(err).ToNot(HaveOccurred())
 
 		// Verify files exist
-		if _, err := os.Stat(privateKey); err != nil {
-			t.Errorf("Private key not found: %v", err)
-		}
-		if _, err := os.Stat(publicKey); err != nil {
-			t.Errorf("Public key not found: %v", err)
-		}
+		_, err = os.Stat(privateKey)
+		Expect(err).ToNot(HaveOccurred(), "Private key not found")
+		_, err = os.Stat(publicKey)
+		Expect(err).ToNot(HaveOccurred(), "Public key not found")
 
 		// Verify private key has secure permissions
 		info, err := os.Stat(privateKey)
-		if err != nil {
-			t.Fatalf("Failed to stat private key: %v", err)
-		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("Private key permissions = %o, want 0600", info.Mode().Perm())
-		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(info.Mode().Perm()).To(Equal(os.FileMode(0o600)))
 
 		t.Logf("Generated key pair: %s, %s", privateKey, publicKey)
 	})
@@ -388,6 +342,8 @@ func TestKeyPairGenerationIntegration(t *testing.T) {
 
 // TestOIDCTokenValidation tests OIDC token validation
 func TestOIDCTokenValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name      string
 		token     string
@@ -417,9 +373,12 @@ func TestOIDCTokenValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := ValidateOIDCToken(tt.token)
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateOIDCToken() error = %v, wantError %v", err, tt.wantError)
+			if tt.wantError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
@@ -428,23 +387,20 @@ func TestOIDCTokenValidation(t *testing.T) {
 // TestSigningTimeout tests that signing operations respect timeout
 func TestSigningTimeout(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
 	// Generate test key
 	privateKey, _, err := GenerateKeyPair(ctx, tempDir, "test")
-	if err != nil {
-		t.Fatalf("Failed to generate key: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Create signer with very short timeout
 	signer := NewKeyBasedSigner(privateKey, "test", 1*time.Nanosecond)
 
 	_, err = signer.Sign(ctx, "test-image:latest")
-	if err == nil {
-		t.Error("Expected timeout error with 1ns timeout")
-	}
+	Expect(err).To(HaveOccurred())
 
 	t.Logf("Timeout test result: %v", err)
 }
@@ -452,6 +408,7 @@ func TestSigningTimeout(t *testing.T) {
 // TestCleanupTempFiles tests that temporary key files are cleaned up
 func TestCleanupTempFiles(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 
@@ -470,9 +427,7 @@ func TestCleanupTempFiles(t *testing.T) {
 	after, _ := filepath.Glob(filepath.Join(tempDir, "cosign-key-*.key"))
 
 	// Temp files should be cleaned up (count should be same or less)
-	if len(after) > len(before) {
-		t.Errorf("Temp files not cleaned up: before=%d, after=%d", len(before), len(after))
-	}
+	Expect(len(after)).To(BeNumerically("<=", len(before)))
 
 	t.Logf("Temp file cleanup test: before=%d, after=%d", len(before), len(after))
 }

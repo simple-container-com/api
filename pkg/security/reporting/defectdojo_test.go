@@ -6,11 +6,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
+	RegisterTestingT(t)
+
 	imageRef := "registry.example.com/demo@sha256:1234"
 	config := &DefectDojoUploaderConfig{TestType: "Container Scan", ProductName: "everworker"}
 
@@ -27,11 +30,7 @@ func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/findings/":
-			if got := r.URL.Query().Get("test"); got != "99" {
-				t.Errorf("findings test filter = %q, want %q", got, "99")
-				http.Error(w, "bad filter", http.StatusBadRequest)
-				return
-			}
+			Expect(r.URL.Query().Get("test")).To(Equal("99"), "findings test filter")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"count": 24})
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
@@ -42,22 +41,16 @@ func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
 
 	client := NewDefectDojoClient(server.URL, "secret")
 	resp, err := client.importScan(context.Background(), 42, []byte(`{}`), imageRef, config)
-	if err != nil {
-		t.Fatalf("importScan() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
-	if got, want := resp.Engagement, 42; got != want {
-		t.Fatalf("Engagement = %d, want %d", got, want)
-	}
-	if got, want := resp.Test, 99; got != want {
-		t.Fatalf("Test = %d, want %d", got, want)
-	}
-	if got, want := resp.NumberOfFindings, 24; got != want {
-		t.Fatalf("NumberOfFindings = %d, want %d", got, want)
-	}
+	Expect(resp.Engagement).To(Equal(42))
+	Expect(resp.Test).To(Equal(99))
+	Expect(resp.NumberOfFindings).To(Equal(24))
 }
 
 func TestCreateEngagementUsesCICDType(t *testing.T) {
+	RegisterTestingT(t)
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/products/":
@@ -67,14 +60,8 @@ func TestCreateEngagementUsesCICDType(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"id": 8, "name": "demo"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/engagements/":
 			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Errorf("reading request body: %v", err)
-				http.Error(w, "read error", http.StatusInternalServerError)
-				return
-			}
-			if !strings.Contains(string(body), `"engagement_type":"CI/CD"`) {
-				t.Errorf("request body = %s, want CI/CD engagement type", string(body))
-			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(`"engagement_type":"CI/CD"`))
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"id": 42})
 		default:
@@ -90,15 +77,13 @@ func TestCreateEngagementUsesCICDType(t *testing.T) {
 		EngagementName: "staging",
 		AutoCreate:     true,
 	})
-	if err != nil {
-		t.Fatalf("createEngagement() error = %v", err)
-	}
-	if got, want := id, 42; got != want {
-		t.Fatalf("engagement ID = %d, want %d", got, want)
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(id).To(Equal(42))
 }
 
 func TestTestTitle(t *testing.T) {
+	RegisterTestingT(t)
+
 	client := NewDefectDojoClient("https://dd.example.com", "key")
 	tests := []struct {
 		testType    string
@@ -112,13 +97,13 @@ func TestTestTitle(t *testing.T) {
 	for _, tt := range tests {
 		cfg := &DefectDojoUploaderConfig{TestType: tt.testType, ProductName: tt.productName}
 		got := client.testTitle(cfg, "image@sha256:abc")
-		if got != tt.want {
-			t.Errorf("testTitle(type=%q, product=%q) = %q, want %q", tt.testType, tt.productName, got, tt.want)
-		}
+		Expect(got).To(Equal(tt.want), "testTitle(type=%q, product=%q)", tt.testType, tt.productName)
 	}
 }
 
 func TestFindLatestTestByTitle(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []DefectDojoTest{
 		{ID: 1, Title: "Container Scan - everworker"},
 		{ID: 5, Title: "Other Test"},
@@ -127,15 +112,9 @@ func TestFindLatestTestByTitle(t *testing.T) {
 	}
 
 	match := findLatestTestByTitle(tests, "Container Scan - everworker")
-	if match == nil {
-		t.Fatal("expected match")
-	}
-	if match.ID != 10 {
-		t.Errorf("findLatestTestByTitle() ID = %d, want 10 (latest)", match.ID)
-	}
+	Expect(match).ToNot(BeNil())
+	Expect(match.ID).To(Equal(10))
 
 	noMatch := findLatestTestByTitle(tests, "nonexistent")
-	if noMatch != nil {
-		t.Error("expected nil for nonexistent title")
-	}
+	Expect(noMatch).To(BeNil())
 }

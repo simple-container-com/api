@@ -8,7 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
+
+	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/security/signing"
 	"github.com/simple-container-com/api/pkg/security/tools"
@@ -27,6 +28,7 @@ func skipIfCosignNotInstalled(t *testing.T) {
 // TestSecurityExecutorIntegration tests SecurityExecutor.ExecuteSigning with real cosign commands
 func TestSecurityExecutorIntegration(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
@@ -34,9 +36,7 @@ func TestSecurityExecutorIntegration(t *testing.T) {
 	// Generate test key pair
 	password := "executor-test"
 	privateKey, publicKey, err := signing.GenerateKeyPair(ctx, tempDir, password)
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	tests := []struct {
 		name      string
@@ -53,12 +53,9 @@ func TestSecurityExecutorIntegration(t *testing.T) {
 			imageRef:  "test-image:latest",
 			wantError: false,
 			validate: func(t *testing.T, result *signing.SignResult, err error) {
-				if err != nil {
-					t.Errorf("Expected no error, got: %v", err)
-				}
-				if result != nil {
-					t.Error("Expected nil result when signing disabled")
-				}
+				RegisterTestingT(t)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(BeNil(), "Expected nil result when signing disabled")
 			},
 		},
 		{
@@ -78,10 +75,9 @@ func TestSecurityExecutorIntegration(t *testing.T) {
 			imageRef:  "test.registry.io/test:latest",
 			wantError: false, // fail-open, so no error
 			validate: func(t *testing.T, result *signing.SignResult, err error) {
+				RegisterTestingT(t)
 				// With fail-open, should return nil error and nil result
-				if err != nil {
-					t.Errorf("Expected no error with fail-open, got: %v", err)
-				}
+				Expect(err).ToNot(HaveOccurred())
 			},
 		},
 		{
@@ -100,11 +96,9 @@ func TestSecurityExecutorIntegration(t *testing.T) {
 			imageRef:  "nonexistent.registry/test:latest",
 			wantError: true, // fail-closed, so error expected
 			validate: func(t *testing.T, result *signing.SignResult, err error) {
-				if err == nil {
-					t.Error("Expected error with fail-closed on non-existent image")
-				} else {
-					t.Logf("Got expected error: %v", err)
-				}
+				RegisterTestingT(t)
+				Expect(err).To(HaveOccurred())
+				t.Logf("Got expected error: %v", err)
 			},
 		},
 		{
@@ -122,10 +116,9 @@ func TestSecurityExecutorIntegration(t *testing.T) {
 			imageRef:  "test:latest",
 			wantError: false, // fail-open
 			validate: func(t *testing.T, result *signing.SignResult, err error) {
+				RegisterTestingT(t)
 				// Should log warning and continue with nil result
-				if result != nil {
-					t.Error("Expected nil result on validation failure")
-				}
+				Expect(result).To(BeNil(), "Expected nil result on validation failure")
 			},
 		},
 		{
@@ -144,25 +137,26 @@ func TestSecurityExecutorIntegration(t *testing.T) {
 			imageRef:  "test:latest",
 			wantError: false, // fail-open
 			validate: func(t *testing.T, result *signing.SignResult, err error) {
+				RegisterTestingT(t)
 				// Without OIDC token, should fail gracefully
-				if result != nil {
-					t.Error("Expected nil result without OIDC token")
-				}
+				Expect(result).To(BeNil(), "Expected nil result without OIDC token")
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
 			executor, err := NewSecurityExecutor(ctx, tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create executor: %v", err)
-			}
+			Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 			result, err := executor.ExecuteSigning(ctx, tt.imageRef)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("ExecuteSigning() error = %v, wantError %v", err, tt.wantError)
+			if tt.wantError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 
 			if tt.validate != nil {
@@ -247,14 +241,16 @@ func TestSecurityExecutorValidateConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
 			executor, err := NewSecurityExecutor(ctx, tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create executor: %v", err)
-			}
+			Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 			err = executor.ValidateConfig()
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateConfig() error = %v, wantError %v", err, tt.wantError)
+			if tt.wantError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
@@ -263,6 +259,7 @@ func TestSecurityExecutorValidateConfig(t *testing.T) {
 // TestSecurityExecutorWithRealKeys tests executor with real generated keys
 func TestSecurityExecutorWithRealKeys(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
@@ -270,9 +267,7 @@ func TestSecurityExecutorWithRealKeys(t *testing.T) {
 	// Generate real test keys
 	password := "real-key-test"
 	privateKey, publicKey, err := signing.GenerateKeyPair(ctx, tempDir, password)
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	t.Logf("Generated real keys: private=%s, public=%s", privateKey, publicKey)
 
@@ -291,22 +286,17 @@ func TestSecurityExecutorWithRealKeys(t *testing.T) {
 	}
 
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("Failed to create executor: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 	// Validate config
-	if err := executor.ValidateConfig(); err != nil {
-		t.Errorf("ValidateConfig failed: %v", err)
-	}
+	err = executor.ValidateConfig()
+	Expect(err).ToNot(HaveOccurred())
 
 	// Try to sign (will fail due to non-existent image, but validates the flow)
 	testImage := "test.registry.io/executor-test:v1"
 	result, err := executor.ExecuteSigning(ctx, testImage)
 	// With fail-open, should not error
-	if err != nil {
-		t.Errorf("Expected no error with fail-open, got: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Result will be nil because signing failed (image doesn't exist)
 	if result != nil {
@@ -319,6 +309,7 @@ func TestSecurityExecutorWithRealKeys(t *testing.T) {
 // TestSecurityExecutorFailOpenLogging tests that warnings are logged
 func TestSecurityExecutorFailOpenLogging(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 
@@ -336,20 +327,14 @@ func TestSecurityExecutorFailOpenLogging(t *testing.T) {
 	}
 
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("Failed to create executor: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 	// Execute signing (should log warning but not fail)
 	testImage := "test:latest"
 	result, err := executor.ExecuteSigning(ctx, testImage)
 	// Should not return error (fail-open)
-	if err != nil {
-		t.Errorf("Expected no error with fail-open, got: %v", err)
-	}
-	if result != nil {
-		t.Error("Expected nil result on signing failure")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(result).To(BeNil(), "Expected nil result on signing failure")
 
 	t.Log("Fail-open logging test completed (check logs for warnings)")
 }
@@ -357,6 +342,7 @@ func TestSecurityExecutorFailOpenLogging(t *testing.T) {
 // TestSecurityExecutorOIDCToken tests OIDC token handling
 func TestSecurityExecutorOIDCToken(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 
@@ -380,9 +366,7 @@ func TestSecurityExecutorOIDCToken(t *testing.T) {
 
 	// Create executor with OIDC token in context
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("Failed to create executor: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 	// Set OIDC token in execution context
 	executor.Context.OIDCToken = oidcToken
@@ -404,15 +388,14 @@ func TestSecurityExecutorOIDCToken(t *testing.T) {
 // TestSecurityExecutorTimeout tests timeout handling
 func TestSecurityExecutorTimeout(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	ctx := context.Background()
 	tempDir := t.TempDir()
 
 	// Generate keys
 	privateKey, _, err := signing.GenerateKeyPair(ctx, tempDir, "test")
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	// Create config with very short timeout
 	config := &SecurityConfig{
@@ -428,9 +411,7 @@ func TestSecurityExecutorTimeout(t *testing.T) {
 	}
 
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("Failed to create executor: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 	// Try signing (should timeout)
 	result, err := executor.ExecuteSigning(ctx, "test:latest")
@@ -438,9 +419,7 @@ func TestSecurityExecutorTimeout(t *testing.T) {
 	if err != nil {
 		t.Logf("Error with timeout (expected): %v", err)
 	}
-	if result != nil {
-		t.Error("Expected nil result on timeout")
-	}
+	Expect(result).To(BeNil(), "Expected nil result on timeout")
 
 	t.Log("Timeout handling test completed")
 }
@@ -448,15 +427,14 @@ func TestSecurityExecutorTimeout(t *testing.T) {
 // TestSecurityExecutorContextCancellation tests context cancellation
 func TestSecurityExecutorContextCancellation(t *testing.T) {
 	skipIfCosignNotInstalled(t)
+	RegisterTestingT(t)
 
 	tempDir := t.TempDir()
 
 	// Generate keys
 	ctx := context.Background()
 	privateKey, _, err := signing.GenerateKeyPair(ctx, tempDir, "test")
-	if err != nil {
-		t.Fatalf("Failed to generate key pair: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to generate key pair")
 
 	config := &SecurityConfig{
 		Enabled: true,
@@ -471,9 +449,7 @@ func TestSecurityExecutorContextCancellation(t *testing.T) {
 	}
 
 	executor, err := NewSecurityExecutor(ctx, config)
-	if err != nil {
-		t.Fatalf("Failed to create executor: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 	// Create cancellable context
 	ctxCancel, cancel := context.WithCancel(ctx)
@@ -485,37 +461,26 @@ func TestSecurityExecutorContextCancellation(t *testing.T) {
 	result, err := executor.ExecuteSigning(ctxCancel, "test:latest")
 
 	// Should handle cancellation gracefully
-	if result != nil {
-		t.Error("Expected nil result with cancelled context")
-	}
+	Expect(result).To(BeNil(), "Expected nil result with cancelled context")
 
 	t.Logf("Context cancellation test completed: err=%v", err)
 }
 
 // TestSecurityExecutorConfigurationPrecedence tests config validation order
 func TestSecurityExecutorConfigurationPrecedence(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	// Test that nil config is handled
 	executor1, err := NewSecurityExecutor(ctx, nil)
-	if err != nil {
-		t.Fatalf("Failed to create executor with nil config: %v", err)
-	}
-	if executor1.Config == nil {
-		t.Error("Expected non-nil config (default)")
-	}
-	if executor1.Config.Enabled {
-		t.Error("Expected default config to be disabled")
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor with nil config")
+	Expect(executor1.Config).ToNot(BeNil())
+	Expect(executor1.Config.Enabled).To(BeFalse())
 
 	// Test that empty config works
 	executor2, err := NewSecurityExecutor(ctx, &SecurityConfig{})
-	if err != nil {
-		t.Fatalf("Failed to create executor with empty config: %v", err)
-	}
-	if executor2.Config.Enabled {
-		t.Error("Expected empty config to be disabled")
-	}
+	Expect(err).ToNot(HaveOccurred(), "Failed to create executor with empty config")
+	Expect(executor2.Config.Enabled).To(BeFalse())
 
 	t.Log("Configuration precedence test completed")
 }
@@ -545,14 +510,11 @@ func TestSecurityExecutorErrorMessages(t *testing.T) {
 			},
 			imageRef: "test:latest",
 			checkErrorMsg: func(t *testing.T, err error) {
-				if err == nil {
-					t.Error("Expected error for missing private key")
-					return
-				}
+				RegisterTestingT(t)
+				Expect(err).To(HaveOccurred())
 				errMsg := err.Error()
-				if !strings.Contains(errMsg, "private_key") && !strings.Contains(errMsg, "private key") {
-					t.Errorf("Error message should mention private key: %v", err)
-				}
+				Expect(strings.Contains(errMsg, "private_key") || strings.Contains(errMsg, "private key")).To(BeTrue(),
+					"Error message should mention private key: %v", err)
 			},
 		},
 		{
@@ -569,24 +531,21 @@ func TestSecurityExecutorErrorMessages(t *testing.T) {
 			},
 			imageRef: "test:latest",
 			checkErrorMsg: func(t *testing.T, err error) {
-				if err == nil {
-					t.Error("Expected error for missing OIDC issuer")
-					return
-				}
+				RegisterTestingT(t)
+				Expect(err).To(HaveOccurred())
 				errMsg := err.Error()
-				if !strings.Contains(errMsg, "oidc") && !strings.Contains(errMsg, "OIDC") {
-					t.Errorf("Error message should mention OIDC: %v", err)
-				}
+				Expect(strings.Contains(errMsg, "oidc") || strings.Contains(errMsg, "OIDC")).To(BeTrue(),
+					"Error message should mention OIDC: %v", err)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
 			executor, err := NewSecurityExecutor(ctx, tt.config)
-			if err != nil {
-				t.Fatalf("Failed to create executor: %v", err)
-			}
+			Expect(err).ToNot(HaveOccurred(), "Failed to create executor")
 
 			_, err = executor.ExecuteSigning(ctx, tt.imageRef)
 			tt.checkErrorMsg(t, err)

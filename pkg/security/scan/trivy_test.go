@@ -6,16 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestTrivyScanner_Tool(t *testing.T) {
-	scanner := NewTrivyScanner()
-	if scanner.Tool() != ScanToolTrivy {
-		t.Errorf("expected tool %s, got %s", ScanToolTrivy, scanner.Tool())
-	}
+	RegisterTestingT(t)
+	Expect(NewTrivyScanner().Tool()).To(Equal(ScanToolTrivy))
 }
 
 func TestNormalizeTrivySeverity(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		input    string
 		expected Severity
@@ -37,15 +39,15 @@ func TestNormalizeTrivySeverity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := normalizeTrivySeverity(tt.input)
-			if result != tt.expected {
-				t.Errorf("normalizeTrivySeverity(%s) = %s, want %s", tt.input, result, tt.expected)
-			}
+			RegisterTestingT(t)
+			Expect(normalizeTrivySeverity(tt.input)).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestExtractImageDigestFromTrivy(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		input    string
@@ -70,19 +72,18 @@ func TestExtractImageDigestFromTrivy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractImageDigestFromTrivy(tt.input)
-			if result != tt.expected {
-				t.Errorf("extractImageDigestFromTrivy(%s) = %s, want %s", tt.input, result, tt.expected)
-			}
+			RegisterTestingT(t)
+			Expect(extractImageDigestFromTrivy(tt.input)).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestTrivyScanner_CheckInstalled(t *testing.T) {
+	RegisterTestingT(t)
+
 	scanner := NewTrivyScanner()
 	ctx := context.Background()
 
-	// This test will skip if trivy is not installed
 	err := scanner.CheckInstalled(ctx)
 	if err != nil {
 		t.Skipf("trivy not installed: %v", err)
@@ -90,31 +91,28 @@ func TestTrivyScanner_CheckInstalled(t *testing.T) {
 }
 
 func TestTrivyScanner_Version(t *testing.T) {
+	RegisterTestingT(t)
+
 	scanner := NewTrivyScanner()
 	ctx := context.Background()
 
-	// Check if trivy is installed
 	if err := scanner.CheckInstalled(ctx); err != nil {
 		t.Skipf("trivy not installed: %v", err)
 	}
 
 	version, err := scanner.Version(ctx)
-	if err != nil {
-		t.Errorf("Version() error = %v", err)
-	}
-
-	if version == "" {
-		t.Error("Version() returned empty version")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(version).ToNot(BeEmpty())
 
 	t.Logf("Trivy version: %s", version)
 }
 
 func TestTrivyScanner_CheckVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	scanner := NewTrivyScanner()
 	ctx := context.Background()
 
-	// Check if trivy is installed
 	if err := scanner.CheckInstalled(ctx); err != nil {
 		t.Skipf("trivy not installed: %v", err)
 	}
@@ -126,6 +124,8 @@ func TestTrivyScanner_CheckVersion(t *testing.T) {
 }
 
 func TestParseTrivyVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		input   string
@@ -148,24 +148,21 @@ Vulnerability DB:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := parseTrivyVersion(tt.input)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
+				Expect(err).To(HaveOccurred())
 				return
 			}
-			if err != nil {
-				t.Fatalf("parseTrivyVersion() error = %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("parseTrivyVersion() = %s, want %s", got, tt.want)
-			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestTrivyCVSS_UnmarshalJSON(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		input   string
@@ -199,70 +196,51 @@ func TestTrivyCVSS_UnmarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			var cvss trivyCVSS
 			err := json.Unmarshal([]byte(tt.input), &cvss)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
+				Expect(err).To(HaveOccurred())
 				return
 			}
-			if err != nil {
-				t.Fatalf("json.Unmarshal() error = %v", err)
-			}
-			if got := extractTrivyCVSS(cvss); got != tt.want {
-				t.Fatalf("extractTrivyCVSS() = %v, want %v", got, tt.want)
-			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(extractTrivyCVSS(cvss)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestEnsureTrivyCacheDir(t *testing.T) {
+	RegisterTestingT(t)
+
 	cacheRoot := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheRoot)
 	t.Setenv("HOME", t.TempDir())
 
 	cacheDir, err := ensureTrivyCacheDir()
-	if err != nil {
-		t.Fatalf("ensureTrivyCacheDir() error = %v", err)
-	}
-
-	want := filepath.Join(cacheRoot, "trivy")
-	if cacheDir != want {
-		t.Fatalf("ensureTrivyCacheDir() = %s, want %s", cacheDir, want)
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(cacheDir).To(Equal(filepath.Join(cacheRoot, "trivy")))
 }
 
 func TestTrivyDBPresenceHelpers(t *testing.T) {
+	RegisterTestingT(t)
+
 	cacheDir := t.TempDir()
 
-	if trivyDBPresent(cacheDir) {
-		t.Fatal("expected no trivy DB metadata in empty cache")
-	}
-	if trivyJavaDBPresent(cacheDir) {
-		t.Fatal("expected no trivy Java DB metadata in empty cache")
-	}
+	Expect(trivyDBPresent(cacheDir)).To(BeFalse(), "expected no trivy DB metadata in empty cache")
+	Expect(trivyJavaDBPresent(cacheDir)).To(BeFalse(), "expected no trivy Java DB metadata in empty cache")
 
 	dbMeta := filepath.Join(cacheDir, "db", "metadata.json")
-	if err := os.MkdirAll(filepath.Dir(dbMeta), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(dbMeta, []byte("{}"), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	err := os.MkdirAll(filepath.Dir(dbMeta), 0o755)
+	Expect(err).ToNot(HaveOccurred())
+	err = os.WriteFile(dbMeta, []byte("{}"), 0o644)
+	Expect(err).ToNot(HaveOccurred())
 
 	javaMeta := filepath.Join(cacheDir, "java-db", "metadata.json")
-	if err := os.MkdirAll(filepath.Dir(javaMeta), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(javaMeta, []byte("{}"), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	err = os.MkdirAll(filepath.Dir(javaMeta), 0o755)
+	Expect(err).ToNot(HaveOccurred())
+	err = os.WriteFile(javaMeta, []byte("{}"), 0o644)
+	Expect(err).ToNot(HaveOccurred())
 
-	if !trivyDBPresent(cacheDir) {
-		t.Fatal("expected trivy DB metadata to be detected")
-	}
-	if !trivyJavaDBPresent(cacheDir) {
-		t.Fatal("expected trivy Java DB metadata to be detected")
-	}
+	Expect(trivyDBPresent(cacheDir)).To(BeTrue(), "expected trivy DB metadata to be detected")
+	Expect(trivyJavaDBPresent(cacheDir)).To(BeTrue(), "expected trivy Java DB metadata to be detected")
 }

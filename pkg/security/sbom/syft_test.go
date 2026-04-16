@@ -4,19 +4,21 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNewSyftGenerator(t *testing.T) {
+	RegisterTestingT(t)
+
 	g := NewSyftGenerator()
-	if g == nil {
-		t.Fatal("NewSyftGenerator() returned nil")
-	}
-	if g.Timeout != 5*time.Minute {
-		t.Errorf("Expected timeout of 5 minutes, got %v", g.Timeout)
-	}
+	Expect(g).ToNot(BeNil())
+	Expect(g.Timeout).To(Equal(5 * time.Minute))
 }
 
 func TestSyftGeneratorSupportsFormat(t *testing.T) {
+	RegisterTestingT(t)
+
 	g := NewSyftGenerator()
 
 	tests := []struct {
@@ -34,14 +36,15 @@ func TestSyftGeneratorSupportsFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := g.SupportsFormat(tt.format); got != tt.want {
-				t.Errorf("SupportsFormat() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(g.SupportsFormat(tt.format)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestExtractCycloneDXPackageCount(t *testing.T) {
+	RegisterTestingT(t)
+
 	g := NewSyftGenerator()
 
 	tests := []struct {
@@ -72,19 +75,21 @@ func TestExtractCycloneDXPackageCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := g.extractCycloneDXPackageCount([]byte(tt.content))
-			if (err != nil) != tt.wantErr {
-				t.Errorf("extractCycloneDXPackageCount() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("extractCycloneDXPackageCount() = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got).To(Equal(tt.want))
 			}
 		})
 	}
 }
 
 func TestExtractSPDXPackageCount(t *testing.T) {
+	RegisterTestingT(t)
+
 	g := NewSyftGenerator()
 
 	tests := []struct {
@@ -115,19 +120,21 @@ func TestExtractSPDXPackageCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := g.extractSPDXPackageCount([]byte(tt.content))
-			if (err != nil) != tt.wantErr {
-				t.Errorf("extractSPDXPackageCount() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("extractSPDXPackageCount() = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got).To(Equal(tt.want))
 			}
 		})
 	}
 }
 
 func TestExtractSyftPackageCount(t *testing.T) {
+	RegisterTestingT(t)
+
 	g := NewSyftGenerator()
 
 	tests := []struct {
@@ -152,19 +159,21 @@ func TestExtractSyftPackageCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := g.extractSyftPackageCount([]byte(tt.content))
-			if (err != nil) != tt.wantErr {
-				t.Errorf("extractSyftPackageCount() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("extractSyftPackageCount() = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got).To(Equal(tt.want))
 			}
 		})
 	}
 }
 
 func TestExtractImageDigest(t *testing.T) {
+	RegisterTestingT(t)
+
 	g := NewSyftGenerator()
 
 	tests := []struct {
@@ -195,15 +204,15 @@ func TestExtractImageDigest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := g.extractImageDigest(tt.image, tt.stderr)
-			if got != tt.want {
-				t.Errorf("extractImageDigest() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(g.extractImageDigest(tt.image, tt.stderr)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestIsVersionGreaterOrEqual(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		current string
@@ -222,14 +231,15 @@ func TestIsVersionGreaterOrEqual(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isVersionGreaterOrEqual(tt.current, tt.minimum); got != tt.want {
-				t.Errorf("isVersionGreaterOrEqual(%v, %v) = %v, want %v", tt.current, tt.minimum, got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(isVersionGreaterOrEqual(tt.current, tt.minimum)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestParseVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		version string
@@ -244,15 +254,15 @@ func TestParseVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseVersion(tt.version)
-			if got != tt.want {
-				t.Errorf("parseVersion() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(parseVersion(tt.version)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestCheckInstalled_NotInstalled(t *testing.T) {
+	RegisterTestingT(t)
+
 	ctx := context.Background()
 	err := CheckInstalled(ctx)
 	// This will fail if syft is not installed, which is expected in most test environments
@@ -262,6 +272,8 @@ func TestCheckInstalled_NotInstalled(t *testing.T) {
 }
 
 func TestCheckVersion_NotInstalled(t *testing.T) {
+	RegisterTestingT(t)
+
 	ctx := context.Background()
 	err := CheckVersion(ctx, "1.0.0")
 	// This will fail if syft is not installed

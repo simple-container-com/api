@@ -6,28 +6,28 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
 func TestNewAttacher(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &signing.Config{
 		Enabled: true,
 		Keyless: true,
 	}
 
 	attacher := NewAttacher(config)
-	if attacher == nil {
-		t.Fatal("NewAttacher() returned nil")
-	}
-	if attacher.SigningConfig != config {
-		t.Errorf("SigningConfig not set correctly")
-	}
-	if attacher.Timeout != 2*time.Minute {
-		t.Errorf("Expected timeout of 2 minutes, got %v", attacher.Timeout)
-	}
+	Expect(attacher).ToNot(BeNil())
+	Expect(attacher.SigningConfig).To(Equal(config))
+	Expect(attacher.Timeout).To(Equal(2 * time.Minute))
 }
 
 func TestAttacherBuildSigningArgs(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		config *signing.Config
@@ -57,24 +57,20 @@ func TestAttacherBuildSigningArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			attacher := &Attacher{SigningConfig: tt.config}
 			got := attacher.buildSigningArgs()
-
-			if len(got) != len(tt.want) {
-				t.Errorf("buildSigningArgs() returned %d args, want %d", len(got), len(tt.want))
-				return
-			}
-
+			Expect(got).To(HaveLen(len(tt.want)))
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("buildSigningArgs()[%d] = %v, want %v", i, got[i], tt.want[i])
-				}
+				Expect(got[i]).To(Equal(tt.want[i]))
 			}
 		})
 	}
 }
 
 func TestAttacherBuildVerificationArgs(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		config *signing.Config
@@ -113,24 +109,20 @@ func TestAttacherBuildVerificationArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			attacher := &Attacher{SigningConfig: tt.config}
 			got := attacher.buildVerificationArgs()
-
-			if len(got) != len(tt.want) {
-				t.Errorf("buildVerificationArgs() returned %d args, want %d", len(got), len(tt.want))
-				return
-			}
-
+			Expect(got).To(HaveLen(len(tt.want)))
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("buildVerificationArgs()[%d] = %v, want %v", i, got[i], tt.want[i])
-				}
+				Expect(got[i]).To(Equal(tt.want[i]))
 			}
 		})
 	}
 }
 
 func TestAttacherBuildSigningEnv(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name   string
 		config *signing.Config
@@ -168,24 +160,20 @@ func TestAttacherBuildSigningEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			attacher := &Attacher{SigningConfig: tt.config}
 			got := attacher.buildSigningEnv()
-
-			if len(got) != len(tt.want) {
-				t.Errorf("buildSigningEnv() returned %d env vars, want %d", len(got), len(tt.want))
-				return
-			}
-
+			Expect(got).To(HaveLen(len(tt.want)))
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("buildSigningEnv()[%d] = %v, want %v", i, got[i], tt.want[i])
-				}
+				Expect(got[i]).To(Equal(tt.want[i]))
 			}
 		})
 	}
 }
 
 func TestAttacherCreateTempSBOMFile(t *testing.T) {
+	RegisterTestingT(t)
+
 	content := []byte(`{"bomFormat": "CycloneDX"}`)
 	sbomObj := NewSBOM(FormatCycloneDXJSON, content, "test-image", &Metadata{
 		ToolName:    "syft",
@@ -194,27 +182,22 @@ func TestAttacherCreateTempSBOMFile(t *testing.T) {
 
 	attacher := NewAttacher(nil)
 	tmpFile, err := attacher.createTempSBOMFile(sbomObj)
-	if err != nil {
-		t.Fatalf("createTempSBOMFile() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 	defer os.Remove(tmpFile)
 
 	// Verify file exists
-	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
-		t.Errorf("Temp file was not created")
-	}
+	_, err = os.Stat(tmpFile)
+	Expect(os.IsNotExist(err)).To(BeFalse(), "Temp file was not created")
 
 	// Verify content
 	readContent, err := os.ReadFile(tmpFile)
-	if err != nil {
-		t.Fatalf("Failed to read temp file: %v", err)
-	}
-	if string(readContent) != string(content) {
-		t.Errorf("Temp file content = %v, want %v", string(readContent), string(content))
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(string(readContent)).To(Equal(string(content)))
 }
 
 func TestAttacherExtractImageDigest(t *testing.T) {
+	RegisterTestingT(t)
+
 	attacher := &Attacher{}
 
 	tests := []struct {
@@ -241,15 +224,15 @@ func TestAttacherExtractImageDigest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := attacher.extractImageDigest(tt.image)
-			if got != tt.want {
-				t.Errorf("extractImageDigest() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(attacher.extractImageDigest(tt.image)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestAttachAndVerify_NotInstalled(t *testing.T) {
+	RegisterTestingT(t)
+
 	// These tests will skip or fail if cosign is not installed
 	ctx := context.Background()
 

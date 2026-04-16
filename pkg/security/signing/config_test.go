@@ -4,9 +4,13 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestConfig_Validate(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *Config
@@ -68,15 +72,20 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestConfig_CreateSigner(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name      string
 		config    *Config
@@ -138,18 +147,21 @@ func TestConfig_CreateSigner(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			signer, err := tt.config.CreateSigner(tt.oidcToken)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.CreateSigner() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if !tt.wantErr && signer == nil {
-				t.Error("Config.CreateSigner() returned nil signer without error")
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(signer).ToNot(BeNil())
 			}
 		})
 	}
 }
 
 func TestConfig_CreateVerifier(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *Config
@@ -191,18 +203,21 @@ func TestConfig_CreateVerifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			verifier, err := tt.config.CreateVerifier()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.CreateVerifier() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if !tt.wantErr && verifier == nil {
-				t.Error("Config.CreateVerifier() returned nil verifier without error")
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(verifier).ToNot(BeNil())
 			}
 		})
 	}
 }
 
 func TestParseDuration(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		input   string
@@ -210,39 +225,38 @@ func TestParseDuration(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "empty string",
-			input:   "",
-			want:    5 * time.Minute,
-			wantErr: false,
+			name:  "empty string",
+			input: "",
+			want:  5 * time.Minute,
 		},
 		{
-			name:    "valid duration",
-			input:   "10m",
-			want:    10 * time.Minute,
-			wantErr: false,
+			name:  "valid duration",
+			input: "10m",
+			want:  10 * time.Minute,
 		},
 		{
 			name:    "invalid duration",
 			input:   "invalid",
-			want:    0,
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := parseDuration(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseDuration() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if got != tt.want {
-				t.Errorf("parseDuration() = %v, want %v", got, tt.want)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got).To(Equal(tt.want))
 			}
 		})
 	}
 }
 
 func TestSignImage(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -257,9 +271,8 @@ func TestSignImage(t *testing.T) {
 			config: &Config{
 				Enabled: false,
 			},
-			imageRef:  "test-image:latest",
-			oidcToken: "",
-			wantErr:   true,
+			imageRef: "test-image:latest",
+			wantErr:  true,
 		},
 		{
 			name: "invalid config",
@@ -267,23 +280,26 @@ func TestSignImage(t *testing.T) {
 				Enabled: true,
 				Keyless: true,
 			},
-			imageRef:  "test-image:latest",
-			oidcToken: "",
-			wantErr:   true,
+			imageRef: "test-image:latest",
+			wantErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			_, err := SignImage(ctx, tt.config, tt.imageRef, tt.oidcToken)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SignImage() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestVerifyImage(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -304,15 +320,20 @@ func TestVerifyImage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			_, err := VerifyImage(ctx, tt.config, tt.imageRef)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("VerifyImage() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestCreateSigner_OIDCTokenFallback(t *testing.T) {
+	RegisterTestingT(t)
+
 	cfg := &Config{
 		Enabled:   true,
 		Keyless:   true,
@@ -320,15 +341,13 @@ func TestCreateSigner_OIDCTokenFallback(t *testing.T) {
 	}
 	// Empty oidcToken param should fall back to cfg.OIDCToken
 	signer, err := cfg.CreateSigner("")
-	if err != nil {
-		t.Fatalf("CreateSigner() with OIDCToken on struct: %v", err)
-	}
-	if signer == nil {
-		t.Fatal("CreateSigner() returned nil")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(signer).ToNot(BeNil())
 }
 
 func TestCreateSigner_ParamTakesPrecedence(t *testing.T) {
+	RegisterTestingT(t)
+
 	cfg := &Config{
 		Enabled:   true,
 		Keyless:   true,
@@ -336,26 +355,20 @@ func TestCreateSigner_ParamTakesPrecedence(t *testing.T) {
 	}
 	paramToken := "eyJuZXciOiJ0b2tlbiJ9.eyJpc3MiOiJ0ZXN0In0.dGVzdA"
 	signer, err := cfg.CreateSigner(paramToken)
-	if err != nil {
-		t.Fatalf("CreateSigner() with param token: %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 	// Verify the param token was used (it's a KeylessSigner)
 	ks, ok := signer.(*KeylessSigner)
-	if !ok {
-		t.Fatal("expected KeylessSigner")
-	}
-	if ks.OIDCToken != paramToken {
-		t.Errorf("signer used OIDCToken %q, want param %q", ks.OIDCToken, paramToken)
-	}
+	Expect(ok).To(BeTrue(), "expected KeylessSigner")
+	Expect(ks.OIDCToken).To(Equal(paramToken))
 }
 
 func TestCreateSigner_KeylessNoToken(t *testing.T) {
+	RegisterTestingT(t)
+
 	cfg := &Config{
 		Enabled: true,
 		Keyless: true,
 	}
 	_, err := cfg.CreateSigner("")
-	if err == nil {
-		t.Fatal("CreateSigner() should error when no OIDC token available")
-	}
+	Expect(err).To(HaveOccurred())
 }

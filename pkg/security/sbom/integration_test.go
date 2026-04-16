@@ -8,6 +8,8 @@ import (
 	"os"
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
@@ -26,79 +28,41 @@ func TestSyftGenerateIntegration(t *testing.T) {
 	generator := NewSyftGenerator()
 
 	t.Run("Generate CycloneDX JSON", func(t *testing.T) {
+		RegisterTestingT(t)
 		sbom, err := generator.Generate(ctx, testImage, FormatCycloneDXJSON)
-		if err != nil {
-			t.Fatalf("Generate() error = %v", err)
-		}
-
-		if sbom == nil {
-			t.Fatal("Generate() returned nil SBOM")
-		}
-
-		if sbom.Format != FormatCycloneDXJSON {
-			t.Errorf("SBOM format = %v, want %v", sbom.Format, FormatCycloneDXJSON)
-		}
-
-		if len(sbom.Content) == 0 {
-			t.Error("SBOM content is empty")
-		}
-
-		if sbom.Digest == "" {
-			t.Error("SBOM digest is empty")
-		}
-
-		if !sbom.ValidateDigest() {
-			t.Error("SBOM digest validation failed")
-		}
-
-		if sbom.Metadata == nil {
-			t.Error("SBOM metadata is nil")
-		} else {
-			if sbom.Metadata.ToolName != "syft" {
-				t.Errorf("Tool name = %v, want syft", sbom.Metadata.ToolName)
-			}
-			if sbom.Metadata.PackageCount == 0 {
-				t.Error("Package count is 0")
-			}
-			t.Logf("Found %d packages", sbom.Metadata.PackageCount)
-		}
-
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sbom).ToNot(BeNil())
+		Expect(sbom.Format).To(Equal(FormatCycloneDXJSON))
+		Expect(sbom.Content).ToNot(BeEmpty())
+		Expect(sbom.Digest).ToNot(BeEmpty())
+		Expect(sbom.ValidateDigest()).To(BeTrue())
+		Expect(sbom.Metadata).ToNot(BeNil())
+		Expect(sbom.Metadata.ToolName).To(Equal("syft"))
+		Expect(sbom.Metadata.PackageCount).ToNot(BeZero())
+		t.Logf("Found %d packages", sbom.Metadata.PackageCount)
 		t.Logf("SBOM size: %d bytes", sbom.Size())
 	})
 
 	t.Run("Generate SPDX JSON", func(t *testing.T) {
+		RegisterTestingT(t)
 		sbom, err := generator.Generate(ctx, testImage, FormatSPDXJSON)
-		if err != nil {
-			t.Fatalf("Generate() error = %v", err)
-		}
-
-		if sbom.Format != FormatSPDXJSON {
-			t.Errorf("SBOM format = %v, want %v", sbom.Format, FormatSPDXJSON)
-		}
-
-		if len(sbom.Content) == 0 {
-			t.Error("SBOM content is empty")
-		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sbom.Format).To(Equal(FormatSPDXJSON))
+		Expect(sbom.Content).ToNot(BeEmpty())
 	})
 
 	t.Run("Generate Syft JSON", func(t *testing.T) {
+		RegisterTestingT(t)
 		sbom, err := generator.Generate(ctx, testImage, FormatSyftJSON)
-		if err != nil {
-			t.Fatalf("Generate() error = %v", err)
-		}
-
-		if sbom.Format != FormatSyftJSON {
-			t.Errorf("SBOM format = %v, want %v", sbom.Format, FormatSyftJSON)
-		}
-
-		if len(sbom.Content) == 0 {
-			t.Error("SBOM content is empty")
-		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sbom.Format).To(Equal(FormatSyftJSON))
+		Expect(sbom.Content).ToNot(BeEmpty())
 	})
 }
 
 // TestSyftVersionIntegration tests version checking
 func TestSyftVersionIntegration(t *testing.T) {
+	RegisterTestingT(t)
 	ctx := context.Background()
 
 	if err := CheckInstalled(ctx); err != nil {
@@ -108,20 +72,14 @@ func TestSyftVersionIntegration(t *testing.T) {
 	generator := NewSyftGenerator()
 
 	version, err := generator.Version(ctx)
-	if err != nil {
-		t.Fatalf("Version() error = %v", err)
-	}
-
-	if version == "" || version == "unknown" {
-		t.Errorf("Version() returned empty or unknown version")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(version).ToNot(SatisfyAny(BeEmpty(), Equal("unknown")))
 
 	t.Logf("Syft version: %s", version)
 
 	// Check minimum version (1.41.0)
-	if err := CheckVersion(ctx, "1.0.0"); err != nil {
-		t.Errorf("CheckVersion(1.0.0) error = %v", err)
-	}
+	err = CheckVersion(ctx, "1.0.0")
+	Expect(err).ToNot(HaveOccurred())
 }
 
 // TestAttacherIntegration tests SBOM attestation with cosign
@@ -153,13 +111,13 @@ func TestAttacherIntegration(t *testing.T) {
 	}
 
 	// Generate SBOM
+	RegisterTestingT(t)
 	generator := NewSyftGenerator()
 	sbom, err := generator.Generate(ctx, testImage, FormatCycloneDXJSON)
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
+	Expect(err).ToNot(HaveOccurred())
 
 	t.Run("Attach SBOM with keyless signing", func(t *testing.T) {
+		RegisterTestingT(t)
 		// Skip if not in GitHub Actions (keyless requires OIDC token)
 		if os.Getenv("GITHUB_ACTIONS") != "true" {
 			t.Skip("Keyless signing requires GitHub Actions OIDC token")
@@ -173,14 +131,13 @@ func TestAttacherIntegration(t *testing.T) {
 		attacher := NewAttacher(config)
 
 		err := attacher.Attach(ctx, sbom, testImage)
-		if err != nil {
-			t.Fatalf("Attach() error = %v", err)
-		}
+		Expect(err).ToNot(HaveOccurred())
 
 		t.Log("SBOM attached successfully with keyless signing")
 	})
 
 	t.Run("Attach SBOM with key-based signing", func(t *testing.T) {
+		RegisterTestingT(t)
 		// Generate test keys
 		keyPath := generateTestKeys(t)
 		defer os.Remove(keyPath)
@@ -196,9 +153,7 @@ func TestAttacherIntegration(t *testing.T) {
 		attacher := NewAttacher(config)
 
 		err := attacher.Attach(ctx, sbom, testImage)
-		if err != nil {
-			t.Fatalf("Attach() error = %v", err)
-		}
+		Expect(err).ToNot(HaveOccurred())
 
 		t.Log("SBOM attached successfully with key-based signing")
 
@@ -211,13 +166,8 @@ func TestAttacherIntegration(t *testing.T) {
 
 		verifier := NewAttacher(verifyConfig)
 		verifiedSBOM, err := verifier.Verify(ctx, testImage, FormatCycloneDXJSON)
-		if err != nil {
-			t.Fatalf("Verify() error = %v", err)
-		}
-
-		if verifiedSBOM == nil {
-			t.Fatal("Verify() returned nil SBOM")
-		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(verifiedSBOM).ToNot(BeNil())
 
 		t.Log("SBOM verified successfully")
 	})

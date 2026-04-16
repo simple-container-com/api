@@ -5,35 +5,33 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestGrypeScanner_Tool(t *testing.T) {
-	scanner := NewGrypeScanner()
-	if scanner.Tool() != ScanToolGrype {
-		t.Errorf("expected tool %s, got %s", ScanToolGrype, scanner.Tool())
-	}
+	RegisterTestingT(t)
+	Expect(NewGrypeScanner().Tool()).To(Equal(ScanToolGrype))
 }
 
 func TestNewScanner_UnsupportedTool(t *testing.T) {
+	RegisterTestingT(t)
 	_, err := NewScanner("unknown-tool")
-	if err == nil {
-		t.Fatal("NewScanner(unknown) should error")
-	}
+	Expect(err).To(HaveOccurred())
 }
 
 func TestNewScanner_SupportedTools(t *testing.T) {
+	RegisterTestingT(t)
 	for _, tool := range []ScanTool{ScanToolGrype, ScanToolTrivy} {
 		s, err := NewScanner(tool)
-		if err != nil {
-			t.Errorf("NewScanner(%q) error = %v", tool, err)
-		}
-		if s == nil {
-			t.Errorf("NewScanner(%q) returned nil", tool)
-		}
+		Expect(err).ToNot(HaveOccurred(), "NewScanner(%q)", tool)
+		Expect(s).ToNot(BeNil(), "NewScanner(%q)", tool)
 	}
 }
 
 func TestNormalizeSeverity(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		input    string
 		expected Severity
@@ -52,15 +50,15 @@ func TestNormalizeSeverity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := normalizeSeverity(tt.input)
-			if result != tt.expected {
-				t.Errorf("normalizeSeverity(%s) = %s, want %s", tt.input, result, tt.expected)
-			}
+			RegisterTestingT(t)
+			Expect(normalizeSeverity(tt.input)).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestIsVersionGreaterOrEqual(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		version    string
 		minVersion string
@@ -77,16 +75,15 @@ func TestIsVersionGreaterOrEqual(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.version+"_vs_"+tt.minVersion, func(t *testing.T) {
-			result := isVersionGreaterOrEqual(tt.version, tt.minVersion)
-			if result != tt.expected {
-				t.Errorf("isVersionGreaterOrEqual(%s, %s) = %v, want %v",
-					tt.version, tt.minVersion, result, tt.expected)
-			}
+			RegisterTestingT(t)
+			Expect(isVersionGreaterOrEqual(tt.version, tt.minVersion)).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestExtractImageDigestFromGrype(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		input    string
@@ -111,15 +108,15 @@ func TestExtractImageDigestFromGrype(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractImageDigestFromGrype(tt.input)
-			if result != tt.expected {
-				t.Errorf("extractImageDigestFromGrype(%s) = %s, want %s", tt.input, result, tt.expected)
-			}
+			RegisterTestingT(t)
+			Expect(extractImageDigestFromGrype(tt.input)).To(Equal(tt.expected))
 		})
 	}
 }
 
 func TestGrypeScanner_CheckInstalled(t *testing.T) {
+	RegisterTestingT(t)
+
 	scanner := NewGrypeScanner()
 	ctx := context.Background()
 
@@ -131,6 +128,8 @@ func TestGrypeScanner_CheckInstalled(t *testing.T) {
 }
 
 func TestGrypeScanner_Version(t *testing.T) {
+	RegisterTestingT(t)
+
 	scanner := NewGrypeScanner()
 	ctx := context.Background()
 
@@ -140,18 +139,15 @@ func TestGrypeScanner_Version(t *testing.T) {
 	}
 
 	version, err := scanner.Version(ctx)
-	if err != nil {
-		t.Errorf("Version() error = %v", err)
-	}
-
-	if version == "" {
-		t.Error("Version() returned empty version")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(version).ToNot(BeEmpty())
 
 	t.Logf("Grype version: %s", version)
 }
 
 func TestGrypeScanner_CheckVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	scanner := NewGrypeScanner()
 	ctx := context.Background()
 
@@ -167,6 +163,8 @@ func TestGrypeScanner_CheckVersion(t *testing.T) {
 }
 
 func TestParseGrypeVersion(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		input   string
@@ -194,24 +192,21 @@ BuildDate:           2026-01-29T22:10:17Z`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			got, err := parseGrypeVersion(tt.input)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
+				Expect(err).To(HaveOccurred())
 				return
 			}
-			if err != nil {
-				t.Fatalf("parseGrypeVersion() error = %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("parseGrypeVersion() = %s, want %s", got, tt.want)
-			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestGrypeCommandEnv(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name      string
 		dbPresent bool
@@ -231,37 +226,30 @@ func TestGrypeCommandEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			env := grypeCommandEnv(tt.dbPresent)
-			if !containsString(env, "GRYPE_CHECK_FOR_APP_UPDATE=false") {
-				t.Fatalf("expected GRYPE_CHECK_FOR_APP_UPDATE=false in %v", env)
-			}
-			if got := containsString(env, "GRYPE_DB_AUTO_UPDATE=false"); got != tt.wantAuto {
-				t.Fatalf("GRYPE_DB_AUTO_UPDATE presence = %v, want %v", got, tt.wantAuto)
-			}
+			Expect(containsString(env, "GRYPE_CHECK_FOR_APP_UPDATE=false")).To(BeTrue())
+			Expect(containsString(env, "GRYPE_DB_AUTO_UPDATE=false")).To(Equal(tt.wantAuto))
 		})
 	}
 }
 
 func TestHasGrypeVulnerabilityDB(t *testing.T) {
+	RegisterTestingT(t)
+
 	cacheDir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
 	t.Setenv("HOME", t.TempDir())
 
-	if hasGrypeVulnerabilityDB() {
-		t.Fatal("expected no grype DB in empty cache")
-	}
+	Expect(hasGrypeVulnerabilityDB()).To(BeFalse(), "expected no grype DB in empty cache")
 
 	dbPath := filepath.Join(cacheDir, "grype", "db", "6", "vulnerability.db")
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(dbPath, []byte("db"), 0o644); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
+	err := os.MkdirAll(filepath.Dir(dbPath), 0o755)
+	Expect(err).ToNot(HaveOccurred())
+	err = os.WriteFile(dbPath, []byte("db"), 0o644)
+	Expect(err).ToNot(HaveOccurred())
 
-	if !hasGrypeVulnerabilityDB() {
-		t.Fatal("expected grype DB to be detected")
-	}
+	Expect(hasGrypeVulnerabilityDB()).To(BeTrue(), "expected grype DB to be detected")
 }
 
 func containsString(values []string, target string) bool {

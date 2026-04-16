@@ -3,25 +3,25 @@ package tools
 import (
 	"context"
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNewToolInstaller(t *testing.T) {
+	RegisterTestingT(t)
+
 	installer := NewToolInstaller()
-	if installer == nil {
-		t.Fatal("NewToolInstaller() returned nil")
-	}
-	if installer.registry == nil {
-		t.Error("Expected registry to be initialized")
-	}
+	Expect(installer).ToNot(BeNil())
+	Expect(installer.registry).ToNot(BeNil())
 }
 
 func TestToolInstallerListAvailableTools(t *testing.T) {
+	RegisterTestingT(t)
+
 	installer := NewToolInstaller()
 	tools := installer.ListAvailableTools()
 
-	if len(tools) == 0 {
-		t.Error("Expected at least some tools to be registered")
-	}
+	Expect(tools).ToNot(BeEmpty())
 
 	// Check for expected tools
 	toolNames := make(map[string]bool)
@@ -31,13 +31,13 @@ func TestToolInstallerListAvailableTools(t *testing.T) {
 
 	expectedTools := []string{"cosign", "syft", "grype", "trivy"}
 	for _, expected := range expectedTools {
-		if !toolNames[expected] {
-			t.Errorf("Expected tool %s to be in available tools", expected)
-		}
+		Expect(toolNames[expected]).To(BeTrue(), "Expected tool %s to be in available tools", expected)
 	}
 }
 
 func TestToolInstallerGetInstallURL(t *testing.T) {
+	RegisterTestingT(t)
+
 	installer := NewToolInstaller()
 
 	tests := []struct {
@@ -53,31 +53,34 @@ func TestToolInstallerGetInstallURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.toolName, func(t *testing.T) {
+			RegisterTestingT(t)
 			url, err := installer.GetInstallURL(tt.toolName)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetInstallURL(%s) error = %v, wantErr %v", tt.toolName, err, tt.wantErr)
-			}
-			if !tt.wantErr && url == "" {
-				t.Errorf("Expected non-empty install URL for %s", tt.toolName)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(url).ToNot(BeEmpty())
 			}
 		})
 	}
 }
 
 func TestToolInstallerIsToolAvailable(t *testing.T) {
+	RegisterTestingT(t)
+
 	installer := NewToolInstaller()
 	ctx := context.Background()
 
 	// Unknown tool should never be available
-	if installer.IsToolAvailable(ctx, "nonexistent-tool-that-does-not-exist") {
-		t.Error("IsToolAvailable() should return false for nonexistent tool")
-	}
+	Expect(installer.IsToolAvailable(ctx, "nonexistent-tool-that-does-not-exist")).To(BeFalse())
 
 	// Known tools: result depends on system state, but should not panic
 	_ = installer.IsToolAvailable(ctx, "cosign")
 }
 
 func TestToolInstallerGetToolCommand(t *testing.T) {
+	RegisterTestingT(t)
+
 	installer := NewToolInstaller()
 
 	tests := []struct {
@@ -92,43 +95,34 @@ func TestToolInstallerGetToolCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.toolName, func(t *testing.T) {
+			RegisterTestingT(t)
 			cmd, err := installer.GetToolCommand(tt.toolName)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetToolCommand(%s) error = %v, wantErr %v", tt.toolName, err, tt.wantErr)
-			}
-			if !tt.wantErr && cmd != tt.want {
-				t.Errorf("GetToolCommand(%s) = %s, want %s", tt.toolName, cmd, tt.want)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+				Expect(cmd).To(Equal(tt.want))
 			}
 		})
 	}
 }
 
 func TestToolRegistryGetTool(t *testing.T) {
+	RegisterTestingT(t)
+
 	registry := NewToolRegistry()
 
 	tool, err := registry.GetTool("cosign")
-	if err != nil {
-		t.Fatalf("GetTool(cosign) failed: %v", err)
-	}
-
-	if tool.Name != "cosign" {
-		t.Errorf("Expected tool name 'cosign', got '%s'", tool.Name)
-	}
-
-	if tool.Command == "" {
-		t.Error("Expected non-empty command")
-	}
-
-	if tool.MinVersion == "" {
-		t.Error("Expected non-empty minimum version")
-	}
-
-	if tool.InstallURL == "" {
-		t.Error("Expected non-empty install URL")
-	}
+	Expect(err).ToNot(HaveOccurred())
+	Expect(tool.Name).To(Equal("cosign"))
+	Expect(tool.Command).ToNot(BeEmpty())
+	Expect(tool.MinVersion).ToNot(BeEmpty())
+	Expect(tool.InstallURL).ToNot(BeEmpty())
 }
 
 func TestToolRegistryHasTool(t *testing.T) {
+	RegisterTestingT(t)
+
 	registry := NewToolRegistry()
 
 	tests := []struct {
@@ -144,25 +138,22 @@ func TestToolRegistryHasTool(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := registry.HasTool(tt.name)
-			if got != tt.want {
-				t.Errorf("HasTool(%s) = %v, want %v", tt.name, got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(registry.HasTool(tt.name)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestToolRegistryCount(t *testing.T) {
-	registry := NewToolRegistry()
-	count := registry.Count()
+	RegisterTestingT(t)
 
-	// Should have at least the default tools
-	if count < 4 {
-		t.Errorf("Expected at least 4 tools, got %d", count)
-	}
+	registry := NewToolRegistry()
+	Expect(registry.Count()).To(BeNumerically(">=", 4))
 }
 
 func TestToolRegistryGetToolsByCategory(t *testing.T) {
+	RegisterTestingT(t)
+
 	registry := NewToolRegistry()
 
 	tests := []struct {
@@ -177,11 +168,9 @@ func TestToolRegistryGetToolsByCategory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.category, func(t *testing.T) {
+			RegisterTestingT(t)
 			tools := registry.GetToolsByCategory(tt.category)
-			if len(tools) < tt.expectedMin {
-				t.Errorf("Expected at least %d tools for category %s, got %d",
-					tt.expectedMin, tt.category, len(tools))
-			}
+			Expect(len(tools)).To(BeNumerically(">=", tt.expectedMin))
 
 			toolNames := make(map[string]bool)
 			for _, tool := range tools {
@@ -189,15 +178,15 @@ func TestToolRegistryGetToolsByCategory(t *testing.T) {
 			}
 
 			for _, expected := range tt.shouldHave {
-				if !toolNames[expected] {
-					t.Errorf("Expected tool %s in category %s", expected, tt.category)
-				}
+				Expect(toolNames[expected]).To(BeTrue(), "Expected tool %s in category %s", expected, tt.category)
 			}
 		})
 	}
 }
 
 func TestToolRegistryRegisterAndUnregister(t *testing.T) {
+	RegisterTestingT(t)
+
 	registry := NewToolRegistry()
 
 	customTool := ToolMetadata{
@@ -211,47 +200,38 @@ func TestToolRegistryRegisterAndUnregister(t *testing.T) {
 
 	// Register
 	registry.Register(customTool)
-
-	if !registry.HasTool("custom-tool") {
-		t.Error("Expected custom tool to be registered")
-	}
+	Expect(registry.HasTool("custom-tool")).To(BeTrue())
 
 	// Unregister
 	registry.Unregister("custom-tool")
-
-	if registry.HasTool("custom-tool") {
-		t.Error("Expected custom tool to be unregistered")
-	}
+	Expect(registry.HasTool("custom-tool")).To(BeFalse())
 }
 
 func TestInstallScriptVersionValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	validVersions := []string{"2.4.1", "0.98.0", "1.0.0-rc1", "3.2.1-beta.2"}
 	invalidVersions := []string{"1.0; rm -rf /", "$(whoami)", "v1.0.0", "latest", ""}
 
 	for _, v := range validVersions {
 		_, err := installScript("cosign", v, "/tmp")
-		if err != nil {
-			t.Errorf("installScript(cosign, %q) error = %v, want nil", v, err)
-		}
+		Expect(err).ToNot(HaveOccurred(), "installScript(cosign, %q) should succeed", v)
 	}
 	for _, v := range invalidVersions {
 		_, err := installScript("cosign", v, "/tmp")
-		if err == nil {
-			t.Errorf("installScript(cosign, %q) = nil error, want validation error", v)
-		}
+		Expect(err).To(HaveOccurred(), "installScript(cosign, %q) should fail", v)
 	}
 }
 
 func TestInstallScriptPlatformDetection(t *testing.T) {
+	RegisterTestingT(t)
+
 	// Verify syft/grype scripts detect OS/arch at runtime
 	for _, tool := range []string{"syft", "grype"} {
 		script, err := installScript(tool, "0.98.0", "/usr/local/bin")
-		if err != nil {
-			t.Fatalf("installScript(%s) error = %v", tool, err)
-		}
-		if !containsAll(script, "uname -s", "uname -m", "${OS}", "${ARCH}") {
-			t.Errorf("installScript(%s) should detect OS/arch at runtime", tool)
-		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(containsAll(script, "uname -s", "uname -m", "${OS}", "${ARCH}")).To(BeTrue(),
+			"installScript(%s) should detect OS/arch at runtime", tool)
 	}
 }
 

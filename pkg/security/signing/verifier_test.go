@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNewKeylessVerifier(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name           string
 		oidcIssuer     string
@@ -30,24 +34,21 @@ func TestNewKeylessVerifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			verifier := NewKeylessVerifier(tt.oidcIssuer, tt.identityRegexp, tt.timeout)
-			if verifier == nil {
-				t.Fatal("NewKeylessVerifier() returned nil")
-			}
-			if verifier.OIDCIssuer != tt.oidcIssuer {
-				t.Errorf("OIDCIssuer = %v, want %v", verifier.OIDCIssuer, tt.oidcIssuer)
-			}
-			if verifier.IdentityRegexp != tt.identityRegexp {
-				t.Errorf("IdentityRegexp = %v, want %v", verifier.IdentityRegexp, tt.identityRegexp)
-			}
-			if tt.timeout == 0 && verifier.Timeout != 2*time.Minute {
-				t.Errorf("Timeout = %v, want default 2m", verifier.Timeout)
+			Expect(verifier).ToNot(BeNil())
+			Expect(verifier.OIDCIssuer).To(Equal(tt.oidcIssuer))
+			Expect(verifier.IdentityRegexp).To(Equal(tt.identityRegexp))
+			if tt.timeout == 0 {
+				Expect(verifier.Timeout).To(Equal(2 * time.Minute))
 			}
 		})
 	}
 }
 
 func TestNewKeyBasedVerifier(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name      string
 		publicKey string
@@ -67,21 +68,20 @@ func TestNewKeyBasedVerifier(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			verifier := NewKeyBasedVerifier(tt.publicKey, tt.timeout)
-			if verifier == nil {
-				t.Fatal("NewKeyBasedVerifier() returned nil")
-			}
-			if verifier.PublicKey != tt.publicKey {
-				t.Errorf("PublicKey = %v, want %v", verifier.PublicKey, tt.publicKey)
-			}
-			if tt.timeout == 0 && verifier.Timeout != 2*time.Minute {
-				t.Errorf("Timeout = %v, want default 2m", verifier.Timeout)
+			Expect(verifier).ToNot(BeNil())
+			Expect(verifier.PublicKey).To(Equal(tt.publicKey))
+			if tt.timeout == 0 {
+				Expect(verifier.Timeout).To(Equal(2 * time.Minute))
 			}
 		})
 	}
 }
 
 func TestVerifier_Verify_InvalidConfig(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		verifier *Verifier
@@ -114,22 +114,24 @@ func TestVerifier_Verify_InvalidConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			ctx := context.Background()
 			_, err := tt.verifier.Verify(ctx, "test-image:latest")
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Verify() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestParseCertificateInfo(t *testing.T) {
+	RegisterTestingT(t)
+
 	output := "Some verification output"
 	info := parseCertificateInfo(output)
-
-	if info == nil {
-		t.Error("parseCertificateInfo() returned nil")
-	}
+	Expect(info).ToNot(BeNil())
 }
 
 type mockPolicyChecker struct {
@@ -144,6 +146,8 @@ func (m *mockPolicyChecker) Check(result *VerifyResult) error {
 }
 
 func TestVerifier_VerifyWithPolicy(t *testing.T) {
+	RegisterTestingT(t)
+
 	verifier := NewKeyBasedVerifier("/path/to/test.pub", 2*time.Minute)
 	ctx := context.Background()
 
@@ -166,9 +170,12 @@ func TestVerifier_VerifyWithPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			_, err := verifier.VerifyWithPolicy(ctx, "test-image:latest", tt.policy)
-			if (err != nil) != tt.expectError {
-				t.Errorf("VerifyWithPolicy() error = %v, expectError %v", err, tt.expectError)
+			if tt.expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}

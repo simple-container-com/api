@@ -3,10 +3,14 @@ package security
 import (
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
 func TestSecurityConfigValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *SecurityConfig
@@ -85,15 +89,20 @@ func TestSecurityConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestSBOMConfigValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *SBOMConfig
@@ -153,15 +162,20 @@ func TestSBOMConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestScanConfigValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *ScanConfig
@@ -215,15 +229,20 @@ func TestScanConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestSeverityValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		severity Severity
 		wantErr  bool
@@ -238,15 +257,20 @@ func TestSeverityValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.severity), func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.severity.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestDefectDojoConfigValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *DefectDojoConfig
@@ -316,15 +340,20 @@ func TestDefectDojoConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestSeverityIsAtLeast(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name     string
 		severity Severity
@@ -343,48 +372,31 @@ func TestSeverityIsAtLeast(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.severity.IsAtLeast(tt.other)
-			if got != tt.want {
-				t.Errorf("IsAtLeast() = %v, want %v", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.severity.IsAtLeast(tt.other)).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestDefaultSecurityConfig(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := DefaultSecurityConfig()
-
-	if config == nil {
-		t.Fatal("DefaultSecurityConfig() returned nil")
-	}
-
-	if config.Enabled {
-		t.Error("Expected default config to be disabled")
-	}
-
-	if config.Signing == nil {
-		t.Error("Expected signing config to be present")
-	}
-
-	if config.SBOM == nil {
-		t.Error("Expected SBOM config to be present")
-	}
-
-	if config.Provenance == nil {
-		t.Error("Expected provenance config to be present")
-	}
-
-	if config.Scan == nil {
-		t.Error("Expected scan config to be present")
-	}
+	Expect(config).ToNot(BeNil())
+	Expect(config.Enabled).To(BeFalse())
+	Expect(config.Signing).ToNot(BeNil())
+	Expect(config.SBOM).ToNot(BeNil())
+	Expect(config.Provenance).ToNot(BeNil())
+	Expect(config.Scan).ToNot(BeNil())
 
 	// Validate default config
-	if err := config.Validate(); err != nil {
-		t.Errorf("Default config should be valid: %v", err)
-	}
+	err := config.Validate()
+	Expect(err).ToNot(HaveOccurred())
 }
 
 func TestScanConfig_DuplicateTools(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		tools   []ScanToolConfig
@@ -419,17 +431,23 @@ func TestScanConfig_DuplicateTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			cfg := &ScanConfig{Enabled: true, Tools: tt.tools}
 			err := cfg.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestDefectDojoConfig_Sanitize(t *testing.T) {
+	RegisterTestingT(t)
+
 	t.Run("redacts non-empty api key", func(t *testing.T) {
+		RegisterTestingT(t)
 		cfg := &DefectDojoConfig{
 			Enabled:      true,
 			URL:          "https://dojo.example.com",
@@ -437,24 +455,20 @@ func TestDefectDojoConfig_Sanitize(t *testing.T) {
 			EngagementID: 1,
 		}
 		sanitized := cfg.Sanitize()
-		if sanitized.APIKey != "[REDACTED]" {
-			t.Errorf("Sanitize() APIKey = %q, want %q", sanitized.APIKey, "[REDACTED]")
-		}
+		Expect(sanitized.APIKey).To(Equal("[REDACTED]"))
 		// Original must be unchanged.
-		if cfg.APIKey != "super-secret-token" {
-			t.Errorf("Sanitize() mutated original APIKey to %q", cfg.APIKey)
-		}
+		Expect(cfg.APIKey).To(Equal("super-secret-token"))
 	})
 
 	t.Run("empty api key stays empty", func(t *testing.T) {
+		RegisterTestingT(t)
 		cfg := &DefectDojoConfig{}
 		sanitized := cfg.Sanitize()
-		if sanitized.APIKey != "" {
-			t.Errorf("Sanitize() empty APIKey = %q, want empty string", sanitized.APIKey)
-		}
+		Expect(sanitized.APIKey).To(BeEmpty())
 	})
 
 	t.Run("other fields are preserved", func(t *testing.T) {
+		RegisterTestingT(t)
 		cfg := &DefectDojoConfig{
 			Enabled:        true,
 			URL:            "https://dojo.example.com",
@@ -464,19 +478,15 @@ func TestDefectDojoConfig_Sanitize(t *testing.T) {
 			ProductName:    "myapp",
 		}
 		sanitized := cfg.Sanitize()
-		if sanitized.URL != cfg.URL {
-			t.Errorf("Sanitize() changed URL: got %q", sanitized.URL)
-		}
-		if sanitized.EngagementID != cfg.EngagementID {
-			t.Errorf("Sanitize() changed EngagementID: got %d", sanitized.EngagementID)
-		}
-		if sanitized.ProductName != cfg.ProductName {
-			t.Errorf("Sanitize() changed ProductName: got %q", sanitized.ProductName)
-		}
+		Expect(sanitized.URL).To(Equal(cfg.URL))
+		Expect(sanitized.EngagementID).To(Equal(cfg.EngagementID))
+		Expect(sanitized.ProductName).To(Equal(cfg.ProductName))
 	})
 }
 
 func TestProvenanceConfigValidation(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		config  *ProvenanceConfig
@@ -506,9 +516,12 @@ func TestProvenanceConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}

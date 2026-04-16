@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "github.com/onsi/gomega"
 )
 
 // Integration tests that run real scanner commands
@@ -14,6 +16,7 @@ func TestGrypeScanner_Scan_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	RegisterTestingT(t)
 
 	scanner := NewGrypeScanner()
 	ctx := context.Background()
@@ -29,29 +32,15 @@ func TestGrypeScanner_Scan_Integration(t *testing.T) {
 	t.Logf("Running grype scan on %s (this may take a while)...", testImage)
 
 	result, err := scanner.Scan(ctx, testImage)
-	if err != nil {
-		if isEnvironmentalScanError(err) {
-			t.Skipf("Skipping grype integration test due to environment constraints: %v", err)
-		}
-		t.Fatalf("Scan() error = %v", err)
+	if err != nil && isEnvironmentalScanError(err) {
+		t.Skipf("Skipping grype integration test due to environment constraints: %v", err)
 	}
+	Expect(err).ToNot(HaveOccurred())
 
-	if result == nil {
-		t.Fatal("Scan() returned nil result")
-	}
-
-	// Validate result structure
-	if result.Tool != ScanToolGrype {
-		t.Errorf("result.Tool = %s, want %s", result.Tool, ScanToolGrype)
-	}
-
-	if result.ScannedAt.IsZero() {
-		t.Error("result.ScannedAt is zero")
-	}
-
-	if result.Digest == "" {
-		t.Error("result.Digest is empty")
-	}
+	Expect(result).ToNot(BeNil())
+	Expect(result.Tool).To(Equal(ScanToolGrype))
+	Expect(result.ScannedAt.IsZero()).To(BeFalse())
+	Expect(result.Digest).ToNot(BeEmpty())
 
 	// Validate summary
 	t.Logf("Scan summary: %s", result.Summary.String())
@@ -64,19 +53,10 @@ func TestGrypeScanner_Scan_Integration(t *testing.T) {
 		if i >= 5 {
 			break // Just check first 5
 		}
-
-		if vuln.ID == "" {
-			t.Errorf("vulnerability %d: ID is empty", i)
-		}
-		if vuln.Package == "" {
-			t.Errorf("vulnerability %d: Package is empty", i)
-		}
-		if vuln.Version == "" {
-			t.Errorf("vulnerability %d: Version is empty", i)
-		}
-		if vuln.Severity == "" {
-			t.Errorf("vulnerability %d: Severity is empty", i)
-		}
+		Expect(vuln.ID).ToNot(BeEmpty(), "vulnerability %d: ID is empty", i)
+		Expect(vuln.Package).ToNot(BeEmpty(), "vulnerability %d: Package is empty", i)
+		Expect(vuln.Version).ToNot(BeEmpty(), "vulnerability %d: Version is empty", i)
+		Expect(vuln.Severity).ToNot(BeEmpty(), "vulnerability %d: Severity is empty", i)
 
 		t.Logf("Sample vuln %d: %s - %s (%s) in %s@%s",
 			i, vuln.ID, vuln.Severity, vuln.Package, vuln.Version, vuln.FixedIn)
@@ -87,6 +67,7 @@ func TestTrivyScanner_Scan_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	RegisterTestingT(t)
 
 	scanner := NewTrivyScanner()
 	ctx := context.Background()
@@ -102,25 +83,14 @@ func TestTrivyScanner_Scan_Integration(t *testing.T) {
 	t.Logf("Running trivy scan on %s (this may take a while)...", testImage)
 
 	result, err := scanner.Scan(ctx, testImage)
-	if err != nil {
-		if isEnvironmentalScanError(err) {
-			t.Skipf("Skipping trivy integration test due to environment constraints: %v", err)
-		}
-		t.Fatalf("Scan() error = %v", err)
+	if err != nil && isEnvironmentalScanError(err) {
+		t.Skipf("Skipping trivy integration test due to environment constraints: %v", err)
 	}
+	Expect(err).ToNot(HaveOccurred())
 
-	if result == nil {
-		t.Fatal("Scan() returned nil result")
-	}
-
-	// Validate result structure
-	if result.Tool != ScanToolTrivy {
-		t.Errorf("result.Tool = %s, want %s", result.Tool, ScanToolTrivy)
-	}
-
-	if result.ScannedAt.IsZero() {
-		t.Error("result.ScannedAt is zero")
-	}
+	Expect(result).ToNot(BeNil())
+	Expect(result.Tool).To(Equal(ScanToolTrivy))
+	Expect(result.ScannedAt.IsZero()).To(BeFalse())
 
 	// Validate summary
 	t.Logf("Scan summary: %s", result.Summary.String())
@@ -131,16 +101,9 @@ func TestTrivyScanner_Scan_Integration(t *testing.T) {
 		if i >= 5 {
 			break // Just check first 5
 		}
-
-		if vuln.ID == "" {
-			t.Errorf("vulnerability %d: ID is empty", i)
-		}
-		if vuln.Package == "" {
-			t.Errorf("vulnerability %d: Package is empty", i)
-		}
-		if vuln.Severity == "" {
-			t.Errorf("vulnerability %d: Severity is empty", i)
-		}
+		Expect(vuln.ID).ToNot(BeEmpty(), "vulnerability %d: ID is empty", i)
+		Expect(vuln.Package).ToNot(BeEmpty(), "vulnerability %d: Package is empty", i)
+		Expect(vuln.Severity).ToNot(BeEmpty(), "vulnerability %d: Severity is empty", i)
 
 		t.Logf("Sample vuln %d: %s - %s (%s) in %s",
 			i, vuln.ID, vuln.Severity, vuln.Package, vuln.Version)
@@ -151,6 +114,7 @@ func TestMergeResults_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	RegisterTestingT(t)
 
 	grypeScanner := NewGrypeScanner()
 	trivyScanner := NewTrivyScanner()
@@ -198,14 +162,8 @@ func TestMergeResults_Integration(t *testing.T) {
 
 	// Merge results
 	merged := MergeResults(results...)
-
-	if merged == nil {
-		t.Fatal("MergeResults returned nil")
-	}
-
-	if merged.Tool != ScanToolAll {
-		t.Errorf("merged.Tool = %s, want %s", merged.Tool, ScanToolAll)
-	}
+	Expect(merged).ToNot(BeNil())
+	Expect(merged.Tool).To(Equal(ScanToolAll))
 
 	t.Logf("Merged result: %s", merged.Summary.String())
 	t.Logf("Total after deduplication: %d", merged.Summary.Total)
@@ -216,17 +174,16 @@ func TestMergeResults_Integration(t *testing.T) {
 		totalBefore += r.Summary.Total
 	}
 
-	if merged.Summary.Total > totalBefore {
-		t.Errorf("merged total %d > sum of individual totals %d", merged.Summary.Total, totalBefore)
-	}
+	Expect(merged.Summary.Total).To(BeNumerically("<=", totalBefore))
 
-	t.Logf("Deduplication: %d → %d vulnerabilities", totalBefore, merged.Summary.Total)
+	t.Logf("Deduplication: %d -> %d vulnerabilities", totalBefore, merged.Summary.Total)
 }
 
 func TestPolicyEnforcer_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	RegisterTestingT(t)
 
 	scanner := NewGrypeScanner()
 	ctx := context.Background()
@@ -239,12 +196,10 @@ func TestPolicyEnforcer_Integration(t *testing.T) {
 	testImage := "alpine:3.17"
 
 	result, err := scanner.Scan(ctx, testImage)
-	if err != nil {
-		if isEnvironmentalScanError(err) {
-			t.Skipf("Skipping policy integration test due to environment constraints: %v", err)
-		}
-		t.Fatalf("Scan() error = %v", err)
+	if err != nil && isEnvironmentalScanError(err) {
+		t.Skipf("Skipping policy integration test due to environment constraints: %v", err)
 	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Test different policy levels
 	policies := []struct {
@@ -259,6 +214,7 @@ func TestPolicyEnforcer_Integration(t *testing.T) {
 
 	for _, policy := range policies {
 		t.Run(string(policy.failOn), func(t *testing.T) {
+			RegisterTestingT(t)
 			config := &Config{
 				FailOn: policy.failOn,
 			}
@@ -267,10 +223,9 @@ func TestPolicyEnforcer_Integration(t *testing.T) {
 			err := enforcer.Enforce(result)
 			blocked := (err != nil)
 
-			if blocked != policy.shouldBlock {
-				t.Errorf("policy %s: blocked = %v, want %v (summary: %s)",
-					policy.failOn, blocked, policy.shouldBlock, result.Summary.String())
-			}
+			Expect(blocked).To(Equal(policy.shouldBlock),
+				"policy %s: blocked = %v, want %v (summary: %s)",
+				policy.failOn, blocked, policy.shouldBlock, result.Summary.String())
 
 			if blocked {
 				t.Logf("Policy %s correctly blocked: %v", policy.failOn, err)
@@ -285,6 +240,7 @@ func TestScanResult_ValidateDigest_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
+	RegisterTestingT(t)
 
 	scanner := NewGrypeScanner()
 	ctx := context.Background()
@@ -297,28 +253,24 @@ func TestScanResult_ValidateDigest_Integration(t *testing.T) {
 	testImage := "alpine:3.17"
 
 	result, err := scanner.Scan(ctx, testImage)
-	if err != nil {
-		if isEnvironmentalScanError(err) {
-			t.Skipf("Skipping digest integration test due to environment constraints: %v", err)
-		}
-		t.Fatalf("Scan() error = %v", err)
+	if err != nil && isEnvironmentalScanError(err) {
+		t.Skipf("Skipping digest integration test due to environment constraints: %v", err)
 	}
+	Expect(err).ToNot(HaveOccurred())
 
 	// Validate digest
-	if err := result.ValidateDigest(); err != nil {
-		t.Errorf("ValidateDigest() error = %v", err)
-	}
+	Expect(result.ValidateDigest()).ToNot(HaveOccurred())
 
 	// Test with modified result
 	originalDigest := result.Digest
 	result.Digest = "sha256:invalid"
-	if err := result.ValidateDigest(); err == nil {
-		t.Error("ValidateDigest() should fail with invalid digest")
-	}
+	Expect(result.ValidateDigest()).To(HaveOccurred())
 	result.Digest = originalDigest
 }
 
 func TestVulnerabilitySummary_Methods(t *testing.T) {
+	RegisterTestingT(t)
+
 	tests := []struct {
 		name    string
 		summary VulnerabilitySummary
@@ -344,15 +296,15 @@ func TestVulnerabilitySummary_Methods(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.summary.String()
-			if got != tt.want {
-				t.Errorf("String() = %q, want %q", got, tt.want)
-			}
+			RegisterTestingT(t)
+			Expect(tt.summary.String()).To(Equal(tt.want))
 		})
 	}
 }
 
 func TestNewScanResult(t *testing.T) {
+	RegisterTestingT(t)
+
 	vulns := []Vulnerability{
 		{ID: "CVE-2023-0001", Severity: SeverityCritical, Package: "pkg1"},
 		{ID: "CVE-2023-0002", Severity: SeverityHigh, Package: "pkg2"},
@@ -361,42 +313,20 @@ func TestNewScanResult(t *testing.T) {
 
 	result := NewScanResult("sha256:test", ScanToolGrype, vulns)
 
-	if result.ImageDigest != "sha256:test" {
-		t.Errorf("ImageDigest = %s, want sha256:test", result.ImageDigest)
-	}
-
-	if result.Tool != ScanToolGrype {
-		t.Errorf("Tool = %s, want %s", result.Tool, ScanToolGrype)
-	}
-
-	if len(result.Vulnerabilities) != 3 {
-		t.Errorf("len(Vulnerabilities) = %d, want 3", len(result.Vulnerabilities))
-	}
-
-	if result.Summary.Total != 3 {
-		t.Errorf("Summary.Total = %d, want 3", result.Summary.Total)
-	}
-
-	if result.Summary.Critical != 1 {
-		t.Errorf("Summary.Critical = %d, want 1", result.Summary.Critical)
-	}
-
-	if result.ScannedAt.IsZero() {
-		t.Error("ScannedAt is zero")
-	}
-
-	if result.Digest == "" {
-		t.Error("Digest is empty")
-	}
+	Expect(result.ImageDigest).To(Equal("sha256:test"))
+	Expect(result.Tool).To(Equal(ScanToolGrype))
+	Expect(result.Vulnerabilities).To(HaveLen(3))
+	Expect(result.Summary.Total).To(Equal(3))
+	Expect(result.Summary.Critical).To(Equal(1))
+	Expect(result.ScannedAt.IsZero()).To(BeFalse())
+	Expect(result.Digest).ToNot(BeEmpty())
 
 	// Test digest calculation consistency
 	digest1 := result.calculateDigest()
 	time.Sleep(10 * time.Millisecond)
 	digest2 := result.calculateDigest()
 
-	if digest1 != digest2 {
-		t.Error("Digest calculation is not consistent")
-	}
+	Expect(digest1).To(Equal(digest2))
 }
 
 func isEnvironmentalScanError(err error) bool {

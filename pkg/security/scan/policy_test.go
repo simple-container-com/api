@@ -2,9 +2,13 @@ package scan
 
 import (
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestPolicyEnforcer_Enforce_Critical(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: SeverityCritical,
 	}
@@ -49,18 +53,21 @@ func TestPolicyEnforcer_Enforce_Critical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &ScanResult{
-				Summary: tt.summary,
-			}
+			RegisterTestingT(t)
+			result := &ScanResult{Summary: tt.summary}
 			err := enforcer.Enforce(result)
-			if (err != nil) != tt.shouldErr {
-				t.Errorf("Enforce() error = %v, shouldErr = %v", err, tt.shouldErr)
+			if tt.shouldErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestPolicyEnforcer_Enforce_High(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: SeverityHigh,
 	}
@@ -105,18 +112,21 @@ func TestPolicyEnforcer_Enforce_High(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &ScanResult{
-				Summary: tt.summary,
-			}
+			RegisterTestingT(t)
+			result := &ScanResult{Summary: tt.summary}
 			err := enforcer.Enforce(result)
-			if (err != nil) != tt.shouldErr {
-				t.Errorf("Enforce() error = %v, shouldErr = %v", err, tt.shouldErr)
+			if tt.shouldErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestPolicyEnforcer_Enforce_Medium(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: SeverityMedium,
 	}
@@ -151,18 +161,21 @@ func TestPolicyEnforcer_Enforce_Medium(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &ScanResult{
-				Summary: tt.summary,
-			}
+			RegisterTestingT(t)
+			result := &ScanResult{Summary: tt.summary}
 			err := enforcer.Enforce(result)
-			if (err != nil) != tt.shouldErr {
-				t.Errorf("Enforce() error = %v, shouldErr = %v", err, tt.shouldErr)
+			if tt.shouldErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestPolicyEnforcer_Enforce_Low(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: SeverityLow,
 	}
@@ -197,18 +210,21 @@ func TestPolicyEnforcer_Enforce_Low(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &ScanResult{
-				Summary: tt.summary,
-			}
+			RegisterTestingT(t)
+			result := &ScanResult{Summary: tt.summary}
 			err := enforcer.Enforce(result)
-			if (err != nil) != tt.shouldErr {
-				t.Errorf("Enforce() error = %v, shouldErr = %v", err, tt.shouldErr)
+			if tt.shouldErr {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestPolicyEnforcer_ShouldBlock(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: SeverityCritical,
 	}
@@ -237,46 +253,42 @@ func TestPolicyEnforcer_ShouldBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &ScanResult{
-				Summary: tt.summary,
-			}
-			blocked := enforcer.ShouldBlock(result)
-			if blocked != tt.shouldBlock {
-				t.Errorf("ShouldBlock() = %v, want %v", blocked, tt.shouldBlock)
-			}
+			RegisterTestingT(t)
+			result := &ScanResult{Summary: tt.summary}
+			Expect(enforcer.ShouldBlock(result)).To(Equal(tt.shouldBlock))
 		})
 	}
 }
 
 func TestPolicyEnforcer_UnknownSeverity(t *testing.T) {
+	RegisterTestingT(t)
+
 	cfg := &Config{FailOn: "bogus"}
 	enforcer := NewPolicyEnforcer(cfg)
 
 	t.Run("blocks when any vulnerability found", func(t *testing.T) {
+		RegisterTestingT(t)
 		result := &ScanResult{
 			Summary: VulnerabilitySummary{Total: 1, Low: 1},
 		}
 		err := enforcer.Enforce(result)
-		if err == nil {
-			t.Fatal("Enforce() should block on unknown severity when vulnerabilities are present")
-		}
+		Expect(err).To(HaveOccurred())
 		var pve *PolicyViolationError
-		if !isPolicyViolation(err, &pve) {
-			t.Errorf("Enforce() error type = %T, want *PolicyViolationError", err)
-		}
+		Expect(isPolicyViolation(err, &pve)).To(BeTrue())
 	})
 
 	t.Run("passes when no vulnerabilities", func(t *testing.T) {
+		RegisterTestingT(t)
 		result := &ScanResult{
 			Summary: VulnerabilitySummary{},
 		}
-		if err := enforcer.Enforce(result); err != nil {
-			t.Errorf("Enforce() unexpected error = %v", err)
-		}
+		Expect(enforcer.Enforce(result)).ToNot(HaveOccurred())
 	})
 }
 
 func TestPolicyViolationError_IsDistinctType(t *testing.T) {
+	RegisterTestingT(t)
+
 	cfg := &Config{FailOn: SeverityCritical}
 	enforcer := NewPolicyEnforcer(cfg)
 
@@ -284,20 +296,12 @@ func TestPolicyViolationError_IsDistinctType(t *testing.T) {
 		Summary: VulnerabilitySummary{Critical: 1},
 	}
 	err := enforcer.Enforce(result)
-	if err == nil {
-		t.Fatal("expected PolicyViolationError, got nil")
-	}
+	Expect(err).To(HaveOccurred())
 
 	var pve *PolicyViolationError
-	if !isPolicyViolation(err, &pve) {
-		t.Fatalf("error type = %T, want *PolicyViolationError", err)
-	}
-	if pve.Message == "" {
-		t.Error("PolicyViolationError.Message must not be empty")
-	}
-	if pve.Error() != pve.Message {
-		t.Errorf("Error() = %q, want %q", pve.Error(), pve.Message)
-	}
+	Expect(isPolicyViolation(err, &pve)).To(BeTrue())
+	Expect(pve.Message).ToNot(BeEmpty())
+	Expect(pve.Error()).To(Equal(pve.Message))
 }
 
 // isPolicyViolation is a helper that mirrors errors.As without importing errors in this package.
@@ -310,18 +314,19 @@ func isPolicyViolation(err error, target **PolicyViolationError) bool {
 }
 
 func TestPolicyEnforcer_Enforce_NilResult(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: SeverityCritical,
 	}
 	enforcer := NewPolicyEnforcer(config)
 
-	err := enforcer.Enforce(nil)
-	if err != nil {
-		t.Errorf("Enforce(nil) should not error, got: %v", err)
-	}
+	Expect(enforcer.Enforce(nil)).ToNot(HaveOccurred())
 }
 
 func TestPolicyEnforcer_Enforce_NoFailOn(t *testing.T) {
+	RegisterTestingT(t)
+
 	config := &Config{
 		FailOn: "",
 	}
@@ -334,8 +339,5 @@ func TestPolicyEnforcer_Enforce_NoFailOn(t *testing.T) {
 		},
 	}
 
-	err := enforcer.Enforce(result)
-	if err != nil {
-		t.Errorf("Enforce() with no failOn should not error, got: %v", err)
-	}
+	Expect(enforcer.Enforce(result)).ToNot(HaveOccurred())
 }
