@@ -1,9 +1,7 @@
 package docker
 
 import (
-	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -136,8 +134,6 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	imageName := image.Name
 
 	// DefectDojo engagement: "PR-{number}" for PR deploys, configured name for main.
-	// PR environments use "prNNNN" format (digits only after "pr").
-	// Must not match "prod", "production", or other pr-prefixed env names.
 	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
 		if strings.HasPrefix(environment, "pr") {
 			num := strings.TrimPrefix(environment, "pr")
@@ -150,47 +146,14 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
 
-	// Ensure registry credentials are available for cosign, grype, trivy, and syft.
-	// The Pulumi Docker provider uses its own auth mechanism (RegistryArgs) that
-	// doesn't populate ~/.docker/config.json. Security tools read credentials from
-	// this file. We write it directly instead of using 'docker login' because the
-	// Docker CLI may not be installed (e.g., SC GitHub Action Docker containers).
-	if image.Registry.Server != nil {
-		var loginInputs sdk.ArrayOutput
-		if image.Registry.Password != nil && image.Registry.Username != nil {
-			loginInputs = sdk.All(image.Registry.Server, image.Registry.Username, image.Registry.Password)
-		} else if image.Registry.Password != nil {
-			loginInputs = sdk.All(image.Registry.Server, sdk.String(""), image.Registry.Password)
-		} else {
-			loginInputs = sdk.All(image.Registry.Server, sdk.String(""), sdk.String(""))
-		}
-		loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
-			Create: loginInputs.ApplyT(func(args []interface{}) string {
-				// Use resolveStringArg because sdk.All may pass through *string
-				// (from sdk.StringPtr in RegistryArgs) without dereferencing.
-				// A bare .(string) type assertion silently returns "" for *string.
-				server := resolveStringArg(args[0])
-				username := resolveStringArg(args[1])
-				password := resolveStringArg(args[2])
-				if password == "" {
-					return "echo 'WARNING: Registry password is empty — security tools may fail to authenticate. Check RegistryArgs credential flow.'"
-				}
-				if username == "" {
-					username = "_token"
-				}
-				auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-				return writeDockerConfigScript(server, auth)
-			}).(sdk.StringOutput),
-		}, sdk.DependsOn(baseDeps))
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create registry login for image %q", imageName)
-		}
-		baseDeps = []sdk.Resource{loginCmd}
+	baseDeps, err := createRegistryLogin(ctx, image, imageName, baseDeps)
+	if err != nil {
+		return nil, err
 	}
 
 	softFail := security.Scan != nil && security.Scan.SoftFail
 
-	// --- Scan (parallel from push, reports findings, gates sign only when softFail=false) ---
+	// --- Scan ---
 	var scanGate sdk.Resource
 	if security.Scan != nil && security.Scan.Enabled {
 		scanCmd, err := createScanCommands(ctx, stack, securityImageRef, image, baseDeps)
@@ -200,226 +163,30 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		scanGate = scanCmd
 	}
 
-	// signDeps controls whether sign waits for scan.
-	// softFail=true  → sign starts immediately after push (velocity)
-	// softFail=false → sign waits for scan to pass (enforcement)
 	signDeps := baseDeps
 	if !softFail && scanGate != nil {
 		signDeps = []sdk.Resource{scanGate}
 	}
 
 	// --- Sign + Verify ---
-	var signCmd *local.Command
-	if security.Signing != nil && security.Signing.Enabled {
-		var err error
-		signCmd, err = newSecurityCommand(ctx, fmt.Sprintf("sign-%s", imageName), securityImageRef,
-			func(img string) []string {
-				args := []string{"sc", "image", "sign", "--image", img}
-				return append(args, signingCLIArgs(security.Signing)...)
-			}, "", signingCommandEnvironment(security.Signing), signDeps)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create sign command for image %q", imageName)
-		}
+	signCmd, verifyCmd, err := createSignVerifyCommands(ctx, security, securityImageRef, imageName, signDeps)
+	if err != nil {
+		return nil, err
 	}
 
-	var verifyCmd *local.Command
-	if signCmd != nil && security.Signing.Verify != nil && security.Signing.Verify.Enabled {
-		if security.Signing.Keyless {
-			if security.Signing.Verify.OIDCIssuer == "" {
-				return nil, errors.Errorf("signing.verify.oidcIssuer is required for keyless verification of image %q", imageName)
-			}
-			if security.Signing.Verify.IdentityRegexp == "" {
-				return nil, errors.Errorf("signing.verify.identityRegexp is required for keyless verification of image %q", imageName)
-			}
-		} else if security.Signing.PublicKey == "" {
-			return nil, errors.Errorf("signing.publicKey is required for key-based verification of image %q", imageName)
-		}
-
-		var err error
-		verifyCmd, err = newSecurityCommand(ctx, fmt.Sprintf("verify-%s", imageName), securityImageRef,
-			func(img string) []string {
-				args := []string{"sc", "image", "verify", "--image", img}
-				if security.Signing.Keyless {
-					args = append(args,
-						"--oidc-issuer", security.Signing.Verify.OIDCIssuer,
-						"--identity-regexp", security.Signing.Verify.IdentityRegexp,
-					)
-				} else {
-					args = append(args, "--public-key", security.Signing.PublicKey)
-				}
-				return args
-			}, "", verifyCommandEnvironment(security.Signing), []sdk.Resource{signCmd})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create verify command for image %q", imageName)
-		}
+	// --- SBOM ---
+	sbomResource, err := createSBOMCommands(ctx, security, securityImageRef, imageName, image, baseDeps, signCmd)
+	if err != nil {
+		return nil, err
 	}
 
-	// --- SBOM Generation + Attestation (parallel from push, att waits for sign) ---
-	var sbomResource sdk.Resource
-	if security.SBOM != nil && security.SBOM.Enabled {
-		attachSBOM := shouldAttachSBOM(security.SBOM)
-		if err := validateSBOMDescriptor(security.SBOM); err != nil {
-			if security.SBOM.Required {
-				return nil, err
-			}
-			fmt.Printf("Warning: skipping SBOM attachment for %s: %v\n", imageName, err)
-			attachSBOM = false
-		}
-		format := "cyclonedx-json"
-		if security.SBOM.Format != "" {
-			format = security.SBOM.Format
-		}
-		sbomOutputPath := resolveSBOMOutputPath(security, imageName)
-
-		sbomGenCmd, err := newSecurityCommand(ctx, fmt.Sprintf("sbom-gen-%s", imageName), securityImageRef,
-			func(img string) []string {
-				args := []string{"sc", "sbom", "generate", "--image", img, "--format", format, "--output", sbomOutputPath}
-				if security.SBOM.Cache != nil && security.SBOM.Cache.Enabled && security.SBOM.Cache.Dir != "" {
-					args = append(args, "--cache-dir", security.SBOM.Cache.Dir)
-				}
-				return args
-			}, "", nil, baseDeps)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create sbom generate command for image %q", imageName)
-		}
-
-		if attachSBOM {
-			if !signingEnabled(security) {
-				if security.SBOM.Required {
-					return nil, errors.Errorf("sbom attachment requires security.signing.enabled=true")
-				}
-				fmt.Printf("Warning: skipping SBOM attachment for %s because signing is disabled\n", imageName)
-				sbomResource = sbomGenCmd
-			} else {
-				sbomAttDeps := []sdk.Resource{sbomGenCmd}
-				if signCmd != nil {
-					sbomAttDeps = append(sbomAttDeps, signCmd)
-				}
-				sbomAttCmd, err := newSecurityCommand(ctx, fmt.Sprintf("sbom-att-%s", imageName), securityImageRef,
-					func(img string) []string {
-						args := []string{"sc", "sbom", "attach", "--image", img, "--sbom", sbomOutputPath}
-						return append(args, signingCLIArgs(security.Signing)...)
-					}, "", signingCommandEnvironment(security.Signing), sbomAttDeps)
-				if err != nil {
-					return nil, errors.Wrapf(err, "failed to create sbom attach command for image %q", imageName)
-				}
-				// Verify the SBOM attestation immediately after attaching it.
-				if security.Signing.Verify != nil && security.Signing.Verify.Enabled {
-					sbomVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-sbom-%s", imageName), securityImageRef,
-						func(img string) []string {
-							args := []string{"cosign", "verify-attestation", "--type", "cyclonedx"}
-							args = append(args, verifyIdentityArgs(security.Signing)...)
-							return append(args, img)
-						}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{sbomAttCmd})
-					if err != nil {
-						return nil, errors.Wrapf(err, "failed to create SBOM attestation verification for image %q", imageName)
-					}
-					sbomResource = sbomVerifyCmd
-				} else {
-					sbomResource = sbomAttCmd
-				}
-			}
-		} else {
-			sbomResource = sbomGenCmd
-		}
-	}
-
-	// --- Provenance Generation + Attestation (parallel from push, att waits for sign) ---
-	var provenanceResource sdk.Resource
-	if security.Provenance != nil && security.Provenance.Enabled {
-		provenanceCommand := "generate"
-		skipProvenance := false
-		if shouldAttachProvenance(security.Provenance) {
-			if !signingEnabled(security) {
-				if security.Provenance.Required {
-					return nil, errors.Errorf("provenance.output.registry requires security.signing.enabled=true")
-				}
-				if resolveProvenanceOutputPath(security, imageName) == "" {
-					fmt.Printf("Warning: skipping provenance for %s because registry attachment requires signing and no local output was configured\n", imageName)
-					skipProvenance = true
-				} else {
-					fmt.Printf("Warning: generating provenance locally for %s because registry attachment requires signing\n", imageName)
-				}
-			} else {
-				provenanceCommand = "attach"
-			}
-		}
-		if !skipProvenance {
-			format := "slsa-v1.0"
-			if security.Provenance.Format != "" {
-				format = security.Provenance.Format
-			}
-			provenanceOutputPath := resolveProvenanceOutputPath(security, imageName)
-
-			provGenDeps := baseDeps
-			var provEnv sdk.StringMap
-			if provenanceCommand == "attach" {
-				provEnv = signingCommandEnvironment(security.Signing)
-				// When attaching, the provenance attestation needs signing creds.
-				// Generation starts from push; attachment waits for sign.
-				if signCmd != nil {
-					provGenDeps = []sdk.Resource{signCmd}
-				}
-			}
-
-			provCmd, err := newSecurityCommand(ctx, fmt.Sprintf("prov-att-%s", imageName), securityImageRef,
-				func(img string) []string {
-					args := []string{
-						"sc", "provenance", provenanceCommand,
-						"--image", img,
-						"--format", format,
-						fmt.Sprintf("--include-git=%t", security.Provenance.IncludeGit),
-						fmt.Sprintf("--include-dockerfile=%t", security.Provenance.IncludeDocker),
-						"--source-root", ".",
-					}
-					if image.Context != "" {
-						args = append(args, "--context", image.Context)
-					}
-					if image.Dockerfile != "" {
-						args = append(args, "--dockerfile", image.Dockerfile)
-					}
-					if provenanceOutputPath != "" {
-						args = append(args, "--output", provenanceOutputPath)
-					}
-					if security.Provenance.Builder != nil && security.Provenance.Builder.ID != "" {
-						args = append(args, "--builder-id", security.Provenance.Builder.ID)
-					}
-					if security.Provenance.Metadata != nil {
-						args = append(args,
-							fmt.Sprintf("--include-env=%t", security.Provenance.Metadata.IncludeEnv),
-							fmt.Sprintf("--include-materials=%t", security.Provenance.Metadata.IncludeMaterials),
-						)
-					}
-					if provenanceCommand == "attach" {
-						args = append(args, signingCLIArgs(security.Signing)...)
-					}
-					return args
-				}, "", provEnv, provGenDeps)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to create provenance command for image %q", imageName)
-			}
-			// Verify the provenance attestation immediately after attaching it.
-			if provenanceCommand == "attach" && security.Signing != nil &&
-				security.Signing.Verify != nil && security.Signing.Verify.Enabled {
-				provVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), securityImageRef,
-					func(img string) []string {
-						args := []string{"cosign", "verify-attestation", "--type", "https://slsa.dev/provenance/v1"}
-						args = append(args, verifyIdentityArgs(security.Signing)...)
-						return append(args, img)
-					}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{provCmd})
-				if err != nil {
-					return nil, errors.Wrapf(err, "failed to create provenance attestation verification for image %q", imageName)
-				}
-				provenanceResource = provVerifyCmd
-			} else {
-				provenanceResource = provCmd
-			}
-		}
+	// --- Provenance ---
+	provenanceResource, err := createProvenanceCommands(ctx, security, securityImageRef, imageName, image, baseDeps, signCmd)
+	if err != nil {
+		return nil, err
 	}
 
 	// Fan-in: the caller (ECS/K8s service update) depends on these resources.
-	// The sign branch terminal is verify (if enabled) or sign.
-	// When softFail=false and signing is disabled, scan must still gate deploy.
 	finalResources := make([]sdk.Resource, 0, 4)
 	switch {
 	case verifyCmd != nil:
@@ -433,8 +200,6 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	if provenanceResource != nil {
 		finalResources = append(finalResources, provenanceResource)
 	}
-	// When softFail=false and scan ran but signing is disabled, scan must
-	// still gate the service update — otherwise scan failures are ignored.
 	if !softFail && scanGate != nil && signCmd == nil {
 		finalResources = append(finalResources, scanGate)
 	}
@@ -442,10 +207,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		finalResources = append(finalResources, dockerImage)
 	}
 
-	// --- Security Report: unified summary for GitHub Step Summary + PR comments ---
-	// Runs after ALL security ops complete — including scan, which runs parallel
-	// with sign and may finish after the fan-in. The report reads scan results
-	// from disk, so it must wait for scan to write them.
+	// --- Security Report ---
 	reportDeps := make([]sdk.Resource, len(finalResources))
 	copy(reportDeps, finalResources)
 	if scanGate != nil {
@@ -466,8 +228,242 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	return opts, nil
 }
 
+// createRegistryLogin writes registry credentials to ~/.docker/config.json
+// so security tools (cosign, grype, trivy, syft) can authenticate.
+func createRegistryLogin(ctx *sdk.Context, image Image, imageName string, baseDeps []sdk.Resource) ([]sdk.Resource, error) {
+	if image.Registry.Server == nil {
+		return baseDeps, nil
+	}
+	var loginInputs sdk.ArrayOutput
+	if image.Registry.Password != nil && image.Registry.Username != nil {
+		loginInputs = sdk.All(image.Registry.Server, image.Registry.Username, image.Registry.Password)
+	} else if image.Registry.Password != nil {
+		loginInputs = sdk.All(image.Registry.Server, sdk.String(""), image.Registry.Password)
+	} else {
+		loginInputs = sdk.All(image.Registry.Server, sdk.String(""), sdk.String(""))
+	}
+	loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
+		Create: loginInputs.ApplyT(func(args []interface{}) string {
+			return writeRegistryLogin(resolveStringArg(args[0]), resolveStringArg(args[1]), resolveStringArg(args[2]))
+		}).(sdk.StringOutput),
+	}, sdk.DependsOn(baseDeps))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create registry login for image %q", imageName)
+	}
+	return []sdk.Resource{loginCmd}, nil
+}
+
+// createSignVerifyCommands creates the sign and verify Pulumi commands.
+func createSignVerifyCommands(ctx *sdk.Context, security *api.SecurityDescriptor, imageRef sdk.StringOutput, imageName string, signDeps []sdk.Resource) (*local.Command, *local.Command, error) {
+	var signCmd *local.Command
+	if security.Signing == nil || !security.Signing.Enabled {
+		return nil, nil, nil
+	}
+
+	var err error
+	signCmd, err = newSecurityCommand(ctx, fmt.Sprintf("sign-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{"sc", "image", "sign", "--image", img}
+			return append(args, signingCLIArgs(security.Signing)...)
+		}, "", signingCommandEnvironment(security.Signing), signDeps)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to create sign command for image %q", imageName)
+	}
+
+	if security.Signing.Verify == nil || !security.Signing.Verify.Enabled {
+		return signCmd, nil, nil
+	}
+
+	// Validate verify config
+	if security.Signing.Keyless {
+		if security.Signing.Verify.OIDCIssuer == "" {
+			return nil, nil, errors.Errorf("signing.verify.oidcIssuer is required for keyless verification of image %q", imageName)
+		}
+		if security.Signing.Verify.IdentityRegexp == "" {
+			return nil, nil, errors.Errorf("signing.verify.identityRegexp is required for keyless verification of image %q", imageName)
+		}
+	} else if security.Signing.PublicKey == "" {
+		return nil, nil, errors.Errorf("signing.publicKey is required for key-based verification of image %q", imageName)
+	}
+
+	verifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{"sc", "image", "verify", "--image", img}
+			if security.Signing.Keyless {
+				args = append(args, "--oidc-issuer", security.Signing.Verify.OIDCIssuer, "--identity-regexp", security.Signing.Verify.IdentityRegexp)
+			} else {
+				args = append(args, "--public-key", security.Signing.PublicKey)
+			}
+			return args
+		}, "", verifyCommandEnvironment(security.Signing), []sdk.Resource{signCmd})
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to create verify command for image %q", imageName)
+	}
+	return signCmd, verifyCmd, nil
+}
+
+// createSBOMCommands creates sbom-gen, sbom-att, and verify-sbom Pulumi commands.
+func createSBOMCommands(ctx *sdk.Context, security *api.SecurityDescriptor, imageRef sdk.StringOutput, imageName string, image Image, baseDeps []sdk.Resource, signCmd *local.Command) (sdk.Resource, error) {
+	if security.SBOM == nil || !security.SBOM.Enabled {
+		return nil, nil
+	}
+
+	attachSBOM := shouldAttachSBOM(security.SBOM)
+	if err := validateSBOMDescriptor(security.SBOM); err != nil {
+		if security.SBOM.Required {
+			return nil, err
+		}
+		fmt.Printf("Warning: skipping SBOM attachment for %s: %v\n", imageName, err)
+		attachSBOM = false
+	}
+	format := "cyclonedx-json"
+	if security.SBOM.Format != "" {
+		format = security.SBOM.Format
+	}
+	sbomOutputPath := resolveSBOMOutputPath(security, imageName)
+
+	sbomGenCmd, err := newSecurityCommand(ctx, fmt.Sprintf("sbom-gen-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{"sc", "sbom", "generate", "--image", img, "--format", format, "--output", sbomOutputPath}
+			if security.SBOM.Cache != nil && security.SBOM.Cache.Enabled && security.SBOM.Cache.Dir != "" {
+				args = append(args, "--cache-dir", security.SBOM.Cache.Dir)
+			}
+			return args
+		}, "", nil, baseDeps)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create sbom generate command for image %q", imageName)
+	}
+
+	if !attachSBOM {
+		return sbomGenCmd, nil
+	}
+	if !signingEnabled(security) {
+		if security.SBOM.Required {
+			return nil, errors.Errorf("sbom attachment requires security.signing.enabled=true")
+		}
+		fmt.Printf("Warning: skipping SBOM attachment for %s because signing is disabled\n", imageName)
+		return sbomGenCmd, nil
+	}
+
+	sbomAttDeps := []sdk.Resource{sbomGenCmd}
+	if signCmd != nil {
+		sbomAttDeps = append(sbomAttDeps, signCmd)
+	}
+	sbomAttCmd, err := newSecurityCommand(ctx, fmt.Sprintf("sbom-att-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{"sc", "sbom", "attach", "--image", img, "--sbom", sbomOutputPath}
+			return append(args, signingCLIArgs(security.Signing)...)
+		}, "", signingCommandEnvironment(security.Signing), sbomAttDeps)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create sbom attach command for image %q", imageName)
+	}
+
+	if security.Signing.Verify == nil || !security.Signing.Verify.Enabled {
+		return sbomAttCmd, nil
+	}
+	sbomVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-sbom-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{"cosign", "verify-attestation", "--type", "cyclonedx"}
+			args = append(args, verifyIdentityArgs(security.Signing)...)
+			return append(args, img)
+		}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{sbomAttCmd})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create SBOM attestation verification for image %q", imageName)
+	}
+	return sbomVerifyCmd, nil
+}
+
+// createProvenanceCommands creates prov-att and verify-prov Pulumi commands.
+func createProvenanceCommands(ctx *sdk.Context, security *api.SecurityDescriptor, imageRef sdk.StringOutput, imageName string, image Image, baseDeps []sdk.Resource, signCmd *local.Command) (sdk.Resource, error) {
+	if security.Provenance == nil || !security.Provenance.Enabled {
+		return nil, nil
+	}
+
+	provenanceCommand := "generate"
+	if shouldAttachProvenance(security.Provenance) {
+		if !signingEnabled(security) {
+			if security.Provenance.Required {
+				return nil, errors.Errorf("provenance.output.registry requires security.signing.enabled=true")
+			}
+			if resolveProvenanceOutputPath(security, imageName) == "" {
+				fmt.Printf("Warning: skipping provenance for %s because registry attachment requires signing and no local output was configured\n", imageName)
+				return nil, nil
+			}
+			fmt.Printf("Warning: generating provenance locally for %s because registry attachment requires signing\n", imageName)
+		} else {
+			provenanceCommand = "attach"
+		}
+	}
+
+	format := "slsa-v1.0"
+	if security.Provenance.Format != "" {
+		format = security.Provenance.Format
+	}
+	provenanceOutputPath := resolveProvenanceOutputPath(security, imageName)
+
+	provGenDeps := baseDeps
+	var provEnv sdk.StringMap
+	if provenanceCommand == "attach" {
+		provEnv = signingCommandEnvironment(security.Signing)
+		if signCmd != nil {
+			provGenDeps = []sdk.Resource{signCmd}
+		}
+	}
+
+	provCmd, err := newSecurityCommand(ctx, fmt.Sprintf("prov-att-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{
+				"sc", "provenance", provenanceCommand,
+				"--image", img,
+				"--format", format,
+				fmt.Sprintf("--include-git=%t", security.Provenance.IncludeGit),
+				fmt.Sprintf("--include-dockerfile=%t", security.Provenance.IncludeDocker),
+				"--source-root", ".",
+			}
+			if image.Context != "" {
+				args = append(args, "--context", image.Context)
+			}
+			if image.Dockerfile != "" {
+				args = append(args, "--dockerfile", image.Dockerfile)
+			}
+			if provenanceOutputPath != "" {
+				args = append(args, "--output", provenanceOutputPath)
+			}
+			if security.Provenance.Builder != nil && security.Provenance.Builder.ID != "" {
+				args = append(args, "--builder-id", security.Provenance.Builder.ID)
+			}
+			if security.Provenance.Metadata != nil {
+				args = append(args,
+					fmt.Sprintf("--include-env=%t", security.Provenance.Metadata.IncludeEnv),
+					fmt.Sprintf("--include-materials=%t", security.Provenance.Metadata.IncludeMaterials),
+				)
+			}
+			if provenanceCommand == "attach" {
+				args = append(args, signingCLIArgs(security.Signing)...)
+			}
+			return args
+		}, "", provEnv, provGenDeps)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create provenance command for image %q", imageName)
+	}
+
+	if provenanceCommand != "attach" || security.Signing == nil ||
+		security.Signing.Verify == nil || !security.Signing.Verify.Enabled {
+		return provCmd, nil
+	}
+	provVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), imageRef,
+		func(img string) []string {
+			args := []string{"cosign", "verify-attestation", "--type", "https://slsa.dev/provenance/v1"}
+			args = append(args, verifyIdentityArgs(security.Signing)...)
+			return append(args, img)
+		}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{provCmd})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create provenance attestation verification for image %q", imageName)
+	}
+	return provVerifyCmd, nil
+}
+
 // createScanCommands creates Pulumi local.Command resource(s) for vulnerability scanning.
-// Returns the last resource in the scan chain (merge barrier for multi-tool scans).
 func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOutput, image Image, deps []sdk.Resource) (sdk.Resource, error) {
 	security := stack.Client.Security
 	imageName := image.Name
@@ -481,7 +477,6 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 		return nil, nil //nolint:nilnil
 	}
 
-	// Duplicate tool names produce Pulumi resources with the same logical name.
 	seenTools := make(map[string]bool, len(enabledTools))
 	for _, t := range enabledTools {
 		if seenTools[t.Name] {
@@ -501,10 +496,8 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 			failOn = security.Scan.FailOn
 			warnOn = security.Scan.WarnOn
 		}
-
 		scanCmdArgs := buildScanCmdArgs(security, imageName, scanToolName, required, failOn, warnOn,
 			len(enabledTools) == 1, security.Scan.SoftFail)
-
 		scanName := fmt.Sprintf("scan-%s-%s", imageName, scanToolName)
 		if len(enabledTools) > 1 {
 			scanName = fmt.Sprintf("scan-%s-merged", imageName)
@@ -523,7 +516,6 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 		warnOn := effectiveScanThreshold(security.Scan.WarnOn, tool.WarnOn)
 		scanCmdArgs := buildScanCoreArgs(security.Scan, tool.Name,
 			security.Scan.Required || tool.Required, failOn, warnOn, security.Scan.SoftFail)
-
 		outputPath := resolveToolScanOutputPath(security, imageName, tool.Name, true)
 		if outputPath == "" && needsArtifacts {
 			outputPath = tempArtifactPath(fmt.Sprintf("scan-results-%s", tool.Name), imageName, "json")
@@ -532,7 +524,6 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 		if outputPath != "" {
 			toolResultPaths = append(toolResultPaths, outputPath)
 		}
-
 		cmd, err := createScanLocalCommand(ctx, fmt.Sprintf("scan-%s-%s", imageName, tool.Name),
 			imageRef, scanCmdArgs, scanCommandEnvironment(security.Reporting), deps)
 		if err != nil {
@@ -542,9 +533,6 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 	}
 
 	if !needsArtifacts {
-		// No merge command needed, but we still need a single barrier resource
-		// that depends on ALL parallel tool scans — not just the last one.
-		// Create a lightweight barrier command that waits for all scans.
 		barrier, err := local.NewCommand(ctx, fmt.Sprintf("scan-%s-barrier", imageName), &local.CommandArgs{
 			Create: sdk.String("echo 'all scans completed'"),
 		}, sdk.DependsOn(toolCmds))
@@ -554,11 +542,7 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 		return barrier, nil
 	}
 
-	mergedCmdArgs := []string{
-		"sc", "image", "scan",
-		"--image", "%s",
-		fmt.Sprintf("--required=%t", security.Scan.Required),
-	}
+	mergedCmdArgs := []string{"sc", "image", "scan", "--image", "%s", fmt.Sprintf("--required=%t", security.Scan.Required)}
 	for _, inputPath := range toolResultPaths {
 		mergedCmdArgs = append(mergedCmdArgs, "--input", inputPath)
 	}
@@ -582,15 +566,9 @@ func createScanCommands(ctx *sdk.Context, stack api.Stack, imageRef sdk.StringOu
 		imageRef, mergedCmdArgs, scanCommandEnvironment(security.Reporting), toolCmds)
 }
 
-// buildScanCoreArgs constructs the base sc image scan argument list without
-// output or reporting flags. Used by both single-command and per-tool paths.
+// buildScanCoreArgs constructs the base sc image scan argument list.
 func buildScanCoreArgs(scan *api.ScanDescriptor, toolName string, required bool, failOn, warnOn string, softFail bool) []string {
-	args := []string{
-		"sc", "image", "scan",
-		"--image", "%s",
-		"--tool", toolName,
-		fmt.Sprintf("--required=%t", required),
-	}
+	args := []string{"sc", "image", "scan", "--image", "%s", "--tool", toolName, fmt.Sprintf("--required=%t", required)}
 	appendScanCacheArg(&args, scan)
 	if failOn != "" {
 		args = append(args, "--fail-on", failOn)
@@ -605,7 +583,7 @@ func buildScanCoreArgs(scan *api.ScanDescriptor, toolName string, required bool,
 }
 
 // buildScanCmdArgs constructs the full sc image scan argument list including
-// output and reporting flags for single-tool or merged (--tool all) commands.
+// output and reporting flags.
 func buildScanCmdArgs(security *api.SecurityDescriptor, imageName, toolName string, required bool, failOn, warnOn string, singleTool, softFail bool) []string {
 	args := buildScanCoreArgs(security.Scan, toolName, required, failOn, warnOn, softFail)
 	if singleTool {
@@ -623,6 +601,7 @@ func buildScanCmdArgs(security *api.SecurityDescriptor, imageName, toolName stri
 }
 
 // createScanLocalCommand creates a local.Command for sc image scan.
+// Uses %s placeholder substitution for the image reference.
 func createScanLocalCommand(ctx *sdk.Context, name string, imageRef sdk.StringOutput, scanCmdArgs []string, env sdk.StringMap, deps []sdk.Resource) (*local.Command, error) {
 	return local.NewCommand(ctx, name, &local.CommandArgs{
 		Create: imageRef.ApplyT(func(img string) string {
@@ -640,162 +619,6 @@ func createScanLocalCommand(ctx *sdk.Context, name string, imageRef sdk.StringOu
 	}, sdk.DependsOn(deps))
 }
 
-// --- Helper functions ---
-
-func enabledScanDescriptors(tools []api.ScanToolDescriptor) []api.ScanToolDescriptor {
-	enabled := make([]api.ScanToolDescriptor, 0, len(tools))
-	for _, tool := range tools {
-		if tool.Name == "" {
-			continue
-		}
-		if scanDescriptorEnabled(tool) {
-			enabled = append(enabled, tool)
-		}
-	}
-	return enabled
-}
-
-func resolveScanOutputPath(security *api.SecurityDescriptor, imageName string) string {
-	if security.Scan != nil && security.Scan.Output != nil && security.Scan.Output.Local != "" {
-		return security.Scan.Output.Local
-	}
-	return ""
-}
-
-func resolveToolScanOutputPath(security *api.SecurityDescriptor, imageName, toolName string, split bool) string {
-	basePath := resolveScanOutputPath(security, imageName)
-	if basePath == "" {
-		return ""
-	}
-	if !split {
-		return basePath
-	}
-	return appendPathSuffix(basePath, toolName)
-}
-
-func resolveSBOMOutputPath(security *api.SecurityDescriptor, imageName string) string {
-	if security.SBOM != nil && security.SBOM.Output != nil && security.SBOM.Output.Local != "" {
-		return security.SBOM.Output.Local
-	}
-	return tempArtifactPath("sbom", imageName, "json")
-}
-
-func resolveProvenanceOutputPath(security *api.SecurityDescriptor, imageName string) string {
-	if security.Provenance != nil && security.Provenance.Output != nil && security.Provenance.Output.Local != "" {
-		return security.Provenance.Output.Local
-	}
-	return ""
-}
-
-// needsMergedScanArtifacts reports whether any configured output, PR comment, or
-// DefectDojo upload requires a merged scan result file.
-func needsMergedScanArtifacts(security *api.SecurityDescriptor, imageName string) bool {
-	if resolveScanOutputPath(security, imageName) != "" {
-		return true
-	}
-	if resolveCommentOutputPath(security, imageName) != "" {
-		return true
-	}
-	return security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled
-}
-
-func resolveCommentOutputPath(security *api.SecurityDescriptor, imageName string) string {
-	if security.Reporting == nil || security.Reporting.PRComment == nil || !security.Reporting.PRComment.Enabled {
-		return ""
-	}
-	if security.Reporting.PRComment.Output != "" {
-		return security.Reporting.PRComment.Output
-	}
-	return tempArtifactPath("scan-comment", imageName, "md")
-}
-
-func tempArtifactPath(prefix, imageName, extension string) string {
-	safeName := strings.NewReplacer("/", "-", ":", "-", "@", "-", "\\", "-").Replace(imageName)
-	return filepath.Join("/tmp", fmt.Sprintf("%s-%s.%s", prefix, safeName, extension))
-}
-
-func appendPathSuffix(path, suffix string) string {
-	ext := filepath.Ext(path)
-	if ext == "" {
-		return path + "-" + suffix
-	}
-	return strings.TrimSuffix(path, ext) + "-" + suffix + ext
-}
-
-func signingCommandEnvironment(cfg *api.SigningDescriptor) sdk.StringMap {
-	if cfg == nil {
-		return nil
-	}
-	env := sdk.StringMap{}
-	if cfg.Keyless {
-		env["COSIGN_EXPERIMENTAL"] = sdk.String("1")
-	}
-	if !cfg.Keyless && cfg.PrivateKey != "" {
-		env["COSIGN_PASSWORD"] = sdk.ToSecret(cfg.Password).(sdk.StringOutput)
-	}
-	if len(env) == 0 {
-		return nil
-	}
-	return env
-}
-
-// verifyCommandEnvironment returns the minimal environment for cosign verify.
-// Unlike signingCommandEnvironment, it never includes COSIGN_PASSWORD — verify
-// uses a public key or Fulcio certificate chain, never the private key passphrase.
-func verifyCommandEnvironment(cfg *api.SigningDescriptor) sdk.StringMap {
-	if cfg == nil {
-		return nil
-	}
-	if cfg.Keyless {
-		return sdk.StringMap{
-			"COSIGN_EXPERIMENTAL": sdk.String("1"),
-		}
-	}
-	return nil
-}
-
-func scanCommandEnvironment(cfg *api.ReportingDescriptor) sdk.StringMap {
-	if cfg == nil || cfg.DefectDojo == nil || !cfg.DefectDojo.Enabled || cfg.DefectDojo.APIKey == "" {
-		return nil
-	}
-	return sdk.StringMap{
-		"DEFECTDOJO_API_KEY": sdk.ToSecret(cfg.DefectDojo.APIKey).(sdk.StringOutput),
-	}
-}
-
-func effectiveScanThreshold(global, tool string) string {
-	if tool != "" {
-		return tool
-	}
-	return global
-}
-
-func appendScanOutputArg(args *[]string, outputPath string) {
-	if outputPath == "" {
-		return
-	}
-	*args = append(*args, "--output", outputPath)
-}
-
-func appendScanCacheArg(args *[]string, config *api.ScanDescriptor) {
-	if config == nil || config.Cache == nil || !config.Cache.Enabled || config.Cache.Dir == "" {
-		return
-	}
-	*args = append(*args, "--cache-dir", config.Cache.Dir)
-}
-
-func canUseMergedScanCommand(tools []api.ScanToolDescriptor) bool {
-	if len(tools) <= 1 {
-		return false
-	}
-	for _, tool := range tools {
-		if tool.Required || tool.FailOn != "" || tool.WarnOn != "" {
-			return false
-		}
-	}
-	return true
-}
-
 func resolveSecurityImageRef(ctx *sdk.Context, repoDigest, imageURL sdk.StringOutput) sdk.StringOutput {
 	return sdk.All(repoDigest, imageURL).ApplyT(func(values []interface{}) (string, error) {
 		repoDigestValue, _ := values[0].(string)
@@ -811,348 +634,4 @@ func resolveSecurityImageRef(ctx *sdk.Context, repoDigest, imageURL sdk.StringOu
 		}
 		return "", errors.Errorf("docker image repo digest is unavailable for %s; security operations require an immutable digest", imageURLValue)
 	}).(sdk.StringOutput)
-}
-
-func scanDescriptorEnabled(tool api.ScanToolDescriptor) bool {
-	if tool.Enabled != nil {
-		return *tool.Enabled
-	}
-	return tool.Required || tool.FailOn != "" || tool.WarnOn != "" || tool.Name != ""
-}
-
-func shouldAttachSBOM(config *api.SBOMDescriptor) bool {
-	if config == nil {
-		return false
-	}
-	if config.Output != nil && config.Output.Registry {
-		return true
-	}
-	return config.Attach != nil && config.Attach.Enabled
-}
-
-func validateSBOMDescriptor(config *api.SBOMDescriptor) error {
-	if config == nil || !config.Enabled {
-		return nil
-	}
-	if config.Attach != nil && config.Attach.Enabled && !config.Attach.Sign {
-		return errors.Errorf("sbom.attach.sign must be true when sbom.attach.enabled=true")
-	}
-	if config.Output != nil && config.Output.Registry && config.Attach != nil {
-		if !config.Attach.Enabled {
-			return errors.Errorf("sbom.attach.enabled=false is not compatible with sbom.output.registry=true")
-		}
-		if !config.Attach.Sign {
-			return errors.Errorf("sbom.attach.sign=false is not compatible with sbom.output.registry=true")
-		}
-	}
-	return nil
-}
-
-func signingEnabled(security *api.SecurityDescriptor) bool {
-	return security != nil && security.Signing != nil && security.Signing.Enabled
-}
-
-func provenanceRegistryOutputEnabled(config *api.ProvenanceDescriptor) bool {
-	return config != nil && config.Output != nil && config.Output.Registry
-}
-
-func shouldAttachProvenance(config *api.ProvenanceDescriptor) bool {
-	return provenanceRegistryOutputEnabled(config)
-}
-
-func signingCLIArgs(cfg *api.SigningDescriptor) []string {
-	if cfg == nil {
-		return nil
-	}
-	if cfg.Keyless {
-		return []string{"--keyless"}
-	}
-	if cfg.PrivateKey != "" {
-		return []string{"--key", cfg.PrivateKey}
-	}
-	return nil
-}
-
-func appendDefectDojoFlags(args []string, config *api.DefectDojoDescriptor) []string {
-	args = append(args,
-		"--upload-defectdojo",
-		"--defectdojo-url", config.URL,
-		"--defectdojo-auto-create="+fmt.Sprintf("%t", config.AutoCreate),
-	)
-	if config.EngagementID > 0 {
-		args = append(args, "--defectdojo-engagement-id", fmt.Sprintf("%d", config.EngagementID))
-	}
-	if config.EngagementName != "" {
-		args = append(args, "--defectdojo-engagement-name", config.EngagementName)
-	}
-	if config.ProductID > 0 {
-		args = append(args, "--defectdojo-product-id", fmt.Sprintf("%d", config.ProductID))
-	}
-	if config.ProductName != "" {
-		args = append(args, "--defectdojo-product-name", config.ProductName)
-	}
-	if config.TestType != "" {
-		args = append(args, "--defectdojo-test-type", config.TestType)
-	}
-	if config.Environment != "" {
-		args = append(args, "--defectdojo-environment", config.Environment)
-	}
-	for _, tag := range config.Tags {
-		args = append(args, "--defectdojo-tag", tag)
-	}
-	return args
-}
-
-// buildSecurityReportScript generates a shell script that reads scan results and
-// outputs a unified security summary to the console, $GITHUB_STEP_SUMMARY, and
-// an optional markdown file for PR comments.
-func buildSecurityReportScript(imageRef, imageName string, security *api.SecurityDescriptor, commentOutputPath string) string {
-	scanResultsPath := ""
-	if security.Scan != nil && security.Scan.Output != nil && security.Scan.Output.Local != "" {
-		scanResultsPath = security.Scan.Output.Local
-	}
-
-	// Build the report script. Uses jq for JSON parsing if available, falls back to grep.
-	// The script is self-contained — no SC CLI dependency.
-	var sb strings.Builder
-	sb.WriteString("set +e\n") // Don't exit on error — report is best-effort
-	sb.WriteString("REPORT=''\n")
-	sb.WriteString("REPORT=\"${REPORT}## Security Pipeline Summary\\n\\n\"\n")
-	sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}**Image:** \\`%s\\`\\n\\n\"\n", shellEscape(imageRef)))
-	sb.WriteString("REPORT=\"${REPORT}| Step | Status | Details |\\n\"\n")
-	sb.WriteString("REPORT=\"${REPORT}| --- | --- | --- |\\n\"\n")
-
-	// Scan status — if we reached the report, scan completed (Pulumi deps).
-	// Read details from results JSON if available, otherwise report from config.
-	if security.Scan != nil && security.Scan.Enabled {
-		scanStatus := "✅ Completed"
-		if security.Scan.SoftFail {
-			scanStatus = "⚠️ Warning (soft-fail)"
-		}
-		if scanResultsPath != "" {
-			// Try to read vulnerability counts from the results file.
-			// jq may not be available — use grep as fallback.
-			sb.WriteString(fmt.Sprintf(`SCAN_DETAIL="see logs"
-if [ -f %[1]s ]; then
-  if command -v jq >/dev/null 2>&1; then
-    CRITICAL=$(jq -r '.summary.critical // 0' %[1]s 2>/dev/null)
-    HIGH=$(jq -r '.summary.high // 0' %[1]s 2>/dev/null)
-    TOTAL=$(jq -r '.summary.total // 0' %[1]s 2>/dev/null)
-    SCAN_DETAIL="${CRITICAL} critical, ${HIGH} high, ${TOTAL} total"
-  else
-    TOTAL=$(grep -o '"total":[0-9]*' %[1]s 2>/dev/null | head -1 | cut -d: -f2)
-    SCAN_DETAIL="${TOTAL:-?} total vulnerabilities"
-  fi
-fi
-`, shellQuote(scanResultsPath)))
-		} else {
-			sb.WriteString("SCAN_DETAIL=\"see logs\"\n")
-		}
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Scan | %s | ${SCAN_DETAIL} |\\n\"\n", scanStatus))
-	} else {
-		sb.WriteString("REPORT=\"${REPORT}| Scan | ⏭️ Disabled | |\\n\"\n")
-	}
-
-	// Sign/verify status — if we got here, they succeeded (Pulumi dependency ordering)
-	if security.Signing != nil && security.Signing.Enabled {
-		mode := "key-based"
-		if security.Signing.Keyless {
-			mode = "keyless (OIDC)"
-		}
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Sign | ✅ Signed | %s |\\n\"\n", mode))
-		if security.Signing.Verify != nil && security.Signing.Verify.Enabled {
-			sb.WriteString("REPORT=\"${REPORT}| Verify | ✅ Verified | Signature valid |\\n\"\n")
-		}
-	} else {
-		sb.WriteString("REPORT=\"${REPORT}| Sign | ⏭️ Disabled | |\\n\"\n")
-	}
-
-	// SBOM status
-	verifyEnabled := security.Signing != nil && security.Signing.Verify != nil && security.Signing.Verify.Enabled
-	if security.SBOM != nil && security.SBOM.Enabled {
-		sbomDetail := security.SBOM.Format
-		if shouldAttachSBOM(security.SBOM) && signingEnabled(security) {
-			if verifyEnabled {
-				sbomDetail += ", attestation verified"
-			} else {
-				sbomDetail += ", attestation attached"
-			}
-		}
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| SBOM | ✅ Generated | %s |\\n\"\n", sbomDetail))
-	} else {
-		sb.WriteString("REPORT=\"${REPORT}| SBOM | ⏭️ Disabled | |\\n\"\n")
-	}
-
-	// Provenance status
-	if security.Provenance != nil && security.Provenance.Enabled {
-		provDetail := security.Provenance.Format
-		if shouldAttachProvenance(security.Provenance) && signingEnabled(security) {
-			if verifyEnabled {
-				provDetail += ", attestation verified"
-			} else {
-				provDetail += ", attestation attached"
-			}
-		}
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| Provenance | ✅ Attached | %s |\\n\"\n", provDetail))
-	} else {
-		sb.WriteString("REPORT=\"${REPORT}| Provenance | ⏭️ Disabled | |\\n\"\n")
-	}
-
-	// DefectDojo upload status — show product, engagement, and link
-	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
-		ddCfg := security.Reporting.DefectDojo
-		detail := fmt.Sprintf("[%s](%s) · %s / %s",
-			ddCfg.URL, ddCfg.URL,
-			ddCfg.ProductName, ddCfg.EngagementName)
-		sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}| DefectDojo | ✅ Uploaded | %s |\\n\"\n",
-			shellEscape(detail)))
-	}
-
-	sb.WriteString("REPORT=\"${REPORT}\\n\"\n")
-
-	// Detailed vulnerability table — collapsible if many findings.
-	// Requires jq and the scan results JSON file.
-	if scanResultsPath != "" && security.Scan != nil && security.Scan.Enabled {
-		sb.WriteString(fmt.Sprintf(`if [ -f %[1]s ] && command -v jq >/dev/null 2>&1; then
-  VULN_COUNT=$(jq -r '.vulnerabilities | length' %[1]s 2>/dev/null || echo 0)
-  if [ "$VULN_COUNT" -gt 0 ] 2>/dev/null; then
-    VULN_TABLE=$(jq -r '
-      .vulnerabilities
-      | sort_by(-({"critical":4,"high":3,"medium":2,"low":1}[.severity] // 0))
-      | .[]
-      | "| \(.severity | ascii_upcase) | \(.id) | \(.package) | \(.version) | \(.fixedIn // "-") |"
-    ' %[1]s 2>/dev/null)
-    if [ -n "$VULN_TABLE" ]; then
-      if [ "$VULN_COUNT" -gt 10 ]; then
-        REPORT="${REPORT}<details>\n<summary>Vulnerabilities (${VULN_COUNT} findings)</summary>\n\n"
-      else
-        REPORT="${REPORT}### Vulnerabilities (${VULN_COUNT} findings)\n\n"
-      fi
-      REPORT="${REPORT}| Severity | CVE | Package | Installed | Fixed |\n"
-      REPORT="${REPORT}| --- | --- | --- | --- | --- |\n"
-      REPORT="${REPORT}${VULN_TABLE}\n"
-      if [ "$VULN_COUNT" -gt 10 ]; then
-        REPORT="${REPORT}\n</details>\n"
-      fi
-      REPORT="${REPORT}\n"
-    fi
-  fi
-fi
-`, shellQuote(scanResultsPath)))
-	}
-
-	// Print to console
-	sb.WriteString("printf '%b' \"$REPORT\"\n")
-
-	// Write to GITHUB_STEP_SUMMARY if available (GitHub Actions)
-	sb.WriteString("if [ -n \"$GITHUB_STEP_SUMMARY\" ]; then\n")
-	sb.WriteString("  printf '%b' \"$REPORT\" >> \"$GITHUB_STEP_SUMMARY\"\n")
-	sb.WriteString("fi\n")
-
-	// Write to comment output file if configured
-	if commentOutputPath != "" {
-		sb.WriteString(fmt.Sprintf("mkdir -p %s\n", shellQuote(filepath.Dir(commentOutputPath))))
-		sb.WriteString(fmt.Sprintf("printf '%%b' \"$REPORT\" > %s\n", shellQuote(commentOutputPath)))
-	}
-
-	return sb.String()
-}
-
-// shellEscape escapes a string for use in a double-quoted shell string.
-func shellEscape(s string) string {
-	return strings.NewReplacer("`", "\\`", "$", "\\$", "\"", "\\\"", "\\", "\\\\").Replace(s)
-}
-
-// verifyIdentityArgs returns cosign verify/verify-attestation args for identity
-// checking. For keyless: --certificate-oidc-issuer + --certificate-identity-regexp.
-// For key-based: --key.
-func verifyIdentityArgs(signing *api.SigningDescriptor) []string {
-	if signing.Keyless && signing.Verify != nil {
-		return []string{
-			"--certificate-oidc-issuer", signing.Verify.OIDCIssuer,
-			"--certificate-identity-regexp", signing.Verify.IdentityRegexp,
-		}
-	}
-	if signing.PublicKey != "" {
-		return []string{"--key", signing.PublicKey}
-	}
-	return nil
-}
-
-// shellQuote wraps value in POSIX single quotes, escaping embedded quotes.
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-// buildShellCommand constructs a shell command string from args with PATH prefix
-// and shell quoting. Used by all security local.Command resources.
-func buildShellCommand(args []string, suffix string) string {
-	quoted := make([]string, len(args))
-	for i, arg := range args {
-		quoted[i] = shellQuote(arg)
-	}
-	cmd := securityPATHPrefix + strings.Join(quoted, " ")
-	if suffix != "" {
-		cmd += " " + suffix
-	}
-	return cmd
-}
-
-// newSecurityCommand creates a Pulumi local.Command that runs a shell command
-// derived from the image digest reference. Reduces boilerplate across sign,
-// verify, sbom, provenance commands that all follow the same pattern.
-func newSecurityCommand(
-	ctx *sdk.Context,
-	name string,
-	imageRef sdk.StringOutput,
-	buildArgs func(img string) []string,
-	suffix string,
-	env sdk.StringMap,
-	deps []sdk.Resource,
-) (*local.Command, error) {
-	return local.NewCommand(ctx, name, &local.CommandArgs{
-		Create: imageRef.ApplyT(func(img string) string {
-			return buildShellCommand(buildArgs(img), suffix)
-		}).(sdk.StringOutput),
-		Environment: env,
-	}, sdk.DependsOn(deps))
-}
-
-// securityPATHPrefix returns a shell snippet that ensures $HOME/.local/bin and
-// /usr/local/bin are on PATH before running security tools. This is necessary
-// because the Go-side os.Setenv("PATH", ...) in tool auto-install only affects
-// the Go process — Pulumi local.Command runs in a separate shell that inherits
-// the original PATH without the install directory.
-const securityPATHPrefix = `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && `
-
-// resolveStringArg extracts a string from an interface{} value that may be
-// either a string or a *string. This is needed because sdk.All may pass through
-// *string values (from sdk.StringPtr used in RegistryArgs) without dereferencing,
-// causing bare .(string) type assertions to silently return "".
-func resolveStringArg(v interface{}) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	if p, ok := v.(*string); ok && p != nil {
-		return *p
-	}
-	return ""
-}
-
-// writeDockerConfigScript returns a shell script that writes registry
-// credentials to ~/.docker/config.json (and /root/.docker as fallback).
-func writeDockerConfigScript(server, auth string) string {
-	return fmt.Sprintf(
-		`CREDS='{"auths":{"%[1]s":{"auth":"%[2]s"}}}' && `+
-			`mkdir -p "$HOME/.docker" && `+
-			`if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then `+
-			`jq '.auths["%[1]s"]={"auth":"%[2]s"}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && `+
-			`mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"; `+
-			`else `+
-			`printf '%%s' "$CREDS" > "$HOME/.docker/config.json"; `+
-			`fi && `+
-			`if [ "$HOME" != "/root" ]; then `+
-			`mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true; `+
-			`fi`,
-		server, auth)
 }
