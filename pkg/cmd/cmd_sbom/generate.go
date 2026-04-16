@@ -51,6 +51,9 @@ func NewGenerateCommand() *cobra.Command {
 }
 
 func runGenerate(ctx context.Context, opts *generateOptions) error {
+	if err := validateImage(opts.image); err != nil {
+		return err
+	}
 	if err := ensureTool(ctx, "syft"); err != nil {
 		return err
 	}

@@ -55,8 +55,8 @@ func runVerify(ctx context.Context, flags *verifyFlags) error {
 	if err := ensureTool(ctx, "cosign"); err != nil {
 		return err
 	}
-	if flags.image == "" {
-		return fmt.Errorf("image reference is required")
+	if err := validateImage(flags.image); err != nil {
+		return err
 	}
 
 	// Validate verification mode

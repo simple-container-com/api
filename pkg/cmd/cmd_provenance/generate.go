@@ -33,6 +33,9 @@ func NewGenerateCommand() *cobra.Command {
 }
 
 func runGenerate(ctx context.Context, opts *generateOptions) error {
+	if err := validateImage(opts.image); err != nil {
+		return err
+	}
 	statement, err := generateStatement(ctx, opts.statementOptions)
 	if err != nil {
 		return fmt.Errorf("generating provenance: %w", err)

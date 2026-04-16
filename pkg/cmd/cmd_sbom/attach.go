@@ -60,6 +60,9 @@ func NewAttachCommand() *cobra.Command {
 }
 
 func runAttach(ctx context.Context, opts *attachOptions) error {
+	if err := validateImage(opts.image); err != nil {
+		return err
+	}
 	if err := ensureTool(ctx, "cosign"); err != nil {
 		return err
 	}

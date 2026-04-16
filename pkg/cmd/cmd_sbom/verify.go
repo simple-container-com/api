@@ -59,9 +59,15 @@ func NewVerifyCommand() *cobra.Command {
 }
 
 func runVerify(ctx context.Context, opts *verifyOptions) error {
+	if err := validateImage(opts.image); err != nil {
+		return err
+	}
 	// Require an explicit trust policy — verifying without one is meaningless.
 	if !opts.keyless && opts.key == "" {
 		return fmt.Errorf("either --keyless or --key is required for SBOM verification")
+	}
+	if opts.keyless && (opts.certIdent == "" || opts.certIssuer == "") {
+		return fmt.Errorf("--cert-identity and --cert-issuer are required for keyless SBOM verification")
 	}
 
 	// Validate format

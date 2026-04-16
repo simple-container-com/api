@@ -56,6 +56,9 @@ func NewVerifyCommand() *cobra.Command {
 }
 
 func runVerify(ctx context.Context, opts *verifyOptions) error {
+	if err := validateImage(opts.image); err != nil {
+		return err
+	}
 	format, err := provenance.ParseFormat(opts.format)
 	if err != nil {
 		return err

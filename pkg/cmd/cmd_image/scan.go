@@ -84,8 +84,8 @@ func NewScanCmd() *cobra.Command {
 }
 
 func runScan(ctx context.Context, opts *scanOptions) error {
-	if opts.image == "" {
-		return fmt.Errorf("--image flag is required")
+	if err := validateImage(opts.image); err != nil {
+		return err
 	}
 
 	config, err := buildScanSecurityConfig(opts)
