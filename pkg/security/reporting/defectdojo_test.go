@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -30,7 +31,12 @@ func TestImportScanEnrichesMissingResponseFields(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/findings/":
-			Expect(r.URL.Query().Get("test")).To(Equal("99"), "findings test filter")
+			// Use t.Errorf (not Expect) — handler runs on httptest goroutine, not test goroutine.
+			if got := r.URL.Query().Get("test"); got != "99" {
+				t.Errorf("findings test filter = %q, want %q", got, "99")
+				http.Error(w, "bad filter", http.StatusBadRequest)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"count": 24})
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.String())
@@ -59,9 +65,16 @@ func TestCreateEngagementUsesCICDType(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"id": 8, "name": "demo"})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/engagements/":
+			// Use t.Errorf (not Expect) — handler runs on httptest goroutine.
 			body, err := io.ReadAll(r.Body)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(string(body)).To(ContainSubstring(`"engagement_type":"CI/CD"`))
+			if err != nil {
+				t.Errorf("reading request body: %v", err)
+				http.Error(w, "read error", http.StatusInternalServerError)
+				return
+			}
+			if !strings.Contains(string(body), `"engagement_type":"CI/CD"`) {
+				t.Errorf("request body missing CI/CD engagement type: %s", string(body))
+			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"id": 42})
 		default:
