@@ -30,7 +30,14 @@ func DecodeFirstPayload(output []byte) ([]byte, error) {
 		return payload, nil
 	}
 
-	return []byte(envelopes[0].Payload), nil
+	// Some cosign versions emit the payload as raw JSON instead of base64.
+	// Accept it only if it looks like valid JSON.
+	raw := []byte(envelopes[0].Payload)
+	if json.Valid(raw) {
+		return raw, nil
+	}
+
+	return nil, fmt.Errorf("attestation payload is neither valid base64 nor valid JSON: %w", err)
 }
 
 func parseVerifyOutput(output []byte) ([]verifyEnvelope, error) {

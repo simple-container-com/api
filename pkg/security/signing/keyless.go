@@ -83,7 +83,10 @@ func GetRekorEntryFromOutput(output string) string {
 	return parseRekorEntry(output)
 }
 
-// ValidateOIDCToken performs basic validation on the OIDC token
+// ValidateOIDCToken performs basic format validation on the OIDC token.
+// This checks JWT structure (3 dot-separated segments) only — it does NOT
+// verify the signature, issuer, audience, or expiry. Full validation is
+// performed by Fulcio when the token is exchanged for a signing certificate.
 func ValidateOIDCToken(token string) error {
 	if token == "" {
 		return fmt.Errorf("OIDC token is empty")

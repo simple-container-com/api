@@ -338,7 +338,7 @@ func (e *SecurityExecutor) saveScanLocal(result *scan.ScanResult) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(outputPath, data, 0o644); err != nil {
+	if err := os.WriteFile(outputPath, data, 0o600); err != nil {
 		return fmt.Errorf("writing scan results file: %w", err)
 	}
 
@@ -791,7 +791,7 @@ func (e *SecurityExecutor) saveSBOMLocal(sbomObj *sbom.SBOM) error {
 	}
 
 	// Write SBOM to file
-	if err := os.WriteFile(outputPath, sbomObj.Content, 0o644); err != nil {
+	if err := os.WriteFile(outputPath, sbomObj.Content, 0o600); err != nil {
 		return fmt.Errorf("writing SBOM file: %w", err)
 	}
 
@@ -1019,7 +1019,7 @@ func (e *SecurityExecutor) writePRComment(result *scan.ScanResult, imageRef stri
 	}
 
 	content := reporting.BuildScanResultsComment(imageRef, result, e.summaryUploads())
-	if err := os.WriteFile(outputPath, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("writing PR comment output: %w", err)
 	}
 

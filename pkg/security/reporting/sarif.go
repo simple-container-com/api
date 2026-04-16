@@ -76,8 +76,11 @@ func NewSARIFFromScanResult(result *scan.ScanResult, imageRef string) ([]byte, e
 	rules := make(map[string]sarifRule, len(result.Vulnerabilities))
 	results := make([]sarifResult, 0, len(result.Vulnerabilities))
 	for _, vuln := range result.Vulnerabilities {
-		rules[vuln.ID] = sarifRule{
-			ID:   vuln.ID,
+		// Key by CVE+package to avoid overwriting when the same CVE
+		// affects multiple packages (e.g., libssl3 and openssl).
+		ruleKey := vuln.ID + ":" + vuln.Package
+		rules[ruleKey] = sarifRule{
+			ID:   ruleKey,
 			Name: vuln.ID,
 			ShortDescription: &sarifMessage{
 				Text: fmt.Sprintf("%s in %s", vuln.ID, vuln.Package),
@@ -98,7 +101,7 @@ func NewSARIFFromScanResult(result *scan.ScanResult, imageRef string) ([]byte, e
 			"references":       vuln.URLs,
 		}
 		results = append(results, sarifResult{
-			RuleID: vuln.ID,
+			RuleID: ruleKey,
 			Level:  sarifLevel(vuln.Severity),
 			Message: sarifMessage{
 				Text: fmt.Sprintf("%s affects %s %s", vuln.ID, vuln.Package, vuln.Version),

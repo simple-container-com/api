@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"fmt"
 	"os"
 )
 
@@ -52,12 +53,7 @@ func NewScannerWithVersion(tool ScanTool, version string) (Scanner, error) {
 		}
 		return s, nil
 	default:
-		s := NewGrypeScanner()
-		if v := resolveVersion(version, "SC_GRYPE_VERSION"); v != "" {
-			s.installVersion = v
-			s.minVersion = v
-		}
-		return s, nil
+		return nil, fmt.Errorf("unsupported scan tool %q: supported tools are %q and %q", tool, ScanToolGrype, ScanToolTrivy)
 	}
 }
 

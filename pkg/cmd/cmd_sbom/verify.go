@@ -98,7 +98,7 @@ func runVerify(ctx context.Context, opts *verifyOptions) error {
 	}
 
 	// Write verified SBOM to file
-	if err := os.WriteFile(opts.output, verifiedSBOM.Content, 0o644); err != nil {
+	if err := os.WriteFile(opts.output, verifiedSBOM.Content, 0o600); err != nil {
 		return fmt.Errorf("failed to write SBOM to file: %w", err)
 	}
 

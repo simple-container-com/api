@@ -106,7 +106,7 @@ func (s *Statement) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating provenance output directory: %w", err)
 	}
-	if err := os.WriteFile(path, s.Content, 0o644); err != nil {
+	if err := os.WriteFile(path, s.Content, 0o600); err != nil {
 		return fmt.Errorf("writing provenance file: %w", err)
 	}
 	return nil
@@ -177,11 +177,13 @@ func (a *Attacher) Attach(ctx context.Context, statement *Statement, imageRef st
 		return fmt.Errorf("creating temp provenance file: %w", err)
 	}
 	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
 
 	if _, err := tmpFile.Write(predicate); err != nil {
+		tmpFile.Close()
 		return fmt.Errorf("writing temp provenance file: %w", err)
 	}
+	// Close before cosign reads it — ensures content is flushed to disk.
+	tmpFile.Close()
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, a.Timeout)
 	defer cancel()

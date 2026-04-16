@@ -30,7 +30,8 @@ type Config struct {
 	IdentityRegexp string
 }
 
-// CreateSigner creates a signer based on the configuration
+// CreateSigner creates a signer based on the configuration.
+// The oidcToken parameter takes precedence; falls back to c.OIDCToken if empty.
 func (c *Config) CreateSigner(oidcToken string) (Signer, error) {
 	timeout, err := parseDuration(c.Timeout)
 	if err != nil {
@@ -38,10 +39,14 @@ func (c *Config) CreateSigner(oidcToken string) (Signer, error) {
 	}
 
 	if c.Keyless {
-		if oidcToken == "" {
+		token := oidcToken
+		if token == "" {
+			token = c.OIDCToken
+		}
+		if token == "" {
 			return nil, fmt.Errorf("OIDC token required for keyless signing")
 		}
-		return NewKeylessSigner(oidcToken, timeout), nil
+		return NewKeylessSigner(token, timeout), nil
 	}
 
 	if c.PrivateKey == "" {
