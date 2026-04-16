@@ -14,6 +14,25 @@ func TestGrypeScanner_Tool(t *testing.T) {
 	}
 }
 
+func TestNewScanner_UnsupportedTool(t *testing.T) {
+	_, err := NewScanner("unknown-tool")
+	if err == nil {
+		t.Fatal("NewScanner(unknown) should error")
+	}
+}
+
+func TestNewScanner_SupportedTools(t *testing.T) {
+	for _, tool := range []ScanTool{ScanToolGrype, ScanToolTrivy} {
+		s, err := NewScanner(tool)
+		if err != nil {
+			t.Errorf("NewScanner(%q) error = %v", tool, err)
+		}
+		if s == nil {
+			t.Errorf("NewScanner(%q) returned nil", tool)
+		}
+	}
+}
+
 func TestNormalizeSeverity(t *testing.T) {
 	tests := []struct {
 		input    string

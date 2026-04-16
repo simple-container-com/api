@@ -343,3 +343,33 @@ func TestSecurityExecutor_UploadReportsWritesPRComment(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateImageRef(t *testing.T) {
+	valid := []string{
+		"registry.example.com/repo:tag",
+		"registry.example.com/repo@sha256:abcdef1234567890",
+		"my_org/my_image:latest",
+		"ghcr.io/org/repo:v1.0.0+build.123",
+		"docker.io/library/ubuntu:22.04",
+		"000000000000.dkr.ecr.eu-central-1.amazonaws.com/repo:tag",
+		"europe-north1-docker.pkg.dev/project/repo:tag",
+	}
+	invalid := []string{
+		"",                          // empty
+		"--image-that-looks-like-flag", // starts with -
+		"image;rm -rf /",            // shell metacharacter
+		"image$(whoami)",            // command substitution
+		"image`id`",                 // backtick injection
+	}
+
+	for _, ref := range valid {
+		if err := ValidateImageRef(ref); err != nil {
+			t.Errorf("ValidateImageRef(%q) = %v, want nil", ref, err)
+		}
+	}
+	for _, ref := range invalid {
+		if err := ValidateImageRef(ref); err == nil {
+			t.Errorf("ValidateImageRef(%q) = nil, want error", ref)
+		}
+	}
+}

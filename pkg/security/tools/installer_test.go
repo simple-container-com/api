@@ -220,3 +220,56 @@ func TestToolRegistryRegisterAndUnregister(t *testing.T) {
 		t.Error("Expected custom tool to be unregistered")
 	}
 }
+
+func TestInstallScriptVersionValidation(t *testing.T) {
+	validVersions := []string{"2.4.1", "0.98.0", "1.0.0-rc1", "3.2.1-beta.2"}
+	invalidVersions := []string{"1.0; rm -rf /", "$(whoami)", "v1.0.0", "latest", ""}
+
+	for _, v := range validVersions {
+		_, err := installScript("cosign", v, "/tmp")
+		if err != nil {
+			t.Errorf("installScript(cosign, %q) error = %v, want nil", v, err)
+		}
+	}
+	for _, v := range invalidVersions {
+		_, err := installScript("cosign", v, "/tmp")
+		if err == nil {
+			t.Errorf("installScript(cosign, %q) = nil error, want validation error", v)
+		}
+	}
+}
+
+func TestInstallScriptPlatformDetection(t *testing.T) {
+	// Verify syft/grype scripts detect OS/arch at runtime
+	for _, tool := range []string{"syft", "grype"} {
+		script, err := installScript(tool, "0.98.0", "/usr/local/bin")
+		if err != nil {
+			t.Fatalf("installScript(%s) error = %v", tool, err)
+		}
+		if !containsAll(script, "uname -s", "uname -m", "${OS}", "${ARCH}") {
+			t.Errorf("installScript(%s) should detect OS/arch at runtime", tool)
+		}
+	}
+}
+
+func containsAll(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if !contains(s, sub) {
+			return false
+		}
+	}
+	return true
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && searchString(s, sub)
+}
+
+func searchString(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

@@ -91,3 +91,45 @@ func TestCreateEngagementUsesCICDType(t *testing.T) {
 		t.Fatalf("engagement ID = %d, want %d", got, want)
 	}
 }
+
+func TestTestTitle(t *testing.T) {
+	client := NewDefectDojoClient("https://dd.example.com", "key")
+	tests := []struct {
+		testType    string
+		productName string
+		want        string
+	}{
+		{"", "everworker", "Container Scan - everworker"},
+		{"Custom Type", "myapp", "Custom Type - myapp"},
+		{"", "", "Container Scan"},
+	}
+	for _, tt := range tests {
+		cfg := &DefectDojoUploaderConfig{TestType: tt.testType, ProductName: tt.productName}
+		got := client.testTitle(cfg, "image@sha256:abc")
+		if got != tt.want {
+			t.Errorf("testTitle(type=%q, product=%q) = %q, want %q", tt.testType, tt.productName, got, tt.want)
+		}
+	}
+}
+
+func TestFindLatestTestByTitle(t *testing.T) {
+	tests := []DefectDojoTest{
+		{ID: 1, Title: "Container Scan - everworker"},
+		{ID: 5, Title: "Other Test"},
+		{ID: 10, Title: "Container Scan - everworker"},
+		{ID: 3, Title: "Container Scan - everworker"},
+	}
+
+	match := findLatestTestByTitle(tests, "Container Scan - everworker")
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match.ID != 10 {
+		t.Errorf("findLatestTestByTitle() ID = %d, want 10 (latest)", match.ID)
+	}
+
+	noMatch := findLatestTestByTitle(tests, "nonexistent")
+	if noMatch != nil {
+		t.Error("expected nil for nonexistent title")
+	}
+}

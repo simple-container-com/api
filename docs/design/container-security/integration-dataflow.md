@@ -118,6 +118,18 @@ SC owns all security tool dependencies. `pkg/security/tools/installer.go`:
 
 Supported: cosign, syft, grype, trivy — with version checking.
 
+## Security Hardening
+
+- **Image ref validation**: `ValidateImageRef()` at all executor entry points
+  rejects refs with shell metacharacters or flag-like prefixes (`--`)
+- **Tool version validation**: regex-validated before shell interpolation
+- **No `curl|sh`**: all tools installed via direct tarball downloads with
+  runtime OS/arch detection
+- **File permissions**: scan results, SBOM, provenance written at `0600`
+- **Temp files**: `os.CreateTemp` with immediate chmod, `defer os.Remove`
+- **OIDC tokens**: propagated via struct field, validated for JWT format
+- **DefectDojo**: warns on non-HTTPS URLs, uses reimport to prevent duplicates
+
 ## CI/CD Requirements
 
 ```yaml

@@ -27,6 +27,27 @@ func TestDecodeFirstPayloadFromJSONLineWithPreamble(t *testing.T) {
 	}
 }
 
+func TestDecodeFirstPayloadRawJSON(t *testing.T) {
+	// Some cosign versions emit payload as raw JSON, not base64.
+	output := []byte(`[{"payload":"{\"predicate\":{\"key\":\"value\"}}"}]`)
+	payload, err := DecodeFirstPayload(output)
+	if err != nil {
+		t.Fatalf("DecodeFirstPayload() error = %v", err)
+	}
+	if string(payload) != `{"predicate":{"key":"value"}}` {
+		t.Fatalf("DecodeFirstPayload() = %s", string(payload))
+	}
+}
+
+func TestDecodeFirstPayloadRejectsGarbage(t *testing.T) {
+	// Payload that's neither valid base64 nor valid JSON should error.
+	output := []byte(`[{"payload":"not-base64-and-not-json!!!"}]`)
+	_, err := DecodeFirstPayload(output)
+	if err == nil {
+		t.Fatal("DecodeFirstPayload() expected error for garbage payload")
+	}
+}
+
 func TestDecodeFirstPayloadFailsWithoutJSON(t *testing.T) {
 	_, err := DecodeFirstPayload([]byte("Verification output without JSON"))
 	if err == nil {

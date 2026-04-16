@@ -311,3 +311,51 @@ func TestVerifyImage(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateSigner_OIDCTokenFallback(t *testing.T) {
+	cfg := &Config{
+		Enabled:   true,
+		Keyless:   true,
+		OIDCToken: "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ0ZXN0In0.dGVzdA",
+	}
+	// Empty oidcToken param should fall back to cfg.OIDCToken
+	signer, err := cfg.CreateSigner("")
+	if err != nil {
+		t.Fatalf("CreateSigner() with OIDCToken on struct: %v", err)
+	}
+	if signer == nil {
+		t.Fatal("CreateSigner() returned nil")
+	}
+}
+
+func TestCreateSigner_ParamTakesPrecedence(t *testing.T) {
+	cfg := &Config{
+		Enabled:   true,
+		Keyless:   true,
+		OIDCToken: "eyJvbGQiOiJ0b2tlbiJ9.eyJpc3MiOiJ0ZXN0In0.dGVzdA",
+	}
+	paramToken := "eyJuZXciOiJ0b2tlbiJ9.eyJpc3MiOiJ0ZXN0In0.dGVzdA"
+	signer, err := cfg.CreateSigner(paramToken)
+	if err != nil {
+		t.Fatalf("CreateSigner() with param token: %v", err)
+	}
+	// Verify the param token was used (it's a KeylessSigner)
+	ks, ok := signer.(*KeylessSigner)
+	if !ok {
+		t.Fatal("expected KeylessSigner")
+	}
+	if ks.OIDCToken != paramToken {
+		t.Errorf("signer used OIDCToken %q, want param %q", ks.OIDCToken, paramToken)
+	}
+}
+
+func TestCreateSigner_KeylessNoToken(t *testing.T) {
+	cfg := &Config{
+		Enabled: true,
+		Keyless: true,
+	}
+	_, err := cfg.CreateSigner("")
+	if err == nil {
+		t.Fatal("CreateSigner() should error when no OIDC token available")
+	}
+}
