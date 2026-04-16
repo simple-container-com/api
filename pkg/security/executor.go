@@ -554,6 +554,9 @@ func (e *SecurityExecutor) ExecuteSBOM(ctx context.Context, imageRef string) (*s
 	if !e.Config.Enabled || e.Config.SBOM == nil || !e.Config.SBOM.Enabled {
 		return nil, nil // SBOM disabled
 	}
+	if err := ValidateImageRef(imageRef); err != nil {
+		return nil, fmt.Errorf("invalid image ref: %w", err)
+	}
 
 	// Validate SBOM configuration
 	if err := e.Config.SBOM.Validate(); err != nil {
@@ -686,6 +689,9 @@ func (e *SecurityExecutor) ExecuteSBOM(ctx context.Context, imageRef string) (*s
 func (e *SecurityExecutor) ExecuteProvenance(ctx context.Context, imageRef string) (*provenance.Statement, error) {
 	if !e.Config.Enabled || e.Config.Provenance == nil || !e.Config.Provenance.Enabled {
 		return nil, nil
+	}
+	if err := ValidateImageRef(imageRef); err != nil {
+		return nil, fmt.Errorf("invalid image ref: %w", err)
 	}
 
 	if err := e.Config.Provenance.Validate(); err != nil {
