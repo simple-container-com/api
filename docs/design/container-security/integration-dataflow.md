@@ -90,10 +90,23 @@ Generated as a shell script by `buildSecurityReportScript()`, runs after all ops
 
 ## DefectDojo Integration
 
-- Engagement: `Container-Scan` for main, `PR-{number}` for PR deploys
-- Test title: `Container Scan - {productName}` (stable dedup key for reimport)
-- Upload via `close_old_findings=true` — resolved vulns auto-close
-- API key passed via `DEFECTDOJO_API_KEY` env var (Pulumi secret)
+**Engagement routing** (matches Semgrep, Trivy, Grype conventions):
+
+| Trigger | Engagement Name |
+|---------|----------------|
+| Push to main (staging) | `Source-Scan` |
+| PR deploy (pr2209) | `PR-2209` |
+| Configured in YAML | Preserved as-is |
+
+**Test title:** `Container Scan - {productName}` — stable dedup key, no digests/dates/tags.
+
+**Reimport logic:** Checks for existing test by title first:
+- Found → `POST /api/v2/reimport-scan/` with `test={id}` (updates existing)
+- Not found → `POST /api/v2/import-scan/` (creates new test)
+
+Prevents duplicate findings across runs. Uses `close_old_findings=true`.
+
+API key passed via `DEFECTDOJO_API_KEY` env var (Pulumi secret).
 
 ## Tool Auto-Install
 

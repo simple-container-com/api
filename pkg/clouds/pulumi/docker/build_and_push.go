@@ -133,13 +133,19 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	var opts []sdk.ResourceOption
 	imageName := image.Name
 
-	// DefectDojo engagement: "PR-{number}" for PR deploys, configured name for main.
+	// DefectDojo engagement routing — must match the conventions used by
+	// Semgrep, Trivy, Grype, and other scanners to avoid duplicate findings:
+	//   PR deploy (pr2209)           → "PR-2209"
+	//   RC branch (rc/2026.4.6)      → "Branch-RC/2026.4.6"  (future)
+	//   Main / staging / prod        → "Source-Scan"
 	if security.Reporting != nil && security.Reporting.DefectDojo != nil && security.Reporting.DefectDojo.Enabled {
 		if strings.HasPrefix(environment, "pr") {
 			num := strings.TrimPrefix(environment, "pr")
 			if num != "" && num[0] >= '0' && num[0] <= '9' {
 				security.Reporting.DefectDojo.EngagementName = "PR-" + num
 			}
+		} else if security.Reporting.DefectDojo.EngagementName == "" {
+			security.Reporting.DefectDojo.EngagementName = "Source-Scan"
 		}
 	}
 

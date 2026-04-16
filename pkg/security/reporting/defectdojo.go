@@ -72,9 +72,10 @@ func NewDefectDojoClient(baseURL, apiKey string) *DefectDojoClient {
 	}
 }
 
-// UploadScanResult uploads scan results to DefectDojo
+// UploadScanResult uploads scan results to DefectDojo.
+// Uses reimport when a test with the same title already exists in the engagement
+// to avoid creating duplicate findings. Falls back to import-scan for new tests.
 func (c *DefectDojoClient) UploadScanResult(ctx context.Context, result *scan.ScanResult, imageRef string, config *DefectDojoUploaderConfig) (*ImportScanResponse, error) {
-	// Get or create engagement
 	engagementID, err := c.getOrCreateEngagement(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("getting engagement: %w", err)
@@ -85,7 +86,22 @@ func (c *DefectDojoClient) UploadScanResult(ctx context.Context, result *scan.Sc
 		return nil, fmt.Errorf("encoding SARIF: %w", err)
 	}
 
-	// Import scan
+	title := c.testTitle(config, imageRef)
+
+	// Check for existing test by title — reimport into it to avoid duplicates.
+	tests, err := c.listTests(ctx, engagementID)
+	if err == nil {
+		if existing := findLatestTestByTitle(tests, title); existing != nil {
+			resp, err := c.reimportScan(ctx, existing.ID, sarifData, config)
+			if err != nil {
+				return nil, fmt.Errorf("reimporting scan into test %d: %w", existing.ID, err)
+			}
+			resp.Engagement = engagementID
+			return resp, nil
+		}
+	}
+
+	// No existing test — use import-scan (creates new test)
 	importResp, err := c.importScan(ctx, engagementID, sarifData, imageRef, config)
 	if err != nil {
 		return nil, fmt.Errorf("importing scan: %w", err)
@@ -413,6 +429,70 @@ func (c *DefectDojoClient) importScan(ctx context.Context, engagementID int, sar
 	}
 
 	return importResp, nil
+}
+
+// reimportScan reimports scan results into an existing DefectDojo test.
+// This updates the existing test instead of creating a new one, preventing
+// duplicate findings across runs.
+func (c *DefectDojoClient) reimportScan(ctx context.Context, testID int, sarifData []byte, config *DefectDojoUploaderConfig) (*ImportScanResponse, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	fields := map[string]string{
+		"scan_type":          "SARIF",
+		"test":               fmt.Sprintf("%d", testID),
+		"scan_date":          time.Now().Format("2006-01-02"),
+		"minimum_severity":   "Info",
+		"active":             "true",
+		"verified":           "false",
+		"close_old_findings": "true",
+	}
+	if config.Environment != "" {
+		fields["environment"] = config.Environment
+	}
+	if len(config.Tags) > 0 {
+		fields["tags"] = strings.Join(config.Tags, ",")
+	}
+	for name, value := range fields {
+		if err := writer.WriteField(name, value); err != nil {
+			return nil, fmt.Errorf("writing multipart field %s: %w", name, err)
+		}
+	}
+
+	fileWriter, err := writer.CreateFormFile("file", "scan-results.sarif")
+	if err != nil {
+		return nil, fmt.Errorf("creating multipart file: %w", err)
+	}
+	if _, err := fileWriter.Write(sarifData); err != nil {
+		return nil, fmt.Errorf("writing SARIF payload: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart body: %w", err)
+	}
+
+	req, err := c.createRequest(ctx, "POST", "/api/v2/reimport-scan/", &body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	return decodeImportScanResponse(respBody), nil
 }
 
 // createRequest creates an HTTP request with authentication

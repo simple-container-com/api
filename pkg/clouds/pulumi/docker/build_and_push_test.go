@@ -340,36 +340,42 @@ func TestSecurityPATHPrefix(t *testing.T) {
 	}
 }
 
-func TestPREngagementDetection(t *testing.T) {
-	// The PR detection logic in executeSecurityOperations checks:
-	// strings.HasPrefix(environment, "pr") && num[0] >= '0' && num[0] <= '9'
-	// Test the same logic here to guard against regressions.
+func TestEngagementRouting(t *testing.T) {
+	// Engagement routing must match conventions used by Semgrep, Trivy, Grype:
+	//   PR deploy  → "PR-{number}"
+	//   Non-PR     → "Source-Scan" (default when engagement name not configured)
 	tests := []struct {
-		env  string
-		want string // empty means no override (keep configured name)
+		env            string
+		configuredName string
+		want           string
 	}{
-		{"pr2209", "PR-2209"},
-		{"pr1", "PR-1"},
-		{"pr99999", "PR-99999"},
-		{"staging", ""},
-		{"test", ""},
-		{"prod", ""},        // must NOT match — "prod" starts with "pr"
-		{"production", ""},  // must NOT match
-		{"preview", ""},     // must NOT match
-		{"pre-release", ""}, // must NOT match
-		{"", ""},
+		{"pr2209", "", "PR-2209"},
+		{"pr1", "", "PR-1"},
+		{"pr99999", "", "PR-99999"},
+		{"staging", "", "Source-Scan"},      // default for non-PR
+		{"test", "", "Source-Scan"},         // default for non-PR
+		{"prod", "", "Source-Scan"},         // must NOT match "pr" — "prod" starts with "pr"
+		{"production", "", "Source-Scan"},   // must NOT match
+		{"preview", "", "Source-Scan"},      // must NOT match
+		{"pre-release", "", "Source-Scan"},  // must NOT match
+		{"", "", "Source-Scan"},             // empty env = non-PR
+		{"staging", "Custom-Eng", "Custom-Eng"}, // configured name preserved for non-PR
+		{"pr123", "Custom-Eng", "PR-123"},        // PR override takes precedence
 	}
 	for _, tt := range tests {
-		t.Run(tt.env, func(t *testing.T) {
-			got := ""
+		t.Run(tt.env+"_"+tt.configuredName, func(t *testing.T) {
+			name := tt.configuredName
 			if strings.HasPrefix(tt.env, "pr") {
 				num := strings.TrimPrefix(tt.env, "pr")
 				if num != "" && num[0] >= '0' && num[0] <= '9' {
-					got = "PR-" + num
+					name = "PR-" + num
 				}
 			}
-			if got != tt.want {
-				t.Errorf("env=%q → %q, want %q", tt.env, got, tt.want)
+			if name == "" {
+				name = "Source-Scan"
+			}
+			if name != tt.want {
+				t.Errorf("env=%q configured=%q → %q, want %q", tt.env, tt.configuredName, name, tt.want)
 			}
 		})
 	}
