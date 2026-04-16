@@ -71,7 +71,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:staging'
+  image: 'docker://simplecontainer/github-actions:2026.4.5-pre.5d6ff8b-preview.5d6ff8b'
   env:
     GITHUB_ACTION_TYPE: 'cancel-stack'
     STACK_NAME: ${{ inputs.stack-name }}
