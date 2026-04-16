@@ -6,9 +6,9 @@ import (
 )
 
 // imageRefRe validates container image references to prevent argv confusion.
-// Accepts: registry/repo:tag, registry/repo@sha256:hex, repo:tag
+// Accepts: registry/repo:tag, registry/repo@sha256:hex, repo:tag, underscores, plus signs.
 // Rejects: refs starting with "-" (flag injection) or containing shell metacharacters.
-var imageRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$`)
+var imageRefRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/:@+_-]*$`)
 
 // ValidateImageRef checks that an image reference is safe to pass to external tools.
 func ValidateImageRef(imageRef string) error {

@@ -70,11 +70,11 @@ type scanToolOutcome struct {
 // All configured scan tools run in parallel; results are merged and deduplicated.
 // This runs FIRST in the security workflow (fail-fast pattern).
 func (e *SecurityExecutor) ExecuteScanning(ctx context.Context, imageRef string) (*scan.ScanResult, error) {
-	if err := ValidateImageRef(imageRef); err != nil {
-		return nil, fmt.Errorf("invalid image ref: %w", err)
-	}
 	if !e.Config.Enabled || e.Config.Scan == nil || !e.Config.Scan.Enabled {
 		return nil, nil // Scanning disabled
+	}
+	if err := ValidateImageRef(imageRef); err != nil {
+		return nil, fmt.Errorf("invalid image ref: %w", err)
 	}
 
 	// Validate scan configuration
@@ -483,16 +483,17 @@ func (e *SecurityExecutor) scanCacheTTL() time.Duration {
 
 // ExecuteSigning performs signing operations on the image
 func (e *SecurityExecutor) ExecuteSigning(ctx context.Context, imageRef string) (*signing.SignResult, error) {
-	if err := ValidateImageRef(imageRef); err != nil {
-		return nil, fmt.Errorf("invalid image ref: %w", err)
-	}
 	if !e.Config.Enabled || e.Config.Signing == nil || !e.Config.Signing.Enabled {
 		return nil, nil // Signing disabled
+	}
+	if err := ValidateImageRef(imageRef); err != nil {
+		return nil, fmt.Errorf("invalid image ref: %w", err)
 	}
 
 	// Propagate OIDC token to signing config so SBOM/provenance attestation
 	// attachers can pass it to cosign via SIGSTORE_ID_TOKEN environment variable.
-	if e.Context.OIDCToken != "" {
+	// Safe: SecurityExecutor is created per-deploy invocation, not shared concurrently.
+	if e.Context.OIDCToken != "" && e.Config.Signing.OIDCToken == "" {
 		e.Config.Signing.OIDCToken = e.Context.OIDCToken
 	}
 

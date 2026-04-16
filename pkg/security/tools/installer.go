@@ -130,10 +130,13 @@ mv "$TMP_DIR/cosign" %[2]s/cosign`, version, installDir), nil
 
 	case "syft":
 		// Direct tarball download from GitHub releases (no curl|sh).
+		// Detect OS/arch at runtime to support linux/darwin, amd64/arm64.
 		return fmt.Sprintf(`set -e
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
-curl -sSfL "https://github.com/anchore/syft/releases/download/v%[1]s/syft_%[1]s_linux_amd64.tar.gz" \
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && ARCH="amd64"; [ "$ARCH" = "aarch64" ] && ARCH="arm64"
+curl -sSfL "https://github.com/anchore/syft/releases/download/v%[1]s/syft_%[1]s_${OS}_${ARCH}.tar.gz" \
   -o "$TMP_DIR/syft.tar.gz"
 tar -xzf "$TMP_DIR/syft.tar.gz" -C "$TMP_DIR" syft
 chmod +x "$TMP_DIR/syft"
@@ -144,7 +147,9 @@ mv "$TMP_DIR/syft" %[2]s/syft`, version, installDir), nil
 		return fmt.Sprintf(`set -e
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
-curl -sSfL "https://github.com/anchore/grype/releases/download/v%[1]s/grype_%[1]s_linux_amd64.tar.gz" \
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && ARCH="amd64"; [ "$ARCH" = "aarch64" ] && ARCH="arm64"
+curl -sSfL "https://github.com/anchore/grype/releases/download/v%[1]s/grype_%[1]s_${OS}_${ARCH}.tar.gz" \
   -o "$TMP_DIR/grype.tar.gz"
 tar -xzf "$TMP_DIR/grype.tar.gz" -C "$TMP_DIR" grype
 chmod +x "$TMP_DIR/grype"

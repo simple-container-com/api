@@ -37,7 +37,6 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 
 	// Check if PrivateKey is a file path or raw key content
 	var keyPath string
-	var tempFile bool
 
 	if _, err := os.Stat(s.PrivateKey); err == nil {
 		// It's an existing file path
@@ -52,7 +51,6 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 			return nil, fmt.Errorf("creating temp key file: %w", err)
 		}
 		keyPath = tmpFile.Name()
-		tempFile = true
 		defer os.Remove(keyPath)
 
 		// Set permissions before writing content
@@ -76,11 +74,6 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 	// Execute cosign sign command
 	args := []string{"sign", "--key", keyPath, imageRef}
 	stdout, stderr, err := tools.ExecCommand(ctx, "cosign", args, env, s.Timeout)
-
-	// Clean up temp file immediately after execution
-	if tempFile {
-		os.Remove(keyPath)
-	}
 
 	if err != nil {
 		return nil, fmt.Errorf("cosign sign failed: %w\nStderr: %s\nStdout: %s", err, stderr, stdout)
