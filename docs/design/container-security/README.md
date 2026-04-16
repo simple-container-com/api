@@ -487,36 +487,25 @@ cosign verify \
 
 ---
 
-## Testing Strategy
+## Testing
 
-### Unit Tests (90%+ coverage)
+**Framework:** gomega with `RegisterTestingT(t)` (matches SC codebase convention).
 
-**Target Packages:**
-- `pkg/security/signing/` - Signer implementations
-- `pkg/security/sbom/` - SBOM generation
-- `pkg/security/provenance/` - Provenance generation
-- `pkg/security/scan/` - Scanner implementations
+**26 test files** across 9 packages. Run: `go test ./pkg/security/... ./pkg/clouds/pulumi/docker/ -count=1`
 
-**Mock Strategy:**
-- Mock external command execution
-- Mock CI environment variables
-- Mock registry API calls
+| Package | Tests | Coverage |
+|---------|-------|----------|
+| `clouds/pulumi/docker` | 15 | Pulumi command construction, engagement routing, helpers |
+| `security` | 12 | Executor, cache, config validation, image ref validation |
+| `security/attestation` | 5 | Payload parsing, base64/JSON fallback |
+| `security/scan` | 14 | Grype/Trivy parsing, policy enforcement, merge |
+| `security/signing` | 16 | Config, signer creation, OIDC fallback, key-based |
+| `security/sbom` | 8 | Formats, attacher, syft |
+| `security/provenance` | 6 | Format detection, statement validation |
+| `security/reporting` | 4 | DefectDojo client, test title, reimport |
+| `security/tools` | 10 | Installer, version, registry |
 
-### Integration Tests
-
-**Scenarios:**
-1. Full workflow: build → scan → sign → SBOM → provenance
-2. Keyless signing in GitHub Actions
-3. Key-based signing with secrets manager
-4. Scan failure blocks deployment
-5. Missing tool graceful degradation
-
-### End-to-End Tests
-
-**Test Environments:**
-- GitHub Actions workflow
-- Local Docker build
-- AWS ECR + ECS deployment
+**E2E validation:** Tested on Everworker (AWS ECR, Blacksmith) and PAY-SPACE (GCP Artifact Registry, Docker container).
 - GCP GCR + Cloud Run deployment
 
 ---
