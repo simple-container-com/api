@@ -64,7 +64,9 @@ auto-installed to `~/.local/bin` are findable.
 
 - **[Component Design](./component-design.md)** — package structure and interfaces
 - **[API Contracts](./api-contracts.md)** — types, function signatures
-- **[Integration & Data Flow](./integration-dataflow.md)** — execution flow
+- **[Integration & Data Flow](./integration-dataflow.md)** — execution flow, file structure, registry auth
+
+## Key Design Decisions
 
 **3. Minimal Invasiveness**
 - Leverage external tools (Cosign, Syft, Grype)
@@ -551,109 +553,32 @@ cosign verify \
 
 ---
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Core Infrastructure (Week 1-2)
-- Security package structure
-- Configuration types and parsing
-- ExecutionContext and CI detection
-- Tool installation checks
+All phases complete. Validated on Everworker (AWS ECR, Blacksmith runners)
+and PAY-SPACE (GCP Artifact Registry, SC Docker Action containers).
 
-**Deliverables:**
-- `pkg/security/config.go`
-- `pkg/security/executor.go`
-- `pkg/security/context.go`
-- `pkg/security/tools/`
+**Branch:** `simple-forge/issue-93-feature-request-container-imag-ta061x`
+**Issue:** https://github.com/simple-container-com/api/issues/93
 
-### Phase 2: Image Signing (Week 2-3)
-- Cosign wrapper implementation
-- Keyless (OIDC) signing
-- Key-based signing
-- Signature verification
-
-**Deliverables:**
-- `pkg/security/signing/`
-- CLI commands: `sc image sign`, `sc image verify`
-
-### Phase 3: SBOM Generation (Week 3-4)
-- Syft wrapper implementation
-- Attestation attachment
-- Multiple format support
-
-**Deliverables:**
-- `pkg/security/sbom/`
-- CLI commands: `sc sbom generate`, `sc sbom attach`
-
-### Phase 4: Provenance & Scanning (Week 4-5)
-- SLSA provenance generation
-- Grype scanner implementation
-- Trivy scanner implementation
-- Policy enforcement
-
-**Deliverables:**
-- `pkg/security/provenance/`
-- `pkg/security/scan/`
-- CLI commands: `sc image scan`, `sc provenance attach`
-
-### Phase 5: Integration & Release Workflow (Week 6-7)
-- Integration with `BuildAndPushImage()`
-- Release workflow command
-- Parallel execution optimization
-- Caching implementation
-
-**Deliverables:**
-- Modified `pkg/clouds/pulumi/docker/build_and_push.go`
-- CLI command: `sc release create`
-- Integration tests
-
----
-
-## Success Criteria
-
-### Functional
-- ✅ All acceptance criteria met (see issue #105)
-- ✅ 90%+ test coverage for security package
-- ✅ All CLI commands functional
-- ✅ Configuration schema validated
-
-### Performance
-- ✅ < 10% overhead when all features enabled
-- ✅ Zero impact when features disabled
-- ✅ < 2 minutes for full security workflow (9 services)
-
-### Quality
-- ✅ No breaking changes to existing workflows
-- ✅ < 5% failure rate for signing operations
-- ✅ Graceful degradation when tools missing
-
-### Documentation
-- ✅ Complete user guides
-- ✅ API reference documentation
-- ✅ Compliance mapping documented
-- ✅ Troubleshooting guide
-
----
-
-## Related Documents
-
-- **[Component Design](./component-design.md)** - Detailed package and component design
-- **[API Contracts](./api-contracts.md)** - Interface definitions and type specifications
-- **[Integration & Data Flow](./integration-dataflow.md)** - Integration architecture and execution flow
-- **[Implementation Plan](./implementation-plan.md)** - File-by-file implementation guide
-
----
+| Feature | Status | Tested |
+|---------|--------|--------|
+| Vulnerability scanning (grype + trivy) | Done | EW + PAY-SPACE |
+| Image signing (keyless OIDC) | Done | EW + PAY-SPACE |
+| Image verification | Done | EW |
+| SBOM generation (syft cyclonedx) | Done | EW + PAY-SPACE |
+| SBOM attestation + verify | Done | EW |
+| SLSA v1.0 provenance + verify | Done | EW |
+| DefectDojo upload | Done | EW + PAY-SPACE |
+| GitHub Step Summary | Done | EW + PAY-SPACE |
+| PR comment file | Done | EW + PAY-SPACE |
+| Tool auto-install | Done | EW + PAY-SPACE |
+| Docker container compatibility | Done | PAY-SPACE |
+| softFail control | Done | EW + PAY-SPACE |
 
 ## References
 
-- **Product Requirements:** `docs/product-manager/container-security/`
-- **Issue:** https://github.com/simple-container-com/api/issues/105
 - **Cosign:** https://docs.sigstore.dev/cosign/overview/
 - **Syft:** https://github.com/anchore/syft
 - **SLSA:** https://slsa.dev/
 - **NIST SP 800-218:** https://csrc.nist.gov/publications/detail/sp/800-218/final
-
----
-
-**Status:** ✅ Architecture Design Complete - Ready for Development
-**Next Phase:** Developer Implementation
-**Estimated Effort:** 7-10 engineer-weeks across 5 phases
