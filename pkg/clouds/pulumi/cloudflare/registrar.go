@@ -249,9 +249,17 @@ async function handleRequest(origRequest) {
 		if (location) {
 			const target = new URL(location, url);
 
-			// re-append original query string
+			// merge original query string with redirect's own query params
+			// redirect params take precedence over original request params
 			if (url.search) {
-				target.search = url.search;
+				const origParams = new URLSearchParams(url.search);
+				const targetParams = new URLSearchParams(target.search);
+				for (const [key, value] of origParams) {
+					if (!targetParams.has(key)) {
+						targetParams.append(key, value);
+					}
+				}
+				target.search = targetParams.toString();
 			}
 
 			// Only rewrite hostname if redirect is to our target upstream (overrideHost)
