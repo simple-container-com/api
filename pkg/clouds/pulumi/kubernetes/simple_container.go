@@ -113,7 +113,8 @@ type SimpleContainerArgs struct {
 	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
 	PriorityClassName *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
-	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
+	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
+	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
 	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
 	Headers           *k8s.Headers                 `json:"headers" yaml:"headers"`
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
@@ -125,20 +126,21 @@ type SimpleContainerArgs struct {
 
 	Log logger.Logger
 	// ...
-	RollingUpdate        *v1.RollingUpdateDeploymentArgs
-	InitContainers       []corev1.ContainerArgs
-	Containers           []corev1.ContainerArgs
-	SecurityContext      *corev1.PodSecurityContextArgs
-	ServiceAccountName   *sdk.StringOutput
-	Sidecars             []corev1.ContainerArgs
-	SidecarOutputs       []corev1.ContainerOutput
-	InitContainerOutputs []corev1.ContainerOutput
-	VolumeOutputs        []corev1.VolumeOutput
-	SecretVolumeOutputs  []any
-	ComputeContext       pApi.ComputeContext
-	ImagePullSecret      *docker.RegistryCredentials
-	UseSSL               bool
-	EphemeralSize        string
+	RollingUpdate                 *v1.RollingUpdateDeploymentArgs
+	InitContainers                []corev1.ContainerArgs
+	Containers                    []corev1.ContainerArgs
+	SecurityContext               *corev1.PodSecurityContextArgs
+	ServiceAccountName            *sdk.StringOutput
+	Sidecars                      []corev1.ContainerArgs
+	SidecarOutputs                []corev1.ContainerOutput
+	InitContainerOutputs          []corev1.ContainerOutput
+	VolumeOutputs                 []corev1.VolumeOutput
+	SecretVolumeOutputs           []any
+	ComputeContext                pApi.ComputeContext
+	ImagePullSecret               *docker.RegistryCredentials
+	UseSSL                        bool
+	EphemeralSize                 string
+	TerminationGracePeriodSeconds *int
 }
 
 type SimpleContainer struct {
@@ -519,6 +521,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
 		Affinity:     convertedAffinity,
+		TerminationGracePeriodSeconds: func() sdk.IntPtrInput {
+			if args.TerminationGracePeriodSeconds != nil {
+				return sdk.IntPtr(*args.TerminationGracePeriodSeconds)
+			}
+			return nil
+		}(),
 		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
 			for _, c := range scOuts {
 				initContainers = append(initContainers, c.(corev1.ContainerInput))
@@ -659,9 +667,10 @@ ${proto}://${domain} {
 				Annotations: sdk.ToStringMap(serviceAnnotations),
 			},
 			Spec: &corev1.ServiceSpecArgs{
-				Selector: sdk.ToStringMap(appLabels),
-				Ports:    servicePorts,
-				Type:     serviceType,
+				Selector:              sdk.ToStringMap(appLabels),
+				Ports:                 servicePorts,
+				Type:                  serviceType,
+				ExternalTrafficPolicy: lo.If(args.ExternalTrafficPolicy != nil, sdk.StringPtr(lo.FromPtr(args.ExternalTrafficPolicy))).Else(nil),
 			},
 		}, opts...)
 		if err != nil {

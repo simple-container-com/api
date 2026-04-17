@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	auth "golang.org/x/oauth2/google"
 
@@ -233,12 +232,21 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			Namespace:    namespace,
 			KubeProvider: kubeProvider,
 			Kubeconfig:   &kubeConfigOutput,
+			// caddy-update-hash goes into spec.template.metadata so Caddy pods roll only when
+			// the Caddyfile actually changes. Content-hash, not wall-clock time, prevents
+			// spurious restarts (and Cloudflare 521s) on every pulumi up.
 			Annotations: map[string]sdk.StringOutput{
-				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				"simple-container.com/caddy-updated-at": sdk.String(time.Now().UTC().Format(time.RFC3339)).ToStringOutput(),
 				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 					sum := md5.Sum([]byte(entry[0].(string)))
 					return hex.EncodeToString(sum[:])
+				}).(sdk.StringOutput),
+			},
+			// Informational annotations live on deployment metadata only — no pod restarts.
+			DeploymentAnnotations: map[string]sdk.StringOutput{
+				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
+				"simple-container.com/caddy-updated-at": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+					sum := md5.Sum([]byte(entry[0].(string)))
+					return hex.EncodeToString(sum[:])[:8]
 				}).(sdk.StringOutput),
 			},
 			Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},

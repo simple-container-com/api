@@ -6,17 +6,28 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	sccli "github.com/simple-container-com/api/pkg/cmd"
 	"github.com/simple-container-com/api/pkg/githubactions/actions"
 	"github.com/simple-container-com/api/pkg/provisioner"
 )
 
 func main() {
+	// When invoked via the "sc" symlink (e.g., by Pulumi local.Command for
+	// security operations), delegate to the full SC CLI. This allows the
+	// github-actions binary to serve double duty: GitHub Action entrypoint
+	// AND SC CLI for security subcommands (image sign/scan, sbom, provenance).
+	if filepath.Base(os.Args[0]) == "sc" {
+		sccli.Execute()
+		return
+	}
+
 	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
