@@ -211,11 +211,11 @@ jobs:
           - target: github-actions
             binary: github-actions
             dockerfile: github-actions.Dockerfile
-            tag: "simplecontainer/github-actions"
+            tag_prefix: "simplecontainer/github-actions:"
           - target: cloud-helpers
             binary: cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
-            tag: "simplecontainer/cloud-helpers:aws-"
+            tag_prefix: "simplecontainer/cloud-helpers:aws-"
     steps:
       - uses: actions/checkout@v4
       - name: download ${{ matrix.target }} binary
@@ -251,19 +251,12 @@ jobs:
           DOCKER_BUILDKIT: 1
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          TAG="${{ matrix.tag }}"
-          # cloud-helpers uses aws- prefix, github-actions uses bare version
-          if [[ "$TAG" == *":" ]]; then
-            FULL_TAG="${TAG}${VERSION}"
-          else
-            FULL_TAG="${TAG}:${VERSION}"
-          fi
           docker buildx build \
             --platform linux/amd64 \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
             --file ${{ matrix.dockerfile }} \
-            --tag "${FULL_TAG}" \
+            --tag "${{ matrix.tag_prefix }}${VERSION}" \
             --push \
             .
 
