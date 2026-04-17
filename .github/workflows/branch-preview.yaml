@@ -202,20 +202,29 @@ jobs:
           go test ./...
 
   docker-build:
-    name: Docker build and push preview github-actions image
+    name: Docker build and push preview ${{ matrix.target }} image
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    # Does not need build-platforms — SC binaries are not used in the github-actions Docker image.
-    # Starts as soon as build-binaries + test finish, in parallel with build-platforms.
     needs: [prepare, build-setup, build-binaries, test]
+    strategy:
+      matrix:
+        include:
+          - target: github-actions
+            binary: github-actions
+            dockerfile: github-actions.Dockerfile
+            tag: "simplecontainer/github-actions"
+          - target: cloud-helpers
+            binary: cloud-helpers
+            dockerfile: cloud-helpers.aws.Dockerfile
+            tag: "simplecontainer/cloud-helpers:aws-"
     steps:
       - uses: actions/checkout@v4
-      - name: download github-actions binary
+      - name: download ${{ matrix.target }} binary
         uses: actions/download-artifact@v4
         with:
-          name: github-actions-binary
+          name: ${{ matrix.target }}-binary
           path: dist
       - name: fix binary permissions
-        run: chmod +x dist/github-actions
+        run: chmod +x dist/${{ matrix.binary }}
       - name: install sc tool (latest release)
         shell: bash
         run: |-
@@ -237,66 +246,24 @@ jobs:
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push preview github-actions image
+      - name: Build and push preview ${{ matrix.target }} image
         env:
           DOCKER_BUILDKIT: 1
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          TAG="${{ matrix.tag }}"
+          # cloud-helpers uses aws- prefix, github-actions uses bare version
+          if [[ "$TAG" == *":" ]]; then
+            FULL_TAG="${TAG}${VERSION}"
+          else
+            FULL_TAG="${TAG}:${VERSION}"
+          fi
           docker buildx build \
             --platform linux/amd64 \
             --cache-from type=gha \
             --cache-to type=gha,mode=max \
-            --file github-actions.Dockerfile \
-            --tag "simplecontainer/github-actions:${VERSION}" \
-            --push \
-            .
-
-  docker-build-cloud-helpers:
-    name: Docker build and push preview cloud-helpers-aws image
-    runs-on: blacksmith-8vcpu-ubuntu-2204
-    # Runs in parallel with docker-build (github-actions image).
-    needs: [prepare, build-setup, build-binaries, test]
-    steps:
-      - uses: actions/checkout@v4
-      - name: download cloud-helpers binary
-        uses: actions/download-artifact@v4
-        with:
-          name: cloud-helpers-binary
-          path: dist
-      - name: fix binary permissions
-        run: chmod +x dist/cloud-helpers
-      - name: install sc tool (latest release)
-        shell: bash
-        run: |-
-          curl -s "https://dist.simple-container.com/sc.sh" | bash
-      - name: prepare secrets for build
-        run: |
-          cat << EOF > ./.sc/cfg.default.yaml
-          ${{ secrets.SC_CONFIG }}
-          EOF
-          sc secrets reveal
-      - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:buildx-stable-1
-          buildkitd-flags: --allow-insecure-entitlement security.insecure
-      - name: Disable IPv6 (Blacksmith runners have broken IPv6 to Docker Hub)
-        run: sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-      - name: Docker login using SC secrets
-        run: |
-          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push preview cloud-helpers-aws image
-        env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file cloud-helpers.aws.Dockerfile \
-            --tag "simplecontainer/cloud-helpers:aws-${VERSION}" \
+            --file ${{ matrix.dockerfile }} \
+            --tag "${FULL_TAG}" \
             --push \
             .
 
@@ -357,7 +324,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     # Only needs docker-build — the tag must point to a commit referencing a published Docker image.
     # Does not need build-platforms or publish-sc-preview. Runs in parallel with publish-sc-preview.
-    needs: [prepare, docker-build, docker-build-cloud-helpers]
+    needs: [prepare, docker-build]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -402,7 +369,7 @@ jobs:
       - build-setup
       - publish-sc-preview
       - publish-git-tag
-      - docker-build-cloud-helpers
+      - docker-build
     steps:
       - uses: actions/checkout@v4
         if: ${{ always() }}
