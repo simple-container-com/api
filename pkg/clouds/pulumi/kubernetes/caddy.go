@@ -243,7 +243,8 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 
 	sc, err := DeploySimpleContainer(ctx, Args{
-		ServiceType:                   serviceType, // to provision external IP
+		ServiceType:           serviceType, // to provision external IP
+		ExternalTrafficPolicy: lo.FromPtr(caddy.CaddyConfig).ExternalTrafficPolicy,
 		ProvisionIngress:              caddy.ProvisionIngress,
 		UseSSL:                        useSSL,
 		Namespace:                     namespace,

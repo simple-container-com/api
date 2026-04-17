@@ -113,7 +113,8 @@ type SimpleContainerArgs struct {
 	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
 	PriorityClassName *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
-	ServiceType       *string                      `json:"serviceType" yaml:"serviceType"`
+	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
+	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
 	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
 	Headers           *k8s.Headers                 `json:"headers" yaml:"headers"`
 	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
@@ -666,9 +667,10 @@ ${proto}://${domain} {
 				Annotations: sdk.ToStringMap(serviceAnnotations),
 			},
 			Spec: &corev1.ServiceSpecArgs{
-				Selector: sdk.ToStringMap(appLabels),
-				Ports:    servicePorts,
-				Type:     serviceType,
+				Selector:              sdk.ToStringMap(appLabels),
+				Ports:                 servicePorts,
+				Type:                  serviceType,
+				ExternalTrafficPolicy: lo.If(args.ExternalTrafficPolicy != nil, sdk.StringPtr(lo.FromPtr(args.ExternalTrafficPolicy))).Else(nil),
 			},
 		}, opts...)
 		if err != nil {

@@ -57,6 +57,10 @@ type CaddyConfig struct {
 	// Allows load-balancer endpoint propagation and in-flight connection drain before shutdown.
 	// Prevents Cloudflare 521 errors during rolling updates. Default: 0 (disabled).
 	PreStopSleepSeconds *int `json:"preStopSleepSeconds,omitempty" yaml:"preStopSleepSeconds,omitempty"`
+	// ExternalTrafficPolicy controls how traffic is routed to the Caddy LoadBalancer Service.
+	// "Local" preserves the client source IP (required for correct X-Forwarded-For from Cloudflare).
+	// "Cluster" (default) SNATs source IP to a node IP, losing the direct client IP.
+	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 }
 
 type DisruptionBudget struct {

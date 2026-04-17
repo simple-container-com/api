@@ -34,6 +34,7 @@ type Args struct {
 	InitContainers         []corev1.ContainerArgs
 	GenerateCaddyfileEntry bool
 	ServiceType            *string
+	ExternalTrafficPolicy  *string
 	Sidecars               []corev1.ContainerArgs
 	ComputeContext         pApi.ComputeContext
 	SecretVolumes          []k8s.SimpleTextVolume
@@ -217,6 +218,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		KubeProvider:           args.KubeProvider,
 		ComputeContext:         args.ComputeContext,
 		ServiceType:            args.ServiceType,
+		ExternalTrafficPolicy:  args.ExternalTrafficPolicy,
 		UseSSL:                 args.UseSSL,
 		ProvisionIngress:       args.ProvisionIngress,
 		Namespace:              namespace,
