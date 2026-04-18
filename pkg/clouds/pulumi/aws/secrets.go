@@ -18,10 +18,11 @@ func toSecretName(params api.StackParams, resType, resName, varName, suffix stri
 	return fmt.Sprintf("%s--%s--%s--%s--%s%s", params.StackName, params.Environment, resType, resName, varName, suffix)
 }
 
-func createSecret(ctx *sdk.Context, secretName, envVar, value string, opts ...sdk.ResourceOption) (*CreatedSecret, error) {
+func createSecret(ctx *sdk.Context, secretName, envVar, value string, tags sdk.StringMap, opts ...sdk.ResourceOption) (*CreatedSecret, error) {
 	secret, err := secretsmanager.NewSecret(ctx, secretName, &secretsmanager.SecretArgs{
 		Name:                 sdk.String(secretName),
 		RecoveryWindowInDays: sdk.IntPtr(0),
+		Tags:                 tags,
 	}, opts...)
 	if err != nil {
 		return nil, err

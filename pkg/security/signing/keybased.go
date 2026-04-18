@@ -74,7 +74,6 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 	// Execute cosign sign command
 	args := []string{"sign", "--key", keyPath, imageRef}
 	stdout, stderr, err := tools.ExecCommand(ctx, "cosign", args, env, s.Timeout)
-
 	if err != nil {
 		return nil, fmt.Errorf("cosign sign failed: %w\nStderr: %s\nStdout: %s", err, stderr, stdout)
 	}

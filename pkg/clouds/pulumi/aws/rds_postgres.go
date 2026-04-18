@@ -38,6 +38,8 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		sdk.Provider(params.Provider),
 	}
 
+	tags := pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
+
 	subnets, err := createDefaultSubnetsInRegionV5(ctx, postgresCfg.AccountConfig, input.StackParams.Environment, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get or create default subnets in region")
@@ -63,6 +65,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	rdsSg, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		Name:  sdk.String(securityGroupName),
 		VpcId: vpc.ID(),
+		Tags:  tags,
 		Ingress: &ec2.SecurityGroupIngressArray{
 			&ec2.SecurityGroupIngressArgs{
 				Protocol:       sdk.String("tcp"),
@@ -83,6 +86,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	subnetGroup, err := rds.NewSubnetGroup(ctx, subnetGroupName, &rds.SubnetGroupArgs{
 		Name:      sdk.String(subnetGroupName),
 		SubnetIds: subnets.Ids(),
+		Tags:      tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create subnet group for rds postgres cluster")
@@ -107,6 +111,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		Username:          sdk.String(lo.If(postgresCfg.Username != "", postgresCfg.Username).Else("postgres")),
 		Password:          sdk.String(lo.If(postgresCfg.Password != "", postgresCfg.Password).Else("postgres")),
 		SkipFinalSnapshot: sdk.Bool(true),
+		Tags:              tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create rds postgres instance")

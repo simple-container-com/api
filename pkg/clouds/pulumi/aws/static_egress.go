@@ -288,10 +288,14 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 
 	params := input.Params
 
+	// Build unified tags using the tagging utility
+	tags := taggingUtil.BuildTagsFromStackParams(input.StackParams).ToAWSTags()
+
 	// Create a VPC
 	params.Log.Info(ctx.Context(), "configure VPC for %s...", resName)
 	vpc, err := ec2.NewVpc(ctx, vpcName, &ec2.VpcArgs{
 		CidrBlock: sdk.String(vpcCidrBlock),
+		Tags:      tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create vpc for %q", resName)
@@ -304,6 +308,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 		VpcId:            vpc.ID(),
 		CidrBlock:        sdk.String(publicSubnetCidrBlock),
 		AvailabilityZone: sdk.String(zoneName),
+		Tags:             tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision public subnet for %q", resName)
@@ -315,6 +320,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 		VpcId:            vpc.ID(),
 		CidrBlock:        sdk.String(privateSubnetCidrBlock),
 		AvailabilityZone: sdk.String(zoneName),
+		Tags:             tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision private subnet for %q", resName)
@@ -324,6 +330,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 	igwName := fmt.Sprintf("%s-igw", resName)
 	igw, err := ec2.NewInternetGateway(ctx, igwName, &ec2.InternetGatewayArgs{
 		VpcId: vpc.ID(),
+		Tags:  tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision internet gateway for %q", resName)
@@ -334,6 +341,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 	routeTableName := fmt.Sprintf("%s-route-table", resName)
 	routeTable, err := ec2.NewRouteTable(ctx, routeTableName, &ec2.RouteTableArgs{
 		VpcId: vpc.ID(),
+		Tags:  tags,
 		Routes: ec2.RouteTableRouteArray{
 			&ec2.RouteTableRouteArgs{
 				CidrBlock: sdk.String("0.0.0.0/0"),
@@ -359,7 +367,9 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 	// Create an Elastic IP for the NAT Gateway
 	params.Log.Info(ctx.Context(), "configure elastic IP address for %s...", resName)
 	eipName := fmt.Sprintf("%s-eip", resName)
-	eip, err := ec2.NewEip(ctx, eipName, nil, opts...)
+	eip, err := ec2.NewEip(ctx, eipName, &ec2.EipArgs{
+		Tags: tags,
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision elastic IP for %q", resName)
 	}
@@ -370,6 +380,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 	natGateway, err := ec2.NewNatGateway(ctx, natGwName, &ec2.NatGatewayArgs{
 		SubnetId:     publicSubnet.ID(),
 		AllocationId: eip.ID(),
+		Tags:         tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision elastic IP for %q", resName)
@@ -380,6 +391,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 	privateRouteTableName := fmt.Sprintf("%s-private-route-table", resName)
 	privateRouteTable, err := ec2.NewRouteTable(ctx, privateRouteTableName, &ec2.RouteTableArgs{
 		VpcId: vpc.ID(),
+		Tags:  tags,
 		Routes: ec2.RouteTableRouteArray{
 			&ec2.RouteTableRouteArgs{
 				CidrBlock:    sdk.String("0.0.0.0/0"),
@@ -431,6 +443,7 @@ func provisionVpcWithStaticEgress(ctx *sdk.Context, resName string, input *Stati
 
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		VpcId: vpc.ID(),
+		Tags:  tags,
 		Ingress: ec2.SecurityGroupIngressArray{
 			&ingressRule,
 		},
