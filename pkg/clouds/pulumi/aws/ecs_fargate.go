@@ -147,14 +147,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 	var secrets []*CreatedSecret
 	ctxSecrets, err := util.MapErr(contextSecretEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
-		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, crInput.Config.Version), v.Name, v.Value, opts...)
+		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, crInput.Config.Version), v.Name, v.Value, tags, opts...)
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	secrets = append(secrets, ctxSecrets...)
 	for name, value := range crInput.Secrets {
-		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, crInput.Config.Version), name, value, opts...)
+		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, crInput.Config.Version), name, value, tags, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create secret")
 		}
@@ -175,6 +175,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			Params:        params,
 			Provider:      params.Provider,
 			AccountConfig: crInput.AccountConfig,
+			StackParams:   deployParams,
 		}, opts...)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create static egress IP for ECS cluster %q", ecsSimpleClusterName)
@@ -650,9 +651,15 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		},
 		ForceNewDeployment:   sdk.BoolPtr(true),
 		EnableExecuteCommand: sdk.BoolPtr(true),
-		Tags: sdk.StringMap{
-			"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
-		},
+		Tags: func() sdk.StringMap {
+			serviceTags := sdk.StringMap{
+				"deployTime": sdk.String(time.Now().Format(time.RFC3339)),
+			}
+			for k, v := range tags {
+				serviceTags[k] = v
+			}
+			return serviceTags
+		}(),
 		NetworkConfiguration: ecsV6.ServiceNetworkConfigurationArgs{
 			AssignPublicIp: sdk.BoolPtr(true),
 			SecurityGroups: sdk.StringArray{
@@ -708,7 +715,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}
 
 	if crInput.Scale.Policies != nil {
-		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service)
+		err = attachAutoScalingPolicy(ctx, stack, params, crInput, cluster, service, tags)
 		if err != nil {
 			return errors.Wrapf(err, "failed to attach auto scaling policy to service %q/%q", ecsSimpleClusterName, fmt.Sprintf("%s-service", ecsSimpleClusterName))
 		}
@@ -724,6 +731,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 
 func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack api.Stack, crInput *aws.EcsFargateInput, deployParams api.StackParams, params pApi.ProvisionParams, loadBalancer *lb.ApplicationLoadBalancer, opts ...sdk.ResourceOption) error {
 	alerts := crInput.Alerts
+	tags := taggingUtil.BuildTagsFromStackParams(deployParams).ToAWSTags()
 
 	helpersImage, err := pushHelpersImageToECR(ctx, helperCfg{
 		imageName:       "sc-cloud-helpers",
@@ -749,6 +757,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 			helpersImage:   helpersImage,
 			secretSuffix:   crInput.Config.Version,
 			opts:           opts,
+			tags:           tags,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -779,6 +788,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 			secretSuffix:   crInput.Config.Version,
 			helpersImage:   helpersImage,
 			opts:           opts,
+			tags:           tags,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -831,7 +841,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		var snsTopic *sns.Topic
 		if alerts.Email != nil && len(alerts.Email.Addresses) > 0 {
 			snsTopicName := fmt.Sprintf("%s-%s-alb-alerts", stack.Name, deployParams.Environment)
-			topic, err := createSNSTopicForAlerts(ctx, snsTopicName, opts...)
+			topic, err := createSNSTopicForAlerts(ctx, snsTopicName, tags, opts...)
 			if err != nil {
 				return errors.Wrapf(err, "failed to create SNS topic for ALB alerts")
 			}
@@ -855,6 +865,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				helpersImage:   helpersImage,
 				snsTopic:       snsTopic,
 				opts:           opts,
+				tags:           tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
@@ -887,6 +898,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				helpersImage:   helpersImage,
 				snsTopic:       snsTopic,
 				opts:           opts,
+				tags:           tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
@@ -920,6 +932,7 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 				helpersImage:   helpersImage,
 				snsTopic:       snsTopic,
 				opts:           opts,
+				tags:           tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(3),
@@ -986,13 +999,14 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 	return nil
 }
 
-func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *ecsV6.Cluster, service *ecs.FargateService) error {
+func attachAutoScalingPolicy(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *aws.EcsFargateInput, cluster *ecsV6.Cluster, service *ecs.FargateService, tags sdk.StringMap) error {
 	scalePolicyName := fmt.Sprintf("%s-ecs-scale", stack.Name)
 
 	// Register the ECS service as a scalable target
 	scalableTarget, err := appautoscaling.NewTarget(ctx, scalePolicyName, &appautoscaling.TargetArgs{
 		MaxCapacity: sdk.Int(crInput.Scale.Max),
 		MinCapacity: sdk.Int(crInput.Scale.Min),
+		Tags:        tags,
 		ResourceId: sdk.All(cluster.Name, service.Service.Name()).ApplyT(func(args []any) (string, error) {
 			clusterName := args[0].(string)
 			svcName := args[1].(string)

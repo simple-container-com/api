@@ -68,6 +68,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		sdk.DependsOn(params.ComputeContext.Dependencies()),
 	}
 
+	tags := pApi.BuildTagsFromStackParams(deployParams).ToAWSTags()
+
 	image, err := buildAndPushDockerImageV2(ctx, stack, params, deployParams, dockerImage{
 		name:       stack.Name,
 		dockerfile: stackConfig.Image.Dockerfile,
@@ -91,6 +93,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", stack.Name)
 	params.Log.Info(ctx.Context(), "configure lambda execution role %q for %q in %q...", lambdaExecutionRoleName, stack.Name, deployParams.Environment)
 	lambdaExecutionRole, err := iam.NewRole(ctx, lambdaExecutionRoleName, &iam.RoleArgs{
+		Tags: tags,
 		AssumeRolePolicy: sdk.String(`{
 			"Version": "2012-10-17",
 			"Statement": [{
@@ -138,6 +141,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	extraPolicy, err := iam.NewPolicy(ctx, extraPolicyName, &iam.PolicyArgs{
 		Description: sdk.String(fmt.Sprintf("Allows reading secrets in lambda for stack %s", stack.Name)),
 		Name:        sdk.String(extraPolicyName),
+		Tags:        tags,
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{
 				"Version": "2012-10-17",
@@ -173,14 +177,14 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	// SECRETS
 	var secrets []*CreatedSecret
 	ctxSecrets, err := util.MapErr(secretEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
-		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, stackConfig.Version), v.Name, v.Value, opts...)
+		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, stackConfig.Version), v.Name, v.Value, tags, opts...)
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
 	}
 	secrets = append(secrets, ctxSecrets...)
 	for name, value := range stackConfig.Secrets {
-		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, stackConfig.Version), name, value, opts...)
+		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, stackConfig.Version), name, value, tags, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create secret")
 		}
@@ -232,6 +236,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	params.Log.Info(ctx.Context(), "configure cloudwatch access log group for %q in %q...", stack.Name, deployParams.Environment)
 	logGroup, err := cloudwatch.NewLogGroup(ctx, accessLogGroupName, &cloudwatch.LogGroupArgs{
 		Name: sdk.String(accessLogGroupName),
+		Tags: tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create access logs group for api gateway")
@@ -242,6 +247,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    image.image.ImageName,
+		Tags:        tags,
 		MemorySize:  sdk.IntPtr(lambdaSizeMb),
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
 		EphemeralStorage: lambda.FunctionEphemeralStorageArgs{
@@ -263,6 +269,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 			Provider:      params.Provider,
 			AccountConfig: crInput.AccountConfig,
 			SecurityGroup: cloudExtras.SecurityGroup,
+			StackParams:   deployParams,
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision static egress IP for lambda")
@@ -291,6 +298,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 			Name: sdk.String(apiGwName),
 			// RouteKey:     sdk.String("$default"), // TODO: figure out whether this will work
 			ProtocolType: sdk.String("HTTP"),
+			Tags:         tags,
 		}, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create API gateway for lambda")
@@ -342,6 +350,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		_, err = apigatewayv2.NewStage(ctx, fmt.Sprintf("%s-http-stage", stack.Name), &apigatewayv2.StageArgs{
 			ApiId: apiGw.ID(),
 			Name:  sdk.String(lo.If(stackConfig.BasePath == "", "api").Else(stackConfig.BasePath)),
+			Tags:  tags,
 			Description: route.ID().ApplyT(func(routeId string) string {
 				return fmt.Sprintf("stage for route %s", routeId)
 			}).(sdk.StringOutput),
@@ -426,7 +435,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Errorf("schedules must have unique names")
 	}
 	for _, schedule := range schedules {
-		if err := provisionScheduleForLambda(ctx, stack, params, lambdaName, lambdaFunc, schedule, opts); err != nil {
+		if err := provisionScheduleForLambda(ctx, stack, params, lambdaName, lambdaFunc, schedule, tags, opts); err != nil {
 			return nil, errors.Wrapf(err, "failed to provision schedule %q for lambda", schedule.Name)
 		}
 	}
@@ -467,7 +476,7 @@ func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.Provis
 }
 
 func provisionScheduleForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams,
-	lambdaName string, lambdaFunc *lambda.Function, schedule aws.LambdaSchedule, opts []sdk.ResourceOption,
+	lambdaName string, lambdaFunc *lambda.Function, schedule aws.LambdaSchedule, tags sdk.StringMap, opts []sdk.ResourceOption,
 ) error {
 	if schedule.Expression == "" {
 		return errors.Errorf("cron expression must be specified for schedule %q", schedule.Name)
@@ -481,6 +490,7 @@ func provisionScheduleForLambda(ctx *sdk.Context, stack api.Stack, params pApi.P
 	scheduleName := fmt.Sprintf("%s%s-schedule", lambdaName, lo.If(schedule.Name != "", fmt.Sprintf("-%s", schedule.Name)).Else(""))
 	scheduleRule, err := cloudwatch.NewEventRule(ctx, scheduleName, &cloudwatch.EventRuleArgs{
 		ScheduleExpression: sdk.String(expression),
+		Tags:               tags,
 	}, opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create aws lambda schedule")

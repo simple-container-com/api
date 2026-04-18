@@ -38,6 +38,8 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		sdk.Provider(params.Provider),
 	}
 
+	tags := pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
+
 	subnets, err := createDefaultSubnetsInRegionV5(ctx, mysqlCfg.AccountConfig, input.StackParams.Environment, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get or create default subnets in region")
@@ -76,6 +78,7 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	rdsSg, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		Name:  sdk.String(securityGroupName),
 		VpcId: vpc.ID(),
+		Tags:  tags,
 		Ingress: &ec2.SecurityGroupIngressArray{
 			&sgIngressArgs,
 		},
@@ -90,6 +93,7 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	subnetGroup, err := rds.NewSubnetGroup(ctx, subnetGroupName, &rds.SubnetGroupArgs{
 		Name:      sdk.String(subnetGroupName),
 		SubnetIds: subnets.Ids(),
+		Tags:      tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create subnet group for rds postgres cluster")
@@ -114,6 +118,7 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		Username:          sdk.String(lo.If(dbConfig.Username != "", dbConfig.Username).Else("root")),
 		Password:          sdk.String(lo.If(dbConfig.Password != "", dbConfig.Password).Else("root")),
 		SkipFinalSnapshot: sdk.Bool(true),
+		Tags:              tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create rds mysql instance")

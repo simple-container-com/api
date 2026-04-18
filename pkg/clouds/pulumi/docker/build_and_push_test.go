@@ -325,15 +325,15 @@ func TestEngagementRouting(t *testing.T) {
 		{"pr2209", "", "PR-2209"},
 		{"pr1", "", "PR-1"},
 		{"pr99999", "", "PR-99999"},
-		{"staging", "", "Source-Scan"},      // default for non-PR
-		{"test", "", "Source-Scan"},         // default for non-PR
-		{"prod", "", "Source-Scan"},         // must NOT match "pr" -- "prod" starts with "pr"
-		{"production", "", "Source-Scan"},   // must NOT match
-		{"preview", "", "Source-Scan"},      // must NOT match
-		{"pre-release", "", "Source-Scan"},  // must NOT match
-		{"", "", "Source-Scan"},             // empty env = non-PR
+		{"staging", "", "Source-Scan"},          // default for non-PR
+		{"test", "", "Source-Scan"},             // default for non-PR
+		{"prod", "", "Source-Scan"},             // must NOT match "pr" -- "prod" starts with "pr"
+		{"production", "", "Source-Scan"},       // must NOT match
+		{"preview", "", "Source-Scan"},          // must NOT match
+		{"pre-release", "", "Source-Scan"},      // must NOT match
+		{"", "", "Source-Scan"},                 // empty env = non-PR
 		{"staging", "Custom-Eng", "Custom-Eng"}, // configured name preserved for non-PR
-		{"pr123", "Custom-Eng", "PR-123"},        // PR override takes precedence
+		{"pr123", "Custom-Eng", "PR-123"},       // PR override takes precedence
 	}
 	for _, tt := range tests {
 		t.Run(tt.env+"_"+tt.configuredName, func(t *testing.T) {

@@ -40,9 +40,11 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	res := EcsFargateRepository{}
 	ecrRepoName := fmt.Sprintf("%s-%s", stack.Name, repoName)
 	params.Log.Info(ctx.Context(), "configure ECR repository %q for stack %q in %q...", ecrRepoName, stack.Name, deployParams.Environment)
+	tags := pApi.BuildTagsFromStackParams(deployParams).ToAWSTags()
 	ecrRepo, err := ecr.NewRepository(ctx, ecrRepoName, &ecr.RepositoryArgs{
 		ForceDelete: sdk.BoolPtr(true),
 		Name:        sdk.String(awsResName(ecrRepoName, "ecr")),
+		Tags:        tags,
 	}, sdk.Provider(params.Provider), sdk.DependsOn(params.ComputeContext.Dependencies()))
 	if err != nil {
 		return res, errors.Wrapf(err, "failed to provision ECR repository %q for stack %q in %q", ecrRepoName, stack.Name, deployParams.Environment)

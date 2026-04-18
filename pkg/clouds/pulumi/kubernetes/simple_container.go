@@ -105,24 +105,24 @@ type SimpleContainerArgs struct {
 	KubeProvider           sdk.ProviderResource
 
 	// optional properties
-	PodDisruption     *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
-	LbConfig          *api.SimpleContainerLBConfig `json:"lbConfig" yaml:"lbConfig"`
-	SecretEnvs        map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
-	Annotations       map[string]string            `json:"annotations" yaml:"annotations"`
-	NodeSelector      map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity          *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
-	PriorityClassName *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
-	IngressContainer  *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
+	PodDisruption         *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
+	LbConfig              *api.SimpleContainerLBConfig `json:"lbConfig" yaml:"lbConfig"`
+	SecretEnvs            map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
+	Annotations           map[string]string            `json:"annotations" yaml:"annotations"`
+	NodeSelector          map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity              *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
+	PriorityClassName     *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+	IngressContainer      *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
 	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
-	ProvisionIngress  bool                         `json:"provisionIngress" yaml:"provisionIngress"`
-	Headers           *k8s.Headers                 `json:"headers" yaml:"headers"`
-	Volumes           []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
-	SecretVolumes     []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
-	PersistentVolumes []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
-	EphemeralVolumes  []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
-	VPA               *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
-	Scale             *k8s.Scale                   `json:"scale" yaml:"scale"`
+	ProvisionIngress      bool                         `json:"provisionIngress" yaml:"provisionIngress"`
+	Headers               *k8s.Headers                 `json:"headers" yaml:"headers"`
+	Volumes               []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
+	SecretVolumes         []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
+	PersistentVolumes     []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes      []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
+	VPA                   *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
+	Scale                 *k8s.Scale                   `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
