@@ -90,6 +90,9 @@ COPY ./bin/github-actions ./github-actions
 RUN chmod +x ./github-actions && \
     # Strip debug symbols if not already done (reduces binary size)
     strip ./github-actions 2>/dev/null || true && \
+    # Make 'sc' available in PATH for Pulumi local.Command subprocesses
+    # (security pipeline runs: sc image sign, sc image scan, sc sbom generate, etc.)
+    ln -s /root/github-actions /usr/local/bin/sc && \
     # Remove build tools no longer needed
     apk del upx binutils && \
     rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
@@ -97,7 +100,8 @@ RUN chmod +x ./github-actions && \
 # Verify installations work (but remove verification output to reduce layer size)
 RUN pulumi version > /dev/null && \
     gcloud version > /dev/null && \
-    gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin
+    gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin && \
+    test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
 
 # Set the entrypoint to use the github-actions binary with absolute path
 # GitHub Actions runner overrides WORKDIR with --workdir /github/workspace
