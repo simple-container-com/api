@@ -36,6 +36,10 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	if !path.IsAbs(bundleDir) {
 		bundleDir = path.Join(cfg.StackDir, cfg.BundleDir)
 	}
+	var tags sdk.StringMap
+	if input.StackParams != nil {
+		tags = pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
+	}
 	ref, err := provisionStaticSite(&StaticSiteInput{
 		ServiceName:        stack.Name,
 		Provider:           params.Provider,
@@ -48,6 +52,7 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		ProvisionWwwDomain: cfg.Site.ProvisionWwwDomain,
 		Account:            cfg.AccountConfig,
 		Log:                params.Log,
+		Tags:               tags,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision static website for stack %q", stack.Name)
@@ -68,6 +73,7 @@ type StaticSiteInput struct {
 	ProvisionWwwDomain bool
 	Account            aws.AccountConfig
 	Log                logger.Logger
+	Tags               sdk.StringMap
 }
 
 type StaticSiteOutput struct {
@@ -90,6 +96,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 	mainBucket, err := s3.NewBucket(ctx, bucketName, &s3.BucketArgs{
 		Bucket:       sdk.String(bucketName),
 		ForceDestroy: sdk.Bool(true),
+		Tags:         input.Tags,
 		Website: &s3.BucketWebsiteArgs{
 			IndexDocument: sdk.String(input.IndexDocument),
 			ErrorDocument: sdk.String(input.ErrorDocument),
@@ -197,6 +204,7 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		wwwBucket, err = s3.NewBucket(ctx, fmt.Sprintf("%s-www-redirect", input.ServiceName), &s3.BucketArgs{
 			Bucket:       sdk.String(wwwDomain),
 			ForceDestroy: sdk.Bool(true),
+			Tags:         input.Tags,
 			Website: s3.BucketWebsiteArgs{
 				RedirectAllRequestsTo: sdk.StringPtr(input.Domain),
 			},

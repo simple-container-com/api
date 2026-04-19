@@ -18,8 +18,12 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cicd"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_image"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_init"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_provenance"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provision"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_release"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_sbom"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_secrets"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_stack"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_upgrade"
@@ -83,6 +87,10 @@ func main() {
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 		cmd_stack.NewStackCmd(rootCmdInstance),
 		cmd_cicd.NewCicdCmd(rootCmdInstance),
+		cmd_image.NewImageCmd(),
+		cmd_provenance.NewProvenanceCommand(),
+		cmd_sbom.NewSBOMCommand(),
+		cmd_release.NewReleaseCommand(rootCmdInstance),
 	)
 
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")

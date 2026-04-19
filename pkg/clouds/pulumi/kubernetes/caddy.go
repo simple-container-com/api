@@ -156,17 +156,21 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 			// Add Caddyfile prefix - prefer dynamic output over static config
 			if isPulumiOutputSet(caddy.CaddyfilePrefixOut) {
-				// Use dynamic Caddyfile prefix from cloud provider (e.g., GCS storage config)
+				// Use dynamic Caddyfile prefix from cloud provider (e.g., GCS storage config with trusted proxies baked in)
 				envVars = append(envVars, corev1.EnvVarArgs{
 					Name:  sdk.String("CADDYFILE_PREFIX"),
 					Value: caddy.CaddyfilePrefixOut.ToStringOutput(),
 				})
-			} else if caddy.CaddyfilePrefix != nil {
-				// Use static Caddyfile prefix from config
-				envVars = append(envVars, corev1.EnvVarArgs{
-					Name:  sdk.String("CADDYFILE_PREFIX"),
-					Value: sdk.String(lo.FromPtr(caddy.CaddyfilePrefix)),
-				})
+			} else {
+				// Build static Caddyfile prefix from config (non-GKE path)
+				trustedBlock, _ := BuildTrustedProxiesBlock(lo.FromPtrOr(caddy.CaddyConfig, k8s.CaddyConfig{}))
+				userPrefix := lo.FromPtrOr(caddy.CaddyfilePrefix, "")
+				if prefix := BuildCaddyfileGlobalOptions("", trustedBlock, userPrefix); prefix != "" {
+					envVars = append(envVars, corev1.EnvVarArgs{
+						Name:  sdk.String("CADDYFILE_PREFIX"),
+						Value: sdk.String(prefix),
+					})
+				}
 			}
 
 			return envVars
@@ -239,19 +243,21 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 
 	sc, err := DeploySimpleContainer(ctx, Args{
-		ServiceType:           serviceType, // to provision external IP
-		ProvisionIngress:      caddy.ProvisionIngress,
-		UseSSL:                useSSL,
-		Namespace:             namespace,
-		DeploymentName:        deploymentName,
-		Input:                 input,
-		ServiceAccountName:    lo.ToPtr(serviceAccount.Name),
-		Deployment:            deploymentConfig,
-		SecretVolumes:         caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
-		SecretVolumeOutputs:   caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
-		SecretEnvs:            secretEnvs,                // Secret environment variables
-		VPA:                   caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
-		ExternalTrafficPolicy: lo.FromPtr(caddy.CaddyConfig).ExternalTrafficPolicy,
+		ServiceType:                   serviceType, // to provision external IP
+		ExternalTrafficPolicy:         lo.FromPtr(caddy.CaddyConfig).ExternalTrafficPolicy,
+		ProvisionIngress:              caddy.ProvisionIngress,
+		UseSSL:                        useSSL,
+		Namespace:                     namespace,
+		DeploymentName:                deploymentName,
+		Input:                         input,
+		ServiceAccountName:            lo.ToPtr(serviceAccount.Name),
+		Deployment:                    deploymentConfig,
+		SecretVolumes:                 caddy.SecretVolumes,       // Cloud credentials volumes (e.g., GCP service account)
+		SecretVolumeOutputs:           caddy.SecretVolumeOutputs, // Pulumi outputs for secret volumes
+		SecretEnvs:                    secretEnvs,                // Secret environment variables
+		VPA:                           caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
+		TerminationGracePeriodSeconds: lo.FromPtr(caddy.CaddyConfig).TerminationGracePeriodSeconds,
+		PreStopSleepSeconds:           lo.FromPtr(caddy.CaddyConfig).PreStopSleepSeconds,
 		Images: []*ContainerImage{
 			{
 				Container: caddyContainer,

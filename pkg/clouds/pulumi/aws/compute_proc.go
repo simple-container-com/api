@@ -148,6 +148,7 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 				name:    fmt.Sprintf("%s-pg-init", stack.Name),
 				account: postgresCfg.AccountConfig,
 				params:  params,
+				tags:    pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags(),
 				image:   "alpine:latest",
 				command: command,
 				env: map[string]string{
@@ -298,6 +299,7 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 				name:    fmt.Sprintf("%s-mysql-init", stack.Name),
 				account: dbCfg.AccountConfig,
 				params:  params,
+				tags:    pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags(),
 				image:   "alpine:latest",
 				command: command,
 				env: map[string]string{

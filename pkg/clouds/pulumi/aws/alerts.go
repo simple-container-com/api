@@ -31,6 +31,7 @@ type alertCfg struct {
 	telegramConfig  *api.TelegramCfg
 	secretSuffix    string
 	opts            []sdk.ResourceOption
+	tags            sdk.StringMap
 	metricAlarmArgs cloudwatch.MetricAlarmArgs
 	helpersImage    *docker.Image
 	snsTopic        *sns.Topic
@@ -105,6 +106,7 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	// Create IAM Role for Lambda Function
 	lambdaExecutionRole, err := iam.NewRole(ctx, fmt.Sprintf("%s-execution-role", cfg.name), &iam.RoleArgs{
+		Tags: cfg.tags,
 		AssumeRolePolicy: pulumi.String(`{
 			"Version": "2012-10-17",
 			"Statement": [{
@@ -134,6 +136,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	extraPolicy, err := iam.NewPolicy(ctx, extraPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows reading secrets for alerts cloud helper"),
 		Name:        sdk.String(extraPolicyName),
+		Tags:        cfg.tags,
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{
 				"Version": "2012-10-17",
@@ -184,7 +187,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	if cfg.discordConfig != nil {
 		if s, err := createSecret(ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.DiscordWebhookUrl, cfg.secretSuffix),
-			api.ComputeEnv.DiscordWebhookUrl, cfg.discordConfig.WebhookUrl, cfg.opts...,
+			api.ComputeEnv.DiscordWebhookUrl, cfg.discordConfig.WebhookUrl, cfg.tags, cfg.opts...,
 		); err != nil {
 			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.DiscordWebhookUrl)
 		} else {
@@ -195,7 +198,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	if cfg.slackConfig != nil {
 		if s, err := createSecret(ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.SlackWebhookUrl, cfg.secretSuffix),
-			api.ComputeEnv.SlackWebhookUrl, cfg.slackConfig.WebhookUrl, cfg.opts...,
+			api.ComputeEnv.SlackWebhookUrl, cfg.slackConfig.WebhookUrl, cfg.tags, cfg.opts...,
 		); err != nil {
 			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.SlackWebhookUrl)
 		} else {
@@ -206,7 +209,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	if cfg.telegramConfig != nil {
 		if s, err := createSecret(ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.TelegramToken, cfg.secretSuffix),
-			api.ComputeEnv.TelegramToken, cfg.telegramConfig.Token, cfg.opts...,
+			api.ComputeEnv.TelegramToken, cfg.telegramConfig.Token, cfg.tags, cfg.opts...,
 		); err != nil {
 			return errors.Wrapf(err, "failed to create secret %q", api.ComputeEnv.TelegramToken)
 		} else {
@@ -220,6 +223,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		Role:        lambdaExecutionRole.Arn,
 		ImageUri:    cfg.helpersImage.ImageName,
 		Timeout:     sdk.IntPtr(10),
+		Tags:        cfg.tags,
 		Environment: lambda.FunctionEnvironmentArgs{
 			Variables: envVariables,
 		},
@@ -239,6 +243,7 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 
 	cfg.metricAlarmArgs.AlarmActions = alarmActions
 	cfg.metricAlarmArgs.OkActions = okActions
+	cfg.metricAlarmArgs.Tags = cfg.tags
 	alarm, err := cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-metric-alarm", cfg.name), &cfg.metricAlarmArgs, cfg.opts...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create metric alarm")
@@ -260,10 +265,11 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	return nil
 }
 
-func createSNSTopicForAlerts(ctx *sdk.Context, topicName string, opts ...sdk.ResourceOption) (*sns.Topic, error) {
+func createSNSTopicForAlerts(ctx *sdk.Context, topicName string, tags sdk.StringMap, opts ...sdk.ResourceOption) (*sns.Topic, error) {
 	topic, err := sns.NewTopic(ctx, fmt.Sprintf("%s-sns-topic", topicName), &sns.TopicArgs{
 		Name:        sdk.String(topicName),
 		DisplayName: sdk.String(fmt.Sprintf("ALB Alerts Topic - %s", topicName)),
+		Tags:        tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create SNS topic")

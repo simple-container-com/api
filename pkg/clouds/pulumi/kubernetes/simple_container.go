@@ -111,6 +111,7 @@ type SimpleContainerArgs struct {
 	Annotations           map[string]string            `json:"annotations" yaml:"annotations"`
 	NodeSelector          map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity              *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
+	PriorityClassName     *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 	IngressContainer      *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
 	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
@@ -119,24 +120,27 @@ type SimpleContainerArgs struct {
 	Volumes               []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
 	SecretVolumes         []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
 	PersistentVolumes     []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes      []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
 	VPA                   *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
 	Scale                 *k8s.Scale                   `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
-	RollingUpdate        *v1.RollingUpdateDeploymentArgs
-	InitContainers       []corev1.ContainerArgs
-	Containers           []corev1.ContainerArgs
-	SecurityContext      *corev1.PodSecurityContextArgs
-	ServiceAccountName   *sdk.StringOutput
-	Sidecars             []corev1.ContainerArgs
-	SidecarOutputs       []corev1.ContainerOutput
-	InitContainerOutputs []corev1.ContainerOutput
-	VolumeOutputs        []corev1.VolumeOutput
-	SecretVolumeOutputs  []any
-	ComputeContext       pApi.ComputeContext
-	ImagePullSecret      *docker.RegistryCredentials
-	UseSSL               bool
+	RollingUpdate                 *v1.RollingUpdateDeploymentArgs
+	InitContainers                []corev1.ContainerArgs
+	Containers                    []corev1.ContainerArgs
+	SecurityContext               *corev1.PodSecurityContextArgs
+	ServiceAccountName            *sdk.StringOutput
+	Sidecars                      []corev1.ContainerArgs
+	SidecarOutputs                []corev1.ContainerOutput
+	InitContainerOutputs          []corev1.ContainerOutput
+	VolumeOutputs                 []corev1.VolumeOutput
+	SecretVolumeOutputs           []any
+	ComputeContext                pApi.ComputeContext
+	ImagePullSecret               *docker.RegistryCredentials
+	UseSSL                        bool
+	EphemeralSize                 string
+	TerminationGracePeriodSeconds *int
 }
 
 type SimpleContainer struct {
@@ -330,6 +334,10 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	addVolumeMountsFromOutputs(volumesSecretName, args.SecretVolumeOutputs, &volumeMounts)
 
 	// Volumes
+	emptyDirArgs := corev1.EmptyDirVolumeSourceArgs{}
+	if args.EphemeralSize != "" {
+		emptyDirArgs.SizeLimit = sdk.StringPtr(args.EphemeralSize)
+	}
 	volumes := corev1.VolumeArray{
 		corev1.VolumeArgs{
 			Name: sdk.String(volumesCfgName),
@@ -345,7 +353,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		},
 		corev1.VolumeArgs{
 			Name:     sdk.String("tmp"),
-			EmptyDir: corev1.EmptyDirVolumeSourceArgs{},
+			EmptyDir: emptyDirArgs,
 		},
 	}
 	volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
@@ -408,6 +416,63 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		})
 	}
 
+	// Generic ephemeral volumes
+	// These use the generic ephemeral volume feature which creates a PVC for each pod
+	// and deletes it when the pod is deleted. This allows for larger temporary storage
+	// than the 10GB limit on GKE Autopilot regular ephemeral storage.
+	for _, ev := range args.EphemeralVolumes {
+		// Sanitize volume name for Kubernetes RFC 1123 compliance (no underscores allowed)
+		sanitizedName := sanitizeK8sResourceName(ev.Name)
+		if sanitizedName != ev.Name {
+			args.Log.Info(ctx.Context(), "📝 Sanitized ephemeral volume name %q -> %q for Kubernetes RFC 1123 compliance", ev.Name, sanitizedName)
+		}
+
+		// Set default storage class if not specified
+		storageClass := ev.StorageClassName
+		if storageClass == nil {
+			// Use the default standard-rwo storage class for GKE
+			defaultSC := "standard-rwo"
+			storageClass = &defaultSC
+			args.Log.Info(ctx.Context(), "📦 Using default storage class %q for ephemeral volume %q", defaultSC, sanitizedName)
+		}
+
+		// Create the generic ephemeral volume with volumeClaimTemplate
+		// This creates a PVC for each pod and deletes it when the pod is deleted
+		// Note: metadata.name cannot be set in volumeClaimTemplate - Kubernetes generates it automatically
+		volumes = append(volumes, corev1.VolumeArgs{
+			Name: sdk.String(sanitizedName),
+			Ephemeral: &corev1.EphemeralVolumeSourceArgs{
+				VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplateArgs{
+					Metadata: &metav1.ObjectMetaArgs{
+						// Name is intentionally omitted - Kubernetes generates it automatically
+						Labels:      sdk.ToStringMap(appLabels),
+						Annotations: sdk.ToStringMap(appAnnotations),
+					},
+					Spec: &corev1.PersistentVolumeClaimSpecArgs{
+						AccessModes: sdk.StringArray{
+							sdk.String("ReadWriteOnce"),
+						},
+						StorageClassName: sdk.StringPtrFromPtr(storageClass),
+						Resources: &corev1.VolumeResourceRequirementsArgs{
+							Requests: sdk.StringMap{
+								"storage": sdk.String(ev.Size),
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// Add the volume mount
+		volumeMounts = append(volumeMounts, corev1.VolumeMountArgs{
+			Name:      sdk.String(sanitizedName),
+			MountPath: sdk.String(ev.MountPath),
+		})
+
+		args.Log.Info(ctx.Context(), "✨ Added generic ephemeral volume %q at %q with size %q (storage class: %q)",
+			sanitizedName, ev.MountPath, ev.Size, lo.FromPtr(storageClass))
+	}
+
 	var strategy v1.DeploymentStrategyArgs
 	if args.RollingUpdate == nil {
 		strategy = v1.DeploymentStrategyArgs{
@@ -456,6 +521,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
 		Affinity:     convertedAffinity,
+		TerminationGracePeriodSeconds: func() sdk.IntPtrInput {
+			if args.TerminationGracePeriodSeconds != nil {
+				return sdk.IntPtr(*args.TerminationGracePeriodSeconds)
+			}
+			return nil
+		}(),
 		InitContainers: sdk.All(initContainerOutputs...).ApplyT(func(scOuts []any) (corev1.ContainerArray, error) {
 			for _, c := range scOuts {
 				initContainers = append(initContainers, c.(corev1.ContainerInput))
@@ -476,6 +547,11 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		}).(corev1.VolumeArrayOutput),
 		SecurityContext:    args.SecurityContext,
 		ServiceAccountName: args.ServiceAccountName,
+	}
+
+	// Set optional fields if provided
+	if args.PriorityClassName != nil {
+		podSpecArgs.PriorityClassName = sdk.String(*args.PriorityClassName)
 	}
 	if imagePullSecret != nil {
 		podSpecArgs.ImagePullSecrets = corev1.LocalObjectReferenceArray{
@@ -786,6 +862,9 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 			if args.VPA.MinAllowed.Memory != nil {
 				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
 			}
+			if args.VPA.MinAllowed.EphemeralStorage != nil {
+				minAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MinAllowed.EphemeralStorage)
+			}
 			if len(minAllowed) > 0 {
 				containerPolicy["minAllowed"] = minAllowed
 			}
@@ -798,6 +877,9 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 			}
 			if args.VPA.MaxAllowed.Memory != nil {
 				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
+			}
+			if args.VPA.MaxAllowed.EphemeralStorage != nil {
+				maxAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MaxAllowed.EphemeralStorage)
 			}
 			if len(maxAllowed) > 0 {
 				containerPolicy["maxAllowed"] = maxAllowed
@@ -848,23 +930,6 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 	return nil
 }
 
-// serviceSpec builds a ServiceSpecArgs, optionally setting ExternalTrafficPolicy
-// when the service type is LoadBalancer. "Local" preserves the client source IP
-// by skipping SNAT — required for correct X-Forwarded-For behind an L4 LB.
-func serviceSpec(appLabels map[string]string, ports corev1.ServicePortArray, serviceType sdk.StringInput, serviceTypeStr string, externalTrafficPolicy *string) *corev1.ServiceSpecArgs {
-	spec := &corev1.ServiceSpecArgs{
-		Selector: sdk.ToStringMap(appLabels),
-		Ports:    ports,
-		Type:     serviceType,
-	}
-	// ExternalTrafficPolicy only applies to LoadBalancer and NodePort services.
-	// Setting it on ClusterIP produces an invalid k8s Service spec.
-	if externalTrafficPolicy != nil && serviceTypeStr != "ClusterIP" {
-		spec.ExternalTrafficPolicy = sdk.StringPtr(*externalTrafficPolicy)
-	}
-	return spec
-}
-
 func ToImagePullSecretName(deploymentName string) string {
 	return fmt.Sprintf("%s-docker-config", deploymentName)
 }
@@ -879,6 +944,21 @@ func ToEnvConfigName(deploymentName string) string {
 
 func ToConfigVolumesName(deploymentName string) string {
 	return fmt.Sprintf("%s-cfg-volumes", deploymentName)
+}
+
+// serviceSpec builds the Service spec. ExternalTrafficPolicy only applies to
+// LoadBalancer and NodePort services — setting it on ClusterIP produces an
+// invalid k8s Service spec.
+func serviceSpec(appLabels map[string]string, ports corev1.ServicePortArray, serviceType sdk.StringInput, serviceTypeStr string, externalTrafficPolicy *string) *corev1.ServiceSpecArgs {
+	spec := &corev1.ServiceSpecArgs{
+		Selector: sdk.ToStringMap(appLabels),
+		Ports:    ports,
+		Type:     serviceType,
+	}
+	if externalTrafficPolicy != nil && serviceTypeStr != "ClusterIP" {
+		spec.ExternalTrafficPolicy = sdk.StringPtr(*externalTrafficPolicy)
+	}
+	return spec
 }
 
 // Helper functions for volume mounts
