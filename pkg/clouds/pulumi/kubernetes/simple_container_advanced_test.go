@@ -706,6 +706,51 @@ func TestServiceSpec_ExternalTrafficPolicy(t *testing.T) {
 func TestSimpleContainer_ExternalTrafficPolicy(t *testing.T) {
 	RegisterTestingT(t)
 
+	t.Run("ClusterIP with policy set: policy is dropped (invalid spec otherwise)", func(t *testing.T) {
+		mocks := NewSimpleContainerMocks()
+
+		err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+			policy := "Local"
+			args := &SimpleContainerArgs{
+				Namespace:  "traffic-clusterip",
+				Service:    "traffic-clusterip",
+				ScEnv:      "test",
+				Deployment: "traffic-clusterip-deployment",
+				Replicas:   1,
+				Log:        logger.New(),
+
+				IngressContainer: &k8s.CloudRunContainer{
+					Name:     "traffic-container",
+					Ports:    []int{8080},
+					MainPort: lo.ToPtr(8080),
+				},
+				// ServiceType left nil -> defaults to ClusterIP
+				ExternalTrafficPolicy: &policy,
+
+				Containers: []corev1.ContainerArgs{
+					{
+						Name:  sdk.String("traffic-container"),
+						Image: sdk.String("nginx:latest"),
+						Ports: corev1.ContainerPortArray{
+							&corev1.ContainerPortArgs{
+								ContainerPort: sdk.Int(8080),
+							},
+						},
+					},
+				},
+			}
+
+			sc, err := NewSimpleContainer(ctx, args)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(sc).ToNot(BeNil())
+			Expect(sc.Service).ToNot(BeNil())
+
+			return nil
+		}, pulumi.WithMocks("project", "stack", mocks))
+
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	t.Run("LoadBalancer with Local traffic policy", func(t *testing.T) {
 		mocks := NewSimpleContainerMocks()
 

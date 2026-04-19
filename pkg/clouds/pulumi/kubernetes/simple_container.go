@@ -587,10 +587,11 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	}
 
 	// Expose service
-	serviceType := sdk.String("ClusterIP")
+	serviceTypeStr := "ClusterIP"
 	if args.ServiceType != nil {
-		serviceType = sdk.String(lo.FromPtr(args.ServiceType))
+		serviceTypeStr = lo.FromPtr(args.ServiceType)
 	}
+	serviceType := sdk.String(serviceTypeStr)
 
 	serviceAnnotations := lo.Assign(appAnnotations)
 
@@ -666,12 +667,7 @@ ${proto}://${domain} {
 				Labels:      sdk.ToStringMap(appLabels),
 				Annotations: sdk.ToStringMap(serviceAnnotations),
 			},
-			Spec: &corev1.ServiceSpecArgs{
-				Selector:              sdk.ToStringMap(appLabels),
-				Ports:                 servicePorts,
-				Type:                  serviceType,
-				ExternalTrafficPolicy: lo.If(args.ExternalTrafficPolicy != nil, sdk.StringPtr(lo.FromPtr(args.ExternalTrafficPolicy))).Else(nil),
-			},
+			Spec: serviceSpec(appLabels, servicePorts, serviceType, serviceTypeStr, args.ExternalTrafficPolicy),
 		}, opts...)
 		if err != nil {
 			return nil, err
