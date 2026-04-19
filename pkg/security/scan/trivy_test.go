@@ -218,7 +218,24 @@ func TestEnsureTrivyCacheDir(t *testing.T) {
 
 	cacheDir, err := ensureTrivyCacheDir()
 	Expect(err).ToNot(HaveOccurred())
-	Expect(cacheDir).To(Equal(filepath.Join(cacheRoot, "trivy")))
+	defer cleanupTrivyCacheDir(cacheDir)
+
+	// Per-invocation cache dir lives under <cacheRoot>/trivy/scan-* so
+	// concurrent scans can't clobber each other's lock files.
+	parent := filepath.Join(cacheRoot, "trivy")
+	Expect(cacheDir).To(HavePrefix(parent+string(filepath.Separator)+"scan-"))
+	Expect(cacheDir).To(BeADirectory())
+
+	// Second call returns a different directory (thread-safety property).
+	cacheDir2, err := ensureTrivyCacheDir()
+	Expect(err).ToNot(HaveOccurred())
+	defer cleanupTrivyCacheDir(cacheDir2)
+	Expect(cacheDir2).ToNot(Equal(cacheDir))
+
+	// Cleanup removes the directory.
+	cleanupTrivyCacheDir(cacheDir)
+	_, statErr := os.Stat(cacheDir)
+	Expect(os.IsNotExist(statErr)).To(BeTrue())
 }
 
 func TestTrivyDBPresenceHelpers(t *testing.T) {
