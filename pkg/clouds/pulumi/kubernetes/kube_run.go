@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -146,6 +145,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		VPA:            kubeRunInput.Deployment.VPA,            // Pass VPA configuration from DeploymentConfig
 		ReadinessProbe: kubeRunInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  kubeRunInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
+		EphemeralSize:  lo.FromPtr(kubeRunInput.Deployment.StackConfig).Size.Ephemeral,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
@@ -213,12 +213,21 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 				Namespace:    lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
 				KubeProvider: kubeProvider,
 				Kubeconfig:   &kubeconfigOutput,
+				// caddy-update-hash goes into spec.template.metadata so Caddy pods roll only when
+				// the Caddyfile actually changes. Content-hash, not wall-clock time, prevents
+				// spurious restarts (and Cloudflare 521s) on every pulumi up.
 				Annotations: map[string]sdk.StringOutput{
-					"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-					"simple-container.com/caddy-updated-at": sdk.String(time.Now().UTC().Format(time.RFC3339)).ToStringOutput(),
 					"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 						sum := md5.Sum([]byte(entry[0].(string)))
 						return hex.EncodeToString(sum[:])
+					}).(sdk.StringOutput),
+				},
+				// Informational annotations live on deployment metadata only — no pod restarts.
+				DeploymentAnnotations: map[string]sdk.StringOutput{
+					"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
+					"simple-container.com/caddy-updated-at": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+						sum := md5.Sum([]byte(entry[0].(string)))
+						return hex.EncodeToString(sum[:])[:8]
 					}).(sdk.StringOutput),
 				},
 				Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},

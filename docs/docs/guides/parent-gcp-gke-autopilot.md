@@ -398,7 +398,185 @@ resources:
 
 ---
 
-# **8️⃣ Advanced Configuration: Kubernetes CloudExtras**
+# **8️⃣ Advanced Configuration: Pod Priority and Preemption Control**
+
+## **What is PriorityClass?**
+
+Kubernetes **PriorityClass** allows you to specify the importance of pods relative to other pods. When resources are scarce, higher priority pods are:
+- Scheduled before lower priority pods
+- Able to preempt lower priority pods if necessary
+
+On **GKE Autopilot**, this is critical for preventing your workloads from being preempted by system pods or other cluster tasks.
+
+## **Default Behavior**
+
+Without a PriorityClass, pods are created with **priority 0** (the default). This means:
+- System critical pods (priority: 2000000000) will preempt your pods
+- Your pods may be evicted during node pressure
+- "Balloon pods" can displace your workloads
+
+## **Creating a PriorityClass**
+
+Before using `priorityClassName`, create a PriorityClass in your cluster:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority-apps
+value: 1000
+globalDefault: false
+description: "High priority production applications"
+EOF
+```
+
+## **Configuring priorityClassName in client.yaml**
+
+```yaml
+stacks:
+  production:
+    type: cloud-compose
+    parent: myproject/devops
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      runs: [streams]
+
+      cloudExtras:
+        priorityClassName: "high-priority-apps"
+```
+
+## **System PriorityClasses**
+
+GKE provides built-in PriorityClasses:
+
+| PriorityClass | Value | Use Case |
+|--------------|-------|----------|
+| `system-cluster-critical` | 2000000000 | Cluster-critical components (use with caution) |
+| `system-node-critical` | 2000000000 | Node-critical components (use with caution) |
+
+⚠️ **Warning:** Only use system-critical PriorityClasses if your workload is truly critical to cluster operation.
+
+## **Priority Value Guidelines**
+
+| Priority Range | Use Case |
+|---------------|----------|
+| 1000000000+ | System critical (avoid using) |
+| 100000 - 999999999 | High priority production workloads |
+| 1000 - 99999 | Important production services |
+| 1 - 999 | Regular production workloads |
+| 0 (default) | Development/testing environments |
+
+## **Example: Preventing Preemption on GKE Autopilot**
+
+```yaml
+stacks:
+  production:
+    config:
+      cloudExtras:
+        # Prevent preemption with high priority
+        priorityClassName: "production-high-priority"
+
+        # Combine with other settings for robust workloads
+        vpa:
+          enabled: true
+          updateMode: "Auto"
+        disruptionBudget:
+          minAvailable: 2
+```
+
+---
+
+# **9️⃣ Advanced Configuration: Large Temporary Storage**
+
+## **What are Generic Ephemeral Volumes?**
+
+**Generic Ephemeral Volumes** provide **truly temporary storage** that:
+- Supports sizes up to **64TB** (vs 10GB limit for regular ephemeral storage)
+- Creates a PersistentVolumeClaim **automatically for each pod**
+- **Deletes the PVC when the pod is deleted** (truly ephemeral)
+- Is fully compatible with **GKE Autopilot** constraints
+
+## **Why You Need This**
+
+GKE Autopilot **hard-limits** regular ephemeral storage to **10GB maximum**. This limitation:
+- Cannot be increased through configuration
+- Cannot be bypassed with VPA
+- Creates bottlenecks for applications needing more temp storage
+
+## **Use Cases**
+
+- **N8N** - Binary data processing workflows
+- **Container build systems** - Intermediate build artifacts
+- **ML model training** - Dataset caching and model checkpoints
+- **Data processing pipelines** - Large temporary datasets
+- **Media transcoding** - Temporary video processing files
+
+## **Configuring Ephemeral Volumes**
+
+Add `ephemeralVolumes` to your `cloudExtras`:
+
+```yaml
+stacks:
+  production:
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      runs: [data-processor]
+
+      cloudExtras:
+        # Large temporary storage for data processing
+        ephemeralVolumes:
+          - name: temp-data
+            mountPath: /tmp/data
+            size: 100Gi                # Up to 64TB supported!
+            storageClassName: pd-balanced  # Optional: defaults to cluster default
+```
+
+## **Storage Class Options**
+
+| Storage Class | Description | Best For |
+|--------------|-------------|----------|
+| `standard-rwo` | Standard SSD | General purpose |
+| `pd-balanced` | Balanced performance/cost | Most workloads (recommended) |
+| `pd-ssd` | High performance SSD | I/O intensive workloads |
+| `pd-extreme` | Ultra high performance | Latency-critical applications |
+
+## **Multiple Volumes**
+
+You can specify multiple ephemeral volumes:
+
+```yaml
+cloudExtras:
+  ephemeralVolumes:
+    - name: build-cache
+      mountPath: /tmp/build
+      size: 50Gi
+      storageClassName: pd-ssd
+    - name: data-staging
+      mountPath: /tmp/staging
+      size: 200Gi
+      storageClassName: pd-balanced
+```
+
+## **Comparison: Ephemeral Storage Options**
+
+| Feature | Regular Ephemeral | Generic Ephemeral Volumes |
+|---------|------------------|---------------------------|
+| Max Size (GKE Autopilot) | 10GB | 64TB |
+| PVC Management | N/A | Automatic |
+| Cleanup on Pod Delete | Yes | Yes |
+| Storage Class Selection | No | Yes |
+| Use Case | Small temp files | Large temp datasets |
+
+## **Cost Considerations**
+
+- PVCs are billed per GB-month regardless of usage
+- Delete pods promptly when not needed to free storage
+- Consider using smaller sizes with autoscaling for cost optimization
+
+---
+
+# **🔟 Advanced Configuration: Kubernetes CloudExtras**
 
 Beyond VPA, Simple Container supports comprehensive Kubernetes configuration through `cloudExtras`. This section covers all available options for fine-tuning your GKE Autopilot deployments.
 
@@ -448,7 +626,17 @@ stacks:
             operator: "Equal"
             value: "staging"
             effect: "NoExecute"
-            
+
+        # Pod priority class for scheduling and preemption control
+        priorityClassName: "high-priority-apps"
+
+        # Generic ephemeral volumes for large temporary storage (>10GB)
+        ephemeralVolumes:
+          - name: temp-data
+            mountPath: /tmp/data
+            size: 100Gi
+            storageClassName: pd-balanced
+
         # Vertical Pod Autoscaler (covered in detail above)
         vpa:
           enabled: true
@@ -485,16 +673,18 @@ stacks:
 
 ## **CloudExtras Field Reference**
 
-| Field              | Type                | Description                    | GKE Autopilot Support      |
-|--------------------|---------------------|--------------------------------|----------------------------|
-| `nodeSelector`     | `map[string]string` | Node selection labels          | ✅ Custom labels supported  |
-| `disruptionBudget` | `object`            | Pod disruption budget for HA   | ✅ Full support             |
-| `rollingUpdate`    | `object`            | Rolling update strategy        | ✅ Full support             |
-| `affinity`         | `object`            | Pod affinity and anti-affinity | ✅ With workload separation |
-| `tolerations`      | `[]object`          | Pod tolerations for taints     | ✅ Custom tolerations       |
-| `vpa`              | `object`            | Vertical Pod Autoscaler        | ✅ Native GKE support       |
-| `readinessProbe`   | `object`            | Global readiness probe         | ✅ Full support             |
-| `livenessProbe`    | `object`            | Global liveness probe          | ✅ Full support             |
+| Field                | Type                | Description                                  | GKE Autopilot Support           |
+|----------------------|---------------------|----------------------------------------------|--------------------------------|
+| `nodeSelector`       | `map[string]string` | Node selection labels                        | ✅ Custom labels supported        |
+| `disruptionBudget`   | `object`            | Pod disruption budget for HA                 | ✅ Full support                   |
+| `rollingUpdate`      | `object`            | Rolling update strategy                      | ✅ Full support                   |
+| `affinity`           | `object`            | Pod affinity and anti-affinity               | ✅ With workload separation       |
+| `tolerations`        | `[]object`          | Pod tolerations for taints                   | ✅ Custom tolerations             |
+| `vpa`                | `object`            | Vertical Pod Autoscaler                      | ✅ Native GKE support             |
+| `readinessProbe`     | `object`            | Global readiness probe                       | ✅ Full support                   |
+| `livenessProbe`      | `object`            | Global liveness probe                        | ✅ Full support                   |
+| `priorityClassName`  | `string`            | Kubernetes PriorityClass for pod scheduling  | ✅ Full support                   |
+| `ephemeralVolumes`   | `[]object`          | Generic ephemeral volumes (>10GB storage)    | ✅ Full support                   |
 
 ## **Node Selection and Workload Separation**
 
@@ -570,6 +760,30 @@ cloudExtras:
     periodSeconds: 30            # Check every 30s
     failureThreshold: 3          # 3 failures = restart pod
 ```
+
+### **HTTP Headers in Health Probes**
+
+Health probes support custom HTTP headers for advanced scenarios:
+
+```yaml
+cloudExtras:
+  readinessProbe:
+    httpGet:
+      path: "/health"
+      port: 8080
+      httpHeaders:
+        - name: "X-Health-Check-Token"
+          value: "secret-token-123"
+        - name: "X-Tenant-ID"
+          value: "tenant-abc"
+    initialDelaySeconds: 10
+```
+
+**Use Cases for HTTP Headers:**
+- **Multi-tenant routing** - Route health checks to correct tenant backend
+- **Authentication bypass** - Bypass authentication for health check endpoints
+- **Custom routing** - Direct health checks through proxies/load balancers
+- **Request identification** - Mark health check requests for monitoring
 
 ### **Probe Types**
 

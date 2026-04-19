@@ -10,5 +10,16 @@ type CaddyResource struct {
 }
 
 func CaddyReadConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &CaddyResource{})
+	cfg, err := api.ConvertConfig(config, &CaddyResource{})
+	if err != nil {
+		return cfg, err
+	}
+	// Normalize empty slices to nil — yaml.Unmarshal into inline pointer
+	// structs can produce []string{} instead of nil for absent fields.
+	if res, ok := cfg.Config.(*CaddyResource); ok && res.CaddyConfig != nil {
+		if len(res.CaddyConfig.TrustedProxies) == 0 {
+			res.CaddyConfig.TrustedProxies = nil
+		}
+	}
+	return cfg, nil
 }

@@ -28,6 +28,14 @@ on:
         required: false
         type: string
         default: 'latest'
+      api_token:
+        description: 'JWT token for both AI gateway and forge service API access'
+        required: false
+        type: string
+      anthropic_base_url:
+        description: 'Anthropic API base URL (overrides secrets if provided)'
+        required: false
+        type: string
 
 jobs:
   generate-code:
@@ -37,6 +45,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          fetch-depth: 0
 
       - name: Setup Go with Blacksmith Cache
         uses: useblacksmith/setup-go@v6
@@ -52,11 +63,11 @@ jobs:
           job_id: ${{ inputs.job_id }}
           issue_id: ${{ inputs.issue_id }}
           service_url: "${{ inputs.service_url || 'https://forge.simple-container.com' }}"
-          branch: ${{ inputs.branch }}
           model_name: ${{ inputs.model_name }}
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          anthropic_base_url: ${{ secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com' }}
-          simple_forge_api_key: ${{ secrets.SIMPLE_FORGE_API_KEY }}
+          branch: ${{ inputs.branch }}
+          anthropic_api_key: ${{ inputs.api_token || secrets.ANTHROPIC_API_KEY }}
+          anthropic_base_url: ${{ inputs.anthropic_base_url || secrets.ANTHROPIC_BASE_URL || format('{0}/ai', inputs.service_url || 'https://forge.simple-container.com') || 'https://api.anthropic.com' }}
+          simple_forge_api_key: ${{ inputs.api_token || secrets.SIMPLE_FORGE_API_KEY }}
           github_token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           script_version: ${{ inputs.script_version }}
           skip_dependency_install: 'false'

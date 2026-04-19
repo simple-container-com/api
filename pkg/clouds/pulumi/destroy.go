@@ -15,7 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, params api.DestroyParams, program func(ctx *sdk.Context) error, preview bool) error {
+func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, params api.DestroyParams, program func(ctx *sdk.Context) error, preview bool, preDestroyHooks ...func(auto.Stack)) error {
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, program)
 	if err != nil {
 		return err
@@ -28,6 +28,12 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 			return err
 		}
 		p.logger.Info(ctx, color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
+	}
+
+	if !preview {
+		for _, hook := range preDestroyHooks {
+			hook(stackSource)
+		}
 	}
 
 	if preview {

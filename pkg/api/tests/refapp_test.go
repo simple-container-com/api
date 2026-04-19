@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -49,14 +47,14 @@ func TestReadServerDescriptor(t *testing.T) {
 			Expect(err).To(BeNil())
 			actual := got.ValuesOnly()
 
-			require.EqualValuesf(t, tt.want.CiCd, actual.CiCd, "%v cicd failed", tt.path)
-			require.EqualValuesf(t, tt.want.Provisioner, actual.Provisioner, "%v provisioner failed", tt.path)
-			require.EqualValuesf(t, tt.want.Secrets, actual.Secrets, "%v server secrets failed", tt.path)
-			require.EqualValuesf(t, tt.want.Templates, actual.Templates, "%v server templates failed", tt.path)
-			require.EqualValuesf(t, tt.want.Variables, actual.Variables, "%v server variables failed", tt.path)
-			require.EqualValuesf(t, tt.want.Resources.Registrar, actual.Resources.Registrar, "%v registrar failed", tt.path)
+			Expect(actual.CiCd).To(Equal(tt.want.CiCd), "%v cicd failed", tt.path)
+			Expect(actual.Provisioner).To(Equal(tt.want.Provisioner), "%v provisioner failed", tt.path)
+			Expect(actual.Secrets).To(Equal(tt.want.Secrets), "%v server secrets failed", tt.path)
+			Expect(actual.Templates).To(Equal(tt.want.Templates), "%v server templates failed", tt.path)
+			Expect(actual.Variables).To(Equal(tt.want.Variables), "%v server variables failed", tt.path)
+			Expect(actual.Resources.Registrar).To(Equal(tt.want.Resources.Registrar), "%v registrar failed", tt.path)
 			for env := range tt.want.Resources.Resources {
-				require.EqualValuesf(t, tt.want.Resources.Resources[env], actual.Resources.Resources[env], "%v/%v env resources failed", tt.path, env)
+				Expect(actual.Resources.Resources[env]).To(Equal(tt.want.Resources.Resources[env]), "%v/%v env resources failed", tt.path, env)
 			}
 		})
 	}
@@ -80,7 +78,7 @@ func TestReadSecretsDescriptor(t *testing.T) {
 			got, err := api.ReadSecretsDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			assert.EqualValuesf(t, tt.want, got, "%v failed", tt.path)
+			Expect(got).To(Equal(tt.want), "%v failed", tt.path)
 			// Expect(got).To(Equal(tt.want))
 		})
 	}
@@ -112,7 +110,7 @@ func TestReadClientDescriptor(t *testing.T) {
 			got, err := api.ReadClientDescriptor(tt.path)
 			Expect(err).To(BeNil())
 
-			assert.EqualValuesf(t, tt.want.Copy(), got.Copy(), "%v failed", tt.path)
+			Expect(got.Copy()).To(Equal(tt.want.Copy()), "%v failed", tt.path)
 		})
 	}
 }

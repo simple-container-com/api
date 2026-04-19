@@ -34,6 +34,7 @@ type Args struct {
 	InitContainers         []corev1.ContainerArgs
 	GenerateCaddyfileEntry bool
 	ServiceType            *string
+	ExternalTrafficPolicy  *string
 	Sidecars               []corev1.ContainerArgs
 	ComputeContext         pApi.ComputeContext
 	SecretVolumes          []k8s.SimpleTextVolume
@@ -45,7 +46,11 @@ type Args struct {
 	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
-	ExternalTrafficPolicy  *string            // "Local" preserves client IP on LoadBalancer services
+	EphemeralSize          string
+	// TerminationGracePeriodSeconds overrides pod-level terminationGracePeriodSeconds.
+	TerminationGracePeriodSeconds *int
+	// PreStopSleepSeconds injects a preStop exec sleep on all containers, allowing LB drain before SIGTERM.
+	PreStopSleepSeconds *int
 }
 
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
@@ -181,13 +186,15 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			resources.Requests = sdk.ToStringMap(c.Container.Resources.Requests)
 		}
 
+		lifecycle := buildPreStopLifecycle(args.PreStopSleepSeconds)
+
 		return corev1.ContainerArgs{
 			Args:            sdk.ToStringArray(c.Container.Args),
 			Command:         sdk.ToStringArray(c.Container.Command),
 			Env:             env,
 			Image:           c.ImageName,
 			ImagePullPolicy: sdk.String(lo.If(c.Container.ImagePullPolicy != nil, lo.FromPtr(c.Container.ImagePullPolicy)).Else("IfNotPresent")),
-			Lifecycle:       nil, // TODO
+			Lifecycle:       lifecycle,
 			LivenessProbe:   livenessProbe,
 			Name:            sdk.String(c.Container.Name),
 			Ports:           ports,
@@ -211,6 +218,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		KubeProvider:           args.KubeProvider,
 		ComputeContext:         args.ComputeContext,
 		ServiceType:            args.ServiceType,
+		ExternalTrafficPolicy:  args.ExternalTrafficPolicy,
 		UseSSL:                 args.UseSSL,
 		ProvisionIngress:       args.ProvisionIngress,
 		Namespace:              namespace,
@@ -229,6 +237,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		LbConfig:               args.Deployment.StackConfig.LBConfig,
 		Volumes:                args.Deployment.TextVolumes,
 		PersistentVolumes:      pvs,
+		EphemeralVolumes:       args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
+		PriorityClassName:      args.Deployment.PriorityClassName,
 		Containers:             containers,
 		ServiceAccountName:     args.ServiceAccountName,
 		InitContainers:         args.InitContainers,
@@ -239,16 +249,17 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Sidecars:               args.Sidecars,
 		VPA:                    args.VPA,              // Pass VPA configuration to SimpleContainer
 		Scale:                  args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
-		ExternalTrafficPolicy:  args.ExternalTrafficPolicy,
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
-		RollingUpdate:       lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
-		SecurityContext:     nil, // TODO
-		Log:                 args.Params.Log,
-		SecretVolumes:       args.SecretVolumes,
-		SecretVolumeOutputs: args.SecretVolumeOutputs,
-		ImagePullSecret:     args.ImagePullSecret,
+		RollingUpdate:                 lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
+		SecurityContext:               nil, // TODO
+		Log:                           args.Params.Log,
+		SecretVolumes:                 args.SecretVolumes,
+		SecretVolumeOutputs:           args.SecretVolumeOutputs,
+		ImagePullSecret:               args.ImagePullSecret,
+		EphemeralSize:                 args.EphemeralSize,
+		TerminationGracePeriodSeconds: args.TerminationGracePeriodSeconds,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for stack %q in %q", stackName, args.Input.StackParams.Environment)
@@ -269,6 +280,23 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	}
 
 	return sc, nil
+}
+
+// buildPreStopLifecycle returns a LifecycleArgs with an exec sleep preStop hook when
+// preStopSleepSeconds is set and > 0. The sleep lets the load-balancer finish draining
+// connections before the container receives SIGTERM, preventing 502/521 errors during
+// rolling updates.
+func buildPreStopLifecycle(preStopSleepSeconds *int) *corev1.LifecycleArgs {
+	if preStopSleepSeconds == nil || *preStopSleepSeconds <= 0 {
+		return nil
+	}
+	return &corev1.LifecycleArgs{
+		PreStop: &corev1.LifecycleHandlerArgs{
+			Exec: &corev1.ExecActionArgs{
+				Command: sdk.ToStringArray([]string{"sleep", fmt.Sprintf("%d", *preStopSleepSeconds)}),
+			},
+		},
+	}
 }
 
 func toRollingUpdateArgs(update *k8s.RollingUpdate) *v1.RollingUpdateDeploymentArgs {

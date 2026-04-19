@@ -9,6 +9,36 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "ephemeralVolumes": {
+        "description": "Generic ephemeral volumes for large temporary storage (>10GB). These volumes bypass GKE Autopilot's 10GB ephemeral storage limit by using PersistentVolumeClaims that are automatically created and deleted with pods.",
+        "items": {
+          "properties": {
+            "mountPath": {
+              "description": "Path where the volume should be mounted inside the container",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the ephemeral volume (will be sanitized for Kubernetes RFC 1123 compliance)",
+              "type": "string"
+            },
+            "size": {
+              "description": "Size of the volume (e.g., '10Gi', '100Gi', '1Ti'). Can be much larger than the 10GB regular ephemeral storage limit.",
+              "type": "string"
+            },
+            "storageClassName": {
+              "description": "Storage class to use for the PersistentVolumeClaim (e.g., 'standard-rwo', 'pd-balanced'). Defaults to cluster default if not specified.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "mountPath",
+            "size"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
       "affinity": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -754,9 +784,19 @@
           "updateMode"
         ],
         "type": "object"
+      },
+      "priorityClassName": {
+        "description": "Kubernetes PriorityClass to assign to pods. This affects pod scheduling and preemption behavior. Higher priority pods are scheduled before lower priority pods and can preempt them when resources are scarce. The PriorityClass must already exist in the cluster. Common values include 'system-cluster-critical' (priority 2000000000), 'system-node-critical' (priority 2000000000), or custom PriorityClasses created by cluster administrators.",
+        "examples": [
+          "high-priority",
+          "system-cluster-critical",
+          "workload-production"
+        ],
+        "type": "string"
       }
     },
     "required": [
+      "ephemeralVolumes",
       "affinity",
       "disruptionBudget",
       "livenessProbe",

@@ -16,20 +16,22 @@ import (
 )
 
 type DeploymentConfig struct {
-	StackConfig      *api.StackConfigCompose `json:"stackConfig" yaml:"stackConfig"`
-	Containers       []CloudRunContainer     `json:"containers" yaml:"containers"`
-	IngressContainer *CloudRunContainer      `json:"ingressContainer" yaml:"ingressContainer"`
-	Scale            *Scale                  `json:"scale" yaml:"scale"`
-	Headers          *Headers                `json:"headers" yaml:"headers"`
-	TextVolumes      []SimpleTextVolume      `json:"textVolumes" yaml:"textVolumes"`
-	DisruptionBudget *DisruptionBudget       `json:"disruptionBudget" yaml:"disruptionBudget"`
-	RollingUpdate    *RollingUpdate          `json:"rollingUpdate" yaml:"rollingUpdate"`
-	NodeSelector     map[string]string       `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity         *AffinityRules          `json:"affinity" yaml:"affinity"`
-	Tolerations      []Toleration            `json:"tolerations" yaml:"tolerations"`
-	VPA              *VPAConfig              `json:"vpa" yaml:"vpa"`                       // Vertical Pod Autoscaler configuration
-	ReadinessProbe   *CloudRunProbe          `json:"readinessProbe" yaml:"readinessProbe"` // Global readiness probe configuration
-	LivenessProbe    *CloudRunProbe          `json:"livenessProbe" yaml:"livenessProbe"`   // Global liveness probe configuration
+	StackConfig       *api.StackConfigCompose  `json:"stackConfig" yaml:"stackConfig"`
+	Containers        []CloudRunContainer      `json:"containers" yaml:"containers"`
+	IngressContainer  *CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
+	Scale             *Scale                   `json:"scale" yaml:"scale"`
+	Headers           *Headers                 `json:"headers" yaml:"headers"`
+	TextVolumes       []SimpleTextVolume       `json:"textVolumes" yaml:"textVolumes"`
+	DisruptionBudget  *DisruptionBudget        `json:"disruptionBudget" yaml:"disruptionBudget"`
+	RollingUpdate     *RollingUpdate           `json:"rollingUpdate" yaml:"rollingUpdate"`
+	NodeSelector      map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity          *AffinityRules           `json:"affinity" yaml:"affinity"`
+	Tolerations       []Toleration             `json:"tolerations" yaml:"tolerations"`
+	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                             // Vertical Pod Autoscaler configuration
+	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`       // Global readiness probe configuration
+	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`         // Global liveness probe configuration
+	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
+	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 }
 
 type CaddyConfig struct {
@@ -41,14 +43,23 @@ type CaddyConfig struct {
 	Replicas         *int       `json:"replicas,omitempty" yaml:"replicas,omitempty"`
 	Resources        *Resources `json:"resources,omitempty" yaml:"resources,omitempty"`               // CPU and memory limits/requests for Caddy container
 	VPA              *VPAConfig `json:"vpa,omitempty" yaml:"vpa,omitempty"`                           // Vertical Pod Autoscaler configuration for Caddy
+	TrustedProxies   []string   `json:"trustedProxies,omitempty" yaml:"trustedProxies,omitempty"`     // CIDR ranges trusted as reverse proxies (preserves X-Forwarded-For from these sources)
 	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
 	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
 	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
 	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
 	// Deployment name override for existing Caddy deployments (used when adopting clusters)
 	DeploymentName *string `json:"deploymentName,omitempty" yaml:"deploymentName,omitempty"` // override deployment name when adopting existing Caddy
-	// ExternalTrafficPolicy for LoadBalancer service. "Local" preserves client source IP
-	// (required for correct X-Forwarded-For when behind L4 LB). Default: "Cluster".
+	// TerminationGracePeriodSeconds overrides the pod-level terminationGracePeriodSeconds for Caddy.
+	// Should be greater than preStopSleepSeconds. Default: Kubernetes default (30s).
+	TerminationGracePeriodSeconds *int `json:"terminationGracePeriodSeconds,omitempty" yaml:"terminationGracePeriodSeconds,omitempty"`
+	// PreStopSleepSeconds inserts a preStop exec sleep before SIGTERM is sent to Caddy.
+	// Allows load-balancer endpoint propagation and in-flight connection drain before shutdown.
+	// Prevents Cloudflare 521 errors during rolling updates. Default: 0 (disabled).
+	PreStopSleepSeconds *int `json:"preStopSleepSeconds,omitempty" yaml:"preStopSleepSeconds,omitempty"`
+	// ExternalTrafficPolicy controls how traffic is routed to the Caddy LoadBalancer Service.
+	// "Local" preserves the client source IP (required for correct X-Forwarded-For from Cloudflare).
+	// "Cluster" (default) SNATs source IP to a node IP, losing the direct client IP.
 	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 }
 
@@ -73,8 +84,9 @@ type Toleration struct {
 type Headers = map[string]string
 
 type Resources struct {
-	Limits   map[string]string `json:"limits" yaml:"limits"`
-	Requests map[string]string `json:"requests" yaml:"requests"`
+	Limits    map[string]string `json:"limits" yaml:"limits"`
+	Requests  map[string]string `json:"requests" yaml:"requests"`
+	Ephemeral string            `json:"ephemeral" yaml:"ephemeral"`
 }
 
 type SimpleTextVolume struct {
@@ -87,6 +99,18 @@ type PersistentVolume struct {
 	Storage          string   `json:"storage" yaml:"storage"`
 	AccessModes      []string `json:"accessModes" yaml:"accessModes"`
 	StorageClassName *string  `json:"storageClassName" yaml:"storageClassName"`
+}
+
+// GenericEphemeralVolume defines a generic ephemeral volume configuration
+// These volumes use Kubernetes generic ephemeral volumes feature, which creates
+// a PersistentVolumeClaim for each pod and deletes it when the pod is deleted.
+// This is useful for applications requiring large temporary storage (>10GB) on
+// GKE Autopilot, which has a 10GB limit on regular ephemeral storage.
+type GenericEphemeralVolume struct {
+	Name             string  `json:"name" yaml:"name"`
+	MountPath        string  `json:"mountPath" yaml:"mountPath"`
+	Size             string  `json:"size" yaml:"size"`
+	StorageClassName *string `json:"storageClassName" yaml:"storageClassName"` // Optional, defaults to cluster default
 }
 
 type Scale struct {

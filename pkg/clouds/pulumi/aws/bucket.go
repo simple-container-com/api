@@ -25,6 +25,7 @@ type S3BucketInput struct {
 	StaticSite     *api.StaticSiteConfig
 	Stack          api.Stack
 	AllowOnlyHttps bool
+	Tags           sdk.StringMap
 }
 
 type PrivateBucketOutput struct {
@@ -51,6 +52,10 @@ func S3Bucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	params.Log.Info(ctx.Context(), "configure private s3 bucket %q for %q in %q",
 		bucketName, input.StackParams.StackName, input.StackParams.Environment)
 
+	var tags sdk.StringMap
+	if input.StackParams != nil {
+		tags = pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
+	}
 	res, err := createS3Bucket(ctx, S3BucketInput{
 		Name:           bucketName,
 		Provider:       params.Provider,
@@ -59,6 +64,7 @@ func S3Bucket(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		Log:            params.Log,
 		StaticSite:     bucketCfg.StaticSiteConfig,
 		AllowOnlyHttps: bucketCfg.AllowOnlyHttps,
+		Tags:           tags,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision private bucket")
@@ -87,6 +93,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 		}
 	}
 
+	bucketArgs.Tags = input.Tags
 	bucket, err := s3.NewBucket(ctx, input.Name, bucketArgs, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision bucket %q", input.Name)
@@ -154,6 +161,7 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	input.Log.Info(ctx.Context(), "configure user having write access to s3 bucket...")
 	user, err := iam.NewUser(ctx, fmt.Sprintf("%s-user", input.Name), &iam.UserArgs{
 		ForceDestroy: sdk.BoolPtr(true),
+		Tags:         input.Tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision user for bucket %q", input.Name)

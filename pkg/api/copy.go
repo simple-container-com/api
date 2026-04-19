@@ -150,6 +150,7 @@ func (s *ClientDescriptor) Copy() ClientDescriptor {
 		Stacks: lo.MapValues(s.Stacks, func(v StackClientDescriptor, k string) StackClientDescriptor {
 			return v.Copy()
 		}),
+		Security: s.Security,
 	}
 }
 
@@ -187,6 +188,7 @@ func (s *StackConfigCompose) Copy() any {
 		StaticEgressIP:    s.StaticEgressIP,
 		ImagePullPolicy:   s.ImagePullPolicy,
 		ClusterIPAddress:  s.ClusterIPAddress,
+		Security:          s.Security,
 	}
 }
 
