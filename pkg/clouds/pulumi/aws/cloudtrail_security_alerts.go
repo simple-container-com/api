@@ -332,7 +332,10 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		// createAlert suffixes cfg.name with "-execution-role" (15 chars) and Pulumi adds
 		// an 8-char random suffix when it auto-names the IAM role. Cap the base so the
 		// resulting physical role name stays within AWS's 64-char limit (with headroom).
-		alertBaseName := util.TrimStringMiddle(fmt.Sprintf("%s-%s", resPrefix, alertDef.name), 38, "-")
+		// Use the hash-based helper rather than TrimStringMiddle: the env segment sits
+		// in the middle of the name, and symmetric trimming would collapse multiple
+		// envs in the same account to the same IAM role name.
+		alertBaseName := util.TrimStringWithHash(fmt.Sprintf("%s-%s", resPrefix, alertDef.name), 38, "-")
 		alarmArgs := cloudwatch.MetricAlarmArgs{
 			AlarmDescription:   sdk.String(alertDef.description),
 			MetricName:         sdk.String(metricName),

@@ -6,6 +6,49 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+func TestTrimStringWithHash(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("short input returned unchanged", func(t *testing.T) {
+		RegisterTestingT(t)
+		Expect(TrimStringWithHash("short-name", 40, "-")).To(Equal("short-name"))
+	})
+
+	t.Run("long input produces stable length with hash suffix", func(t *testing.T) {
+		RegisterTestingT(t)
+		result := TrimStringWithHash("cloudtrail-security--prod-ct-failed-console-logins", 38, "-")
+		Expect(len(result)).To(BeNumerically("<=", 38))
+		Expect(result).To(MatchRegexp(`-[0-9a-f]{4}$`))
+	})
+
+	t.Run("inputs differing only in a middle segment get different outputs", func(t *testing.T) {
+		// This is the bug that surfaced in the integrail preview — TrimStringMiddle
+		// collapsed three envs into the same IAM role name because the env segment
+		// sat in the middle. TrimStringWithHash must keep them distinct.
+		RegisterTestingT(t)
+		staging := TrimStringWithHash("cloudtrail-security--staging-ct-failed-console-logins", 38, "-")
+		test := TrimStringWithHash("cloudtrail-security--test-ct-failed-console-logins", 38, "-")
+		perf := TrimStringWithHash("cloudtrail-security--perf-ct-failed-console-logins", 38, "-")
+		Expect(staging).ToNot(Equal(test))
+		Expect(staging).ToNot(Equal(perf))
+		Expect(test).ToNot(Equal(perf))
+	})
+
+	t.Run("deterministic across calls for the same input", func(t *testing.T) {
+		RegisterTestingT(t)
+		input := "cloudtrail-security--prod-ct-iam-policy-changes"
+		Expect(TrimStringWithHash(input, 38, "-")).To(Equal(TrimStringWithHash(input, 38, "-")))
+	})
+
+	t.Run("trailing hyphen on trimmed prefix is dropped", func(t *testing.T) {
+		// maxLen chosen so the cut falls right on a hyphen; the helper should
+		// trim the trailing '-' before appending the sep+hash.
+		RegisterTestingT(t)
+		result := TrimStringWithHash("abcdefghij-klmnop-qrstuv-xyz", 15, "-")
+		Expect(result).ToNot(ContainSubstring("--"))
+	})
+}
+
 func TestSanitizeGCPServiceAccountName(t *testing.T) {
 	RegisterTestingT(t)
 
