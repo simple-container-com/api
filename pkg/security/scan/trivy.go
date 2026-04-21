@@ -14,7 +14,7 @@ import (
 
 // DefaultTrivyVersion is the pinned install version. Bump here to upgrade cluster-wide,
 // or override per-scan via SC config (ScanToolConfig.Version) or SC_TRIVY_VERSION env var.
-const DefaultTrivyVersion = "0.69.3"
+const DefaultTrivyVersion = "0.70.0"
 
 // TrivyScanner implements Scanner interface using Trivy
 type TrivyScanner struct {
@@ -46,6 +46,7 @@ func (t *TrivyScanner) Scan(ctx context.Context, image string) (*ScanResult, err
 	if err != nil {
 		return nil, err
 	}
+	defer cleanupTrivyCacheDir(cacheDir)
 
 	// Scan from the local Docker daemon (docker-daemon: prefix).
 	// The image must already be present locally — callers are expected to scan
@@ -303,16 +304,39 @@ func parseTrivyVersion(output string) (string, error) {
 	return "", fmt.Errorf("failed to parse trivy version from: %s", output)
 }
 
+// ensureTrivyCacheDir returns a per-invocation Trivy cache directory under the
+// user cache root. Using a unique subdirectory per scan eliminates the cache
+// lock contention that Trivy exhibits when the same directory is shared across
+// concurrent processes or reused with stale locks from crashed runs. The cost
+// is re-downloading the vulnerability DB per scan (~100MB, a few seconds),
+// which is acceptable in CI and avoids the "cache may be in use by another
+// process: timeout" failure mode documented at
+// https://trivy.dev/docs/guide/references/troubleshooting#database-and-cache-lock-errors
+//
+// Caller is responsible for cleanup (see cleanupTrivyCacheDir).
 func ensureTrivyCacheDir() (string, error) {
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {
 		cacheRoot = os.TempDir()
 	}
-	cacheDir := filepath.Join(cacheRoot, "trivy")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return "", fmt.Errorf("create trivy cache directory: %w", err)
+	parent := filepath.Join(cacheRoot, "trivy")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", fmt.Errorf("create trivy cache parent directory: %w", err)
+	}
+	cacheDir, err := os.MkdirTemp(parent, "scan-*")
+	if err != nil {
+		return "", fmt.Errorf("create trivy cache scratch directory: %w", err)
 	}
 	return cacheDir, nil
+}
+
+// cleanupTrivyCacheDir removes a per-invocation cache directory created by
+// ensureTrivyCacheDir. Best-effort: errors are ignored.
+func cleanupTrivyCacheDir(cacheDir string) {
+	if cacheDir == "" {
+		return
+	}
+	_ = os.RemoveAll(cacheDir)
 }
 
 func trivyDBPresent(cacheDir string) bool {

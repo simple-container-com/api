@@ -333,11 +333,11 @@ func TestValidateImageRef(t *testing.T) {
 		"europe-north1-docker.pkg.dev/project/repo:tag",
 	}
 	invalid := []string{
-		"",                          // empty
+		"",                             // empty
 		"--image-that-looks-like-flag", // starts with -
-		"image;rm -rf /",            // shell metacharacter
-		"image$(whoami)",            // command substitution
-		"image`id`",                 // backtick injection
+		"image;rm -rf /",               // shell metacharacter
+		"image$(whoami)",               // command substitution
+		"image`id`",                    // backtick injection
 	}
 
 	for _, ref := range valid {

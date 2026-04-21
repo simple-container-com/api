@@ -19,10 +19,14 @@ func buildSecurityReportScript(imageRef, imageName string, security *api.Securit
 
 	// Build the report script. Uses jq for JSON parsing if available, falls back to grep.
 	// The script is self-contained — no SC CLI dependency.
+	//
+	// The heading includes imageName so stacks with multiple images (e.g. web+worker)
+	// produce visibly-distinct report sections in $GITHUB_STEP_SUMMARY — otherwise
+	// identical-looking headers make them appear as duplicates.
 	var sb strings.Builder
 	sb.WriteString("set +e\n") // Don't exit on error — report is best-effort
 	sb.WriteString("REPORT=''\n")
-	sb.WriteString("REPORT=\"${REPORT}## Security Pipeline Summary\\n\\n\"\n")
+	sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}## Security Pipeline Summary — %s\\n\\n\"\n", shellEscape(imageName)))
 	sb.WriteString(fmt.Sprintf("REPORT=\"${REPORT}**Image:** \\`%s\\`\\n\\n\"\n", shellEscape(imageRef)))
 	sb.WriteString("REPORT=\"${REPORT}| Step | Status | Details |\\n\"\n")
 	sb.WriteString("REPORT=\"${REPORT}| --- | --- | --- |\\n\"\n")

@@ -22,6 +22,7 @@ type ecsTaskConfig struct {
 	name    string
 	account aws.AccountConfig
 	params  pApi.ProvisionParams
+	tags    sdk.StringMap
 	image   string
 	command []string
 	env     map[string]string
@@ -46,6 +47,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	execRoleName := fmt.Sprintf("%s-exec-role", name)
 	taskExecRole, err := iam.NewRole(ctx, execRoleName, &iam.RoleArgs{
 		Name: sdk.String(execRoleName),
+		Tags: config.tags,
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -93,6 +95,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	taskDef, err := ecs.NewTaskDefinition(ctx, taskDefName, &ecs.TaskDefinitionArgs{
 		Family:      sdk.String(name),
 		NetworkMode: sdk.String("awsvpc"),
+		Tags:        config.tags,
 		RequiresCompatibilities: sdk.StringArray{
 			sdk.String("FARGATE"),
 		},
@@ -125,7 +128,9 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 
 	ecsClusterName := fmt.Sprintf("%s-cluster", name)
 	params.Log.Info(ctx.Context(), "configure ECS cluster for %q", name)
-	cluster, err := ecs.NewCluster(ctx, ecsClusterName, &ecs.ClusterArgs{}, opts...)
+	cluster, err := ecs.NewCluster(ctx, ecsClusterName, &ecs.ClusterArgs{
+		Tags: config.tags,
+	}, opts...)
 	if err != nil {
 		return err
 	}
@@ -149,6 +154,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	params.Log.Info(ctx.Context(), "configure security group for %q", name)
 	securityGroup, err := ec2.NewSecurityGroup(ctx, securityGroupName, &ec2.SecurityGroupArgs{
 		VpcId: vpc.ID(),
+		Tags:  config.tags,
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
 				Description:    sdk.String("Allow ALL outbound TCP traffic"),
@@ -180,6 +186,7 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	ccPolicy, err := iam.NewPolicy(ctx, ccPolicyName, &iam.PolicyArgs{
 		Description: sdk.String("Allows CreateControlChannel operation and reading secrets"),
 		Name:        sdk.String(ccPolicyName),
+		Tags:        config.tags,
 		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
 			policy := map[string]interface{}{
 				"Version": "2012-10-17",
