@@ -9,6 +9,7 @@ import (
 	sdkAws "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/sns"
+	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -30,8 +31,8 @@ type securityAlertDef struct {
 var securityAlerts = map[string]securityAlertDef{
 	// CloudWatch.1 — Root account usage
 	"rootAccountUsage": {
-		name:        "ct-root-account-usage",
-		description: "Root account API call detected — investigate immediately",
+		name:          "ct-root-account-usage",
+		description:   "Root account API call detected — investigate immediately",
 		filterPattern: `{ $.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != "AwsServiceEvent" }`,
 	},
 	// CloudWatch.2 — Unauthorized API calls (threshold 5 to reduce noise from normal permission probing)
@@ -41,12 +42,12 @@ var securityAlerts = map[string]securityAlertDef{
 		filterPattern: `{ ($.errorCode = "AccessDenied") || ($.errorCode = "AccessDeniedException") || ` +
 			`($.errorCode = "UnauthorizedAccess") || ($.errorCode = "Client.UnauthorizedAccess") || ` +
 			`($.errorCode = "Client.UnauthorizedOperation") || ($.errorCode = "UnauthorizedOperation") }`,
-		threshold:   5,
+		threshold: 5,
 	},
 	// CloudWatch.3 — Console login without MFA (successful only)
 	"consoleLoginWithoutMfa": {
-		name:        "ct-console-login-no-mfa",
-		description: "Successful console login without MFA detected",
+		name:          "ct-console-login-no-mfa",
+		description:   "Successful console login without MFA detected",
 		filterPattern: `{ ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.responseElements.ConsoleLogin = "Success") }`,
 	},
 	// CloudWatch.4 — IAM policy changes
@@ -71,14 +72,14 @@ var securityAlerts = map[string]securityAlertDef{
 	},
 	// CloudWatch.6 — Failed console logins
 	"failedConsoleLogins": {
-		name:        "ct-failed-console-logins",
-		description: "Console login failures detected — possible brute force attempt",
+		name:          "ct-failed-console-logins",
+		description:   "Console login failures detected — possible brute force attempt",
 		filterPattern: `{ ($.eventName = "ConsoleLogin") && ($.errorMessage = "Failed authentication") }`,
 	},
 	// CloudWatch.7 — KMS key deletion/disable
 	"kmsKeyDeletion": {
-		name:        "ct-kms-key-deletion",
-		description: "KMS encryption key disabled or scheduled for deletion — may cause data loss",
+		name:          "ct-kms-key-deletion",
+		description:   "KMS encryption key disabled or scheduled for deletion — may cause data loss",
 		filterPattern: `{ ($.eventSource = "kms.amazonaws.com") && (($.eventName = "DisableKey") || ($.eventName = "ScheduleKeyDeletion")) }`,
 	},
 	// CloudWatch.8 — S3 bucket policy changes
@@ -260,6 +261,28 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		}
 	}
 
+	// Push helpers Lambda image to ECR if Slack/Discord/Telegram webhooks are configured.
+	// The image contains the alert-formatting Lambda that delivers to webhook endpoints.
+	hasWebhooks := cfg.Slack != nil || cfg.Discord != nil || cfg.Telegram != nil
+	var helpersImage *docker.Image
+	if hasWebhooks {
+		if input.StackParams == nil {
+			return nil, errors.New("input.StackParams is required to provision webhook-based security alerts")
+		}
+		img, err := pushHelpersImageToECR(ctx, helperCfg{
+			imageName:       fmt.Sprintf("%s-security-helpers", resPrefix),
+			opts:            opts,
+			provisionParams: params,
+			stack:           stack,
+			deployParams:    *input.StackParams,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to push cloud-helpers image for security alerts")
+		}
+		helpersImage = img
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{helpersImage}))
+	}
+
 	// Create metric filter + alarm for each enabled alert
 	metricNamespace := fmt.Sprintf("SC/SecurityAlerts/%s", resPrefix)
 
@@ -281,18 +304,11 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 			return nil, errors.Wrapf(err, "failed to create metric filter for %q", alertDef.name)
 		}
 
-		// Build alarm actions
-		var alarmActions sdk.Array
-		if snsTopic != nil {
-			alarmActions = sdk.Array{snsTopic.Arn}
-		}
-
-		// Create CloudWatch Alarm
 		threshold := alertDef.threshold
 		if threshold == 0 {
 			threshold = 1
 		}
-		alarmName := fmt.Sprintf("%s-%s-alarm", resPrefix, alertDef.name)
+		alertBaseName := fmt.Sprintf("%s-%s", resPrefix, alertDef.name)
 		alarmArgs := cloudwatch.MetricAlarmArgs{
 			AlarmDescription:   sdk.String(alertDef.description),
 			MetricName:         sdk.String(metricName),
@@ -304,24 +320,43 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 			ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
 			TreatMissingData:   sdk.String("notBreaching"),
 		}
-		if len(alarmActions) > 0 {
-			alarmArgs.AlarmActions = alarmActions
-			alarmArgs.OkActions = alarmActions
-		}
-		_, err = cloudwatch.NewMetricAlarm(ctx, alarmName, &alarmArgs, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create alarm for %q", alertDef.name)
+
+		if hasWebhooks {
+			// Webhook path: createAlert creates Lambda + MetricAlarm wired to Lambda (+ optional SNS email).
+			if err := createAlert(ctx, alertCfg{
+				name:            alertBaseName,
+				description:     alertDef.description,
+				slackConfig:     cfg.Slack,
+				discordConfig:   cfg.Discord,
+				telegramConfig:  cfg.Telegram,
+				deployParams:    *input.StackParams,
+				secretSuffix:    resPrefix,
+				helpersImage:    helpersImage,
+				snsTopic:        snsTopic,
+				opts:            opts,
+				tags:            tags,
+				metricAlarmArgs: alarmArgs,
+			}); err != nil {
+				return nil, errors.Wrapf(err, "failed to create alert %q", alertDef.name)
+			}
+		} else {
+			// Email-only (or unnotified) path: create the alarm directly, wired to SNS if present.
+			if snsTopic != nil {
+				actions := sdk.Array{snsTopic.Arn}
+				alarmArgs.AlarmActions = actions
+				alarmArgs.OkActions = actions
+			}
+			alarmArgs.Tags = tags
+			if _, err := cloudwatch.NewMetricAlarm(ctx, fmt.Sprintf("%s-alarm", alertBaseName), &alarmArgs, opts...); err != nil {
+				return nil, errors.Wrapf(err, "failed to create alarm for %q", alertDef.name)
+			}
 		}
 
 		params.Log.Info(ctx.Context(), "  created security alert: %s", alertDef.name)
 	}
 
-	// TODO(security): wire alarms to SC alert Lambda for Slack/Discord/Telegram formatting
-	if cfg.Slack != nil || cfg.Discord != nil || cfg.Telegram != nil {
-		params.Log.Warn(ctx.Context(), "Slack/Discord/Telegram configured for security alerts but not yet supported — use email notifications")
-	}
-
-	params.Log.Info(ctx.Context(), "CloudTrail security alerts configured: %d alerts active", len(alerts))
+	params.Log.Info(ctx.Context(), "CloudTrail security alerts configured: %d alerts active (webhooks=%v, email=%v)",
+		len(alerts), hasWebhooks, snsTopic != nil)
 
 	return &api.ResourceOutput{}, nil
 }
