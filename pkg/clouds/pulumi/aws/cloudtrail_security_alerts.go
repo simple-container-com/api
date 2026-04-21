@@ -275,8 +275,12 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		}
 		helperParams := params
 		helperParams.Provider = provider
+		// Namespace BOTH the Pulumi resource (imageName) AND the ECR repo name so this
+		// resource can coexist with compute-stack ALB alerts (which use cloud-helpers)
+		// and with other aws-cloudtrail-security-alerts instances in the same stack.
 		img, err := pushHelpersImageToECR(ctx, helperCfg{
 			imageName:       fmt.Sprintf("%s-security-helpers", resPrefix),
+			ecrRepoName:     fmt.Sprintf("%s-security-helpers", resPrefix),
 			opts:            opts,
 			provisionParams: helperParams,
 			stack:           stack,

@@ -23,6 +23,16 @@
       "schema": {}
     },
     {
+      "name": "CloudTrailSecurityAlertsConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS cloudtrailsecurityalerts configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "CloudTrailSecurityAlertsConfig",
+      "resourceType": "aws-cloudtrail-security-alerts",
+      "schema": {}
+    },
+    {
       "name": "EcrRepository",
       "type": "resource",
       "provider": "aws",
@@ -74,22 +84,22 @@
     },
     {
       "name": "SecretsProviderConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "gcp-secrets-manager",
-      "schema": {}
-    },
-    {
-      "name": "SecretsProviderConfig",
       "type": "provisioner",
       "provider": "aws",
       "description": "AWS secretsprovider configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "SecretsProviderConfig",
       "resourceType": "aws-kms",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "secrets",
+      "provider": "aws",
+      "description": "AWS secrets management configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-secrets-manager",
       "schema": {}
     },
     {
@@ -109,8 +119,8 @@
       "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "TemplateConfig",
-      "resourceType": "aws-lambda",
-      "templateType": "aws-lambda",
+      "resourceType": "ecs-fargate",
+      "templateType": "ecs-fargate",
       "schema": {}
     },
     {
@@ -120,8 +130,8 @@
       "description": "AWS deployment template configuration",
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "TemplateConfig",
-      "resourceType": "ecs-fargate",
-      "templateType": "ecs-fargate",
+      "resourceType": "aws-lambda",
+      "templateType": "aws-lambda",
       "schema": {}
     },
     {

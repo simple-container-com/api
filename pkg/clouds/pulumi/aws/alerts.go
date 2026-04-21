@@ -39,6 +39,7 @@ type alertCfg struct {
 
 type helperCfg struct {
 	imageName       string
+	ecrRepoName     string // optional; defaults to "cloud-helpers" for back-compat with ECS/ALB alerts
 	opts            []sdk.ResourceOption
 	provisionParams pApi.ProvisionParams
 	stack           api.Stack
@@ -46,9 +47,13 @@ type helperCfg struct {
 }
 
 func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, error) {
-	ecrRepo, err := createEcrRegistry(ctx, cfg.stack, cfg.provisionParams, cfg.deployParams, "cloud-helpers", nil)
+	ecrRepoName := cfg.ecrRepoName
+	if ecrRepoName == "" {
+		ecrRepoName = "cloud-helpers"
+	}
+	ecrRepo, err := createEcrRegistry(ctx, cfg.stack, cfg.provisionParams, cfg.deployParams, ecrRepoName, nil)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to provision ECR repository for cloud-helpers")
+		return nil, errors.Wrapf(err, "failed to provision ECR repository for %s", ecrRepoName)
 	}
 
 	// Pull the existing image from Docker Hub.
