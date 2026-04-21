@@ -2,7 +2,7 @@
   "description": "JSON Schema definitions for all Simple Container resources and templates",
   "providers": {
     "aws": {
-      "count": 14,
+      "count": 13,
       "description": "Aws cloud provider resources and templates"
     },
     "cloudflare": {
@@ -18,7 +18,7 @@
       "description": "Fs cloud provider resources and templates"
     },
     "gcp": {
-      "count": 14,
+      "count": 15,
       "description": "Gcp cloud provider resources and templates"
     },
     "github": {

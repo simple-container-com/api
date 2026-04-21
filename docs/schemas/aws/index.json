@@ -93,16 +93,6 @@
       "schema": {}
     },
     {
-      "name": "SecretsProviderConfig",
-      "type": "secrets",
-      "provider": "aws",
-      "description": "AWS secrets management configuration",
-      "goPackage": "pkg/clouds/aws/",
-      "goStruct": "SecretsProviderConfig",
-      "resourceType": "gcp-secrets-manager",
-      "schema": {}
-    },
-    {
       "name": "StateStorageConfig",
       "type": "provisioner",
       "provider": "aws",

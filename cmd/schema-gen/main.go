@@ -462,32 +462,46 @@ func (sg *SchemaGenerator) createDirectories(resources []ResourceDefinition) err
 	return nil
 }
 
-// guessProviderFromResourceType attempts to determine the provider from the resource type string
+// guessProviderFromResourceType attempts to determine the provider from the resource type string.
+// Matches against hyphen-delimited tokens so that, for example, "ecr" does not false-match
+// "gcp-secrets-manager" (the "ecr" substring in "secrets" mis-routed the entry into the AWS
+// index.json with provider:"aws"). Tokens are exact matches on the split parts.
 func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) string {
+	tokens := strings.Split(resourceType, "-")
+	has := func(candidates ...string) bool {
+		for _, tok := range tokens {
+			for _, c := range candidates {
+				if tok == c {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	switch {
-	case strings.Contains(resourceType, "aws") || strings.Contains(resourceType, "s3") || strings.Contains(resourceType, "ecr") || strings.Contains(resourceType, "rds") || strings.Contains(resourceType, "ecs") || strings.Contains(resourceType, "lambda"):
+	case has("aws", "s3", "ecr", "rds", "ecs", "lambda", "fargate"):
 		return "aws"
-	case strings.Contains(resourceType, "gcp") || strings.Contains(resourceType, "gcloud") || strings.Contains(resourceType, "gke") || strings.Contains(resourceType, "cloudrun") || strings.Contains(resourceType, "artifact") || strings.Contains(resourceType, "pubsub"):
+	case has("gcp", "gcloud", "gke", "cloudrun", "artifact", "pubsub"):
 		return "gcp"
-	case strings.Contains(resourceType, "k8s") || strings.Contains(resourceType, "kubernetes") || strings.Contains(resourceType, "caddy"):
+	case has("k8s", "kubernetes", "caddy"):
 		return "kubernetes"
-	case strings.Contains(resourceType, "mongodb") || strings.Contains(resourceType, "atlas"):
+	case has("mongodb", "atlas"):
 		return "mongodb"
-	case strings.Contains(resourceType, "cloudflare"):
+	case has("cloudflare"):
 		return "cloudflare"
-	case strings.Contains(resourceType, "fs") || strings.Contains(resourceType, "passphrase"):
+	case has("fs", "passphrase"):
 		return "fs"
-	case strings.Contains(resourceType, "compose"):
+	case has("compose"):
 		return "compose"
-	case strings.Contains(resourceType, "docker"):
+	case has("docker"):
 		return "docker"
-	case strings.Contains(resourceType, "github"):
+	case has("github"):
 		return "github"
-	case strings.Contains(resourceType, "discord"):
+	case has("discord"):
 		return "discord"
-	case strings.Contains(resourceType, "slack"):
+	case has("slack"):
 		return "slack"
-	case strings.Contains(resourceType, "telegram"):
+	case has("telegram"):
 		return "telegram"
 	default:
 		return "unknown"
