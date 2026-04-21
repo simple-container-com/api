@@ -242,11 +242,16 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		sdk.Provider(provider),
 	}
 
+	var tags sdk.StringMap
+	if input.StackParams != nil {
+		tags = pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
+	}
+
 	// Create SNS topic for email notifications (if email config provided)
 	var snsTopic *sns.Topic
 	if cfg.Email != nil && len(cfg.Email.Addresses) > 0 {
 		var err error
-		snsTopic, err = createSNSTopicForAlerts(ctx, fmt.Sprintf("%s-security-alerts", resPrefix), opts...)
+		snsTopic, err = createSNSTopicForAlerts(ctx, fmt.Sprintf("%s-security-alerts", resPrefix), tags, opts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create SNS topic for security alerts")
 		}
