@@ -368,12 +368,17 @@ resources:
             logGroupName: "aws-cloudtrail-logs-s3-buckets"
             logGroupRegion: "us-west-2"  # Optional: if different from default region
 
-            # Notification channels
+            # Notification channels — any combination, or none
             email:
               addresses:
                 - security@company.com
-            # slack:
-            #   webhookUrl: "${secret:security-slack-webhook}"  # TODO: not yet wired
+            slack:
+              webhookUrl: "${secret:security-slack-webhook}"
+            # discord:
+            #   webhookUrl: "${secret:security-discord-webhook}"
+            # telegram:
+            #   chatID: "-1001234567890"
+            #   token: "${secret:security-telegram-token}"
 
             # Alert selectors (all default to false)
             alerts:

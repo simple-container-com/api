@@ -89,8 +89,23 @@ Resource names are derived from the descriptor name (not hardcoded), supporting 
 
 ### Notification Channels
 
-- Email: via SNS topic (implemented)
-- Slack/Discord/Telegram: via SC alert Lambda (TODO — requires wiring alarm actions to existing Lambda infrastructure)
+- Email: via SNS topic + SNS email subscriptions
+- Slack / Discord / Telegram: via SC helpers Lambda (same image used by ECS ALB alerts).
+  Each enabled alert gets its own Lambda (deterministic per-alert env vars for
+  AlertName/AlertDescription), which pulls the webhook URL from Secrets Manager
+  and formats the alarm payload for the target channel. Channels can be combined
+  with email for dual delivery.
+
+The helpers image is pushed into an ECR repo namespaced by the SC resource
+descriptor name (`<resPrefix>-security-helpers`), so the CloudTrail security
+alerts resource can coexist with compute-stack ALB alerts that already use
+`sc-cloud-helpers` without URN or ECR-repo collisions. When `logGroupRegion`
+is set, the helpers image is pushed into that region so the Lambda can pull
+from same-region ECR.
+
+IAM role names (`<resPrefix>-<alert>-execution-role-<pulumi-suffix>`) are
+capped via `util.TrimStringMiddle(..., 38, "-")` to stay under AWS's 64-char
+IAM role name limit for the longer CIS alert names.
 
 ## Compliance Coverage
 
@@ -108,3 +123,6 @@ All tests passing (config parsing, alert selection, deterministic ordering, defi
 - Self-review: 3 rounds
 - OpenAI Codex code review: fixed credential pass-through, naming collisions, MFA filter scope
 - OpenAI Codex compliance gap analysis: expanded 7 -> 14 alerts, corrected filter patterns to match CIS reference
+- Post-Slack-wiring review: fixed `createSNSTopicForAlerts` tags-arg signature drift;
+  fixed IAM role name overflow for CIS alerts with longer names (TrimStringMiddle cap);
+  fixed cross-region ECR so the helpers Lambda pulls from same-region ECR

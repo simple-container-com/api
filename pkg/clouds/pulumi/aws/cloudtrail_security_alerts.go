@@ -15,6 +15,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/util"
 )
 
 // securityAlertDef defines a CloudTrail security alert with its metric filter pattern.
@@ -263,16 +264,21 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 
 	// Push helpers Lambda image to ECR if Slack/Discord/Telegram webhooks are configured.
 	// The image contains the alert-formatting Lambda that delivers to webhook endpoints.
+	// Lambda must pull from an ECR repo in the same region, so when logGroupRegion differs
+	// from the stack's default region, we push to a region-specific ECR via a params copy
+	// whose Provider matches the Lambda's region.
 	hasWebhooks := cfg.Slack != nil || cfg.Discord != nil || cfg.Telegram != nil
 	var helpersImage *docker.Image
 	if hasWebhooks {
 		if input.StackParams == nil {
 			return nil, errors.New("input.StackParams is required to provision webhook-based security alerts")
 		}
+		helperParams := params
+		helperParams.Provider = provider
 		img, err := pushHelpersImageToECR(ctx, helperCfg{
 			imageName:       fmt.Sprintf("%s-security-helpers", resPrefix),
 			opts:            opts,
-			provisionParams: params,
+			provisionParams: helperParams,
 			stack:           stack,
 			deployParams:    *input.StackParams,
 		})
@@ -308,7 +314,10 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		if threshold == 0 {
 			threshold = 1
 		}
-		alertBaseName := fmt.Sprintf("%s-%s", resPrefix, alertDef.name)
+		// createAlert suffixes cfg.name with "-execution-role" (15 chars) and Pulumi adds
+		// an 8-char random suffix when it auto-names the IAM role. Cap the base so the
+		// resulting physical role name stays within AWS's 64-char limit (with headroom).
+		alertBaseName := util.TrimStringMiddle(fmt.Sprintf("%s-%s", resPrefix, alertDef.name), 38, "-")
 		alarmArgs := cloudwatch.MetricAlarmArgs{
 			AlarmDescription:   sdk.String(alertDef.description),
 			MetricName:         sdk.String(metricName),
