@@ -400,7 +400,9 @@ resources:
 
 **Compliance:** SOC 2 (CC6/CC7), ISO 27001:2022 (A.5/A.8), NIST 800-53 (AU-6, AC-2, SI-4)
 
-**Note:** This resource is provisioned once per AWS account (not per service). It monitors the CloudTrail log group and does not require `uses` in client stacks.
+**Scope:** CloudTrail log groups are account-wide. Declare this resource in **exactly one environment block per AWS account** — declaring it in multiple environments (e.g. `staging` and `prod`) that target the same account produces duplicate metric filters that all match the same events, leading to duplicate notifications. Multiple accounts (e.g. EU vs US) get independent alert sets, which is supported.
+
+**Note:** Does not require `uses` in client stacks — the resource monitors the CloudTrail log group directly.
 
 ### **Authentication** (`AuthType` → `auth` section in `secrets.yaml`)
 

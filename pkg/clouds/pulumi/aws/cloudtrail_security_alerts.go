@@ -52,6 +52,9 @@ var securityAlerts = map[string]securityAlertDef{
 		filterPattern: `{ ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.responseElements.ConsoleLogin = "Success") }`,
 	},
 	// CloudWatch.4 — IAM policy changes
+	// SetDefaultPolicyVersion is included: flipping a managed policy's default version
+	// changes the effective permissions granted to every principal that has the policy
+	// attached, which is a common privilege-escalation path.
 	"iamPolicyChanges": {
 		name:        "ct-iam-policy-changes",
 		description: "IAM policy or role modified — verify authorization",
@@ -60,6 +63,7 @@ var securityAlerts = map[string]securityAlertDef{
 			`($.eventName = "PutRolePolicy") || ($.eventName = "PutUserPolicy") || ` +
 			`($.eventName = "CreatePolicy") || ($.eventName = "DeletePolicy") || ` +
 			`($.eventName = "CreatePolicyVersion") || ($.eventName = "DeletePolicyVersion") || ` +
+			`($.eventName = "SetDefaultPolicyVersion") || ` +
 			`($.eventName = "AttachRolePolicy") || ($.eventName = "DetachRolePolicy") || ` +
 			`($.eventName = "AttachUserPolicy") || ($.eventName = "DetachUserPolicy") || ` +
 			`($.eventName = "AttachGroupPolicy") || ($.eventName = "DetachGroupPolicy") }`,
@@ -209,6 +213,13 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.New("logGroupName is required for CloudTrail security alerts")
 	}
 
+	// resPrefix carries the SC environment suffix (e.g. `cloudtrail-security--prod`).
+	// CloudTrail log groups are account-wide, so this resource should be declared in
+	// exactly one environment block per AWS account — declaring it in multiple envs
+	// within the same account creates duplicate metric filters that all match the same
+	// events, producing duplicate notifications. Keeping the env suffix in the prefix
+	// is still correct: if two environments target *different* AWS accounts, each
+	// account gets its own independent filter/alarm/Lambda set.
 	resPrefix := input.ToResName(input.Descriptor.Name)
 	alerts := enabledAlerts(cfg.Alerts)
 
