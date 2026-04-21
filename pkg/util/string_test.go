@@ -47,6 +47,21 @@ func TestTrimStringWithHash(t *testing.T) {
 		result := TrimStringWithHash("abcdefghij-klmnop-qrstuv-xyz", 15, "-")
 		Expect(result).ToNot(ContainSubstring("--"))
 	})
+
+	t.Run("prefix-preserved order keeps distinguishing segment visible", func(t *testing.T) {
+		// Callers that need a specific segment to survive truncation should place it
+		// at the start of the input. This documents the contract relied on by
+		// CloudTrailSecurityAlerts, which puts the per-alert name first so that a
+		// long resource prefix can't eat it and force two alerts to collide on just
+		// the 4-char hash tail.
+		RegisterTestingT(t)
+		prefix := "production-central-company--prod"
+		a := TrimStringWithHash("ct-kms-key-deletion-"+prefix, 38, "-")
+		b := TrimStringWithHash("ct-security-group-changes-"+prefix, 38, "-")
+		Expect(a).ToNot(Equal(b))
+		Expect(a).To(HavePrefix("ct-kms-key-deletion"))
+		Expect(b).To(HavePrefix("ct-security-group-changes"))
+	})
 }
 
 func TestSanitizeGCPServiceAccountName(t *testing.T) {
