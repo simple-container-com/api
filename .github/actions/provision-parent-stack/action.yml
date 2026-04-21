@@ -62,7 +62,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:staging'
+  image: 'docker://simplecontainer/github-actions:2026.4.12-pre.3fa727b-preview.3fa727b'
   env:
     GITHUB_ACTION_TYPE: 'provision-parent-stack'
     STACK_NAME: ${{ inputs.stack-name }}
