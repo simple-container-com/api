@@ -213,6 +213,25 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		return nil, errors.New("logGroupName is required for CloudTrail security alerts")
 	}
 
+	// Pre-flight: if the user declared a trailName, verify the trail has
+	// log-file validation turned on BEFORE we go ahead and provision metric
+	// filters / alarms / Lambdas. Running the security-alerts stack on top
+	// of a trail without integrity signing is a silent compliance gap —
+	// refuse to deploy unless the user has explicitly downgraded the check
+	// to a warning via requireLogFileValidation: false.
+	if cfg.TrailName != "" {
+		outcome, err := ensureTrailLogFileValidation(ctx.Context(), cfg)
+		if err != nil {
+			return nil, errors.Wrap(err, "CloudTrail trail pre-flight failed")
+		}
+		if outcome.Enabled {
+			params.Log.Info(ctx.Context(), outcome.Message)
+		} else {
+			// Warning path: log but don't fail (user opted into soft mode).
+			params.Log.Warn(ctx.Context(), outcome.Message)
+		}
+	}
+
 	// resPrefix carries the SC environment suffix (e.g. `cloudtrail-security--prod`).
 	// CloudTrail log groups are account-wide, so this resource should be declared in
 	// exactly one environment block per AWS account — declaring it in multiple envs

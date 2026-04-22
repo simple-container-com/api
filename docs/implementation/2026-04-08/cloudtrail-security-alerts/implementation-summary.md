@@ -137,6 +137,45 @@ Enrichment is best-effort: any failure during the lookup is logged at
 warn level and swallowed. The alert still goes out with its original
 payload — never losing notifications over an enrichment error.
 
+### Trail pre-flight check (log-file validation)
+
+Running security alerts on top of a CloudTrail trail that doesn't have
+log-file validation turned on is a compliance gap: events ARE recorded,
+but S3 file tampering can't be cryptographically detected after the
+fact. Auditors expect the digest files, and a resource type that is
+advertised as "SOC2 CC7.1 aligned" should not silently accept that.
+
+When `trailName` is set on the config, the provisioner:
+
+1. Calls `DescribeTrails` against the account/region in the resource's
+   auth context with just the one trail name (no shadow trails — we
+   only care about the local trail, not replicas in other regions).
+2. If the trail is not found → **hard error** (always — not a soft
+   warn, because a typo'd trail name is never what the user meant).
+3. If the trail exists with `LogFileValidationEnabled == true` → pass,
+   info-log and continue.
+4. If disabled and `requireLogFileValidation` is unset/true (the
+   default) → **hard error** with the exact AWS CLI command to fix it.
+5. If disabled and `requireLogFileValidation: false` → **warning** in
+   the Pulumi log, continue. For temporary rollout bypass only; the
+   check log line is intentionally loud.
+
+The strict/decision logic lives in `evaluateTrailValidation` — a pure
+function separate from the AWS-client call (`ensureTrailLogFileValidation`).
+That separation is what makes the unit tests meaningful: we drive the
+decision with fabricated `cloudtrail.Trail` values instead of mocking
+an AWS session.
+
+Back-compat: `trailName` is optional; deployments that don't set it
+keep the old behavior (no check, no API call, no new IAM permission
+required). To opt in, set `trailName`; to opt into warning-only mode,
+also set `requireLogFileValidation: false`.
+
+Required IAM (where the SC CLI runs): `cloudtrail:DescribeTrails` on
+`*`. This is broad by AWS IAM standards, but the action is read-only
+and the service has no finer-grained resource ARN format for
+DescribeTrails.
+
 The helpers image is pushed into an ECR repo namespaced by the SC resource
 descriptor name (`<resPrefix>-security-helpers`), so the CloudTrail security
 alerts resource can coexist with compute-stack ALB alerts that already use

@@ -126,6 +126,9 @@
       "logGroupRegion": {
         "type": "string"
       },
+      "requireLogFileValidation": {
+        "type": "boolean"
+      },
       "slack": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -153,6 +156,9 @@
           "token"
         ],
         "type": "object"
+      },
+      "trailName": {
+        "type": "string"
       }
     },
     "required": [

@@ -368,6 +368,13 @@ resources:
             logGroupName: "aws-cloudtrail-logs-s3-buckets"
             logGroupRegion: "us-west-2"  # Optional: if different from default region
 
+            # CloudTrail trail pre-flight check (optional, recommended for
+            # compliance deployments). When trailName is set, SC refuses to
+            # deploy unless the trail has log-file validation enabled — so
+            # you can't accidentally alert on top of a tamperable trail.
+            trailName: "cloudtrail_events"
+            # requireLogFileValidation: false  # downgrade failure to warning
+
             # Notification channels — any combination, or none
             email:
               addresses:
