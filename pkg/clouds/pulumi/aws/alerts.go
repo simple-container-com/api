@@ -35,6 +35,17 @@ type alertCfg struct {
 	metricAlarmArgs cloudwatch.MetricAlarmArgs
 	helpersImage    *docker.Image
 	snsTopic        *sns.Topic
+	// Optional — when all three are set, the Lambda will look up matching
+	// CloudTrail events in the alarm's time window and include a summary
+	// (event name, actor, source IP, timestamp) in the Slack/Discord/Telegram
+	// message. Used by CloudTrailSecurityAlerts; generic ECS/ALB alerts leave
+	// these empty and the Lambda falls back to the basic description.
+	ctLogGroupName   string
+	ctLogGroupRegion string
+	ctFilterPattern  string
+	// Log-group ARN to grant logs:FilterLogEvents on. When empty, the IAM
+	// policy omits that statement (no enrichment permission needed).
+	ctLogGroupArn sdk.StringInput
 }
 
 type helperCfg struct {
@@ -136,35 +147,55 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		return errors.Wrapf(err, "failed to create iam policy attachment")
 	}
 
-	// Custom policy allowing to read secrets
+	// Custom policy allowing to read secrets and (optionally) run FilterLogEvents
+	// on the CloudTrail log group for CloudTrail-security-alert enrichment.
 	extraPolicyName := fmt.Sprintf("%s-xpolicy", cfg.name)
+	// Build the log-group ARN as a StringInput the policy can depend on —
+	// either the caller-supplied one (CloudTrail security alerts) or an empty
+	// placeholder that the Apply below filters out.
+	var ctLogGroupArnInput sdk.StringInput = sdk.String("")
+	if cfg.ctLogGroupArn != nil {
+		ctLogGroupArnInput = cfg.ctLogGroupArn
+	}
 	extraPolicy, err := iam.NewPolicy(ctx, extraPolicyName, &iam.PolicyArgs{
-		Description: sdk.String("Allows reading secrets for alerts cloud helper"),
+		Description: sdk.String("Allows reading secrets and (for CT alerts) CloudTrail log lookup"),
 		Name:        sdk.String(extraPolicyName),
 		Tags:        cfg.tags,
-		Policy: sdk.All().ApplyT(func(args []interface{}) (sdk.StringOutput, error) {
-			policy := map[string]interface{}{
-				"Version": "2012-10-17",
-				"Statement": []map[string]any{
-					{
-						"Effect":   "Allow",
-						"Resource": "*",
-						"Action": []string{
-							"secretsmanager:GetSecretValue",
-							"secretsmanager:DescribeSecret",
-							"logs:CreateLogStream",
-							"logs:CreateLogGroup",
-							"logs:DescribeLogStreams",
-							"logs:PutLogEvents",
-						},
+		Policy: ctLogGroupArnInput.ToStringOutput().ApplyT(func(ctArn string) (string, error) {
+			statements := []map[string]any{
+				{
+					"Effect":   "Allow",
+					"Resource": "*",
+					"Action": []string{
+						"secretsmanager:GetSecretValue",
+						"secretsmanager:DescribeSecret",
+						"logs:CreateLogStream",
+						"logs:CreateLogGroup",
+						"logs:DescribeLogStreams",
+						"logs:PutLogEvents",
 					},
 				},
 			}
+			if ctArn != "" {
+				// Scope FilterLogEvents to the specific CT log group — broad
+				// read of all log groups in the account would be unnecessary
+				// privilege. The ":*" suffix allows operations on any log
+				// stream inside the group, per AWS IAM convention.
+				statements = append(statements, map[string]any{
+					"Effect":   "Allow",
+					"Resource": []string{ctArn, ctArn + ":*"},
+					"Action":   []string{"logs:FilterLogEvents"},
+				})
+			}
+			policy := map[string]any{
+				"Version":   "2012-10-17",
+				"Statement": statements,
+			}
 			policyJSON, err := json.Marshal(policy)
 			if err != nil {
-				return sdk.StringOutput{}, err
+				return "", err
 			}
-			return sdk.String(policyJSON).ToStringOutput(), nil
+			return string(policyJSON), nil
 		}).(sdk.StringOutput),
 	}, cfg.opts...)
 	if err != nil {
@@ -187,6 +218,17 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 		api.ComputeEnv.StackName:        sdk.String(cfg.deployParams.StackName),
 		api.ComputeEnv.StackEnv:         sdk.String(cfg.deployParams.Environment),
 		api.ComputeEnv.StackVersion:     sdk.String(cfg.deployParams.Version),
+	}
+
+	// CloudTrail enrichment env vars — only set when the caller (currently
+	// CloudTrailSecurityAlerts) supplied them. The Lambda handler no-ops the
+	// enrichment path when any of these is empty.
+	if cfg.ctLogGroupName != "" && cfg.ctFilterPattern != "" {
+		envVariables[api.ComputeEnv.CtLogGroupName] = sdk.String(cfg.ctLogGroupName)
+		envVariables[api.ComputeEnv.CtFilterPattern] = sdk.String(cfg.ctFilterPattern)
+		if cfg.ctLogGroupRegion != "" {
+			envVariables[api.ComputeEnv.CtLogGroupRegion] = sdk.String(cfg.ctLogGroupRegion)
+		}
 	}
 
 	if cfg.discordConfig != nil {

@@ -96,6 +96,47 @@ Resource names are derived from the descriptor name (not hardcoded), supporting 
   and formats the alarm payload for the target channel. Channels can be combined
   with email for dual delivery.
 
+### Webhook enrichment
+
+The Lambda handler receives only the CloudWatch alarm state-change event —
+nothing about *what* caused the alarm to fire. For ECS/ALB metric alarms
+that's fine (the alarm name tells you which metric), but for CloudTrail
+security alerts the interesting information is in the underlying event
+(who called which API, from where). Without that, every Slack message
+looks identical and reviewers have to click through to the console.
+
+When the provisioner sets three env vars on the Lambda —
+`SIMPLE_CONTAINER_CT_LOG_GROUP_NAME`, `SIMPLE_CONTAINER_CT_LOG_GROUP_REGION`,
+`SIMPLE_CONTAINER_CT_FILTER_PATTERN` — the handler does one extra step
+before sending:
+
+1. Parse the alarm's state-timestamp to anchor a lookup window
+   (`[timestamp - 10min, timestamp + 1min]` to cover the 5-min evaluation
+   period + clock skew).
+2. `logs:FilterLogEvents` on the CT log group with the same filter pattern
+   the metric filter uses — so we get *exactly* the events that drove the
+   metric count over threshold.
+3. Parse each returned record (CloudTrail JSON) into a `ctEvent`, taking
+   only the fields used for display to be resilient to schema drift.
+4. Pick the top 5 newest, render as bullet lines, append to the alert
+   `Description` so Slack/Discord/Telegram senders all show it without
+   changes.
+
+The `Actor()` helper chooses the most-specific human-readable identity
+(AssumedRole → `sessionContext.sessionIssuer.userName`, IAMUser →
+`userName`, fallback → `arn`, else `"unknown"`). Empty events list
+produces an empty string so callers can always append unconditionally.
+
+IAM: the existing `<alert>-xpolicy` managed policy gets an extra
+statement granting `logs:FilterLogEvents` scoped to the configured
+log-group ARN (not `*`). When the provisioner didn't pass a
+`ctLogGroupArn`, the extra statement is omitted so nothing changes for
+non-CT alerts.
+
+Enrichment is best-effort: any failure during the lookup is logged at
+warn level and swallowed. The alert still goes out with its original
+payload — never losing notifications over an enrichment error.
+
 The helpers image is pushed into an ECR repo namespaced by the SC resource
 descriptor name (`<resPrefix>-security-helpers`), so the CloudTrail security
 alerts resource can coexist with compute-stack ALB alerts that already use

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -22,8 +23,9 @@ import (
 const CHCloudwatchAlertLambda api.CloudHelperType = "sc-helper-aws-cloudwatch-alert-lambda"
 
 type AlarmState struct {
-	Reason string          `json:"reason"` // Threshold Crossed: 1 datapoint [6.638074000676473 (14/05/24 09:53:00)] was not greater than the threshold (10.0).
-	Value  AlarmStateValue `json:"value"`  // OK
+	Reason    string          `json:"reason"`    // Threshold Crossed: 1 datapoint [6.638074000676473 (14/05/24 09:53:00)] was not greater than the threshold (10.0).
+	Value     AlarmStateValue `json:"value"`     // OK
+	Timestamp string          `json:"timestamp"` // 2026-04-22T14:32:30.123+0000 — when the alarm transitioned into this state
 }
 
 type AlarmEvent struct {
@@ -86,6 +88,29 @@ func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
 			alarmEvent.Region, alarmEvent.Region, alarmEvent.AlarmData.AlarmName),
 	}
 
+	// Enrich the notification with the CloudTrail events that actually fed this
+	// alarm, when the CloudTrailSecurityAlerts provisioner has configured the
+	// Lambda with log-group + filter-pattern env vars. For generic ALB/CPU/memory
+	// alerts those vars are unset and this is a no-op.
+	if nfAlert.AlertType == api.AlertTriggered {
+		enrichCfg := enrichmentConfig{
+			LogGroupName:   os.Getenv(api.ComputeEnv.CtLogGroupName),
+			LogGroupRegion: os.Getenv(api.ComputeEnv.CtLogGroupRegion),
+			FilterPattern:  os.Getenv(api.ComputeEnv.CtFilterPattern),
+		}
+		if enrichCfg.LogGroupName != "" && enrichCfg.FilterPattern != "" {
+			firedAt := parseAlarmStateTimestamp(alarmEvent.AlarmData.State.Timestamp)
+			events, total, err := lookupTriggeringEvents(ctx, l.log, enrichCfg, firedAt, 5)
+			if err != nil {
+				// Never fail the alert over an enrichment error — notification
+				// with less info is still vastly better than no notification.
+				l.log.Warn(ctx, "cloudtrail enrichment failed: %v", err)
+			} else if len(events) > 0 {
+				nfAlert.Description += formatEventsForNotification(events, total)
+			}
+		}
+	}
+
 	// send discord notifications if configured
 	if discordWebhookSecret := os.Getenv(api.ComputeEnv.DiscordWebhookUrl); discordWebhookSecret == "" {
 		l.log.Info(ctx, "discord notification isn't configured")
@@ -136,6 +161,30 @@ func (l *cloudwatchEventsLambda) Run() error {
 
 func (l *cloudwatchEventsLambda) SetLogger(log logger.Logger) {
 	l.log = log
+}
+
+// parseAlarmStateTimestamp parses a CloudWatch AlarmData.State.Timestamp string.
+// CloudWatch emits the timestamp in RFC3339 with milliseconds and a zone offset
+// without a colon, e.g. "2026-04-22T14:32:30.123+0000". time.RFC3339 accepts
+// "+00:00" only, so we also try a relaxed layout before giving up. On parse
+// failure we fall back to time.Now() so the lookup window still covers the
+// near past — the underlying data is still in CloudTrail, we just use a looser
+// anchor.
+func parseAlarmStateTimestamp(raw string) time.Time {
+	if raw == "" {
+		return time.Now().UTC()
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000-0700",
+		"2006-01-02T15:04:05-0700",
+	} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Now().UTC()
 }
 
 func NewCloudwatchLambdaHelper(opts ...api.CloudHelperOption) (api.CloudHelper, error) {

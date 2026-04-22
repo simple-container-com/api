@@ -398,6 +398,8 @@ resources:
               vpcChanges: true               # CIS CloudWatch.14
 ```
 
+**Notification enrichment:** When webhook delivery is enabled (Slack/Discord/Telegram), each alert message includes the CloudTrail events that actually fed the alarm — event name, actor (assumed-role name for CI deploys, IAM user name otherwise), source IP, and UTC timestamp — looked up via `logs:FilterLogEvents` on the CloudTrail log group within the alarm's evaluation window. The Lambda execution role is granted `logs:FilterLogEvents` scoped to just the configured log-group ARN (not `*`). Enrichment is best-effort: if the lookup fails (permission/timeout/region mismatch) the notification still goes out with just the alarm metadata.
+
 **Compliance:** SOC 2 (CC6/CC7), ISO 27001:2022 (A.5/A.8), NIST 800-53 (AU-6, AC-2, SI-4)
 
 **Scope:** CloudTrail log groups are account-wide. Declare this resource in **exactly one environment block per AWS account** — declaring it in multiple environments (e.g. `staging` and `prod`) that target the same account produces duplicate metric filters that all match the same events, leading to duplicate notifications. Multiple accounts (e.g. EU vs US) get independent alert sets, which is supported.

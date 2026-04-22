@@ -353,19 +353,30 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 
 		if hasWebhooks {
 			// Webhook path: createAlert creates Lambda + MetricAlarm wired to Lambda (+ optional SNS email).
+			// Pass the CT log-group details so the Lambda handler can look up
+			// the actual events that fed the alarm and include actor/time/IP
+			// in the notification — otherwise the message is just the alarm
+			// description and reviewers have to click through to the console
+			// for every alert.
+			alertRegion := cfg.LogGroupRegion
+			ctLogGroupArn := cloudTrailLogGroupArn(cfg, alertRegion)
 			if err := createAlert(ctx, alertCfg{
-				name:            alertBaseName,
-				description:     alertDef.description,
-				slackConfig:     cfg.Slack,
-				discordConfig:   cfg.Discord,
-				telegramConfig:  cfg.Telegram,
-				deployParams:    *input.StackParams,
-				secretSuffix:    resPrefix,
-				helpersImage:    helpersImage,
-				snsTopic:        snsTopic,
-				opts:            opts,
-				tags:            tags,
-				metricAlarmArgs: alarmArgs,
+				name:             alertBaseName,
+				description:      alertDef.description,
+				slackConfig:      cfg.Slack,
+				discordConfig:    cfg.Discord,
+				telegramConfig:   cfg.Telegram,
+				deployParams:     *input.StackParams,
+				secretSuffix:     resPrefix,
+				helpersImage:     helpersImage,
+				snsTopic:         snsTopic,
+				opts:             opts,
+				tags:             tags,
+				metricAlarmArgs:  alarmArgs,
+				ctLogGroupName:   cfg.LogGroupName,
+				ctLogGroupRegion: alertRegion,
+				ctFilterPattern:  alertDef.filterPattern,
+				ctLogGroupArn:    ctLogGroupArn,
 			}); err != nil {
 				return nil, errors.Wrapf(err, "failed to create alert %q", alertDef.name)
 			}
@@ -389,4 +400,30 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		len(alerts), hasWebhooks, snsTopic != nil)
 
 	return &api.ResourceOutput{}, nil
+}
+
+// cloudTrailLogGroupArn builds the CloudTrail log-group ARN so the alert
+// Lambda's IAM policy can grant logs:FilterLogEvents scoped to just that
+// group. When `region` is empty we use the IAM wildcard `*` in the region
+// segment — the ARN still pins down account + log-group name, so this is
+// a scoped grant, just region-agnostic. Without this fallback the same-
+// region case (where users don't set `logGroupRegion` because the log
+// group lives in the stack's default region) would ship a policy that
+// omits the FilterLogEvents statement, the Lambda would hit AccessDenied,
+// and every alert would silently lose its enrichment.
+//
+// Returns nil only when we genuinely can't construct an ARN (missing
+// account id or log-group name). The caller then skips the CT policy
+// statement, the Lambda hits AccessDenied on FilterLogEvents, and the
+// handler logs a warning — alerts still go out, just without enrichment.
+func cloudTrailLogGroupArn(cfg *awsApi.CloudTrailSecurityAlertsConfig, region string) sdk.StringInput {
+	if cfg.AccountConfig.Account == "" || cfg.LogGroupName == "" {
+		return nil
+	}
+	regionSeg := region
+	if regionSeg == "" {
+		regionSeg = "*"
+	}
+	return sdk.String(fmt.Sprintf("arn:aws:logs:%s:%s:log-group:%s",
+		regionSeg, cfg.AccountConfig.Account, cfg.LogGroupName))
 }
