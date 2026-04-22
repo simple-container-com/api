@@ -77,6 +77,19 @@ func TestFormatEventsForNotification(t *testing.T) {
 		Expect(out).To(ContainSubstring("(showing 3 of 27)"))
 	})
 
+	t.Run("page-cap truncation shows '≥N' instead of a misleading exact total", func(t *testing.T) {
+		// When lookupTriggeringEvents stops before exhausting all pages
+		// (e.g. a burst of thousands of failed logins), it signals the
+		// truncation by negating the total. The formatter must render
+		// that as a lower bound rather than claim a precise count.
+		RegisterTestingT(t)
+		ev := ctEvent{EventName: "ConsoleLogin"}
+		ev.UserIdentity.UserName = "attacker"
+		out := formatEventsForNotification([]ctEvent{ev, ev, ev, ev, ev}, -250)
+		Expect(out).To(ContainSubstring("showing 5 of ≥250"))
+		Expect(out).ToNot(ContainSubstring("(5 of 250)")) // no non-'≥' variant
+	})
+
 	t.Run("errorCode is rendered when present — useful for failed-login alerts", func(t *testing.T) {
 		RegisterTestingT(t)
 		ev := ctEvent{

@@ -102,6 +102,24 @@ type enrichmentConfig struct {
 	FilterPattern  string
 }
 
+// Enrichment budget constants. Chosen to keep the Lambda's 10s handler
+// timeout mostly available for the Slack/Discord/Telegram send calls that
+// follow — if FilterLogEvents gets slow, we bail out with whatever we have
+// (or nothing) rather than letting it swallow the entire budget and drop
+// the alert.
+const (
+	// enrichmentTimeout caps the total wall-clock of the CloudTrail lookup.
+	// Must leave room for ~3 webhook POSTs after it.
+	enrichmentTimeout = 3 * time.Second
+	// maxPages caps how many FilterLogEvents pages we'll read before
+	// stopping. Prevents pathological cases (thousands of matching records)
+	// from dominating the Lambda budget.
+	maxPages = 5
+	// perPageLimit is the Limit parameter sent to FilterLogEvents. Combined
+	// with maxPages, the hard ceiling per invocation is 250 events fetched.
+	perPageLimit = 50
+)
+
 // lookupTriggeringEvents calls CloudWatch Logs FilterLogEvents over the given
 // log group with the metric-filter pattern that fed the alarm, scoped to the
 // time window [alarmFiredAt - lookback, alarmFiredAt + buffer]. Each returned
@@ -109,8 +127,14 @@ type enrichmentConfig struct {
 // of fields we care about (ctEvent).
 //
 // Returns at most `limit` events (sorted newest-first) plus the total count
-// of matched events before truncation — so the caller can render an accurate
-// "showing X of Y" header when the window was busy.
+// of matched events across all pages we actually fetched. When more pages
+// exist beyond our page cap the returned total is suffixed externally (see
+// formatEventsForNotification's '+' decoration) so the "showing X of Y"
+// header doesn't silently under-report during high-burst incidents.
+//
+// The call is bounded by enrichmentTimeout so a slow CloudWatch Logs
+// endpoint can't consume the Lambda's 10s handler budget and starve the
+// webhook-send step that runs afterward.
 //
 // The lookback covers the alarm's evaluation period (5 min in CloudTrailSecurity
 // Alerts) plus a small safety margin; the trailing buffer protects against
@@ -140,43 +164,54 @@ func lookupTriggeringEvents(
 	start := alarmFiredAt.Add(-lookback).UnixMilli()
 	end := alarmFiredAt.Add(buffer).UnixMilli()
 
-	// We only render `limit` events (default 5) but fetch a few more so we
-	// have something to choose the newest from. Capped to keep cold-path
-	// memory + network bounded even under an alarm storm. 50 is a
-	// comfortable ceiling: at full payload (~1 KB per CloudTrail record)
-	// that's ≤50 KB transferred and parsed.
-	fetchCap := int64(limit * 5)
-	if fetchCap < 50 {
-		fetchCap = 50
-	}
+	// Budget the entire lookup — connection + all pages — so a slow endpoint
+	// can't drop the alert.
+	lookupCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
+	defer cancel()
 
-	out, err := client.FilterLogEventsWithContext(ctx, &cloudwatchlogs.FilterLogEventsInput{
+	input := &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName:  aws.String(cfg.LogGroupName),
 		FilterPattern: aws.String(cfg.FilterPattern),
 		StartTime:     aws.Int64(start),
 		EndTime:       aws.Int64(end),
-		Limit:         aws.Int64(fetchCap),
-	})
-	if err != nil {
-		return nil, 0, errors.Wrapf(err, "FilterLogEvents on %q", cfg.LogGroupName)
+		Limit:         aws.Int64(perPageLimit),
 	}
 
-	events := make([]ctEvent, 0, len(out.Events))
-	for _, e := range out.Events {
-		if e == nil || e.Message == nil {
-			continue
+	events := make([]ctEvent, 0, perPageLimit)
+	pages := 0
+	truncated := false
+	for {
+		out, err := client.FilterLogEventsWithContext(lookupCtx, input)
+		if err != nil {
+			return nil, 0, errors.Wrapf(err, "FilterLogEvents on %q (page %d)", cfg.LogGroupName, pages+1)
 		}
-		var ce ctEvent
-		if err := json.Unmarshal([]byte(*e.Message), &ce); err != nil {
-			// A malformed record in the log group shouldn't abort enrichment —
-			// log and skip the one event.
-			log.Warn(ctx, "failed to parse CloudTrail record: %v", err)
-			continue
+		for _, e := range out.Events {
+			if e == nil || e.Message == nil {
+				continue
+			}
+			var ce ctEvent
+			if err := json.Unmarshal([]byte(*e.Message), &ce); err != nil {
+				// A malformed record in the log group shouldn't abort enrichment —
+				// log and skip the one event.
+				log.Warn(ctx, "failed to parse CloudTrail record: %v", err)
+				continue
+			}
+			if t, perr := time.Parse(time.RFC3339, ce.EventTimeRaw); perr == nil {
+				ce.EventTime = t
+			}
+			events = append(events, ce)
 		}
-		if t, perr := time.Parse(time.RFC3339, ce.EventTimeRaw); perr == nil {
-			ce.EventTime = t
+		pages++
+		if out.NextToken == nil || *out.NextToken == "" {
+			break
 		}
-		events = append(events, ce)
+		if pages >= maxPages {
+			// More pages available, but we've hit the cap. Flag it so the
+			// "total" reported to the caller is explicitly a floor.
+			truncated = true
+			break
+		}
+		input.NextToken = out.NextToken
 	}
 	total := len(events)
 
@@ -184,20 +219,37 @@ func lookupTriggeringEvents(
 	if len(events) > limit {
 		events = events[:limit]
 	}
+	// When we stopped short of iterating every page, encode that in the
+	// returned total: negate it. formatEventsForNotification interprets a
+	// negative value as "≥|n| matches" to surface the truncation honestly
+	// instead of claiming a definite total that we don't actually know.
+	if truncated {
+		total = -total
+	}
 	return events, total, nil
 }
 
 // formatEventsForNotification renders a list of CloudTrail events as a Slack/
 // Discord/Telegram-friendly text block. Safe to append to an existing alert
 // description. Empty list → empty string.
+//
+// The `total` argument encodes two cases:
+//   - positive: the exact count of matching events (we saw every page).
+//   - negative: we stopped at the page cap; |total| is a lower bound and
+//     we render the count as "≥|n|" to avoid claiming a precise total we
+//     don't actually know.
 func formatEventsForNotification(events []ctEvent, total int) string {
 	if len(events) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	if total > len(events) {
+	switch {
+	case total < 0:
+		// Truncated — we saw ≥|total| events, but there were more pages.
+		b.WriteString(fmt.Sprintf("\n\n*Recent matching events* (showing %d of ≥%d):\n", len(events), -total))
+	case total > len(events):
 		b.WriteString(fmt.Sprintf("\n\n*Recent matching events* (showing %d of %d):\n", len(events), total))
-	} else {
+	default:
 		b.WriteString(fmt.Sprintf("\n\n*Recent matching events* (%d):\n", len(events)))
 	}
 	for _, e := range events {
