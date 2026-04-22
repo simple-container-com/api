@@ -345,6 +345,74 @@ When this resource is used in a client stack via the `uses` section, Simple Cont
 
 📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
 
+#### **CloudTrail Security Alerts** (`aws-cloudtrail-security-alerts`)
+
+Creates CloudWatch metric filters and alarms for security-relevant CloudTrail events, aligned with the AWS Security Hub/CIS CloudWatch controls (CloudWatch.1 through CloudWatch.14).
+
+**Golang Struct Reference:** `pkg/clouds/aws/cloudtrail_security_alerts.go:CloudTrailSecurityAlertsConfig`
+
+```yaml
+# server.yaml - Parent Stack
+resources:
+  resources:
+    production:
+      resources:
+        cloudtrail-security:
+          type: aws-cloudtrail-security-alerts
+          config:
+            # AWS account configuration (inherited from AccountConfig)
+            credentials: "${auth:aws-us}"
+            account: "${auth:aws-us.projectId}"
+
+            # CloudTrail log group (required)
+            logGroupName: "aws-cloudtrail-logs-s3-buckets"
+            logGroupRegion: "us-west-2"  # Optional: if different from default region
+
+            # CloudTrail trail pre-flight check (optional, recommended for
+            # compliance deployments). When trailName is set, SC refuses to
+            # deploy unless the trail has log-file validation enabled — so
+            # you can't accidentally alert on top of a tamperable trail.
+            trailName: "cloudtrail_events"
+            # requireLogFileValidation: false  # downgrade failure to warning
+
+            # Notification channels — any combination, or none
+            email:
+              addresses:
+                - security@company.com
+            slack:
+              webhookUrl: "${secret:security-slack-webhook}"
+            # discord:
+            #   webhookUrl: "${secret:security-discord-webhook}"
+            # telegram:
+            #   chatID: "-1001234567890"
+            #   token: "${secret:security-telegram-token}"
+
+            # Alert selectors (all default to false)
+            alerts:
+              rootAccountUsage: true        # CIS CloudWatch.1
+              unauthorizedApiCalls: true     # CIS CloudWatch.2  (threshold: 5)
+              consoleLoginWithoutMfa: true   # CIS CloudWatch.3
+              iamPolicyChanges: true         # CIS CloudWatch.4
+              cloudTrailTampering: true      # CIS CloudWatch.5
+              failedConsoleLogins: true      # CIS CloudWatch.6
+              kmsKeyDeletion: true           # CIS CloudWatch.7
+              s3BucketPolicyChanges: true    # CIS CloudWatch.8
+              configChanges: true            # CIS CloudWatch.9
+              securityGroupChanges: true     # CIS CloudWatch.10
+              naclChanges: true              # CIS CloudWatch.11
+              networkGatewayChanges: true    # CIS CloudWatch.12
+              routeTableChanges: true        # CIS CloudWatch.13
+              vpcChanges: true               # CIS CloudWatch.14
+```
+
+**Notification enrichment:** When webhook delivery is enabled (Slack/Discord/Telegram), each alert message includes the CloudTrail events that actually fed the alarm — event name, actor (assumed-role name for CI deploys, IAM user name otherwise), source IP, and UTC timestamp — looked up via `logs:FilterLogEvents` on the CloudTrail log group within the alarm's evaluation window. The Lambda execution role is granted `logs:FilterLogEvents` scoped to just the configured log-group ARN (not `*`). Enrichment is best-effort: if the lookup fails (permission/timeout/region mismatch) the notification still goes out with just the alarm metadata.
+
+**Compliance:** SOC 2 (CC6/CC7), ISO 27001:2022 (A.5/A.8), NIST 800-53 (AU-6, AC-2, SI-4)
+
+**Scope:** CloudTrail log groups are account-wide. Declare this resource in **exactly one environment block per AWS account** — declaring it in multiple environments (e.g. `staging` and `prod`) that target the same account produces duplicate metric filters that all match the same events, leading to duplicate notifications. Multiple accounts (e.g. EU vs US) get independent alert sets, which is supported.
+
+**Note:** Does not require `uses` in client stacks — the resource monitors the CloudTrail log group directly.
+
 ### **Authentication** (`AuthType` → `auth` section in `secrets.yaml`)
 
 #### **AWS Token Authentication** (`aws-token`)

@@ -13,6 +13,13 @@ type (
 		StackEnv          string
 		CloudHelperType   string
 		StackVersion      string
+		// CloudTrail enrichment: when all three are set on the alert Lambda,
+		// the handler looks up matching CloudTrail events in the alarm's time
+		// window and includes a short summary (who/what/when) in the Slack/
+		// Discord/Telegram notification.
+		CtLogGroupName   string
+		CtLogGroupRegion string
+		CtFilterPattern  string
 	}
 )
 
@@ -27,6 +34,9 @@ var ComputeEnv = ComputeEnvVariables{
 	StackName:         "SIMPLE_CONTAINER_STACK",
 	StackEnv:          "SIMPLE_CONTAINER_ENV",
 	StackVersion:      "SIMPLE_CONTAINER_VERSION",
+	CtLogGroupName:    "SIMPLE_CONTAINER_CT_LOG_GROUP_NAME",
+	CtLogGroupRegion:  "SIMPLE_CONTAINER_CT_LOG_GROUP_REGION",
+	CtFilterPattern:   "SIMPLE_CONTAINER_CT_FILTER_PATTERN",
 }
 
 type AlertsConfig struct {

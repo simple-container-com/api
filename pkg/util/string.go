@@ -14,6 +14,26 @@ func TrimStringMiddle(str string, maxLen int, sep string) string {
 	return str
 }
 
+// TrimStringWithHash trims str to at most maxLen by keeping a readable prefix
+// and appending a 4-char FNV-1a content hash. Unlike TrimStringMiddle, this is
+// collision-safe for strings whose distinguishing tokens (e.g. an environment
+// segment) sit in the middle and would otherwise be removed by symmetric
+// trimming — two differently-enveloped inputs always produce different outputs.
+// If str already fits, it is returned unchanged.
+func TrimStringWithHash(str string, maxLen int, sep string) string {
+	if len(str) <= maxLen {
+		return str
+	}
+	hash := fmt.Sprintf("%04x", fnvHash(str)&0xFFFF)
+	prefixLen := maxLen - len(sep) - len(hash)
+	if prefixLen < 1 {
+		// maxLen is too small to fit even the hash+sep — fall back to raw truncation.
+		return str[:maxLen]
+	}
+	prefix := strings.TrimRight(str[:prefixLen], "-")
+	return prefix + sep + hash
+}
+
 var (
 	matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
 	matchAllCap   = regexp.MustCompile("([a-z0-9])([A-Z])")
