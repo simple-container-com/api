@@ -105,6 +105,16 @@
     },
     {
       "name": "SecretsProviderConfig",
+      "type": "secrets",
+      "provider": "gcp",
+      "description": "Google Cloud Platform secrets management configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "gcp-secrets-manager",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
       "type": "provisioner",
       "provider": "gcp",
       "description": "Google Cloud Platform secretsprovider configuration",
@@ -130,7 +140,8 @@
       "description": "Google Cloud Platform deployment template configuration",
       "goPackage": "pkg/clouds/gcp/",
       "goStruct": "TemplateConfig",
-      "resourceType": "gcp-static-website",
+      "resourceType": "cloudrun",
+      "templateType": "cloudrun",
       "schema": {}
     },
     {
@@ -140,8 +151,7 @@
       "description": "Google Cloud Platform deployment template configuration",
       "goPackage": "pkg/clouds/gcp/",
       "goStruct": "TemplateConfig",
-      "resourceType": "cloudrun",
-      "templateType": "cloudrun",
+      "resourceType": "gcp-static-website",
       "schema": {}
     }
   ]

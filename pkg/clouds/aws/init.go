@@ -25,6 +25,9 @@ func init() {
 		// rds
 		ResourceTypeRdsPostgres: ReadRdsPostgresConfig,
 		ResourceTypeRdsMysql:    ReadRdsMysqlConfig,
+
+		// security
+		ResourceTypeCloudTrailSecurityAlerts: ReadCloudTrailSecurityAlertsConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{

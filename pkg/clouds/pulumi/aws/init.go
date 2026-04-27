@@ -17,7 +17,8 @@ func init() {
 		aws.TemplateTypeStaticWebsite: StaticWebsite,
 		aws.ResourceTypeRdsPostgres:   RdsPostgres,
 		aws.ResourceTypeRdsMysql:      RdsMysql,
-		aws.ResourceTypeEcrRepository: EcrRepository,
+		aws.ResourceTypeEcrRepository:              EcrRepository,
+		aws.ResourceTypeCloudTrailSecurityAlerts:   CloudTrailSecurityAlerts,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
 		aws.ResourceTypeS3Bucket:    S3BucketComputeProcessor,

@@ -1,0 +1,171 @@
+{
+  "name": "CloudTrailSecurityAlertsConfig",
+  "type": "resource",
+  "provider": "aws",
+  "description": "AWS cloudtrailsecurityalerts configuration",
+  "goPackage": "pkg/clouds/aws/",
+  "goStruct": "CloudTrailSecurityAlertsConfig",
+  "resourceType": "aws-cloudtrail-security-alerts",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accessKey": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "accessKey",
+          "account",
+          "region",
+          "secretAccessKey"
+        ],
+        "type": "object"
+      },
+      "alerts": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cloudTrailTampering": {
+            "type": "boolean"
+          },
+          "configChanges": {
+            "type": "boolean"
+          },
+          "consoleLoginWithoutMfa": {
+            "type": "boolean"
+          },
+          "failedConsoleLogins": {
+            "type": "boolean"
+          },
+          "iamPolicyChanges": {
+            "type": "boolean"
+          },
+          "kmsKeyDeletion": {
+            "type": "boolean"
+          },
+          "naclChanges": {
+            "type": "boolean"
+          },
+          "networkGatewayChanges": {
+            "type": "boolean"
+          },
+          "rootAccountUsage": {
+            "type": "boolean"
+          },
+          "routeTableChanges": {
+            "type": "boolean"
+          },
+          "s3BucketPolicyChanges": {
+            "type": "boolean"
+          },
+          "securityGroupChanges": {
+            "type": "boolean"
+          },
+          "unauthorizedApiCalls": {
+            "type": "boolean"
+          },
+          "vpcChanges": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "discord": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "webhookUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhookUrl"
+        ],
+        "type": "object"
+      },
+      "email": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "logGroupName": {
+        "type": "string"
+      },
+      "logGroupRegion": {
+        "type": "string"
+      },
+      "requireLogFileValidation": {
+        "type": "boolean"
+      },
+      "slack": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "webhookUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhookUrl"
+        ],
+        "type": "object"
+      },
+      "telegram": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "chatID": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatID",
+          "token"
+        ],
+        "type": "object"
+      },
+      "trailName": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "alerts",
+      "logGroupName"
+    ],
+    "type": "object"
+  }
+}
