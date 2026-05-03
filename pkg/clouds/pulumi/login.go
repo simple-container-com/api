@@ -16,6 +16,7 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/env"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
@@ -51,7 +52,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 
 	var pulumiHome string
-	if os.Getenv(workspace.PulumiHomeEnvVar) == "" {
+	if os.Getenv(env.Home.Var().Name()) == "" {
 		if pulumiHome, err = path_util.ReplaceTildeWithHome("~/.pulumi"); err != nil {
 			p.logger.Warn(ctx, "failed to replace tilde with home: %q", err.Error())
 		} else if err := os.Setenv("PATH", fmt.Sprintf("%s/bin:%s", pulumiHome, os.Getenv("PATH"))); err != nil {
@@ -61,8 +62,8 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		newPulumiHome := filepath.Join("~/.pulumi", "sc", cfg.ProjectName, stack.Name)
 		if overridePulumiHome, err := homedir.Expand(newPulumiHome); err != nil {
 			p.logger.Warn(ctx, "failed to expand overridden pulumi home %q: %v", newPulumiHome, err)
-		} else if err := os.Setenv(workspace.PulumiHomeEnvVar, overridePulumiHome); err != nil {
-			p.logger.Warn(ctx, "failed to override %q to %q: %v", workspace.PulumiHomeEnvVar, newPulumiHome, err)
+		} else if err := os.Setenv(env.Home.Var().Name(), overridePulumiHome); err != nil {
+			p.logger.Warn(ctx, "failed to override %q to %q: %v", env.Home.Var().Name(), newPulumiHome, err)
 		}
 	}
 
