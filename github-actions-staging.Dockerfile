@@ -16,31 +16,38 @@ RUN apk update && apk upgrade --no-cache \
 # gcloud falls back to its bundled Python (which is what we want to delete).
 
 COPY go.mod /tmp/go.mod
-RUN PULUMI_VERSION="$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//')" \
+RUN --mount=type=cache,target=/tmp/pulumi-dl,sharing=locked \
+    set -eu \
+    && PULUMI_VERSION="$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//')" \
+    && [ -n "${PULUMI_VERSION}" ] || { echo "could not extract Pulumi version from go.mod" >&2; exit 1; } \
     && echo "Installing Pulumi ${PULUMI_VERSION}" \
-    && cd /tmp \
-    && curl -fsSL -o pulumi.tar.gz \
-        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" \
-    && curl -fsSL -o pulumi-checksums.txt \
-        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/pulumi-${PULUMI_VERSION}-checksums.txt" \
-    && grep "pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" pulumi-checksums.txt \
-        | awk '{print $1"  pulumi.tar.gz"}' \
-        | sha256sum -c - \
+    && TARBALL="pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" \
+    && CHECKSUMS="pulumi-${PULUMI_VERSION}-checksums.txt" \
+    && cd /tmp/pulumi-dl \
+    && [ -f "${TARBALL}" ] || curl -fsSL -o "${TARBALL}" \
+        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${TARBALL}" \
+    && curl -fsSL -o "${CHECKSUMS}" \
+        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${CHECKSUMS}" \
+    && EXPECTED_SHA="$(grep "${TARBALL}" "${CHECKSUMS}" | awk '{print $1}')" \
+    && [ -n "${EXPECTED_SHA}" ] || { echo "no checksum for ${TARBALL} in ${CHECKSUMS}" >&2; exit 1; } \
+    && echo "${EXPECTED_SHA}  ${TARBALL}" | sha256sum -c - \
     && mkdir -p /opt/pulumi/bin \
-    && tar -xzf pulumi.tar.gz -C /tmp \
+    && tar -xzf "${TARBALL}" -C /tmp \
     && mv /tmp/pulumi/* /opt/pulumi/bin/ \
-    && rm -rf pulumi.tar.gz pulumi-checksums.txt /tmp/pulumi /tmp/go.mod \
+    && rm -rf /tmp/pulumi /tmp/go.mod \
     && strip /opt/pulumi/bin/* 2>/dev/null || true \
     && upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true
 
 ARG GCLOUD_VERSION="567.0.0"
 ARG GCLOUD_SHA256="bd5afc0d249609cb40d45f665209190fdd38b9937954291b8f9ae54206c75d83"
-RUN cd /tmp \
-    && curl -fsSL -o gcloud.tar.gz \
-        "https://storage.googleapis.com/cloud-sdk-release/google-cloud-cli-${GCLOUD_VERSION}-linux-x86_64.tar.gz" \
-    && echo "${GCLOUD_SHA256}  gcloud.tar.gz" | sha256sum -c - \
-    && tar -xzf gcloud.tar.gz -C /opt \
-    && rm -f gcloud.tar.gz \
+RUN --mount=type=cache,target=/tmp/gcloud-dl,sharing=locked \
+    set -eu \
+    && TARBALL="google-cloud-cli-${GCLOUD_VERSION}-linux-x86_64.tar.gz" \
+    && cd /tmp/gcloud-dl \
+    && [ -f "${TARBALL}" ] || curl -fsSL -o "${TARBALL}" \
+        "https://storage.googleapis.com/cloud-sdk-release/${TARBALL}" \
+    && echo "${GCLOUD_SHA256}  ${TARBALL}" | sha256sum -c - \
+    && tar -xzf "${TARBALL}" -C /opt \
     && /opt/google-cloud-sdk/install.sh --quiet \
         --usage-reporting=false --path-update=false --bash-completion=false \
     && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet
@@ -112,8 +119,7 @@ RUN pulumi version > /dev/null \
     && gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin \
     && test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=2s --retries=3 \
-    CMD /root/github-actions --version >/dev/null 2>&1 || exit 1
+# HEALTHCHECK intentionally omitted — see github-actions.Dockerfile rationale.
 
 # GitHub Actions runner overrides WORKDIR with --workdir /github/workspace, so
 # the entrypoint needs to be an absolute path.

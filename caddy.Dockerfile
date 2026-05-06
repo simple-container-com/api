@@ -2,19 +2,20 @@
 # in the older Caddy binary (CVE-2025-58187/58188/58189, CVE-2025-61723/61724/
 # 61725/61727/61730, CVE-2026-27139/27142, CVE-2026-32282/32288/32289) and the
 # Caddy-level CVE-2026-27586 (HIGH) reachable in <2.11.1.
-ARG version="2.11.2"
+#
+# Versions live in three places that MUST be kept in sync when bumping:
+#   - the FROM digest of caddy:X.Y.Z-builder
+#   - the FROM digest of caddy:X.Y.Z
+#   - the literal in xcaddy build "vX.Y.Z" below
+# Refresh digests via `docker buildx imagetools inspect caddy:X.Y.Z[-builder]`.
 
 # Pin builder by digest (CIS Docker 4.7).
-# Refresh: docker buildx imagetools inspect caddy:${version}-builder
 FROM caddy:2.11.2-builder@sha256:10ed0251c5cd1dbb4db0b71ad43121147961a51adfec35febce2c93ea25c24f4 AS builder
-
-ARG version
-ENV CADDY_VERSION="${version}"
 
 # certmagic-gcs bumped 0.1.2 → 0.1.7 to align with current upstream.
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
-    xcaddy build "v${CADDY_VERSION}" \
+    xcaddy build "v2.11.2" \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
     && caddy version
 
@@ -29,11 +30,14 @@ RUN apk update \
 # Replace upstream binary with the build that has certmagic-gcs.
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
-# CIS Docker 4.6 — admin API health check (Caddy listens on 2019 by default).
+# CIS Docker 4.6 — basic liveness probe. `caddy version` exercises the binary
+# without depending on the admin API (which consumers may disable) or knowing
+# which port the user binds; it does NOT prove the running daemon is healthy.
+# A daemon-level probe would need to know the bound port, which is config-specific.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:2019/config/ >/dev/null 2>&1 || exit 1
+    CMD caddy version >/dev/null 2>&1 || exit 1
 
-# Note on USER: upstream caddy:2.10.0 runs as root so it can bind 80/443. Switching
+# Note on USER: upstream caddy:2.11.2 runs as root so it can bind 80/443. Switching
 # to non-root requires setcap CAP_NET_BIND_SERVICE on the binary AND certmagic state
 # directories owned by that user, which is intrusive given consumers mount their own
 # volumes. Tracked for follow-up; defaults preserved here.
