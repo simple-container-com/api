@@ -30,12 +30,12 @@ RUN apk update \
 # Replace upstream binary with the build that has certmagic-gcs.
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
-# CIS Docker 4.6 — basic liveness probe. `caddy version` exercises the binary
-# without depending on the admin API (which consumers may disable) or knowing
-# which port the user binds; it does NOT prove the running daemon is healthy.
-# A daemon-level probe would need to know the bound port, which is config-specific.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD caddy version >/dev/null 2>&1 || exit 1
+# No HEALTHCHECK: a meaningful liveness probe would need to hit the port the
+# consumer binds (or the admin API at :2019, which many consumers disable).
+# Both are config-specific. Probing only the binary (`caddy version`) reports
+# healthy even when the daemon is crashlooping, which is worse than no probe.
+# Consumers who run Caddy in orchestrators should add a HEALTHCHECK in their
+# own deployment manifest or use the orchestrator's HTTP probe primitives.
 
 # Note on USER: upstream caddy:2.11.2 runs as root so it can bind 80/443. Switching
 # to non-root requires setcap CAP_NET_BIND_SERVICE on the binary AND certmagic state

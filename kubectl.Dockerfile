@@ -14,6 +14,6 @@ RUN apk update \
 RUN addgroup -S sc && adduser -S -G sc -u 10001 sc
 USER 10001:10001
 
-# CIS Docker 4.6 — declare a healthcheck so orchestrators can detect rot.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=2s --retries=3 \
-    CMD kubectl version --client=true >/dev/null 2>&1 || exit 1
+# No HEALTHCHECK: invoked as a one-shot tool
+# (`docker run --rm simplecontainer/kubectl <args>`), not a long-running
+# daemon — a liveness probe never has a chance to fire.
