@@ -1,101 +1,151 @@
-# Simplified Dockerfile - uses pre-built binary from CI
-# Binary is built in the workflow and copied here, avoiding Go module downloads and compilation in Docker
+# GitHub Actions docker-action runtime image — multi-stage build.
+#
+# Stage 1 (builder): downloads + verifies + slims Pulumi and Google Cloud SDK,
+# using build-only tools (binutils, upx, curl). These tools NEVER reach the
+# runtime layer (CIS Docker 4.3 — minimal base image).
+#
+# Stage 2 (runtime): minimal Alpine + only what `github-actions` invokes via
+# exec.LookPath: gcloud (Python-backed), pulumi, git, ssh-client, curl, jq,
+# bash. The pre-built `github-actions` Go binary is copied in last.
+#
+# Note on USER: GitHub docker-based actions run with the workspace mounted at
+# /github/workspace owned by root. Setting a non-root USER here causes git
+# operations to fail with "dubious ownership" or perms errors. Tracked as a
+# follow-up (would require GitHub's "self-hosted runner with userns" or
+# `safe.directory '*'` workarounds applied at action invocation).
 
-FROM alpine:3.19
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1: tool downloader/builder
+# ─────────────────────────────────────────────────────────────────────────────
+# alpine:3.21 pinned by digest (CIS Docker 4.7); refresh:
+#   docker buildx imagetools inspect alpine:3.21
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS builder
 
-# Install runtime dependencies in single layer with aggressive cleanup
-RUN apk --no-cache add \
-    ca-certificates \
-    git \
-    openssh-client \
-    curl \
-    jq \
-    bash \
-    python3 \
-    py3-pip \
-    upx \
-    binutils \
-    && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+RUN apk update && apk upgrade --no-cache \
+    && apk add --no-cache curl bash binutils upx ca-certificates tar python3 \
+    && rm -rf /var/cache/apk/*
+# python3 in the builder is required for `gcloud components install`; without it,
+# gcloud falls back to its bundled Python (which is what we want to delete).
 
-# Install Pulumi CLI - Required for Simple Container provisioning
-# Read version from go.mod to ensure consistency with Go dependencies
+# Pulumi CLI — version is sourced from go.mod for consistency, downloaded
+# from GitHub Releases, and verified against the per-version checksum file
+# Pulumi publishes alongside each release. Replaces `curl … | sh -s -- --version`
+# (CIS SSCS §5 — verify package/binary integrity; no `curl|bash`).
 COPY go.mod /tmp/go.mod
-RUN --mount=type=cache,target=/tmp/pulumi-cache,sharing=locked \
-    PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//') && \
-    echo "Installing Pulumi version: ${PULUMI_VERSION} (extracted from go.mod)" && \
-    curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION} && \
-    # Optimize Pulumi binaries - strip debug symbols and compress
-    strip /root/.pulumi/bin/* 2>/dev/null || true && \
-    upx --best --lzma /root/.pulumi/bin/* 2>/dev/null || true && \
-    # Clean up temp files, but not BuildKit cache mounts
-    rm -f /tmp/go.mod && \
-    rm -rf /var/tmp/*
+RUN PULUMI_VERSION="$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//')" \
+    && echo "Installing Pulumi ${PULUMI_VERSION}" \
+    && cd /tmp \
+    && curl -fsSL -o pulumi.tar.gz \
+        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" \
+    && curl -fsSL -o pulumi-checksums.txt \
+        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/pulumi-${PULUMI_VERSION}-checksums.txt" \
+    && grep "pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" pulumi-checksums.txt \
+        | awk '{print $1"  pulumi.tar.gz"}' \
+        | sha256sum -c - \
+    && mkdir -p /opt/pulumi/bin \
+    && tar -xzf pulumi.tar.gz -C /tmp \
+    && mv /tmp/pulumi/* /opt/pulumi/bin/ \
+    && rm -rf pulumi.tar.gz pulumi-checksums.txt /tmp/pulumi /tmp/go.mod \
+    && strip /opt/pulumi/bin/* 2>/dev/null || true \
+    && upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true
 
-ENV PATH="/root/.pulumi/bin:${PATH}"
+# Google Cloud SDK — pinned version + SHA-256 against Google's published tarball.
+# Refresh procedure (run on host):
+#   GCLOUD_VERSION=<latest>
+#   curl -sSLO "https://storage.googleapis.com/cloud-sdk-release/google-cloud-cli-${GCLOUD_VERSION}-linux-x86_64.tar.gz"
+#   sha256sum google-cloud-cli-${GCLOUD_VERSION}-linux-x86_64.tar.gz
+ARG GCLOUD_VERSION="567.0.0"
+ARG GCLOUD_SHA256="bd5afc0d249609cb40d45f665209190fdd38b9937954291b8f9ae54206c75d83"
+RUN cd /tmp \
+    && curl -fsSL -o gcloud.tar.gz \
+        "https://storage.googleapis.com/cloud-sdk-release/google-cloud-cli-${GCLOUD_VERSION}-linux-x86_64.tar.gz" \
+    && echo "${GCLOUD_SHA256}  gcloud.tar.gz" | sha256sum -c - \
+    && tar -xzf gcloud.tar.gz -C /opt \
+    && rm -f gcloud.tar.gz \
+    && /opt/google-cloud-sdk/install.sh --quiet \
+        --usage-reporting=false --path-update=false --bash-completion=false \
+    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet
 
-# Install Google Cloud SDK (gcloud CLI) - Fixed installation with proper cleanup
-RUN --mount=type=cache,target=/tmp/gcloud-cache,sharing=locked \
-    cd /tmp && \
-    [ -f /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz ] || \
-    curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz -o /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz && \
-    tar -xzf /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz && \
-    mv google-cloud-sdk /opt/ && \
-    /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --bash-completion=false && \
-    # Remove unnecessary components, documentation, and cache files
-    rm -rf /opt/google-cloud-sdk/.install/.backup \
-           /opt/google-cloud-sdk/.install/.download \
-           /opt/google-cloud-sdk/bin/anthoscli \
-           /opt/google-cloud-sdk/bin/docker-credential-gcloud \
-           /opt/google-cloud-sdk/bin/git-credential-gcloud.sh \
-           /opt/google-cloud-sdk/platform/bundledpythonunix \
-           /opt/google-cloud-sdk/platform/gsutil/third_party/pyasn1* \
-           /opt/google-cloud-sdk/platform/gsutil/third_party/rsa/doc \
-           /opt/google-cloud-sdk/platform/gsutil/third_party/oauth2client/contrib \
-           /opt/google-cloud-sdk/lib/third_party/grpc \
-           /opt/google-cloud-sdk/lib/googlecloudsdk/api_lib/container/images \
-           /opt/google-cloud-sdk/help \
-           /opt/google-cloud-sdk/data/cli \
-           /opt/google-cloud-sdk/completion.bash.inc \
-           /opt/google-cloud-sdk/completion.zsh.inc \
-           /opt/google-cloud-sdk/path.bash.inc \
-           /opt/google-cloud-sdk/path.zsh.inc \
+# Slim gcloud SDK — separate RUN so it executes AFTER components install and
+# any side-effects of gcloud invocations have settled. `bundledpythonunix` is
+# regenerated by gcloud at runtime if the system Python (python3) is on PATH,
+# and removing it inline alongside `gcloud components install` was a no-op
+# because gcloud touched the dir after the rm chain item ran in the same RUN.
+RUN rm -rf \
+        /opt/google-cloud-sdk/.install/.backup \
+        /opt/google-cloud-sdk/.install/.download \
+        /opt/google-cloud-sdk/bin/anthoscli \
+        /opt/google-cloud-sdk/bin/docker-credential-gcloud \
+        /opt/google-cloud-sdk/bin/git-credential-gcloud.sh \
+        /opt/google-cloud-sdk/platform/bundledpythonunix \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/pyasn1* \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/rsa/doc \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/oauth2client/contrib \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/urllib3/dummyserver \
+        /opt/google-cloud-sdk/lib/third_party/grpc \
+        /opt/google-cloud-sdk/lib/googlecloudsdk/api_lib/container/images \
+        /opt/google-cloud-sdk/help \
+        /opt/google-cloud-sdk/data/cli \
+        /opt/google-cloud-sdk/completion.bash.inc \
+        /opt/google-cloud-sdk/completion.zsh.inc \
+        /opt/google-cloud-sdk/path.bash.inc \
+        /opt/google-cloud-sdk/path.zsh.inc \
+        /root/.config/gcloud/logs \
+        /root/.config/gcloud/.last_update_check.json \
+        /root/.config/gcloud/.last_opt_in_prompt.yaml \
+        /root/.config/gcloud/configurations \
     && find /opt/google-cloud-sdk -name "*.pyc" -delete \
     && find /opt/google-cloud-sdk -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/google-cloud-sdk -name "*.md" -delete \
     && find /opt/google-cloud-sdk -name "*.txt" -delete \
     && find /opt/google-cloud-sdk -name "COPYING*" -delete \
-    && find /opt/google-cloud-sdk -name "LICENSE*" -delete
+    && find /opt/google-cloud-sdk -name "LICENSE*" -delete \
+    && rm -rf /tmp/* /var/tmp/*
 
-ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: runtime
+# ─────────────────────────────────────────────────────────────────────────────
+# Alpine 3.19 → 3.21 (clears musl CVE-2026-40200 / CVE-2026-6042, openssh
+# CVE-2023-51767, busybox CVE-2024-58251 / CVE-2025-46394). Pinned by digest.
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
 
-# Install only essential GKE components and clean up immediately
-RUN gcloud components install gke-gcloud-auth-plugin --quiet && \
-    # Clean up component installation cache and logs
-    rm -rf /root/.config/gcloud/logs \
-           /root/.config/gcloud/.last_update_check.json \
-           /root/.config/gcloud/.last_opt_in_prompt.yaml \
-           /root/.config/gcloud/configurations \
-           /tmp/* /var/tmp/*
+# Runtime-only deps. python3 is required because gcloud invokes Python; py3-pip
+# was used only for transitive build steps — dropped per CIS Docker 4.3.
+RUN apk update && apk upgrade --no-cache \
+    && apk add --no-cache \
+        ca-certificates \
+        git \
+        openssh-client \
+        curl \
+        jq \
+        bash \
+        python3 \
+    && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+
+# Copy validated/slimmed tools from builder (no curl|bash, no build tools, no
+# upx/binutils, no py3-pip in this layer).
+COPY --from=builder /opt/pulumi /opt/pulumi
+COPY --from=builder /opt/google-cloud-sdk /opt/google-cloud-sdk
+
+ENV PATH="/opt/pulumi/bin:/opt/google-cloud-sdk/bin:${PATH}"
 
 WORKDIR /root/
 
-# Copy the pre-built binary from CI
+# Copy the pre-built github-actions binary from CI.
 COPY dist/github-actions ./github-actions
-RUN chmod +x ./github-actions && \
-    # Strip debug symbols if not already done (reduces binary size)
-    strip ./github-actions 2>/dev/null || true && \
-    # Make 'sc' available in PATH for Pulumi local.Command subprocesses
-    # (security pipeline runs: sc image sign, sc image scan, sc sbom generate, etc.)
-    ln -s /root/github-actions /usr/local/bin/sc && \
-    # Remove build tools no longer needed
-    apk del upx binutils && \
-    rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+RUN chmod +x ./github-actions \
+    # Symlink `sc` so Pulumi local.Command subprocesses can invoke security
+    # commands (sc image sign / scan, sc sbom generate, etc.) on PATH.
+    && ln -s /root/github-actions /usr/local/bin/sc
 
-# Verify installations work (but remove verification output to reduce layer size)
-RUN pulumi version > /dev/null && \
-    gcloud version > /dev/null && \
-    gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin && \
-    test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
+# Smoke test — fails the build if any tool wiring is broken.
+RUN pulumi version > /dev/null \
+    && gcloud version > /dev/null \
+    && gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin \
+    && test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
 
-# Set the entrypoint
+# CIS Docker 4.6 — health probe (binary --version, no network, fast).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=2s --retries=3 \
+    CMD /root/github-actions --version >/dev/null 2>&1 || exit 1
+
 ENTRYPOINT ["/root/github-actions"]
