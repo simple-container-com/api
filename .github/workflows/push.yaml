@@ -446,10 +446,10 @@ jobs:
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
-          text:      '✅ release '
+          text:      '🚀 Released: '
           link-url:  ${{ github.event.head_commit.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
           link-text: 'v${{ needs.prepare.outputs.version }}'
-          suffix:    ' on ${{ steps.extract_git_ref.outputs.branch }} by ${{ steps.extract_git_ref.outputs.author }}'
+          suffix:    ' by ${{ steps.extract_git_ref.outputs.author }}'
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
@@ -457,10 +457,10 @@ jobs:
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
-          text:      '❗ release '
+          text:      '❗ Release failed: '
           link-url:  ${{ github.event.head_commit.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
           link-text: 'v${{ needs.prepare.outputs.version }}'
-          suffix:    ' failed on ${{ steps.extract_git_ref.outputs.branch }} — by ${{ steps.extract_git_ref.outputs.author }}'
+          suffix:    ' by ${{ steps.extract_git_ref.outputs.author }}'
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed
