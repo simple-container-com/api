@@ -198,7 +198,12 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
 		// Use deployment name override if specified, otherwise generate using single-dash convention
 		// to match the actual Caddy deployment naming (e.g., "caddy-staging" not "caddy--staging")
-		defaultCaddyName := GenerateCaddyDeploymentName(input.StackParams.Environment)
+		// Caddy is deployed by the parent infra stack, so its name is keyed on parentEnv.
+		// For sub-env client stacks (parentEnv != stackEnv, e.g. parentEnv=production / env=gl-pay)
+		// using the child env produces a name like "caddy-gl-pay" that doesn't exist, the patch
+		// fails silently, and Caddy never rolls — leaving the new domain serving Caddy's default page.
+		caddyEnv := lo.If(input.StackParams.ParentEnv != "", input.StackParams.ParentEnv).Else(input.StackParams.Environment)
+		defaultCaddyName := GenerateCaddyDeploymentName(caddyEnv)
 		caddyServiceName := lo.If(caddyConfig.DeploymentName != nil, lo.FromPtr(caddyConfig.DeploymentName)).Else(defaultCaddyName)
 
 		// Cast params.Provider to Kubernetes provider for patch operations
