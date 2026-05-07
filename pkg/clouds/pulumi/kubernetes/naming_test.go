@@ -434,6 +434,56 @@ func TestNamespaceIsStackName(t *testing.T) {
 	}
 }
 
+func TestCaddyDeploymentNameForChild(t *testing.T) {
+	tests := []struct {
+		name      string
+		stackEnv  string
+		parentEnv string
+		expected  string
+	}{
+		{
+			name:      "single-env stack falls back to stackEnv",
+			stackEnv:  "production",
+			parentEnv: "",
+			expected:  "caddy-production",
+		},
+		{
+			name:      "self-reference falls back to stackEnv",
+			stackEnv:  "staging",
+			parentEnv: "staging",
+			expected:  "caddy-staging",
+		},
+		{
+			name:      "sub-env stack targets parent's caddy",
+			stackEnv:  "gl-pay",
+			parentEnv: "production",
+			expected:  "caddy-production",
+		},
+		{
+			name:      "preview env targets parent staging caddy",
+			stackEnv:  "staging-preview",
+			parentEnv: "staging",
+			expected:  "caddy-staging",
+		},
+		{
+			name:      "empty stackEnv with parentEnv still resolves to parent",
+			stackEnv:  "",
+			parentEnv: "production",
+			expected:  "caddy-production",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CaddyDeploymentNameForChild(tt.stackEnv, tt.parentEnv)
+			if result != tt.expected {
+				t.Errorf("CaddyDeploymentNameForChild(%q, %q) = %v, expected %v",
+					tt.stackEnv, tt.parentEnv, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsCustomStack(t *testing.T) {
 	tests := []struct {
 		name      string
