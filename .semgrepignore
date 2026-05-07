@@ -1,9 +1,0 @@
-# Semgrep ignore — applied by the security-scan workflow.
-# Scope: this file excludes paths whose security model is not the same as
-# our CI scripts. Keep it minimal and per-path; do not blanket-ignore
-# directories without a specific reason.
-
-# Published end-user install bootstrap. Runs on the user's machine, not in
-# our CI. The `curl ... | sh` in this script is the upstream pulumi
-# installer's own pattern and is out of scope for our CI shell rules.
-sc.sh

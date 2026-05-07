@@ -520,6 +520,7 @@ if ! [ -x "$(command -v pulumi)" ]; then
   echo "🔧 Pulumi not found, installing..."
   if [[ "$PLATFORM" == "linux" ]]; then
     echo "📦 Installing Pulumi for Linux..."
+    # nosemgrep: shell-curl-pipe-to-shell -- pulumi's documented upstream installer (https://www.pulumi.com/docs/install/), invoked from this end-user installer running on the user's own machine, not in CI
     if curl -fsSL https://get.pulumi.com | sh; then
       echo "✅ Pulumi installed successfully"
     else
