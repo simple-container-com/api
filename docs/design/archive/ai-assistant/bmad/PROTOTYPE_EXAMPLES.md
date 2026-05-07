@@ -54,7 +54,7 @@ User: "Yes, let's do it!"
 "Excellent! I need these secure values:
 
 1. MongoDB connection string (for database access)
-   Example: mongodb+srv://user:pass@cluster.mongodb.net/dbname
+   Example: mongodb+srv://<USER>:<PASS>@<cluster>.example.com/<dbname>
 
 2. JWT secret key (for token signing)  
    Example: your-256-bit-secret-key

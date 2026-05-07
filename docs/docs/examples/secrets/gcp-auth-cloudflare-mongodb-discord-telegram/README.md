@@ -76,12 +76,12 @@ gcloud iam service-accounts create simple-container-deploy-bot \
 
 # Grant necessary permissions
 gcloud projects add-iam-policy-binding your-project-id \
-  --member="serviceAccount:simple-container-deploy-bot@your-project-id.iam.gserviceaccount.com" \
+  --member="serviceAccount:<simple-container-deploy-bot>@<your-project-id>.iam.gserviceaccount.com" \
   --role="roles/editor"
 
 # Create and download service account key
 gcloud iam service-accounts keys create service-account.json \
-  --iam-account=simple-container-deploy-bot@your-project-id.iam.gserviceaccount.com
+  --iam-account=<simple-container-deploy-bot>@<your-project-id>.iam.gserviceaccount.com
 ```
 
 #### Configure Multiple Environments

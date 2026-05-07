@@ -18,7 +18,7 @@ func Test_GenerateImagePullSecret(t *testing.T) {
 	}{
 		{
 			name:         "happy-path",
-			expectResult: "eyJhdXRocyI6eyJkb2NrZXIuc2ltcGxlLWNvbnRhaW5lci5jb20iOnsiYXV0aCI6ImRYTmxjanB3WVhOemQyOXlaQT09IiwidXNlcm5hbWUiOiJ1c2VyIiwicGFzc3dvcmQiOiJwYXNzd29yZCJ9fX0=",
+			expectResult: "eyJhdXRocyI6eyJkb2NrZXIuc2ltcGxlLWNvbnRhaW5lci5jb20iOnsiYXV0aCI6ImRYTmxjanB3WVhOemQyOXlaQT09IiwidXNlcm5hbWUiOiJ1c2VyIiwicGFzc3dvcmQiOiJwYXNzd29yZCJ9fX0=", // trufflehog:ignore (nested base64 of fake user:password test fixture)
 			creds: RegistryCredentials{
 				DockerRegistryURL:      lo.ToPtr("docker.simple-container.com"),
 				DockerRegistryUsername: lo.ToPtr("user"),

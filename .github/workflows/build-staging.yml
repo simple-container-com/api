@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@v6
@@ -39,23 +39,10 @@ jobs:
           restore-keys: |
             cli-tools-${{ runner.os }}-
 
-      - name: Install CLI tools
-        run: |
-          # Install SC CLI if not cached
-          if ! command -v sc &> /dev/null; then
-            echo "Installing Simple Container CLI..."
-            curl -s "https://dist.simple-container.com/sc.sh" | bash
-          else
-            echo "✅ SC CLI already cached and available"
-          fi
-          
-          # Install Welder if not cached  
-          if ! command -v welder &> /dev/null; then
-            echo "Installing Welder..."
-            curl -Ls "https://welder.simple-container.com/welder.sh" | bash
-          else
-            echo "✅ Welder already cached and available"
-          fi
+      - name: install sc tool
+        uses: simple-container-com/actions/install-sc@main
+      - name: install welder tool
+        uses: simple-container-com/actions/install-welder@main
 
       - name: Prepare secrets for build
         run: |
@@ -92,6 +79,7 @@ jobs:
       - name: Build and push Docker image with BuildKit caching
         env:
           DOCKER_BUILDKIT: 1
+          REF_NAME: ${{ github.ref_name }}
         run: |
           # Build and push with advanced caching using BuildKit
           docker buildx build \
@@ -100,7 +88,7 @@ jobs:
             --cache-to type=gha,mode=max \
             --file github-actions-staging.Dockerfile \
             --tag simplecontainer/github-actions:staging \
-            --tag simplecontainer/github-actions:${{ github.ref_name }} \
+            --tag "simplecontainer/github-actions:$REF_NAME" \
             --push \
             .
 
@@ -121,12 +109,14 @@ jobs:
             .
 
       - name: Image built successfully
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           echo "🎉 GitHub Actions and Caddy staging images built successfully with BuildKit + GitHub Actions caching!"
           echo ""
           echo "🚀 The staging images are now available:"
           echo "   simplecontainer/github-actions:staging"
-          echo "   simplecontainer/github-actions:${{ github.ref_name }}"
+          echo "   simplecontainer/github-actions:$REF_NAME"
           echo "   simplecontainer/caddy:staging"
           echo "   simplecontainer/caddy:$VERSION"
           echo ""
@@ -148,40 +138,45 @@ jobs:
     needs:
       - build-staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         if: ${{ always() }}
 
       - name: Extract git reference
         id: extract_git_ref
         if: ${{ always() }}
         shell: bash
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
         run: |-
-          cat <<'EOF' > /tmp/commit_message.txt
-            ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
-          EOF
-          message="$(cat /tmp/commit_message.txt | tr -d '\n')"
+          message="$(printf '%s' "$COMMIT_MESSAGE" | tr -d '\n')"
           echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
           echo "message=$message" >> $GITHUB_OUTPUT
           echo "author=$GITHUB_ACTOR" >> $GITHUB_OUTPUT
           echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
-      # Notify telegram on success
-      - uses: yanzay/notify-telegram@v0.1.0
-        if: ${{ success() && !contains(needs.*.result, 'failure')  }}
+      - name: Notify Telegram (success)
+        if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
+        uses: simple-container-com/actions/notify-telegram@main
         with:
-          chat: ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
-          status: ✅ staging build success (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+          chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
+          token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
+          text:      '🏗️ Staging built: '
+          link-url:  ${{ github.event.head_commit.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          link-text: '${{ github.workflow }}'
+          suffix:    ' on ${{ github.head_ref || github.ref_name }} by ${{ steps.extract_git_ref.outputs.author }}'
 
-      # Notify telegram on failure
-      - uses: yanzay/notify-telegram@v0.1.0
+      - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
+        uses: simple-container-com/actions/notify-telegram@main
         with:
-          chat: ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
-          status: ❗ staging build failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+          chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
+          token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
+          text:      '❗ Staging failed: '
+          link-url:  ${{ github.event.head_commit.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          link-text: '${{ github.workflow }}'
+          suffix:    ' on ${{ github.head_ref || github.ref_name }} by ${{ steps.extract_git_ref.outputs.author }}'
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed

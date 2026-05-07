@@ -115,7 +115,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/myapp
+      - DATABASE_URL=postgresql://<USER>:<PASS>@<postgres-host>:5432/myapp
       - REDIS_URL=redis://redis:6379
     depends_on:
       - postgres
@@ -129,7 +129,7 @@ services:
     command: npm run worker
     environment:
       - NODE_ENV=development
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/myapp
+      - DATABASE_URL=postgresql://<USER>:<PASS>@<postgres-host>:5432/myapp
       - REDIS_URL=redis://redis:6379
     depends_on:
       - postgres

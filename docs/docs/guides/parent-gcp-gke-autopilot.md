@@ -50,10 +50,10 @@ auth:
         {
           "type": "service_account",
           "project_id": "my-gcp-project-id",
-          "private_key_id": "60bb42f229bc21f6d303b5967b6cd59265cb316d",
+          "private_key_id": "<your-private-key-id>",
           "private_key": "-----BEGIN PRIVATE KEY-----\nBLABLABLA\n-----END PRIVATE KEY-----\n",
-          "client_email": "deploy-bot@my-gcp-project-id.iam.gserviceaccount.com",
-          "client_id": "2387492479284792742398427",
+          "client_email": "<deploy-bot>@<gcp-project-id>.iam.gserviceaccount.com",
+          "client_id": "<your-client-id>",
           "auth_uri": "https://accounts.google.com/o/oauth2/auth",
           "token_uri": "https://oauth2.googleapis.com/token",
           "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",

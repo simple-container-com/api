@@ -167,7 +167,7 @@ func TestSimpleContainer_ComplexVolumeConfiguration(t *testing.T) {
 
 			// Secret environment variables
 			SecretEnvs: map[string]string{
-				"DATABASE_URL":      "postgresql://user:pass@db:5432/mydb",
+				"DATABASE_URL":      "postgresql://<USER>:<PASS>@<host>:5432/mydb",
 				"API_KEY":           "super-secret-api-key",
 				"ENCRYPTION_SECRET": "encryption-key-123",
 			},

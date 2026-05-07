@@ -436,7 +436,7 @@ auth:
 
 values:
   # Exact literal values - NO placeholders processed in secrets.yaml
-  DATABASE_URL: "postgresql://user:pass@host:5432/db"
+  DATABASE_URL: "postgresql://<USER>:<PASS>@<host>:5432/db"
   API_KEY: "your-secret-api-key-here"
 ```
 
@@ -462,7 +462,7 @@ values:
   # Exact literal values - NO placeholders processed in secrets.yaml
   DATABASE_PASSWORD: "mySecurePassword123"
   API_KEY: "sk-1234567890abcdef"
-  CLOUDFLARE_API_TOKEN: "gEYRal5hQm4XJWE5WROP6DAEsdb3NxOgQUcpKjzB"
+  CLOUDFLARE_API_TOKEN: "<your-cloudflare-api-token>"
 ```
 
 ### **Provisioner Configuration** (goes to `provisioner` section in `server.yaml`)

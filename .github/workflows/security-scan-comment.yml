@@ -1,0 +1,15 @@
+name: Security Scan Comment
+on:
+  workflow_run:
+    workflows: ["Security Scan"]
+    types: [completed]
+permissions:
+  pull-requests: write
+  actions: read
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    uses: simple-container-com/actions/.github/workflows/security-scan-comment.yml@main
+    permissions:
+      pull-requests: write
+      actions: read

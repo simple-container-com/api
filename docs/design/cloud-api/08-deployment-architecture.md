@@ -259,7 +259,7 @@ values:
   aws-secret-key: your-aws-secret-key-here
   
   # Application secrets for deployment
-  MONGODB_CONNECTION_STRING: mongodb+srv://user:pass@cluster.mongodb.net/db
+  MONGODB_CONNECTION_STRING: mongodb+srv://<USER>:<PASS>@<cluster>.example.com/<db>
   REDIS_URL: redis://redis-cluster:6379
   JWT_SECRET: your-jwt-secret-key
   

@@ -622,7 +622,7 @@ env:
 ```yaml
 # .sc/stacks/your-parent-stack/secrets.yaml
 values:
-  database-url: "postgresql://user:pass@host:5432/db"
+  database-url: "postgresql://<USER>:<PASS>@<host>:5432/db"
   api-key: "your-secret-api-key-here"
 ```
 
