@@ -21,6 +21,7 @@ nav:
     - Main Concepts: concepts/main-concepts.md
     - Template Placeholders: concepts/template-placeholders.md
     - Advanced Template Placeholders: concepts/template-placeholders-advanced.md
+    - Kubernetes Namespace Layout: concepts/kubernetes-namespaces.md
     - Why Simple Container: concepts/motivation.md
   - Guides:
     - Deployment Guides: guides/index.md

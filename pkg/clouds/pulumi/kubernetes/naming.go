@@ -71,6 +71,36 @@ func isCustomStack(stackEnv, parentEnv string) bool {
 	return parentEnv != "" && parentEnv != stackEnv
 }
 
+// GenerateNamespaceName derives the physical k8s namespace name for a stack.
+// Standard stacks (parentEnv unset, or parentEnv == stackEnv) keep baseNamespace
+// (typically the stackName). Custom stacks (parentEnv set and differing from
+// stackEnv, e.g. parentEnv=production with stackEnv=tenant-a/tenant-b/...) get
+// baseNamespace suffixed with stackEnv, mirroring the per-stackEnv suffix every
+// other resource type (Deployment, Service, Secret, ConfigMap, HPA, VPA,
+// ImagePullSecret) already gets via generateResourceName.
+//
+// The result is sanitized to comply with Kubernetes RFC 1123 (lowercase
+// alphanumeric and `-`, ≤63 chars with FNV-1a truncation hash) so callers can
+// pass it directly into `metadata.namespace` without an extra sanitization
+// step. Sanitization is idempotent — callers that pre-sanitize their inputs
+// see no behavioural change.
+//
+// Without this isolation, sibling sub-env stacks share one physical namespace,
+// and any `pulumi destroy` on a sub-env cascade-deletes every sibling's resources
+// via the k8s namespace delete API. Migrating an existing custom stack to its
+// dedicated namespace is automatic on the next `pulumi up`: Pulumi sees the
+// namespace metadata.Name change and Replaces the namespace plus its
+// namespace-scoped resources. The namespace is created with RetainOnDelete (see
+// NewSimpleContainer), so the parent's shared namespace is left in place — the
+// parent stack's resources continue running through the migration.
+func GenerateNamespaceName(baseNamespace, stackEnv, parentEnv string) string {
+	name := baseNamespace
+	if isCustomStack(stackEnv, parentEnv) {
+		name = fmt.Sprintf("%s-%s", baseNamespace, stackEnv)
+	}
+	return SanitizeK8sName(name)
+}
+
 // GenerateCaddyDeploymentName creates the Caddy deployment name with environment suffix
 // Caddy deployments always include the environment suffix for backwards compatibility
 // This is exported so it can be used by both kubernetes and gcp packages for consistency
@@ -87,8 +117,8 @@ func GenerateCaddyDeploymentName(stackEnv string) string {
 //
 // Caddy is provisioned by the parent infra stack, so its deployment name is keyed on
 // parentEnv (e.g. caddy-production). For sub-env client stacks where parentEnv differs
-// from stackEnv (e.g. parentEnv=production, stackEnv=gl-pay), passing stackEnv would
-// produce caddy-gl-pay — which doesn't exist — and the patch would fail silently.
+// from stackEnv (e.g. parentEnv=production, stackEnv=tenant-a), passing stackEnv would
+// produce caddy-tenant-a — which doesn't exist — and the patch would fail silently.
 // For single-env stacks (parentEnv empty or equal to stackEnv) this falls back to stackEnv.
 //
 // Note: this is the call site asymmetric to GenerateCaddyDeploymentName, which is used

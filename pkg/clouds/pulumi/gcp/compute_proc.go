@@ -251,8 +251,16 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 	// This ensures service accounts are unique per environment (e.g., telegram-bot--on-sidecarcsql--production vs telegram-bot--on-sidecarcsql--staging)
 	baseProxyName := fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName)
 	cloudsqlProxyName := kubernetes.SanitizeK8sName(params.input.ToResName(baseProxyName))
-	// Sanitize namespace name as well
-	sanitizedNamespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
+	// The CloudSQL proxy emits a Kubernetes Secret (proxy credentials) that must live in
+	// the same namespace as the consuming pod for it to be mountable. For custom stacks
+	// (parentEnv != stackEnv) the pod namespace is `<stackName>-<stackEnv>` per
+	// kubernetes.GenerateNamespaceName, so derive that here.
+	parentEnv := ""
+	if params.provisionParams.ParentStack != nil {
+		parentEnv = params.provisionParams.ParentStack.ParentEnv
+	}
+	derivedNamespace := kubernetes.GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv)
+	sanitizedNamespace := kubernetes.SanitizeK8sName(derivedNamespace)
 	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 		Name: cloudsqlProxyName,
 		DBInstance: PostgresDBInstanceArgs{
@@ -345,7 +353,14 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 		}
 		// Sanitize names to comply with Kubernetes RFC 1123 requirements (no underscores)
 		cloudsqlProxyName := kubernetes.SanitizeK8sName(util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-"))
-		namespace := kubernetes.SanitizeK8sName(params.input.StackParams.StackName)
+		// Init job + ad-hoc CloudSQL proxy must live in the same namespace as the consuming
+		// pod so the proxy's credential Secret is mountable. For custom stacks the pod is
+		// in `<stackName>-<stackEnv>` per kubernetes.GenerateNamespaceName.
+		parentEnv := ""
+		if params.provisionParams.ParentStack != nil {
+			parentEnv = params.provisionParams.ParentStack.ParentEnv
+		}
+		namespace := kubernetes.SanitizeK8sName(kubernetes.GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv))
 		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 			Name:         cloudsqlProxyName,
 			DBInstance:   dbInstanceArgs,
