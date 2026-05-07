@@ -49,6 +49,7 @@ jobs:
       - name: install sc tool (latest release)
         shell: bash
         run: |-
+          # nosemgrep: shell-curl-pipe-to-shell  -- dist.simple-container.com/sc.sh is the org-owned bootstrap; pin to a checksumed release as a follow-up
           curl -s "https://dist.simple-container.com/sc.sh" | bash
       - name: prepare secrets for build
         run: |
@@ -70,6 +71,7 @@ jobs:
           SKIP_EMBEDDINGS: "true"
         run: |-
           git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          # nosemgrep: shell-curl-pipe-to-shell  -- welder.simple-container.com/welder.sh is the org-owned build tool bootstrap
           bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run rebuild
       - name: clean
         run: |

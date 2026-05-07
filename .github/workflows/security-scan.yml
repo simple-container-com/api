@@ -9,6 +9,21 @@ permissions:
   contents: read
 jobs:
   security:
-    uses: simple-container-com/actions/.github/workflows/security-scan.yml@main
+    # TEMPORARY: pinned to PR-A branch for testing (simple-container-com/actions PR #2).
+    # Bump to @main once that PR merges.
+    uses: simple-container-com/actions/.github/workflows/security-scan.yml@feat/secret-scan-extra-excludes
     permissions:
       contents: read
+    with:
+      # File-specific path excludes for fixtures/examples that intentionally
+      # contain placeholder credentials in formats the scanner detects (raw
+      # OpenSSH key bodies, GCP service-account JSON examples). Each line is
+      # a TruffleHog Go regex, substring-matched against the full path.
+      # Source-level placeholder replacements are preferred and have already
+      # been applied for ~25 docs/test URIs in this PR.
+      secret-scan-extra-excludes: |
+        docs/docs/examples/.*/secrets\.yaml
+        docs/docs/examples/secrets/.*/README\.md
+        docs/docs/guides/parent-gcp-gke-autopilot\.md
+        pkg/api/secrets/testdata/repo/
+        pkg/provisioner/testdata/

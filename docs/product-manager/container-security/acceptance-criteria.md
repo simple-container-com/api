@@ -59,7 +59,7 @@ Given: Running in GitHub Actions with id-token: write permission
 When: Workflow executes `sc deploy -s mystack -e production`
 Then:
   - OIDC token is automatically obtained from GitHub Actions
-  - Image is signed with identity: https://github.com/myorg/myrepo/.github/workflows/deploy.yml@refs/heads/main
+  - Image is signed with identity: https://<github-host>/<org>/<repo>/.github/workflows/deploy.yml@refs/heads/main
   - Signature includes Rekor transparency log entry
   - Signature can be verified with: cosign verify --certificate-identity-regexp "^https://github.com/myorg/.*$"
 ```
@@ -303,8 +303,8 @@ Then:
   - Provenance follows SLSA v1.0 schema
   - Provenance includes:
     - buildType: "https://github.com/simple-container-com/api@v1"
-    - builder.id: "https://github.com/myorg/myrepo/.github/workflows/deploy.yml@refs/heads/main"
-    - invocation.configSource.uri: "git+https://github.com/myorg/myrepo@refs/heads/main"
+    - builder.id: "https://<github-host>/<org>/<repo>/.github/workflows/deploy.yml@refs/heads/main"
+    - invocation.configSource.uri: "git+https://<github-host>/<org>/<repo>@refs/heads/main"
     - invocation.configSource.digest.sha1: "<commit-sha>"
 ```
 
@@ -313,21 +313,21 @@ Then:
 **Test Case:** TC-3.2.1 - GitHub Actions Detection
 ```yaml
 Given: Running in GitHub Actions
-  And: GITHUB_REPOSITORY=myorg/myrepo
+  And: GITHUB_REPOSITORY=<org>/<repo>
   And: GITHUB_WORKFLOW=Deploy
 When: Provenance is generated
 Then:
-  - builder.id: "https://github.com/myorg/myrepo/.github/workflows/Deploy@refs/heads/main"
+  - builder.id: "https://<github-host>/<org>/<repo>/.github/workflows/Deploy@refs/heads/main"
 ```
 
 **Test Case:** TC-3.2.2 - GitLab CI Detection
 ```yaml
 Given: Running in GitLab CI
-  And: CI_PROJECT_PATH=myorg/myrepo
-  And: CI_PIPELINE_URL=https://gitlab.com/myorg/myrepo/-/pipelines/12345
+  And: CI_PROJECT_PATH=<org>/<repo>
+  And: CI_PIPELINE_URL=https://<gitlab-host>/<org>/<repo>/-/pipelines/12345
 When: Provenance is generated
 Then:
-  - builder.id: "https://gitlab.com/myorg/myrepo/-/pipelines/12345"
+  - builder.id: "https://<gitlab-host>/<org>/<repo>/-/pipelines/12345"
 ```
 
 ### AC-3.3: Source Materials Inclusion
@@ -339,7 +339,7 @@ Given: security.provenance.metadata.includeMaterials=true
 When: Provenance is generated
 Then:
   - materials array includes:
-    - uri: "git+https://github.com/myorg/myrepo@refs/heads/main"
+    - uri: "git+https://<github-host>/<org>/<repo>@refs/heads/main"
     - digest.sha1: "abc123"
 ```
 

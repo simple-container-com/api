@@ -315,7 +315,7 @@ services:
     environment:
       - GO_ENV=development
       - PORT=8080
-      - DATABASE_URL=postgres://user:password@db:5432/myapp
+      - DATABASE_URL=postgres://<USER>:<PASSWORD>@<host>:5432/myapp
     volumes:
       - .:/app
     depends_on:

@@ -223,7 +223,7 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=3000
-      - DATABASE_URL=postgresql://taskuser:taskpass@postgres:5432/taskdb
+      - DATABASE_URL=postgresql://<taskuser>:<password>@<postgres-host>:5432/taskdb
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=dev-jwt-secret-key-123
     depends_on:

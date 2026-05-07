@@ -241,14 +241,14 @@ pulumi stack output service-a-mongo-user
 **Environment Variables Received**:
 ```bash
 # PostgreSQL (from adopted resource)
-DATABASE_URL="postgresql://service-a:generated_password_123@10.1.0.5:5432/service-a"
+DATABASE_URL="postgresql://<service-a>:<password>@<host>:5432/service-a"
 POSTGRES_HOST="10.1.0.5"
 POSTGRES_PORT="5432"
 POSTGRES_USER="service-a"
 POSTGRES_PASSWORD="generated_password_123"
 
 # MongoDB (from adopted resource)
-MONGO_URI="mongodb+srv://service-a:generated_password_456@acme-staging.mongodb.net/service-a"
+MONGO_URI="mongodb+srv://<service-a>:<password>@<staging-cluster>.example.com/<service-a>"
 MONGO_USER="service-a"
 MONGO_PASSWORD="generated_password_456"
 
@@ -301,11 +301,11 @@ sc deploy -s service-b -e staging
 **Validation**:
 ```sql
 -- From service-a pod, try to access service-b database
-psql postgresql://service-a:password@host/service-b -c "SELECT 1;"
+psql postgresql://<service-a>:<password>@<host>/service-b -c "SELECT 1;"
 -- Expected: ERROR:  permission denied for database service-b
 
 -- Verify service-b has its own credentials
-psql postgresql://service-b:password@host/service-b -c "SELECT 1;"
+psql postgresql://<service-b>:<password>@<host>/service-b -c "SELECT 1;"
 -- Expected: Success
 ```
 
