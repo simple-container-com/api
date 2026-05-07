@@ -195,10 +195,14 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 	}
 
 	if caddyConfig != nil {
-		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
-		// Use deployment name override if specified, otherwise generate using single-dash convention
-		// to match the actual Caddy deployment naming (e.g., "caddy-staging" not "caddy--staging")
-		defaultCaddyName := GenerateCaddyDeploymentName(input.StackParams.Environment)
+		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails).
+		// Use deployment name override if specified, otherwise resolve via the parent-aware helper
+		// so sub-env client stacks (parentEnv != stackEnv) target the parent's caddy-<parentEnv>
+		// deployment instead of a non-existent caddy-<stackEnv>.
+		// parentEnv lives on params.ParentStack — input.StackParams.ParentEnv is empty for client
+		// stack deploys (matches the pattern in aws/compute_proc.go and gcp/compute_proc.go).
+		parentEnv := lo.FromPtr(params.ParentStack).ParentEnv
+		defaultCaddyName := CaddyDeploymentNameForChild(input.StackParams.Environment, parentEnv)
 		caddyServiceName := lo.If(caddyConfig.DeploymentName != nil, lo.FromPtr(caddyConfig.DeploymentName)).Else(defaultCaddyName)
 
 		// Cast params.Provider to Kubernetes provider for patch operations
