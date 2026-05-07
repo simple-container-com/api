@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      gomod-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
