@@ -157,7 +157,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@feat/notify-telegram-append-run-url
+        uses: simple-container-com/actions/notify-telegram@main
         with:
           chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
@@ -169,7 +169,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@feat/notify-telegram-append-run-url
+        uses: simple-container-com/actions/notify-telegram@main
         with:
           chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
