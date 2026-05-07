@@ -63,8 +63,13 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		parentEnv = args.Params.ParentStack.ParentEnv
 	}
 
-	// Determine namespace - always use stack name as namespace (service name)
-	namespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
+	// Derive namespace via GenerateNamespaceName: standard stacks keep the stackName-based
+	// namespace; custom stacks (parentEnv != stackEnv) get a stackEnv-suffixed namespace so
+	// sibling sub-envs no longer share a physical namespace. See the helper's docstring for
+	// migration semantics. The shared parent namespace stays intact through the per-stack
+	// migration thanks to RetainOnDelete on the namespace resource.
+	baseNamespace := lo.If(args.Namespace == "", stackName).Else(args.Namespace)
+	namespace := GenerateNamespaceName(baseNamespace, stackEnv, parentEnv)
 
 	// Generate deployment name with environment suffix for custom stacks
 	baseDeploymentName := lo.If(args.DeploymentName == "", stackName).Else(args.DeploymentName)
