@@ -324,7 +324,12 @@ func getDockerCredentialsWithAuthToken(ctx *sdk.Context, input api.ResourceInput
 	if !ok {
 		return nil, errors.Errorf("failed to cast resource descriptor to api.AuthConfig")
 	}
-	credentials, err := auth.CredentialsFromJSONWithParams(ctx.Context(), []byte(authCfg.CredentialsValue()), auth.CredentialsParams{
+	// CredentialsFromJSONWithParams was deprecated in golang.org/x/oauth2 ≥ v0.34
+	// for security reasons; replaced by the typed variant. SC stores GCP auth as
+	// service-account JSON only (see api.AuthConfig.CredentialsValue), so pinning
+	// the credential type to ServiceAccount keeps this call rejecting unexpected
+	// credential shapes (workload-identity, refresh-token, etc.).
+	credentials, err := auth.CredentialsFromJSONWithTypeAndParams(ctx.Context(), []byte(authCfg.CredentialsValue()), auth.ServiceAccount, auth.CredentialsParams{
 		Scopes: []string{
 			"https://www.googleapis.com/auth/cloud-platform",
 		},

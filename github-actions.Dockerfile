@@ -1,101 +1,117 @@
-# Simplified Dockerfile - uses pre-built binary from CI
-# Binary is built in the workflow and copied here, avoiding Go module downloads and compilation in Docker
+# GitHub docker-action runtime: builder downloads/verifies/slims tools,
+# runtime keeps only what github-actions invokes via exec.LookPath.
+#
+# USER stays root: GitHub mounts /github/workspace as root, non-root breaks
+# git ops. HEALTHCHECK omitted: one-shot action, never long-running.
 
-FROM alpine:3.19
+# Refresh: docker buildx imagetools inspect alpine:3.21
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS builder
 
-# Install runtime dependencies in single layer with aggressive cleanup
-RUN apk --no-cache add \
-    ca-certificates \
-    git \
-    openssh-client \
-    curl \
-    jq \
-    bash \
-    python3 \
-    py3-pip \
-    upx \
-    binutils \
-    && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+# python3 needed so `gcloud components install` doesn't fall back to (and recreate) the bundled Python we want to delete.
+RUN apk update && apk upgrade --no-cache \
+    && apk add --no-cache curl bash binutils upx ca-certificates tar python3 \
+    && rm -rf /var/cache/apk/*
 
-# Install Pulumi CLI - Required for Simple Container provisioning
-# Read version from go.mod to ensure consistency with Go dependencies
+# Pulumi: version from go.mod, SHA-256 verified against per-release checksums
+# file Pulumi publishes on GitHub Releases (replaces curl|sh from get.pulumi.com).
+# Cache mount avoids re-downloading the tarball; integrity check runs every build.
 COPY go.mod /tmp/go.mod
-RUN --mount=type=cache,target=/tmp/pulumi-cache,sharing=locked \
-    PULUMI_VERSION=$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//') && \
-    echo "Installing Pulumi version: ${PULUMI_VERSION} (extracted from go.mod)" && \
-    curl -fsSL https://get.pulumi.com | sh -s -- --version ${PULUMI_VERSION} && \
-    # Optimize Pulumi binaries - strip debug symbols and compress
-    strip /root/.pulumi/bin/* 2>/dev/null || true && \
-    upx --best --lzma /root/.pulumi/bin/* 2>/dev/null || true && \
-    # Clean up temp files, but not BuildKit cache mounts
-    rm -f /tmp/go.mod && \
-    rm -rf /var/tmp/*
+RUN --mount=type=cache,target=/tmp/pulumi-dl,sharing=locked \
+    set -euo pipefail \
+    && PULUMI_VERSION="$(grep 'github.com/pulumi/pulumi/sdk/v3' /tmp/go.mod | awk '{print $2}' | sed 's/^v//')" \
+    && [ -n "${PULUMI_VERSION}" ] || { echo "no pulumi version in go.mod" >&2; exit 1; } \
+    && TARBALL="pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz" \
+    && CHECKSUMS="pulumi-${PULUMI_VERSION}-checksums.txt" \
+    && cd /tmp/pulumi-dl \
+    && [ -f "${TARBALL}" ] || curl -fsSL -o "${TARBALL}" \
+        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${TARBALL}" \
+    && curl -fsSL -o "${CHECKSUMS}" \
+        "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${CHECKSUMS}" \
+    && EXPECTED_SHA="$(grep "${TARBALL}" "${CHECKSUMS}" | awk '{print $1}')" \
+    && [ -n "${EXPECTED_SHA}" ] || { echo "no checksum entry for ${TARBALL}" >&2; exit 1; } \
+    && echo "${EXPECTED_SHA}  ${TARBALL}" | sha256sum -c - \
+    && mkdir -p /opt/pulumi/bin \
+    && tar -xzf "${TARBALL}" -C /tmp \
+    && mv /tmp/pulumi/* /opt/pulumi/bin/ \
+    && rm -rf /tmp/pulumi /tmp/go.mod \
+    && strip /opt/pulumi/bin/* 2>/dev/null || true \
+    && upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true
 
-ENV PATH="/root/.pulumi/bin:${PATH}"
+# gcloud: pinned version + SHA-256 (Google does not publish per-release sig).
+# Refresh: pull the tarball, sha256sum it, paste below.
+ARG GCLOUD_VERSION="567.0.0"
+ARG GCLOUD_SHA256="bd5afc0d249609cb40d45f665209190fdd38b9937954291b8f9ae54206c75d83"
+RUN --mount=type=cache,target=/tmp/gcloud-dl,sharing=locked \
+    set -euo pipefail \
+    && TARBALL="google-cloud-cli-${GCLOUD_VERSION}-linux-x86_64.tar.gz" \
+    && cd /tmp/gcloud-dl \
+    && [ -f "${TARBALL}" ] || curl -fsSL -o "${TARBALL}" \
+        "https://storage.googleapis.com/cloud-sdk-release/${TARBALL}" \
+    && echo "${GCLOUD_SHA256}  ${TARBALL}" | sha256sum -c - \
+    && tar -xzf "${TARBALL}" -C /opt \
+    && /opt/google-cloud-sdk/install.sh --quiet \
+        --usage-reporting=false --path-update=false --bash-completion=false \
+    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet
 
-# Install Google Cloud SDK (gcloud CLI) - Fixed installation with proper cleanup
-RUN --mount=type=cache,target=/tmp/gcloud-cache,sharing=locked \
-    cd /tmp && \
-    [ -f /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz ] || \
-    curl -sSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz -o /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz && \
-    tar -xzf /tmp/gcloud-cache/google-cloud-cli-linux-x86_64.tar.gz && \
-    mv google-cloud-sdk /opt/ && \
-    /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --bash-completion=false && \
-    # Remove unnecessary components, documentation, and cache files
-    rm -rf /opt/google-cloud-sdk/.install/.backup \
-           /opt/google-cloud-sdk/.install/.download \
-           /opt/google-cloud-sdk/bin/anthoscli \
-           /opt/google-cloud-sdk/bin/docker-credential-gcloud \
-           /opt/google-cloud-sdk/bin/git-credential-gcloud.sh \
-           /opt/google-cloud-sdk/platform/bundledpythonunix \
-           /opt/google-cloud-sdk/platform/gsutil/third_party/pyasn1* \
-           /opt/google-cloud-sdk/platform/gsutil/third_party/rsa/doc \
-           /opt/google-cloud-sdk/platform/gsutil/third_party/oauth2client/contrib \
-           /opt/google-cloud-sdk/lib/third_party/grpc \
-           /opt/google-cloud-sdk/lib/googlecloudsdk/api_lib/container/images \
-           /opt/google-cloud-sdk/help \
-           /opt/google-cloud-sdk/data/cli \
-           /opt/google-cloud-sdk/completion.bash.inc \
-           /opt/google-cloud-sdk/completion.zsh.inc \
-           /opt/google-cloud-sdk/path.bash.inc \
-           /opt/google-cloud-sdk/path.zsh.inc \
+# Slim gcloud — must be a SEPARATE RUN because `gcloud components install`
+# touches `bundledpythonunix` after the rm chain in the same RUN executes.
+RUN rm -rf \
+        /opt/google-cloud-sdk/.install/.backup \
+        /opt/google-cloud-sdk/.install/.download \
+        /opt/google-cloud-sdk/bin/anthoscli \
+        /opt/google-cloud-sdk/bin/docker-credential-gcloud \
+        /opt/google-cloud-sdk/bin/git-credential-gcloud.sh \
+        /opt/google-cloud-sdk/platform/bundledpythonunix \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/pyasn1* \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/rsa/doc \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/oauth2client/contrib \
+        /opt/google-cloud-sdk/platform/gsutil/third_party/urllib3/dummyserver \
+        /opt/google-cloud-sdk/lib/third_party/grpc \
+        /opt/google-cloud-sdk/lib/googlecloudsdk/api_lib/container/images \
+        /opt/google-cloud-sdk/help \
+        /opt/google-cloud-sdk/data/cli \
+        /opt/google-cloud-sdk/completion.bash.inc \
+        /opt/google-cloud-sdk/completion.zsh.inc \
+        /opt/google-cloud-sdk/path.bash.inc \
+        /opt/google-cloud-sdk/path.zsh.inc \
+        /root/.config/gcloud/logs \
+        /root/.config/gcloud/.last_update_check.json \
+        /root/.config/gcloud/.last_opt_in_prompt.yaml \
+        /root/.config/gcloud/configurations \
     && find /opt/google-cloud-sdk -name "*.pyc" -delete \
     && find /opt/google-cloud-sdk -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true \
-    && find /opt/google-cloud-sdk -name "*.md" -delete \
-    && find /opt/google-cloud-sdk -name "*.txt" -delete \
-    && find /opt/google-cloud-sdk -name "COPYING*" -delete \
-    && find /opt/google-cloud-sdk -name "LICENSE*" -delete
+    && find /opt/google-cloud-sdk \( -name "*.md" -o -name "*.txt" -o -name "COPYING*" -o -name "LICENSE*" \) -delete \
+    && rm -rf /tmp/* /var/tmp/*
 
-ENV PATH="/opt/google-cloud-sdk/bin:${PATH}"
+# ── runtime ─────────────────────────────────────────────────────────────────
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
 
-# Install only essential GKE components and clean up immediately
-RUN gcloud components install gke-gcloud-auth-plugin --quiet && \
-    # Clean up component installation cache and logs
-    rm -rf /root/.config/gcloud/logs \
-           /root/.config/gcloud/.last_update_check.json \
-           /root/.config/gcloud/.last_opt_in_prompt.yaml \
-           /root/.config/gcloud/configurations \
-           /tmp/* /var/tmp/*
+# python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
+RUN apk update && apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates git openssh-client curl jq bash python3 \
+    && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+
+COPY --from=builder /opt/pulumi /opt/pulumi
+COPY --from=builder /opt/google-cloud-sdk /opt/google-cloud-sdk
+
+ENV PATH="/opt/pulumi/bin:/opt/google-cloud-sdk/bin:${PATH}"
 
 WORKDIR /root/
 
-# Copy the pre-built binary from CI
 COPY dist/github-actions ./github-actions
-RUN chmod +x ./github-actions && \
-    # Strip debug symbols if not already done (reduces binary size)
-    strip ./github-actions 2>/dev/null || true && \
-    # Make 'sc' available in PATH for Pulumi local.Command subprocesses
-    # (security pipeline runs: sc image sign, sc image scan, sc sbom generate, etc.)
-    ln -s /root/github-actions /usr/local/bin/sc && \
-    # Remove build tools no longer needed
-    apk del upx binutils && \
-    rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
+# `sc` symlink so Pulumi local.Command subprocesses can invoke sc image sign/scan/sbom etc.
+RUN chmod +x ./github-actions \
+    && ln -s /root/github-actions /usr/local/bin/sc
 
-# Verify installations work (but remove verification output to reduce layer size)
-RUN pulumi version > /dev/null && \
-    gcloud version > /dev/null && \
-    gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin && \
-    test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
+# Build-time smoke test — fails the build if tool wiring breaks.
+RUN pulumi version > /dev/null \
+    && gcloud version > /dev/null \
+    && gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin \
+    && test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
 
-# Set the entrypoint
+LABEL org.opencontainers.image.source="https://github.com/simple-container-com/api" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="simplecontainer/github-actions" \
+      org.opencontainers.image.description="SC GitHub Actions runner image"
+
 ENTRYPOINT ["/root/github-actions"]

@@ -1,23 +1,22 @@
-# Declare version argument only once at the beginning
-ARG version="2.8.4"
+# Caddy 2.11.2: clears Go-stdlib CVEs in 2.8.4's binary + CVE-2026-27586.
+# Bumping requires editing all three "2.11.2" sites below (two FROMs + xcaddy).
+# Refresh: docker buildx imagetools inspect caddy:X.Y.Z[-builder]
 
-# Use a builder image for compiling Caddy
-FROM caddy:${version}-builder AS builder
+FROM caddy:2.11.2-builder@sha256:10ed0251c5cd1dbb4db0b71ad43121147961a51adfec35febce2c93ea25c24f4 AS builder
 
-# Pass ARG version explicitly
-ARG version
-ENV CADDY_VERSION="${version}"
-
-# Build Caddy with the required module using BuildKit cache mounts
-# Cache mounts persist across builds on the same runner, more efficient than layer caching
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
-    xcaddy build "v${CADDY_VERSION}" \
-        --with github.com/grafana/certmagic-gcs@v0.1.2 && \
-    caddy version
+    xcaddy build "v2.11.2" \
+        --with github.com/grafana/certmagic-gcs@v0.1.7 \
+    && caddy version
 
-# Final runtime image
-FROM caddy:${version}
+FROM caddy:2.11.2@sha256:25cdc846626b62d05f6b633b9b40c2c9f6ef89b515dc76133cefd920f7dbe562
 
-# Copy the compiled Caddy binary
+RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
+
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+LABEL org.opencontainers.image.source="https://github.com/simple-container-com/api" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.title="simplecontainer/caddy" \
+      org.opencontainers.image.description="Caddy with grafana/certmagic-gcs"
