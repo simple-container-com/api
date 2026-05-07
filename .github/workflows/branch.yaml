@@ -234,7 +234,7 @@ jobs:
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
           text:      '✅ '
           link-url:  ${{ github.event.pull_request.html_url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-          link-text: ${{ github.event.pull_request.title && format('PR #{0}: {1}', github.event.pull_request.number, github.event.pull_request.title) || github.workflow }}
+          link-text: "${{ github.event.pull_request.title && format('PR #{0}: {1}', github.event.pull_request.number, github.event.pull_request.title) || github.workflow }}"
           suffix:    ' by ${{ steps.extract_git_ref.outputs.author }}'
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
@@ -245,7 +245,7 @@ jobs:
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
           text:      '❗ '
           link-url:  ${{ github.event.pull_request.html_url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
-          link-text: ${{ github.event.pull_request.title && format('PR #{0}: {1}', github.event.pull_request.number, github.event.pull_request.title) || github.workflow }}
+          link-text: "${{ github.event.pull_request.title && format('PR #{0}: {1}', github.event.pull_request.number, github.event.pull_request.title) || github.workflow }}"
           suffix:    ' failed — by ${{ steps.extract_git_ref.outputs.author }}'
 
       - name: Build failed due to previously failed steps
