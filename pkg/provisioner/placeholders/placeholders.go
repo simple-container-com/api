@@ -166,19 +166,53 @@ func (p *placeholders) tplVars(stackName string, stack api.Stack, stacks api.Sta
 
 func (p *placeholders) tplSecrets(stackName string, stack api.Stack, stacks api.StacksMap) func(source string, path string, value *string) (string, error) {
 	return func(noSubs, path string, value *string) (string, error) {
+		// Support explicit environment override in placeholder: ${secret:name:env}
+		secretName := path
+		environment := ""
+
+		// Check if path contains environment override
+		parts := strings.SplitN(path, ":", 2)
+		if len(parts) == 2 {
+			secretName = parts[0]
+			environment = parts[1]
+		}
+
+		// Get environment from stack config if not explicitly provided
+		if environment == "" {
+			// Try to get environment from stack's environment field
+			if stack.Server.Environment != "" {
+				environment = stack.Server.Environment
+			}
+		}
+
 		if stack.Server.Secrets.IsInherited() {
 			parentStack := stack.Server.Secrets.Inherit.Inherit
 			if iServerCfg, ok := stacks[parentStack]; !ok {
 				return noSubs, errors.Errorf("parent stack %q not found for stack %q", parentStack, stackName)
-			} else if sec, ok := iServerCfg.Secrets.Values[path]; !ok {
-				return noSubs, errors.Errorf("secret %q not found in parent stack %q", path, parentStack)
+			} else {
+				// Use environment-aware secret lookup
+				if sec, ok := iServerCfg.Secrets.GetSecretValue(secretName, environment); !ok {
+					// Provide helpful error message indicating where we looked
+					if environment != "" {
+						return noSubs, errors.Errorf("secret %q not found in parent stack %q (environment: %q)", secretName, parentStack, environment)
+					} else {
+						return noSubs, errors.Errorf("secret %q not found in parent stack %q", secretName, parentStack)
+					}
+				} else {
+					return sec, nil
+				}
+			}
+		} else {
+			// Use environment-aware secret lookup for local stack
+			if sec, ok := stack.Secrets.GetSecretValue(secretName, environment); !ok {
+				if environment != "" {
+					return noSubs, errors.Errorf("secret %q not found in stack %q (environment: %q)", secretName, stackName, environment)
+				} else {
+					return noSubs, errors.Errorf("secret %q not found in stack %q", secretName, stackName)
+				}
 			} else {
 				return sec, nil
 			}
-		} else if sec, ok := stack.Secrets.Values[path]; !ok {
-			return noSubs, errors.Errorf("secret %q not found in stack %q", path, stackName)
-		} else {
-			return sec, nil
 		}
 	}
 }

@@ -19,6 +19,15 @@ func (s *SecretsDescriptor) Copy() SecretsDescriptor {
 			return value.Copy()
 		}),
 		Values: lo.Assign(map[string]string{}, s.Values),
+		Environments: lo.MapValues(s.Environments, func(value EnvironmentSecrets, key string) EnvironmentSecrets {
+			return value.Copy()
+		}),
+	}
+}
+
+func (s *EnvironmentSecrets) Copy() EnvironmentSecrets {
+	return EnvironmentSecrets{
+		Values: lo.Assign(map[string]string{}, s.Values),
 	}
 }
 
@@ -33,6 +42,7 @@ func (s *AuthDescriptor) Copy() AuthDescriptor {
 func (sd *ServerDescriptor) Copy() ServerDescriptor {
 	return ServerDescriptor{
 		SchemaVersion: sd.SchemaVersion,
+		Environment:   sd.Environment,
 		Provisioner:   sd.Provisioner.Copy(),
 		Secrets:       sd.Secrets.Copy(),
 		CiCd:          sd.CiCd.Copy(),
