@@ -218,10 +218,13 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			return nil, errors.Wrapf(err, "failed to unmarshal caddy config from parent stack: JSON was %q", caddyConfigJson)
 		}
 
-		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails)
-		// Use deployment name override if specified, otherwise generate using single-dash convention
-		// to match the actual Caddy deployment naming (e.g., "caddy-staging" not "caddy--staging")
-		defaultDeploymentName := kubernetes.GenerateCaddyDeploymentName(input.StackParams.Environment)
+		// Attempt to patch caddy deployment annotations (non-critical - skip if it fails).
+		// Use deployment name override if specified, otherwise resolve via the parent-aware helper
+		// so sub-env client stacks (parentEnv != stackEnv) target the parent's caddy-<parentEnv>
+		// deployment instead of a non-existent caddy-<stackEnv>.
+		// input.StackParams.ParentEnv is reliably populated for this code path by the
+		// custom-stack fix-up at the top of this function.
+		defaultDeploymentName := kubernetes.CaddyDeploymentNameForChild(input.StackParams.Environment, input.StackParams.ParentEnv)
 		deploymentName := lo.If(caddyCfg.DeploymentName != nil, lo.FromPtr(caddyCfg.DeploymentName)).Else(defaultDeploymentName)
 		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
 

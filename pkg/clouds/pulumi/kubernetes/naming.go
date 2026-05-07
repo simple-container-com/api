@@ -81,3 +81,21 @@ func GenerateCaddyDeploymentName(stackEnv string) string {
 	}
 	return "caddy"
 }
+
+// CaddyDeploymentNameForChild returns the Caddy deployment name a *child* (client) stack
+// must target when patching annotations to trigger a Caddy rolling restart.
+//
+// Caddy is provisioned by the parent infra stack, so its deployment name is keyed on
+// parentEnv (e.g. caddy-production). For sub-env client stacks where parentEnv differs
+// from stackEnv (e.g. parentEnv=production, stackEnv=gl-pay), passing stackEnv would
+// produce caddy-gl-pay — which doesn't exist — and the patch would fail silently.
+// For single-env stacks (parentEnv empty or equal to stackEnv) this falls back to stackEnv.
+//
+// Note: this is the call site asymmetric to GenerateCaddyDeploymentName, which is used
+// from the parent stack's own provisioning where Environment is the correct input.
+func CaddyDeploymentNameForChild(stackEnv, parentEnv string) string {
+	if isCustomStack(stackEnv, parentEnv) {
+		return GenerateCaddyDeploymentName(parentEnv)
+	}
+	return GenerateCaddyDeploymentName(stackEnv)
+}
