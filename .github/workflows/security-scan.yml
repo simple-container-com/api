@@ -9,9 +9,7 @@ permissions:
   contents: read
 jobs:
   security:
-    # TEMPORARY: pinned to PR-A branch for testing (simple-container-com/actions PR #2).
-    # Bump to @main once that PR merges.
-    uses: simple-container-com/actions/.github/workflows/security-scan.yml@feat/secret-scan-extra-excludes
+    uses: simple-container-com/actions/.github/workflows/security-scan.yml@main
     permissions:
       contents: read
     with:

@@ -17,16 +17,16 @@ jobs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - uses: fregante/setup-git-user@v2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@v6
         with:
           go-version: '1.25'
-      - name: install sc tool (latest release)
-        shell: bash
-        run: |-
-          curl -s "https://dist.simple-container.com/sc.sh" | bash
+      - name: install sc tool
+        uses: simple-container-com/actions/install-sc@main
+      - name: install welder tool
+        uses: simple-container-com/actions/install-welder@main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -47,7 +47,7 @@ jobs:
           SKIP_EMBEDDINGS: "true"
         run: |-
           git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
-          bash <(curl -Ls "https://welder.simple-container.com/welder.sh") run rebuild
+          welder run rebuild
       - name: clean
         run: |
           mkdir -p dist
@@ -101,7 +101,7 @@ jobs:
           - os: darwin
             arch: amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@v6
         with:
@@ -141,7 +141,7 @@ jobs:
             cmd: cloud-helpers
             output: dist/cloud-helpers
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@v6
         with:
@@ -166,7 +166,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: build-setup
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@v6
         with:
@@ -187,7 +187,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: build-setup
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@v6
         with:
@@ -209,38 +209,38 @@ jobs:
       - build-github-actions-staging
       - test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         if: ${{ always() }}
 
       - name: Extract git reference
         id: extract_git_ref
         if: ${{ always() }}
         shell: bash
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
         run: |-
-          cat <<'EOF' > /tmp/commit_message.txt
-            ${{ github.event.head_commit.message || github.event.workflow_run.head_commit.message }}
-          EOF
-          message="$(cat /tmp/commit_message.txt | tr -d '\n')"
+          message="$(printf '%s' "$COMMIT_MESSAGE" | tr -d '\n')"
           echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
           echo "message=$message" >> $GITHUB_OUTPUT
           echo "author=$GITHUB_ACTOR" >> $GITHUB_OUTPUT
           echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
-      # Notify telegram
-      - uses: yanzay/notify-telegram@v0.1.0
-        if: ${{ success() && !contains(needs.*.result, 'failure')  }}
+      - name: Notify Telegram (success)
+        if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
+        uses: simple-container-com/actions/notify-telegram@main
         with:
-          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
-          status: ✅ success (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
-      - uses: yanzay/notify-telegram@v0.1.0
+          chat-id: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token:   ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
+          text:    ✅ success (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+      - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
+        uses: simple-container-com/actions/notify-telegram@main
         with:
-          chat: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
-          token: ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
-          status: ❗ failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+          chat-id: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token:   ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
+          text:    ❗ failure (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed

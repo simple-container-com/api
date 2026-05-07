@@ -112,12 +112,11 @@ tasks:
       - cp ${project:root}/.sc/stacks/dist/site/* ${project:root}/.sc/stacks/dist/bundle/
   docker-login:
     runOn: host
+    # `sc` is provisioned on the runner by the install-sc composite action
+    # before welder is invoked (see .github/workflows/*.yaml).
     script:
-      - |-
-        bash -c '
-          bash <(curl -Ls "https://dist.simple-container.com/sc.sh") secrets reveal
-          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-        '
+      - sc secrets reveal
+      - sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
   build-cloud-helpers:
     runOn: host
     script:
