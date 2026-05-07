@@ -429,19 +429,25 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@feat/notify-telegram-append-run-url
         with:
-          chat-id: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
-          token:   ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
-          text:    ✅ preview published (${{ steps.extract_git_ref.outputs.branch }}) (v${{ needs.prepare.outputs.version }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+          chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
+          text:      '✅ preview '
+          link-url:  ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          link-text: 'v${{ needs.prepare.outputs.version }}'
+          suffix:    ' on ${{ steps.extract_git_ref.outputs.branch }} by ${{ steps.extract_git_ref.outputs.author }}'
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@feat/notify-telegram-append-run-url
         with:
-          chat-id: ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
-          token:   ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
-          text:    ❗ preview failed (${{ steps.extract_git_ref.outputs.branch }}) - ${{ steps.extract_git_ref.outputs.message }} by ${{ steps.extract_git_ref.outputs.author }}
+          chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
+          token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
+          text:      '❗ preview '
+          link-url:  ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+          link-text: 'v${{ needs.prepare.outputs.version }}'
+          suffix:    ' failed on ${{ steps.extract_git_ref.outputs.branch }} — by ${{ steps.extract_git_ref.outputs.author }}'
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed
