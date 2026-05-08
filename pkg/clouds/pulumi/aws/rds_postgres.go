@@ -36,16 +36,11 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
-		// AWS RDS `storage_encrypted` is IMMUTABLE — changing it from
-		// false to true triggers a full replacement of the instance,
-		// which destroys the underlying volume and all its data. New
-		// instances created from now on get encryption (see
-		// `StorageEncrypted: sdk.Bool(true)` below); existing
-		// pre-encryption instances are left alone via this ignore-
-		// changes so an SC upgrade does not nuke a customer's database.
-		// Customers who want to encrypt an existing instance should
-		// snapshot → copy snapshot with encryption enabled → restore
-		// from the encrypted snapshot, then re-import into Pulumi.
+		// See rds_mysql.go for the full rationale. Same shape applies
+		// to postgres: opt-in via `PostgresConfig.StorageEncrypted`
+		// (nil = AWS default = unencrypted, pre-2026.5 SC behaviour),
+		// and `IgnoreChanges` silences drift so flipping the bit on
+		// an existing stack does not trigger a destructive replacement.
 		sdk.IgnoreChanges([]string{"storageEncrypted"}),
 	}
 
@@ -122,8 +117,9 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		Username:          sdk.String(lo.If(postgresCfg.Username != "", postgresCfg.Username).Else("postgres")),
 		Password:          sdk.String(lo.If(postgresCfg.Password != "", postgresCfg.Password).Else("postgres")),
 		SkipFinalSnapshot: sdk.Bool(true),
-		StorageEncrypted:  sdk.Bool(true),
-		Tags:              tags,
+		// nil → false (legacy default). See PostgresConfig.StorageEncrypted.
+		StorageEncrypted: sdk.Bool(lo.FromPtr(postgresCfg.StorageEncrypted)),
+		Tags:             tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create rds postgres instance")
