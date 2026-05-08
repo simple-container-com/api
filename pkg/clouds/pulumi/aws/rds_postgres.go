@@ -36,6 +36,12 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
+		// See rds_mysql.go for the full rationale. Same shape applies
+		// to postgres: opt-in via `PostgresConfig.StorageEncrypted`
+		// (nil = AWS default = unencrypted, pre-2026.5 SC behaviour),
+		// and `IgnoreChanges` silences drift so flipping the bit on
+		// an existing stack does not trigger a destructive replacement.
+		sdk.IgnoreChanges([]string{"storageEncrypted"}),
 	}
 
 	tags := pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
@@ -111,7 +117,9 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		Username:          sdk.String(lo.If(postgresCfg.Username != "", postgresCfg.Username).Else("postgres")),
 		Password:          sdk.String(lo.If(postgresCfg.Password != "", postgresCfg.Password).Else("postgres")),
 		SkipFinalSnapshot: sdk.Bool(true),
-		Tags:              tags,
+		// nil → false (legacy default). See PostgresConfig.StorageEncrypted.
+		StorageEncrypted: sdk.Bool(lo.FromPtr(postgresCfg.StorageEncrypted)),
+		Tags:             tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create rds postgres instance")
