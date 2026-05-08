@@ -103,7 +103,7 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 		f, err := os.Open(path.Join(syncDir, copyPath))
 		if err != nil {
 			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
-			return fmt.Errorf("os.Open: %v", err)
+			return fmt.Errorf("os.Open: %w", err)
 		}
 		defer func(f *os.File) {
 			_ = f.Close()
@@ -113,12 +113,12 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 		bytesCopied, err := io.Copy(wc, f)
 		if err != nil {
 			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
-			return fmt.Errorf("io.Copy: %v", err)
+			return fmt.Errorf("io.Copy: %w", err)
 		}
 		totalBytes.Add(bytesCopied)
 		if err := wc.Close(); err != nil {
 			params.Log.Error(ctx, color.RedFmt("Error closing bucket object %s: %v", filePath, err))
-			return fmt.Errorf("Writer.Close: %v", err)
+			return fmt.Errorf("Writer.Close: %w", err)
 		}
 		var contentType string
 		if attrs, err := updateContentType(ctx, object, filePath); err != nil {
