@@ -36,6 +36,17 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
+		// AWS RDS `storage_encrypted` is IMMUTABLE — changing it from
+		// false to true triggers a full replacement of the instance,
+		// which destroys the underlying volume and all its data. New
+		// instances created from now on get encryption (see
+		// `StorageEncrypted: sdk.Bool(true)` below); existing
+		// pre-encryption instances are left alone via this ignore-
+		// changes so an SC upgrade does not nuke a customer's database.
+		// Customers who want to encrypt an existing instance should
+		// snapshot → copy snapshot with encryption enabled → restore
+		// from the encrypted snapshot, then re-import into Pulumi.
+		sdk.IgnoreChanges([]string{"storageEncrypted"}),
 	}
 
 	tags := pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
