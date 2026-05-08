@@ -18,9 +18,9 @@ jobs:
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: fregante/setup-git-user@v2
+      - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: install sc tool
@@ -103,7 +103,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: create build directories
@@ -143,7 +143,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: create build directories
@@ -168,7 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: build github-actions-staging
@@ -189,7 +189,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: test
