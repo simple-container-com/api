@@ -36,6 +36,21 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
+		// AWS RDS `storage_encrypted` is IMMUTABLE — flipping it from
+		// false to true triggers a full replacement of the instance,
+		// which destroys the underlying volume and all its data.
+		//
+		// The `StorageEncrypted` config field below is opt-in (nil =
+		// keep AWS default = unencrypted, preserving pre-2026.5 SC
+		// behaviour). But even with opt-in semantics on the SC side,
+		// once a customer flips the bit on a stack with a pre-existing
+		// unencrypted instance, Pulumi would still propose a destructive
+		// replacement. This `IgnoreChanges` silences that drift so a
+		// config change does NOT nuke the database. Customers who want
+		// to genuinely migrate an existing unencrypted RDS to encrypted
+		// must do it out-of-band: snapshot → encrypted-copy → restore →
+		// re-import. Documented on `MysqlConfig.StorageEncrypted`.
+		sdk.IgnoreChanges([]string{"storageEncrypted"}),
 	}
 
 	tags := pApi.BuildTagsFromStackParams(*input.StackParams).ToAWSTags()
@@ -118,7 +133,9 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		Username:          sdk.String(lo.If(dbConfig.Username != "", dbConfig.Username).Else("root")),
 		Password:          sdk.String(lo.If(dbConfig.Password != "", dbConfig.Password).Else("root")),
 		SkipFinalSnapshot: sdk.Bool(true),
-		Tags:              tags,
+		// nil → false (legacy default). See MysqlConfig.StorageEncrypted.
+		StorageEncrypted: sdk.Bool(lo.FromPtr(dbConfig.StorageEncrypted)),
+		Tags:             tags,
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create rds mysql instance")
