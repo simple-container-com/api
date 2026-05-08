@@ -118,6 +118,7 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		Username:          sdk.String(lo.If(dbConfig.Username != "", dbConfig.Username).Else("root")),
 		Password:          sdk.String(lo.If(dbConfig.Password != "", dbConfig.Password).Else("root")),
 		SkipFinalSnapshot: sdk.Bool(true),
+		StorageEncrypted:  sdk.Bool(true),
 		Tags:              tags,
 	}, opts...)
 	if err != nil {

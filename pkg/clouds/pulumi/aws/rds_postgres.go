@@ -111,6 +111,7 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		Username:          sdk.String(lo.If(postgresCfg.Username != "", postgresCfg.Username).Else("postgres")),
 		Password:          sdk.String(lo.If(postgresCfg.Password != "", postgresCfg.Password).Else("postgres")),
 		SkipFinalSnapshot: sdk.Bool(true),
+		StorageEncrypted:  sdk.Bool(true),
 		Tags:              tags,
 	}, opts...)
 	if err != nil {
