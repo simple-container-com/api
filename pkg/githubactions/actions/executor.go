@@ -36,10 +36,18 @@ func NewExecutor(prov provisioner.Provisioner, log logger.Logger, gitRepo git.Re
 	return executor
 }
 
-// isPreviewMode checks if the executor should run in preview/dry-run mode
+// isPreviewMode checks if the executor should run in preview/dry-run mode.
+// Returns true when any of the following env vars are set to "true":
+//   - PREVIEW_ONLY      — explicit opt-in via the deploy-client-stack action's `preview-only` input
+//   - SC_PREVIEW        — legacy SC alias
+//   - SC_DRY_RUN        — legacy SC alias
+//   - DRY_RUN           — generic alias
+//   - SC_DEPLOY_PREVIEW — legacy SC alias
+//
+// Also returns true when GITHUB_EVENT_NAME is "pull_request" (auto-preview on PR builds).
 func (e *Executor) isPreviewMode() bool {
-	// Check various environment variables that indicate preview mode
-	return os.Getenv("SC_PREVIEW") == "true" ||
+	return os.Getenv("PREVIEW_ONLY") == "true" ||
+		os.Getenv("SC_PREVIEW") == "true" ||
 		os.Getenv("SC_DRY_RUN") == "true" ||
 		os.Getenv("DRY_RUN") == "true" ||
 		os.Getenv("SC_DEPLOY_PREVIEW") == "true" ||
