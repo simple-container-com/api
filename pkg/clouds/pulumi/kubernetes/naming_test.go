@@ -455,7 +455,7 @@ func TestCaddyDeploymentNameForChild(t *testing.T) {
 		},
 		{
 			name:      "sub-env stack targets parent's caddy",
-			stackEnv:  "gl-pay",
+			stackEnv:  "tenant-a",
 			parentEnv: "production",
 			expected:  "caddy-production",
 		},
@@ -530,6 +530,121 @@ func TestIsCustomStack(t *testing.T) {
 				t.Errorf("isCustomStack() = %v, expected %v", result, tt.expected)
 			}
 		})
+	}
+}
+
+// TestGenerateNamespaceName covers the namespace derivation that gives custom stacks
+// (parentEnv != stackEnv) their own physical k8s namespace, while leaving standard
+// stacks on the stackName-based namespace. Includes regression cases for the
+// shared-namespace outage class where production parentEnv plus several sibling
+// sub-env stacks (tenant-a/tenant-b/tenant-c/preview-test/...) all collided in one
+// namespace, so destroying any sibling cascade-deleted the rest.
+func TestGenerateNamespaceName(t *testing.T) {
+	tests := []struct {
+		name          string
+		baseNamespace string
+		stackEnv      string
+		parentEnv     string
+		expected      string
+	}{
+		{
+			name:          "standard stack - no parentEnv",
+			baseNamespace: "myapp",
+			stackEnv:      "staging",
+			parentEnv:     "",
+			expected:      "myapp",
+		},
+		{
+			name:          "self-reference - parentEnv equals stackEnv",
+			baseNamespace: "myapp",
+			stackEnv:      "production",
+			parentEnv:     "production",
+			expected:      "myapp",
+		},
+		{
+			name:          "custom stack - sub-env under production",
+			baseNamespace: "myapp",
+			stackEnv:      "tenant-a",
+			parentEnv:     "production",
+			expected:      "myapp-tenant-a",
+		},
+		{
+			// Realistic stackNames often contain underscores; the namespace must be
+			// sanitized to RFC 1123 so callers can pass the result directly into
+			// metadata.namespace without their own sanitization step.
+			name:          "underscores in stackName get normalized",
+			baseNamespace: "my_app",
+			stackEnv:      "tenant-a",
+			parentEnv:     "production",
+			expected:      "my-app-tenant-a",
+		},
+		{
+			name:          "uppercase gets lowercased",
+			baseNamespace: "MyApp",
+			stackEnv:      "TenantA",
+			parentEnv:     "production",
+			expected:      "myapp-tenanta",
+		},
+		{
+			name:          "custom stack - PR preview under staging",
+			baseNamespace: "api",
+			stackEnv:      "staging-pr-123",
+			parentEnv:     "staging",
+			expected:      "api-staging-pr-123",
+		},
+		{
+			name:          "custom stack - throwaway test sibling",
+			baseNamespace: "myapp",
+			stackEnv:      "preview-test",
+			parentEnv:     "production",
+			expected:      "myapp-preview-test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateNamespaceName(tt.baseNamespace, tt.stackEnv, tt.parentEnv)
+			if got != tt.expected {
+				t.Errorf("GenerateNamespaceName(%q, %q, %q) = %q, expected %q",
+					tt.baseNamespace, tt.stackEnv, tt.parentEnv, got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestGenerateNamespaceName_SiblingsAreUnique is the direct regression test for the
+// shared-namespace outage: every sub-env stack under one stackName must resolve to
+// a distinct namespace, while the parent (parentEnv == stackEnv) keeps its existing
+// namespace. This mirrors the production scenario where one parent env hosted
+// multiple tenant sub-envs plus a throwaway test sub-env, all sharing one namespace.
+func TestGenerateNamespaceName_SiblingsAreUnique(t *testing.T) {
+	baseNamespace := "myapp"
+	parentEnv := "production"
+
+	siblings := []struct {
+		stackEnv         string
+		expectedNamespace string
+	}{
+		{"production", "myapp"},
+		{"tenant-a", "myapp-tenant-a"},
+		{"tenant-b", "myapp-tenant-b"},
+		{"tenant-c", "myapp-tenant-c"},
+		{"tenant-d", "myapp-tenant-d"},
+		{"preview-test", "myapp-preview-test"},
+	}
+
+	seen := make(map[string]string)
+	for _, s := range siblings {
+		got := GenerateNamespaceName(baseNamespace, s.stackEnv, parentEnv)
+		if got != s.expectedNamespace {
+			t.Errorf("stackEnv=%q: got namespace %q, expected %q",
+				s.stackEnv, got, s.expectedNamespace)
+		}
+		if prior, dup := seen[got]; dup {
+			t.Errorf("stackEnv=%q produced namespace %q already used by stackEnv=%q — "+
+				"siblings must not share a namespace", s.stackEnv, got, prior)
+		}
+		seen[got] = s.stackEnv
 	}
 }
 
