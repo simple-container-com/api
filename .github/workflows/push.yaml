@@ -106,12 +106,12 @@ jobs:
           echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
           echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: save schemas cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
       - name: upload bin directory artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: bin-tools
           path: bin
@@ -155,7 +155,7 @@ jobs:
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
       - name: upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
           # Match both versioned (sc-os-arch-vX.Y.Z.tar.gz) AND unversioned (sc-os-arch.tar.gz).
@@ -198,7 +198,7 @@ jobs:
         run: |
           go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
@@ -224,7 +224,7 @@ jobs:
           mkdir -p bin
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
       - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: github-actions-staging-binary
           path: bin/github-actions
@@ -255,7 +255,7 @@ jobs:
         with:
           persist-credentials: false
       - name: restore cached schemas
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
@@ -263,7 +263,7 @@ jobs:
         run: |
           docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
       - name: upload docs artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: docs-site
           path: docs/site
@@ -305,19 +305,19 @@ jobs:
           persist-credentials: false
       - name: download github-actions-staging binary
         if: matrix.image == 'github-actions-staging'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: github-actions-staging-binary
           path: bin
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: github-actions-binary
           path: dist
       - name: download cloud-helpers binary
         if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: cloud-helpers-binary
           path: dist
@@ -383,18 +383,18 @@ jobs:
           EOF
           sc secrets reveal
       - name: download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: artifacts
       - name: download bin tools artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: bin-tools
           path: bin
       - name: fix bin tools permissions
         run: chmod +x bin/*
       - name: download docs artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: docs-site
           path: docs/site
