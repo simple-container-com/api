@@ -40,16 +40,18 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		// false to true triggers a full replacement of the instance,
 		// which destroys the underlying volume and all its data.
 		//
-		// The `StorageEncrypted` config field below is opt-in (nil =
-		// keep AWS default = unencrypted, preserving pre-2026.5 SC
-		// behaviour). But even with opt-in semantics on the SC side,
-		// once a customer flips the bit on a stack with a pre-existing
-		// unencrypted instance, Pulumi would still propose a destructive
-		// replacement. This `IgnoreChanges` silences that drift so a
-		// config change does NOT nuke the database. Customers who want
-		// to genuinely migrate an existing unencrypted RDS to encrypted
-		// must do it out-of-band: snapshot → encrypted-copy → restore →
-		// re-import. Documented on `MysqlConfig.StorageEncrypted`.
+		// New instances default to ENCRYPTED (CIS-AWS RDS.3); the
+		// resolved spec for `StorageEncrypted` is `true` whenever the
+		// caller didn't explicitly set `false` (see the call site
+		// below). For existing stacks that were created unencrypted,
+		// the default flip would otherwise propose a destructive
+		// replacement on the next `pulumi up`. `IgnoreChanges` silences
+		// that storage_encrypted drift so an upgrade of SC does NOT
+		// nuke the database — Pulumi treats the desired value as the
+		// recorded state value for the diff. Customers who want to
+		// genuinely migrate an existing unencrypted RDS to encrypted
+		// must do it out-of-band: snapshot → encrypted-copy → restore
+		// → re-import. Documented on `MysqlConfig.StorageEncrypted`.
 		sdk.IgnoreChanges([]string{"storageEncrypted"}),
 	}
 
@@ -133,8 +135,11 @@ func RdsMysql(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		Username:          sdk.String(lo.If(dbConfig.Username != "", dbConfig.Username).Else("root")),
 		Password:          sdk.String(lo.If(dbConfig.Password != "", dbConfig.Password).Else("root")),
 		SkipFinalSnapshot: sdk.Bool(true),
-		// nil → false (legacy default). See MysqlConfig.StorageEncrypted.
-		StorageEncrypted: sdk.Bool(lo.FromPtr(dbConfig.StorageEncrypted)),
+		// nil → true (secure-by-default per CIS-AWS RDS.3). Existing
+		// unencrypted instances are protected from destructive
+		// replacement by `IgnoreChanges([]string{"storageEncrypted"})`
+		// in opts above. See MysqlConfig.StorageEncrypted.
+		StorageEncrypted: sdk.Bool(lo.FromPtrOr(dbConfig.StorageEncrypted, true)),
 		Tags:             tags,
 	}, opts...)
 	if err != nil {
