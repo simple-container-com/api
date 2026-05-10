@@ -18,6 +18,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Get next version
         uses: reecetech/version-increment@71036b212bbdc100b48aae069870f10953433346  # 2023.10.2
         id: base-version
@@ -41,6 +43,8 @@ jobs:
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
@@ -68,8 +72,9 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
           SKIP_EMBEDDINGS: "true"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |-
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          gh auth setup-git
           welder run rebuild
       - name: clean
         run: |
@@ -125,6 +130,8 @@ jobs:
             arch: amd64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -167,6 +174,8 @@ jobs:
             output: dist/cloud-helpers
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -193,6 +202,8 @@ jobs:
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -218,6 +229,8 @@ jobs:
             tag_prefix: "simplecontainer/cloud-helpers:aws-"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: download ${{ matrix.target }} binary
         uses: actions/download-artifact@v4
         with:
@@ -238,7 +251,6 @@ jobs:
         with:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
-          buildkitd-flags: --allow-insecure-entitlement security.insecure
       - name: Disable IPv6 (Blacksmith runners have broken IPv6 to Docker Hub)
         run: sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
       - name: Docker login using SC secrets
@@ -266,6 +278,8 @@ jobs:
     needs: [prepare, build-setup, build-platforms, test]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: download all sc platform artifacts
         uses: actions/download-artifact@v4
         with:
@@ -317,11 +331,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
-      - name: configure git remote with token
+      - name: configure git credential helper
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          gh auth setup-git
       - name: create release branch and update action.yml image tags
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -362,6 +379,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         if: ${{ always() }}
+        with:
+          persist-credentials: false
 
       - name: Extract git reference
         id: extract_git_ref

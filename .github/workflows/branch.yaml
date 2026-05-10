@@ -1,4 +1,13 @@
 name: Build simple-container in branch
+# GitHub does not pass repository secrets to workflows triggered by fork
+# PRs (only same-repo branches), so the practical attack surface for the
+# rule below is limited to internal collaborators with push access. The
+# PR-validation job requires `secrets.SC_CONFIG` to decrypt the SC config
+# and run integration-style tests against shared infra. Splitting this
+# into a workflow_run-gated secret-using job is the proper fix and is
+# tracked separately; until then this is accepted defense-in-depth risk
+# for trusted contributors.
+# nosemgrep: gha-pull-request-uses-non-token-secret
 on:
   workflow_dispatch:
   pull_request:
@@ -18,6 +27,8 @@ jobs:
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
@@ -45,8 +56,9 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
           SKIP_EMBEDDINGS: "true"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |-
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          gh auth setup-git
           welder run rebuild
       - name: clean
         run: |
@@ -102,6 +114,8 @@ jobs:
             arch: amd64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -142,6 +156,8 @@ jobs:
             output: dist/cloud-helpers
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -167,6 +183,8 @@ jobs:
     needs: build-setup
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -188,6 +206,8 @@ jobs:
     needs: build-setup
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
@@ -211,6 +231,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         if: ${{ always() }}
+        with:
+          persist-credentials: false
 
       - name: Extract git reference
         id: extract_git_ref
