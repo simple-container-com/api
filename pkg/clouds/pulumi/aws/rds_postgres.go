@@ -37,10 +37,11 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 	opts := []sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		// See rds_mysql.go for the full rationale. Same shape applies
-		// to postgres: opt-in via `PostgresConfig.StorageEncrypted`
-		// (nil = AWS default = unencrypted, pre-2026.5 SC behaviour),
-		// and `IgnoreChanges` silences drift so flipping the bit on
-		// an existing stack does not trigger a destructive replacement.
+		// to postgres: new instances default to ENCRYPTED via
+		// `PostgresConfig.StorageEncrypted` (nil = secure-by-default
+		// per CIS-AWS RDS.3), and `IgnoreChanges` silences drift so
+		// the default flip does not propose a destructive replacement
+		// on existing unencrypted stacks.
 		sdk.IgnoreChanges([]string{"storageEncrypted"}),
 	}
 
@@ -117,8 +118,11 @@ func RdsPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		Username:          sdk.String(lo.If(postgresCfg.Username != "", postgresCfg.Username).Else("postgres")),
 		Password:          sdk.String(lo.If(postgresCfg.Password != "", postgresCfg.Password).Else("postgres")),
 		SkipFinalSnapshot: sdk.Bool(true),
-		// nil → false (legacy default). See PostgresConfig.StorageEncrypted.
-		StorageEncrypted: sdk.Bool(lo.FromPtr(postgresCfg.StorageEncrypted)),
+		// nil → true (secure-by-default per CIS-AWS RDS.3). Existing
+		// unencrypted instances are protected from destructive
+		// replacement by `IgnoreChanges([]string{"storageEncrypted"})`
+		// in opts above. See PostgresConfig.StorageEncrypted.
+		StorageEncrypted: sdk.Bool(lo.FromPtrOr(postgresCfg.StorageEncrypted, true)),
 		Tags:             tags,
 	}, opts...)
 	if err != nil {
