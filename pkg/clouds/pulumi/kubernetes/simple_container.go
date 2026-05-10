@@ -216,7 +216,25 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Sanitize namespace name to comply with Kubernetes RFC 1123 requirements
 	sanitizedNamespace := sanitizeK8sName(args.Namespace)
 	// Use deployment name as Pulumi resource name to ensure uniqueness across environments
-	// while keeping the actual K8s namespace name as specified by the user
+	// while keeping the actual K8s namespace name as specified by the user.
+	//
+	// RetainOnDelete: in legacy deploys, sub-env client stacks (e.g. parentEnv=production
+	// with stackEnv=tenant-a/tenant-b/...) shared one physical K8s namespace because the
+	// namespace metadata.Name was derived from stackName, not from stackEnv. Each stack
+	// tracked its own Pulumi Namespace resource with a unique URN, but they all referenced
+	// the same physical k8s namespace. Without RetainOnDelete, destroying any single
+	// sub-env stack would cascade-delete the shared namespace and wipe every sibling
+	// stack's resources (Deployments, Services, Secrets) — a real production outage when
+	// a throwaway sub-env destroy took down all live siblings.
+	//
+	// GenerateNamespaceName now isolates custom stacks per-stackEnv, but RetainOnDelete
+	// remains load-bearing for the migration step: when a pre-existing custom stack
+	// first runs `pulumi up` after this version, Pulumi Replaces the namespace, and the
+	// old shared namespace must NOT be deleted because the parent stack still lives
+	// there. Post-migration, RetainOnDelete continues to defend against any case where
+	// multiple stacks legitimately share a namespace (helm operators, explicit
+	// `Namespace` overrides). Empty namespaces left after the last referencing stack
+	// is destroyed must be cleaned up by hand.
 	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
 	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
@@ -224,7 +242,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
-	}, opts...)
+	}, append(opts, sdk.RetainOnDelete(true))...)
 	if err != nil {
 		return nil, err
 	}

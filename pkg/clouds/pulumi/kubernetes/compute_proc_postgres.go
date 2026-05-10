@@ -210,7 +210,15 @@ func createPostgresUserForDatabase(ctx *sdk.Context, userName, dbName string, pa
 		return nil, errors.Wrapf(err, "failed to parse postgres url for database %q", dbName)
 	}
 
-	namespace := params.input.StackParams.StackName
+	// The init job must run in the same namespace as the consuming pod so it can be
+	// observed and cleaned up alongside the workload. For custom stacks (parentEnv != stackEnv)
+	// the pod lives in `<stackName>-<stackEnv>` per GenerateNamespaceName, so derive the same
+	// namespace here. Standard stacks keep the existing `<stackName>` namespace.
+	parentEnv := ""
+	if params.provisionParams.ParentStack != nil {
+		parentEnv = params.provisionParams.ParentStack.ParentEnv
+	}
+	namespace := GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv)
 
 	params.collector.AddPreProcessor(&SimpleContainerArgs{}, func(c any) error {
 		_, err = NewPostgresInitDbUserJob(ctx, userName, InitDbUserJobArgs{

@@ -45,7 +45,10 @@ func sanitizeK8sName(name string) string {
 }
 
 func ensureNamespace(ctx *sdk.Context, input api.ResourceInput, params pApi.ProvisionParams, namespace string) (*corev1.Namespace, error) {
-	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
+	// RetainOnDelete: see the rationale at simple_container.go's NewNamespace call —
+	// helm operator stacks share namespaces across sibling stacks the same way client
+	// stacks do, so the destroy-cascade hazard is identical here.
+	opts := []sdk.ResourceOption{sdk.Provider(params.Provider), sdk.RetainOnDelete(true)}
 	sanitizedNamespace := sanitizeK8sName(namespace)
 	return corev1.NewNamespace(ctx, fmt.Sprintf("create-ns-%s-%s", sanitizedNamespace, input.ToResName(input.Descriptor.Name)), &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{

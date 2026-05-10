@@ -300,6 +300,15 @@ sc deploy -s myservice -e staging
 
 ✅ The service is **automatically deployed to GKE Autopilot** using the defined settings.
 
+### **Namespace layout**
+
+Simple Container derives the Kubernetes namespace automatically from `stackName` and `stackEnv`:
+
+- **Standard stacks** (no `parentEnv`, or `parentEnv` equals `stackEnv`) deploy to `<stackName>`.
+- **Custom stacks** (`parentEnv` differs from `stackEnv`, e.g. tenant-style sub-envs under one parent) deploy to `<stackName>-<stackEnv>`, so siblings never share a namespace.
+
+This isolation is automatic and is what makes `sc destroy -s myservice -e <env>` safe — it only removes resources in that env's own namespace, leaving the parent stack and other siblings untouched. See **[Kubernetes Namespace Layout](../concepts/kubernetes-namespaces.md)** for the full rule, worked examples, and migration notes for stacks deployed before this behavior was introduced.
+
 ---
 
 # **7️⃣ Advanced Configuration: Vertical Pod Autoscaler (VPA)**
