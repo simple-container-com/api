@@ -34,7 +34,7 @@ func NewDockerPull(ctx *sdk.Context, name string, args *PullArgs, opts ...sdk.Re
 		return nil, err
 	}
 
-	dockerAPI, err := client.New(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerAPI, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}
