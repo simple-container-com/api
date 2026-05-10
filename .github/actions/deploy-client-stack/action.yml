@@ -54,6 +54,10 @@ inputs:
     description: 'Skip Pulumi refresh operation before deployment'
     required: false
     default: 'false'
+  preview-only:
+    description: 'Run pulumi preview (dry-run) instead of pulumi up. Outputs the diff and exits without applying any changes.'
+    required: false
+    default: 'false'
 
 outputs:
   version:
@@ -66,6 +70,8 @@ outputs:
     description: 'Deployment duration'
   status:
     description: 'Deployment status (success/failure)'
+  preview-mode:
+    description: 'Whether the run executed in preview/dry-run mode (true/false)'
 
 runs:
   using: 'docker'
@@ -86,3 +92,4 @@ runs:
     COMMIT_AUTHOR: ${{ inputs.commit-author }}
     COMMIT_MESSAGE: ${{ inputs.commit-message }}
     SKIP_REFRESH: ${{ inputs.skip-refresh }}
+    PREVIEW_ONLY: ${{ inputs.preview-only }}
