@@ -305,19 +305,19 @@ jobs:
           persist-credentials: false
       - name: download github-actions-staging binary
         if: matrix.image == 'github-actions-staging'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: github-actions-staging-binary
           path: bin
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: github-actions-binary
           path: dist
       - name: download cloud-helpers binary
         if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: cloud-helpers-binary
           path: dist
@@ -383,18 +383,18 @@ jobs:
           EOF
           sc secrets reveal
       - name: download all build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           path: artifacts
       - name: download bin tools artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: bin-tools
           path: bin
       - name: fix bin tools permissions
         run: chmod +x bin/*
       - name: download docs artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: docs-site
           path: docs/site
