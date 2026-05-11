@@ -7,8 +7,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege root (CIS GHA 1.2). Tag-pushing / deploy jobs grant
+# `contents: write` per-job below: `publish-sc-preview` (welder deploy),
+# `publish-git-tag` (git push tag), and `finalize` (notify/comment).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   prepare:
@@ -276,6 +279,8 @@ jobs:
     # Does not need docker-build — SC binary publishing is independent of the Docker image.
     # Runs in parallel with publish-git-tag.
     needs: [prepare, build-setup, build-platforms, test]
+    permissions:
+      contents: write  # welder deploy reads release artifacts + updates dist
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -328,6 +333,8 @@ jobs:
     # Only needs docker-build — the tag must point to a commit referencing a published Docker image.
     # Does not need build-platforms or publish-sc-preview. Runs in parallel with publish-sc-preview.
     needs: [prepare, docker-build]
+    permissions:
+      contents: write  # commits the release branch + pushes the preview tag
     # GH_TOKEN must be visible to every step that runs git (checkout, commit,
     # push) because `gh auth setup-git` installs `gh auth git-credential` as
     # the credential helper — and that helper reads $GH_TOKEN from the
