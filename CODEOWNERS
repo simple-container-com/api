@@ -1,0 +1,65 @@
+# https://docs.github.com/en/repositories/managing-your-repositories-settings-and-customization/customizing-your-repository/about-code-owners
+#
+# CODEOWNERS for simple-container-com/api. Two human reviewers are
+# enforced on security-critical paths; broad repo defaults are kept to
+# either lead to minimise PR-stall.
+#
+# Tip: GitHub picks the LAST matching pattern in this file for a given
+# file path — ordering matters. Put broad defaults at the top and
+# specific high-sensitivity globs at the bottom so they win.
+
+# ---------------------------------------------------------------------
+# Default — every file needs at least one lead's review.
+# ---------------------------------------------------------------------
+*                                       @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# CI / supply-chain — both leads required, no auto-merge with one
+# approval. Touching these files changes how every release is built
+# and how secrets reach the runner.
+# ---------------------------------------------------------------------
+/.github/                               @Cre-eD @smecsia
+/.github/workflows/                     @Cre-eD @smecsia
+/.github/actions/                       @Cre-eD @smecsia
+/.github/dependabot.yml                 @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Image build context.
+# ---------------------------------------------------------------------
+/*.Dockerfile                           @Cre-eD @smecsia
+/welder.yaml                            @Cre-eD @smecsia
+/sc.sh                                  @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Security pipeline source — code that signs, scans, attests, and
+# decides what gets blocked. Tamper with this and the whole consumer
+# supply chain weakens.
+# ---------------------------------------------------------------------
+/pkg/security/                          @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Secrets / config plumbing.
+# ---------------------------------------------------------------------
+/pkg/api/secrets/                       @Cre-eD @smecsia
+/pkg/cmd/cmd_secrets/                   @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Cloud provisioning — IAM and resource defaults that ship to every
+# consumer account.
+# ---------------------------------------------------------------------
+/pkg/clouds/pulumi/aws/                 @Cre-eD @smecsia
+/pkg/clouds/pulumi/gcp/                 @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Module graph — dep bumps need security review (see
+# `feedback_sc_ci_tools_step` for the CI-quirk caveat).
+# ---------------------------------------------------------------------
+/go.mod                                 @Cre-eD @smecsia
+/go.sum                                 @Cre-eD @smecsia
+/tools.go                               @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# This policy + ownership file itself.
+# ---------------------------------------------------------------------
+/SECURITY.md                            @Cre-eD @smecsia
+/CODEOWNERS                             @Cre-eD @smecsia

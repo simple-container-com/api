@@ -326,3 +326,179 @@ func TestCacheKeyPath(t *testing.T) {
 func containsSubstring(s, substr string) bool {
 	return filepath.Base(filepath.Dir(s)) == substr || filepath.Base(s) == substr
 }
+
+// ---------------------------------------------------------------------
+// HMAC integrity tests (Phase 5 — replaces the prior mtime tamper check).
+// ---------------------------------------------------------------------
+
+func TestCacheHMACKeyPersisted(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+
+	cache1, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(cache1.key).To(HaveLen(hmacKeyLen))
+
+	keyPath := filepath.Join(dir, hmacKeyFilename)
+	stat, err := os.Stat(keyPath)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stat.Size()).To(Equal(int64(hmacKeyLen)))
+	Expect(stat.Mode().Perm()).To(Equal(os.FileMode(0o600)))
+
+	// Re-open the same dir: must reuse the existing key, not regenerate.
+	cache2, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(cache2.key).To(Equal(cache1.key))
+}
+
+func TestCacheHMACKeyWrongSizeRejected(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	// Pre-seed a truncated key file.
+	Expect(os.WriteFile(filepath.Join(dir, hmacKeyFilename), []byte("short"), 0o600)).To(Succeed())
+
+	_, err := NewCache(dir)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("hmac key"))
+}
+
+func TestCacheTamperDetection(t *testing.T) {
+	RegisterTestingT(t)
+
+	cache, err := NewCache(t.TempDir())
+	Expect(err).ToNot(HaveOccurred())
+
+	key := CacheKey{Operation: "sbom", ImageDigest: "sha256:tamper", ConfigHash: "h"}
+	Expect(cache.Set(key, []byte("original"))).To(Succeed())
+
+	path := cache.getPath(key)
+	raw, err := os.ReadFile(path)
+	Expect(err).ToNot(HaveOccurred())
+
+	var sig signedEntry
+	Expect(json.Unmarshal(raw, &sig)).To(Succeed())
+
+	// Tamper the entry data; leave the MAC alone — HMAC must catch it.
+	sig.Entry.Data = []byte("malicious")
+	tampered, err := json.Marshal(sig)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(os.WriteFile(path, tampered, 0o600)).To(Succeed())
+
+	got, found, err := cache.Get(key)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "tampered entry must be treated as cache miss")
+	Expect(got).To(BeNil())
+
+	// The corrupt file must also be removed.
+	_, err = os.Stat(path)
+	Expect(os.IsNotExist(err)).To(BeTrue())
+}
+
+func TestCacheMtimeForgeryNoLongerHelpful(t *testing.T) {
+	RegisterTestingT(t)
+
+	cache, err := NewCache(t.TempDir())
+	Expect(err).ToNot(HaveOccurred())
+
+	key := CacheKey{Operation: "sbom", ImageDigest: "sha256:mtime", ConfigHash: "h"}
+	Expect(cache.Set(key, []byte("payload"))).To(Succeed())
+
+	// Advance mtime far into the future — the old code would have
+	// invalidated the entry here. The HMAC-based check ignores mtime,
+	// so the entry must remain valid.
+	path := cache.getPath(key)
+	future := time.Now().Add(48 * time.Hour)
+	Expect(os.Chtimes(path, future, future)).To(Succeed())
+
+	got, found, err := cache.Get(key)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue(), "mtime is no longer load-bearing for integrity")
+	Expect(string(got)).To(Equal("payload"))
+}
+
+func TestCacheKeyMismatchRejectsEntry(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+
+	// Create the cache, write an entry, then swap the HMAC key as if a
+	// different process (or the user's clearing it) had rotated the key.
+	c1, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+	key := CacheKey{Operation: "sbom", ImageDigest: "sha256:k", ConfigHash: "h"}
+	Expect(c1.Set(key, []byte("data"))).To(Succeed())
+
+	// Replace the key file with random bytes of the right length.
+	newKey := make([]byte, hmacKeyLen)
+	newKey[0] = 0xff
+	Expect(os.WriteFile(filepath.Join(dir, hmacKeyFilename), newKey, 0o600)).To(Succeed())
+
+	c2, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+
+	got, found, err := c2.Get(key)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "entry signed under the previous key must fail verification")
+	Expect(got).To(BeNil())
+}
+
+func TestCacheLegacyUnsignedEntryDiscarded(t *testing.T) {
+	RegisterTestingT(t)
+
+	cache, err := NewCache(t.TempDir())
+	Expect(err).ToNot(HaveOccurred())
+
+	key := CacheKey{Operation: "sbom", ImageDigest: "sha256:legacy", ConfigHash: "h"}
+	path := cache.getPath(key)
+	Expect(os.MkdirAll(filepath.Dir(path), 0o700)).To(Succeed())
+
+	// Simulate a pre-HMAC entry: just the unwrapped CacheEntry shape.
+	legacy := CacheEntry{
+		Key:       key,
+		Data:      []byte("pre-hmac"),
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	legacyBytes, err := json.Marshal(legacy)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(os.WriteFile(path, legacyBytes, 0o600)).To(Succeed())
+
+	got, found, err := cache.Get(key)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "legacy unsigned entries must be discarded on upgrade")
+	Expect(got).To(BeNil())
+
+	_, err = os.Stat(path)
+	Expect(os.IsNotExist(err)).To(BeTrue())
+}
+
+func TestCacheCleanSkipsHMACKey(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	cache, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+
+	keyPath := filepath.Join(dir, hmacKeyFilename)
+	keyBefore, err := os.ReadFile(keyPath)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Drop in a corrupt entry that Clean would normally remove.
+	cKey := CacheKey{Operation: "sbom", ImageDigest: "sha256:c", ConfigHash: "h"}
+	cPath := cache.getPath(cKey)
+	Expect(os.MkdirAll(filepath.Dir(cPath), 0o700)).To(Succeed())
+	Expect(os.WriteFile(cPath, []byte("not json"), 0o600)).To(Succeed())
+
+	Expect(cache.Clean()).To(Succeed())
+
+	// The HMAC key must survive.
+	keyAfter, err := os.ReadFile(keyPath)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(keyAfter).To(Equal(keyBefore))
+
+	// The corrupt entry must be gone.
+	_, err = os.Stat(cPath)
+	Expect(os.IsNotExist(err)).To(BeTrue())
+}
