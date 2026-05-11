@@ -90,11 +90,21 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 
 	defaultCaddyFileEntryStart := `http:// {`
+	// Default catch-all serves a hard 503 instead of a static "welcome" page.
+	// Rationale: when all Services with a `simple-container.com/caddyfile-entry`
+	// annotation for a given Host vanish (e.g. a cascade-deletion from a
+	// namespace Replace gone wrong), the request used to fall through to a
+	// `file_server /etc/caddy/pages` block and respond with HTTP 200 + "Default
+	// page". External monitoring saw healthy 200s while every backend was gone.
+	// 503 + Retry-After makes the absence of routes loud: CDNs fail over,
+	// uptime checks alert, oncall sees it.
 	defaultCaddyFileEntry := `
   import gzip
-  import handle_static
-  root * /etc/caddy/pages
-  file_server
+  header Cache-Control "no-store"
+  header Retry-After "60"
+  respond "<!doctype html><meta charset=utf-8><title>503 Service Unavailable</title><style>body{font:20px Helvetica,sans-serif;color:#333;text-align:center;padding:120px}h1{font-size:48px}code{background:#eee;padding:2px 6px;border-radius:3px}</style><h1>503 Service Unavailable</h1><p>No backend route is configured for this host.</p><p>If you are an operator, verify the Service has the <code>simple-container.com/caddyfile-entry</code> annotation and that Caddy has been rolled.</p>" 503 {
+    close
+  }
 `
 	// if caddy must respect SSL connections only
 	useSSL := caddy.UseSSL == nil || *caddy.UseSSL
