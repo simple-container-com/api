@@ -215,12 +215,17 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	      # the old and new Services transiently coexist and both carry the same
 	      # annotation; without dedup that produced two "http://<domain> { ... }"
 	      # blocks and Caddy aborted with "ambiguous site definition".
-	      # pipefail is critical here: a flaky kubectl piped into sort would
-	      # otherwise yield services="" and the init-container would silently
-	      # emit a Caddyfile with only the default block on the next pod
-	      # restart. That's now a 503 (cf. the default block above), but it's
-	      # still a complete loss of routing for the entire cluster — bail
-	      # loud so K8s reschedules the init-container and retries.
+	      # kubectl and sort are split into separate assignments so a kubectl
+	      # failure surfaces unambiguously even without pipefail (originally
+	      # they were piped; pipefail was added in response to a review catch
+	      # and we kept the structural split so future readers don't need to
+	      # know about pipefail to reason about failure modes here). pipefail
+	      # is kept on as belt-and-suspenders for the later `printf | sort`
+	      # and the `printf "%s" "$services" | while read` pipeline below.
+	      # If either listing step fails the init-container exits non-zero
+	      # and K8s reschedules — preferable to a Caddyfile with only the
+	      # default 503 block, which would mean a complete loss of routing
+	      # for the entire cluster.
 	      raw_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
 	      services=$(printf '%s' "$raw_services" | sort -r)
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
