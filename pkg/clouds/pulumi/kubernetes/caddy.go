@@ -200,7 +200,16 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			return envVars
 		}(),
 		Command: sdk.ToStringArray([]string{"bash", "-c", `
-	      set -xeo pipefail;
+	      # set -e (exit on error) + pipefail (any pipe component fail = fail).
+	      # Notably we do NOT enable -x here: tracing every command would dump
+	      # the raw caddyfile-entry annotation body to stdout for every Service
+	      # on every pod restart, which lands in cluster logs (GCP/Datadog/ELK).
+	      # SC-generated annotations don't contain secrets, but consumer-side
+	      # misuse (eg. basicauth credentials in Headers or LbConfig.ExtraHelpers
+	      # that templated into the annotation) could leak via -x. The trade-off
+	      # is debuggability — for live troubleshooting, re-enable -x by
+	      # overriding the init-container command in the cluster.
+	      set -eo pipefail;
 	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
 
 	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
