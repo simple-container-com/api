@@ -178,25 +178,46 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		Command: sdk.ToStringArray([]string{"bash", "-c", `
 	      set -xe;
 	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
-	      
+
 	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
 	      if [ -n "$CADDYFILE_PREFIX" ]; then
 	        echo "$CADDYFILE_PREFIX" >> /tmp/Caddyfile
 	        echo "" >> /tmp/Caddyfile
 	      fi
-	      
-	      # Get all services with Simple Container annotations across all namespaces
-	      services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
+
+	      # List Services carrying the caddyfile-entry annotation. We also pull
+	      # creationTimestamp so we can dedup by site-address with the newest
+	      # Service winning — during a Pulumi Replace of a namespace (or Service),
+	      # the old and new Services transiently coexist and both carry the same
+	      # annotation; without dedup that produced two "http://<domain> { ... }"
+	      # blocks and Caddy aborted with "ambiguous site definition".
+	      services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' | sort -r)
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
           if [ "$USE_PREFIXES" == "false" ]; then
             echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
 	        echo "}" >> /tmp/Caddyfile
           fi
+	      # Dedup state: first non-blank line of each annotation is the site
+	      # address (e.g. "http://support-payhey.pay.space {") or the
+	      # "handle_path /<prefix>*" matcher for prefix routing. Already-seen
+	      # keys are skipped — most-recently-created Service wins via sort -r.
+	      seen=$(mktemp)
+	      trap 'rm -f "$seen"' EXIT
 	      # Process each service that has Caddyfile entry annotation
-	      echo "$services" | while read ns service; do
+	      echo "$services" | while read ts ns service; do
 	          if [ -n "$ns" ] && [ -n "$service" ]; then
+	              entry=$(kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' 2>/dev/null || true)
+	              if [ -z "$entry" ]; then
+	                  continue
+	              fi
+	              key=$(printf '%s\n' "$entry" | awk 'NF{print; exit}')
+	              if [ -n "$key" ] && grep -qFx -- "$key" "$seen" 2>/dev/null; then
+	                  echo "Skipping duplicate caddyfile-entry '$key' from $ns/$service (older Service)"
+	                  continue
+	              fi
+	              [ -n "$key" ] && printf '%s\n' "$key" >> "$seen"
 	              echo "Processing service: $service in namespace: $ns"
-	              kubectl get service -n $ns $service -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> /tmp/Caddyfile || true;
+	              printf '%s\n' "$entry" >> /tmp/Caddyfile
 	              echo "" >> /tmp/Caddyfile
 	          fi
 	      done
