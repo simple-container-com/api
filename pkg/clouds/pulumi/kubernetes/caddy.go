@@ -218,10 +218,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	      # kubectl and sort are split into separate assignments so a kubectl
 	      # failure surfaces unambiguously even without pipefail (originally
 	      # they were piped; pipefail was added in response to a review catch
-	      # and we kept the structural split so future readers don't need to
-	      # know about pipefail to reason about failure modes here). pipefail
-	      # is kept on as belt-and-suspenders for the later `printf | sort`
-	      # and the `printf "%s" "$services" | while read` pipeline below.
+	      # and we kept the structural split so future readers do not need
+	      # to know about pipefail to reason about failure modes here).
+	      # pipefail is kept on as belt-and-suspenders for the later
+	      # printf-to-sort pipe and the printf-to-while-read pipeline below.
 	      # If either listing step fails the init-container exits non-zero
 	      # and K8s reschedules — preferable to a Caddyfile with only the
 	      # default 503 block, which would mean a complete loss of routing
