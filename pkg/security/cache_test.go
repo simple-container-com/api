@@ -474,6 +474,43 @@ func TestCacheLegacyUnsignedEntryDiscarded(t *testing.T) {
 	Expect(os.IsNotExist(err)).To(BeTrue())
 }
 
+// Cross-key copy: a signed file from key A copied to key B's path
+// would have a valid MAC but should NOT satisfy `Get(keyB)`. The
+// embedded CacheKey must match the requested key.
+func TestCacheCrossKeyCopyRejected(t *testing.T) {
+	RegisterTestingT(t)
+
+	cache, err := NewCache(t.TempDir())
+	Expect(err).ToNot(HaveOccurred())
+
+	keyA := CacheKey{Operation: "sbom", ImageDigest: "sha256:A", ConfigHash: "h"}
+	keyB := CacheKey{Operation: "sbom", ImageDigest: "sha256:B", ConfigHash: "h"}
+
+	Expect(cache.Set(keyA, []byte("payload-A"))).To(Succeed())
+
+	// Copy the validly-signed file from A's path to B's path.
+	src, dst := cache.getPath(keyA), cache.getPath(keyB)
+	Expect(os.MkdirAll(filepath.Dir(dst), 0o700)).To(Succeed())
+	bytes, err := os.ReadFile(src)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(os.WriteFile(dst, bytes, 0o600)).To(Succeed())
+
+	got, found, err := cache.Get(keyB)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeFalse(), "MAC alone must not bind a signed file to an arbitrary cache path")
+	Expect(got).To(BeNil())
+
+	// The misplaced copy must be removed.
+	_, err = os.Stat(dst)
+	Expect(os.IsNotExist(err)).To(BeTrue())
+
+	// keyA's own entry must still be intact.
+	got, found, err = cache.Get(keyA)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue())
+	Expect(string(got)).To(Equal("payload-A"))
+}
+
 func TestCacheCleanSkipsHMACKey(t *testing.T) {
 	RegisterTestingT(t)
 

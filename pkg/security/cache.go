@@ -179,6 +179,16 @@ func (c *Cache) Get(key CacheKey) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 
+	// MAC covers the entry content but not the location on disk. A
+	// valid signed file copied from path A to path B would still verify
+	// here, and `Get(keyB)` would return keyA's payload — bypassing the
+	// integrity story for SBOM/scan data. Bind the lookup to the embedded
+	// CacheKey and discard mismatches.
+	if signed.Entry.Key != key {
+		_ = os.Remove(path)
+		return nil, false, nil
+	}
+
 	if time.Now().After(signed.Entry.ExpiresAt) {
 		_ = os.Remove(path)
 		return nil, false, nil
@@ -279,6 +289,13 @@ func (c *Cache) Clean() error {
 
 		entryJSON, err := json.Marshal(signed.Entry)
 		if err != nil || !hmac.Equal(gotMAC, c.computeMAC(entryJSON)) {
+			_ = os.Remove(path)
+			return nil
+		}
+
+		// Mirror the path-to-key binding from Get: a validly-signed
+		// entry parked at the wrong filesystem location is also garbage.
+		if c.getPath(signed.Entry.Key) != path {
 			_ = os.Remove(path)
 			return nil
 		}
