@@ -38,3 +38,51 @@ updates:
         update-types:
           - minor
           - patch
+
+  # Container images we publish from this repo. The 5 *.Dockerfile files
+  # at the repo root (caddy, cloud-helpers.aws, github-actions,
+  # github-actions-staging, kubectl) build production images. The
+  # Dockerfiles under docs/docs/examples/ are user-facing samples, not
+  # production artifacts — Dependabot will only pick up the ones at the
+  # configured directory level (`/`), so example Dockerfiles are
+  # implicitly out of scope.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      docker-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # Python tooling for the docs site (MkDocs + Material + plugins).
+  # Public site, so CVEs in the build chain still matter.
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+      - docs
+    commit-message:
+      prefix: deps
+      include: scope
+    groups:
+      pip-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch

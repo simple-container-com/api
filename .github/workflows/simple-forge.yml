@@ -48,9 +48,10 @@ jobs:
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Go with Blacksmith Cache
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
 

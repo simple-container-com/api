@@ -3445,17 +3445,17 @@ func (h *DefaultMCPHandler) replaceFileLines(filePath, newContent, lineRange str
 		}
 		startLine, err = strconv.Atoi(strings.TrimSpace(parts[0]))
 		if err != nil {
-			return nil, fmt.Errorf("invalid start line number: %v", err)
+			return nil, fmt.Errorf("invalid start line number: %w", err)
 		}
 		endLine, err = strconv.Atoi(strings.TrimSpace(parts[1]))
 		if err != nil {
-			return nil, fmt.Errorf("invalid end line number: %v", err)
+			return nil, fmt.Errorf("invalid end line number: %w", err)
 		}
 	} else {
 		// Single line replacement
 		startLine, err = strconv.Atoi(strings.TrimSpace(lineRange))
 		if err != nil {
-			return nil, fmt.Errorf("invalid line number: %v", err)
+			return nil, fmt.Errorf("invalid line number: %w", err)
 		}
 		endLine = startLine
 	}
@@ -3469,7 +3469,7 @@ func (h *DefaultMCPHandler) replaceFileLines(filePath, newContent, lineRange str
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 		existingContent, err = os.ReadFile(filePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read existing file: %v", err)
+			return nil, fmt.Errorf("failed to read existing file: %w", err)
 		}
 	}
 
@@ -3507,7 +3507,7 @@ func (h *DefaultMCPHandler) appendToFile(filePath, content string) ([]byte, erro
 		var err error
 		existingContent, err = os.ReadFile(filePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read existing file: %v", err)
+			return nil, fmt.Errorf("failed to read existing file: %w", err)
 		}
 	}
 

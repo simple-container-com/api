@@ -21,8 +21,10 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Get next version
-        uses: reecetech/version-increment@2023.10.2
+        uses: reecetech/version-increment@71036b212bbdc100b48aae069870f10953433346  # 2023.10.2
         id: version
         with:
           scheme: "calver"
@@ -38,9 +40,11 @@ jobs:
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: fregante/setup-git-user@v2
+        with:
+          persist-credentials: false
+      - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: install sc tool
@@ -65,8 +69,9 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
           SKIP_EMBEDDINGS: "true"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |-
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          gh auth setup-git
           welder run rebuild
       - name: clean
         run: |
@@ -101,12 +106,12 @@ jobs:
           echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
           echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: save schemas cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
       - name: upload bin directory artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: bin-tools
           path: bin
@@ -127,8 +132,10 @@ jobs:
             arch: amd64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: create build directories
@@ -148,7 +155,7 @@ jobs:
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
       - name: upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
           # Match both versioned (sc-os-arch-vX.Y.Z.tar.gz) AND unversioned (sc-os-arch.tar.gz).
@@ -175,8 +182,10 @@ jobs:
             output: dist/cloud-helpers
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: create build directories
@@ -189,7 +198,7 @@ jobs:
         run: |
           go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
@@ -201,8 +210,10 @@ jobs:
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: build github-actions-staging
@@ -213,7 +224,7 @@ jobs:
           mkdir -p bin
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
       - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: github-actions-staging-binary
           path: bin/github-actions
@@ -225,8 +236,10 @@ jobs:
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@v6
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
       - name: test
@@ -239,8 +252,10 @@ jobs:
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: restore cached schemas
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
@@ -248,7 +263,7 @@ jobs:
         run: |
           docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
       - name: upload docs artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: docs-site
           path: docs/site
@@ -286,21 +301,23 @@ jobs:
               simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - name: download github-actions-staging binary
         if: matrix.image == 'github-actions-staging'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: github-actions-staging-binary
           path: bin
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: github-actions-binary
           path: dist
       - name: download cloud-helpers binary
         if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: cloud-helpers-binary
           path: dist
@@ -316,11 +333,10 @@ jobs:
           EOF
           sc secrets reveal
       - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
         with:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
-          buildkitd-flags: --allow-insecure-entitlement security.insecure
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
@@ -350,7 +366,9 @@ jobs:
     needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-      - uses: fregante/setup-git-user@v2
+        with:
+          persist-credentials: false
+      - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: install sc tool
         uses: simple-container-com/actions/install-sc@main
       - name: install welder tool
@@ -365,18 +383,18 @@ jobs:
           EOF
           sc secrets reveal
       - name: download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: artifacts
       - name: download bin tools artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: bin-tools
           path: bin
       - name: fix bin tools permissions
         run: chmod +x bin/*
       - name: download docs artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: docs-site
           path: docs/site
@@ -394,8 +412,9 @@ jobs:
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |-
-          git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/simple-container-com/api.git
+          gh auth setup-git
           welder run tag-release
       - name: publish sc tool
         shell: bash
@@ -417,6 +436,8 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         if: ${{ always() }}
+        with:
+          persist-credentials: false
 
       - name: Extract git reference
         id: extract_git_ref

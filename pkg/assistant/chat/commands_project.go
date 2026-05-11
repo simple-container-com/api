@@ -1168,7 +1168,7 @@ func (c *ChatInterface) selectDeploymentTypeForChat(context *ConversationContext
 	// Use chat interface's ReadSimple for menu selection
 	response, err := c.inputHandler.ReadSimple("\n   Select deployment type [1-3]: ")
 	if err != nil {
-		return fmt.Errorf("failed to read selection: %v", err)
+		return fmt.Errorf("failed to read selection: %w", err)
 	}
 
 	response = strings.TrimSpace(response)
@@ -1800,17 +1800,17 @@ func (c *ChatInterface) replaceFileLines(filePath, newContent, lineRange string)
 		}
 		startLine, err = strconv.Atoi(strings.TrimSpace(parts[0]))
 		if err != nil {
-			return nil, fmt.Errorf("invalid start line number: %v", err)
+			return nil, fmt.Errorf("invalid start line number: %w", err)
 		}
 		endLine, err = strconv.Atoi(strings.TrimSpace(parts[1]))
 		if err != nil {
-			return nil, fmt.Errorf("invalid end line number: %v", err)
+			return nil, fmt.Errorf("invalid end line number: %w", err)
 		}
 	} else {
 		// Single line replacement
 		startLine, err = strconv.Atoi(strings.TrimSpace(lineRange))
 		if err != nil {
-			return nil, fmt.Errorf("invalid line number: %v", err)
+			return nil, fmt.Errorf("invalid line number: %w", err)
 		}
 		endLine = startLine
 	}
@@ -1824,7 +1824,7 @@ func (c *ChatInterface) replaceFileLines(filePath, newContent, lineRange string)
 	if _, err := os.Stat(filePath); !os.IsNotExist(err) {
 		existingContent, err = os.ReadFile(filePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read existing file: %v", err)
+			return nil, fmt.Errorf("failed to read existing file: %w", err)
 		}
 	}
 
@@ -1863,7 +1863,7 @@ func (c *ChatInterface) appendToFile(filePath, content string) ([]byte, error) {
 		var err error
 		existingContent, err = os.ReadFile(filePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read existing file: %v", err)
+			return nil, fmt.Errorf("failed to read existing file: %w", err)
 		}
 	}
 

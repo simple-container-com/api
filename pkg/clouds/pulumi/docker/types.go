@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/docker/docker/api/types/registry"
+	"github.com/moby/moby/api/types/registry"
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/util"

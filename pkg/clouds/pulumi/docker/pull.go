@@ -3,13 +3,12 @@ package docker
 import (
 	"bufio"
 
-	"golang.org/x/sync/errgroup"
-
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
+	"github.com/containerd/platforms"
+	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
@@ -35,20 +34,24 @@ func NewDockerPull(ctx *sdk.Context, name string, args *PullArgs, opts ...sdk.Re
 		return nil, err
 	}
 
-	dockerAPI, err := client.NewClientWithOpts(client.FromEnv)
+	dockerAPI, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}
-	dockerAPI.NegotiateAPIVersion(ctx.Context())
 
 	msgReader := chanMsgReader{msgChan: make(chan readerNextMessage)}
 	digest := sdk.All(args.RemoteImage, args.AuthHeader, args.Platform).ApplyT(func(all []any) (string, error) {
 		remoteImage, authHeader, platform := all[0].(string), all[1].(string), all[2].(string)
 
-		reader, err := dockerAPI.ImagePull(ctx.Context(), remoteImage, image.PullOptions{
-			RegistryAuth: authHeader,
-			Platform:     platform,
-		})
+		pullOpts := client.ImagePullOptions{RegistryAuth: authHeader}
+		if platform != "" {
+			parsed, perr := platforms.Parse(platform)
+			if perr != nil {
+				return "", errors.Wrapf(perr, "invalid platform %q for docker pull of %q", platform, remoteImage)
+			}
+			pullOpts.Platforms = []ocispec.Platform{parsed}
+		}
+		reader, err := dockerAPI.ImagePull(ctx.Context(), remoteImage, pullOpts)
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to invoke docker pull for %q", remoteImage)
 		}

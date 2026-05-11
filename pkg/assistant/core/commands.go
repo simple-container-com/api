@@ -2706,7 +2706,7 @@ func (p *CustomConfigVersionProvider) GetCurrent(stackName, configType string) (
 			// Convert stack config to YAML string
 			yamlBytes, err := yaml.Marshal(stackConfig)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal stack config to YAML: %v", err)
+				return nil, fmt.Errorf("failed to marshal stack config to YAML: %w", err)
 			}
 
 			return &configdiff.ResolvedConfig{
@@ -2727,13 +2727,13 @@ func (p *CustomConfigVersionProvider) GetFromGit(stackName, configType, gitRef s
 	cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", gitRef, p.filePath))
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file from git: %v", err)
+		return nil, fmt.Errorf("failed to get file from git: %w", err)
 	}
 
 	// Parse the YAML content
 	var yamlContent map[string]interface{}
 	if err := yaml.Unmarshal(output, &yamlContent); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML from git: %v", err)
+		return nil, fmt.Errorf("failed to parse YAML from git: %w", err)
 	}
 
 	// Extract the specific stack from the content
@@ -2742,7 +2742,7 @@ func (p *CustomConfigVersionProvider) GetFromGit(stackName, configType, gitRef s
 			// Convert stack config to YAML string
 			yamlBytes, err := yaml.Marshal(stackConfig)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal stack config to YAML: %v", err)
+				return nil, fmt.Errorf("failed to marshal stack config to YAML: %w", err)
 			}
 
 			return &configdiff.ResolvedConfig{
@@ -2777,7 +2777,7 @@ func (p *CustomConfigVersionProvider) GetFromLocal(stackName, configType, filePa
 			// Convert stack config to YAML string
 			yamlBytes, err := yaml.Marshal(stackConfig)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal stack config to YAML: %v", err)
+				return nil, fmt.Errorf("failed to marshal stack config to YAML: %w", err)
 			}
 
 			return &configdiff.ResolvedConfig{
