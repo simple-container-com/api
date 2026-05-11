@@ -176,7 +176,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			return envVars
 		}(),
 		Command: sdk.ToStringArray([]string{"bash", "-c", `
-	      set -xe;
+	      set -xeo pipefail;
 	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
 
 	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
@@ -191,26 +191,38 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	      # the old and new Services transiently coexist and both carry the same
 	      # annotation; without dedup that produced two "http://<domain> { ... }"
 	      # blocks and Caddy aborted with "ambiguous site definition".
-	      services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' | sort -r)
+	      # pipefail is critical here: a flaky kubectl piped into sort would
+	      # otherwise yield services="" and the init-container would silently
+	      # emit a Caddyfile with only the default block — every domain would
+	      # then serve the welcome page from /etc/caddy/pages on the next pod
+	      # restart, masquerading as healthy 200s.
+	      raw_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
+	      services=$(printf '%s' "$raw_services" | sort -r)
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
           if [ "$USE_PREFIXES" == "false" ]; then
             echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
 	        echo "}" >> /tmp/Caddyfile
           fi
-	      # Dedup state: first non-blank line of each annotation is the site
-	      # address (e.g. "http://support-payhey.pay.space {") or the
-	      # "handle_path /<prefix>*" matcher for prefix routing. Already-seen
-	      # keys are skipped — most-recently-created Service wins via sort -r.
+	      # Dedup state: first non-blank, non-comment line of each annotation is
+	      # the site address (e.g. "http://support-payhey.pay.space {") or the
+	      # "handle_path /<prefix>*" matcher for prefix routing. Whitespace is
+	      # trimmed both sides so an indentation difference can't pass through as
+	      # a distinct key. Already-seen keys are skipped — most-recently-created
+	      # Service wins via sort -r.
 	      seen=$(mktemp)
 	      trap 'rm -f "$seen"' EXIT
 	      # Process each service that has Caddyfile entry annotation
-	      echo "$services" | while read ts ns service; do
+	      printf '%s\n' "$services" | while read ts ns service; do
 	          if [ -n "$ns" ] && [ -n "$service" ]; then
 	              entry=$(kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' 2>/dev/null || true)
 	              if [ -z "$entry" ]; then
 	                  continue
 	              fi
-	              key=$(printf '%s\n' "$entry" | awk 'NF{print; exit}')
+	              key=$(printf '%s\n' "$entry" | awk '
+	                  /^[[:space:]]*$/ { next }
+	                  /^[[:space:]]*#/ { next }
+	                  { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }
+	              ')
 	              if [ -n "$key" ] && grep -qFx -- "$key" "$seen" 2>/dev/null; then
 	                  echo "Skipping duplicate caddyfile-entry '$key' from $ns/$service (older Service)"
 	                  continue
