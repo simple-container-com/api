@@ -98,19 +98,33 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	// page". External monitoring saw healthy 200s while every backend was gone.
 	// 503 + Retry-After makes the absence of routes loud: CDNs fail over,
 	// uptime checks alert, oncall sees it.
+	//
+	// Headers + respond are wrapped in an explicit `handle { ... }` so they
+	// only apply to the 503 path. Without `handle`, Caddy directive ordering
+	// (redir > respond) means a `redir` from `import hsts` would fire first
+	// and the catch-all 503 would never be reachable behind a CDN that sets
+	// X-Forwarded-Proto. The header directives would also leak Cache-Control
+	// and Retry-After onto an unrelated 301. We also intentionally do NOT
+	// `import hsts` here — sending an HSTS header from a catch-all that
+	// answers any Host is meaningless, and the HTTP→HTTPS redirect would only
+	// route the request into a TLS handshake failure (Caddy has no cert for
+	// an unknown SNI), which is invisible to HTTP-layer monitoring. We want
+	// the 503 itself to be the loudest possible signal.
 	defaultCaddyFileEntry := `
   import gzip
-  header Cache-Control "no-store"
-  header Retry-After "60"
-  respond "<!doctype html><meta charset=utf-8><title>503 Service Unavailable</title><style>body{font:20px Helvetica,sans-serif;color:#333;text-align:center;padding:120px}h1{font-size:48px}code{background:#eee;padding:2px 6px;border-radius:3px}</style><h1>503 Service Unavailable</h1><p>No backend route is configured for this host.</p><p>If you are an operator, verify the Service has the <code>simple-container.com/caddyfile-entry</code> annotation and that Caddy has been rolled.</p>" 503 {
-    close
+  handle {
+    header Content-Type "text/html; charset=utf-8"
+    header Cache-Control "no-store"
+    header Retry-After "60"
+    respond "<!doctype html><meta charset=utf-8><title>503 Service Unavailable</title><style>body{font:20px Helvetica,sans-serif;color:#333;text-align:center;padding:120px}h1{font-size:48px}code{background:#eee;padding:2px 6px;border-radius:3px}</style><h1>503 Service Unavailable</h1><p>No backend route is configured for this host.</p><p>If you are an operator, verify the Service has the <code>simple-container.com/caddyfile-entry</code> annotation and that Caddy has been rolled.</p>" 503 {
+      close
+    }
   }
 `
-	// if caddy must respect SSL connections only
+	// Still computed because it's threaded into per-stack Caddyfile entries
+	// elsewhere in this function; intentionally NOT applied to the catch-all
+	// default block above (see comment on `import hsts` omission).
 	useSSL := caddy.UseSSL == nil || *caddy.UseSSL
-	if useSSL {
-		defaultCaddyFileEntry += "\nimport hsts"
-	}
 
 	serviceAccountName := input.ToResName(fmt.Sprintf("%s-caddy-sa", input.Descriptor.Name))
 	serviceAccount, err := NewSimpleServiceAccount(ctx, serviceAccountName, &SimpleServiceAccountArgs{
@@ -203,9 +217,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	      # blocks and Caddy aborted with "ambiguous site definition".
 	      # pipefail is critical here: a flaky kubectl piped into sort would
 	      # otherwise yield services="" and the init-container would silently
-	      # emit a Caddyfile with only the default block — every domain would
-	      # then serve the welcome page from /etc/caddy/pages on the next pod
-	      # restart, masquerading as healthy 200s.
+	      # emit a Caddyfile with only the default block on the next pod
+	      # restart. That's now a 503 (cf. the default block above), but it's
+	      # still a complete loss of routing for the entire cluster — bail
+	      # loud so K8s reschedules the init-container and retries.
 	      raw_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
 	      services=$(printf '%s' "$raw_services" | sort -r)
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
