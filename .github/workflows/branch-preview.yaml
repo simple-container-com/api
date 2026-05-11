@@ -328,6 +328,13 @@ jobs:
     # Only needs docker-build — the tag must point to a commit referencing a published Docker image.
     # Does not need build-platforms or publish-sc-preview. Runs in parallel with publish-sc-preview.
     needs: [prepare, docker-build]
+    # GH_TOKEN must be visible to every step that runs git (checkout, commit,
+    # push) because `gh auth setup-git` installs `gh auth git-credential` as
+    # the credential helper — and that helper reads $GH_TOKEN from the
+    # invoking step's env when git pushes. Setting it once at job level
+    # avoids the "fatal: could not read Username" failure from per-step env.
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -335,10 +342,7 @@ jobs:
           fetch-depth: 0
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: configure git credential helper
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh auth setup-git
+        run: gh auth setup-git
       - name: create release branch and update action.yml image tags
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
