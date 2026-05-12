@@ -218,23 +218,46 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Use deployment name as Pulumi resource name to ensure uniqueness across environments
 	// while keeping the actual K8s namespace name as specified by the user.
 	//
-	// RetainOnDelete: in legacy deploys, sub-env client stacks (e.g. parentEnv=production
-	// with stackEnv=tenant-a/tenant-b/...) shared one physical K8s namespace because the
-	// namespace metadata.Name was derived from stackName, not from stackEnv. Each stack
-	// tracked its own Pulumi Namespace resource with a unique URN, but they all referenced
-	// the same physical k8s namespace. Without RetainOnDelete, destroying any single
-	// sub-env stack would cascade-delete the shared namespace and wipe every sibling
-	// stack's resources (Deployments, Services, Secrets) — a real production outage when
-	// a throwaway sub-env destroy took down all live siblings.
+	// Namespace-handling has two protections against the destroy/Replace cascade
+	// hazard discovered in pre-PR-230 deploys (see PR #230 and the 2026-05-10
+	// PAY-SPACE + 2026-05-12 fulldiveVR outages):
 	//
-	// GenerateNamespaceName now isolates custom stacks per-stackEnv, but RetainOnDelete
-	// remains load-bearing for the migration step: when a pre-existing custom stack
-	// first runs `pulumi up` after this version, Pulumi Replaces the namespace, and the
-	// old shared namespace must NOT be deleted because the parent stack still lives
-	// there. Post-migration, RetainOnDelete continues to defend against any case where
-	// multiple stacks legitimately share a namespace (helm operators, explicit
-	// `Namespace` overrides). Empty namespaces left after the last referencing stack
-	// is destroyed must be cleaned up by hand.
+	// 1. RetainOnDelete(true). In legacy deploys, sub-env client stacks
+	//    (parentEnv=<prod> with stackEnv=tenant-a/tenant-b/...) shared one
+	//    physical K8s namespace because metadata.Name was derived from
+	//    stackName, not stackEnv. Each stack tracked its own Pulumi Namespace
+	//    resource at a unique URN, but they all pointed at the same physical
+	//    namespace. Destroying any single sub-env stack would cascade-delete
+	//    the shared namespace and wipe every sibling. RetainOnDelete keeps
+	//    Pulumi from issuing the k8s DELETE on destroy.
+	//
+	// 2. IgnoreChanges("metadata.name"). PR #230 changed GenerateNamespaceName
+	//    to isolate custom stacks (stackName-stackEnv) instead of sharing the
+	//    parent's namespace. That works for fresh deploys, but for any consumer
+	//    whose Pulumi state predates #230, the next `pulumi up` saw a diff
+	//    between state's metadata.Name="<stackName>" and program's
+	//    metadata.Name="<stackName>-<stackEnv>", and scheduled a Replace.
+	//    Replace = create-new + delete-old, and `RetainOnDelete` on the new
+	//    resource is non-retroactive — Pulumi reads delete-time options from
+	//    the OLD resource's state, which predates the flag. The k8s DELETE on
+	//    the shared namespace went through and cascade-killed the parent
+	//    stack's running resources.
+	//
+	//    IgnoreChanges("metadata.name") suppresses the diff entirely. No
+	//    Replace is scheduled, no delete fires. The resource state retains
+	//    whatever metadata.Name it had (new for fresh deploys, legacy shared
+	//    for migrated consumers). Other resources (Service, Deployment, …)
+	//    that reference namespace.Metadata.Name().Elem() follow whichever
+	//    name is in effect — fresh deploys land in the isolated namespace,
+	//    migrated consumers continue using the shared one. Combined with
+	//    RetainOnDelete this keeps both modes safe.
+	//
+	//    Consumers who want to migrate an existing custom stack to the
+	//    isolated namespace name opt in by running
+	//      pulumi stack export | jq 'del(... namespace urn ...)' | pulumi stack import
+	//    (forget the namespace resource — k8s namespace itself stays put),
+	//    then the next pulumi up registers a fresh Namespace at the isolated
+	//    name. Documented in the PR description.
 	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
 	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
@@ -242,7 +265,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
-	}, append(opts, sdk.RetainOnDelete(true))...)
+	}, append(opts, sdk.RetainOnDelete(true), sdk.IgnoreChanges([]string{"metadata.name"}))...)
 	if err != nil {
 		return nil, err
 	}
