@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -145,23 +146,30 @@ func loadOrCreateHMACKey(path string) ([]byte, error) {
 		return nil, fmt.Errorf("closing hmac key temp: %w", err)
 	}
 
-	// Atomic NO-REPLACE publish via hardlink. os.Rename would
-	// overwrite a key another process just published, leaving two
-	// live caches with different keys and cross-invalidating entries
-	// (codex round-2 P2). os.Link fails with ErrExist if the target
-	// is already there — meaning a concurrent caller won the race —
-	// in which case we drop our generated key and adopt theirs by
-	// rereading. Hardlinks are universally supported on the
-	// filesystems SC runs on (Linux ext4/overlayFS, macOS APFS,
-	// container layered FS, NFSv3+). On exotic filesystems that
-	// reject hardlinks (some VirtualBox / SMB shared folders) the
-	// non-ErrExist error path below surfaces a clear failure rather
-	// than silently degrading to the racy Rename behavior we just
-	// removed — better to fail loud than thrash the cache.
-	// The same-directory `dir` keeps it a same-FS operation.
+	// Publish strategy:
+	//   1. os.Link (atomic NO-REPLACE): if two NewCache calls race,
+	//      the loser's Link fails with ErrExist and adopts the winner's
+	//      key. This is the race-free path (codex round-2 P2).
+	//   2. Fallback to os.Rename when the filesystem doesn't support
+	//      hardlinks at all — Docker Desktop volume mounts, VirtualBox
+	//      vboxsf, some SMB shares (gemini round-3 P2). Rename is
+	//      atomic-with-replace, so a concurrent NewCache on the same
+	//      dir on such a filesystem can briefly diverge — accepted
+	//      trade-off for dev-machine usability. Real production
+	//      surface (Linux ext4/overlayFS, macOS APFS, container
+	//      layered FS, NFSv3+) supports Link and takes the race-free
+	//      path.
+	// The same-directory `dir` keeps either op a same-FS operation.
 	if err := os.Link(tmpPath, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			// Someone else won — use their key.
+			// Race lost — adopt the winner's key.
+			return readKeyFile(path)
+		}
+		if isLinkUnsupported(err) {
+			// FS doesn't do hardlinks; fall through to Rename.
+			if rerr := os.Rename(tmpPath, path); rerr != nil {
+				return nil, fmt.Errorf("placing hmac key (link unsupported, rename also failed): %w", rerr)
+			}
 			return readKeyFile(path)
 		}
 		return nil, fmt.Errorf("placing hmac key: %w", err)
@@ -169,6 +177,18 @@ func loadOrCreateHMACKey(path string) ([]byte, error) {
 	// tmpPath is removed by the deferred cleanup; the linked path is
 	// the canonical key from now on.
 	return readKeyFile(path)
+}
+
+// isLinkUnsupported tells whether the error from os.Link indicates a
+// filesystem that rejects hardlinks (Docker Desktop bind mounts,
+// vboxsf, some SMB). syscall.EPERM and syscall.ENOTSUP are the usual
+// posix-y codes; syscall.EXDEV would mean cross-device (shouldn't
+// happen given same-directory temp, but defensive).
+func isLinkUnsupported(err error) bool {
+	return errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EXDEV) ||
+		errors.Is(err, syscall.EOPNOTSUPP)
 }
 
 // readKeyFile reads and validates the HMAC key file. Returns
@@ -408,7 +428,15 @@ func (c *Cache) Clean() error {
 	})
 }
 
-// getPath returns the filesystem path for a cache key
+// getPath returns the filesystem path for a cache key.
+//
+// CacheKey.Operation is used directly as a subdirectory name. All
+// callers in-tree pass hardcoded values ("sbom", "scan-grype",
+// "scan-trivy", "signature"), but defense-in-depth: a `../` in
+// Operation would let a future careless caller escape baseDir
+// (gemini round-3 P3). `filepath.Base` collapses any path separator
+// or traversal segment to a single bare name, so even malicious
+// input lands inside baseDir.
 func (c *Cache) getPath(key CacheKey) string {
 	hash := sha256.New()
 	hash.Write([]byte(key.Operation))
@@ -416,7 +444,13 @@ func (c *Cache) getPath(key CacheKey) string {
 	hash.Write([]byte(key.ConfigHash))
 	filename := hex.EncodeToString(hash.Sum(nil))
 
-	return filepath.Join(c.baseDir, key.Operation, filename+".json")
+	op := filepath.Base(filepath.Clean(key.Operation))
+	// filepath.Base("..") returns ".." — must catch explicitly or the
+	// Join walks above baseDir. Same for raw separators on Windows.
+	if op == "" || op == "." || op == ".." || strings.ContainsAny(op, `/\`) {
+		op = "_unknown"
+	}
+	return filepath.Join(c.baseDir, op, filename+".json")
 }
 
 // getTTL returns the TTL for a given operation type

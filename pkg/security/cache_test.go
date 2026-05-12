@@ -587,6 +587,34 @@ func TestCacheCleanSkipsInFlightTempFiles(t *testing.T) {
 	Expect(err).ToNot(HaveOccurred(), "Clean must leave .hmac.key.tmp.* files alone")
 }
 
+// getPath must contain malicious Operation values that try to escape
+// baseDir (gemini round-3 P3 — defense in depth; no caller is hostile
+// today, but a future careless callsite shouldn't be able to corrupt
+// the parent filesystem).
+func TestCachePathTraversalContained(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	cache, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+
+	hostile := []string{
+		"../../../etc",
+		"..",
+		"/etc/passwd",
+		`..\..\windows`,
+		"a/b",
+	}
+	for _, op := range hostile {
+		key := CacheKey{Operation: op, ImageDigest: "sha256:x", ConfigHash: "h"}
+		p := cache.getPath(key)
+		Expect(strings.HasPrefix(p, dir+string(filepath.Separator))).To(BeTrue(),
+			"getPath(%q) = %q must stay under baseDir %q", op, p, dir)
+		Expect(strings.Contains(p, "..")).To(BeFalse(),
+			"getPath(%q) = %q must not contain `..`", op, p)
+	}
+}
+
 // Crashed writers leave behind temp files Clean() would otherwise
 // skip forever. After tempFileGracePeriod (1h), Clean reclaims them
 // (codex round-3 P3). Test forces the grace by back-dating mtime.
