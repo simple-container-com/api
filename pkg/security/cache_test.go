@@ -512,6 +512,52 @@ func TestCacheCrossKeyCopyRejected(t *testing.T) {
 	Expect(string(got)).To(Equal("payload-A"))
 }
 
+// Concurrent NewCache on the same fresh directory must converge on a
+// single HMAC key. With the previous Rename-based publish, two racing
+// processes could each install their own distinct key, causing each
+// to invalidate the other's cache entries (codex round-2 P2). The Link
+// based publish forces a winner and re-reads the on-disk truth.
+func TestCacheHMACKeyConcurrentInitConverges(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	const n = 8
+
+	keys := make(chan []byte, n)
+	errs := make(chan error, n)
+	start := make(chan struct{})
+
+	for i := 0; i < n; i++ {
+		go func() {
+			<-start
+			c, err := NewCache(dir)
+			if err != nil {
+				errs <- err
+				return
+			}
+			cp := make([]byte, len(c.key))
+			copy(cp, c.key)
+			keys <- cp
+		}()
+	}
+	close(start) // unleash all goroutines simultaneously
+
+	var first []byte
+	for i := 0; i < n; i++ {
+		select {
+		case err := <-errs:
+			t.Fatalf("NewCache failed: %v", err)
+		case k := <-keys:
+			if first == nil {
+				first = k
+				continue
+			}
+			Expect(k).To(Equal(first),
+				"goroutine %d got a different HMAC key — Link-based publish is broken", i)
+		}
+	}
+}
+
 // Clean must not delete an in-flight `Set()` temp file — gemini-flagged
 // race where Clean reads a partial file, fails to unmarshal, and removes
 // it from under a still-running writer.

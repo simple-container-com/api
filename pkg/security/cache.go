@@ -140,13 +140,24 @@ func loadOrCreateHMACKey(path string) ([]byte, error) {
 		return nil, fmt.Errorf("closing hmac key temp: %w", err)
 	}
 
-	// POSIX rename is atomic on the same filesystem. After this point
-	// readers observe the full 32 bytes or no file at all. If a
-	// concurrent caller already published a key, our Rename overwrites
-	// it; reread to return on-disk truth either way.
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Atomic NO-REPLACE publish via hardlink. os.Rename would
+	// overwrite a key another process just published, leaving two
+	// live caches with different keys and cross-invalidating entries
+	// (codex round-2 P2). os.Link fails with ErrExist if the target
+	// is already there — meaning a concurrent caller won the race —
+	// in which case we drop our generated key and adopt theirs by
+	// rereading. Hardlinks are universally supported on the
+	// filesystems SC runs on (Linux CI runners, macOS dev machines);
+	// the same-directory `dir` keeps it a same-FS operation.
+	if err := os.Link(tmpPath, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			// Someone else won — use their key.
+			return readKeyFile(path)
+		}
 		return nil, fmt.Errorf("placing hmac key: %w", err)
 	}
+	// tmpPath is removed by the deferred cleanup; the linked path is
+	// the canonical key from now on.
 	return readKeyFile(path)
 }
 
