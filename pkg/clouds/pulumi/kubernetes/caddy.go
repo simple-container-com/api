@@ -90,34 +90,43 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 
 	defaultCaddyFileEntryStart := `http:// {`
-	// Default catch-all serves a hard 503 instead of a static "welcome" page.
-	// Rationale: when all Services with a `simple-container.com/caddyfile-entry`
-	// annotation for a given Host vanish (e.g. a cascade-deletion from a
-	// namespace Replace gone wrong), the request used to fall through to a
-	// `file_server /etc/caddy/pages` block and respond with HTTP 200 + "Default
-	// page". External monitoring saw healthy 200s while every backend was gone.
-	// 503 + Retry-After makes the absence of routes loud: CDNs fail over,
-	// uptime checks alert, oncall sees it.
+	// Default catch-all serves a hard 503 page from /etc/caddy/pages/503.html
+	// instead of `file_server` over the whole pages dir (which used to serve
+	// index.html with status 200 for any unknown Host — invisible to monitoring
+	// when every backend was gone).
 	//
-	// Headers + respond are wrapped in an explicit `handle { ... }` so they
-	// only apply to the 503 path. Without `handle`, Caddy directive ordering
-	// (redir > respond) means a `redir` from `import hsts` would fire first
-	// and the catch-all 503 would never be reachable behind a CDN that sets
-	// X-Forwarded-Proto. The header directives would also leak Cache-Control
-	// and Retry-After onto an unrelated 301. We also intentionally do NOT
-	// `import hsts` here — sending an HSTS header from a catch-all that
-	// answers any Host is meaningless, and the HTTP→HTTPS redirect would only
-	// route the request into a TLS handshake failure (Caddy has no cert for
-	// an unknown SNI), which is invisible to HTTP-layer monitoring. We want
-	// the 503 itself to be the loudest possible signal.
+	// Rationale for 503:
+	// - When all Services with `simple-container.com/caddyfile-entry` for a
+	//   given Host vanish (e.g. cascade-deletion from a namespace Replace gone
+	//   wrong), the request now gets HTTP 503 + Retry-After. CDNs fail over,
+	//   uptime checks alert, oncall sees it.
+	//
+	// Why file_server (not respond with inlined HTML):
+	// - Symmetric with the existing `handle_bucket_error` / `handle_server_error`
+	//   snippets in embed/caddy/Caddyfile, which serve {404,500,502}.html the
+	//   same way for per-Service error fallbacks. One pattern for every status
+	//   page in this codebase.
+	// - file_server emits Content-Type automatically from the file extension,
+	//   so no explicit `header Content-Type` needed.
+	// - Operators can override the 503 body by mounting a different ConfigMap
+	//   at /etc/caddy/pages/503.html without touching SC api code.
+	//
+	// Wrapped in `handle { ... }` so the directives below apply only to the
+	// 503 path and nothing else can short-circuit (e.g. `import hsts` redir
+	// firing before the response). We also intentionally do NOT `import hsts`
+	// here — sending an HSTS header from a catch-all that answers any Host is
+	// meaningless, and the HTTP→HTTPS redirect would only route the request
+	// into a TLS handshake failure (Caddy has no cert for an unknown SNI),
+	// which is invisible to HTTP-layer monitoring.
 	defaultCaddyFileEntry := `
   import gzip
   handle {
-    header Content-Type "text/html; charset=utf-8"
+    root * /etc/caddy/pages
+    rewrite * /503.html
     header Cache-Control "no-store"
     header Retry-After "60"
-    respond "<!doctype html><meta charset=utf-8><title>503 Service Unavailable</title><style>body{font:20px Helvetica,sans-serif;color:#333;text-align:center;padding:120px}h1{font-size:48px}code{background:#eee;padding:2px 6px;border-radius:3px}</style><h1>503 Service Unavailable</h1><p>No backend route is configured for this host.</p><p>If you are an operator, verify the Service has the <code>simple-container.com/caddyfile-entry</code> annotation and that Caddy has been rolled.</p>" 503 {
-      close
+    file_server {
+      status 503
     }
   }
 `
