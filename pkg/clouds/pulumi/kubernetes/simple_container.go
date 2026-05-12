@@ -636,20 +636,27 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	serviceAnnotations := lo.Assign(appAnnotations)
 
 	var caddyfileEntry string
+	var caddyfileEntryAnnotation sdk.StringInput
 	if args.GenerateCaddyfileEntry && mainPort != nil {
+		// The unsubstituted template — used for both the initial sync render
+		// (sc.CaddyfileEntry static export, change-hash signal) and the
+		// deferred re-render inside ApplyT below (live-namespace annotation
+		// on the Service). Single source of truth so any template tweak
+		// updates both paths.
+		var caddyfileEntryTemplate string
 		if args.Domain != "" {
-			caddyfileEntry = `
+			caddyfileEntryTemplate = `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
     header_down Server nginx ${addHeaders}
     import handle_server_error
     ${extraHelpers}
   }
-  ${imports} 
+  ${imports}
 }
 `
 		} else if args.Prefix != "" {
-			caddyfileEntry = `
+			caddyfileEntryTemplate = `
   handle_path /${prefix}* {${additionalProxyConfig}
     reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
       header_down Server nginx ${addHeaders}
@@ -683,9 +690,51 @@ ${proto}://${domain} {
 		} else {
 			placeholdersMap["additionalProxyConfig"] = ""
 		}
+		// Apply placeholders synchronously so the static representation
+		// (used for sc.CaddyfileEntry change-hash + log lines) is populated.
+		// `namespace` here is sanitizedNamespace — for fresh deploys that
+		// matches the live k8s namespace, but for migrated stacks with
+		// IgnoreChanges("metadata.name") suppressing the rename the live
+		// namespace stays at the legacy value. The annotation that lands
+		// on the Service is computed from the live namespace Output below.
+		caddyfileEntry = caddyfileEntryTemplate
 		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData(placeholdersMap)); err != nil {
 			return nil, errors.Wrapf(err, "failed to apply placeholders on caddyfile entry template")
 		}
+
+		// Build the actual annotation as an Output that resolves namespace
+		// from the live Namespace resource's metadata.name. On migrated
+		// stacks this is the legacy shared name (because of IgnoreChanges),
+		// which is also where the Service is created, so reverse_proxy
+		// http://${service}.${namespace}.svc.cluster.local resolves to
+		// real cluster DNS. On fresh deploys it equals sanitizedNamespace
+		// so the byte output matches the legacy code path.
+		//
+		// Render failures inside ApplyT are returned as errors (not silently
+		// fallen back to the statically-rendered template) — falling back
+		// would re-introduce the migrated-stack 502 bug this PR is fixing.
+		staticEntry := caddyfileEntry
+		caddyfileEntryAnnotation = namespace.Metadata.Name().ApplyT(func(nsPtr *string) (string, error) {
+			liveNS := sanitizedNamespace
+			if nsPtr != nil && *nsPtr != "" {
+				liveNS = *nsPtr
+			}
+			if liveNS == sanitizedNamespace {
+				// Fresh deploy or no migration: static template is correct verbatim.
+				return staticEntry, nil
+			}
+			// Migrated stack: re-render with the live (legacy) namespace.
+			localMap := make(placeholders.MapData, len(placeholdersMap))
+			for k, v := range placeholdersMap {
+				localMap[k] = v
+			}
+			localMap["namespace"] = liveNS
+			rendered := caddyfileEntryTemplate
+			if err := placeholders.New().Apply(&rendered, placeholders.WithData(localMap)); err != nil {
+				return "", errors.Wrapf(err, "failed to re-render caddyfile entry for live namespace %q", liveNS)
+			}
+			return rendered, nil
+		}).(sdk.StringOutput)
 		serviceAnnotations[AnnotationCaddyfileEntry] = caddyfileEntry
 	}
 
@@ -698,6 +747,18 @@ ${proto}://${domain} {
 			})
 		}
 	}
+	// Build the Pulumi-input annotation map. The caddyfile-entry value, if
+	// any, is an Output that resolves the namespace placeholder against the
+	// live Namespace resource (so IgnoreChanges'd migrated stacks point at
+	// the legacy shared namespace, fresh deploys point at the per-stackEnv
+	// namespace). Everything else is a static string.
+	serviceAnnotationsInput := sdk.StringMap{}
+	for k, v := range serviceAnnotations {
+		serviceAnnotationsInput[k] = sdk.String(v)
+	}
+	if caddyfileEntryAnnotation != nil {
+		serviceAnnotationsInput[AnnotationCaddyfileEntry] = caddyfileEntryAnnotation
+	}
 	var service *corev1.Service
 	if len(lo.FromPtr(args.IngressContainer).Ports) > 0 {
 		service, err = corev1.NewService(ctx, sanitizedService, &corev1.ServiceArgs{
@@ -705,7 +766,7 @@ ${proto}://${domain} {
 				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
-				Annotations: sdk.ToStringMap(serviceAnnotations),
+				Annotations: serviceAnnotationsInput,
 			},
 			Spec: &corev1.ServiceSpecArgs{
 				Selector:              sdk.ToStringMap(appLabels),
@@ -724,16 +785,25 @@ ${proto}://${domain} {
 		if mainPort == nil {
 			return nil, errors.Errorf("cannot provision ingress when no main port is specified")
 		}
-		ingressAnnotations := lo.Assign(serviceAnnotations)
+		// Mirror the Service-side annotation map (Pulumi-input with the
+		// live-namespace caddyfile-entry Output) and overlay the
+		// Ingress-only ssl-redirect tweak.
+		ingressAnnotationsInput := sdk.StringMap{}
+		for k, v := range serviceAnnotations {
+			ingressAnnotationsInput[k] = sdk.String(v)
+		}
+		if caddyfileEntryAnnotation != nil {
+			ingressAnnotationsInput[AnnotationCaddyfileEntry] = caddyfileEntryAnnotation
+		}
 		if args.UseSSL {
-			ingressAnnotations["ingress.kubernetes.io/ssl-redirect"] = "false" // do not need ssl redirect from kube
+			ingressAnnotationsInput["ingress.kubernetes.io/ssl-redirect"] = sdk.String("false") // do not need ssl redirect from kube
 		}
 		_, err = networkv1.NewIngress(ctx, sanitizedService, &networkv1.IngressArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
-				Annotations: sdk.ToStringMap(ingressAnnotations),
+				Annotations: ingressAnnotationsInput,
 			},
 			Spec: &networkv1.IngressSpecArgs{
 				Rules: networkv1.IngressRuleArray{
@@ -820,9 +890,13 @@ ${proto}://${domain} {
 		return nil, err
 	}
 
-	// Create VPA if enabled
+	// Create VPA if enabled. Pass the live namespace name (Pulumi Output)
+	// rather than the program-computed sanitizedNamespace string, so the
+	// VPA lands in the same namespace as its target Deployment on migrated
+	// stacks (where IgnoreChanges("metadata.name") keeps the namespace at
+	// the legacy shared value).
 	if args.VPA != nil && args.VPA.Enabled {
-		if err := createVPA(ctx, args, baseResourceName, sanitizedNamespace, appLabels, appAnnotations, opts...); err != nil {
+		if err := createVPA(ctx, args, baseResourceName, namespace.Metadata.Name().Elem(), appLabels, appAnnotations, opts...); err != nil {
 			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", baseResourceName)
 		}
 	}
@@ -866,7 +940,7 @@ ${proto}://${domain} {
 	return sc, nil
 }
 
-func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
+func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName string, namespace sdk.StringInput, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
 
 	// Build VPA spec content
@@ -961,7 +1035,7 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 		Kind:       sdk.String("VerticalPodAutoscaler"),
 		Metadata: &metav1.ObjectMetaArgs{
 			Name:        sdk.String(vpaName),
-			Namespace:   sdk.String(namespace),
+			Namespace:   namespace,
 			Labels:      sdk.ToStringMap(vpaLabels),
 			Annotations: sdk.ToStringMap(vpaAnnotations),
 		},
