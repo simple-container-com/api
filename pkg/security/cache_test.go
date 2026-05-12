@@ -587,6 +587,37 @@ func TestCacheCleanSkipsInFlightTempFiles(t *testing.T) {
 	Expect(err).ToNot(HaveOccurred(), "Clean must leave .hmac.key.tmp.* files alone")
 }
 
+// Crashed writers leave behind temp files Clean() would otherwise
+// skip forever. After tempFileGracePeriod (1h), Clean reclaims them
+// (codex round-3 P3). Test forces the grace by back-dating mtime.
+func TestCacheCleanReclaimsStaleTemps(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	cache, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+
+	opDir := filepath.Join(dir, "sbom")
+	Expect(os.MkdirAll(opDir, 0o700)).To(Succeed())
+
+	// Recent temp: must stay. Old temp: must be reclaimed.
+	recent := filepath.Join(opDir, ".cache.tmp.recent")
+	stale := filepath.Join(opDir, ".cache.tmp.stale")
+	Expect(os.WriteFile(recent, []byte("recent"), 0o600)).To(Succeed())
+	Expect(os.WriteFile(stale, []byte("stale-from-a-crashed-writer"), 0o600)).To(Succeed())
+
+	// Back-date stale beyond the grace period.
+	pastTime := time.Now().Add(-2 * tempFileGracePeriod)
+	Expect(os.Chtimes(stale, pastTime, pastTime)).To(Succeed())
+
+	Expect(cache.Clean()).To(Succeed())
+
+	_, err = os.Stat(recent)
+	Expect(err).ToNot(HaveOccurred(), "recent temp file must be left alone")
+	_, err = os.Stat(stale)
+	Expect(os.IsNotExist(err)).To(BeTrue(), "stale temp file must be reclaimed")
+}
+
 // Set must publish atomically — the on-disk file is never a partial
 // write, and the temp file is cleaned up after a successful Rename.
 func TestCacheSetIsAtomic(t *testing.T) {

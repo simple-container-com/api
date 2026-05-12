@@ -66,6 +66,11 @@ const (
 	// silently rotate the key from under us.
 	hmacKeyFilename = ".hmac.key"
 	hmacKeyLen      = 32 // 256 bits, matches HMAC-SHA256 block-size guidance
+	// tempFileGracePeriod bounds how long Clean() will leave an
+	// in-flight `.cache.tmp.*` / `.hmac.key.tmp.*` file alone before
+	// reclaiming it. A legitimate writer publishes in sub-second;
+	// anything older than 1h is a crashed Set() that won't return.
+	tempFileGracePeriod = 1 * time.Hour
 )
 
 // NewCache creates a new cache instance, generating or loading the
@@ -353,12 +358,16 @@ func (c *Cache) Clean() error {
 		if info.Name() == hmacKeyFilename {
 			return nil // Never touch the key.
 		}
-		// Skip in-flight `Set()` / `loadOrCreateHMACKey` temp files;
-		// the writer's pending Rename will publish them shortly.
-		// Removing now would be racy AND silently lose data the
-		// writer expects to land (gemini round-1 P1).
+		// In-flight `Set()` / `loadOrCreateHMACKey` temp files: skip if
+		// recent (writer's Rename/Link is imminent), reclaim if stale.
+		// A legitimate Set takes sub-second; mtime > 1h ago is a
+		// crashed writer (codex round-3 P3). Without the grace-period
+		// sweep, MB-scale SBOM temps could accumulate indefinitely.
 		if strings.HasPrefix(info.Name(), ".cache.tmp.") ||
 			strings.HasPrefix(info.Name(), ".hmac.key.tmp.") {
+			if time.Since(info.ModTime()) > tempFileGracePeriod {
+				_ = os.Remove(path)
+			}
 			return nil
 		}
 
