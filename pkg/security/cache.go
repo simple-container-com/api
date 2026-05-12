@@ -147,8 +147,13 @@ func loadOrCreateHMACKey(path string) ([]byte, error) {
 	// is already there — meaning a concurrent caller won the race —
 	// in which case we drop our generated key and adopt theirs by
 	// rereading. Hardlinks are universally supported on the
-	// filesystems SC runs on (Linux CI runners, macOS dev machines);
-	// the same-directory `dir` keeps it a same-FS operation.
+	// filesystems SC runs on (Linux ext4/overlayFS, macOS APFS,
+	// container layered FS, NFSv3+). On exotic filesystems that
+	// reject hardlinks (some VirtualBox / SMB shared folders) the
+	// non-ErrExist error path below surfaces a clear failure rather
+	// than silently degrading to the racy Rename behavior we just
+	// removed — better to fail loud than thrash the cache.
+	// The same-directory `dir` keeps it a same-FS operation.
 	if err := os.Link(tmpPath, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			// Someone else won — use their key.
@@ -162,32 +167,24 @@ func loadOrCreateHMACKey(path string) ([]byte, error) {
 }
 
 // readKeyFile reads and validates the HMAC key file. Returns
-// os.ErrNotExist when absent. A short read (file present but smaller
-// than hmacKeyLen) is retried — that almost certainly means a
-// concurrent creator is between CreateTemp and Rename. After ~250ms
-// of retries it gives up with a corruption error.
+// os.ErrNotExist when absent. A wrong-size read is permanent
+// corruption — there is no race window to retry through, because
+// loadOrCreateHMACKey publishes via os.Link of a fully-written,
+// fsynced temp file. The canonical path appears atomically with
+// exactly hmacKeyLen bytes or not at all.
 func readKeyFile(path string) ([]byte, error) {
-	const (
-		maxAttempts   = 5
-		retryInterval = 50 * time.Millisecond
-	)
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		existing, err := os.ReadFile(path)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		if err != nil {
-			return nil, fmt.Errorf("reading hmac key: %w", err)
-		}
-		if len(existing) == hmacKeyLen {
-			return existing, nil
-		}
-		lastErr = fmt.Errorf("hmac key at %s is %d bytes, expected %d",
-			path, len(existing), hmacKeyLen)
-		time.Sleep(retryInterval)
+	existing, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
-	return nil, fmt.Errorf("%w (corrupted or concurrent-creation race)", lastErr)
+	if err != nil {
+		return nil, fmt.Errorf("reading hmac key: %w", err)
+	}
+	if len(existing) != hmacKeyLen {
+		return nil, fmt.Errorf("hmac key at %s is %d bytes, expected %d (corrupted)",
+			path, len(existing), hmacKeyLen)
+	}
+	return existing, nil
 }
 
 // computeMAC returns the HMAC-SHA256 of entryJSON using the cache's key.
