@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -95,39 +96,87 @@ func NewCache(baseDir string) (*Cache, error) {
 }
 
 // loadOrCreateHMACKey reads the HMAC key from path; if absent, generates
-// a new 32-byte random key and persists it with mode 0o600.
+// a new 32-byte random key and persists it via os.CreateTemp + Rename.
+//
+// Concurrency: a concurrent reader observes either the fully-written
+// 32-byte file or no file at all — never a 0-byte mid-creation view.
+// The prior O_CREATE|O_EXCL + write sequence had a narrow window where
+// another reader could ReadFile a 0-byte file and fail with "corrupted"
+// (codex round-1 P2). Two processes racing here each generate a key;
+// only one Rename wins, and the loser's reread picks up the winner's
+// bytes (cryptographically equivalent — both random).
 func loadOrCreateHMACKey(path string) ([]byte, error) {
-	existing, err := os.ReadFile(path)
-	if err == nil {
-		if len(existing) != hmacKeyLen {
-			return nil, fmt.Errorf("hmac key at %s is %d bytes, expected %d (corrupted?)",
-				path, len(existing), hmacKeyLen)
-		}
+	if existing, err := readKeyFile(path); err == nil {
 		return existing, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("reading hmac key: %w", err)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 
 	key := make([]byte, hmacKeyLen)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		return nil, fmt.Errorf("generating hmac key: %w", err)
 	}
-	// O_EXCL ensures we never silently overwrite a concurrently-created key.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".hmac.key.tmp.*")
 	if err != nil {
-		// Race: another process created the key between our Stat and
-		// OpenFile. Fall back to reading what they wrote.
-		if errors.Is(err, os.ErrExist) {
-			return loadOrCreateHMACKey(path)
-		}
-		return nil, fmt.Errorf("creating hmac key file: %w", err)
+		return nil, fmt.Errorf("creating hmac key temp: %w", err)
 	}
-	defer f.Close()
-	if _, err := f.Write(key); err != nil {
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		_ = tmp.Close()
+		return nil, fmt.Errorf("chmod hmac key temp: %w", err)
+	}
+	if _, err := tmp.Write(key); err != nil {
+		_ = tmp.Close()
 		return nil, fmt.Errorf("writing hmac key: %w", err)
 	}
-	return key, nil
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return nil, fmt.Errorf("syncing hmac key: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return nil, fmt.Errorf("closing hmac key temp: %w", err)
+	}
+
+	// POSIX rename is atomic on the same filesystem. After this point
+	// readers observe the full 32 bytes or no file at all. If a
+	// concurrent caller already published a key, our Rename overwrites
+	// it; reread to return on-disk truth either way.
+	if err := os.Rename(tmpPath, path); err != nil {
+		return nil, fmt.Errorf("placing hmac key: %w", err)
+	}
+	return readKeyFile(path)
+}
+
+// readKeyFile reads and validates the HMAC key file. Returns
+// os.ErrNotExist when absent. A short read (file present but smaller
+// than hmacKeyLen) is retried — that almost certainly means a
+// concurrent creator is between CreateTemp and Rename. After ~250ms
+// of retries it gives up with a corruption error.
+func readKeyFile(path string) ([]byte, error) {
+	const (
+		maxAttempts   = 5
+		retryInterval = 50 * time.Millisecond
+	)
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		existing, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading hmac key: %w", err)
+		}
+		if len(existing) == hmacKeyLen {
+			return existing, nil
+		}
+		lastErr = fmt.Errorf("hmac key at %s is %d bytes, expected %d",
+			path, len(existing), hmacKeyLen)
+		time.Sleep(retryInterval)
+	}
+	return nil, fmt.Errorf("%w (corrupted or concurrent-creation race)", lastErr)
 }
 
 // computeMAC returns the HMAC-SHA256 of entryJSON using the cache's key.
@@ -232,12 +281,39 @@ func (c *Cache) SetWithTTL(key CacheKey, data []byte, ttl time.Duration) error {
 	}
 
 	path := c.getPath(key)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating cache directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, out, 0o600); err != nil {
-		return fmt.Errorf("writing cache file: %w", err)
+	// Atomic publish: CreateTemp in the SAME directory (so Rename is a
+	// same-filesystem op and stays atomic) → Chmod → Write → Sync →
+	// Close → Rename. Without this, a concurrent Clean() can read a
+	// partially-written file, fail to unmarshal, and remove it from
+	// under us — corrupting the cache (gemini round-1 P1).
+	tmp, err := os.CreateTemp(dir, ".cache.tmp.*")
+	if err != nil {
+		return fmt.Errorf("creating cache temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod cache temp: %w", err)
+	}
+	if _, err := tmp.Write(out); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("writing cache temp: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("syncing cache temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing cache temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("placing cache file: %w", err)
 	}
 
 	return nil
@@ -268,6 +344,14 @@ func (c *Cache) Clean() error {
 		}
 		if info.Name() == hmacKeyFilename {
 			return nil // Never touch the key.
+		}
+		// Skip in-flight `Set()` / `loadOrCreateHMACKey` temp files;
+		// the writer's pending Rename will publish them shortly.
+		// Removing now would be racy AND silently lose data the
+		// writer expects to land (gemini round-1 P1).
+		if strings.HasPrefix(info.Name(), ".cache.tmp.") ||
+			strings.HasPrefix(info.Name(), ".hmac.key.tmp.") {
+			return nil
 		}
 
 		data, err := os.ReadFile(path)

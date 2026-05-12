@@ -35,6 +35,7 @@ jobs:
     permissions:
       contents: read
       security-events: write  # upload SARIF to the Security tab
+      actions: read           # CodeQL templates fetch workflow metadata
 
     strategy:
       fail-fast: false
@@ -46,6 +47,16 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
+
+      # Pin Go to the version declared in go.mod. Without this, CodeQL
+      # Autobuild uses the runner's bundled Go (older than our 1.25.x
+      # directive), which fails the compile and surfaces as a CI red
+      # rather than a real finding (gemini round-1 P2).
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+          cache: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e  # v4

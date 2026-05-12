@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -509,6 +510,67 @@ func TestCacheCrossKeyCopyRejected(t *testing.T) {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(found).To(BeTrue())
 	Expect(string(got)).To(Equal("payload-A"))
+}
+
+// Clean must not delete an in-flight `Set()` temp file — gemini-flagged
+// race where Clean reads a partial file, fails to unmarshal, and removes
+// it from under a still-running writer.
+func TestCacheCleanSkipsInFlightTempFiles(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	cache, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Simulate an in-flight Set() by dropping a `.cache.tmp.*` file in
+	// the operation subdir.
+	opDir := filepath.Join(dir, "sbom")
+	Expect(os.MkdirAll(opDir, 0o700)).To(Succeed())
+	cacheTmp := filepath.Join(opDir, ".cache.tmp.12345")
+	Expect(os.WriteFile(cacheTmp, []byte("partial bytes — not valid JSON yet"), 0o600)).To(Succeed())
+
+	Expect(cache.Clean()).To(Succeed())
+	_, err = os.Stat(cacheTmp)
+	Expect(err).ToNot(HaveOccurred(), "Clean must leave .cache.tmp.* files alone")
+
+	// Same guard for .hmac.key.tmp.* at the baseDir level.
+	hmacTmp := filepath.Join(dir, ".hmac.key.tmp.67890")
+	Expect(os.WriteFile(hmacTmp, []byte("partial key bytes"), 0o600)).To(Succeed())
+	Expect(cache.Clean()).To(Succeed())
+	_, err = os.Stat(hmacTmp)
+	Expect(err).ToNot(HaveOccurred(), "Clean must leave .hmac.key.tmp.* files alone")
+}
+
+// Set must publish atomically — the on-disk file is never a partial
+// write, and the temp file is cleaned up after a successful Rename.
+func TestCacheSetIsAtomic(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := t.TempDir()
+	cache, err := NewCache(dir)
+	Expect(err).ToNot(HaveOccurred())
+
+	key := CacheKey{Operation: "sbom", ImageDigest: "sha256:atomic", ConfigHash: "h"}
+	bigPayload := make([]byte, 256*1024)
+	for i := range bigPayload {
+		bigPayload[i] = byte(i)
+	}
+
+	Expect(cache.Set(key, bigPayload)).To(Succeed())
+
+	got, found, err := cache.Get(key)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(found).To(BeTrue())
+	Expect(got).To(Equal(bigPayload))
+
+	// No leftover temp files in the op dir after a successful Set.
+	opDir := filepath.Join(dir, "sbom")
+	entries, err := os.ReadDir(opDir)
+	Expect(err).ToNot(HaveOccurred())
+	for _, e := range entries {
+		Expect(strings.HasPrefix(e.Name(), ".cache.tmp.")).To(BeFalse(),
+			"Set must clean up its temp file after Rename, found %s", e.Name())
+	}
 }
 
 func TestCacheCleanSkipsHMACKey(t *testing.T) {
