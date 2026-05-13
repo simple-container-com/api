@@ -10,8 +10,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Least-privilege root (CIS GHA 1.2). Only `docker-finalize` (welder
+# tag-release + deploy) and `finalize` (notify) need `contents: write`;
+# both grant it per-job below.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   prepare:
@@ -364,6 +367,8 @@ jobs:
     name: Docker finalize (tag-release, deploy)
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
+    permissions:
+      contents: write  # `welder run tag-release` pushes the release git tag
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
