@@ -90,17 +90,50 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 
 	defaultCaddyFileEntryStart := `http:// {`
+	// Default catch-all serves a hard 503 page from /etc/caddy/pages/503.html
+	// instead of `file_server` over the whole pages dir (which used to serve
+	// index.html with status 200 for any unknown Host — invisible to monitoring
+	// when every backend was gone).
+	//
+	// Rationale for 503:
+	// - When all Services with `simple-container.com/caddyfile-entry` for a
+	//   given Host vanish (e.g. cascade-deletion from a namespace Replace gone
+	//   wrong), the request now gets HTTP 503 + Retry-After. CDNs fail over,
+	//   uptime checks alert, oncall sees it.
+	//
+	// Why file_server (not respond with inlined HTML):
+	// - Symmetric with the existing `handle_bucket_error` / `handle_server_error`
+	//   snippets in embed/caddy/Caddyfile, which serve {404,500,502}.html the
+	//   same way for per-Service error fallbacks. One pattern for every status
+	//   page in this codebase.
+	// - file_server emits Content-Type automatically from the file extension,
+	//   so no explicit `header Content-Type` needed.
+	// - Operators can override the 503 body by mounting a different ConfigMap
+	//   at /etc/caddy/pages/503.html without touching SC api code.
+	//
+	// Wrapped in `handle { ... }` so the directives below apply only to the
+	// 503 path and nothing else can short-circuit (e.g. `import hsts` redir
+	// firing before the response). We also intentionally do NOT `import hsts`
+	// here — sending an HSTS header from a catch-all that answers any Host is
+	// meaningless, and the HTTP→HTTPS redirect would only route the request
+	// into a TLS handshake failure (Caddy has no cert for an unknown SNI),
+	// which is invisible to HTTP-layer monitoring.
 	defaultCaddyFileEntry := `
   import gzip
-  import handle_static
-  root * /etc/caddy/pages
-  file_server
+  handle {
+    root * /etc/caddy/pages
+    rewrite * /503.html
+    header Cache-Control "no-store"
+    header Retry-After "60"
+    file_server {
+      status 503
+    }
+  }
 `
-	// if caddy must respect SSL connections only
+	// Still computed because it's threaded into per-stack Caddyfile entries
+	// elsewhere in this function; intentionally NOT applied to the catch-all
+	// default block above (see comment on `import hsts` omission).
 	useSSL := caddy.UseSSL == nil || *caddy.UseSSL
-	if useSSL {
-		defaultCaddyFileEntry += "\nimport hsts"
-	}
 
 	serviceAccountName := input.ToResName(fmt.Sprintf("%s-caddy-sa", input.Descriptor.Name))
 	serviceAccount, err := NewSimpleServiceAccount(ctx, serviceAccountName, &SimpleServiceAccountArgs{
@@ -176,27 +209,75 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			return envVars
 		}(),
 		Command: sdk.ToStringArray([]string{"bash", "-c", `
-	      set -xe;
+	      # set -e (exit on error) + pipefail (any pipe component fail = fail).
+	      # Notably we do NOT enable -x here: tracing every command would dump
+	      # the raw caddyfile-entry annotation body to stdout for every Service
+	      # on every pod restart, which lands in cluster logs (GCP/Datadog/ELK).
+	      # SC-generated annotations don't contain secrets, but consumer-side
+	      # misuse (eg. basicauth credentials in Headers or LbConfig.ExtraHelpers
+	      # that templated into the annotation) could leak via -x. The trade-off
+	      # is debuggability — for live troubleshooting, re-enable -x by
+	      # overriding the init-container command in the cluster.
+	      set -eo pipefail;
 	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
-	      
+
 	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
 	      if [ -n "$CADDYFILE_PREFIX" ]; then
 	        echo "$CADDYFILE_PREFIX" >> /tmp/Caddyfile
 	        echo "" >> /tmp/Caddyfile
 	      fi
-	      
-	      # Get all services with Simple Container annotations across all namespaces
-	      services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
+
+	      # List Services carrying the caddyfile-entry annotation. We also pull
+	      # creationTimestamp so we can dedup by site-address with the newest
+	      # Service winning — during a Pulumi Replace of a namespace (or Service),
+	      # the old and new Services transiently coexist and both carry the same
+	      # annotation; without dedup that produced two "http://<domain> { ... }"
+	      # blocks and Caddy aborted with "ambiguous site definition".
+	      # kubectl and sort are split into separate assignments so a kubectl
+	      # failure surfaces unambiguously even without pipefail (originally
+	      # they were piped; pipefail was added in response to a review catch
+	      # and we kept the structural split so future readers do not need
+	      # to know about pipefail to reason about failure modes here).
+	      # pipefail is kept on as belt-and-suspenders for the later
+	      # printf-to-sort pipe and the printf-to-while-read pipeline below.
+	      # If either listing step fails the init-container exits non-zero
+	      # and K8s reschedules — preferable to a Caddyfile with only the
+	      # default 503 block, which would mean a complete loss of routing
+	      # for the entire cluster.
+	      raw_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
+	      services=$(printf '%s' "$raw_services" | sort -r)
           echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
           if [ "$USE_PREFIXES" == "false" ]; then
             echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
 	        echo "}" >> /tmp/Caddyfile
           fi
+	      # Dedup state: first non-blank, non-comment line of each annotation is
+	      # the site address (e.g. "http://support-payhey.pay.space {") or the
+	      # "handle_path /<prefix>*" matcher for prefix routing. Whitespace is
+	      # trimmed both sides so an indentation difference can't pass through as
+	      # a distinct key. Already-seen keys are skipped — most-recently-created
+	      # Service wins via sort -r.
+	      seen=$(mktemp)
+	      trap 'rm -f "$seen"' EXIT
 	      # Process each service that has Caddyfile entry annotation
-	      echo "$services" | while read ns service; do
+	      printf '%s\n' "$services" | while read ts ns service; do
 	          if [ -n "$ns" ] && [ -n "$service" ]; then
+	              entry=$(kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' 2>/dev/null || true)
+	              if [ -z "$entry" ]; then
+	                  continue
+	              fi
+	              key=$(printf '%s\n' "$entry" | awk '
+	                  /^[[:space:]]*$/ { next }
+	                  /^[[:space:]]*#/ { next }
+	                  { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }
+	              ')
+	              if [ -n "$key" ] && grep -qFx -- "$key" "$seen" 2>/dev/null; then
+	                  echo "Skipping duplicate caddyfile-entry '$key' from $ns/$service (older Service)"
+	                  continue
+	              fi
+	              [ -n "$key" ] && printf '%s\n' "$key" >> "$seen"
 	              echo "Processing service: $service in namespace: $ns"
-	              kubectl get service -n $ns $service -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' >> /tmp/Caddyfile || true;
+	              printf '%s\n' "$entry" >> /tmp/Caddyfile
 	              echo "" >> /tmp/Caddyfile
 	          fi
 	      done

@@ -218,23 +218,46 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Use deployment name as Pulumi resource name to ensure uniqueness across environments
 	// while keeping the actual K8s namespace name as specified by the user.
 	//
-	// RetainOnDelete: in legacy deploys, sub-env client stacks (e.g. parentEnv=production
-	// with stackEnv=tenant-a/tenant-b/...) shared one physical K8s namespace because the
-	// namespace metadata.Name was derived from stackName, not from stackEnv. Each stack
-	// tracked its own Pulumi Namespace resource with a unique URN, but they all referenced
-	// the same physical k8s namespace. Without RetainOnDelete, destroying any single
-	// sub-env stack would cascade-delete the shared namespace and wipe every sibling
-	// stack's resources (Deployments, Services, Secrets) — a real production outage when
-	// a throwaway sub-env destroy took down all live siblings.
+	// Namespace-handling has two protections against the destroy/Replace cascade
+	// hazard discovered in pre-PR-230 deploys (see PR #230 and the 2026-05-10
+	// PAY-SPACE + 2026-05-12 fulldiveVR outages):
 	//
-	// GenerateNamespaceName now isolates custom stacks per-stackEnv, but RetainOnDelete
-	// remains load-bearing for the migration step: when a pre-existing custom stack
-	// first runs `pulumi up` after this version, Pulumi Replaces the namespace, and the
-	// old shared namespace must NOT be deleted because the parent stack still lives
-	// there. Post-migration, RetainOnDelete continues to defend against any case where
-	// multiple stacks legitimately share a namespace (helm operators, explicit
-	// `Namespace` overrides). Empty namespaces left after the last referencing stack
-	// is destroyed must be cleaned up by hand.
+	// 1. RetainOnDelete(true). In legacy deploys, sub-env client stacks
+	//    (parentEnv=<prod> with stackEnv=tenant-a/tenant-b/...) shared one
+	//    physical K8s namespace because metadata.Name was derived from
+	//    stackName, not stackEnv. Each stack tracked its own Pulumi Namespace
+	//    resource at a unique URN, but they all pointed at the same physical
+	//    namespace. Destroying any single sub-env stack would cascade-delete
+	//    the shared namespace and wipe every sibling. RetainOnDelete keeps
+	//    Pulumi from issuing the k8s DELETE on destroy.
+	//
+	// 2. IgnoreChanges("metadata.name"). PR #230 changed GenerateNamespaceName
+	//    to isolate custom stacks (stackName-stackEnv) instead of sharing the
+	//    parent's namespace. That works for fresh deploys, but for any consumer
+	//    whose Pulumi state predates #230, the next `pulumi up` saw a diff
+	//    between state's metadata.Name="<stackName>" and program's
+	//    metadata.Name="<stackName>-<stackEnv>", and scheduled a Replace.
+	//    Replace = create-new + delete-old, and `RetainOnDelete` on the new
+	//    resource is non-retroactive — Pulumi reads delete-time options from
+	//    the OLD resource's state, which predates the flag. The k8s DELETE on
+	//    the shared namespace went through and cascade-killed the parent
+	//    stack's running resources.
+	//
+	//    IgnoreChanges("metadata.name") suppresses the diff entirely. No
+	//    Replace is scheduled, no delete fires. The resource state retains
+	//    whatever metadata.Name it had (new for fresh deploys, legacy shared
+	//    for migrated consumers). Other resources (Service, Deployment, …)
+	//    that reference namespace.Metadata.Name().Elem() follow whichever
+	//    name is in effect — fresh deploys land in the isolated namespace,
+	//    migrated consumers continue using the shared one. Combined with
+	//    RetainOnDelete this keeps both modes safe.
+	//
+	//    Consumers who want to migrate an existing custom stack to the
+	//    isolated namespace name opt in by running
+	//      pulumi stack export | jq 'del(... namespace urn ...)' | pulumi stack import
+	//    (forget the namespace resource — k8s namespace itself stays put),
+	//    then the next pulumi up registers a fresh Namespace at the isolated
+	//    name. Documented in the PR description.
 	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
 	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
@@ -242,7 +265,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Labels:      sdk.ToStringMap(appLabels),
 			Annotations: sdk.ToStringMap(appAnnotations),
 		},
-	}, append(opts, sdk.RetainOnDelete(true))...)
+	}, append(opts, sdk.RetainOnDelete(true), sdk.IgnoreChanges([]string{"metadata.name"}))...)
 	if err != nil {
 		return nil, err
 	}
@@ -613,20 +636,27 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	serviceAnnotations := lo.Assign(appAnnotations)
 
 	var caddyfileEntry string
+	var caddyfileEntryAnnotation sdk.StringInput
 	if args.GenerateCaddyfileEntry && mainPort != nil {
+		// The unsubstituted template — used for both the initial sync render
+		// (sc.CaddyfileEntry static export, change-hash signal) and the
+		// deferred re-render inside ApplyT below (live-namespace annotation
+		// on the Service). Single source of truth so any template tweak
+		// updates both paths.
+		var caddyfileEntryTemplate string
 		if args.Domain != "" {
-			caddyfileEntry = `
+			caddyfileEntryTemplate = `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
     header_down Server nginx ${addHeaders}
     import handle_server_error
     ${extraHelpers}
   }
-  ${imports} 
+  ${imports}
 }
 `
 		} else if args.Prefix != "" {
-			caddyfileEntry = `
+			caddyfileEntryTemplate = `
   handle_path /${prefix}* {${additionalProxyConfig}
     reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
       header_down Server nginx ${addHeaders}
@@ -660,9 +690,51 @@ ${proto}://${domain} {
 		} else {
 			placeholdersMap["additionalProxyConfig"] = ""
 		}
+		// Apply placeholders synchronously so the static representation
+		// (used for sc.CaddyfileEntry change-hash + log lines) is populated.
+		// `namespace` here is sanitizedNamespace — for fresh deploys that
+		// matches the live k8s namespace, but for migrated stacks with
+		// IgnoreChanges("metadata.name") suppressing the rename the live
+		// namespace stays at the legacy value. The annotation that lands
+		// on the Service is computed from the live namespace Output below.
+		caddyfileEntry = caddyfileEntryTemplate
 		if err := placeholders.New().Apply(&caddyfileEntry, placeholders.WithData(placeholdersMap)); err != nil {
 			return nil, errors.Wrapf(err, "failed to apply placeholders on caddyfile entry template")
 		}
+
+		// Build the actual annotation as an Output that resolves namespace
+		// from the live Namespace resource's metadata.name. On migrated
+		// stacks this is the legacy shared name (because of IgnoreChanges),
+		// which is also where the Service is created, so reverse_proxy
+		// http://${service}.${namespace}.svc.cluster.local resolves to
+		// real cluster DNS. On fresh deploys it equals sanitizedNamespace
+		// so the byte output matches the legacy code path.
+		//
+		// Render failures inside ApplyT are returned as errors (not silently
+		// fallen back to the statically-rendered template) — falling back
+		// would re-introduce the migrated-stack 502 bug this PR is fixing.
+		staticEntry := caddyfileEntry
+		caddyfileEntryAnnotation = namespace.Metadata.Name().ApplyT(func(nsPtr *string) (string, error) {
+			liveNS := sanitizedNamespace
+			if nsPtr != nil && *nsPtr != "" {
+				liveNS = *nsPtr
+			}
+			if liveNS == sanitizedNamespace {
+				// Fresh deploy or no migration: static template is correct verbatim.
+				return staticEntry, nil
+			}
+			// Migrated stack: re-render with the live (legacy) namespace.
+			localMap := make(placeholders.MapData, len(placeholdersMap))
+			for k, v := range placeholdersMap {
+				localMap[k] = v
+			}
+			localMap["namespace"] = liveNS
+			rendered := caddyfileEntryTemplate
+			if err := placeholders.New().Apply(&rendered, placeholders.WithData(localMap)); err != nil {
+				return "", errors.Wrapf(err, "failed to re-render caddyfile entry for live namespace %q", liveNS)
+			}
+			return rendered, nil
+		}).(sdk.StringOutput)
 		serviceAnnotations[AnnotationCaddyfileEntry] = caddyfileEntry
 	}
 
@@ -675,6 +747,18 @@ ${proto}://${domain} {
 			})
 		}
 	}
+	// Build the Pulumi-input annotation map. The caddyfile-entry value, if
+	// any, is an Output that resolves the namespace placeholder against the
+	// live Namespace resource (so IgnoreChanges'd migrated stacks point at
+	// the legacy shared namespace, fresh deploys point at the per-stackEnv
+	// namespace). Everything else is a static string.
+	serviceAnnotationsInput := sdk.StringMap{}
+	for k, v := range serviceAnnotations {
+		serviceAnnotationsInput[k] = sdk.String(v)
+	}
+	if caddyfileEntryAnnotation != nil {
+		serviceAnnotationsInput[AnnotationCaddyfileEntry] = caddyfileEntryAnnotation
+	}
 	var service *corev1.Service
 	if len(lo.FromPtr(args.IngressContainer).Ports) > 0 {
 		service, err = corev1.NewService(ctx, sanitizedService, &corev1.ServiceArgs{
@@ -682,7 +766,7 @@ ${proto}://${domain} {
 				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
-				Annotations: sdk.ToStringMap(serviceAnnotations),
+				Annotations: serviceAnnotationsInput,
 			},
 			Spec: &corev1.ServiceSpecArgs{
 				Selector:              sdk.ToStringMap(appLabels),
@@ -701,16 +785,25 @@ ${proto}://${domain} {
 		if mainPort == nil {
 			return nil, errors.Errorf("cannot provision ingress when no main port is specified")
 		}
-		ingressAnnotations := lo.Assign(serviceAnnotations)
+		// Mirror the Service-side annotation map (Pulumi-input with the
+		// live-namespace caddyfile-entry Output) and overlay the
+		// Ingress-only ssl-redirect tweak.
+		ingressAnnotationsInput := sdk.StringMap{}
+		for k, v := range serviceAnnotations {
+			ingressAnnotationsInput[k] = sdk.String(v)
+		}
+		if caddyfileEntryAnnotation != nil {
+			ingressAnnotationsInput[AnnotationCaddyfileEntry] = caddyfileEntryAnnotation
+		}
 		if args.UseSSL {
-			ingressAnnotations["ingress.kubernetes.io/ssl-redirect"] = "false" // do not need ssl redirect from kube
+			ingressAnnotationsInput["ingress.kubernetes.io/ssl-redirect"] = sdk.String("false") // do not need ssl redirect from kube
 		}
 		_, err = networkv1.NewIngress(ctx, sanitizedService, &networkv1.IngressArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Name:        sdk.String(sanitizedService),
 				Namespace:   namespace.Metadata.Name().Elem(),
 				Labels:      sdk.ToStringMap(appLabels),
-				Annotations: sdk.ToStringMap(ingressAnnotations),
+				Annotations: ingressAnnotationsInput,
 			},
 			Spec: &networkv1.IngressSpecArgs{
 				Rules: networkv1.IngressRuleArray{
@@ -797,9 +890,13 @@ ${proto}://${domain} {
 		return nil, err
 	}
 
-	// Create VPA if enabled
+	// Create VPA if enabled. Pass the live namespace name (Pulumi Output)
+	// rather than the program-computed sanitizedNamespace string, so the
+	// VPA lands in the same namespace as its target Deployment on migrated
+	// stacks (where IgnoreChanges("metadata.name") keeps the namespace at
+	// the legacy shared value).
 	if args.VPA != nil && args.VPA.Enabled {
-		if err := createVPA(ctx, args, baseResourceName, sanitizedNamespace, appLabels, appAnnotations, opts...); err != nil {
+		if err := createVPA(ctx, args, baseResourceName, namespace.Metadata.Name().Elem(), appLabels, appAnnotations, opts...); err != nil {
 			return nil, errors.Wrapf(err, "failed to create VPA for deployment %s", baseResourceName)
 		}
 	}
@@ -843,7 +940,7 @@ ${proto}://${domain} {
 	return sc, nil
 }
 
-func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, namespace string, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
+func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName string, namespace sdk.StringInput, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
 
 	// Build VPA spec content
@@ -938,7 +1035,7 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName, name
 		Kind:       sdk.String("VerticalPodAutoscaler"),
 		Metadata: &metav1.ObjectMetaArgs{
 			Name:        sdk.String(vpaName),
-			Namespace:   sdk.String(namespace),
+			Namespace:   namespace,
 			Labels:      sdk.ToStringMap(vpaLabels),
 			Annotations: sdk.ToStringMap(vpaAnnotations),
 		},
