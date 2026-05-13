@@ -1,0 +1,82 @@
+# https://docs.github.com/en/repositories/managing-your-repositories-settings-and-customization/customizing-your-repository/about-code-owners
+#
+# CODEOWNERS for simple-container-com/api.
+#
+# IMPORTANT — semantics: when multiple users are listed on the same
+# pattern, GitHub treats them as ALTERNATIVES, not a conjunction. A PR
+# satisfies the CODEOWNERS gate once ANY one listed owner approves.
+# To genuinely require approvals from BOTH leads on sensitive paths,
+# configure a branch protection rule / Ruleset that sets:
+#   - "Require review from Code Owners"
+#   - "Required approving reviews" ≥ 2
+# That's a repo-admin UI setting; this file can't express it.
+#
+# What this file DOES enforce:
+#   - GitHub auto-requests review from a code owner when a PR touches
+#     a matching file.
+#   - If the matching review-count rule is set in the admin UI, a PR
+#     cannot merge without enough code-owner approvals.
+#
+# Listing both leads on a pattern widens the review pool — either lead
+# can sign off; both don't have to (unless the admin UI rule is set).
+#
+# Tip: GitHub picks the LAST matching pattern in this file for a given
+# file path — ordering matters. Put broad defaults at the top and
+# specific high-sensitivity globs at the bottom so they win.
+
+# ---------------------------------------------------------------------
+# Default — every file pulls in at least one lead for review.
+# ---------------------------------------------------------------------
+*                                       @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# CI / supply-chain — sensitive paths. Multi-reviewer gating depends
+# on the branch-protection setting described in the header. Touching
+# these files changes how every release is built and how secrets
+# reach the runner.
+# ---------------------------------------------------------------------
+/.github/                               @Cre-eD @smecsia
+/.github/workflows/                     @Cre-eD @smecsia
+/.github/actions/                       @Cre-eD @smecsia
+/.github/dependabot.yml                 @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Image build context.
+# ---------------------------------------------------------------------
+/*.Dockerfile                           @Cre-eD @smecsia
+/welder.yaml                            @Cre-eD @smecsia
+/sc.sh                                  @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Security pipeline source — code that signs, scans, attests, and
+# decides what gets blocked. Tamper with this and the whole consumer
+# supply chain weakens.
+# ---------------------------------------------------------------------
+/pkg/security/                          @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Secrets / config plumbing.
+# ---------------------------------------------------------------------
+/pkg/api/secrets/                       @Cre-eD @smecsia
+/pkg/cmd/cmd_secrets/                   @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Cloud provisioning — IAM and resource defaults that ship to every
+# consumer account.
+# ---------------------------------------------------------------------
+/pkg/clouds/pulumi/aws/                 @Cre-eD @smecsia
+/pkg/clouds/pulumi/gcp/                 @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# Module graph — dep bumps need security review (see
+# `feedback_sc_ci_tools_step` for the CI-quirk caveat).
+# ---------------------------------------------------------------------
+/go.mod                                 @Cre-eD @smecsia
+/go.sum                                 @Cre-eD @smecsia
+/tools.go                               @Cre-eD @smecsia
+
+# ---------------------------------------------------------------------
+# This policy + ownership file itself.
+# ---------------------------------------------------------------------
+/SECURITY.md                            @Cre-eD @smecsia
+/CODEOWNERS                             @Cre-eD @smecsia
