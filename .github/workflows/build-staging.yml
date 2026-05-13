@@ -10,6 +10,10 @@ jobs:
   build-staging:
     name: Build Staging Image
     runs-on: blacksmith-8vcpu-ubuntu-2204
+    permissions:
+      contents: read
+      id-token: write       # OIDC for keyless cosign + attest-build-provenance
+      attestations: write
     outputs:
       cicd-bot-telegram-token: ${{ steps.prepare-additional-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.prepare-additional-secrets.outputs.cicd-bot-telegram-chat-id }}
@@ -77,37 +81,132 @@ jobs:
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
 
-      - name: Build and push Docker image with BuildKit caching
-        env:
-          DOCKER_BUILDKIT: 1
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          # Build and push with advanced caching using BuildKit
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file github-actions-staging.Dockerfile \
-            --tag simplecontainer/github-actions:staging \
-            --tag "simplecontainer/github-actions:$REF_NAME" \
-            --push \
-            .
+      - name: Build and push github-actions staging image
+        id: build_gha_staging
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          file: github-actions-staging.Dockerfile
+          platforms: linux/amd64
+          tags: |
+            simplecontainer/github-actions:staging
+            simplecontainer/github-actions:${{ github.ref_name }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
 
       - name: Build and push caddy staging image
+        id: build_caddy_staging
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          file: caddy.Dockerfile
+          platforms: linux/amd64
+          tags: |
+            simplecontainer/caddy:staging
+            simplecontainer/caddy:${{ env.VERSION }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      # Phase 2: sign + SBOM + SLSA provenance for staging images. Staging has
+      # its OWN trust root (build-staging.yml@refs/heads/staging) — consumers
+      # who opt in to `:staging` images verify against the staging identity
+      # regex, not the production one (push.yaml@refs/heads/main). See
+      # SECURITY.md "Identity regex contract".
+      - name: Install attestation tools
+        if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
+        uses: ./.github/actions/install-attest-tools
+
+      - name: Generate CycloneDX SBOM for github-actions staging
+        id: sbom_gha_staging
+        if: steps.build_gha_staging.outcome == 'success'
+        continue-on-error: true
         env:
-          DOCKER_BUILDKIT: 1
+          IMAGE_REF: simplecontainer/github-actions@${{ steps.build_gha_staging.outputs.digest }}
         run: |
-          # Build and push caddy staging image with BuildKit caching
-          # Tag with both 'staging' and the full VERSION (e.g., staging-219-20260220-093856)
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file caddy.Dockerfile \
-            --tag simplecontainer/caddy:staging \
-            --tag simplecontainer/caddy:$VERSION \
-            --push \
-            .
+          set -euo pipefail
+          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-github-actions-staging.cdx.json"
+
+      - name: Generate CycloneDX SBOM for caddy staging
+        id: sbom_caddy_staging
+        if: steps.build_caddy_staging.outcome == 'success'
+        continue-on-error: true
+        env:
+          IMAGE_REF: simplecontainer/caddy@${{ steps.build_caddy_staging.outputs.digest }}
+        run: |
+          set -euo pipefail
+          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-caddy-staging.cdx.json"
+
+      - name: Cosign sign + attest staging images (keyless)
+        id: cosign_staging
+        if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          GHA_REF: simplecontainer/github-actions@${{ steps.build_gha_staging.outputs.digest }}
+          CADDY_REF: simplecontainer/caddy@${{ steps.build_caddy_staging.outputs.digest }}
+          GHA_OUTCOME: ${{ steps.build_gha_staging.outcome }}
+          CADDY_OUTCOME: ${{ steps.build_caddy_staging.outcome }}
+          GHA_SBOM_OUTCOME: ${{ steps.sbom_gha_staging.outcome }}
+          CADDY_SBOM_OUTCOME: ${{ steps.sbom_caddy_staging.outcome }}
+        run: |
+          set -uo pipefail
+          rc=0
+          if [ "$GHA_OUTCOME" = "success" ]; then
+            cosign sign --yes "$GHA_REF" || rc=1
+            if [ "$GHA_SBOM_OUTCOME" = "success" ]; then
+              cosign attest --yes --predicate sbom-github-actions-staging.cdx.json --type cyclonedx "$GHA_REF" || rc=1
+            fi
+          fi
+          if [ "$CADDY_OUTCOME" = "success" ]; then
+            cosign sign --yes "$CADDY_REF" || rc=1
+            if [ "$CADDY_SBOM_OUTCOME" = "success" ]; then
+              cosign attest --yes --predicate sbom-caddy-staging.cdx.json --type cyclonedx "$CADDY_REF" || rc=1
+            fi
+          fi
+          exit "$rc"
+
+      - name: SLSA build provenance for github-actions staging
+        id: slsa_gha_staging
+        if: steps.build_gha_staging.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-name: index.docker.io/simplecontainer/github-actions
+          subject-digest: ${{ steps.build_gha_staging.outputs.digest }}
+          push-to-registry: true
+
+      - name: SLSA build provenance for caddy staging
+        id: slsa_caddy_staging
+        if: steps.build_caddy_staging.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-name: index.docker.io/simplecontainer/caddy
+          subject-digest: ${{ steps.build_caddy_staging.outputs.digest }}
+          push-to-registry: true
+
+      - name: Soft-fail aggregator for staging attestation
+        if: always()
+        env:
+          GHA_SBOM_OUTCOME: ${{ steps.sbom_gha_staging.outcome }}
+          CADDY_SBOM_OUTCOME: ${{ steps.sbom_caddy_staging.outcome }}
+          COSIGN_OUTCOME: ${{ steps.cosign_staging.outcome }}
+          GHA_SLSA_OUTCOME: ${{ steps.slsa_gha_staging.outcome }}
+          CADDY_SLSA_OUTCOME: ${{ steps.slsa_caddy_staging.outcome }}
+        run: |
+          fail=0
+          for v in "$GHA_SBOM_OUTCOME" "$CADDY_SBOM_OUTCOME" "$COSIGN_OUTCOME" "$GHA_SLSA_OUTCOME" "$CADDY_SLSA_OUTCOME"; do
+            if [ "$v" != "success" ] && [ "$v" != "skipped" ]; then fail=1; fi
+          done
+          if [ "$fail" -eq 1 ]; then
+            echo "::warning title=Staging attestation incomplete::sbom-gha=$GHA_SBOM_OUTCOME sbom-caddy=$CADDY_SBOM_OUTCOME cosign=$COSIGN_OUTCOME slsa-gha=$GHA_SLSA_OUTCOME slsa-caddy=$CADDY_SLSA_OUTCOME"
+          else
+            echo "Staging attestation complete."
+          fi
 
       - name: Image built successfully
         env:

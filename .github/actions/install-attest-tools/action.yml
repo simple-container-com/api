@@ -1,0 +1,70 @@
+name: 'Install attestation tools'
+description: 'Install cosign, syft, and slsa-verifier with single-source SHA pins for use across the SC release pipeline'
+
+inputs:
+  cosign-version:
+    description: 'Cosign CLI release tag to install (e.g. v2.4.1)'
+    required: false
+    default: 'v2.4.1'
+  syft-version:
+    description: 'Syft CLI release tag to install (e.g. v1.16.0)'
+    required: false
+    default: 'v1.16.0'
+  slsa-verifier-version:
+    description: 'slsa-verifier CLI release tag to install (e.g. v2.7.1)'
+    required: false
+    default: 'v2.7.1'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+      with:
+        cosign-release: ${{ inputs.cosign-version }}
+
+    - name: Install syft
+      uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
+      with:
+        syft-version: ${{ inputs.syft-version }}
+
+    - name: Install slsa-verifier
+      shell: bash
+      env:
+        SLSA_VERIFIER_VERSION: ${{ inputs.slsa-verifier-version }}
+      run: |
+        set -euo pipefail
+        os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        arch_raw="$(uname -m)"
+        case "$arch_raw" in
+          x86_64|amd64) arch=amd64 ;;
+          aarch64|arm64) arch=arm64 ;;
+          *) echo "unsupported arch: $arch_raw" >&2; exit 1 ;;
+        esac
+
+        bin_url="https://github.com/slsa-framework/slsa-verifier/releases/download/${SLSA_VERIFIER_VERSION}/slsa-verifier-${os}-${arch}"
+        sum_url="https://github.com/slsa-framework/slsa-verifier/releases/download/${SLSA_VERIFIER_VERSION}/SHA256SUM.md"
+
+        tmpdir="$(mktemp -d)"
+        trap 'rm -rf "$tmpdir"' EXIT
+
+        curl -fsSL -o "$tmpdir/slsa-verifier" "$bin_url"
+        curl -fsSL -o "$tmpdir/SHA256SUM.md" "$sum_url"
+
+        expected="$(grep -E "slsa-verifier-${os}-${arch}\b" "$tmpdir/SHA256SUM.md" | awk '{print $1}' | head -n1)"
+        if [ -z "$expected" ]; then
+          echo "could not locate expected SHA256 for slsa-verifier-${os}-${arch} in release SHA256SUM.md" >&2
+          exit 1
+        fi
+
+        actual="$(sha256sum "$tmpdir/slsa-verifier" | awk '{print $1}')"
+        if [ "$expected" != "$actual" ]; then
+          echo "slsa-verifier checksum mismatch (expected $expected, got $actual)" >&2
+          exit 1
+        fi
+
+        install_dir="$HOME/.local/bin"
+        mkdir -p "$install_dir"
+        install -m 0755 "$tmpdir/slsa-verifier" "$install_dir/slsa-verifier"
+        echo "$install_dir" >> "$GITHUB_PATH"
+        "$install_dir/slsa-verifier" version

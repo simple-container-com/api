@@ -73,6 +73,107 @@ set of audited libraries (`cosign`, `sigstore-go`). We avoid rolling
 our own crypto. The local security-scan cache uses HMAC-SHA256 with a
 32-byte random per-cache key for tamper detection.
 
+## Artifact signing and verification (Phase 2)
+
+Every release produces signed, attested artifacts published to Docker
+Hub and `dist.simple-container.com`. Consumers can verify before use.
+
+### Identity-regex contract
+
+Cosign keyless signatures bind the signing identity to a GitHub
+Actions OIDC subject. Consumers verify against one of two pinned
+identities; **do not mix them**.
+
+| Trust root | Subject regex | Use for |
+|---|---|---|
+| **Production** | `^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$` | `sc.sh` installs; production Docker images (`:latest`, `:vYYYY.M.x`, `:aws-vYYYY.M.x`); release tarballs |
+| **Staging** | `^https://github\.com/simple-container-com/api/\.github/workflows/build-staging\.yml@refs/heads/staging$` | Consumers who **knowingly opt in** to `:staging` images via composite actions |
+| OIDC issuer (both) | `https://token.actions.githubusercontent.com` | — |
+
+If either workflow file is ever renamed, the regex above is
+bumped in the same PR. This file is the canonical reference for
+consumer-side verification.
+
+### Verifying images
+
+```bash
+IMG=docker.io/simplecontainer/github-actions
+DIGEST=$(crane digest "$IMG:vYYYY.M.x")   # pin to the immutable digest
+cosign verify "$IMG@$DIGEST" \
+  --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify-attestation "$IMG@$DIGEST" --type cyclonedx \
+  --certificate-identity-regexp '...' --certificate-oidc-issuer '...'
+slsa-verifier verify-image "$IMG@$DIGEST" \
+  --source-uri github.com/simple-container-com/api
+```
+
+### Verifying tarballs
+
+The CDN ships these sidecars next to every tarball:
+
+- `<tarball>.sha256` — SHA-256 checksum
+- `<tarball>.cosign-bundle` — cosign keyless bundle (cert + sig + Rekor entry)
+- `<tarball>.intoto.jsonl` — SLSA build provenance
+
+```bash
+T="sc-linux-amd64-vYYYY.M.x.tar.gz"
+curl -fLO "https://dist.simple-container.com/$T"{,.sha256,.cosign-bundle,.intoto.jsonl}
+sha256sum -c "$T.sha256"
+cosign verify-blob --bundle "$T.cosign-bundle" \
+  --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$T"
+slsa-verifier verify-artifact "$T" \
+  --provenance-path "$T.intoto.jsonl" \
+  --source-uri github.com/simple-container-com/api
+```
+
+`sc.sh` runs the tarball steps automatically when `cosign` is on `PATH`.
+
+### Composite-action consumers — SHA-pin the underlying image
+
+`simple-container-com/api/.github/actions/{deploy-client-stack,
+provision-parent-stack,destroy,cancel-stack}` are docker-action
+wrappers that pull `simplecontainer/github-actions:staging` by **tag**
+at consume-time. Tags are mutable; the underlying image is signed but
+the GitHub Actions runtime does not verify the signature before
+launching the container.
+
+Consumers running these actions in **production** pipelines should
+pin the action repository **and** the docker image to a digest. The
+recommended pattern (see `simple-container-com/actions` for the
+maintained variant of these wrappers):
+
+1. Pin the action ref by SHA, not `@main`.
+2. Vendor the action.yml locally and replace
+   `image: 'docker://simplecontainer/github-actions:staging'` with
+   `image: 'docker://simplecontainer/github-actions@sha256:<digest>'`
+   for the digest you have verified out-of-band with `cosign verify`.
+3. Re-bump the digest on a documented cadence (we publish the
+   current production digest in every release-notes entry).
+
+A native `cosign verify` step inside the wrapper action is on the
+roadmap; until then, **digest-pinning is the only consumer-side
+mitigation for the mutable-tag pull path**.
+
+### Residual risk: CDN rollback
+
+A network attacker who can rewrite responses from
+`dist.simple-container.com` can serve an older, validly-signed,
+still-vulnerable tarball when the consumer fetches the unversioned
+`sc-os-arch.tar.gz` pointer. The signature still verifies (the older
+build was legitimately signed at release time) but the binary is
+known-vulnerable.
+
+Mitigation in this phase: `sc.sh` (Phase-2 PR 2c) defaults to
+fetching the **latest version** from a signed `version` manifest,
+not the unversioned tarball. Consumers who set
+`SIMPLE_CONTAINER_VERSION=vYYYY.M.x` get the explicit version they
+asked for; consumers who do not set it get the version the manifest
+declares current.
+
+This residual risk is closed by TUF/RSTUF in Phase 6.
+
 [push]: .github/workflows/push.yaml
 [install-sc]: https://github.com/simple-container-com/actions/tree/main/install-sc
 [gsa]: https://github.com/simple-container-com/api/security/advisories/new
