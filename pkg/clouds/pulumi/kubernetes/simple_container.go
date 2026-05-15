@@ -231,8 +231,8 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// while keeping the actual K8s namespace name as specified by the user.
 	//
 	// Namespace-handling has two protections against the destroy/Replace cascade
-	// hazard discovered in pre-PR-230 deploys (see PR #230 and the 2026-05-10
-	// PAY-SPACE + 2026-05-12 fulldiveVR outages):
+	// hazard discovered in pre-PR-230 deploys (see PR #230 and the consumer-side
+	// outages tracked in #255):
 	//
 	// 1. RetainOnDelete(true). In legacy deploys, sub-env client stacks
 	//    (parentEnv=<prod> with stackEnv=tenant-a/tenant-b/...) shared one
@@ -264,12 +264,21 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	//    migrated consumers continue using the shared one. Combined with
 	//    RetainOnDelete this keeps both modes safe.
 	//
-	//    Consumers who want to migrate an existing custom stack to the
-	//    isolated namespace name opt in by running
-	//      pulumi stack export | jq 'del(... namespace urn ...)' | pulumi stack import
-	//    (forget the namespace resource — k8s namespace itself stays put),
-	//    then the next pulumi up registers a fresh Namespace at the isolated
-	//    name. Documented in the PR description.
+	//    Downstream Secret/Job resources created by pre/post-processors (GCP
+	//    CloudSQL credentials in pkg/clouds/pulumi/gcp/cloudsql_proxy.go +
+	//    gcp/init_pg_user_job.go; on-cluster postgres + mongo init Jobs in
+	//    pkg/clouds/pulumi/kubernetes/init_{pg,mongo}_user_job.go) consume the
+	//    live namespace via SimpleContainerArgs.NamespaceNameOutput (set a few
+	//    lines below from namespace.Metadata.Name().Elem()) rather than
+	//    recomputing it via GenerateNamespaceName. That keeps them in lock-step
+	//    with whatever metadata.Name is in state — fresh stacks get the
+	//    isolated namespace, migrated stacks stay parent-shared — without
+	//    needing IgnoreChanges("metadata.namespace") on every individual
+	//    Secret/Job. Migrating an existing custom stack from parent-shared to
+	//    isolated namespace is therefore automatic via `pulumi stack export |
+	//    jq 'del(... namespace urn ...)' | pulumi stack import` (forget the
+	//    Namespace resource, then `pulumi up` creates a fresh Namespace at the
+	//    isolated name and the downstream consumers follow it). See PR #258.
 	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
 	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
