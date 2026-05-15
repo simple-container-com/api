@@ -90,7 +90,6 @@ require_tool cosign
 require_tool curl
 require_tool jq
 require_tool sha256sum
-require_tool crane
 
 if [ -z "${GH_TOKEN:-}" ]; then
   echo "GH_TOKEN must be set (use GH_SC for simple-container-com)" >&2
