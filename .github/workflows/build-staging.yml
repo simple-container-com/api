@@ -30,9 +30,17 @@ jobs:
           go-version: '1.24'
 
       - name: Set version for build
+        id: version
         run: |
+          # Expose VERSION via BOTH $GITHUB_OUTPUT (consumed by `with:` blocks
+          # of later steps — `env.VERSION` would also work but actionlint
+          # cannot statically prove a $GITHUB_ENV-set var is present, so the
+          # step-output form keeps the IDE clean) AND $GITHUB_ENV (so the
+          # existing shell-only steps that reference $VERSION as a bare env
+          # var keep working).
           VERSION="staging-${{ github.run_number }}-$(date -u +%Y%m%d-%H%M%S)"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION"  >> "$GITHUB_ENV"
           echo "🏷️ Set VERSION: $VERSION"
 
       - name: Cache CLI tools (SC + Welder)
@@ -105,7 +113,7 @@ jobs:
           platforms: linux/amd64
           tags: |
             simplecontainer/caddy:staging
-            simplecontainer/caddy:${{ env.VERSION }}
+            simplecontainer/caddy:${{ steps.version.outputs.version }}
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max

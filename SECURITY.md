@@ -86,7 +86,7 @@ identities; **do not mix them**.
 
 | Trust root | Subject regex | Use for |
 |---|---|---|
-| **Production** | `^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$` | `sc.sh` installs; production Docker images (`:latest`, `:vYYYY.M.x`, `:aws-vYYYY.M.x`); release tarballs |
+| **Production** | `^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$` | `sc.sh` installs; production Docker images (`:latest`, `:YYYY.M.x`, `:aws-latest`, `:aws-YYYY.M.x`); release tarballs (`sc-…-vYYYY.M.x.tar.gz`) |
 | **Staging** | `^https://github\.com/simple-container-com/api/\.github/workflows/build-staging\.yml@refs/heads/staging$` | Consumers who **knowingly opt in** to `:staging` images via composite actions |
 | OIDC issuer (both) | `https://token.actions.githubusercontent.com` | — |
 
@@ -103,14 +103,20 @@ because we publish provenance through `actions/attest-build-provenance@v4`
 
 ```bash
 IMG=docker.io/simplecontainer/github-actions
-DIGEST=$(crane digest "$IMG:vYYYY.M.x")   # pin to the immutable digest
+# Image tags do NOT carry a `v` prefix (only git tags + tarballs do):
+#   simplecontainer/github-actions:YYYY.M.x
+#   simplecontainer/cloud-helpers:aws-YYYY.M.x
+DIGEST=$(crane digest "$IMG:YYYY.M.x")   # pin to the immutable digest
 cosign verify "$IMG@$DIGEST" \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 cosign verify-attestation "$IMG@$DIGEST" --type cyclonedx \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-gh attestation verify "oci://$IMG@$DIGEST" --repo simple-container-com/api
+gh attestation verify "oci://$IMG@$DIGEST" \
+  --repo simple-container-com/api \
+  --cert-identity-regex '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+  --cert-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 ### Verifying tarballs
@@ -129,7 +135,9 @@ cosign verify-blob --bundle "$T.cosign-bundle" \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com "$T"
 gh attestation verify "$T" --bundle "$T.sigstore.json" \
-  --repo simple-container-com/api
+  --repo simple-container-com/api \
+  --cert-identity-regex '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+  --cert-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 `sc.sh` will run the tarball steps automatically when `cosign` is on
@@ -175,9 +183,10 @@ known-vulnerable.
 Mitigation in this phase: `sc.sh` (Phase-2 PR 2c) defaults to
 fetching the **latest version** from a signed `version` manifest,
 not the unversioned tarball. Consumers who set
-`SIMPLE_CONTAINER_VERSION=vYYYY.M.x` get the explicit version they
-asked for; consumers who do not set it get the version the manifest
-declares current.
+`SIMPLE_CONTAINER_VERSION=YYYY.M.x` (bare; `sc.sh` adds the `v`
+prefix itself when constructing the download URL) get the explicit
+version they asked for; consumers who do not set it get the version
+the manifest declares current.
 
 This residual risk is closed by TUF/RSTUF in Phase 6.
 
