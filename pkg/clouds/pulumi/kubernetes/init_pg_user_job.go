@@ -42,6 +42,16 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 	opts := args.Opts
 	opts = append(opts, sdk.Provider(args.KubeProvider))
 
+	// IgnoreChanges("metadata.namespace") — symmetric with PR #255's IgnoreChanges("metadata.name")
+	// on the Namespace and the matching GCP CSQL fix in pkg/clouds/pulumi/gcp/. compute_proc_postgres.go
+	// derives the namespace via kubernetes.GenerateNamespaceName (which suffixes custom-stack stackEnv
+	// after #230); for existing stacks whose state predates #230 the previous value was the parent-shared
+	// namespace, so the diff schedules an immutable-namespace Replace that fails because the isolated
+	// namespace was never created (the Namespace itself is held parent-shared by #255). Suppress the diff
+	// so this Secret + the Job below stay co-located with the consuming pod. Fresh stacks still get the
+	// isolated namespace on initial create — IgnoreChanges only suppresses *diff*, not *initial value*.
+	nsImmutableOpts := append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))
+
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
@@ -59,7 +69,7 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 			"PGDATABASE":  sdk.String("postgres"),
 			"INIT_SQL":    sdk.String(args.InitSQL),
 		},
-	}, opts...)
+	}, nsImmutableOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +112,7 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 				},
 			},
 		},
-	}, append(opts, sdk.Provider(kubeProvider))...)
+	}, append(nsImmutableOpts, sdk.Provider(kubeProvider))...)
 	if err != nil {
 		return nil, err
 	}
