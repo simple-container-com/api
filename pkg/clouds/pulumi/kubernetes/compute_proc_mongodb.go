@@ -130,18 +130,16 @@ func createMongodbUserForDatabase(ctx *sdk.Context, userName, dbName string, par
 	ctx.Export(passwordName, password.Result)
 
 	// The init job must run in the same namespace as the consuming pod so it can be
-	// observed and cleaned up alongside the workload. For custom stacks (parentEnv != stackEnv)
-	// the pod lives in `<stackName>-<stackEnv>` per GenerateNamespaceName, so derive the same
-	// namespace here. Standard stacks keep the existing `<stackName>` namespace.
-	parentEnv := ""
-	if params.provisionParams.ParentStack != nil {
-		parentEnv = params.provisionParams.ParentStack.ParentEnv
-	}
-	namespace := GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv)
-
+	// observed and cleaned up alongside the workload. Use the live Namespace.Metadata.Name()
+	// Output threaded through SimpleContainerArgs.NamespaceNameOutput — see the matching
+	// rationale in compute_proc_postgres.go.
 	params.collector.AddPreProcessor(&SimpleContainerArgs{}, func(c any) error {
+		kubeArgs, ok := c.(*SimpleContainerArgs)
+		if !ok {
+			return errors.Errorf("arg is not *SimpleContainerArgs")
+		}
 		_, err = NewMongodbInitDbUserJob(ctx, userName, InitDbUserJobArgs{
-			Namespace: namespace,
+			Namespace: kubeArgs.NamespaceNameOutput,
 			User: DatabaseUser{
 				Database: dbName,
 				Username: userName,

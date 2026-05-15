@@ -94,7 +94,12 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 	}
 
 	opts = append(opts, sdk.Provider(args.KubeProvider))
-	// Sanitize the secret name to comply with Kubernetes 63-character limit
+	// args.Metadata.Namespace is the live Namespace.Metadata.Name() Output, threaded
+	// through by compute_proc.go (preprocessor uses kubeArgs.NamespaceNameOutput,
+	// postprocessor uses sc.Namespace). That means this Secret automatically lands
+	// in the same k8s namespace as the consuming pod under both fresh deploys (isolated
+	// name) and migrated stacks where #255's IgnoreChanges("metadata.name") keeps the
+	// Namespace parent-shared — no IgnoreChanges needed here.
 	secretName := util.SanitizeK8sResourceName(args.Name + "-creds")
 	sqlProxySecret, err := v1.NewSecret(ctx, secretName, &v1.SecretArgs{
 		Metadata: args.Metadata,

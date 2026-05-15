@@ -141,6 +141,18 @@ type SimpleContainerArgs struct {
 	UseSSL                        bool
 	EphemeralSize                 string
 	TerminationGracePeriodSeconds *int
+
+	// NamespaceNameOutput is the live k8s name of the Namespace resource — set by
+	// NewSimpleContainer right after the Namespace is created and before
+	// RunPreProcessors fires. Pre/post-processors (e.g. CSQL sidecar in
+	// pkg/clouds/pulumi/gcp/compute_proc.go) must use this Output instead of
+	// recomputing the namespace via kubernetes.GenerateNamespaceName(stackName,
+	// stackEnv, parentEnv): the Namespace carries IgnoreChanges("metadata.name")
+	// (see #255), so its k8s name is the *state* name (parent-shared for
+	// migrated stacks, isolated for fresh stacks), not whatever
+	// GenerateNamespaceName would derive. Consuming this Output keeps
+	// downstream resources in lock-step with the Namespace through both modes.
+	NamespaceNameOutput sdk.StringOutput
 }
 
 type SimpleContainer struct {
@@ -219,8 +231,8 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// while keeping the actual K8s namespace name as specified by the user.
 	//
 	// Namespace-handling has two protections against the destroy/Replace cascade
-	// hazard discovered in pre-PR-230 deploys (see PR #230 and the 2026-05-10
-	// PAY-SPACE + 2026-05-12 fulldiveVR outages):
+	// hazard discovered in pre-PR-230 deploys (see PR #230 and the consumer-side
+	// outages tracked in #255):
 	//
 	// 1. RetainOnDelete(true). In legacy deploys, sub-env client stacks
 	//    (parentEnv=<prod> with stackEnv=tenant-a/tenant-b/...) shared one
@@ -252,12 +264,28 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	//    migrated consumers continue using the shared one. Combined with
 	//    RetainOnDelete this keeps both modes safe.
 	//
-	//    Consumers who want to migrate an existing custom stack to the
-	//    isolated namespace name opt in by running
-	//      pulumi stack export | jq 'del(... namespace urn ...)' | pulumi stack import
-	//    (forget the namespace resource — k8s namespace itself stays put),
-	//    then the next pulumi up registers a fresh Namespace at the isolated
-	//    name. Documented in the PR description.
+	//    Downstream Secret/Job resources consume the live namespace via
+	//    SimpleContainerArgs.NamespaceNameOutput (set a few lines below from
+	//    namespace.Metadata.Name().Elem()) rather than recomputing it via
+	//    GenerateNamespaceName. The three pre/post-processor call sites that
+	//    consume this Output live in:
+	//
+	//      pkg/clouds/pulumi/gcp/compute_proc.go                 (GCP CSQL sidecar + init proxies)
+	//      pkg/clouds/pulumi/kubernetes/compute_proc_postgres.go (on-cluster postgres init Job)
+	//      pkg/clouds/pulumi/kubernetes/compute_proc_mongodb.go  (on-cluster mongo init Job)
+	//
+	//    From there the namespace flows into NewCloudsqlProxy /
+	//    NewPostgresInitDbUserJob / NewMongodbInitDbUserJob as an
+	//    sdk.StringInput, so the leaf Secret/Job ObjectMeta.Namespace tracks
+	//    the live Output. That keeps them in lock-step with whatever
+	//    metadata.Name is in state — fresh stacks get the isolated namespace,
+	//    migrated stacks stay parent-shared — without needing
+	//    IgnoreChanges("metadata.namespace") on every individual Secret/Job.
+	//    Migrating an existing custom stack from parent-shared to isolated
+	//    namespace is therefore automatic via `pulumi stack export | jq
+	//    'del(... namespace urn ...)' | pulumi stack import` (forget the
+	//    Namespace resource, then `pulumi up` creates a fresh Namespace at
+	//    the isolated name and the downstream consumers follow it). See PR #258.
 	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
 	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
@@ -269,6 +297,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	if err != nil {
 		return nil, err
 	}
+
+	// Expose the live Namespace name to pre/post-processors. See the comment on
+	// NamespaceNameOutput in SimpleContainerArgs: GCP CSQL and K8s on-cluster
+	// init Jobs need this Output (not GenerateNamespaceName) to land in the
+	// same namespace as the consuming pod under both fresh and migrated state.
+	args.NamespaceNameOutput = namespace.Metadata.Name().Elem()
 
 	// run pre-processors after namespace is created, but before deployment is created
 	if args.ComputeContext != nil {

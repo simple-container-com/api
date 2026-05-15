@@ -211,18 +211,18 @@ func createPostgresUserForDatabase(ctx *sdk.Context, userName, dbName string, pa
 	}
 
 	// The init job must run in the same namespace as the consuming pod so it can be
-	// observed and cleaned up alongside the workload. For custom stacks (parentEnv != stackEnv)
-	// the pod lives in `<stackName>-<stackEnv>` per GenerateNamespaceName, so derive the same
-	// namespace here. Standard stacks keep the existing `<stackName>` namespace.
-	parentEnv := ""
-	if params.provisionParams.ParentStack != nil {
-		parentEnv = params.provisionParams.ParentStack.ParentEnv
-	}
-	namespace := GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv)
-
+	// observed and cleaned up alongside the workload. Use the live Namespace.Metadata.Name()
+	// Output threaded through SimpleContainerArgs.NamespaceNameOutput (set by NewSimpleContainer
+	// after the Namespace is created, before this PreProcessor fires) — recomputing via
+	// GenerateNamespaceName would drift from the actual k8s name on migrated stacks where #255's
+	// IgnoreChanges("metadata.name") keeps the Namespace parent-shared.
 	params.collector.AddPreProcessor(&SimpleContainerArgs{}, func(c any) error {
+		kubeArgs, ok := c.(*SimpleContainerArgs)
+		if !ok {
+			return errors.Errorf("arg is not *SimpleContainerArgs")
+		}
 		_, err = NewPostgresInitDbUserJob(ctx, userName, InitDbUserJobArgs{
-			Namespace: namespace,
+			Namespace: kubeArgs.NamespaceNameOutput,
 			User: DatabaseUser{
 				Database: dbName,
 				Username: userName,
