@@ -390,7 +390,13 @@ jobs:
         with:
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          push-to-registry: true
+          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
+          # the attestation to the OCI registry under the same .att tag that cosign
+          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
+          # Provenance is published to the GitHub attestation API instead (queryable
+          # via `gh attestation verify`); SBOM attestation stays in the registry for
+          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
+          # preview run 25910386532 — cosign verify-attestation now resolves both.
       - name: Record image digest for verify-attestations
         if: steps.build_and_push.outcome == 'success'
         env:

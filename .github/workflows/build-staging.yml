@@ -179,7 +179,13 @@ jobs:
         with:
           subject-name: index.docker.io/simplecontainer/github-actions
           subject-digest: ${{ steps.build_gha_staging.outputs.digest }}
-          push-to-registry: true
+          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
+          # the attestation to the OCI registry under the same .att tag that cosign
+          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
+          # Provenance is published to the GitHub attestation API instead (queryable
+          # via `gh attestation verify`); SBOM attestation stays in the registry for
+          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
+          # preview run 25910386532 — cosign verify-attestation now resolves both.
 
       - name: SLSA build provenance for caddy staging
         id: slsa_caddy_staging
@@ -189,7 +195,13 @@ jobs:
         with:
           subject-name: index.docker.io/simplecontainer/caddy
           subject-digest: ${{ steps.build_caddy_staging.outputs.digest }}
-          push-to-registry: true
+          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
+          # the attestation to the OCI registry under the same .att tag that cosign
+          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
+          # Provenance is published to the GitHub attestation API instead (queryable
+          # via `gh attestation verify`); SBOM attestation stays in the registry for
+          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
+          # preview run 25910386532 — cosign verify-attestation now resolves both.
 
       - name: Soft-fail aggregator for staging attestation
         if: always()
