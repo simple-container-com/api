@@ -50,18 +50,29 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 	// guarantees the postgres init scripts already provide via `IF NOT EXISTS`
 	// guards (pkg/clouds/pulumi/db/constants.go) and `GRANT` idempotency
 	// (pkg/clouds/pulumi/gcp/init_pg_user_job.go).
+	//
+	// Credentials read from process.env inside the mongosh eval rather than shell
+	// interpolation. Pulling them via env (a) bypasses shell quoting entirely so
+	// passwords containing spaces/quotes/$ don't bash-word-split or break JS
+	// parsing, (b) keeps the secret out of `ps`/strace visibility on the
+	// command line. The connection URI itself still has to be shell-interpolated
+	// because mongosh consumes it as its first positional argument, but the user
+	// password is the higher-risk value and is now end-to-end env-bound.
 	createUserScript := `
 set -e;
 mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=${ROOT_DATABASE}&readPreference=primary&replicaSet=${REPLICA_SET}" --eval '
+  var dbName = process.env.DB_NAME;
+  var dbUser = process.env.DB_USER;
+  var dbPwd  = process.env.DB_PASSWORD;
   var roles = [
-    {db: "'${DB_NAME}'", role: "dbAdmin"},
-    {db: "'${DB_NAME}'", role: "readWrite"},
+    {db: dbName, role: "dbAdmin"},
+    {db: dbName, role: "readWrite"},
     {db: "local", role: "read"}
   ];
-  if (db.getUser("'${DB_USER}'") === null) {
-    db.createUser({user: "'${DB_USER}'", pwd: "'${DB_PASSWORD}'", roles: roles});
+  if (db.getUser(dbUser) === null) {
+    db.createUser({user: dbUser, pwd: dbPwd, roles: roles});
   } else {
-    db.updateUser("'${DB_USER}'", {pwd: "'${DB_PASSWORD}'", roles: roles});
+    db.updateUser(dbUser, {pwd: dbPwd, roles: roles});
   }
 '
 `
