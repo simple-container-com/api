@@ -215,14 +215,19 @@ func appendUsesPostgresResourceContext(ctx *sdk.Context, params appendParams) er
 
 func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) {
 	params.collector.AddPreProcessor(&kubernetes.SimpleContainerArgs{}, func(arg any) error {
-		cloudsqlProxy, err := createCloudsqlProxy(ctx, params)
-		if err != nil {
-			return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
-		}
-
 		kubeArgs, ok := arg.(*kubernetes.SimpleContainerArgs)
 		if !ok {
 			return errors.Errorf("arg is not *kubernetes.Args")
+		}
+		// Live Namespace name from the just-created Namespace resource. Using this
+		// Output (instead of recomputing via kubernetes.GenerateNamespaceName) keeps
+		// the CSQL credential Secret in lock-step with the Namespace under both
+		// fresh deploys (Output resolves to the isolated name) and migrated stacks
+		// where #255's IgnoreChanges("metadata.name") keeps the Namespace's k8s
+		// name parent-shared.
+		cloudsqlProxy, err := createCloudsqlProxy(ctx, params, kubeArgs.NamespaceNameOutput)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
 		}
 		kubeArgs.SidecarOutputs = append(kubeArgs.SidecarOutputs, cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) corev1.ContainerArgs {
 			return arg.(corev1.ContainerArgs)
@@ -239,7 +244,7 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 	})
 }
 
-func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy, error) {
+func createCloudsqlProxy(ctx *sdk.Context, params appendParams, namespaceOutput sdk.StringInput) (*CloudSQLProxy, error) {
 	// Fix for custom stacks: ensure input.StackParams.ParentEnv is set correctly for proper resource naming
 	if params.provisionParams.ParentStack != nil && params.provisionParams.ParentStack.ParentEnv != "" &&
 		params.provisionParams.ParentStack.ParentEnv != params.input.StackParams.Environment {
@@ -251,16 +256,6 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 	// This ensures service accounts are unique per environment (e.g., telegram-bot--on-sidecarcsql--production vs telegram-bot--on-sidecarcsql--staging)
 	baseProxyName := fmt.Sprintf("%s-%s-sidecarcsql", params.stack.Name, params.postgresName)
 	cloudsqlProxyName := kubernetes.SanitizeK8sName(params.input.ToResName(baseProxyName))
-	// The CloudSQL proxy emits a Kubernetes Secret (proxy credentials) that must live in
-	// the same namespace as the consuming pod for it to be mountable. For custom stacks
-	// (parentEnv != stackEnv) the pod namespace is `<stackName>-<stackEnv>` per
-	// kubernetes.GenerateNamespaceName, so derive that here.
-	parentEnv := ""
-	if params.provisionParams.ParentStack != nil {
-		parentEnv = params.provisionParams.ParentStack.ParentEnv
-	}
-	derivedNamespace := kubernetes.GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv)
-	sanitizedNamespace := kubernetes.SanitizeK8sName(derivedNamespace)
 	cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 		Name: cloudsqlProxyName,
 		DBInstance: PostgresDBInstanceArgs{
@@ -270,7 +265,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams) (*CloudSQLProxy,
 		},
 		GcpProvider:  params.gcpProvider,
 		KubeProvider: params.kubeProvider,
-		Metadata:     cloudsqlProxyMeta(sanitizedNamespace, cloudsqlProxyName, params),
+		Metadata:     cloudsqlProxyMetaFromOutput(namespaceOutput, cloudsqlProxyName, params),
 	})
 	if err != nil {
 		return nil, err
@@ -354,27 +349,25 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 		// Sanitize names to comply with Kubernetes RFC 1123 requirements (no underscores)
 		cloudsqlProxyName := kubernetes.SanitizeK8sName(util.TrimStringMiddle(fmt.Sprintf("%s-%s-initcsql", userName, params.postgresName), 60, "-"))
 		// Init job + ad-hoc CloudSQL proxy must live in the same namespace as the consuming
-		// pod so the proxy's credential Secret is mountable. For custom stacks the pod is
-		// in `<stackName>-<stackEnv>` per kubernetes.GenerateNamespaceName.
-		parentEnv := ""
-		if params.provisionParams.ParentStack != nil {
-			parentEnv = params.provisionParams.ParentStack.ParentEnv
-		}
-		namespace := kubernetes.SanitizeK8sName(kubernetes.GenerateNamespaceName(params.input.StackParams.StackName, params.input.StackParams.Environment, parentEnv))
+		// pod so the proxy's credential Secret is mountable. Use the live Namespace.Metadata.Name()
+		// Output from the just-deployed SimpleContainer (instead of recomputing via
+		// GenerateNamespaceName), so we follow #255's IgnoreChanges("metadata.name") on the
+		// Namespace: migrated stacks stay parent-shared, fresh stacks get the isolated name.
+		namespaceOutput := sc.Namespace
 		cloudsqlProxy, err := NewCloudsqlProxy(ctx, CloudSQLProxyArgs{
 			Name:         cloudsqlProxyName,
 			DBInstance:   dbInstanceArgs,
 			GcpProvider:  params.gcpProvider,
 			KubeProvider: params.kubeProvider,
 			TimeoutSec:   MaxInitSQLTimeSec,
-			Metadata:     cloudsqlProxyMeta(namespace, cloudsqlProxyName, params),
+			Metadata:     cloudsqlProxyMetaFromOutput(namespaceOutput, cloudsqlProxyName, params),
 		}, sdk.DependsOn([]sdk.Resource{sc}))
 		if err != nil {
 			return errors.Wrapf(err, "failed to init cloudsql proxy")
 		}
 
 		_, err = NewInitDbUserJob(ctx, userName, InitDbUserJobArgs{
-			Namespace: namespace,
+			Namespace: namespaceOutput,
 			User: CloudsqlDbUser{
 				Database: dbName,
 				Username: userName,
@@ -395,9 +388,9 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 	return password, nil
 }
 
-func cloudsqlProxyMeta(namespace string, cloudsqlProxyName string, params appendParams) *v1.ObjectMetaArgs {
+func cloudsqlProxyMetaFromOutput(namespace sdk.StringInput, cloudsqlProxyName string, params appendParams) *v1.ObjectMetaArgs {
 	return &v1.ObjectMetaArgs{
-		Namespace: sdk.String(namespace),
+		Namespace: namespace,
 		Name:      sdk.String(cloudsqlProxyName),
 		Labels: sdk.StringMap{
 			kubernetes.LabelAppType: sdk.String(kubernetes.AppTypeSimpleContainer),

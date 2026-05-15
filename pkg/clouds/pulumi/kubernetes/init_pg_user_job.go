@@ -24,11 +24,15 @@ type InitDbUserJobArgs struct {
 	RootUser     string
 	RootPassword string
 	KubeProvider sdk.ProviderResource
-	Namespace    string
-	Host         string
-	Port         string
-	InitSQL      string
-	Opts         []sdk.ResourceOption
+	// Namespace is the live Namespace name Output, threaded through from
+	// SimpleContainerArgs.NamespaceNameOutput via compute_proc_postgres.go and
+	// compute_proc_mongodb.go. Do not re-derive via GenerateNamespaceName —
+	// see the long rationale on the matching field in gcp.InitDbUserJobArgs.
+	Namespace sdk.StringInput
+	Host      string
+	Port      string
+	InitSQL   string
+	Opts      []sdk.ResourceOption
 }
 
 type InitUserJob struct {
@@ -42,20 +46,10 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 	opts := args.Opts
 	opts = append(opts, sdk.Provider(args.KubeProvider))
 
-	// IgnoreChanges("metadata.namespace") — symmetric with PR #255's IgnoreChanges("metadata.name")
-	// on the Namespace and the matching GCP CSQL fix in pkg/clouds/pulumi/gcp/. compute_proc_postgres.go
-	// derives the namespace via kubernetes.GenerateNamespaceName (which suffixes custom-stack stackEnv
-	// after #230); for existing stacks whose state predates #230 the previous value was the parent-shared
-	// namespace, so the diff schedules an immutable-namespace Replace that fails because the isolated
-	// namespace was never created (the Namespace itself is held parent-shared by #255). Suppress the diff
-	// so this Secret + the Job below stay co-located with the consuming pod. Fresh stacks still get the
-	// isolated namespace on initial create — IgnoreChanges only suppresses *diff*, not *initial value*.
-	nsImmutableOpts := append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))
-
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
+			Namespace: args.Namespace,
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
@@ -69,7 +63,7 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 			"PGDATABASE":  sdk.String("postgres"),
 			"INIT_SQL":    sdk.String(args.InitSQL),
 		},
-	}, nsImmutableOpts...)
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,13 +86,12 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 	}
 
 	kubeProvider := args.KubeProvider
-	namespace := args.Namespace
 
 	// Job creation
 	job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 		Metadata: &v1.ObjectMetaArgs{
 			Name:      sdk.String(jobName),
-			Namespace: sdk.String(namespace),
+			Namespace: args.Namespace,
 			Annotations: sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"),
 			},
@@ -112,7 +105,7 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 				},
 			},
 		},
-	}, append(nsImmutableOpts, sdk.Provider(kubeProvider))...)
+	}, append(opts, sdk.Provider(kubeProvider))...)
 	if err != nil {
 		return nil, err
 	}
