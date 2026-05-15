@@ -117,7 +117,9 @@ jobs:
       # regex, not the production one (push.yaml@refs/heads/main). See
       # SECURITY.md "Identity regex contract".
       - name: Install attestation tools
+        id: install_attest_tools
         if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
+        continue-on-error: true   # Best-effort during Phase 2 bake-in (matches push.yaml).
         uses: ./.github/actions/install-attest-tools
 
       - name: Generate CycloneDX SBOM for github-actions staging

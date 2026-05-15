@@ -177,6 +177,11 @@ jobs:
           sha256sum "sc-${GOOS}-${GOARCH}.tar.gz" > "sc-${GOOS}-${GOARCH}.tar.gz.sha256"
           sha256sum "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" > "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sha256"
       - name: Install attestation tools
+        id: install_attest_tools
+        continue-on-error: true   # Best-effort during Phase 2 bake-in. If the
+                                  # installer flakes, downstream sign/SBOM/SLSA
+                                  # steps soft-skip via their own outcome
+                                  # guards; the tarball + .sha256 still publish.
         uses: ./.github/actions/install-attest-tools
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
@@ -480,7 +485,13 @@ jobs:
       # would cause consumer verification to flap between identities on
       # successive main / staging pushes.
       - name: Install attestation tools
+        id: install_attest_tools
         if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true   # Best-effort during Phase 2 bake-in. If the
+                                  # installer flakes, downstream sign/SBOM/SLSA
+                                  # steps soft-skip and the `Record image
+                                  # digest` step still runs (it only does an
+                                  # `echo > file` and does not need cosign).
         uses: ./.github/actions/install-attest-tools
       - name: Generate CycloneDX SBOM for ${{ matrix.image }}
         id: sbom
@@ -562,7 +573,12 @@ jobs:
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
+    # build-github-actions-staging removed from needs after Phase 2 round-2:
+    # its output is no longer consumed by docker-build (the github-actions-staging
+    # matrix entry was dropped). The job itself is dead code, scheduled for
+    # cleanup in a follow-up PR; keeping it in `needs` would let a flake of an
+    # unused job block prod tag-release + welder deploy.
+    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
       contents: write  # `welder run tag-release` pushes the release git tag
     steps:
