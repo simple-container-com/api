@@ -186,7 +186,7 @@ jobs:
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           syft scan "dir:../../../../dist/${GOOS}-${GOARCH}" \
-            -o "cyclonedx-json=sc-${GOOS}-${GOARCH}-v${VERSION}.sbom.cdx.json"
+            -o "cyclonedx-json=sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sbom.cdx.json"
       - name: Cosign sign-blob (keyless, bundle) for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: cosign_sign_tarball
         continue-on-error: true
@@ -225,7 +225,7 @@ jobs:
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.sha256
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.cosign-bundle
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.sigstore.json
-            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.sbom.cdx.json
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.sbom.cdx.json
           retention-days: 1
 
   build-binaries:
@@ -482,7 +482,7 @@ jobs:
                    artifacts/sc-*/*-v${VERSION}.tar.gz.sha256 \
                    artifacts/sc-*/*-v${VERSION}.tar.gz.cosign-bundle \
                    artifacts/sc-*/*-v${VERSION}.tar.gz.sigstore.json \
-                   artifacts/sc-*/*-v${VERSION}.sbom.cdx.json; do
+                   artifacts/sc-*/*-v${VERSION}.tar.gz.sbom.cdx.json; do
             cp "$f" .sc/stacks/dist/bundle/
           done
           echo "Bundle contents:"

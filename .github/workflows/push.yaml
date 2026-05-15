@@ -194,9 +194,9 @@ jobs:
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           syft scan "dir:../../../../dist/${GOOS}-${GOARCH}" \
-            -o "cyclonedx-json=sc-${GOOS}-${GOARCH}-v${VERSION}.sbom.cdx.json"
-          cp "sc-${GOOS}-${GOARCH}-v${VERSION}.sbom.cdx.json" \
-             "sc-${GOOS}-${GOARCH}.sbom.cdx.json"
+            -o "cyclonedx-json=sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sbom.cdx.json"
+          cp "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sbom.cdx.json" \
+             "sc-${GOOS}-${GOARCH}.tar.gz.sbom.cdx.json"
       - name: Cosign sign-blob (keyless, bundle) for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: cosign_sign_tarball
         continue-on-error: true
@@ -273,7 +273,7 @@ jobs:
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sha256
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.cosign-bundle
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sigstore.json
-            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.sbom.cdx.json
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sbom.cdx.json
           retention-days: 1
 
   build-binaries:
@@ -634,7 +634,7 @@ jobs:
                    artifacts/sc-*/*.tar.gz.sha256 \
                    artifacts/sc-*/*.tar.gz.cosign-bundle \
                    artifacts/sc-*/*.tar.gz.sigstore.json \
-                   artifacts/sc-*/*.sbom.cdx.json; do
+                   artifacts/sc-*/*.tar.gz.sbom.cdx.json; do
             cp "$f" .sc/stacks/dist/bundle/
           done
       - name: Sidecar count assertion (Phase 2 bake-in — warn-only)
@@ -646,7 +646,7 @@ jobs:
           arr_shas=( sc-*.tar.gz.sha256 ); shas=${#arr_shas[@]}
           arr_bundles=( sc-*.tar.gz.cosign-bundle ); bundles=${#arr_bundles[@]}
           arr_provs=( sc-*.tar.gz.sigstore.json ); provs=${#arr_provs[@]}
-          arr_sboms=( sc-*.sbom.cdx.json ); sboms=${#arr_sboms[@]}
+          arr_sboms=( sc-*.tar.gz.sbom.cdx.json ); sboms=${#arr_sboms[@]}
           echo "tarballs=$tarballs sha256=$shas cosign-bundle=$bundles slsa=$provs sbom=$sboms"
           if [ "$tarballs" -eq 0 ]; then
             echo "::error title=No tarballs to publish::dist bundle has zero tarballs"
