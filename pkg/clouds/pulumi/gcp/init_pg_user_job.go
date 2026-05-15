@@ -53,6 +53,14 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 	opts := args.Opts
 	opts = append(opts, sdk.Provider(args.KubeProvider))
 
+	// IgnoreChanges("metadata.namespace") — see the long rationale on the SqlProxySecret call in
+	// cloudsql_proxy.go. Same problem here: PR #230's GenerateNamespaceName flips this Secret/Job
+	// from parent-shared into the per-stack isolated namespace, which is immutable, which triggers
+	// a Replace, which fails because the isolated namespace doesn't exist on the cluster (the
+	// Namespace resource itself is held in parent-shared by #255). Suppress the diff so the
+	// Secret + Job stay co-located with the consuming pod.
+	nsImmutableOpts := append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))
+
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
@@ -63,7 +71,7 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 			"PGPASSWORD": sdk.String(args.RootPassword),
 			"MYSQL_PWD":  sdk.String(args.RootPassword),
 		},
-	}, opts...)
+	}, nsImmutableOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +151,7 @@ psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
 					},
 				},
 			},
-		}, append(opts, sdk.Provider(kubeProvider))...)
+		}, append(nsImmutableOpts, sdk.Provider(kubeProvider))...)
 		if err != nil {
 			return nil, err
 		}

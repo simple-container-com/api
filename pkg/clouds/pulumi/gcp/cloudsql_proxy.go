@@ -94,12 +94,21 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 	}
 
 	opts = append(opts, sdk.Provider(args.KubeProvider))
-	// Sanitize the secret name to comply with Kubernetes 63-character limit
+	// IgnoreChanges("metadata.namespace") — symmetric with PR #255's IgnoreChanges("metadata.name") on the
+	// Namespace resource itself. PR #230 changed kubernetes.GenerateNamespaceName to suffix custom-stack
+	// namespaces with stackEnv (e.g. "web-app" → "web-app-xcore"), and compute_proc.go feeds that derived
+	// name into args.Metadata.Namespace here. For stacks whose Pulumi state predates #230, the existing
+	// CSQL credential Secret lives in the parent-shared namespace (`web-app`), but the new program wants
+	// `web-app-xcore` — which is immutable on Secret, so Pulumi schedules a Replace. The new Secret then
+	// fails to create because the isolated namespace doesn't exist on the cluster (the Namespace resource
+	// is itself kept in parent-shared by #255's IgnoreChanges). IgnoreChanges suppresses the diff, leaving
+	// the Secret co-located with the consuming pod in the parent namespace — the same trade-off #255 made
+	// for the Namespace. Fresh stacks (no prior state) get the isolated namespace on first create.
 	secretName := util.SanitizeK8sResourceName(args.Name + "-creds")
 	sqlProxySecret, err := v1.NewSecret(ctx, secretName, &v1.SecretArgs{
 		Metadata: args.Metadata,
 		Data:     account.CredentialsSecrets,
-	}, opts...)
+	}, append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))...)
 	if err != nil {
 		return nil, err
 	}
