@@ -376,7 +376,7 @@ jobs:
   docker-build:
     name: Docker build and push ${{ matrix.image }}
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs]
+    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
     permissions:
       contents: read
       id-token: write       # OIDC token for keyless cosign + attest-build-provenance
@@ -402,10 +402,15 @@ jobs:
             tags: |
               simplecontainer/github-actions:latest
               simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
-          - image: github-actions-staging
-            dockerfile: github-actions-staging.Dockerfile
-            image_repo: simplecontainer/github-actions
-            tags: simplecontainer/github-actions:staging
+          # The :staging tag is intentionally NOT published from this workflow.
+          # build-staging.yml (triggered on the `staging` branch) is the
+          # canonical owner of `simplecontainer/github-actions:staging` and signs
+          # it under the staging trust root. Publishing :staging here from main
+          # would either (a) double-sign with the production identity — breaking
+          # the SECURITY.md identity-regex contract — or (b) leave it unsigned,
+          # so consumers following the documented verification path would fail.
+          # The `build-github-actions-staging` job + its conditional download
+          # step are now dead code; cleanup tracked as a follow-up.
           - image: cloud-helpers-aws
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
@@ -416,12 +421,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - name: download github-actions-staging binary
-        if: matrix.image == 'github-actions-staging'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: github-actions-staging-binary
-          path: bin
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
@@ -481,11 +480,11 @@ jobs:
       # would cause consumer verification to flap between identities on
       # successive main / staging pushes.
       - name: Install attestation tools
-        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: steps.build_and_push.outcome == 'success'
         uses: ./.github/actions/install-attest-tools
       - name: Generate CycloneDX SBOM for ${{ matrix.image }}
         id: sbom
-        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: steps.build_and_push.outcome == 'success'
         continue-on-error: true
         env:
           IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
@@ -495,7 +494,7 @@ jobs:
           ls -lh "sbom-${{ matrix.image }}.cdx.json"
       - name: Cosign sign ${{ matrix.image }} (keyless)
         id: cosign_sign
-        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: steps.build_and_push.outcome == 'success'
         continue-on-error: true
         env:
           COSIGN_EXPERIMENTAL: "1"
@@ -516,7 +515,7 @@ jobs:
             "${IMAGE_REF}"
       - name: SLSA build provenance for ${{ matrix.image }}
         id: slsa_provenance
-        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: steps.build_and_push.outcome == 'success'
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
         with:
@@ -527,7 +526,7 @@ jobs:
       # @sha256:... instead of by mutable tag (closes the verify-by-tag TOCTOU
       # window flagged in PR #257 round-1 review).
       - name: Record image digest for verify-attestations
-        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: steps.build_and_push.outcome == 'success'
         env:
           DIGEST: ${{ steps.build_and_push.outputs.digest }}
           IMAGE_REPO: ${{ matrix.image_repo }}
@@ -536,14 +535,14 @@ jobs:
           mkdir -p digests
           printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.image }}.txt"
       - name: Upload digest artifact for ${{ matrix.image }}
-        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: steps.build_and_push.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
           retention-days: 1
       - name: Soft-fail aggregator for ${{ matrix.image }} attestation
-        if: always() && steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        if: always() && steps.build_and_push.outcome == 'success'
         env:
           SIGN_OUTCOME: ${{ steps.cosign_sign.outcome }}
           SBOM_OUTCOME: ${{ steps.sbom.outcome }}
@@ -753,7 +752,7 @@ jobs:
             # that actions/attest-build-provenance@v4 writes to. The --owner
             # check binds the attestation to this repo's org.
             if ! gh attestation verify "oci://${img}" \
-                --owner simple-container-com >/dev/null; then
+                --repo simple-container-com/api >/dev/null; then
               echo "::warning title=gh attestation verify failed::$img"
               fail=1
             else
@@ -793,7 +792,7 @@ jobs:
                 || { echo "::warning::cosign verify-blob failed ${tarball}"; fail=1; }
               gh attestation verify "${tmp}/${tarball}" \
                 --bundle "${tmp}/${tarball}.sigstore.json" \
-                --owner simple-container-com >/dev/null \
+                --repo simple-container-com/api >/dev/null \
                 || { echo "::warning::gh attestation verify failed ${tarball}"; fail=1; }
               echo "::endgroup::"
             done

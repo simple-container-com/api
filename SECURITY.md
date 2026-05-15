@@ -110,7 +110,7 @@ cosign verify "$IMG@$DIGEST" \
 cosign verify-attestation "$IMG@$DIGEST" --type cyclonedx \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-gh attestation verify "oci://$IMG@$DIGEST" --owner simple-container-com
+gh attestation verify "oci://$IMG@$DIGEST" --repo simple-container-com/api
 ```
 
 ### Verifying tarballs
@@ -129,7 +129,7 @@ cosign verify-blob --bundle "$T.cosign-bundle" \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com "$T"
 gh attestation verify "$T" --bundle "$T.sigstore.json" \
-  --owner simple-container-com
+  --repo simple-container-com/api
 ```
 
 `sc.sh` will run the tarball steps automatically when `cosign` is on
