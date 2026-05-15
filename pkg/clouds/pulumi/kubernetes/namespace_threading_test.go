@@ -87,19 +87,31 @@ func TestDownstreamCallSitesDoNotRecomputeNamespace(t *testing.T) {
 					if !ok {
 						return true
 					}
-					var ident *ast.Ident
+					// Match only the package-level function in the `kubernetes` pkg, not arbitrary
+					// methods that happen to share the name (e.g. mockClient.GenerateNamespaceName()).
+					// Two valid call shapes:
+					//   - bare identifier:        GenerateNamespaceName(...)            // same-package
+					//   - qualified selector:     kubernetes.GenerateNamespaceName(...) // cross-pkg
 					switch fun := call.Fun.(type) {
 					case *ast.Ident:
-						ident = fun
+						if fun.Name != "GenerateNamespaceName" {
+							return true
+						}
 					case *ast.SelectorExpr:
-						ident = fun.Sel
+						if fun.Sel.Name != "GenerateNamespaceName" {
+							return true
+						}
+						pkg, ok := fun.X.(*ast.Ident)
+						if !ok || pkg.Name != "kubernetes" {
+							return true
+						}
+					default:
+						return true
 					}
-					if ident != nil && ident.Name == "GenerateNamespaceName" {
-						t.Errorf(
-							"%s:%d: %s() calls GenerateNamespaceName — see PR #258. %s",
-							s.file, fset.Position(call.Pos()).Line, fn.Name.Name, s.reason,
-						)
-					}
+					t.Errorf(
+						"%s:%d: %s() calls kubernetes.GenerateNamespaceName — see PR #258. %s",
+						s.file, fset.Position(call.Pos()).Line, fn.Name.Name, s.reason,
+					)
 					return true
 				})
 			}

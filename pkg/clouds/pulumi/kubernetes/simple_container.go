@@ -264,21 +264,28 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	//    migrated consumers continue using the shared one. Combined with
 	//    RetainOnDelete this keeps both modes safe.
 	//
-	//    Downstream Secret/Job resources created by pre/post-processors (GCP
-	//    CloudSQL credentials in pkg/clouds/pulumi/gcp/cloudsql_proxy.go +
-	//    gcp/init_pg_user_job.go; on-cluster postgres + mongo init Jobs in
-	//    pkg/clouds/pulumi/kubernetes/init_{pg,mongo}_user_job.go) consume the
-	//    live namespace via SimpleContainerArgs.NamespaceNameOutput (set a few
-	//    lines below from namespace.Metadata.Name().Elem()) rather than
-	//    recomputing it via GenerateNamespaceName. That keeps them in lock-step
-	//    with whatever metadata.Name is in state — fresh stacks get the
-	//    isolated namespace, migrated stacks stay parent-shared — without
-	//    needing IgnoreChanges("metadata.namespace") on every individual
-	//    Secret/Job. Migrating an existing custom stack from parent-shared to
-	//    isolated namespace is therefore automatic via `pulumi stack export |
-	//    jq 'del(... namespace urn ...)' | pulumi stack import` (forget the
-	//    Namespace resource, then `pulumi up` creates a fresh Namespace at the
-	//    isolated name and the downstream consumers follow it). See PR #258.
+	//    Downstream Secret/Job resources consume the live namespace via
+	//    SimpleContainerArgs.NamespaceNameOutput (set a few lines below from
+	//    namespace.Metadata.Name().Elem()) rather than recomputing it via
+	//    GenerateNamespaceName. The three pre/post-processor call sites that
+	//    consume this Output live in:
+	//
+	//      pkg/clouds/pulumi/gcp/compute_proc.go                 (GCP CSQL sidecar + init proxies)
+	//      pkg/clouds/pulumi/kubernetes/compute_proc_postgres.go (on-cluster postgres init Job)
+	//      pkg/clouds/pulumi/kubernetes/compute_proc_mongodb.go  (on-cluster mongo init Job)
+	//
+	//    From there the namespace flows into NewCloudsqlProxy /
+	//    NewPostgresInitDbUserJob / NewMongodbInitDbUserJob as an
+	//    sdk.StringInput, so the leaf Secret/Job ObjectMeta.Namespace tracks
+	//    the live Output. That keeps them in lock-step with whatever
+	//    metadata.Name is in state — fresh stacks get the isolated namespace,
+	//    migrated stacks stay parent-shared — without needing
+	//    IgnoreChanges("metadata.namespace") on every individual Secret/Job.
+	//    Migrating an existing custom stack from parent-shared to isolated
+	//    namespace is therefore automatic via `pulumi stack export | jq
+	//    'del(... namespace urn ...)' | pulumi stack import` (forget the
+	//    Namespace resource, then `pulumi up` creates a fresh Namespace at
+	//    the isolated name and the downstream consumers follow it). See PR #258.
 	namespaceResourceName := fmt.Sprintf("%s-ns", sanitizedDeployment)
 	namespace, err := corev1.NewNamespace(ctx, namespaceResourceName, &corev1.NamespaceArgs{
 		Metadata: &metav1.ObjectMetaArgs{
