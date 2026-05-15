@@ -141,9 +141,8 @@ gh attestation verify "$T" --bundle "$T.sigstore.json" \
 ```
 
 `sc.sh` will run the tarball steps automatically when `cosign` is on
-`PATH` — that integration lands in the follow-up PR (see
-[`HARDENING.md`](../HARDENING.md) Phase 2 plan; until it merges, the
-commands above are the manual verification path).
+`PATH` — that integration lands in a follow-up PR. Until it merges,
+the commands above are the manual verification path.
 
 ### Composite-action consumers — SHA-pin the underlying image
 
