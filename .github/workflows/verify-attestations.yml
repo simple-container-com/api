@@ -31,6 +31,10 @@ on:
         description: 'Verify tarballs on dist.simple-container.com'
         required: false
         default: 'true'
+      negative_tests:
+        description: 'Run trust-root negative tests (assert artifacts of the selected trust root FAIL to verify against the other two regexes). Regression guard for CICD-SEC-9.'
+        required: false
+        default: 'false'
 
 permissions:
   contents: read
@@ -290,20 +294,69 @@ jobs:
           done
           exit "$fail"
 
+      - name: Negative trust-root tests (regression guard for CICD-SEC-9)
+        id: negative_tests
+        # Opt-in via workflow_dispatch input (default false). Asserts that an
+        # artifact signed under the SELECTED trust root fails verification
+        # under the OTHER two regexes — protects against the trust-root
+        # regex accidentally getting widened. Mirrors section 5 of
+        # scripts/verify-preview.sh.
+        if: github.event.inputs.negative_tests == 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
+        run: |
+          set -uo pipefail
+          fail=0
+          # Pick a representative image for each trust root.
+          case "$TRUST_ROOT" in
+            prod)    img="simplecontainer/github-actions:${VERSION}" ;;
+            preview) img="simplecontainer/github-actions:${VERSION}" ;;
+            staging) img="simplecontainer/github-actions:staging" ;;
+          esac
+          # All three regexes, paired with the label we report.
+          declare -A OTHER_REGEXES
+          if [ "$TRUST_ROOT" != "prod" ]; then
+            OTHER_REGEXES["prod"]="$PROD_IDENTITY_REGEX"
+          fi
+          if [ "$TRUST_ROOT" != "staging" ]; then
+            OTHER_REGEXES["staging"]="$STAGING_IDENTITY_REGEX"
+          fi
+          if [ "$TRUST_ROOT" != "preview" ]; then
+            OTHER_REGEXES["preview"]="$PREVIEW_IDENTITY_REGEX"
+          fi
+          for other in "${!OTHER_REGEXES[@]}"; do
+            re="${OTHER_REGEXES[$other]}"
+            echo "::group::expect FAIL — $img under $other regex"
+            if cosign verify "$img" \
+                --certificate-identity-regexp "$re" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" >/dev/null 2>&1; then
+              echo "::error title=Trust-root leak::$img verified under the $other regex (expected to fail). The $TRUST_ROOT identity-regex contract is weaker than documented in SECURITY.md."
+              fail=1
+            else
+              echo "OK — correctly rejected"
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
       - name: Aggregate verification results
         if: always()
         env:
           IMG_OUTCOME: ${{ steps.verify_images.outcome }}
           TARBALL_OUTCOME: ${{ steps.verify_tarballs.outcome }}
+          NEGATIVE_OUTCOME: ${{ steps.negative_tests.outcome }}
           TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          echo "trust_root=$TRUST_ROOT version=$VERSION images=$IMG_OUTCOME tarballs=$TARBALL_OUTCOME"
+          echo "trust_root=$TRUST_ROOT version=$VERSION images=$IMG_OUTCOME tarballs=$TARBALL_OUTCOME negative=$NEGATIVE_OUTCOME"
           fail=0
           if [ "$IMG_OUTCOME" = "failure" ]; then fail=1; fi
-          # tarball step skipped for staging (have_tarballs=false) or when
-          # verify_tarballs=false; treat skipped as not a failure.
+          # tarball + negative steps skip when not applicable; treat skipped
+          # as not a failure (only explicit "failure" outcomes count).
           if [ "$TARBALL_OUTCOME" = "failure" ]; then fail=1; fi
+          if [ "$NEGATIVE_OUTCOME" = "failure" ]; then fail=1; fi
           if [ "$fail" -eq 1 ]; then
             echo "::error title=Post-publish verification incomplete::trust_root=$TRUST_ROOT version=$VERSION — see ::warning:: annotations above. Bake-in policy: this surfaces the regression without blocking the release that already shipped."
             exit 1
