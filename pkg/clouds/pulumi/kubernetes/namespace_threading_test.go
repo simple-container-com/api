@@ -5,8 +5,39 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
+
+// kubernetesPkgPath is the import path of *this* package. The AST regression
+// guard below resolves whichever local name a consumer file imports it under
+// (default `kubernetes`, or any alias like `k8s "<path>"`) so the strict
+// selector check also catches `<alias>.GenerateNamespaceName(...)` and not
+// only the un-aliased form.
+const kubernetesPkgPath = "github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
+
+// kubernetesPkgAliases parses the file's import block and returns the set of
+// local identifiers that bind to kubernetesPkgPath. Same-package files (no
+// import of self) return an empty set — the caller falls back to matching the
+// bare-identifier `GenerateNamespaceName(...)` form for those.
+func kubernetesPkgAliases(file *ast.File) map[string]bool {
+	aliases := map[string]bool{}
+	for _, imp := range file.Imports {
+		if imp.Path == nil {
+			continue
+		}
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || path != kubernetesPkgPath {
+			continue
+		}
+		name := "kubernetes"
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		aliases[name] = true
+	}
+	return aliases
+}
 
 // TestDownstreamCallSitesDoNotRecomputeNamespace is a regression guard for #258.
 //
@@ -61,7 +92,12 @@ func TestDownstreamCallSitesDoNotRecomputeNamespace(t *testing.T) {
 		s := s
 		t.Run(filepath.Base(s.file), func(t *testing.T) {
 			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, s.file, nil, parser.SkipObjectResolution)
+			file, err := parser.ParseFile(fset, s.file, nil, parser.SkipObjectResolution|parser.ImportsOnly)
+			if err != nil {
+				t.Fatalf("parse imports of %s: %v", s.file, err)
+			}
+			aliases := kubernetesPkgAliases(file)
+			file, err = parser.ParseFile(fset, s.file, nil, parser.SkipObjectResolution)
 			if err != nil {
 				t.Fatalf("parse %s: %v", s.file, err)
 			}
@@ -91,7 +127,10 @@ func TestDownstreamCallSitesDoNotRecomputeNamespace(t *testing.T) {
 					// methods that happen to share the name (e.g. mockClient.GenerateNamespaceName()).
 					// Two valid call shapes:
 					//   - bare identifier:        GenerateNamespaceName(...)            // same-package
-					//   - qualified selector:     kubernetes.GenerateNamespaceName(...) // cross-pkg
+					//   - qualified selector:     <alias>.GenerateNamespaceName(...)    // cross-pkg
+					// where <alias> is resolved from the file's import block via kubernetesPkgAliases.
+					// Default name is `kubernetes` when no alias is set; the test still flags imports
+					// renamed as e.g. `k8s "<path>"`.
 					switch fun := call.Fun.(type) {
 					case *ast.Ident:
 						if fun.Name != "GenerateNamespaceName" {
@@ -102,7 +141,7 @@ func TestDownstreamCallSitesDoNotRecomputeNamespace(t *testing.T) {
 							return true
 						}
 						pkg, ok := fun.X.(*ast.Ident)
-						if !ok || pkg.Name != "kubernetes" {
+						if !ok || !aliases[pkg.Name] {
 							return true
 						}
 					default:
