@@ -122,6 +122,10 @@ jobs:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup]
+    permissions:
+      contents: read
+      id-token: write       # OIDC for keyless cosign + attest-build-provenance
+      attestations: write
     strategy:
       matrix:
         include:
@@ -155,11 +159,73 @@ jobs:
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
+      # Phase 2 attestation (mirrors push.yaml). Soft-fail per step — the
+      # tarball itself is the publish artifact. Preview builds only publish
+      # versioned tarballs (no unversioned twin), so sidecars are per-version.
+      - name: SHA-256 sidecar for ${{ matrix.os }}/${{ matrix.arch }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          sha256sum "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" > "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sha256"
+      - name: Install attestation tools
+        id: install_attest_tools
+        continue-on-error: true
+        uses: ./.github/actions/install-attest-tools
+      - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
+        id: sbom_tarball
+        continue-on-error: true
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          syft scan "dir:../../../../dist/${GOOS}-${GOARCH}" \
+            -o "cyclonedx-json=sc-${GOOS}-${GOARCH}-v${VERSION}.sbom.cdx.json"
+      - name: Cosign sign-blob (keyless, bundle) for sc-${{ matrix.os }}-${{ matrix.arch }}
+        id: cosign_sign_tarball
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          tarball="sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz"
+          cosign sign-blob --yes --bundle "${tarball}.cosign-bundle" "${tarball}"
+      - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
+        id: slsa_tarball
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v${{ needs.prepare.outputs.version }}.tar.gz
+      - name: Materialize SLSA provenance bundle next to tarball
+        if: steps.slsa_tarball.outcome == 'success'
+        continue-on-error: true
+        env:
+          BUNDLE_PATH: ${{ steps.slsa_tarball.outputs.bundle-path }}
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          cp "$BUNDLE_PATH" ".sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sigstore.json"
       - name: upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
-          path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz
+          path: |
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.sha256
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.cosign-bundle
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.sigstore.json
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.sbom.cdx.json
           retention-days: 1
 
   build-binaries:
@@ -219,16 +285,22 @@ jobs:
     name: Docker build and push preview ${{ matrix.target }} image
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-binaries, test]
+    permissions:
+      contents: read
+      id-token: write       # OIDC token for keyless cosign + attest-build-provenance
+      attestations: write
     strategy:
       matrix:
         include:
           - target: github-actions
             binary: github-actions
             dockerfile: github-actions.Dockerfile
+            image_repo: simplecontainer/github-actions
             tag_prefix: "simplecontainer/github-actions:"
           - target: cloud-helpers
             binary: cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
+            image_repo: simplecontainer/cloud-helpers
             tag_prefix: "simplecontainer/cloud-helpers:aws-"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -260,18 +332,98 @@ jobs:
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
       - name: Build and push preview ${{ matrix.target }} image
+        id: build_and_push
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          tags: ${{ matrix.tag_prefix }}${{ needs.prepare.outputs.version }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+      # Phase 2 attestation (mirrors push.yaml). Preview builds get the SAME
+      # security guarantees as production releases so consumers pin-testing a
+      # preview version (per project_sc_preview memory: PAY-SPACE pins workflows
+      # to versioned preview builds) can verify the same way they verify prod.
+      - name: Install attestation tools
+        id: install_attest_tools
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/install-attest-tools
+      - name: Generate CycloneDX SBOM for ${{ matrix.target }}
+        id: sbom
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
         env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
+          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            --file ${{ matrix.dockerfile }} \
-            --tag "${{ matrix.tag_prefix }}${VERSION}" \
-            --push \
-            .
+          set -euo pipefail
+          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-${{ matrix.target }}.cdx.json"
+      - name: Cosign sign ${{ matrix.target }} (keyless)
+        id: cosign_sign
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE_REF}"
+      - name: Cosign attest SBOM for ${{ matrix.target }}
+        id: cosign_attest_sbom
+        if: steps.sbom.outcome == 'success' && steps.cosign_sign.outcome == 'success'
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate "sbom-${{ matrix.target }}.cdx.json" \
+            --type cyclonedx \
+            "${IMAGE_REF}"
+      - name: SLSA build provenance for ${{ matrix.target }}
+        id: slsa_provenance
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-name: index.docker.io/${{ matrix.image_repo }}
+          subject-digest: ${{ steps.build_and_push.outputs.digest }}
+          push-to-registry: true
+      - name: Record image digest for verify-attestations
+        if: steps.build_and_push.outcome == 'success'
+        env:
+          DIGEST: ${{ steps.build_and_push.outputs.digest }}
+          IMAGE_REPO: ${{ matrix.image_repo }}
+        run: |
+          set -euo pipefail
+          mkdir -p digests
+          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.target }}.txt"
+      - name: Upload digest artifact for ${{ matrix.target }}
+        if: steps.build_and_push.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: image-digest-${{ matrix.target }}
+          path: digests/${{ matrix.target }}.txt
+          retention-days: 1
+      - name: Soft-fail aggregator for ${{ matrix.target }} attestation
+        if: always() && steps.build_and_push.outcome == 'success'
+        env:
+          SIGN_OUTCOME: ${{ steps.cosign_sign.outcome }}
+          SBOM_OUTCOME: ${{ steps.sbom.outcome }}
+          ATTEST_SBOM_OUTCOME: ${{ steps.cosign_attest_sbom.outcome }}
+          SLSA_OUTCOME: ${{ steps.slsa_provenance.outcome }}
+        run: |
+          fail=0
+          for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
+            if [ "$v" != "success" ]; then fail=1; fi
+          done
+          if [ "$fail" -eq 1 ]; then
+            echo "::warning title=Attestation incomplete::${{ matrix.target }} preview published but attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME)."
+          else
+            echo "All attestation steps succeeded for ${{ matrix.target }} preview."
+          fi
 
   publish-sc-preview:
     name: Publish preview SC binaries to dist
@@ -312,11 +464,21 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          set -euo pipefail
           mkdir -p .sc/stacks/dist/bundle
           rm -fR .sc/stacks/dist/bundle/*
-          # Copy only versioned tarballs — do NOT add sc.sh or the version file.
-          # This prevents overwriting the latest pointer for users running sc.sh without a version pin.
-          cp artifacts/sc-*/*-v${VERSION}.tar.gz .sc/stacks/dist/bundle/
+          # Copy only versioned tarballs + their sidecars (.sha256,
+          # .cosign-bundle, .sigstore.json, .sbom.cdx.json) — do NOT add sc.sh
+          # or the version file. Preserves the unversioned-latest pointer for
+          # users running sc.sh without a version pin.
+          shopt -s nullglob
+          for f in artifacts/sc-*/*-v${VERSION}.tar.gz \
+                   artifacts/sc-*/*-v${VERSION}.tar.gz.sha256 \
+                   artifacts/sc-*/*-v${VERSION}.tar.gz.cosign-bundle \
+                   artifacts/sc-*/*-v${VERSION}.tar.gz.sigstore.json \
+                   artifacts/sc-*/*-v${VERSION}.sbom.cdx.json; do
+            cp "$f" .sc/stacks/dist/bundle/
+          done
           echo "Bundle contents:"
           ls -la .sc/stacks/dist/bundle/
       - name: publish preview sc binaries

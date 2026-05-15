@@ -1,0 +1,188 @@
+name: Verify published attestations
+
+# Post-publish quality gate for Phase 2 supply-chain attestations.
+# Off the release critical path: fires AFTER push.yaml or branch-preview.yaml
+# succeed, runs weekly as a drift check, and is manually dispatchable for
+# ad-hoc re-verification. A failure here surfaces in the repo's Actions tab
+# without blocking the release that already shipped — bake-in policy.
+
+on:
+  workflow_run:
+    workflows: ['Build simple-container-com CLI', 'Build and publish preview version']
+    types: [completed]
+  schedule:
+    - cron: '17 9 * * 1'   # Mondays 09:17 UTC
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to verify (e.g. 2026.5.1 or 2026.5.1-preview.abc1234). Defaults to whatever `dist.simple-container.com/version` currently advertises.'
+        required: false
+        default: ''
+      verify_tarballs:
+        description: 'Verify tarballs on dist.simple-container.com (off for fresh preview builds that haven''t deployed yet)'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify attestations
+    runs-on: ubuntu-latest
+    # Skip auto-runs triggered by failed upstream workflows (workflow_run fires
+    # regardless of conclusion). Schedule + manual dispatch always run.
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    permissions:
+      contents: read
+      actions: read         # download-artifact from triggering workflow_run
+      attestations: read    # gh attestation verify
+    env:
+      # Production trust root — must match SECURITY.md "Identity regex contract".
+      PROD_IDENTITY_REGEX: '^https://github\.com/simple-container-com/api/\.github/workflows/(push|branch-preview)\.yaml?@refs/heads/.+$'
+      OIDC_ISSUER: 'https://token.actions.githubusercontent.com'
+      DIST_BASE: 'https://dist.simple-container.com'
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install attestation tools
+        uses: ./.github/actions/install-attest-tools
+
+      - name: Resolve target version
+        id: version
+        run: |
+          set -euo pipefail
+          # Priority: workflow_dispatch input → workflow_run head version (best
+          # effort, parsed from prepare-job output if accessible) → fall back to
+          # the unversioned `version` file on dist.
+          INPUT_VERSION='${{ github.event.inputs.version }}'
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using workflow_dispatch input version: $INPUT_VERSION"
+            exit 0
+          fi
+          # workflow_run event: try to read the version artifact from the
+          # triggering run, otherwise read dist/version (which the deploy step
+          # updates immediately after a successful release).
+          DIST_VERSION=$(curl -fsSL "$DIST_BASE/version" 2>/dev/null | head -n1 | tr -d '\r\n[:space:]')
+          if [ -z "$DIST_VERSION" ]; then
+            echo "::error title=verify-attestations::could not resolve target version"
+            exit 1
+          fi
+          echo "version=$DIST_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Using dist version: $DIST_VERSION"
+
+      - name: Download image digests from triggering workflow_run (best-effort)
+        id: download_digests
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: image-digest-*
+          path: image-digests
+          merge-multiple: true
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify image signatures + provenance
+        id: verify_images
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -uo pipefail
+          fail=0
+          # Prefer immutable digests recovered from the build run; fall back to
+          # version tags on Docker Hub if the artifact pattern didn't match (eg.
+          # scheduled cron, or a workflow_run from before this PR).
+          shopt -s nullglob
+          digest_files=( image-digests/*.txt )
+          if [ "${#digest_files[@]}" -gt 0 ]; then
+            mapfile -t refs < <(cat image-digests/*.txt | sort -u)
+            echo "verifying ${#refs[@]} images by digest (recovered from upstream artifacts)"
+          else
+            refs=(
+              "simplecontainer/kubectl:${VERSION}"
+              "simplecontainer/caddy:${VERSION}"
+              "simplecontainer/github-actions:${VERSION}"
+              "simplecontainer/cloud-helpers:aws-${VERSION}"
+            )
+            echo "verifying ${#refs[@]} images by tag (artifact pattern unavailable; tag-resolve fallback)"
+          fi
+          for img in "${refs[@]}"; do
+            [ -z "$img" ] && continue
+            echo "::group::verify $img"
+            cosign verify "$img" \
+                --certificate-identity-regexp "$PROD_IDENTITY_REGEX" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" >/dev/null \
+              || { echo "::warning title=cosign verify failed::$img"; fail=1; }
+            gh attestation verify "oci://${img}" \
+                --repo simple-container-com/api >/dev/null \
+              || { echo "::warning title=gh attestation verify failed::$img"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+      - name: Verify tarball signatures + provenance
+        id: verify_tarballs
+        if: github.event.inputs.verify_tarballs != 'false'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -uo pipefail
+          fail=0
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          for plat in linux-amd64 darwin-arm64 darwin-amd64; do
+            for variant in "-v${VERSION}" ""; do
+              tarball="sc-${plat}${variant}.tar.gz"
+              url="${DIST_BASE}/${tarball}"
+              echo "::group::verify ${tarball}"
+              if ! curl -fsSL "${url}" -o "${tmp}/${tarball}" \
+                || ! curl -fsSL "${url}.sha256" -o "${tmp}/${tarball}.sha256" \
+                || ! curl -fsSL "${url}.cosign-bundle" -o "${tmp}/${tarball}.cosign-bundle" \
+                || ! curl -fsSL "${url}.sigstore.json" -o "${tmp}/${tarball}.sigstore.json"; then
+                echo "::warning title=sidecar download failed::${tarball}"
+                fail=1
+                echo "::endgroup::"
+                continue
+              fi
+              ( cd "$tmp" && sha256sum -c "${tarball}.sha256" >/dev/null ) \
+                || { echo "::warning::sha256 mismatch ${tarball}"; fail=1; }
+              cosign verify-blob \
+                --bundle "${tmp}/${tarball}.cosign-bundle" \
+                --certificate-identity-regexp "$PROD_IDENTITY_REGEX" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" \
+                "${tmp}/${tarball}" >/dev/null \
+                || { echo "::warning::cosign verify-blob failed ${tarball}"; fail=1; }
+              gh attestation verify "${tmp}/${tarball}" \
+                --bundle "${tmp}/${tarball}.sigstore.json" \
+                --repo simple-container-com/api >/dev/null \
+                || { echo "::warning::gh attestation verify failed ${tarball}"; fail=1; }
+              echo "::endgroup::"
+            done
+          done
+          exit "$fail"
+
+      - name: Aggregate verification results
+        if: always()
+        env:
+          IMG_OUTCOME: ${{ steps.verify_images.outcome }}
+          TARBALL_OUTCOME: ${{ steps.verify_tarballs.outcome }}
+        run: |
+          fail=0
+          for v in "$IMG_OUTCOME" "$TARBALL_OUTCOME"; do
+            if [ "$v" = "failure" ]; then fail=1; fi
+          done
+          if [ "$fail" -eq 1 ]; then
+            echo "::error title=Post-publish verification incomplete::See ::warning:: annotations above. Phase 2 bake-in: this surfaces the regression without blocking the release that already shipped."
+            exit 1
+          fi
+          echo "All published attestations verified."
