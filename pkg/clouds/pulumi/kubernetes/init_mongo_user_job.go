@@ -20,6 +20,12 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 	opts := args.Opts
 	opts = append(opts, sdk.Provider(args.KubeProvider))
 
+	// IgnoreChanges("metadata.namespace") — see the rationale on the postgres init Job's matching call
+	// in init_pg_user_job.go. compute_proc_mongodb.go feeds GenerateNamespaceName's custom-stack-suffixed
+	// value here; without IgnoreChanges, existing stacks would Replace this Secret + the Job below into
+	// an isolated namespace that doesn't exist on the cluster.
+	nsImmutableOpts := append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))
+
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
@@ -37,7 +43,7 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 			"ROOT_DATABASE": sdk.String("admin"),
 			"REPLICA_SET":   sdk.String(args.InstanceName),
 		},
-	}, opts...)
+	}, nsImmutableOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +91,7 @@ mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=$
 				},
 			},
 		},
-	}, append(opts, sdk.Provider(kubeProvider))...)
+	}, append(nsImmutableOpts, sdk.Provider(kubeProvider))...)
 	if err != nil {
 		return nil, err
 	}
