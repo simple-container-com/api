@@ -227,11 +227,14 @@ jobs:
         run: |
           set -euo pipefail
           dest_dir=".sc/stacks/dist/bundle"
-          # attest-build-provenance emits a single bundle covering all subjects;
-          # publish it under both tarball names so consumers can locate it via
-          # the same prefix as the tarball they downloaded.
+          # attest-build-provenance emits a single Sigstore bundle covering all
+          # subjects; publish it under both tarball names so consumers can find
+          # it via the same prefix as the tarball they downloaded.
+          # Naming: .sigstore.json matches the actual format (Sigstore bundle, a
+          # single JSON object) — historical .intoto.jsonl is misleading because
+          # the file is not line-delimited.
           for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
-            cp "$BUNDLE_PATH" "${dest_dir}/${tarball}.intoto.jsonl"
+            cp "$BUNDLE_PATH" "${dest_dir}/${tarball}.sigstore.json"
           done
       - name: Soft-fail aggregator for sc-${{ matrix.os }}-${{ matrix.arch }} attestation
         if: always()
@@ -259,12 +262,12 @@ jobs:
           # artifacts and therefore never re-uploaded to dist.simple-container.com. Result:
           # sc.sh (which downloads the unversioned tarball when SIMPLE_CONTAINER_VERSION is
           # empty) served stale v2026.3.6 for ~4 weeks after PR #186 merged.
-          # Phase 2: also captures .sha256, .sbom.cdx.json, .cosign-bundle, .intoto.jsonl sidecars.
+          # Phase 2: also captures .sha256, .sbom.cdx.json, .cosign-bundle, .sigstore.json sidecars.
           path: |
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sha256
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.cosign-bundle
-            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.intoto.jsonl
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sigstore.json
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.sbom.cdx.json
           retention-days: 1
 
@@ -468,12 +471,21 @@ jobs:
       # releases. A trailing aggregator emits ::warning:: on any failure. After
       # 14 days of clean post-publish verification (see verify-attestations),
       # flip continue-on-error to false (tracked in HARDENING.md Phase 2 plan).
+      #
+      # `github-actions-staging` is intentionally skipped from attestation here.
+      # The `:staging` tag is the canonical output of build-staging.yml under
+      # the staging trust root (build-staging.yml@refs/heads/staging) and is
+      # signed there. Signing it again from push.yaml@refs/heads/main would
+      # mint a second valid signature under the production identity, which
+      # contradicts the split identity-regex contract in SECURITY.md and
+      # would cause consumer verification to flap between identities on
+      # successive main / staging pushes.
       - name: Install attestation tools
-        if: steps.build_and_push.outcome == 'success'
+        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
         uses: ./.github/actions/install-attest-tools
       - name: Generate CycloneDX SBOM for ${{ matrix.image }}
         id: sbom
-        if: steps.build_and_push.outcome == 'success'
+        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
         continue-on-error: true
         env:
           IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
@@ -483,7 +495,7 @@ jobs:
           ls -lh "sbom-${{ matrix.image }}.cdx.json"
       - name: Cosign sign ${{ matrix.image }} (keyless)
         id: cosign_sign
-        if: steps.build_and_push.outcome == 'success'
+        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
         continue-on-error: true
         env:
           COSIGN_EXPERIMENTAL: "1"
@@ -504,15 +516,34 @@ jobs:
             "${IMAGE_REF}"
       - name: SLSA build provenance for ${{ matrix.image }}
         id: slsa_provenance
-        if: steps.build_and_push.outcome == 'success'
+        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
         with:
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
           push-to-registry: true
+      # Record the immutable digest so verify-attestations can verify by
+      # @sha256:... instead of by mutable tag (closes the verify-by-tag TOCTOU
+      # window flagged in PR #257 round-1 review).
+      - name: Record image digest for verify-attestations
+        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        env:
+          DIGEST: ${{ steps.build_and_push.outputs.digest }}
+          IMAGE_REPO: ${{ matrix.image_repo }}
+        run: |
+          set -euo pipefail
+          mkdir -p digests
+          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.image }}.txt"
+      - name: Upload digest artifact for ${{ matrix.image }}
+        if: steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: image-digest-${{ matrix.image }}
+          path: digests/${{ matrix.image }}.txt
+          retention-days: 1
       - name: Soft-fail aggregator for ${{ matrix.image }} attestation
-        if: always() && steps.build_and_push.outcome == 'success'
+        if: always() && steps.build_and_push.outcome == 'success' && matrix.image != 'github-actions-staging'
         env:
           SIGN_OUTCOME: ${{ steps.cosign_sign.outcome }}
           SBOM_OUTCOME: ${{ steps.sbom.outcome }}
@@ -574,14 +605,14 @@ jobs:
           set -euo pipefail
           mkdir -p .sc/stacks/dist/bundle
           # Phase 2: copy tarballs + every sidecar (sha256, sbom, cosign-bundle,
-          # intoto.jsonl). Sidecars may be absent if sign/SBOM steps soft-failed
+          # sigstore.json). Sidecars may be absent if sign/SBOM steps soft-failed
           # in build-platforms — that is by design during the 14-day bake-in; the
           # count-assertion step below records the gap rather than blocks the run.
           shopt -s nullglob
           for f in artifacts/sc-*/*.tar.gz \
                    artifacts/sc-*/*.tar.gz.sha256 \
                    artifacts/sc-*/*.tar.gz.cosign-bundle \
-                   artifacts/sc-*/*.tar.gz.intoto.jsonl \
+                   artifacts/sc-*/*.tar.gz.sigstore.json \
                    artifacts/sc-*/*.sbom.cdx.json; do
             cp "$f" .sc/stacks/dist/bundle/
           done
@@ -593,7 +624,7 @@ jobs:
           arr_tarballs=( sc-*.tar.gz ); tarballs=${#arr_tarballs[@]}
           arr_shas=( sc-*.tar.gz.sha256 ); shas=${#arr_shas[@]}
           arr_bundles=( sc-*.tar.gz.cosign-bundle ); bundles=${#arr_bundles[@]}
-          arr_provs=( sc-*.tar.gz.intoto.jsonl ); provs=${#arr_provs[@]}
+          arr_provs=( sc-*.tar.gz.sigstore.json ); provs=${#arr_provs[@]}
           arr_sboms=( sc-*.sbom.cdx.json ); sboms=${#arr_sboms[@]}
           echo "tarballs=$tarballs sha256=$shas cosign-bundle=$bundles slsa=$provs sbom=$sboms"
           if [ "$tarballs" -eq 0 ]; then
@@ -601,10 +632,17 @@ jobs:
             exit 1
           fi
           missing=0
-          for kind_count in "sha256=$shas" "cosign-bundle=$bundles" "slsa=$provs"; do
+          # Every tarball has matching .sha256 / .cosign-bundle / .sigstore.json
+          # / .sbom.cdx.json sidecars; build-platforms duplicates the per-build
+          # outputs across the versioned and unversioned tarball names.
+          for kind_count in "sha256=$shas" \
+                            "cosign-bundle=$bundles" \
+                            "slsa=$provs" \
+                            "sbom=$sboms"; do
+            label="${kind_count%%=*}"
             count="${kind_count#*=}"
             if [ "$count" -lt "$tarballs" ]; then
-              echo "::warning title=Sidecar count mismatch::${kind_count%=*} has $count of $tarballs expected sidecars (Phase 2 soft-fail)"
+              echo "::warning title=Sidecar count mismatch::${label} has $count of $tarballs expected sidecars (Phase 2 soft-fail)"
               missing=1
             fi
           done
@@ -635,9 +673,10 @@ jobs:
   verify-attestations:
     name: Verify published attestations
     runs-on: ubuntu-latest
-    needs: [prepare, docker-finalize]
+    needs: [prepare, docker-build, docker-finalize]
     permissions:
       contents: read
+      attestations: read   # gh attestation verify reads from the GH attestation API
     env:
       # Production trust root — sc.sh + consumer docs MUST trust ONLY this regex.
       # See HARDENING.md "Phase 2 — Plan" + SECURITY.md "Identity regex contract".
@@ -645,25 +684,48 @@ jobs:
       OIDC_ISSUER: 'https://token.actions.githubusercontent.com'
       VERSION: ${{ needs.prepare.outputs.version }}
       DIST_BASE: 'https://dist.simple-container.com'
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
       - name: Install attestation tools
         uses: ./.github/actions/install-attest-tools
-      - name: Verify image signatures (cosign)
+      - name: Download per-image digests from docker-build matrix
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: image-digest-*
+          path: image-digests
+          merge-multiple: true
+      - name: Resolve image refs from digest artifacts
+        id: refs
+        run: |
+          set -euo pipefail
+          # Each image-digest-<image>/<image>.txt contains exactly one line of
+          # `<repo>@sha256:<digest>` — verify by immutable digest, not tag.
+          shopt -s nullglob
+          mapfile -t refs < <(cat image-digests/*.txt | sort -u)
+          if [ "${#refs[@]}" -eq 0 ]; then
+            echo "::error title=verify-attestations::no image-digest artifacts found from docker-build"
+            exit 1
+          fi
+          printf 'image refs to verify:\n'
+          printf '  %s\n' "${refs[@]}"
+          {
+            echo "image_refs<<EOF"
+            printf '%s\n' "${refs[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Verify image signatures (cosign verify by digest)
         id: verify_images
         continue-on-error: true
+        env:
+          IMAGE_REFS: ${{ steps.refs.outputs.image_refs }}
         run: |
           set -uo pipefail
           fail=0
-          # Only the production tags. The staging image has its own trust root
-          # (build-staging.yml@refs/heads/staging) and is verified separately.
-          for img in \
-              "simplecontainer/kubectl:${VERSION}" \
-              "simplecontainer/caddy:${VERSION}" \
-              "simplecontainer/github-actions:${VERSION}" \
-              "simplecontainer/cloud-helpers:aws-${VERSION}"; do
+          while IFS= read -r img; do
+            [ -z "$img" ] && continue
             echo "::group::cosign verify $img"
             if ! cosign verify "$img" \
                 --certificate-identity-regexp "$PROD_IDENTITY_REGEX" \
@@ -674,31 +736,33 @@ jobs:
               echo "OK: $img"
             fi
             echo "::endgroup::"
-          done
+          done <<< "$IMAGE_REFS"
           exit "$fail"
-      - name: Verify image SLSA provenance (slsa-verifier)
+      - name: Verify image SLSA provenance (gh attestation verify)
         id: verify_image_slsa
         continue-on-error: true
+        env:
+          IMAGE_REFS: ${{ steps.refs.outputs.image_refs }}
         run: |
           set -uo pipefail
           fail=0
-          for img in \
-              "docker.io/simplecontainer/kubectl:${VERSION}" \
-              "docker.io/simplecontainer/caddy:${VERSION}" \
-              "docker.io/simplecontainer/github-actions:${VERSION}" \
-              "docker.io/simplecontainer/cloud-helpers:aws-${VERSION}"; do
-            echo "::group::slsa-verifier verify-image $img"
-            if ! slsa-verifier verify-image "$img" \
-                --source-uri github.com/simple-container-com/api >/dev/null; then
-              echo "::warning title=slsa-verifier verify-image failed::$img"
+          while IFS= read -r img; do
+            [ -z "$img" ] && continue
+            echo "::group::gh attestation verify oci://$img"
+            # gh attestation verify reads from the GitHub-native attestation API
+            # that actions/attest-build-provenance@v4 writes to. The --owner
+            # check binds the attestation to this repo's org.
+            if ! gh attestation verify "oci://${img}" \
+                --owner simple-container-com >/dev/null; then
+              echo "::warning title=gh attestation verify failed::$img"
               fail=1
             else
               echo "OK: $img"
             fi
             echo "::endgroup::"
-          done
+          done <<< "$IMAGE_REFS"
           exit "$fail"
-      - name: Verify tarball signatures + provenance (cosign + slsa-verifier)
+      - name: Verify tarball signatures + provenance
         id: verify_tarballs
         continue-on-error: true
         run: |
@@ -714,8 +778,8 @@ jobs:
               if ! curl -fsSL "${url}" -o "${tmp}/${tarball}" \
                 || ! curl -fsSL "${url}.sha256" -o "${tmp}/${tarball}.sha256" \
                 || ! curl -fsSL "${url}.cosign-bundle" -o "${tmp}/${tarball}.cosign-bundle" \
-                || ! curl -fsSL "${url}.intoto.jsonl" -o "${tmp}/${tarball}.intoto.jsonl"; then
-                echo "::warning title=sidecar download failed::${tarball} — one or more of {tarball,sha256,cosign-bundle,intoto.jsonl} returned non-200"
+                || ! curl -fsSL "${url}.sigstore.json" -o "${tmp}/${tarball}.sigstore.json"; then
+                echo "::warning title=sidecar download failed::${tarball} — one or more of {tarball,sha256,cosign-bundle,sigstore.json} returned non-200"
                 fail=1
                 echo "::endgroup::"
                 continue
@@ -727,11 +791,10 @@ jobs:
                 --certificate-oidc-issuer "$OIDC_ISSUER" \
                 "${tmp}/${tarball}" >/dev/null \
                 || { echo "::warning::cosign verify-blob failed ${tarball}"; fail=1; }
-              slsa-verifier verify-artifact \
-                --provenance-path "${tmp}/${tarball}.intoto.jsonl" \
-                --source-uri github.com/simple-container-com/api \
-                "${tmp}/${tarball}" >/dev/null \
-                || { echo "::warning::slsa-verifier verify-artifact failed ${tarball}"; fail=1; }
+              gh attestation verify "${tmp}/${tarball}" \
+                --bundle "${tmp}/${tarball}.sigstore.json" \
+                --owner simple-container-com >/dev/null \
+                || { echo "::warning::gh attestation verify failed ${tarball}"; fail=1; }
               echo "::endgroup::"
             done
           done

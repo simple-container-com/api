@@ -96,6 +96,11 @@ consumer-side verification.
 
 ### Verifying images
 
+Always verify by digest, not tag — tags are mutable. SLSA build
+provenance is verified via the GitHub-native `gh attestation verify`
+because we publish provenance through `actions/attest-build-provenance@v4`
+(a Sigstore bundle, not a raw `intoto.jsonl`).
+
 ```bash
 IMG=docker.io/simplecontainer/github-actions
 DIGEST=$(crane digest "$IMG:vYYYY.M.x")   # pin to the immutable digest
@@ -103,9 +108,9 @@ cosign verify "$IMG@$DIGEST" \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 cosign verify-attestation "$IMG@$DIGEST" --type cyclonedx \
-  --certificate-identity-regexp '...' --certificate-oidc-issuer '...'
-slsa-verifier verify-image "$IMG@$DIGEST" \
-  --source-uri github.com/simple-container-com/api
+  --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify "oci://$IMG@$DIGEST" --owner simple-container-com
 ```
 
 ### Verifying tarballs
@@ -114,21 +119,23 @@ The CDN ships these sidecars next to every tarball:
 
 - `<tarball>.sha256` — SHA-256 checksum
 - `<tarball>.cosign-bundle` — cosign keyless bundle (cert + sig + Rekor entry)
-- `<tarball>.intoto.jsonl` — SLSA build provenance
+- `<tarball>.sigstore.json` — SLSA build provenance (Sigstore bundle from `attest-build-provenance@v4`)
 
 ```bash
 T="sc-linux-amd64-vYYYY.M.x.tar.gz"
-curl -fLO "https://dist.simple-container.com/$T"{,.sha256,.cosign-bundle,.intoto.jsonl}
+curl -fLO "https://dist.simple-container.com/$T"{,.sha256,.cosign-bundle,.sigstore.json}
 sha256sum -c "$T.sha256"
 cosign verify-blob --bundle "$T.cosign-bundle" \
   --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com "$T"
-slsa-verifier verify-artifact "$T" \
-  --provenance-path "$T.intoto.jsonl" \
-  --source-uri github.com/simple-container-com/api
+gh attestation verify "$T" --bundle "$T.sigstore.json" \
+  --owner simple-container-com
 ```
 
-`sc.sh` runs the tarball steps automatically when `cosign` is on `PATH`.
+`sc.sh` will run the tarball steps automatically when `cosign` is on
+`PATH` — that integration lands in the follow-up PR (see
+[`HARDENING.md`](../HARDENING.md) Phase 2 plan; until it merges, the
+commands above are the manual verification path).
 
 ### Composite-action consumers — SHA-pin the underlying image
 

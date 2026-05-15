@@ -1,5 +1,5 @@
 name: 'Install attestation tools'
-description: 'Install cosign, syft, and slsa-verifier with single-source SHA pins for use across the SC release pipeline'
+description: 'Install cosign + syft with single-source SHA pins for use across the SC release pipeline. Provenance verification uses the gh CLI (preinstalled on GitHub-hosted runners) against the GitHub-native attestation API, so no separate slsa-verifier install is needed.'
 
 inputs:
   cosign-version:
@@ -10,10 +10,6 @@ inputs:
     description: 'Syft CLI release tag to install (e.g. v1.16.0)'
     required: false
     default: 'v1.16.0'
-  slsa-verifier-version:
-    description: 'slsa-verifier CLI release tag to install (e.g. v2.7.1)'
-    required: false
-    default: 'v2.7.1'
 
 runs:
   using: 'composite'
@@ -28,43 +24,11 @@ runs:
       with:
         syft-version: ${{ inputs.syft-version }}
 
-    - name: Install slsa-verifier
+    - name: Verify gh CLI is available (for attestation verify)
       shell: bash
-      env:
-        SLSA_VERIFIER_VERSION: ${{ inputs.slsa-verifier-version }}
       run: |
-        set -euo pipefail
-        os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-        arch_raw="$(uname -m)"
-        case "$arch_raw" in
-          x86_64|amd64) arch=amd64 ;;
-          aarch64|arm64) arch=arm64 ;;
-          *) echo "unsupported arch: $arch_raw" >&2; exit 1 ;;
-        esac
-
-        bin_url="https://github.com/slsa-framework/slsa-verifier/releases/download/${SLSA_VERIFIER_VERSION}/slsa-verifier-${os}-${arch}"
-        sum_url="https://github.com/slsa-framework/slsa-verifier/releases/download/${SLSA_VERIFIER_VERSION}/SHA256SUM.md"
-
-        tmpdir="$(mktemp -d)"
-        trap 'rm -rf "$tmpdir"' EXIT
-
-        curl -fsSL -o "$tmpdir/slsa-verifier" "$bin_url"
-        curl -fsSL -o "$tmpdir/SHA256SUM.md" "$sum_url"
-
-        expected="$(grep -E "slsa-verifier-${os}-${arch}\b" "$tmpdir/SHA256SUM.md" | awk '{print $1}' | head -n1)"
-        if [ -z "$expected" ]; then
-          echo "could not locate expected SHA256 for slsa-verifier-${os}-${arch} in release SHA256SUM.md" >&2
+        if ! command -v gh >/dev/null 2>&1; then
+          echo "gh CLI not found on PATH — required for 'gh attestation verify' provenance checks." >&2
           exit 1
         fi
-
-        actual="$(sha256sum "$tmpdir/slsa-verifier" | awk '{print $1}')"
-        if [ "$expected" != "$actual" ]; then
-          echo "slsa-verifier checksum mismatch (expected $expected, got $actual)" >&2
-          exit 1
-        fi
-
-        install_dir="$HOME/.local/bin"
-        mkdir -p "$install_dir"
-        install -m 0755 "$tmpdir/slsa-verifier" "$install_dir/slsa-verifier"
-        echo "$install_dir" >> "$GITHUB_PATH"
-        "$install_dir/slsa-verifier" version
+        gh --version | head -n 1
