@@ -41,10 +41,29 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 	if err != nil {
 		return nil, err
 	}
+	// Idempotent user provisioning: db.createUser errors with code 51003 (DuplicateKey)
+	// if the user already exists, which would break any re-run of this Job — including
+	// the Replace that happens when a consumer follows #255's documented opt-in
+	// namespace migration (`pulumi stack export | jq 'del(...Namespace urn...)' |
+	// pulumi stack import`). Use createUser-or-updateUser semantics so the Job
+	// succeeds on both the first and any subsequent run. Matches the idempotency
+	// guarantees the postgres init scripts already provide via `IF NOT EXISTS`
+	// guards (pkg/clouds/pulumi/db/constants.go) and `GRANT` idempotency
+	// (pkg/clouds/pulumi/gcp/init_pg_user_job.go).
 	createUserScript := `
 set -e;
-mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=${ROOT_DATABASE}&readPreference=primary&replicaSet=${REPLICA_SET}" \
-	--eval "db.createUser({user:'${DB_USER}',pwd:'${DB_PASSWORD}',roles:[{db: '${DB_NAME}', role: 'dbAdmin'}, {db: '${DB_NAME}', role: 'readWrite'}, {db: 'local', role: 'read'}]})"
+mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=${ROOT_DATABASE}&readPreference=primary&replicaSet=${REPLICA_SET}" --eval '
+  var roles = [
+    {db: "'${DB_NAME}'", role: "dbAdmin"},
+    {db: "'${DB_NAME}'", role: "readWrite"},
+    {db: "local", role: "read"}
+  ];
+  if (db.getUser("'${DB_USER}'") === null) {
+    db.createUser({user: "'${DB_USER}'", pwd: "'${DB_PASSWORD}'", roles: roles});
+  } else {
+    db.updateUser("'${DB_USER}'", {pwd: "'${DB_PASSWORD}'", roles: roles});
+  }
+'
 `
 	// Job Container creation
 	jobContainer := corev1.ContainerArgs{
