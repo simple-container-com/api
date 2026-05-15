@@ -141,6 +141,18 @@ type SimpleContainerArgs struct {
 	UseSSL                        bool
 	EphemeralSize                 string
 	TerminationGracePeriodSeconds *int
+
+	// NamespaceNameOutput is the live k8s name of the Namespace resource — set by
+	// NewSimpleContainer right after the Namespace is created and before
+	// RunPreProcessors fires. Pre/post-processors (e.g. CSQL sidecar in
+	// pkg/clouds/pulumi/gcp/compute_proc.go) must use this Output instead of
+	// recomputing the namespace via kubernetes.GenerateNamespaceName(stackName,
+	// stackEnv, parentEnv): the Namespace carries IgnoreChanges("metadata.name")
+	// (see #255), so its k8s name is the *state* name (parent-shared for
+	// migrated stacks, isolated for fresh stacks), not whatever
+	// GenerateNamespaceName would derive. Consuming this Output keeps
+	// downstream resources in lock-step with the Namespace through both modes.
+	NamespaceNameOutput sdk.StringOutput
 }
 
 type SimpleContainer struct {
@@ -269,6 +281,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	if err != nil {
 		return nil, err
 	}
+
+	// Expose the live Namespace name to pre/post-processors. See the comment on
+	// NamespaceNameOutput in SimpleContainerArgs: GCP CSQL and K8s on-cluster
+	// init Jobs need this Output (not GenerateNamespaceName) to land in the
+	// same namespace as the consuming pod under both fresh and migrated state.
+	args.NamespaceNameOutput = namespace.Metadata.Name().Elem()
 
 	// run pre-processors after namespace is created, but before deployment is created
 	if args.ComputeContext != nil {

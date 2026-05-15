@@ -20,16 +20,10 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 	opts := args.Opts
 	opts = append(opts, sdk.Provider(args.KubeProvider))
 
-	// IgnoreChanges("metadata.namespace") — see the rationale on the postgres init Job's matching call
-	// in init_pg_user_job.go. compute_proc_mongodb.go feeds GenerateNamespaceName's custom-stack-suffixed
-	// value here; without IgnoreChanges, existing stacks would Replace this Secret + the Job below into
-	// an isolated namespace that doesn't exist on the cluster.
-	nsImmutableOpts := append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))
-
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
+			Namespace: args.Namespace,
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
@@ -43,7 +37,7 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 			"ROOT_DATABASE": sdk.String("admin"),
 			"REPLICA_SET":   sdk.String(args.InstanceName),
 		},
-	}, nsImmutableOpts...)
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +65,12 @@ mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=$
 	}
 
 	kubeProvider := args.KubeProvider
-	namespace := args.Namespace
 
 	// Job creation
 	job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 		Metadata: &v1.ObjectMetaArgs{
 			Name:      sdk.String(jobName),
-			Namespace: sdk.String(namespace),
+			Namespace: args.Namespace,
 			Annotations: sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"),
 			},
@@ -91,7 +84,7 @@ mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=$
 				},
 			},
 		},
-	}, append(nsImmutableOpts, sdk.Provider(kubeProvider))...)
+	}, append(opts, sdk.Provider(kubeProvider))...)
 	if err != nil {
 		return nil, err
 	}

@@ -36,8 +36,13 @@ type InitDbUserJobArgs struct {
 	CloudSQLProxy  *CloudSQLProxy
 	KubeProvider   *sdkK8s.Provider
 	DBInstanceType CloudsqlInstanceType
-	Namespace      string
-	Opts           []sdk.ResourceOption
+	// Namespace is the live Namespace name Output, threaded from
+	// SimpleContainerArgs.NamespaceNameOutput / SimpleContainer.Namespace via
+	// compute_proc.go. Do not re-derive via kubernetes.GenerateNamespaceName —
+	// that drifts from the actual k8s name on migrated stacks where #255's
+	// IgnoreChanges("metadata.name") keeps the Namespace parent-shared.
+	Namespace sdk.StringInput
+	Opts      []sdk.ResourceOption
 }
 
 type InitUserJob struct {
@@ -53,25 +58,17 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 	opts := args.Opts
 	opts = append(opts, sdk.Provider(args.KubeProvider))
 
-	// IgnoreChanges("metadata.namespace") — see the long rationale on the SqlProxySecret call in
-	// cloudsql_proxy.go. Same problem here: PR #230's GenerateNamespaceName flips this Secret/Job
-	// from parent-shared into the per-stack isolated namespace, which is immutable, which triggers
-	// a Replace, which fails because the isolated namespace doesn't exist on the cluster (the
-	// Namespace resource itself is held in parent-shared by #255). Suppress the diff so the
-	// Secret + Job stay co-located with the consuming pod.
-	nsImmutableOpts := append(opts, sdk.IgnoreChanges([]string{"metadata.namespace"}))
-
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
+			Namespace: args.Namespace,
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
 			"PGPASSWORD": sdk.String(args.RootPassword),
 			"MYSQL_PWD":  sdk.String(args.RootPassword),
 		},
-	}, nsImmutableOpts...)
+	}, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,14 +81,14 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 		if args.DBInstanceType == MySQL {
 			initScript = `
                 set -e;
-                apk add --no-cache mysql-client; 
+                apk add --no-cache mysql-client;
                 sleep 20;
                 # MySQL-specific logic here
             `
 		} else {
 			initScript = fmt.Sprintf(`
 set -e;
-apk add --no-cache postgresql-client; 
+apk add --no-cache postgresql-client;
 sleep 20;
 psql -h localhost -U postgres -d %s -c 'GRANT pg_read_all_data TO "%s";';
 psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
@@ -129,7 +126,7 @@ psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
 		job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 			Metadata: &v1.ObjectMetaArgs{
 				Name:      sdk.String(jobName),
-				Namespace: sdk.String(namespace),
+				Namespace: namespace,
 				Annotations: sdk.StringMap{
 					"pulumi.com/patchForce": sdk.String("true"),
 				},
@@ -151,7 +148,7 @@ psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
 					},
 				},
 			},
-		}, append(nsImmutableOpts, sdk.Provider(kubeProvider))...)
+		}, append(opts, sdk.Provider(kubeProvider))...)
 		if err != nil {
 			return nil, err
 		}
