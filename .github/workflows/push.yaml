@@ -588,9 +588,19 @@ jobs:
           ${{ secrets.SC_CONFIG }}
           EOF
           sc secrets reveal
-      - name: download all build artifacts
+      - name: download sc tarball artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
+          # Filter to sc-* artifacts only — without a pattern, this step
+          # also pulls the build-push-action's internal `*.dockerbuild`
+          # cache artifacts (one per matrix item, often 100+ MB each) and
+          # the `image-digest-*` artifacts we publish for
+          # verify-attestations.yml to consume. None of those are needed
+          # here, and the .dockerbuild ones flake the parallel-download
+          # path: PR #257's first prod release (run 25959575686) failed
+          # at this step with "Artifact download failed after 5 retries"
+          # because the unfiltered download saturated the runner.
+          pattern: sc-*
           path: artifacts
       - name: download bin tools artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
