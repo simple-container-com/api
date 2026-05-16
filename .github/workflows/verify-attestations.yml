@@ -269,8 +269,9 @@ jobs:
               if ! curl -fsSL "${url}"               -o "${tmp}/${tarball}" \
                 || ! curl -fsSL "${url}.sha256"        -o "${tmp}/${tarball}.sha256" \
                 || ! curl -fsSL "${url}.cosign-bundle" -o "${tmp}/${tarball}.cosign-bundle" \
-                || ! curl -fsSL "${url}.sigstore.json" -o "${tmp}/${tarball}.sigstore.json"; then
-                echo "::warning title=sidecar download failed::${tarball}"
+                || ! curl -fsSL "${url}.sigstore.json" -o "${tmp}/${tarball}.sigstore.json" \
+                || ! curl -fsSL "${url}.sbom.cdx.json" -o "${tmp}/${tarball}.sbom.cdx.json"; then
+                echo "::warning title=sidecar download failed::${tarball} (one of tar.gz/.sha256/.cosign-bundle/.sigstore.json/.sbom.cdx.json missing on dist)"
                 fail=1
                 echo "::endgroup::"
                 continue
@@ -289,6 +290,12 @@ jobs:
                 --cert-identity-regex "$IDENTITY_REGEX" \
                 --cert-oidc-issuer "$OIDC_ISSUER" >/dev/null \
                 || { echo "::warning::gh attestation verify failed ${tarball}"; fail=1; }
+              # SBOM sidecar well-formedness (matches scripts/verify-preview.sh
+              # section 4e). Catches the case where build-platforms' SBOM
+              # step soft-failed and an empty / malformed file ended up on
+              # dist; without this the gate would silently pass.
+              jq -e '.bomFormat == "CycloneDX"' "${tmp}/${tarball}.sbom.cdx.json" >/dev/null \
+                || { echo "::warning::SBOM not well-formed CycloneDX ${tarball}.sbom.cdx.json"; fail=1; }
               echo "::endgroup::"
             done
           done

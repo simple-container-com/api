@@ -20,6 +20,17 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      # Trust-root ref guard. Preview signing uses cosign keyless identity
+      # `branch-preview.yaml@refs/heads/<branch>` and the documented
+      # preview verification regex pins `@refs/heads/.+`. workflow_dispatch
+      # ALSO allows dispatching from a tag (`refs/tags/<tag>`), which
+      # would sign artifacts under an identity that no documented
+      # verifier accepts — fail fast in that case.
+      - name: Refuse to run on non-branch ref
+        if: "!startsWith(github.ref, 'refs/heads/')"
+        run: |
+          echo "::error title=branch-preview.yaml requires a branch ref::Got github.ref=$GITHUB_REF; this workflow signs preview artifacts under the preview trust root (refs/heads/* only). Re-dispatch from a branch."
+          exit 1
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
