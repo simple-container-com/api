@@ -18,7 +18,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/go-delve/delve v1.26.3
 	github.com/go-git/go-billy/v5 v5.9.0
-	github.com/go-git/go-git/v5 v5.18.0
+	github.com/go-git/go-git/v5 v5.19.0
 	github.com/golangci/golangci-lint v1.64.8
 	github.com/google/uuid v1.6.0
 	github.com/howeyc/gopass v0.0.0-20210920133722-c8aef6fb66ef
@@ -285,6 +285,7 @@ require (
 	github.com/kisielk/errcheck v1.9.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.6 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
+	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kulti/thelper v0.6.3 // indirect
 	github.com/kunwardeep/paralleltest v1.0.10 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
@@ -340,7 +341,7 @@ require (
 	github.com/pgavlin/fx v0.1.6 // indirect
 	github.com/pgavlin/goldmark v1.1.33-0.20200616210433-b5eb04559386 // indirect
 	github.com/pgavlin/text v0.0.0-20240821195002-b51d0990e284 // indirect
-	github.com/pjbgf/sha1cd v0.3.2 // indirect
+	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/term v1.2.0-beta.2 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
