@@ -23,6 +23,17 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      # Trust-root ref guard. push.yaml signs production artifacts under
+      # the cosign keyless identity `push.yaml@refs/heads/main` (documented
+      # in docs/SECURITY.md). A `workflow_dispatch` from any non-main ref
+      # would sign + publish artifacts that fail consumer verification —
+      # the artifact ships looking-signed but no documented identity regex
+      # accepts it. Fail fast instead.
+      - name: Refuse to run on non-main ref
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error title=push.yaml restricted to main::Got github.ref=$GITHUB_REF; this workflow signs artifacts under the production trust root (refs/heads/main only). Re-dispatch from main or remove workflow_dispatch from the trigger."
+          exit 1
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
@@ -313,31 +324,15 @@ jobs:
           path: ${{ matrix.output }}
           retention-days: 1
 
-  build-github-actions-staging:
-    name: Build github-actions-staging
-    runs-on: blacksmith-8vcpu-ubuntu-2204
-    needs: [prepare, build-setup]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
-        with:
-          go-version: '1.25'
-      - name: build github-actions-staging
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          CGO_ENABLED: "0"
-        run: |
-          mkdir -p bin
-          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
-      - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: github-actions-staging-binary
-          path: bin/github-actions
-          retention-days: 1
+  # `build-github-actions-staging` job removed in PR #257 round-5. The
+  # `github-actions-staging` matrix entry in docker-build was dropped to
+  # eliminate dual-source-of-truth for the `:staging` image tag (now
+  # exclusively published by build-staging.yml under the staging trust
+  # root). The artifact this job produced (`github-actions-staging-binary`)
+  # was only consumed by that matrix entry, so the whole job is dead code.
+  # Keeping it would leave a flake risk that marks the workflow
+  # `conclusion=failure` and causes verify-attestations.yml to skip its
+  # workflow_run-triggered post-publish verification of shipped artifacts.
 
   test:
     name: Run tests

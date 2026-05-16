@@ -19,6 +19,17 @@ jobs:
       cicd-bot-telegram-chat-id: ${{ steps.prepare-additional-secrets.outputs.cicd-bot-telegram-chat-id }}
 
     steps:
+      # Trust-root ref guard — mirrors the same guard in push.yaml. This
+      # workflow signs `:staging` images under the cosign keyless identity
+      # `build-staging.yml@refs/heads/staging`. workflow_dispatch from any
+      # non-staging ref would publish an image signed with a different
+      # identity that fails consumer verification.
+      - name: Refuse to run on non-staging ref
+        if: github.ref != 'refs/heads/staging'
+        run: |
+          echo "::error title=build-staging.yml restricted to staging::Got github.ref=$GITHUB_REF; this workflow signs :staging images under the staging trust root (refs/heads/staging only). Re-dispatch from staging."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:

@@ -189,6 +189,6 @@ the manifest declares current.
 
 This residual risk is closed by TUF/RSTUF in Phase 6.
 
-[push]: .github/workflows/push.yaml
+[push]: ../.github/workflows/push.yaml
 [install-sc]: https://github.com/simple-container-com/actions/tree/main/install-sc
 [gsa]: https://github.com/simple-container-com/api/security/advisories/new
