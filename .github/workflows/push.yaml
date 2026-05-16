@@ -324,15 +324,10 @@ jobs:
           path: ${{ matrix.output }}
           retention-days: 1
 
-  # `build-github-actions-staging` job removed in PR #257 round-5. The
-  # `github-actions-staging` matrix entry in docker-build was dropped to
-  # eliminate dual-source-of-truth for the `:staging` image tag (now
-  # exclusively published by build-staging.yml under the staging trust
-  # root). The artifact this job produced (`github-actions-staging-binary`)
-  # was only consumed by that matrix entry, so the whole job is dead code.
-  # Keeping it would leave a flake risk that marks the workflow
-  # `conclusion=failure` and causes verify-attestations.yml to skip its
-  # workflow_run-triggered post-publish verification of shipped artifacts.
+  # Note (PR #257): the `build-github-actions-staging` job was removed
+  # alongside its sole consumer — the `github-actions-staging` matrix
+  # entry in docker-build. The `:staging` image tag is now exclusively
+  # published by build-staging.yml under the staging trust root.
 
   test:
     name: Run tests
@@ -409,8 +404,6 @@ jobs:
           # would either (a) double-sign with the production identity — breaking
           # the SECURITY.md identity-regex contract — or (b) leave it unsigned,
           # so consumers following the documented verification path would fail.
-          # The `build-github-actions-staging` job + its conditional download
-          # step are now dead code; cleanup tracked as a follow-up.
           - image: cloud-helpers-aws
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
@@ -574,11 +567,6 @@ jobs:
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    # build-github-actions-staging removed from needs after Phase 2 round-2:
-    # its output is no longer consumed by docker-build (the github-actions-staging
-    # matrix entry was dropped). The job itself is dead code, scheduled for
-    # cleanup in a follow-up PR; keeping it in `needs` would let a flake of an
-    # unused job block prod tag-release + welder deploy.
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
       contents: write  # `welder run tag-release` pushes the release git tag
