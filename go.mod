@@ -34,14 +34,14 @@ require (
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.83.0
 	github.com/pulumi/pulumi-awsx/sdk/v2 v2.22.0
 	github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.2.0
-	github.com/pulumi/pulumi-command/sdk v0.9.2
+	github.com/pulumi/pulumi-command/sdk v1.2.1
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.5.8
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.0.0
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.18.1
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.30.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.17.0
 	github.com/pulumi/pulumi/pkg/v3 v3.184.0
-	github.com/pulumi/pulumi/sdk/v3 v3.184.0
+	github.com/pulumi/pulumi/sdk/v3 v3.214.0
 	github.com/samber/lo v1.38.1
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
@@ -353,7 +353,7 @@ require (
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
-	github.com/pulumi/esc v0.14.3 // indirect
+	github.com/pulumi/esc v0.17.0 // indirect
 	github.com/pulumi/pulumi-docker-build/sdk/go/dockerbuild v0.0.3 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.3-0.20240823090925-0fe6f58b47b1 // indirect
 	github.com/quasilyte/go-ruleguard/dsl v0.3.22 // indirect
@@ -380,7 +380,7 @@ require (
 	github.com/securego/gosec/v2 v2.22.2 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.3.5 // indirect
-	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
+	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sivchari/containedctx v1.0.3 // indirect
 	github.com/sivchari/tenv v1.12.1 // indirect
