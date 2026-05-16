@@ -12,3 +12,20 @@ jobs:
     uses: simple-container-com/actions/.github/workflows/semgrep.yml@main
     permissions:
       contents: read
+    with:
+      # The SC-api-specific Semgrep rules (sigstore, gha-extras, pulumi-iac,
+      # go-canon — 22 rules total) now live in the shared semgrep-scan
+      # ruleset at simple-container-com/actions/semgrep-scan/rules/ and
+      # are picked up automatically via the `@main` ref on the reusable
+      # workflow above. No `consumer-rules:` input needed.
+      #
+      # Curated registry packs covering CI + Go + gosec G-series.
+      # `p/secrets` is intentionally NOT opted into: TruffleHog (see
+      # security-scan.yml) is our secret-detection source of truth and is
+      # already tuned with the `secret-scan-extra-excludes` list for our
+      # documented example-secret paths (docs/examples, testdata, .sc/
+      # cfg.default.yaml). The Semgrep `p/secrets` pack would re-flag the
+      # same fixtures with no path-exclude knob exposed to consumers.
+      # Pinned at the action level via Semgrep image digest in
+      # semgrep-scan/action.yml; pack content is fetched at runtime.
+      registry-packs: 'p/ci,p/golang,p/gosec'
