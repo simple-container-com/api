@@ -6,6 +6,12 @@ on:
       - staging
   workflow_dispatch:
 
+# Least-privilege default for GITHUB_TOKEN; per-job `permissions:` block
+# below extends with `id-token: write` + `attestations: write` for
+# cosign keyless signing and attest-build-provenance.
+permissions:
+  contents: read
+
 jobs:
   build-staging:
     name: Build Staging Image
@@ -65,9 +71,9 @@ jobs:
             cli-tools-${{ runner.os }}-
 
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
+        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
       - name: install welder tool
-        uses: simple-container-com/actions/install-welder@main
+        uses: simple-container-com/actions/install-welder@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
 
       - name: Prepare secrets for build
         run: |
@@ -292,7 +298,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
         with:
           chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
@@ -304,7 +310,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
         with:
           chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}

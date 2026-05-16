@@ -65,9 +65,9 @@ jobs:
         with:
           go-version: '1.25'
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
+        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
       - name: install welder tool
-        uses: simple-container-com/actions/install-welder@main
+        uses: simple-container-com/actions/install-welder@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -325,7 +325,7 @@ jobs:
       - name: fix binary permissions
         run: chmod +x dist/${{ matrix.binary }}
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
+        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -467,7 +467,7 @@ jobs:
       - name: fix bin tools permissions
         run: chmod +x bin/*
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
+        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -627,7 +627,7 @@ jobs:
           ### Install this SC version in your CI
 
           \`\`\`yaml
-          - uses: simple-container-com/actions/install-sc@main
+          - uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
             with:
               version: ${VERSION}
           \`\`\`
@@ -638,7 +638,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -649,7 +649,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}

@@ -9,7 +9,7 @@ permissions:
 jobs:
   comment:
     if: github.event.workflow_run.event == 'pull_request'
-    uses: simple-container-com/actions/.github/workflows/semgrep-comment.yml@main
+    uses: simple-container-com/actions/.github/workflows/semgrep-comment.yml@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
     permissions:
       pull-requests: write
       actions: read
