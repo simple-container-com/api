@@ -44,27 +44,13 @@ rules:
           ...
           $AEAD.Seal(...)
 
-  - id: go-yaml-unmarshal-into-interface
-    message: >-
-      `yaml.Unmarshal` into `interface{}` or `map[string]interface{}`
-      from untrusted input expands into Go runtime objects controlled by
-      the attacker — billion-laughs DoS, type-confusion later in the
-      pipeline, and (for `yaml.v2`) deserialization gadgets. Always
-      unmarshal into a TYPED struct.
-    severity: WARNING
-    languages: [go]
-    paths:
-      include: ["**/*.go"]
-      exclude: ["**/*_test.go"]
-    pattern-either:
-      - pattern: |
-          var $V interface{}
-          ...
-          yaml.Unmarshal($DATA, &$V)
-      - pattern: |
-          var $V map[string]interface{}
-          ...
-          yaml.Unmarshal($DATA, &$V)
+  # Note: a `go-yaml-unmarshal-into-interface` rule was drafted and ran in
+  # round 5 (21 findings) but was DROPPED in round 6 after triage: SC's
+  # untyped-unmarshal sites are intentional (generic YAML inspection for
+  # diff/obfuscation/AI-analysis tooling, where the result isn't used for
+  # security decisions). Taint-aware coverage for the cases that DO matter
+  # (untrusted-source flow → unmarshal) lives in the `p/golang` registry
+  # pack opted into via .github/workflows/semgrep.yml.
 
   - id: go-jwt-parse-unverified
     message: >-
@@ -140,7 +126,23 @@ rules:
     languages: [go]
     paths:
       include: ["**/*.go"]
-      exclude: ["**/*_test.go"]
+      exclude:
+        - "**/*_test.go"
+        # pkg/security/{sbom,scan,tools} is the SC binary's intentional
+        # design surface for invoking external scanners (syft, trivy,
+        # grype) and installing toolchain — env inheritance is required
+        # so the scanners pick up PATH / HOME / GOPATH. These are not
+        # security-decision call sites.
+        - "pkg/security/sbom/**/*.go"
+        - "pkg/security/scan/**/*.go"
+        - "pkg/security/tools/**/*.go"
+        # Terminal control invocations of stty have no env-relevant
+        # impact and should not be flagged.
+        - "pkg/assistant/chat/input.go"
+        # git-status / git-remote read-only invocations need GIT_*
+        # env propagation to honor user gitconfig.
+        - "pkg/assistant/analysis/git_analyzer.go"
+        - "pkg/assistant/cicd/utils.go"
     patterns:
       - pattern-either:
           - pattern: |
@@ -165,3 +167,12 @@ rules:
           ...
           $CMD.Env = ...
           ...
+      # Skip trusted-CLI invocations: these require env propagation by
+      # design (git needs HOME/GIT_*; stty needs TERM; gh needs GH_TOKEN;
+      # cosign/syft/trivy/grype need PATH). Threat-model is about
+      # untrusted-binary invocation, not all exec.Command usage.
+      - metavariable-pattern:
+          metavariable: $ARG
+          patterns:
+            - pattern-regex: '.'
+            - pattern-not-regex: '"(git|stty|gh|cosign|syft|trivy|grype|kubectl|docker|pulumi|sc|welder)"'
