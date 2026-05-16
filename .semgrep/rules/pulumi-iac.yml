@@ -1,0 +1,92 @@
+# Pulumi-Go IaC hardening — SC provisions parent/client stacks on AWS,
+# GCP, and Kubernetes. The existing SC ruleset only covers AWS RDS
+# encryption. These rules expand to GCP + Kubernetes baselines.
+# Ports of Checkov / Kubesec patterns to Pulumi-Go's API surface.
+
+rules:
+  - id: go-pulumi-k8s-privileged-workload
+    message: >-
+      Pulumi-Kubernetes Pod/Container is provisioned with a privilege-
+      escalation knob (`Privileged: true`, `HostNetwork: true`,
+      `HostPID: true`, or a hostPath volume mount). On a multi-tenant
+      cluster this allows breakout to the node. Drop the privilege OR
+      document the workload as cluster-singleton with an explicit
+      threat-model justification.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["**/*.go"]
+    pattern-either:
+      - pattern: |
+          $ARGS = corev1.SecurityContextArgs{..., Privileged: pulumi.Bool(true), ...}
+      - pattern: |
+          $ARGS = corev1.PodSpecArgs{..., HostNetwork: pulumi.Bool(true), ...}
+      - pattern: |
+          $ARGS = corev1.PodSpecArgs{..., HostPID: pulumi.Bool(true), ...}
+      - pattern: |
+          $V = corev1.VolumeArgs{..., HostPath: $HP, ...}
+
+  - id: go-pulumi-gcp-storage-public-access
+    message: >-
+      GCP Storage Bucket / BucketIAMMember allows public-internet read
+      (`allUsers` or `allAuthenticatedUsers` member) OR disables
+      Uniform Bucket-Level Access. Even if the bucket holds non-sensitive
+      data the public-ACL surface is a CIS GCP audit failure (CKV_GCP_28,
+      CKV_GCP_29). Use a private bucket + signed URLs for public access.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["**/*.go"]
+    pattern-either:
+      - pattern: |
+          $M = storage.BucketIAMMemberArgs{..., Member: pulumi.String("allUsers"), ...}
+      - pattern: |
+          $M = storage.BucketIAMMemberArgs{..., Member: pulumi.String("allAuthenticatedUsers"), ...}
+      - pattern: |
+          $B = storage.BucketArgs{..., UniformBucketLevelAccess: pulumi.Bool(false), ...}
+
+  - id: go-pulumi-gcp-compute-default-sa-cloud-platform
+    message: >-
+      GCE VM uses the default Compute Engine service account paired with
+      the broad `cloud-platform` OAuth scope. An attacker with RCE on
+      the VM can call ANY GCP API as the default SA — full project
+      takeover. Bind the VM to a least-privilege custom service account
+      and use narrow scopes (or `cloud-platform` only on the custom SA).
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["**/*.go"]
+    patterns:
+      - pattern: |
+          $A = compute.InstanceArgs{..., ServiceAccount: $SA, ...}
+      - pattern-regex: 'compute\.InstanceArgs\{[\s\S]{0,400}ServiceAccount:[\s\S]{0,200}Scopes:[\s\S]{0,200}cloud-platform'
+
+  - id: go-pulumi-aws-sg-open-ingress
+    message: >-
+      AWS SecurityGroup or SecurityGroupRule with ingress `CidrBlocks`
+      containing `0.0.0.0/0` (any source). For non-HTTPS / non-HTTP
+      protocols this is a CIS AWS Foundation control failure (CKV_AWS_24
+      / CKV_AWS_260). Restrict to the source CIDR the workload actually
+      needs.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["**/*.go"]
+    pattern-either:
+      - pattern: |
+          $A = ec2.SecurityGroupArgs{..., Ingress: $I, ...}
+      - pattern-regex: 'CidrBlocks:[\s]*pulumi\.StringArray\{[^\}]*"0\.0\.0\.0/0"'
+
+  - id: go-pulumi-iam-wildcard-policy
+    message: >-
+      IAM policy statement with `Action: "*"` and/or `Resource: "*"`.
+      Grants god-mode access — never appropriate outside narrowly-scoped
+      break-glass automation. Document or split into least-privilege
+      grants.
+    severity: ERROR
+    languages: [go]
+    paths:
+      include: ["**/*.go"]
+    pattern-either:
+      - pattern-regex: '"Action":\s*"\*"'
+      - pattern-regex: '"Resource":\s*"\*"[^\}]*"Effect":\s*"Allow"'

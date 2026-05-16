@@ -12,3 +12,16 @@ jobs:
     uses: simple-container-com/actions/.github/workflows/semgrep.yml@main
     permissions:
       contents: read
+    with:
+      # Consumer-rules: SC-api-specific Semgrep rules at .semgrep/rules/.
+      # Categories: sigstore (cosign/gh-attestation/attest-build-provenance
+      # supply-chain hardening), gha-extras (workflow-misuse), pulumi-iac
+      # (K8s + GCP + AWS-extra), go-canon (gosec G-series + dgryski/
+      # semgrep-go misses CodeQL security-extended doesn't cover).
+      # After 14 days clean here, promote to the shared SC ruleset in
+      # simple-container-com/actions/semgrep-scan/rules/.
+      consumer-rules: '.semgrep/rules'
+      # Curated registry packs covering CI/secrets + Go + gosec G-series.
+      # Pinned at the action level via Semgrep image digest in
+      # semgrep-scan/action.yml; pack content is fetched at runtime.
+      registry-packs: 'p/ci,p/secrets,p/golang,p/gosec'
