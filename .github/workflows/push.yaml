@@ -23,6 +23,17 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      # Trust-root ref guard. push.yaml signs production artifacts under
+      # the cosign keyless identity `push.yaml@refs/heads/main` (documented
+      # in docs/SECURITY.md). A `workflow_dispatch` from any non-main ref
+      # would sign + publish artifacts that fail consumer verification —
+      # the artifact ships looking-signed but no documented identity regex
+      # accepts it. Fail fast instead.
+      - name: Refuse to run on non-main ref
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error title=push.yaml restricted to main::Got github.ref=$GITHUB_REF; this workflow signs artifacts under the production trust root (refs/heads/main only). Re-dispatch from main or remove workflow_dispatch from the trigger."
+          exit 1
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
@@ -124,6 +135,10 @@ jobs:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup]
+    permissions:
+      contents: read
+      id-token: write       # OIDC for keyless cosign + attest-build-provenance
+      attestations: write
     strategy:
       matrix:
         include:
@@ -157,6 +172,102 @@ jobs:
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
+      # Phase 2: per-tarball SHA-256, CycloneDX SBOM, cosign keyless signature
+      # (self-contained bundle), SLSA provenance. Soft-fail per step — the tarball
+      # itself is the publish artifact; sidecars are best-effort during the 14-day
+      # bake-in. See HARDENING.md Phase 2 plan + verify-attestations.yml gate.
+      - name: SHA-256 sidecars for ${{ matrix.os }}/${{ matrix.arch }}
+        id: sha256
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          sha256sum "sc-${GOOS}-${GOARCH}.tar.gz" > "sc-${GOOS}-${GOARCH}.tar.gz.sha256"
+          sha256sum "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" > "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sha256"
+      - name: Install attestation tools
+        id: install_attest_tools
+        continue-on-error: true   # Best-effort during Phase 2 bake-in. If the
+                                  # installer flakes, downstream sign/SBOM/SLSA
+                                  # steps soft-skip via their own outcome
+                                  # guards; the tarball + .sha256 still publish.
+        uses: ./.github/actions/install-attest-tools
+      - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
+        id: sbom_tarball
+        continue-on-error: true
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          syft scan "dir:../../../../dist/${GOOS}-${GOARCH}" \
+            -o "cyclonedx-json=sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sbom.cdx.json"
+          cp "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sbom.cdx.json" \
+             "sc-${GOOS}-${GOARCH}.tar.gz.sbom.cdx.json"
+      - name: Cosign sign-blob (keyless, bundle) for sc-${{ matrix.os }}-${{ matrix.arch }}
+        id: cosign_sign_tarball
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
+            cosign sign-blob --yes \
+              --bundle "${tarball}.cosign-bundle" \
+              "${tarball}"
+          done
+      - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
+        id: slsa_tarball
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-path: |
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v${{ needs.prepare.outputs.version }}.tar.gz
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+      - name: Materialize SLSA provenance bundle next to tarballs
+        if: steps.slsa_tarball.outcome == 'success'
+        continue-on-error: true
+        env:
+          BUNDLE_PATH: ${{ steps.slsa_tarball.outputs.bundle-path }}
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          dest_dir=".sc/stacks/dist/bundle"
+          # attest-build-provenance emits a single Sigstore bundle covering all
+          # subjects; publish it under both tarball names so consumers can find
+          # it via the same prefix as the tarball they downloaded.
+          # Naming: .sigstore.json matches the actual format (Sigstore bundle, a
+          # single JSON object) — historical .intoto.jsonl is misleading because
+          # the file is not line-delimited.
+          for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
+            cp "$BUNDLE_PATH" "${dest_dir}/${tarball}.sigstore.json"
+          done
+      - name: Soft-fail aggregator for sc-${{ matrix.os }}-${{ matrix.arch }} attestation
+        if: always()
+        env:
+          SBOM_OUTCOME: ${{ steps.sbom_tarball.outcome }}
+          SIGN_OUTCOME: ${{ steps.cosign_sign_tarball.outcome }}
+          SLSA_OUTCOME: ${{ steps.slsa_tarball.outcome }}
+        run: |
+          fail=0
+          for v in "$SBOM_OUTCOME" "$SIGN_OUTCOME" "$SLSA_OUTCOME"; do
+            if [ "$v" != "success" ]; then fail=1; fi
+          done
+          if [ "$fail" -eq 1 ]; then
+            echo "::warning title=Attestation incomplete::sc-${{ matrix.os }}-${{ matrix.arch }} tarball published but one or more attestation steps failed (sbom=$SBOM_OUTCOME sign=$SIGN_OUTCOME slsa=$SLSA_OUTCOME)."
+          else
+            echo "All tarball attestation steps succeeded for ${{ matrix.os }}/${{ matrix.arch }}."
+          fi
       - name: upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
@@ -167,7 +278,13 @@ jobs:
           # artifacts and therefore never re-uploaded to dist.simple-container.com. Result:
           # sc.sh (which downloads the unversioned tarball when SIMPLE_CONTAINER_VERSION is
           # empty) served stale v2026.3.6 for ~4 weeks after PR #186 merged.
-          path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz
+          # Phase 2: also captures .sha256, .sbom.cdx.json, .cosign-bundle, .sigstore.json sidecars.
+          path: |
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sha256
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.cosign-bundle
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sigstore.json
+            .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sbom.cdx.json
           retention-days: 1
 
   build-binaries:
@@ -207,31 +324,10 @@ jobs:
           path: ${{ matrix.output }}
           retention-days: 1
 
-  build-github-actions-staging:
-    name: Build github-actions-staging
-    runs-on: blacksmith-8vcpu-ubuntu-2204
-    needs: [prepare, build-setup]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
-        with:
-          go-version: '1.25'
-      - name: build github-actions-staging
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          CGO_ENABLED: "0"
-        run: |
-          mkdir -p bin
-          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
-      - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: github-actions-staging-binary
-          path: bin/github-actions
-          retention-days: 1
+  # Note (PR #257): the `build-github-actions-staging` job was removed
+  # alongside its sole consumer — the `github-actions-staging` matrix
+  # entry in docker-build. The `:staging` image tag is now exclusively
+  # published by build-staging.yml under the staging trust root.
 
   test:
     name: Run tests
@@ -275,30 +371,42 @@ jobs:
   docker-build:
     name: Docker build and push ${{ matrix.image }}
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs]
+    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
+    permissions:
+      contents: read
+      id-token: write       # OIDC token for keyless cosign + attest-build-provenance
+      attestations: write   # required by actions/attest-build-provenance
     strategy:
       matrix:
         include:
           - image: kubectl
             dockerfile: kubectl.Dockerfile
+            image_repo: simplecontainer/kubectl
             tags: |
               simplecontainer/kubectl:latest
               simplecontainer/kubectl:${{ needs.prepare.outputs.version }}
           - image: caddy
             dockerfile: caddy.Dockerfile
+            image_repo: simplecontainer/caddy
             tags: |
               simplecontainer/caddy:latest
               simplecontainer/caddy:${{ needs.prepare.outputs.version }}
           - image: github-actions
             dockerfile: github-actions.Dockerfile
+            image_repo: simplecontainer/github-actions
             tags: |
               simplecontainer/github-actions:latest
               simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
-          - image: github-actions-staging
-            dockerfile: github-actions-staging.Dockerfile
-            tags: simplecontainer/github-actions:staging
+          # The :staging tag is intentionally NOT published from this workflow.
+          # build-staging.yml (triggered on the `staging` branch) is the
+          # canonical owner of `simplecontainer/github-actions:staging` and signs
+          # it under the staging trust root. Publishing :staging here from main
+          # would either (a) double-sign with the production identity — breaking
+          # the SECURITY.md identity-regex contract — or (b) leave it unsigned,
+          # so consumers following the documented verification path would fail.
           - image: cloud-helpers-aws
             dockerfile: cloud-helpers.aws.Dockerfile
+            image_repo: simplecontainer/cloud-helpers
             tags: |
               simplecontainer/cloud-helpers:aws-latest
               simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
@@ -306,12 +414,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
-      - name: download github-actions-staging binary
-        if: matrix.image == 'github-actions-staging'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: github-actions-staging-binary
-          path: bin
       - name: download github-actions binary
         if: matrix.image == 'github-actions'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
@@ -344,29 +446,128 @@ jobs:
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
       - name: Build and push ${{ matrix.image }} image
+        id: build_and_push
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          tags: ${{ matrix.tags }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+      # Phase 2 attestation: keyless cosign sign + CycloneDX SBOM + SLSA L3
+      # provenance. The publish step above is the gating job. Sign/attest steps
+      # below are continue-on-error so a sigstore-public outage does not block
+      # releases. A trailing aggregator emits ::warning:: on any failure. After
+      # 14 days of clean post-publish verification (see verify-attestations),
+      # flip continue-on-error to false (tracked in HARDENING.md Phase 2 plan).
+      #
+      # `github-actions-staging` is intentionally skipped from attestation here.
+      # The `:staging` tag is the canonical output of build-staging.yml under
+      # the staging trust root (build-staging.yml@refs/heads/staging) and is
+      # signed there. Signing it again from push.yaml@refs/heads/main would
+      # mint a second valid signature under the production identity, which
+      # contradicts the split identity-regex contract in SECURITY.md and
+      # would cause consumer verification to flap between identities on
+      # successive main / staging pushes.
+      - name: Install attestation tools
+        id: install_attest_tools
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true   # Best-effort during Phase 2 bake-in. If the
+                                  # installer flakes, downstream sign/SBOM/SLSA
+                                  # steps soft-skip and the `Record image
+                                  # digest` step still runs (it only does an
+                                  # `echo > file` and does not need cosign).
+        uses: ./.github/actions/install-attest-tools
+      - name: Generate CycloneDX SBOM for ${{ matrix.image }}
+        id: sbom
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
         env:
-          DOCKER_BUILDKIT: 1
-          VERSION: ${{ needs.prepare.outputs.version }}
+          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
         run: |
-          mapfile -t tags <<< "${{ matrix.tags }}"
-          for tag in "${tags[@]}"; do
-            # Skip empty tags caused by trailing newlines in multi-line YAML
-            if [ -n "$tag" ]; then
-              docker buildx build \
-                --platform linux/amd64 \
-                --cache-from type=gha \
-                --cache-to type=gha,mode=max \
-                --file ${{ matrix.dockerfile }} \
-                --tag "$tag" \
-                --push \
-                .
-            fi
+          set -euo pipefail
+          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-${{ matrix.image }}.cdx.json"
+          ls -lh "sbom-${{ matrix.image }}.cdx.json"
+      - name: Cosign sign ${{ matrix.image }} (keyless)
+        id: cosign_sign
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE_REF}"
+      - name: Cosign attest SBOM for ${{ matrix.image }}
+        id: cosign_attest_sbom
+        if: steps.sbom.outcome == 'success' && steps.cosign_sign.outcome == 'success'
+        continue-on-error: true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate "sbom-${{ matrix.image }}.cdx.json" \
+            --type cyclonedx \
+            "${IMAGE_REF}"
+      - name: SLSA build provenance for ${{ matrix.image }}
+        id: slsa_provenance
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        with:
+          subject-name: index.docker.io/${{ matrix.image_repo }}
+          subject-digest: ${{ steps.build_and_push.outputs.digest }}
+          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
+          # the attestation to the OCI registry under the same .att tag that cosign
+          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
+          # Provenance is published to the GitHub attestation API instead (queryable
+          # via `gh attestation verify`); SBOM attestation stays in the registry for
+          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
+          # preview run 25910386532 — cosign verify-attestation now resolves both.
+      # Record the immutable digest so verify-attestations can verify by
+      # @sha256:... instead of by mutable tag (closes the verify-by-tag TOCTOU
+      # window flagged in PR #257 round-1 review).
+      - name: Record image digest for verify-attestations
+        if: steps.build_and_push.outcome == 'success'
+        env:
+          DIGEST: ${{ steps.build_and_push.outputs.digest }}
+          IMAGE_REPO: ${{ matrix.image_repo }}
+        run: |
+          set -euo pipefail
+          mkdir -p digests
+          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.image }}.txt"
+      - name: Upload digest artifact for ${{ matrix.image }}
+        if: steps.build_and_push.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: image-digest-${{ matrix.image }}
+          path: digests/${{ matrix.image }}.txt
+          retention-days: 1
+      - name: Soft-fail aggregator for ${{ matrix.image }} attestation
+        if: always() && steps.build_and_push.outcome == 'success'
+        env:
+          SIGN_OUTCOME: ${{ steps.cosign_sign.outcome }}
+          SBOM_OUTCOME: ${{ steps.sbom.outcome }}
+          ATTEST_SBOM_OUTCOME: ${{ steps.cosign_attest_sbom.outcome }}
+          SLSA_OUTCOME: ${{ steps.slsa_provenance.outcome }}
+        run: |
+          fail=0
+          for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
+            if [ "$v" != "success" ]; then fail=1; fi
           done
+          if [ "$fail" -eq 1 ]; then
+            echo "::warning title=Attestation incomplete::${{ matrix.image }} published but one or more attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME). See verify-attestations workflow."
+          else
+            echo "All attestation steps succeeded for ${{ matrix.image }}."
+          fi
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
     runs-on: blacksmith-8vcpu-ubuntu-2204
-    needs: [prepare, build-setup, build-platforms, build-binaries, build-github-actions-staging, test, build-docs, docker-build]
+    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
       contents: write  # `welder run tag-release` pushes the release git tag
     steps:
@@ -405,8 +606,53 @@ jobs:
           path: docs/site
       - name: copy build artifacts to dist bundle
         run: |
+          set -euo pipefail
           mkdir -p .sc/stacks/dist/bundle
-          cp artifacts/sc-*/*.tar.gz .sc/stacks/dist/bundle/ 2>/dev/null || true
+          # Phase 2: copy tarballs + every sidecar (sha256, sbom, cosign-bundle,
+          # sigstore.json). Sidecars may be absent if sign/SBOM steps soft-failed
+          # in build-platforms — that is by design during the 14-day bake-in; the
+          # count-assertion step below records the gap rather than blocks the run.
+          shopt -s nullglob
+          for f in artifacts/sc-*/*.tar.gz \
+                   artifacts/sc-*/*.tar.gz.sha256 \
+                   artifacts/sc-*/*.tar.gz.cosign-bundle \
+                   artifacts/sc-*/*.tar.gz.sigstore.json \
+                   artifacts/sc-*/*.tar.gz.sbom.cdx.json; do
+            cp "$f" .sc/stacks/dist/bundle/
+          done
+      - name: Sidecar count assertion (Phase 2 bake-in — warn-only)
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          shopt -s nullglob
+          arr_tarballs=( sc-*.tar.gz ); tarballs=${#arr_tarballs[@]}
+          arr_shas=( sc-*.tar.gz.sha256 ); shas=${#arr_shas[@]}
+          arr_bundles=( sc-*.tar.gz.cosign-bundle ); bundles=${#arr_bundles[@]}
+          arr_provs=( sc-*.tar.gz.sigstore.json ); provs=${#arr_provs[@]}
+          arr_sboms=( sc-*.tar.gz.sbom.cdx.json ); sboms=${#arr_sboms[@]}
+          echo "tarballs=$tarballs sha256=$shas cosign-bundle=$bundles slsa=$provs sbom=$sboms"
+          if [ "$tarballs" -eq 0 ]; then
+            echo "::error title=No tarballs to publish::dist bundle has zero tarballs"
+            exit 1
+          fi
+          missing=0
+          # Every tarball has matching .sha256 / .cosign-bundle / .sigstore.json
+          # / .sbom.cdx.json sidecars; build-platforms duplicates the per-build
+          # outputs across the versioned and unversioned tarball names.
+          for kind_count in "sha256=$shas" \
+                            "cosign-bundle=$bundles" \
+                            "slsa=$provs" \
+                            "sbom=$sboms"; do
+            label="${kind_count%%=*}"
+            count="${kind_count#*=}"
+            if [ "$count" -lt "$tarballs" ]; then
+              echo "::warning title=Sidecar count mismatch::${label} has $count of $tarballs expected sidecars (Phase 2 soft-fail)"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "All sidecars present for every published tarball."
+          fi
       - name: finalize dist bundle setup
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

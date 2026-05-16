@@ -78,5 +78,5 @@
 # ---------------------------------------------------------------------
 # This policy + ownership file itself.
 # ---------------------------------------------------------------------
-/SECURITY.md                            @Cre-eD @smecsia
+/docs/SECURITY.md                       @Cre-eD @smecsia
 /CODEOWNERS                             @Cre-eD @smecsia

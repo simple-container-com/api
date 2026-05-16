@@ -1,0 +1,371 @@
+name: Verify published attestations
+
+# Post-publish quality gate for Phase 2 supply-chain attestations.
+# Off the release critical path: fires AFTER push.yaml or branch-preview.yaml
+# succeed, runs weekly as a drift check, and is manually dispatchable for
+# ad-hoc re-verification. A failure here surfaces in the repo's Actions tab
+# without blocking the release that already shipped — bake-in policy.
+
+on:
+  workflow_run:
+    workflows: ['Build simple-container-com CLI', 'Build and publish preview version']
+    types: [completed]
+  schedule:
+    - cron: '17 9 * * 1'   # Mondays 09:17 UTC
+  workflow_dispatch:
+    inputs:
+      trust_root:
+        description: 'Which trust root to verify against'
+        required: true
+        type: choice
+        default: 'prod'
+        options:
+          - prod
+          - staging
+          - preview
+      version:
+        description: 'Version to verify (e.g. 2026.5.1 or 2026.5.1-preview.abc1234). For prod, defaults to dist/version.'
+        required: false
+        default: ''
+      verify_tarballs:
+        description: 'Verify tarballs on dist.simple-container.com'
+        required: false
+        default: 'true'
+      negative_tests:
+        description: 'Run trust-root negative tests (assert artifacts of the selected trust root FAIL to verify against the other two regexes). Regression guard for CICD-SEC-9.'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify attestations
+    runs-on: ubuntu-latest
+    # Skip auto-runs triggered by failed upstream workflows (workflow_run fires
+    # regardless of conclusion). Schedule + manual dispatch always run.
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    permissions:
+      contents: read
+      actions: read         # download-artifact from triggering workflow_run
+      attestations: read    # gh attestation verify
+    env:
+      OIDC_ISSUER: 'https://token.actions.githubusercontent.com'
+      DIST_BASE: 'https://dist.simple-container.com'
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Strict per-root regexes. Consumers verifying via SECURITY.md docs MUST
+      # see the same string. Updating any of these is a coordinated change
+      # gated by CODEOWNERS on .github/workflows + SECURITY.md.
+      PROD_IDENTITY_REGEX:    '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$'
+      STAGING_IDENTITY_REGEX: '^https://github\.com/simple-container-com/api/\.github/workflows/build-staging\.yml@refs/heads/staging$'
+      PREVIEW_IDENTITY_REGEX: '^https://github\.com/simple-container-com/api/\.github/workflows/branch-preview\.yaml@refs/heads/.+$'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install attestation tools
+        uses: ./.github/actions/install-attest-tools
+
+      - name: Resolve trust root
+        id: trust
+        env:
+          UPSTREAM_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          DISPATCH_TRUST_ROOT: ${{ github.event.inputs.trust_root }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              root="$DISPATCH_TRUST_ROOT"
+              ;;
+            workflow_run)
+              case "$UPSTREAM_WORKFLOW_NAME" in
+                'Build simple-container-com CLI') root=prod ;;
+                'Build and publish preview version') root=preview ;;
+                *)
+                  echo "::error title=verify-attestations::unknown upstream workflow '$UPSTREAM_WORKFLOW_NAME'"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            schedule)
+              # Weekly drift detection always targets production.
+              root=prod
+              ;;
+            *)
+              echo "::error::unsupported event $EVENT_NAME"
+              exit 1
+              ;;
+          esac
+          case "$root" in
+            prod)    regex="$PROD_IDENTITY_REGEX";    have_tarballs=true ;;
+            staging) regex="$STAGING_IDENTITY_REGEX"; have_tarballs=false ;;
+            preview) regex="$PREVIEW_IDENTITY_REGEX"; have_tarballs=true ;;
+            *)       echo "::error::unknown trust root '$root'"; exit 1 ;;
+          esac
+          {
+            echo "trust_root=$root"
+            echo "identity_regex=$regex"
+            echo "have_tarballs=$have_tarballs"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved trust_root=$root have_tarballs=$have_tarballs"
+          echo "identity=$regex"
+
+      - name: Download per-image digests from triggering workflow_run
+        id: download_digests
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: image-digest-*
+          path: image-digests
+          merge-multiple: true
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve target version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
+          UPSTREAM_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "Using workflow_dispatch input version: $INPUT_VERSION"
+            exit 0
+          fi
+          if [ "$TRUST_ROOT" = "preview" ]; then
+            # branch-preview.yaml pushes a `v<base>-preview.<short_sha>` git
+            # tag at the end of publish-git-tag. Derive the short SHA from the
+            # triggering workflow_run's head_sha so we verify the SAME preview
+            # version that just shipped, not whatever dist/version currently
+            # points at (which deliberately stays at the latest production
+            # release since preview never updates the dist `version` file).
+            if [ -z "${UPSTREAM_HEAD_SHA:-}" ]; then
+              echo "::error title=verify-attestations::workflow_run.head_sha missing for preview verification"
+              exit 1
+            fi
+            short_sha=$(printf '%s' "$UPSTREAM_HEAD_SHA" | cut -c1-7)
+            tag=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags" --paginate \
+                  --jq "[.[] | .ref | ltrimstr(\"refs/tags/v\")] | map(select(contains(\"preview.${short_sha}\"))) | last")
+            if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+              echo "::error title=verify-attestations::could not resolve preview tag for head_sha=${short_sha}"
+              exit 1
+            fi
+            echo "version=$tag" >> "$GITHUB_OUTPUT"
+            echo "Resolved preview version from git tag: $tag"
+            exit 0
+          fi
+          # prod or staging: dist/version is the canonical pointer.
+          ver=$(curl -fsSL "$DIST_BASE/version" 2>/dev/null | head -n1 | tr -d '\r\n[:space:]' || true)
+          if [ -z "$ver" ]; then
+            echo "::error title=verify-attestations::could not resolve target version from $DIST_BASE/version"
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Resolved $TRUST_ROOT version from dist/version: $ver"
+
+      - name: Verify image signatures + SBOM attestations + provenance
+        id: verify_images
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IDENTITY_REGEX: ${{ steps.trust.outputs.identity_regex }}
+          TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
+        run: |
+          set -uo pipefail
+          fail=0
+          shopt -s nullglob
+          digest_files=( image-digests/*.txt )
+          if [ "${#digest_files[@]}" -gt 0 ]; then
+            mapfile -t refs < <(cat image-digests/*.txt | sort -u)
+            echo "Verifying ${#refs[@]} image(s) by digest (recovered from upstream artifacts)"
+          else
+            # Tag-resolve fallback scoped to what each trust root actually
+            # publishes — avoids 'no manifest' failures on cron / dispatch.
+            case "$TRUST_ROOT" in
+              prod)
+                refs=(
+                  "simplecontainer/kubectl:${VERSION}"
+                  "simplecontainer/caddy:${VERSION}"
+                  "simplecontainer/github-actions:${VERSION}"
+                  "simplecontainer/cloud-helpers:aws-${VERSION}"
+                )
+                ;;
+              preview)
+                refs=(
+                  "simplecontainer/github-actions:${VERSION}"
+                  "simplecontainer/cloud-helpers:aws-${VERSION}"
+                )
+                ;;
+              staging)
+                refs=(
+                  "simplecontainer/github-actions:staging"
+                  "simplecontainer/caddy:staging"
+                )
+                ;;
+            esac
+            echo "Verifying ${#refs[@]} image(s) by tag (tag-resolve fallback)"
+          fi
+          for img in "${refs[@]}"; do
+            [ -z "$img" ] && continue
+            echo "::group::$img"
+            # 1. Image signature (cosign keyless).
+            cosign verify "$img" \
+                --certificate-identity-regexp "$IDENTITY_REGEX" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" >/dev/null \
+              || { echo "::warning title=cosign verify failed::$img"; fail=1; }
+            # 2. CycloneDX SBOM attestation (registry slot, owned by cosign).
+            cosign verify-attestation "$img" --type cyclonedx \
+                --certificate-identity-regexp "$IDENTITY_REGEX" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" >/dev/null \
+              || { echo "::warning title=cosign verify-attestation cyclonedx failed::$img"; fail=1; }
+            # 3. SLSA build provenance (GH attestation API).
+            gh attestation verify "oci://${img}" \
+                --repo simple-container-com/api \
+                --cert-identity-regex "$IDENTITY_REGEX" \
+                --cert-oidc-issuer "$OIDC_ISSUER" >/dev/null \
+              || { echo "::warning title=gh attestation verify failed::$img"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+      - name: Verify tarball signatures + provenance
+        id: verify_tarballs
+        if: |
+          github.event.inputs.verify_tarballs != 'false' &&
+          steps.trust.outputs.have_tarballs == 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IDENTITY_REGEX: ${{ steps.trust.outputs.identity_regex }}
+          TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
+        run: |
+          set -uo pipefail
+          fail=0
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          # Variant set is trust-root dependent: prod ships {versioned, unversioned};
+          # preview ships only versioned. Unversioned variant ALWAYS verifies
+          # against the unversioned tarball, which dist serves as the
+          # latest-pointer alias for the most recent prod release.
+          case "$TRUST_ROOT" in
+            prod)    variants=( "-v${VERSION}" "" ) ;;
+            preview) variants=( "-v${VERSION}" ) ;;
+            *)       variants=( ) ;;
+          esac
+          for plat in linux-amd64 darwin-arm64 darwin-amd64; do
+            for variant in "${variants[@]}"; do
+              tarball="sc-${plat}${variant}.tar.gz"
+              url="${DIST_BASE}/${tarball}"
+              echo "::group::${tarball}"
+              if ! curl -fsSL "${url}"               -o "${tmp}/${tarball}" \
+                || ! curl -fsSL "${url}.sha256"        -o "${tmp}/${tarball}.sha256" \
+                || ! curl -fsSL "${url}.cosign-bundle" -o "${tmp}/${tarball}.cosign-bundle" \
+                || ! curl -fsSL "${url}.sigstore.json" -o "${tmp}/${tarball}.sigstore.json" \
+                || ! curl -fsSL "${url}.sbom.cdx.json" -o "${tmp}/${tarball}.sbom.cdx.json"; then
+                echo "::warning title=sidecar download failed::${tarball} (one of tar.gz/.sha256/.cosign-bundle/.sigstore.json/.sbom.cdx.json missing on dist)"
+                fail=1
+                echo "::endgroup::"
+                continue
+              fi
+              ( cd "$tmp" && sha256sum -c "${tarball}.sha256" >/dev/null ) \
+                || { echo "::warning::sha256 mismatch ${tarball}"; fail=1; }
+              cosign verify-blob \
+                --bundle "${tmp}/${tarball}.cosign-bundle" \
+                --certificate-identity-regexp "$IDENTITY_REGEX" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" \
+                "${tmp}/${tarball}" >/dev/null \
+                || { echo "::warning::cosign verify-blob failed ${tarball}"; fail=1; }
+              gh attestation verify "${tmp}/${tarball}" \
+                --bundle "${tmp}/${tarball}.sigstore.json" \
+                --repo simple-container-com/api \
+                --cert-identity-regex "$IDENTITY_REGEX" \
+                --cert-oidc-issuer "$OIDC_ISSUER" >/dev/null \
+                || { echo "::warning::gh attestation verify failed ${tarball}"; fail=1; }
+              # SBOM sidecar well-formedness (matches scripts/verify-preview.sh
+              # section 4e). Catches the case where build-platforms' SBOM
+              # step soft-failed and an empty / malformed file ended up on
+              # dist; without this the gate would silently pass.
+              jq -e '.bomFormat == "CycloneDX"' "${tmp}/${tarball}.sbom.cdx.json" >/dev/null \
+                || { echo "::warning::SBOM not well-formed CycloneDX ${tarball}.sbom.cdx.json"; fail=1; }
+              echo "::endgroup::"
+            done
+          done
+          exit "$fail"
+
+      - name: Negative trust-root tests (regression guard for CICD-SEC-9)
+        id: negative_tests
+        # Opt-in via workflow_dispatch input (default false). Asserts that an
+        # artifact signed under the SELECTED trust root fails verification
+        # under the OTHER two regexes — protects against the trust-root
+        # regex accidentally getting widened. Mirrors section 5 of
+        # scripts/verify-preview.sh.
+        if: github.event.inputs.negative_tests == 'true'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
+        run: |
+          set -uo pipefail
+          fail=0
+          # Pick a representative image for each trust root.
+          case "$TRUST_ROOT" in
+            prod)    img="simplecontainer/github-actions:${VERSION}" ;;
+            preview) img="simplecontainer/github-actions:${VERSION}" ;;
+            staging) img="simplecontainer/github-actions:staging" ;;
+          esac
+          # All three regexes, paired with the label we report.
+          declare -A OTHER_REGEXES
+          if [ "$TRUST_ROOT" != "prod" ]; then
+            OTHER_REGEXES["prod"]="$PROD_IDENTITY_REGEX"
+          fi
+          if [ "$TRUST_ROOT" != "staging" ]; then
+            OTHER_REGEXES["staging"]="$STAGING_IDENTITY_REGEX"
+          fi
+          if [ "$TRUST_ROOT" != "preview" ]; then
+            OTHER_REGEXES["preview"]="$PREVIEW_IDENTITY_REGEX"
+          fi
+          for other in "${!OTHER_REGEXES[@]}"; do
+            re="${OTHER_REGEXES[$other]}"
+            echo "::group::expect FAIL — $img under $other regex"
+            if cosign verify "$img" \
+                --certificate-identity-regexp "$re" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" >/dev/null 2>&1; then
+              echo "::error title=Trust-root leak::$img verified under the $other regex (expected to fail). The $TRUST_ROOT identity-regex contract is weaker than documented in SECURITY.md."
+              fail=1
+            else
+              echo "OK — correctly rejected"
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+      - name: Aggregate verification results
+        if: always()
+        env:
+          IMG_OUTCOME: ${{ steps.verify_images.outcome }}
+          TARBALL_OUTCOME: ${{ steps.verify_tarballs.outcome }}
+          NEGATIVE_OUTCOME: ${{ steps.negative_tests.outcome }}
+          TRUST_ROOT: ${{ steps.trust.outputs.trust_root }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "trust_root=$TRUST_ROOT version=$VERSION images=$IMG_OUTCOME tarballs=$TARBALL_OUTCOME negative=$NEGATIVE_OUTCOME"
+          fail=0
+          if [ "$IMG_OUTCOME" = "failure" ]; then fail=1; fi
+          # tarball + negative steps skip when not applicable; treat skipped
+          # as not a failure (only explicit "failure" outcomes count).
+          if [ "$TARBALL_OUTCOME" = "failure" ]; then fail=1; fi
+          if [ "$NEGATIVE_OUTCOME" = "failure" ]; then fail=1; fi
+          if [ "$fail" -eq 1 ]; then
+            echo "::error title=Post-publish verification incomplete::trust_root=$TRUST_ROOT version=$VERSION — see ::warning:: annotations above. Bake-in policy: this surfaces the regression without blocking the release that already shipped."
+            exit 1
+          fi
+          echo "All published attestations verified ($TRUST_ROOT $VERSION)."

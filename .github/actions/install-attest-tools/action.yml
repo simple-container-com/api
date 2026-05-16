@@ -1,0 +1,34 @@
+name: 'Install attestation tools'
+description: 'Install cosign + syft with single-source SHA pins for use across the SC release pipeline. Provenance verification uses the gh CLI (preinstalled on GitHub-hosted runners) against the GitHub-native attestation API, so no separate slsa-verifier install is needed.'
+
+inputs:
+  cosign-version:
+    description: 'Cosign CLI release tag to install (e.g. v2.4.1)'
+    required: false
+    default: 'v2.4.1'
+  syft-version:
+    description: 'Syft CLI release tag to install (e.g. v1.16.0)'
+    required: false
+    default: 'v1.16.0'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+      with:
+        cosign-release: ${{ inputs.cosign-version }}
+
+    - name: Install syft
+      uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
+      with:
+        syft-version: ${{ inputs.syft-version }}
+
+    - name: Verify gh CLI is available (for attestation verify)
+      shell: bash
+      run: |
+        if ! command -v gh >/dev/null 2>&1; then
+          echo "gh CLI not found on PATH — required for 'gh attestation verify' provenance checks." >&2
+          exit 1
+        fi
+        gh --version | head -n 1
