@@ -13,14 +13,12 @@ jobs:
     permissions:
       contents: read
     with:
-      # Consumer-rules: SC-api-specific Semgrep rules at .semgrep/rules/.
-      # Categories: sigstore (cosign/gh-attestation/attest-build-provenance
-      # supply-chain hardening), gha-extras (workflow-misuse), pulumi-iac
-      # (K8s + GCP + AWS-extra), go-canon (gosec G-series + dgryski/
-      # semgrep-go misses CodeQL security-extended doesn't cover).
-      # After 14 days clean here, promote to the shared SC ruleset in
-      # simple-container-com/actions/semgrep-scan/rules/.
-      consumer-rules: '.semgrep/rules'
+      # The SC-api-specific Semgrep rules (sigstore, gha-extras, pulumi-iac,
+      # go-canon — 22 rules total) now live in the shared semgrep-scan
+      # ruleset at simple-container-com/actions/semgrep-scan/rules/ and
+      # are picked up automatically via the `@main` ref on the reusable
+      # workflow above. No `consumer-rules:` input needed.
+      #
       # Curated registry packs covering CI + Go + gosec G-series.
       # `p/secrets` is intentionally NOT opted into: TruffleHog (see
       # security-scan.yml) is our secret-detection source of truth and is
