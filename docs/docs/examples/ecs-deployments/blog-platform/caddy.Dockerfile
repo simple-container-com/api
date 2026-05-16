@@ -1,4 +1,4 @@
-FROM caddy:2.7-alpine
+FROM caddy:2.11-alpine@sha256:3739ea4f0c877259a693d932693cf8f3408e9a9497c004f031b0e830e93e1546
 
 # Copy custom Caddyfile
 COPY Caddyfile /etc/caddy/Caddyfile
