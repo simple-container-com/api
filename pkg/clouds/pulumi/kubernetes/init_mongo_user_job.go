@@ -23,7 +23,7 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
+			Namespace: args.Namespace,
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
@@ -41,10 +41,40 @@ func NewMongodbInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUser
 	if err != nil {
 		return nil, err
 	}
+	// Idempotent user provisioning: db.createUser errors with code 51003 (DuplicateKey)
+	// if the user already exists, which would break any re-run of this Job — including
+	// the Replace that happens when a consumer follows #255's documented opt-in
+	// namespace migration (`pulumi stack export | jq 'del(...Namespace urn...)' |
+	// pulumi stack import`). Use createUser-or-updateUser semantics so the Job
+	// succeeds on both the first and any subsequent run. Matches the idempotency
+	// guarantees the postgres init scripts already provide via `IF NOT EXISTS`
+	// guards (pkg/clouds/pulumi/db/constants.go) and `GRANT` idempotency
+	// (pkg/clouds/pulumi/gcp/init_pg_user_job.go).
+	//
+	// Credentials read from process.env inside the mongosh eval rather than shell
+	// interpolation. Pulling them via env (a) bypasses shell quoting entirely so
+	// passwords containing spaces/quotes/$ don't bash-word-split or break JS
+	// parsing, (b) keeps the secret out of `ps`/strace visibility on the
+	// command line. The connection URI itself still has to be shell-interpolated
+	// because mongosh consumes it as its first positional argument, but the user
+	// password is the higher-risk value and is now end-to-end env-bound.
 	createUserScript := `
 set -e;
-mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=${ROOT_DATABASE}&readPreference=primary&replicaSet=${REPLICA_SET}" \
-	--eval "db.createUser({user:'${DB_USER}',pwd:'${DB_PASSWORD}',roles:[{db: '${DB_NAME}', role: 'dbAdmin'}, {db: '${DB_NAME}', role: 'readWrite'}, {db: 'local', role: 'read'}]})"
+mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=${ROOT_DATABASE}&readPreference=primary&replicaSet=${REPLICA_SET}" --eval '
+  var dbName = process.env.DB_NAME;
+  var dbUser = process.env.DB_USER;
+  var dbPwd  = process.env.DB_PASSWORD;
+  var roles = [
+    {db: dbName, role: "dbAdmin"},
+    {db: dbName, role: "readWrite"},
+    {db: "local", role: "read"}
+  ];
+  if (db.getUser(dbUser) === null) {
+    db.createUser({user: dbUser, pwd: dbPwd, roles: roles});
+  } else {
+    db.updateUser(dbUser, {pwd: dbPwd, roles: roles});
+  }
+'
 `
 	// Job Container creation
 	jobContainer := corev1.ContainerArgs{
@@ -65,13 +95,12 @@ mongosh "mongodb://${ROOT_USER}:${ROOT_PASSWORD}@${HOST}/${DB_NAME}?authSource=$
 	}
 
 	kubeProvider := args.KubeProvider
-	namespace := args.Namespace
 
 	// Job creation
 	job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 		Metadata: &v1.ObjectMetaArgs{
 			Name:      sdk.String(jobName),
-			Namespace: sdk.String(namespace),
+			Namespace: args.Namespace,
 			Annotations: sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"),
 			},

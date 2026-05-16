@@ -24,11 +24,15 @@ type InitDbUserJobArgs struct {
 	RootUser     string
 	RootPassword string
 	KubeProvider sdk.ProviderResource
-	Namespace    string
-	Host         string
-	Port         string
-	InitSQL      string
-	Opts         []sdk.ResourceOption
+	// Namespace is the live Namespace name Output, threaded through from
+	// SimpleContainerArgs.NamespaceNameOutput via compute_proc_postgres.go and
+	// compute_proc_mongodb.go. Do not re-derive via GenerateNamespaceName —
+	// see the long rationale on the matching field in gcp.InitDbUserJobArgs.
+	Namespace sdk.StringInput
+	Host      string
+	Port      string
+	InitSQL   string
+	Opts      []sdk.ResourceOption
 }
 
 type InitUserJob struct {
@@ -45,7 +49,7 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
+			Namespace: args.Namespace,
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
@@ -82,13 +86,12 @@ func NewPostgresInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUse
 	}
 
 	kubeProvider := args.KubeProvider
-	namespace := args.Namespace
 
 	// Job creation
 	job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 		Metadata: &v1.ObjectMetaArgs{
 			Name:      sdk.String(jobName),
-			Namespace: sdk.String(namespace),
+			Namespace: args.Namespace,
 			Annotations: sdk.StringMap{
 				"pulumi.com/patchForce": sdk.String("true"),
 			},

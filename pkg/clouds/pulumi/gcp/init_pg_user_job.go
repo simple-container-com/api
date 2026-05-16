@@ -36,8 +36,13 @@ type InitDbUserJobArgs struct {
 	CloudSQLProxy  *CloudSQLProxy
 	KubeProvider   *sdkK8s.Provider
 	DBInstanceType CloudsqlInstanceType
-	Namespace      string
-	Opts           []sdk.ResourceOption
+	// Namespace is the live Namespace name Output, threaded from
+	// SimpleContainerArgs.NamespaceNameOutput / SimpleContainer.Namespace via
+	// compute_proc.go. Do not re-derive via kubernetes.GenerateNamespaceName —
+	// that drifts from the actual k8s name on migrated stacks where #255's
+	// IgnoreChanges("metadata.name") keeps the Namespace parent-shared.
+	Namespace sdk.StringInput
+	Opts      []sdk.ResourceOption
 }
 
 type InitUserJob struct {
@@ -56,7 +61,7 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 	// Secret creation
 	jobCredsSecret, err := corev1.NewSecret(ctx, jobCredsName, &corev1.SecretArgs{
 		Metadata: &v1.ObjectMetaArgs{
-			Namespace: sdk.String(args.Namespace),
+			Namespace: args.Namespace,
 			Name:      sdk.String(jobCredsName),
 		},
 		StringData: sdk.StringMap{
@@ -76,14 +81,14 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 		if args.DBInstanceType == MySQL {
 			initScript = `
                 set -e;
-                apk add --no-cache mysql-client; 
+                apk add --no-cache mysql-client;
                 sleep 20;
                 # MySQL-specific logic here
             `
 		} else {
 			initScript = fmt.Sprintf(`
 set -e;
-apk add --no-cache postgresql-client; 
+apk add --no-cache postgresql-client;
 sleep 20;
 psql -h localhost -U postgres -d %s -c 'GRANT pg_read_all_data TO "%s";';
 psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
@@ -121,7 +126,7 @@ psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
 		job, err := batchv1.NewJob(ctx, jobName, &batchv1.JobArgs{
 			Metadata: &v1.ObjectMetaArgs{
 				Name:      sdk.String(jobName),
-				Namespace: sdk.String(namespace),
+				Namespace: namespace,
 				Annotations: sdk.StringMap{
 					"pulumi.com/patchForce": sdk.String("true"),
 				},
