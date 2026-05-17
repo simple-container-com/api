@@ -70,10 +70,8 @@ jobs:
           restore-keys: |
             cli-tools-${{ runner.os }}-
 
-      - name: install sc tool
-        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
-      - name: install welder tool
-        uses: simple-container-com/actions/install-welder@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
+      - name: install sc + welder tools
+        uses: simple-container-com/actions/setup-sc-tooling@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
 
       - name: Prepare secrets for build
         run: |
@@ -145,7 +143,7 @@ jobs:
         id: install_attest_tools
         if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
         continue-on-error: true   # Best-effort during Phase 2 bake-in (matches push.yaml).
-        uses: ./.github/actions/install-attest-tools
+        uses: simple-container-com/actions/install-attest-tools@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
 
       - name: Generate CycloneDX SBOM for github-actions staging
         id: sbom_gha_staging

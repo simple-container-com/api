@@ -64,10 +64,8 @@ jobs:
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
-      - name: install sc tool
-        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
-      - name: install welder tool
-        uses: simple-container-com/actions/install-welder@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
+      - name: install sc + welder tools
+        uses: simple-container-com/actions/setup-sc-tooling@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -185,7 +183,7 @@ jobs:
       - name: Install attestation tools
         id: install_attest_tools
         continue-on-error: true
-        uses: ./.github/actions/install-attest-tools
+        uses: simple-container-com/actions/install-attest-tools@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
         continue-on-error: true
@@ -362,7 +360,7 @@ jobs:
         id: install_attest_tools
         if: steps.build_and_push.outcome == 'success'
         continue-on-error: true
-        uses: ./.github/actions/install-attest-tools
+        uses: simple-container-com/actions/install-attest-tools@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
       - name: Generate CycloneDX SBOM for ${{ matrix.target }}
         id: sbom
         if: steps.build_and_push.outcome == 'success'
