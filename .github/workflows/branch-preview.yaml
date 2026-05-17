@@ -292,7 +292,6 @@ jobs:
 
   docker-build:
     name: Docker build and push preview ${{ matrix.target }} image
-    runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-binaries, test]
     permissions:
       contents: read
@@ -302,104 +301,37 @@ jobs:
       matrix:
         include:
           - target: github-actions
-            binary: github-actions
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tag_prefix: "simplecontainer/github-actions:"
           - target: cloud-helpers
-            binary: cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
             tag_prefix: "simplecontainer/cloud-helpers:aws-"
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          persist-credentials: false
-      - name: download ${{ matrix.target }} binary
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: ${{ matrix.target }}-binary
-          path: dist
-      - name: fix binary permissions
-        run: chmod +x dist/${{ matrix.binary }}
-      - name: install sc tool
-        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
-      - name: prepare secrets for build
-        run: |
-          cat << EOF > ./.sc/cfg.default.yaml
-          ${{ secrets.SC_CONFIG }}
-          EOF
-          sc secrets reveal
-      - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
-        with:
-          driver-opts: |
-            image=moby/buildkit:buildx-stable-1
-      - name: Disable IPv6 (Blacksmith runners have broken IPv6 to Docker Hub)
-        run: sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-      - name: Docker login using SC secrets
-        run: |
-          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push preview ${{ matrix.target }} image
-        id: build_and_push
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          tags: ${{ matrix.tag_prefix }}${{ needs.prepare.outputs.version }}
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-      # Phase 2 attestation (mirrors push.yaml). Preview builds get the SAME
-      # security guarantees as production releases so consumers pin-testing a
-      # preview version (per project_sc_preview memory: PAY-SPACE pins workflows
-      # to versioned preview builds) can verify the same way they verify prod.
-      - name: Sign + attest ${{ matrix.target }} (SBOM + cosign + SLSA)
-        id: signattest
-        if: steps.build_and_push.outcome == 'success'
-        uses: simple-container-com/actions/sign-and-attest@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
-        with:
-          image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
-          image-name: ${{ matrix.target }}
-          subject-name: index.docker.io/${{ matrix.image_repo }}
-          subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
-          soft-fail: 'true'
-      - name: Record image digest for verify-attestations
-        if: steps.build_and_push.outcome == 'success'
-        env:
-          DIGEST: ${{ steps.build_and_push.outputs.digest }}
-          IMAGE_REPO: ${{ matrix.image_repo }}
-        run: |
-          set -euo pipefail
-          mkdir -p digests
-          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.target }}.txt"
-      - name: Upload digest artifact for ${{ matrix.target }}
-        if: steps.build_and_push.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: image-digest-${{ matrix.target }}
-          path: digests/${{ matrix.target }}.txt
-          retention-days: 1
-      - name: Soft-fail aggregator for ${{ matrix.target }} attestation
-        if: always() && steps.build_and_push.outcome == 'success'
-        env:
-          SIGN_OUTCOME: ${{ steps.signattest.outputs.sign-outcome }}
-          SBOM_OUTCOME: ${{ steps.signattest.outputs.sbom-outcome }}
-          ATTEST_SBOM_OUTCOME: ${{ steps.signattest.outputs.attest-outcome }}
-          SLSA_OUTCOME: ${{ steps.signattest.outputs.slsa-outcome }}
-        run: |
-          fail=0
-          for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
-            if [ "$v" != "success" ]; then fail=1; fi
-          done
-          if [ "$fail" -eq 1 ]; then
-            echo "::warning title=Attestation incomplete::${{ matrix.target }} preview published but attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME)."
-          else
-            echo "All attestation steps succeeded for ${{ matrix.target }} preview."
-          fi
+    # Preview builds get the SAME security guarantees as production
+    # (per project_sc_preview memory: PAY-SPACE pins workflows to
+    # versioned preview builds and verifies them the same way they
+    # verify prod releases). Reusable workflow encapsulates the full
+    # build → SBOM → cosign → SLSA pipeline; the consumer-side delta
+    # is just the matrix.
+    # SHA pinned to actions feat/sc-image-release-reusable-workflow
+    # branch head (PR simple-container-com/actions#14). Will be bumped
+    # to the post-merge main SHA once #14 lands.
+    uses: simple-container-com/actions/.github/workflows/sc-image-release.yml@6bb817e23407638925f23d3eea693004d6578aef # actions#14 feat branch
+    with:
+      image-name: ${{ matrix.target }}
+      image-repo: ${{ matrix.image_repo }}
+      dockerfile: ${{ matrix.dockerfile }}
+      tags: ${{ matrix.tag_prefix }}${{ needs.prepare.outputs.version }}
+      runs-on: blacksmith-8vcpu-ubuntu-2204
+      download-artifact: ${{ matrix.target }}-binary
+      # Blacksmith runners ship with a broken IPv6 path to Docker Hub;
+      # disable IPv6 before `docker login` (same workaround the pre-
+      # reusable-workflow version had inline).
+      disable-ipv6: true
+      soft-fail: true
+    secrets:
+      sc-config: ${{ secrets.SC_CONFIG }}
 
   publish-sc-preview:
     name: Publish preview SC binaries to dist

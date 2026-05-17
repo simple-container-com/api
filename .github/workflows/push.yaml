@@ -368,7 +368,6 @@ jobs:
 
   docker-build:
     name: Docker build and push ${{ matrix.image }}
-    runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
     permissions:
       contents: read
@@ -383,18 +382,21 @@ jobs:
             tags: |
               simplecontainer/kubectl:latest
               simplecontainer/kubectl:${{ needs.prepare.outputs.version }}
+            download_artifact: ''
           - image: caddy
             dockerfile: caddy.Dockerfile
             image_repo: simplecontainer/caddy
             tags: |
               simplecontainer/caddy:latest
               simplecontainer/caddy:${{ needs.prepare.outputs.version }}
+            download_artifact: ''
           - image: github-actions
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tags: |
               simplecontainer/github-actions:latest
               simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
+            download_artifact: github-actions-binary
           # The :staging tag is intentionally NOT published from this workflow.
           # build-staging.yml (triggered on the `staging` branch) is the
           # canonical owner of `simplecontainer/github-actions:staging` and signs
@@ -408,117 +410,28 @@ jobs:
             tags: |
               simplecontainer/cloud-helpers:aws-latest
               simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-        with:
-          persist-credentials: false
-      - name: download github-actions binary
-        if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: github-actions-binary
-          path: dist
-      - name: download cloud-helpers binary
-        if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
-        with:
-          name: cloud-helpers-binary
-          path: dist
-      - name: install sc tool
-        uses: simple-container-com/actions/install-sc@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
-      - name: prepare secrets for build
-        run: |
-          cat << EOF > ./.sc/cfg.default.yaml
-          ${{ secrets.SC_CONFIG }}
-          EOF
-          cat << EOF > ./.sc/cfg.test.yaml
-          ${{ secrets.SC_CONFIG }}
-          EOF
-          sc secrets reveal
-      - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
-        with:
-          driver-opts: |
-            image=moby/buildkit:buildx-stable-1
-      - name: Docker login using SC secrets
-        run: |
-          sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push ${{ matrix.image }} image
-        id: build_and_push
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          tags: ${{ matrix.tags }}
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-      # Phase 2 attestation: keyless cosign sign + CycloneDX SBOM + SLSA L3
-      # provenance. The publish step above is the gating job. Sign/attest steps
-      # below are continue-on-error so a sigstore-public outage does not block
-      # releases. A trailing aggregator emits ::warning:: on any failure. After
-      # 14 days of clean post-publish verification (see verify-attestations),
-      # flip continue-on-error to false (tracked in HARDENING.md Phase 2 plan).
-      #
-      # `github-actions-staging` is intentionally skipped from attestation here.
-      # The `:staging` tag is the canonical output of build-staging.yml under
-      # the staging trust root (build-staging.yml@refs/heads/staging) and is
-      # signed there. Signing it again from push.yaml@refs/heads/main would
-      # mint a second valid signature under the production identity, which
-      # contradicts the split identity-regex contract in SECURITY.md and
-      # would cause consumer verification to flap between identities on
-      # successive main / staging pushes.
-      - name: Sign + attest ${{ matrix.image }} (SBOM + cosign + SLSA)
-        id: signattest
-        if: steps.build_and_push.outcome == 'success'
-        uses: simple-container-com/actions/sign-and-attest@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
-        with:
-          image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
-          image-name: ${{ matrix.image }}
-          subject-name: index.docker.io/${{ matrix.image_repo }}
-          subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          # Phase 2 bake-in: keep soft-fail until 14 days of clean
-          # verify-attestations on `main`. Flip to 'false' tracked in
-          # HARDENING.md Phase 2.
-          soft-fail: 'true'
-      # Record the immutable digest so verify-attestations can verify by
-      # @sha256:... instead of by mutable tag (closes the verify-by-tag TOCTOU
-      # window flagged in PR #257 round-1 review).
-      - name: Record image digest for verify-attestations
-        if: steps.build_and_push.outcome == 'success'
-        env:
-          DIGEST: ${{ steps.build_and_push.outputs.digest }}
-          IMAGE_REPO: ${{ matrix.image_repo }}
-        run: |
-          set -euo pipefail
-          mkdir -p digests
-          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.image }}.txt"
-      - name: Upload digest artifact for ${{ matrix.image }}
-        if: steps.build_and_push.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: image-digest-${{ matrix.image }}
-          path: digests/${{ matrix.image }}.txt
-          retention-days: 1
-      - name: Soft-fail aggregator for ${{ matrix.image }} attestation
-        if: always() && steps.build_and_push.outcome == 'success'
-        env:
-          SIGN_OUTCOME: ${{ steps.signattest.outputs.sign-outcome }}
-          SBOM_OUTCOME: ${{ steps.signattest.outputs.sbom-outcome }}
-          ATTEST_SBOM_OUTCOME: ${{ steps.signattest.outputs.attest-outcome }}
-          SLSA_OUTCOME: ${{ steps.signattest.outputs.slsa-outcome }}
-        run: |
-          fail=0
-          for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
-            if [ "$v" != "success" ]; then fail=1; fi
-          done
-          if [ "$fail" -eq 1 ]; then
-            echo "::warning title=Attestation incomplete::${{ matrix.image }} published but one or more attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME). See verify-attestations workflow."
-          else
-            echo "All attestation steps succeeded for ${{ matrix.image }}."
-          fi
+            download_artifact: cloud-helpers-binary
+    # Full build → SBOM → cosign sign → cosign attest → SLSA L3 →
+    # digest-artifact pipeline lives in the shared reusable workflow.
+    # Each matrix entry is one image; consumer-side delta is just the
+    # matrix definition + the `uses:` line below.
+    # SHA pinned to actions feat/sc-image-release-reusable-workflow branch
+    # head (PR simple-container-com/actions#14). Will be bumped to the
+    # post-merge main SHA once #14 lands.
+    uses: simple-container-com/actions/.github/workflows/sc-image-release.yml@6bb817e23407638925f23d3eea693004d6578aef # actions#14 feat branch
+    with:
+      image-name: ${{ matrix.image }}
+      image-repo: ${{ matrix.image_repo }}
+      dockerfile: ${{ matrix.dockerfile }}
+      tags: ${{ matrix.tags }}
+      runs-on: blacksmith-8vcpu-ubuntu-2204
+      download-artifact: ${{ matrix.download_artifact }}
+      # Blacksmith runners ship with a broken IPv6 path to Docker Hub.
+      disable-ipv6: true
+      # Phase 2 bake-in: soft-fail attestation steps until 14 days clean.
+      soft-fail: true
+    secrets:
+      sc-config: ${{ secrets.SC_CONFIG }}
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
