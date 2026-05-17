@@ -415,7 +415,7 @@ jobs:
     # digest-artifact pipeline lives in the shared reusable workflow.
     # Each matrix entry is one image; consumer-side delta is just the
     # matrix definition + the `uses:` line below.
-    uses: simple-container-com/actions/.github/workflows/sc-image-release.yml@566ecb0ab68d25cf463f52bd4e48c24ccce20df2 # actions test branch
+    uses: simple-container-com/actions/.github/workflows/sc-image-release.yml@198778ad53cf4806b4e2f1a7bac9d6f3fa78bed7 # actions test branch
     with:
       image-name: ${{ matrix.image }}
       image-repo: ${{ matrix.image_repo }}
