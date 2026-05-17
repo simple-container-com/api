@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   security:
-    uses: simple-container-com/actions/.github/workflows/security-scan.yml@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
+    uses: simple-container-com/actions/.github/workflows/security-scan.yml@0af5a697f24ea484991660619d0ae42d50343b9d # main
     permissions:
       contents: read
     with:
