@@ -62,7 +62,7 @@ jobs:
         with:
           go-version: '1.25'
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
+        uses: simple-container-com/actions/setup-sc-tooling@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # actions test branch
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -191,7 +191,7 @@ jobs:
                                   # installer flakes, downstream sign/SBOM/SLSA
                                   # steps soft-skip via their own outcome
                                   # guards; the tarball + .sha256 still publish.
-        uses: simple-container-com/actions/install-attest-tools@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
+        uses: simple-container-com/actions/install-attest-tools@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # actions test branch
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
         continue-on-error: true
@@ -415,7 +415,7 @@ jobs:
     # digest-artifact pipeline lives in the shared reusable workflow.
     # Each matrix entry is one image; consumer-side delta is just the
     # matrix definition + the `uses:` line below.
-    uses: simple-container-com/actions/.github/workflows/sc-image-release.yml@ee4b0e299107bdbe5b2b26cac23142cad8ab38f8 # main
+    uses: simple-container-com/actions/.github/workflows/sc-image-release.yml@4fe426e72483afd0dd37aa737b8b8ece524e9992 # actions test branch
     with:
       image-name: ${{ matrix.image }}
       image-repo: ${{ matrix.image_repo }}
@@ -442,7 +442,7 @@ jobs:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # main
+        uses: simple-container-com/actions/setup-sc-tooling@a374c76a33b5fd5a08687b9937c0e9e15aed55e2 # actions test branch
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -588,7 +588,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
+        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # actions test branch
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -599,7 +599,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # main
+        uses: simple-container-com/actions/notify-telegram@bc4a81b09e04c41c9ff44f1f07d91634ee687f56 # actions test branch
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
