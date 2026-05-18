@@ -1,0 +1,117 @@
+name: Go Fuzz
+
+# Native Go fuzz tests against the HMAC integrity cache parse path
+# (pkg/security/cache.go). Scorecard's Fuzzing check looks for
+# *_fuzz_test.go files using testing.F integrated into CI; this file
+# satisfies that contract.
+#
+# Cadence:
+#   - push / PR: 30 seconds per fuzz target. Fast enough to gate every
+#     commit, slow enough to catch a regression in the parse-and-verify
+#     path that the seed corpus alone would miss.
+#   - Monday 07:17 UTC cron: 10 minutes per target. Off-hours, off the
+#     Monday-morning standup window. Picks up corpus that the short PR
+#     fuzz couldn't reach.
+#
+# Why two targets:
+#   - FuzzVerifyAndExtract: the security-critical seam. Drives arbitrary
+#     bytes through the JSON-unmarshal / hex-decode / HMAC-compare /
+#     key-binding / expiry checks. Guarantees (a) no panic, (b) no
+#     false-positive integrity match.
+#   - FuzzCacheGetPath: defence-in-depth against `../` traversal in the
+#     CacheKey.Operation field. Pins that no input escapes baseDir.
+#
+# If fuzz finds a crash, the failure_corpus/ directory it writes under
+# pkg/security/testdata/fuzz/<TestName>/ is uploaded as an artifact for
+# triage; the workflow fails hard.
+
+on:
+  push:
+    # Run on every branch push so fuzz coverage is contiguous, not just
+    # at PR-open and merge. Concurrency group below cancels superseded
+    # runs on the same ref.
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  schedule:
+    # Monday 07:17 UTC — early-week, off-peak. Catches drift before the
+    # work week's PR volume lands.
+    - cron: '17 7 * * 1'
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same PR when a new commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz HMAC cache parse path
+    runs-on: ubuntu-24.04
+    # 30s + 30s + setup overhead on PRs; 10m + 10m + overhead on cron.
+    # Cap at 30 to absorb the cron path with headroom and keep stuck
+    # runs from blocking the queue.
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+          # No build cache here — fuzz needs a clean, reproducible
+          # corpus build; shared cache could carry over stale coverage
+          # data between branches.
+          cache: false
+
+      # Choose duration by event. Scheduled runs get 10 min per target;
+      # everything else gets 30 s per target. The branch-protection
+      # gate is the short fast path; the cron is the deep exploration.
+      - name: Select fuzz duration
+        id: dur
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "fuzztime=10m" >> "$GITHUB_OUTPUT"
+          else
+            echo "fuzztime=30s" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Run each fuzz target separately — `go test -fuzz` accepts only
+      # one target per invocation. Running them sequentially also keeps
+      # CPU contention predictable for the parallel-worker count Go's
+      # fuzzer picks.
+      - name: Fuzz verifyAndExtract
+        run: |
+          go test \
+            -run='^$' \
+            -fuzz='^FuzzVerifyAndExtract$' \
+            -fuzztime=${{ steps.dur.outputs.fuzztime }} \
+            ./pkg/security/
+
+      - name: Fuzz cache getPath
+        run: |
+          go test \
+            -run='^$' \
+            -fuzz='^FuzzCacheGetPath$' \
+            -fuzztime=${{ steps.dur.outputs.fuzztime }} \
+            ./pkg/security/
+
+      # On failure, the fuzzer writes the minimised crash input to
+      # pkg/security/testdata/fuzz/<TestName>/<id>. Upload it so the
+      # exact bytes are available for local reproduction without
+      # re-fuzzing.
+      - name: Upload crash corpus
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: fuzz-crash-corpus-${{ github.run_id }}
+          path: pkg/security/testdata/fuzz/
+          if-no-files-found: ignore
+          retention-days: 30

@@ -622,7 +622,7 @@ func TestGenerateNamespaceName_SiblingsAreUnique(t *testing.T) {
 	parentEnv := "production"
 
 	siblings := []struct {
-		stackEnv         string
+		stackEnv          string
 		expectedNamespace string
 	}{
 		{"production", "myapp"},

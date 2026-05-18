@@ -223,7 +223,7 @@ func TestEnsureTrivyCacheDir(t *testing.T) {
 	// Per-invocation cache dir lives under <cacheRoot>/trivy/scan-* so
 	// concurrent scans can't clobber each other's lock files.
 	parent := filepath.Join(cacheRoot, "trivy")
-	Expect(cacheDir).To(HavePrefix(parent+string(filepath.Separator)+"scan-"))
+	Expect(cacheDir).To(HavePrefix(parent + string(filepath.Separator) + "scan-"))
 	Expect(cacheDir).To(BeADirectory())
 
 	// Second call returns a different directory (thread-safety property).

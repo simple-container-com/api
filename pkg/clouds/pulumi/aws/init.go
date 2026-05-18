@@ -10,15 +10,15 @@ func init() {
 	api.RegisterProvider(aws.ProviderType, Provider)
 
 	api.RegisterResources(map[string]api.ProvisionFunc{
-		aws.ResourceTypeS3Bucket:      S3Bucket,
-		aws.SecretsProviderTypeAwsKms: KmsKeySecretsProvider,
-		aws.TemplateTypeEcsFargate:    EcsFargate,
-		aws.TemplateTypeAwsLambda:     Lambda,
-		aws.TemplateTypeStaticWebsite: StaticWebsite,
-		aws.ResourceTypeRdsPostgres:   RdsPostgres,
-		aws.ResourceTypeRdsMysql:      RdsMysql,
-		aws.ResourceTypeEcrRepository:              EcrRepository,
-		aws.ResourceTypeCloudTrailSecurityAlerts:   CloudTrailSecurityAlerts,
+		aws.ResourceTypeS3Bucket:                 S3Bucket,
+		aws.SecretsProviderTypeAwsKms:            KmsKeySecretsProvider,
+		aws.TemplateTypeEcsFargate:               EcsFargate,
+		aws.TemplateTypeAwsLambda:                Lambda,
+		aws.TemplateTypeStaticWebsite:            StaticWebsite,
+		aws.ResourceTypeRdsPostgres:              RdsPostgres,
+		aws.ResourceTypeRdsMysql:                 RdsMysql,
+		aws.ResourceTypeEcrRepository:            EcrRepository,
+		aws.ResourceTypeCloudTrailSecurityAlerts: CloudTrailSecurityAlerts,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
 		aws.ResourceTypeS3Bucket:    S3BucketComputeProcessor,

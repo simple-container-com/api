@@ -140,9 +140,13 @@ gh attestation verify "$T" --bundle "$T.sigstore.json" \
   --cert-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-`sc.sh` will run the tarball steps automatically when `cosign` is on
-`PATH` — that integration lands in a follow-up PR. Until it merges,
-the commands above are the manual verification path.
+`sc.sh` runs the tarball steps automatically when `cosign` is on
+`PATH` (`verify_sc_tarball` fetches the `.cosign-bundle` and aborts
+extraction on verification failure). When `cosign` is absent it emits
+a loud warning and proceeds with extraction; users that want
+end-to-end supply-chain integrity should install cosign before
+bootstrapping (https://docs.sigstore.dev/system_config/installation/).
+The commands above remain the manual / out-of-band verification path.
 
 ### Composite-action consumers — SHA-pin the underlying image
 

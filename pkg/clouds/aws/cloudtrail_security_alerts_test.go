@@ -63,7 +63,7 @@ func TestReadCloudTrailSecurityAlertsConfig(t *testing.T) {
 			config: &api.Config{
 				Config: map[string]any{
 					"logGroupName": "my-trail-logs",
-					"alerts":      map[string]any{},
+					"alerts":       map[string]any{},
 				},
 			},
 			wantErr: false,
