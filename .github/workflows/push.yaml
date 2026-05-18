@@ -358,7 +358,11 @@ jobs:
           key: schemas-${{ github.run_id }}
       - name: build docs
         run: |
-          docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
+          # --require-hashes pins every transitive dep to a known SHA from
+          # docs/requirements.txt (generated via `pip-compile --generate-hashes`
+          # against docs/requirements.in). Closes Scorecard Pinned-Dependencies
+          # warning on this line.
+          docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install --require-hashes -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
       - name: upload docs artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:

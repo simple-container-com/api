@@ -11,7 +11,10 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    # Run on every branch push so Scorecard's "% of commits scanned by SAST"
+    # check sees coverage on intermediate / feature commits, not just main.
+    # The concurrency group below cancels superseded runs on the same ref.
+    branches: ['**']
   pull_request:
     branches: [main]
   schedule:
