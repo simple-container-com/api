@@ -20,8 +20,7 @@ import (
 func skipIfCosignNotInstalled(t *testing.T) {
 	t.Helper()
 	installer := tools.NewToolInstaller()
-	installed, err := installer.CheckInstalled("cosign")
-	if err != nil || !installed {
+	if err := installer.CheckInstalled(context.Background(), "cosign"); err != nil {
 		t.Skip("Skipping integration test: cosign not installed. Install from https://docs.sigstore.dev/cosign/installation/")
 	}
 }
@@ -212,16 +211,14 @@ func TestCosignVersionCheck(t *testing.T) {
 	Expect(strings.Contains(stdout, "GitVersion") || strings.Contains(stdout, "v")).To(BeTrue(),
 		"Cosign version output doesn't contain version information")
 
-	// Verify minimum version (v3.0.2+)
+	// Verify minimum version (v3.0.2+). ValidateVersion now returns
+	// only an error: nil = version meets minimum, non-nil = below
+	// minimum or parsing failed.
 	versionChecker := tools.NewVersionChecker()
-	valid, err := versionChecker.ValidateVersion("cosign", stdout)
-	if err != nil {
-		t.Logf("Version validation error (may be acceptable): %v", err)
-	}
-	if valid {
-		t.Logf("Cosign version meets minimum requirements")
+	if err := versionChecker.ValidateVersion("cosign", stdout); err != nil {
+		t.Logf("Warning: Cosign version may be below minimum (v3.0.2+) or parsing failed: %v", err)
 	} else {
-		t.Logf("Warning: Cosign version may be below minimum (v3.0.2+)")
+		t.Logf("Cosign version meets minimum requirements")
 	}
 }
 
