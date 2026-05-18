@@ -234,49 +234,79 @@ func (c *Cache) Get(key CacheKey) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("reading cache file: %w", err)
 	}
 
+	payload, ok, shouldRemove := c.verifyAndExtract(data, key, time.Now())
+	if shouldRemove {
+		_ = os.Remove(path)
+	}
+	return payload, ok, nil
+}
+
+// parseSignedEntry is the pure parse-and-MAC-verify seam shared by Get
+// and Clean. It performs only checks that depend on the bytes themselves
+// + the cache's HMAC key + clock — NOT on the requested key or the path
+// the entry was read from. Callers add those binding checks on top.
+//
+// Steps:
+//
+//  1. JSON unmarshal of signedEntry envelope.
+//  2. hex-decode of the MAC field; zero-length / non-hex MACs are
+//     rejected (this also catches pre-HMAC entries that lack the field).
+//  3. canonical re-marshal of the embedded entry + constant-time HMAC
+//     compare against the cache's key.
+//  4. expiry check against `now`.
+//
+// Returned `shouldRemove` is true whenever the on-disk file fails any
+// check (garbage JSON, tampered MAC, expired). Callers that hold a path
+// remove it; callers operating on in-memory bytes can ignore.
+//
+// Hermetic: no filesystem, no time.Now() side-effect, no Cache state
+// mutation. Safe to call concurrently and from fuzz workers.
+func (c *Cache) parseSignedEntry(data []byte, now time.Time) (entry CacheEntry, ok bool, shouldRemove bool) {
 	var signed signedEntry
 	if err := json.Unmarshal(data, &signed); err != nil {
-		// Unparseable — treat as miss.
-		_ = os.Remove(path)
-		return nil, false, nil
+		return CacheEntry{}, false, true
 	}
 
-	// Reject pre-HMAC entries (no MAC field) and any zero-length MAC.
 	gotMAC, err := hex.DecodeString(signed.MAC)
 	if err != nil || len(gotMAC) == 0 {
-		_ = os.Remove(path)
-		return nil, false, nil
+		return CacheEntry{}, false, true
 	}
 
 	entryJSON, err := json.Marshal(signed.Entry)
 	if err != nil {
-		// Should never happen — we just unmarshaled the same shape.
-		_ = os.Remove(path)
-		return nil, false, nil
+		return CacheEntry{}, false, true
 	}
 
 	if !hmac.Equal(gotMAC, c.computeMAC(entryJSON)) {
-		// Tamper detected (or written by a different key). Discard.
-		_ = os.Remove(path)
-		return nil, false, nil
+		return CacheEntry{}, false, true
+	}
+
+	if now.After(signed.Entry.ExpiresAt) {
+		return CacheEntry{}, false, true
+	}
+
+	return signed.Entry, true, false
+}
+
+// verifyAndExtract is the Get-path wrapper around parseSignedEntry. It
+// adds the requested-key binding check: a validly-signed entry for keyA
+// copied to keyB's path must not be returned from Get(keyB).
+func (c *Cache) verifyAndExtract(data []byte, requestedKey CacheKey, now time.Time) (payload []byte, ok bool, shouldRemove bool) {
+	entry, parsedOK, parsedShouldRemove := c.parseSignedEntry(data, now)
+	if !parsedOK {
+		return nil, false, parsedShouldRemove
 	}
 
 	// MAC covers the entry content but not the location on disk. A
 	// valid signed file copied from path A to path B would still verify
-	// here, and `Get(keyB)` would return keyA's payload — bypassing the
-	// integrity story for SBOM/scan data. Bind the lookup to the embedded
-	// CacheKey and discard mismatches.
-	if signed.Entry.Key != key {
-		_ = os.Remove(path)
-		return nil, false, nil
+	// in parseSignedEntry, and Get(keyB) would return keyA's payload —
+	// bypassing the integrity story for SBOM/scan data. Bind the lookup
+	// to the embedded CacheKey and discard mismatches.
+	if entry.Key != requestedKey {
+		return nil, false, true
 	}
 
-	if time.Now().After(signed.Entry.ExpiresAt) {
-		_ = os.Remove(path)
-		return nil, false, nil
-	}
-
-	return signed.Entry.Data, true, nil
+	return entry.Data, true, false
 }
 
 // Set stores a result in the cache with the appropriate TTL.
@@ -396,32 +426,23 @@ func (c *Cache) Clean() error {
 			return nil
 		}
 
-		var signed signedEntry
-		if err := json.Unmarshal(data, &signed); err != nil {
-			_ = os.Remove(path)
-			return nil
-		}
-
-		gotMAC, err := hex.DecodeString(signed.MAC)
-		if err != nil || len(gotMAC) == 0 {
-			_ = os.Remove(path)
-			return nil
-		}
-
-		entryJSON, err := json.Marshal(signed.Entry)
-		if err != nil || !hmac.Equal(gotMAC, c.computeMAC(entryJSON)) {
-			_ = os.Remove(path)
+		// Share the parse/MAC-verify/expiry logic with Get's path via
+		// parseSignedEntry — keeps the integrity model in one place so
+		// Get and Clean can never drift on (e.g.) an HMAC algorithm
+		// rotation. Clean adds its own path-binding check (the entry
+		// must sit at the filesystem location its embedded key maps
+		// to) which is different from Get's request-key binding.
+		entry, ok, shouldRemove := c.parseSignedEntry(data, time.Now())
+		if !ok {
+			if shouldRemove {
+				_ = os.Remove(path)
+			}
 			return nil
 		}
 
 		// Mirror the path-to-key binding from Get: a validly-signed
 		// entry parked at the wrong filesystem location is also garbage.
-		if c.getPath(signed.Entry.Key) != path {
-			_ = os.Remove(path)
-			return nil
-		}
-
-		if time.Now().After(signed.Entry.ExpiresAt) {
+		if c.getPath(entry.Key) != path {
 			_ = os.Remove(path)
 		}
 		return nil
