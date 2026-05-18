@@ -28,8 +28,9 @@ preference:
 
 1. **[GitHub Security Advisory][gsa]** — preferred. Private to maintainers,
    integrates with CVE issuance and the GitHub-side fix workflow.
-2. **Email** `security@simple-container.com` if you can't use GitHub
-   Security Advisories.
+2. **Email** `security@simple-container.com` (group alias) **or**
+   `creed@simple-container.com` (direct to maintainer) if you can't use
+   GitHub Security Advisories.
 
 Please include:
 
@@ -42,6 +43,26 @@ We aim to acknowledge within **3 working days** and to ship a fix or
 mitigation within **30 days** for HIGH/CRITICAL findings, **90 days**
 for MEDIUM, longer for LOW. We'll keep you updated and credit you in
 the advisory unless you ask to remain anonymous.
+
+## Public disclosure cadence
+
+Once a fix has shipped in a tagged release on `main`, the
+corresponding GitHub Security Advisory is **published** (made
+publicly readable + registered in GitHub's public advisory database +
+CVE assigned where appropriate). Default coordinated-disclosure
+window: **90 days** from acknowledgement. Earlier publication when:
+
+- The CVE is already public elsewhere (e.g., an upstream-dep CVE that
+  GitHub Advisory Database picks up before our fix lands).
+- The reporter requests public disclosure earlier.
+- Active exploitation in the wild is observed.
+
+We do not maintain a separate "embargo" mechanism beyond the GHSA flow
+— if you need a longer private window, say so when filing the
+advisory and we'll coordinate.
+
+Past advisories (once any are published) appear at:
+https://github.com/simple-container-com/api/security/advisories
 
 ## Out of scope
 

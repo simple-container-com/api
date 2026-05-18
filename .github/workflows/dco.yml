@@ -1,0 +1,83 @@
+name: DCO
+
+# Enforce the Developer Certificate of Origin (DCO) on every commit
+# in a PR. The DCO is a contributor's legal assertion that they wrote
+# the code (or have rights to submit it). It's the standard mechanism
+# the Linux Foundation + most OSS projects use, and is required by
+# OpenSSF Baseline OSPS-LE-01.01 ("the version control system MUST
+# require all code contributors to assert that they are legally
+# authorized to make the associated contributions on every commit").
+#
+# `git commit -s` adds the trailer:
+#
+#   Signed-off-by: Dmitrii Creed <creeed22@gmail.com>
+#
+# This workflow fails the PR if any commit between the base branch and
+# the PR HEAD lacks that trailer. CONTRIBUTING.md tells contributors to
+# use `-S -s -m ...` (SSH-signed + DCO sign-off).
+#
+# Why not use a third-party action: a maintained bash one-liner against
+# `git log --format='%(trailers:key=Signed-off-by)'` is sufficient and
+# avoids supply-chain risk on the very workflow that enforces
+# supply-chain hygiene. Per project policy in CONTRIBUTING.md: no
+# third-party actions when a stdlib alternative suffices.
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: Developer Certificate of Origin
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR commits
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Pull enough history to walk back to the merge base. PRs
+          # against main may sit on top of dozens of base-branch commits.
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check every commit has Signed-off-by trailer
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # List commits introduced by this PR (BASE..HEAD).
+          commits=$(git log --format='%H' "${BASE_SHA}..${HEAD_SHA}")
+          if [ -z "$commits" ]; then
+            echo "No new commits in this PR — nothing to check."
+            exit 0
+          fi
+          missing=0
+          while read -r sha; do
+            # `%(trailers:key=Signed-off-by)` prints just the
+            # Signed-off-by trailer lines (empty if absent).
+            trailer=$(git log -1 --format='%(trailers:key=Signed-off-by)' "$sha")
+            if [ -z "$trailer" ]; then
+              subject=$(git log -1 --format='%s' "$sha")
+              echo "::error::Commit ${sha} (\"${subject}\") is missing Signed-off-by trailer (DCO)."
+              echo "        Fix: git commit --amend -s   (or rebase + sign-off each commit)"
+              missing=$((missing + 1))
+            fi
+          done <<< "$commits"
+          if [ "$missing" -gt 0 ]; then
+            echo ""
+            echo "::error title=DCO check failed::${missing} commit(s) without Signed-off-by trailer."
+            echo "See docs/CONTRIBUTING.md for how to add the trailer."
+            exit 1
+          fi
+          echo "All commits carry a Signed-off-by trailer. ✓"
