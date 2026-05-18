@@ -7,19 +7,40 @@ all reports as high priority.
 
 ## Supported versions
 
-Security fixes are issued for the **most recent calver release** (the
-tag pushed by [`.github/workflows/push.yaml`][push] on every merge to
-`main`) and back-ported to the latest `vYYYY.M.x` line only when the
-fix is non-trivial. Older versions receive no patches; consumers should
-pin to a recent release tag (or a SHA) and update via Dependabot /
-[`integrail/devops/.github/actions/install-sc`][install-sc] (or
-equivalent) on at least a monthly cadence.
+### Support scope (OSPS-DO-04.01)
 
-| Version | Supported |
+`sc` ships **production calver releases on every merge to `main`** via
+[`.github/workflows/push.yaml`][push]. Each release is supported for
+security fixes **until the next calver release ships**. There is no
+LTS branch model; the supported version moves continuously.
+
+| Version | Supported for security fixes |
 |---|---|
-| `vYYYY.M.x` latest | ✅ |
-| Previous calver release on the same month line | ✅ (best-effort back-port) |
-| Anything older | ❌ |
+| Latest `vYYYY.M.x` published at <https://github.com/simple-container-com/api/releases> | ✅ Active support |
+| Previous `vYYYY.M.x` on the same month line | ✅ Best-effort back-port for HIGH/CRIT only; SLA per [`DEPENDENCIES.md`](DEPENDENCIES.md) "Remediation thresholds" |
+| Older releases | ❌ No patches; see EOL policy below |
+
+### End-of-life policy (OSPS-DO-05.01)
+
+A release becomes **EOL the moment a newer `vYYYY.M.x` ships**. The
+practical implication is:
+
+- Older releases receive **no security updates** going forward —
+  including HIGH/CRITICAL fixes.
+- The only supported upgrade path is to the latest calver release.
+- Consumers MUST pin to a specific release tag (or a SHA) and update
+  at least monthly via Dependabot or the equivalent in
+  [`integrail/devops/.github/actions/install-sc`][install-sc].
+- This policy is intentional: SC has fewer than five active
+  maintainers, and an LTS branch model would dilute attention on the
+  active head. Continuous-release calver with reproducible verified
+  artifacts (Phase 2 cosign + SLSA L3) is the supported posture.
+
+If a consumer has a regulatory or contractual constraint that
+prevents a monthly update cadence, contact the maintainers via the
+channels in this document before pinning to an older release; we may
+be able to coordinate a privately-supported branch on a case-by-case
+basis (not covered by this public policy).
 
 ## Reporting a vulnerability
 
