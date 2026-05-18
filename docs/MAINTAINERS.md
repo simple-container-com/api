@@ -92,7 +92,69 @@ per-maintainer ACL membership is tracked in the SC team's internal
 credential inventory (not published here to avoid leaking attack
 surface, but maintained per `SECURITY.md`'s threat model).
 
-## Adding or removing a maintainer
+## Promoting a contributor / Granting escalated permissions
+
+This section satisfies OpenSSF Baseline **OSPS-GV-04.01** —
+"the project documentation MUST have a policy that code collaborators
+are reviewed prior to granting escalated permissions to sensitive
+resources."
+
+A contributor is considered for maintainer-role promotion only after
+the following review-and-vetting gates are passed. Each gate is
+recorded in the promotion PR description.
+
+### Track-record gate
+
+- **Minimum**: 5+ merged PRs over ≥3 months, spanning multiple files
+  / packages.
+- Demonstrated review-and-iterate behaviour (responsive to reviewer
+  feedback, clean commit history, signed commits with DCO sign-off).
+- No suppression-policy violations in merged PRs (`.trivyignore`,
+  `# nosemgrep`, `// nolint:` etc. used outside the sanctioned VEX
+  channel documented in [DEPENDENCIES.md](DEPENDENCIES.md)).
+
+### Sponsorship gate
+
+- An existing maintainer must **explicitly nominate** the contributor
+  in a PR amending this file, with rationale.
+- A second maintainer (or, if only one maintainer exists, the project
+  lead) seconds the nomination.
+- The contributor accepts in the PR thread.
+
+### Account-hardening gate (must pass BEFORE any resource ACL changes)
+
+The promoting maintainer verifies and records (in the promotion PR
+description) that the candidate's accounts meet:
+
+- ✅ **2FA enabled** on GitHub (TOTP or hardware key — NOT SMS).
+- ✅ **2FA enabled** on Docker Hub if they will receive `simplecontainer`
+  org access.
+- ✅ **2FA enabled** on Cloudflare if they will receive zone admin.
+- ✅ **SSH/GPG commit-signing key** is registered in GitHub and matches
+  the GitHub account identity (no impersonation surface). Signed
+  commits will be required on every PR they merge.
+
+### Least-privilege grant
+
+- Even after promotion, the new maintainer receives **only the
+  credentials needed for their work**. Per the SECURITY.md threat
+  model, not every maintainer holds every key.
+- Specifically: Docker Hub publish access is granted only if the
+  maintainer regularly handles releases; Cloudflare admin only if
+  they own DNS/WAF; AWS Secrets Manager only if they own the
+  infrastructure that consumes those secrets.
+- Specific per-credential ACL membership is recorded in the SC team's
+  internal credential inventory (not in this public file) per
+  [SECRETS-POLICY.md](SECRETS-POLICY.md).
+
+### Probationary period
+
+- For the first 30 days after promotion, the new maintainer's merges
+  are **co-reviewed** by an existing maintainer — they may approve,
+  but another maintainer must also approve before merge. After 30
+  days with no concerns, full merge authority becomes effective.
+
+## Adding or removing a maintainer (mechanics)
 
 Changes to this list happen via a PR amending this file + a
 corresponding update to:
@@ -106,11 +168,12 @@ Maintainer offboarding additionally:
 
 - Rotates any shared CI tokens / API keys the departing maintainer
   could access (Docker Hub publish token, Cloudflare API tokens,
-  GitHub PAT-equivalents)
+  GitHub PAT-equivalents) — per [SECRETS-POLICY.md](SECRETS-POLICY.md)
+  rotation schedule, accelerated to "immediate" on offboarding.
 - Revokes Sigstore / cosign signing identities if the maintainer's
-  GitHub workflow identity was wired into any signing path
+  GitHub workflow identity was wired into any signing path.
 - Audits org-level 2FA enforcement (per
-  [HARDENING.md](../HARDENING.md) Phase 8 admin-UI list)
+  [HARDENING.md](../HARDENING.md) Phase 8 admin-UI list).
 
 ## Security contact
 
