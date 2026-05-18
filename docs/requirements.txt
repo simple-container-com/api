@@ -304,9 +304,9 @@ mkdocs-material-extensions==1.3.1 \
     # via
     #   -r requirements.in
     #   mkdocs-material
-mkdocs-mermaid2-plugin==1.1.1 \
-    --hash=sha256:4e25876b59d1e151ca33a467207b346404b4a246f4f24af5e44c32408e175882 \
-    --hash=sha256:bea5f3cbe6cb76bad21b81e49a01e074427ed466666c5d404e62fe8698bc2d7c
+mkdocs-mermaid2-plugin==1.2.3 \
+    --hash=sha256:33f60c582be623ed53829a96e19284fc7f1b74a1dbae78d4d2e47fe00c3e190d \
+    --hash=sha256:fb6f901d53e5191e93db78f93f219cad926ccc4d51e176271ca5161b6cc5368c
     # via -r requirements.in
 packaging==26.2 \
     --hash=sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e \
