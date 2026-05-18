@@ -1,5 +1,13 @@
 # **Simple Container**
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/simple-container-com/api/badge)](https://scorecard.dev/viewer/?uri=github.com/simple-container-com/api)
+[![CodeQL](https://github.com/simple-container-com/api/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/codeql.yml)
+[![Semgrep](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml)
+[![SLSA Build L3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev/spec/v1.0/levels#build-l3)
+[![Sigstore signed](https://img.shields.io/badge/sigstore-signed-blue?logo=sigstore)](docs/SECURITY.md)
+[![Go Report Card](https://goreportcard.com/badge/github.com/simple-container-com/api)](https://goreportcard.com/report/github.com/simple-container-com/api)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 **Simple Container (`sc`)** is a **cloud-agnostic deployment tool** designed to simplify **microservices deployment, 
 infrastructure provisioning, and CI/CD automation**. 
 

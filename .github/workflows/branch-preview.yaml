@@ -64,10 +64,8 @@ jobs:
         uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
         with:
           go-version: '1.25'
-      - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
-      - name: install welder tool
-        uses: simple-container-com/actions/install-welder@main
+      - name: install sc + welder tools
+        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -185,7 +183,7 @@ jobs:
       - name: Install attestation tools
         id: install_attest_tools
         continue-on-error: true
-        uses: ./.github/actions/install-attest-tools
+        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
         continue-on-error: true
@@ -325,7 +323,7 @@ jobs:
       - name: fix binary permissions
         run: chmod +x dist/${{ matrix.binary }}
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
+        uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -358,56 +356,17 @@ jobs:
       # security guarantees as production releases so consumers pin-testing a
       # preview version (per project_sc_preview memory: PAY-SPACE pins workflows
       # to versioned preview builds) can verify the same way they verify prod.
-      - name: Install attestation tools
-        id: install_attest_tools
+      - name: Sign + attest ${{ matrix.target }} (SBOM + cosign + SLSA)
+        id: signattest
         if: steps.build_and_push.outcome == 'success'
-        continue-on-error: true
-        uses: ./.github/actions/install-attest-tools
-      - name: Generate CycloneDX SBOM for ${{ matrix.target }}
-        id: sbom
-        if: steps.build_and_push.outcome == 'success'
-        continue-on-error: true
-        env:
-          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
-        run: |
-          set -euo pipefail
-          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-${{ matrix.target }}.cdx.json"
-      - name: Cosign sign ${{ matrix.target }} (keyless)
-        id: cosign_sign
-        if: steps.build_and_push.outcome == 'success'
-        continue-on-error: true
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
-        run: |
-          cosign sign --yes "${IMAGE_REF}"
-      - name: Cosign attest SBOM for ${{ matrix.target }}
-        id: cosign_attest_sbom
-        if: steps.sbom.outcome == 'success' && steps.cosign_sign.outcome == 'success'
-        continue-on-error: true
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-          IMAGE_REF: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
-        run: |
-          cosign attest --yes \
-            --predicate "sbom-${{ matrix.target }}.cdx.json" \
-            --type cyclonedx \
-            "${IMAGE_REF}"
-      - name: SLSA build provenance for ${{ matrix.target }}
-        id: slsa_provenance
-        if: steps.build_and_push.outcome == 'success'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        uses: simple-container-com/actions/sign-and-attest@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
+          image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
+          image-name: ${{ matrix.target }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
-          # the attestation to the OCI registry under the same .att tag that cosign
-          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
-          # Provenance is published to the GitHub attestation API instead (queryable
-          # via `gh attestation verify`); SBOM attestation stays in the registry for
-          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
-          # preview run 25910386532 — cosign verify-attestation now resolves both.
+          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
+          soft-fail: 'true'
       - name: Record image digest for verify-attestations
         if: steps.build_and_push.outcome == 'success'
         env:
@@ -427,10 +386,10 @@ jobs:
       - name: Soft-fail aggregator for ${{ matrix.target }} attestation
         if: always() && steps.build_and_push.outcome == 'success'
         env:
-          SIGN_OUTCOME: ${{ steps.cosign_sign.outcome }}
-          SBOM_OUTCOME: ${{ steps.sbom.outcome }}
-          ATTEST_SBOM_OUTCOME: ${{ steps.cosign_attest_sbom.outcome }}
-          SLSA_OUTCOME: ${{ steps.slsa_provenance.outcome }}
+          SIGN_OUTCOME: ${{ steps.signattest.outputs.sign-outcome }}
+          SBOM_OUTCOME: ${{ steps.signattest.outputs.sbom-outcome }}
+          ATTEST_SBOM_OUTCOME: ${{ steps.signattest.outputs.attest-outcome }}
+          SLSA_OUTCOME: ${{ steps.signattest.outputs.slsa-outcome }}
         run: |
           fail=0
           for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
@@ -467,7 +426,7 @@ jobs:
       - name: fix bin tools permissions
         run: chmod +x bin/*
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
+        uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -627,7 +586,7 @@ jobs:
           ### Install this SC version in your CI
 
           \`\`\`yaml
-          - uses: simple-container-com/actions/install-sc@main
+          - uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
             with:
               version: ${VERSION}
           \`\`\`
@@ -638,7 +597,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -649,7 +608,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}

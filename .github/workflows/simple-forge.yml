@@ -37,6 +37,12 @@ on:
         required: false
         type: string
 
+# Least-privilege default for GITHUB_TOKEN; this workflow uses a PAT for the
+# checkout (line ~49) and doesn't write back via GITHUB_TOKEN. Per-job
+# overrides extend below if a step ever needs more.
+permissions:
+  contents: read
+
 jobs:
   generate-code:
     runs-on: blacksmith-8vcpu-ubuntu-2204
@@ -56,10 +62,10 @@ jobs:
           go-version: '1.25'
 
       - name: Install welder
-        uses: simple-container-com/actions/install-welder@main
+        uses: simple-container-com/actions/install-welder@0af5a697f24ea484991660619d0ae42d50343b9d # main
 
       - name: Run Simple Forge
-        uses: simple-container-com/forge-action/.github/actions/dockerless@v1
+        uses: simple-container-com/forge-action/.github/actions/dockerless@b85c96d5f597a28e9dc7528b818c5c79e6575ad5 # v1
         with:
           job_id: ${{ inputs.job_id }}
           issue_id: ${{ inputs.issue_id }}

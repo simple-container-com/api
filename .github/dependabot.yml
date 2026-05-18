@@ -14,6 +14,18 @@ updates:
       prefix: deps
       include: scope
     groups:
+      # Batch ALL bumps from our own shared-actions repo into ONE PR per
+      # actions-repo release. Dependabot resolves `patterns:` before
+      # `update-types:`, so simple-container-com/actions/* bumps land
+      # here regardless of major/minor/patch; everything else falls
+      # through to `actions-minor-and-patch` below. This is the
+      # ergonomic fix for the 21+ `uses:` refs to this single upstream:
+      # one bot PR per release, not one per ref.
+      simple-container-com-actions:
+        applies-to: version-updates
+        patterns:
+          - "simple-container-com/actions"
+          - "simple-container-com/actions/*"
       actions-minor-and-patch:
         applies-to: version-updates
         update-types:

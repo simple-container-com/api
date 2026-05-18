@@ -6,6 +6,12 @@ on:
       - staging
   workflow_dispatch:
 
+# Least-privilege default for GITHUB_TOKEN; per-job `permissions:` block
+# below extends with `id-token: write` + `attestations: write` for
+# cosign keyless signing and attest-build-provenance.
+permissions:
+  contents: read
+
 jobs:
   build-staging:
     name: Build Staging Image
@@ -64,10 +70,8 @@ jobs:
           restore-keys: |
             cli-tools-${{ runner.os }}-
 
-      - name: install sc tool
-        uses: simple-container-com/actions/install-sc@main
-      - name: install welder tool
-        uses: simple-container-com/actions/install-welder@main
+      - name: install sc + welder tools
+        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
 
       - name: Prepare secrets for build
         run: |
@@ -139,104 +143,56 @@ jobs:
         id: install_attest_tools
         if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
         continue-on-error: true   # Best-effort during Phase 2 bake-in (matches push.yaml).
-        uses: ./.github/actions/install-attest-tools
+        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
 
-      - name: Generate CycloneDX SBOM for github-actions staging
-        id: sbom_gha_staging
+      - name: Sign + attest github-actions staging (SBOM + cosign + SLSA)
+        id: signattest_gha_staging
         if: steps.build_gha_staging.outcome == 'success'
-        continue-on-error: true
-        env:
-          IMAGE_REF: simplecontainer/github-actions@${{ steps.build_gha_staging.outputs.digest }}
-        run: |
-          set -euo pipefail
-          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-github-actions-staging.cdx.json"
-
-      - name: Generate CycloneDX SBOM for caddy staging
-        id: sbom_caddy_staging
-        if: steps.build_caddy_staging.outcome == 'success'
-        continue-on-error: true
-        env:
-          IMAGE_REF: simplecontainer/caddy@${{ steps.build_caddy_staging.outputs.digest }}
-        run: |
-          set -euo pipefail
-          syft scan "registry:${IMAGE_REF}" -o "cyclonedx-json=sbom-caddy-staging.cdx.json"
-
-      - name: Cosign sign + attest staging images (keyless)
-        id: cosign_staging
-        if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
-        continue-on-error: true
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-          GHA_REF: simplecontainer/github-actions@${{ steps.build_gha_staging.outputs.digest }}
-          CADDY_REF: simplecontainer/caddy@${{ steps.build_caddy_staging.outputs.digest }}
-          GHA_OUTCOME: ${{ steps.build_gha_staging.outcome }}
-          CADDY_OUTCOME: ${{ steps.build_caddy_staging.outcome }}
-          GHA_SBOM_OUTCOME: ${{ steps.sbom_gha_staging.outcome }}
-          CADDY_SBOM_OUTCOME: ${{ steps.sbom_caddy_staging.outcome }}
-        run: |
-          set -uo pipefail
-          rc=0
-          if [ "$GHA_OUTCOME" = "success" ]; then
-            cosign sign --yes "$GHA_REF" || rc=1
-            if [ "$GHA_SBOM_OUTCOME" = "success" ]; then
-              cosign attest --yes --predicate sbom-github-actions-staging.cdx.json --type cyclonedx "$GHA_REF" || rc=1
-            fi
-          fi
-          if [ "$CADDY_OUTCOME" = "success" ]; then
-            cosign sign --yes "$CADDY_REF" || rc=1
-            if [ "$CADDY_SBOM_OUTCOME" = "success" ]; then
-              cosign attest --yes --predicate sbom-caddy-staging.cdx.json --type cyclonedx "$CADDY_REF" || rc=1
-            fi
-          fi
-          exit "$rc"
-
-      - name: SLSA build provenance for github-actions staging
-        id: slsa_gha_staging
-        if: steps.build_gha_staging.outcome == 'success'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        uses: simple-container-com/actions/sign-and-attest@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
+          image-ref: simplecontainer/github-actions@${{ steps.build_gha_staging.outputs.digest }}
+          image-name: github-actions-staging
           subject-name: index.docker.io/simplecontainer/github-actions
           subject-digest: ${{ steps.build_gha_staging.outputs.digest }}
-          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
-          # the attestation to the OCI registry under the same .att tag that cosign
-          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
-          # Provenance is published to the GitHub attestation API instead (queryable
-          # via `gh attestation verify`); SBOM attestation stays in the registry for
-          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
-          # preview run 25910386532 — cosign verify-attestation now resolves both.
+          # cosign + syft already installed by the step above; skip re-install.
+          install-tools: 'false'
+          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
+          soft-fail: 'true'
 
-      - name: SLSA build provenance for caddy staging
-        id: slsa_caddy_staging
+      - name: Sign + attest caddy staging (SBOM + cosign + SLSA)
+        id: signattest_caddy_staging
         if: steps.build_caddy_staging.outcome == 'success'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        uses: simple-container-com/actions/sign-and-attest@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
+          image-ref: simplecontainer/caddy@${{ steps.build_caddy_staging.outputs.digest }}
+          image-name: caddy-staging
           subject-name: index.docker.io/simplecontainer/caddy
           subject-digest: ${{ steps.build_caddy_staging.outputs.digest }}
-          # push-to-registry: false (default). attest-build-provenance@v4 also pushes
-          # the attestation to the OCI registry under the same .att tag that cosign
-          # attest --type cyclonedx writes, silently overwriting the SBOM attestation.
-          # Provenance is published to the GitHub attestation API instead (queryable
-          # via `gh attestation verify`); SBOM attestation stays in the registry for
-          # `cosign verify-attestation --type cyclonedx`. Validated 2026-05-15 against
-          # preview run 25910386532 — cosign verify-attestation now resolves both.
+          install-tools: 'false'
+          soft-fail: 'true'
 
       - name: Soft-fail aggregator for staging attestation
         if: always()
         env:
-          GHA_SBOM_OUTCOME: ${{ steps.sbom_gha_staging.outcome }}
-          CADDY_SBOM_OUTCOME: ${{ steps.sbom_caddy_staging.outcome }}
-          COSIGN_OUTCOME: ${{ steps.cosign_staging.outcome }}
-          GHA_SLSA_OUTCOME: ${{ steps.slsa_gha_staging.outcome }}
-          CADDY_SLSA_OUTCOME: ${{ steps.slsa_caddy_staging.outcome }}
+          GHA_SBOM_OUTCOME: ${{ steps.signattest_gha_staging.outputs.sbom-outcome }}
+          GHA_SIGN_OUTCOME: ${{ steps.signattest_gha_staging.outputs.sign-outcome }}
+          GHA_ATTEST_OUTCOME: ${{ steps.signattest_gha_staging.outputs.attest-outcome }}
+          GHA_SLSA_OUTCOME: ${{ steps.signattest_gha_staging.outputs.slsa-outcome }}
+          CADDY_SBOM_OUTCOME: ${{ steps.signattest_caddy_staging.outputs.sbom-outcome }}
+          CADDY_SIGN_OUTCOME: ${{ steps.signattest_caddy_staging.outputs.sign-outcome }}
+          CADDY_ATTEST_OUTCOME: ${{ steps.signattest_caddy_staging.outputs.attest-outcome }}
+          CADDY_SLSA_OUTCOME: ${{ steps.signattest_caddy_staging.outputs.slsa-outcome }}
         run: |
           fail=0
-          for v in "$GHA_SBOM_OUTCOME" "$CADDY_SBOM_OUTCOME" "$COSIGN_OUTCOME" "$GHA_SLSA_OUTCOME" "$CADDY_SLSA_OUTCOME"; do
+          for v in "$GHA_SBOM_OUTCOME" "$GHA_SIGN_OUTCOME" "$GHA_ATTEST_OUTCOME" "$GHA_SLSA_OUTCOME" \
+                   "$CADDY_SBOM_OUTCOME" "$CADDY_SIGN_OUTCOME" "$CADDY_ATTEST_OUTCOME" "$CADDY_SLSA_OUTCOME"; do
+            # Empty outcome means the parent step was skipped (its build_*_staging
+            # parent was != success); treat as not-a-failure for the gate.
+            [ -z "$v" ] && continue
             if [ "$v" != "success" ] && [ "$v" != "skipped" ]; then fail=1; fi
           done
           if [ "$fail" -eq 1 ]; then
-            echo "::warning title=Staging attestation incomplete::sbom-gha=$GHA_SBOM_OUTCOME sbom-caddy=$CADDY_SBOM_OUTCOME cosign=$COSIGN_OUTCOME slsa-gha=$GHA_SLSA_OUTCOME slsa-caddy=$CADDY_SLSA_OUTCOME"
+            echo "::warning title=Staging attestation incomplete::gha=(sbom=$GHA_SBOM_OUTCOME sign=$GHA_SIGN_OUTCOME attest=$GHA_ATTEST_OUTCOME slsa=$GHA_SLSA_OUTCOME) caddy=(sbom=$CADDY_SBOM_OUTCOME sign=$CADDY_SIGN_OUTCOME attest=$CADDY_ATTEST_OUTCOME slsa=$CADDY_SLSA_OUTCOME)"
           else
             echo "Staging attestation complete."
           fi
@@ -292,7 +248,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
           chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
@@ -304,7 +260,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@main
+        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
           chat-id:   ${{ needs.build-staging.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-staging.outputs.cicd-bot-telegram-token }}
