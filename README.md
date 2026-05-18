@@ -70,7 +70,13 @@ Check out the [full documentation](https://docs.simple-container.com) for detail
 
 ## **Contributing**
 
-We welcome contributions! Please see our [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to get involved.
+We welcome contributions! Please see our [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to get involved, and our [CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) for the community standards every participant is expected to uphold.
+
+---
+
+## **Roadmap**
+
+See [ROADMAP.md](docs/ROADMAP.md) for current themes, release cadence, and where planned work surfaces in the [Issues](https://github.com/simple-container-com/api/issues) tracker.
 
 ---
 
