@@ -28,8 +28,9 @@ preference:
 
 1. **[GitHub Security Advisory][gsa]** — preferred. Private to maintainers,
    integrates with CVE issuance and the GitHub-side fix workflow.
-2. **Email** `security@simple-container.com` if you can't use GitHub
-   Security Advisories.
+2. **Email** `security@simple-container.com` (group alias) **or**
+   `creed@simple-container.com` (direct to maintainer) if you can't use
+   GitHub Security Advisories.
 
 Please include:
 
