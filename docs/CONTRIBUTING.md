@@ -118,9 +118,10 @@ If your change touches:
 - Anything in the SLSA / cosign / sigstore chain
 
 … open the PR with a **threat-model note**: which entry in
-[HARDENING.md](../HARDENING.md) does this change address or affect?
-Maintainers will pull in additional reviewers (codex + gemini round +
-human security review) for changes here.
+[`SECURITY.md`](SECURITY.md)'s STRIDE table + attack vectors V1–V5
+does this change address or affect, and what's the reachability /
+blast-radius story? Maintainers will pull in additional reviewers
+(codex + gemini round + human security review) for changes here.
 
 **Never disable verification** as a fix for a verification bug. If
 sc.sh's cosign-verify path rejects a release, the bug is in the

@@ -27,7 +27,7 @@ selects, obtains, and tracks its dependencies."
 | **Go** | `go.mod` + `go.sum` | `go.sum` hashes every direct + transitive dep | `govulncheck` (reachability-aware), `osv-scanner` (via Scorecard), `trivy fs` |
 | **Python (docs)** | `docs/requirements.in` (sources) + `docs/requirements.txt` (compiled with `--generate-hashes`) | `pip install --require-hashes` in `push.yaml` docs-build step | `pip-audit`, Scorecard pinned-deps check |
 | **npm (docs examples)** | example `package*.json` files | Lockfile-aware install (`npm ci` when lockfile present, falls back to `npm install`) | Scorecard pinned-deps check |
-| **Docker base images** | `Dockerfile`s + `.Dockerfile`s at repo root + example dirs | SHA digest pin: `python@sha256:401f...`, `node:22-alpine@sha256:757e...` | `trivy image` per published image (see HARDENING.md Phase 1) |
+| **Docker base images** | `Dockerfile`s + `.Dockerfile`s at repo root + example dirs | SHA digest pin: `python@sha256:401f...`, `node:22-alpine@sha256:757e...` | `trivy image` per published image |
 | **GitHub Actions** | `.github/workflows/*` + `.github/actions/*` | Commit SHA pin with `# vX.Y.Z` comment for human-readability | Scorecard pinned-deps check; Semgrep custom rules |
 | **End-user installer tools** | `sc.sh` (Pulumi installer) | Tarball + SHA256 checksum verification before extract | n/a (sc.sh is shipped, not built against) |
 
@@ -91,8 +91,10 @@ The PR pipeline runs:
 - Scorecard runs daily; the badge surfaces the current score
 
 A subset of findings is intentionally accepted as documented false
-positives — those live in PR descriptions and in
-[HARDENING.md](../HARDENING.md), never in a suppression file.
+positives — those live in PR descriptions and as OpenVEX
+`not_affected` statements in [`vex/openvex.json`](../vex/openvex.json),
+never in a scanner-suppression file (no `.trivyignore`, no
+`# nosemgrep`, no `// nolint:` for vuln findings).
 
 ## Out-of-tree dependency surface
 
@@ -140,7 +142,7 @@ output as evidence (per OSPS-VM-04.02).
 
 License compliance is checked at PR review time. License-incompatible
 deps are blocked at merge by maintainer review (no automated license
-scanner yet — tracked in HARDENING.md).
+scanner yet — tracked internally).
 
 ## Pre-release SCA gate
 

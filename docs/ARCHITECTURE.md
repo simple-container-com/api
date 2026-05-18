@@ -97,7 +97,8 @@ For deeper component-level designs, see:
 ## Related security documentation
 
 - [SECURITY.md](SECURITY.md) — threat model (STRIDE) + attack vectors V1–V5 + responsible-disclosure channels
-- [`../HARDENING.md`](../HARDENING.md) — phase-by-phase hardening tracker (Phase 1 image hardening → Phase 8 OpenSSF visibility)
-- [`../SECURITY-CONTROLS.md`](../SECURITY-CONTROLS.md) — control matrix mapping STRIDE categories to specific controls
 - [DEPENDENCIES.md](DEPENDENCIES.md) — dependency selection / obtaining / tracking
+- [SECRETS-POLICY.md](SECRETS-POLICY.md) — secret categorisation, storage, rotation cadence
 - [MAINTAINERS.md](MAINTAINERS.md) — project members with access to sensitive resources
+- [RELEASES.md](RELEASES.md) — release pipeline, signing chain, vuln-disclosure flow
+- [ROADMAP.md](ROADMAP.md) — public roadmap state (Issues labels, themes, release cadence)

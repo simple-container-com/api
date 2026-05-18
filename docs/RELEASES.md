@@ -14,7 +14,6 @@ It satisfies the OpenSSF Best Practices `release_notes`,
 | **Per-release human-readable notes** | <https://github.com/simple-container-com/api/releases> |
 | **Public vulnerability advisories** | <https://github.com/simple-container-com/api/security/advisories> |
 | **Public issue / PR archive (reports + responses)** | <https://github.com/simple-container-com/api/issues> + <https://github.com/simple-container-com/api/pulls?q=is%3Apr+is%3Aclosed> |
-| **Internal phase-by-phase hardening tracker** | [`HARDENING.md`](../HARDENING.md) (repo-side) |
 
 ## How release notes are produced
 
@@ -135,5 +134,5 @@ searchable without additional infrastructure.
   boundaries the release pipeline operates within
 - [`DEPENDENCIES.md`](DEPENDENCIES.md) — dep selection + tracking that
   drives most of the `fix(deps)` security PRs
-- [`../HARDENING.md`](../HARDENING.md) — phase-by-phase hardening
-  tracker, including the deferred-CVE log
+- [`ROADMAP.md`](ROADMAP.md) — where planned work + open security
+  items surface in public

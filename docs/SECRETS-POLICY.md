@@ -94,6 +94,3 @@ in a private SC team vault, not published here per
 - [`MAINTAINERS.md`](MAINTAINERS.md) — who holds maintainer-personal
   credentials
 - [`DEPENDENCIES.md`](DEPENDENCIES.md) — dep policy
-- [`../HARDENING.md`](../HARDENING.md) — Phase 6 admin-UI checklist
-  including Docker Hub 2FA + Cloudflare API-token audit + GCS service-
-  account key audit
