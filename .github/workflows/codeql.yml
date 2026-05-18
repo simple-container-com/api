@@ -22,9 +22,16 @@ on:
     - cron: '23 4 * * 0'
   workflow_dispatch:
 
-# Cancel in-progress runs for the same PR when a new commit lands.
+# Cancel in-progress runs for the same commit when a new event lands.
+# Key on commit SHA (PR head when triggered by pull_request, pushed SHA
+# otherwise) instead of github.ref. With `push: branches: ['**']` and
+# `pull_request: branches: [main]` both active, a single PR commit
+# triggers two runs — one for the push event (refs/heads/<branch>) and
+# one for the PR event (refs/pull/N/merge). Keying on ref leaves both
+# in distinct groups, so neither cancels the other. SHA-keyed grouping
+# dedups them. Codex round-2 P2 catch on PR #264.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 permissions:

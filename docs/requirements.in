@@ -2,3 +2,13 @@ mkdocs~=1.5.3
 mkdocs-material~=9.4.8
 mkdocs-material-extensions~=1.3
 mkdocs-mermaid2-plugin~=1.1.1
+
+# Transitive-dep CVE pins surfaced by Scorecard after PR #264:
+#   - GHSA-gc5v-m9x4-r6x2 (CVE-2026-25645) - requests < 2.33.0 (insecure temp file reuse)
+#   - GHSA-mf9v-mfxr-j63j (CVE-2026-44432) - urllib3 < 2.7.0 (decompression-bomb bypass)
+#   - GHSA-qccp-gfcp-xxvc (CVE-2026-44431) - urllib3 < 2.7.0 (cross-origin header leak)
+# Pinning the patched floors here forces pip-compile to resolve to safe
+# versions. Both deps are reachable through mkdocs-material's plugin
+# chain at docs-build time only.
+requests>=2.33.0
+urllib3>=2.7.0

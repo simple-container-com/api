@@ -84,14 +84,21 @@ func FuzzVerifyAndExtract(f *testing.F) {
 	keyA := CacheKey{Operation: "sbom", ImageDigest: "sha256:A", ConfigHash: "h1"}
 	keyB := CacheKey{Operation: "scan-grype", ImageDigest: "sha256:B", ConfigHash: "h2"}
 
-	future := time.Now().Add(time.Hour)
-	past := time.Now().Add(-time.Hour)
+	// Anchor seed timestamps to the SAME fixed clock the fuzz body uses
+	// (fuzzNow below), not the real wall-clock. Earlier version used
+	// `time.Now().Add(-time.Hour)` for the "expired" seed, but the fuzz
+	// body's `now` is fixed to time.Unix(1_700_000_000, 0) (Nov 2023);
+	// any real-clock "past" is years AFTER that, so the expired-seed
+	// branch was never exercised by seed #3. Codex round-2 P2 catch.
+	fuzzNow := time.Unix(1_700_000_000, 0).UTC()
+	future := fuzzNow.Add(time.Hour)
+	past := fuzzNow.Add(-time.Hour)
 
 	// Seed 1: a known-good signed entry, requested with the matching key.
 	f.Add(validSignedBytes(f, cache, keyA, []byte("payload-A"), future), "sbom", "sha256:A", "h1")
 	// Seed 2: same valid bytes, requested with a DIFFERENT key — must miss.
 	f.Add(validSignedBytes(f, cache, keyA, []byte("payload-A"), future), "scan-grype", "sha256:B", "h2")
-	// Seed 3: valid entry but already expired — must miss.
+	// Seed 3: valid entry but already expired vs fuzzNow — must miss.
 	f.Add(validSignedBytes(f, cache, keyA, []byte("payload-A"), past), "sbom", "sha256:A", "h1")
 	// Seed 4: a tampered Data payload (MAC no longer matches).
 	tampered := tamperData(f, cache, keyA, []byte("orig"), []byte("evil"), future)
