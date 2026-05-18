@@ -38,7 +38,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Get next version
-        uses: reecetech/version-increment@71036b212bbdc100b48aae069870f10953433346  # 2023.10.2
+        uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e  # 2024.10.1
         id: version
         with:
           scheme: "calver"
