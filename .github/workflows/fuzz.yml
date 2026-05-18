@@ -27,10 +27,13 @@ name: Go Fuzz
 
 on:
   push:
-    # Run on every branch push so fuzz coverage is contiguous, not just
-    # at PR-open and merge. Concurrency group below cancels superseded
-    # runs on the same ref.
-    branches: ['**']
+    # Direct pushes to main only (post-merge). PR commits are covered
+    # by the pull_request event below; the weekly cron picks up corpus
+    # the per-PR 30s budget cannot reach. Scorecard's Fuzzing check is
+    # static-detection only ("is there a *_fuzz_test.go using
+    # testing.F wired into CI") — it doesn't measure run frequency, so
+    # restricting to main does not affect the Fuzzing score.
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -39,11 +42,9 @@ on:
     - cron: '17 7 * * 1'
   workflow_dispatch:
 
-# Cancel in-progress runs for the same commit when a new event lands.
-# SHA-keyed (PR head SHA or push SHA) instead of ref-keyed, so a single
-# PR commit doesn't run twice — once for the push:[**] event and once
-# for the pull_request event with different github.ref values. Same
-# fix as codeql.yml. Codex round-2 P2 catch on PR #264.
+# SHA-keyed dedup so a manual rerun on the same commit supersedes the
+# in-flight one. With push restricted to main + pull_request on PRs,
+# a single commit no longer fires two events.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true

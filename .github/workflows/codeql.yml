@@ -11,10 +11,18 @@ name: CodeQL
 
 on:
   push:
-    # Run on every branch push so Scorecard's "% of commits scanned by SAST"
-    # check sees coverage on intermediate / feature commits, not just main.
-    # The concurrency group below cancels superseded runs on the same ref.
-    branches: ['**']
+    # Direct pushes to main only (post-merge). PR commits are covered
+    # by the pull_request event below.
+    #
+    # Scorecard's SAST check counts merged PRs on the default branch
+    # and asks whether a SAST tool ran successfully on each PR's HEAD
+    # commit. Every commit landing in main arrives via a merged PR
+    # (pull_request scan) or a direct push (push scan), so coverage is
+    # complete without the `['**']` net that triggered duplicate runs
+    # for every PR commit — push and pull_request fired on the same
+    # SHA, one was cancelled by the concurrency group, leaving noisy
+    # "cancelled" entries on every PR's checks page.
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -22,14 +30,10 @@ on:
     - cron: '23 4 * * 0'
   workflow_dispatch:
 
-# Cancel in-progress runs for the same commit when a new event lands.
-# Key on commit SHA (PR head when triggered by pull_request, pushed SHA
-# otherwise) instead of github.ref. With `push: branches: ['**']` and
-# `pull_request: branches: [main]` both active, a single PR commit
-# triggers two runs — one for the push event (refs/heads/<branch>) and
-# one for the PR event (refs/pull/N/merge). Keying on ref leaves both
-# in distinct groups, so neither cancels the other. SHA-keyed grouping
-# dedups them. Codex round-2 P2 catch on PR #264.
+# SHA-keyed dedup so a manual rerun on the same commit supersedes the
+# in-flight one. With push restricted to main + pull_request on PRs,
+# a single commit no longer fires two events; no PR-side cancellation
+# noise.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
