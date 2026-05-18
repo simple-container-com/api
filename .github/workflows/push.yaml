@@ -649,6 +649,32 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |-
           welder deploy -e prod --timestamps
+      # Create a GitHub Release on production tags only (skip preview /
+      # release-candidate tags that include `-pre.` or `-preview.`).
+      #
+      # Why this matters: OpenSSF Scorecard's Signed-Releases check
+      # queries GitHub's Releases API, NOT the tag list or the dist
+      # CDN. We've been signing tarballs all along (Phase 2 / PR #257),
+      # but the .sigstore.json + .cosign-bundle + .sha256 + .sbom.cdx.json
+      # sidecars only live on dist.simple-container.com. Scorecard
+      # returns score -1 ("no releases found") because the Releases API
+      # is empty.
+      #
+      # Attaching the existing signed sidecars as Release assets makes
+      # Scorecard discover them. The accepted signature suffixes per
+      # the upstream check (probes/releasesAreSigned/impl.go) are:
+      #   .asc  .minisig  .sig  .sign  .sigstore  .sigstore.json
+      # We attach .sigstore.json — the SLSA build provenance bundle
+      # emitted by actions/attest-build-provenance@v4. The .cosign-bundle
+      # is attached too for verification flexibility (not recognised by
+      # Scorecard's regex but useful for `cosign verify-blob --bundle`
+      # consumers).
+      - name: Create GitHub Release on production tags
+        if: needs.prepare.outputs.version != '' && !contains(needs.prepare.outputs.version, '-pre.') && !contains(needs.prepare.outputs.version, '-preview.')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: ./scripts/create-github-release.sh
 
   finalize:
     name: Finalize build and deploy for ${{ needs.prepare.outputs.stack-name }}
