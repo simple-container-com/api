@@ -594,16 +594,116 @@ elif [[ -f "$BINDIR/sc" ]]; then
   echo "💡 No download needed - using existing installation"
 fi
 
-# Install Pulumi if not present
+# Install Pulumi if not present.
+#
+# Pinned version + SHA256 verify before exec (replaces the legacy
+# curl-pipe-to-shell bootstrap pattern Pulumi's official installer
+# uses). Closes Scorecard Pinned-Dependencies `downloadThenRun` warning
+# on this line. Override version via `SC_PULUMI_VERSION` env var.
+#
+# Trust model: SHA256 sums come from Pulumi's checksums file at the
+# same GitHub release URL as the tarball. This defends against
+# tarball-in-flight tampering (CDN MITM) but NOT against a compromise
+# of the release surface itself (where attacker swaps both files). For
+# stronger trust, run cosign verify against checksums.txt.sig before
+# parsing it; not done here to keep the bootstrap installer minimal.
+SC_PULUMI_VERSION="${SC_PULUMI_VERSION:-3.239.0}"
+
+install_pulumi_pinned() {
+  local platform="$1" arch="$2"
+  local tarball="pulumi-v${SC_PULUMI_VERSION}-${platform}-${arch}.tar.gz"
+  local checksums="pulumi-${SC_PULUMI_VERSION}-checksums.txt"
+  local base="https://github.com/pulumi/pulumi/releases/download/v${SC_PULUMI_VERSION}"
+  local tmp
+  tmp=$(mktemp -d)
+
+  echo -n "📦 Downloading Pulumi v${SC_PULUMI_VERSION}... "
+  if ! curl -fsSL "${base}/${tarball}" -o "${tmp}/${tarball}"; then
+    echo "❌"
+    rm -rf "$tmp"
+    return 1
+  fi
+  echo "✅"
+
+  echo -n "📦 Downloading checksums... "
+  if ! curl -fsSL "${base}/${checksums}" -o "${tmp}/${checksums}"; then
+    echo "❌"
+    rm -rf "$tmp"
+    return 1
+  fi
+  echo "✅"
+
+  echo -n "🔍 Verifying SHA256... "
+  # Extract the expected SHA for this specific tarball from the
+  # checksums file (one line per artifact, format: `<sha>  <name>`).
+  local expected
+  expected=$(awk -v t="${tarball}" '$2 == t {print $1}' "${tmp}/${checksums}")
+  if [[ -z "$expected" ]]; then
+    echo "❌"
+    echo "❌ Tarball ${tarball} not listed in checksums file. Refusing to install."
+    rm -rf "$tmp"
+    return 1
+  fi
+  if ! echo "${expected}  ${tmp}/${tarball}" | sha256sum -c >/dev/null 2>&1; then
+    echo "❌"
+    echo "❌ SHA256 mismatch on ${tarball}. Refusing to install."
+    rm -rf "$tmp"
+    return 1
+  fi
+  echo "✅"
+
+  echo -n "📦 Installing Pulumi to ~/.pulumi... "
+  mkdir -p "$HOME/.pulumi"
+  if ! tar -xzf "${tmp}/${tarball}" -C "$HOME/.pulumi" --strip-components=1 2>/dev/null; then
+    echo "❌"
+    rm -rf "$tmp"
+    return 1
+  fi
+  echo "✅"
+
+  # Pulumi's tarball expands to a `pulumi/` dir at top level (containing
+  # the `pulumi` binary + helpers). `--strip-components=1` flattens that
+  # so binaries land directly under `~/.pulumi/`. Verify the binary
+  # actually landed - a layout change in a future Pulumi release could
+  # extract successfully into a different path without our knowing.
+  if ! [[ -x "$HOME/.pulumi/pulumi" ]]; then
+    echo "❌ Tarball extracted but $HOME/.pulumi/pulumi is missing or not executable"
+    echo "    (likely an unexpected change to Pulumi's archive layout for v${SC_PULUMI_VERSION})"
+    rm -rf "$tmp"
+    return 1
+  fi
+
+  # Push it onto PATH for this script's remaining commands (notably the
+  # final `exec sc` at end of file) so sc can shell out to pulumi
+  # without the user restarting their terminal. Also hint at the
+  # permanent fix.
+  if [[ ":$PATH:" != *":$HOME/.pulumi:"* ]]; then
+    export PATH="$HOME/.pulumi:$PATH"
+    echo "💡 Pulumi added to PATH for this session. For persistence add to your shell rc:"
+    echo "    export PATH=\"\$HOME/.pulumi:\$PATH\""
+  fi
+
+  rm -rf "$tmp"
+}
+
 if ! [ -x "$(command -v pulumi)" ]; then
   echo "🔧 Pulumi not found, installing..."
   if [[ "$PLATFORM" == "linux" ]]; then
     echo "📦 Installing Pulumi for Linux..."
-    # nosemgrep: shell-curl-pipe-to-shell -- pulumi's documented upstream installer (https://www.pulumi.com/docs/install/), invoked from this end-user installer running on the user's own machine, not in CI
-    if curl -fsSL https://get.pulumi.com | sh; then
-      echo "✅ Pulumi installed successfully"
-    else
-      echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
+    case "$(uname -m)" in
+      x86_64|amd64) PULUMI_ARCH="x64" ;;
+      aarch64|arm64) PULUMI_ARCH="arm64" ;;
+      *)
+        echo "⚠️  Unsupported architecture $(uname -m); skipping Pulumi install. Install manually: https://www.pulumi.com/docs/install/"
+        PULUMI_ARCH=""
+        ;;
+    esac
+    if [[ -n "$PULUMI_ARCH" ]]; then
+      if install_pulumi_pinned linux "$PULUMI_ARCH"; then
+        echo "✅ Pulumi v${SC_PULUMI_VERSION} installed successfully"
+      else
+        echo "⚠️  Pulumi installation failed, but Simple Container may still work for some operations"
+      fi
     fi
   elif [[ "$PLATFORM" == "darwin" ]]; then
     echo "📦 Installing Pulumi via Homebrew..."
