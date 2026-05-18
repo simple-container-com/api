@@ -1,0 +1,76 @@
+name: govulncheck
+
+# Reachability-aware vulnerability scan against every PR + push to main.
+# Fails the build if our code calls into a known-vulnerable function in
+# any direct or transitive Go dep.
+#
+# This is the enforcement half of the documented SCA policy in
+# docs/DEPENDENCIES.md "Pre-release SCA gate". OpenSSF Baseline
+# OSPS-VM-05.03 requires changes to be automatically evaluated against
+# a documented policy and blocked on violation, except when declared
+# non-exploitable (which we do via vex/openvex.json).
+#
+# Why govulncheck instead of osv-scanner / Trivy on Go modules:
+# govulncheck is the reachability-aware scanner maintained by the Go
+# security team. It runs the call-graph against the OSV advisory data
+# and reports only vulnerabilities whose symbols are reachable from
+# OUR code. Module-level scanners (osv-scanner, Trivy) flag any vuln
+# in any transitive dep regardless of whether the vulnerable symbol
+# is called — which produces false positives like GO-2022-0635/0646
+# (aws-sdk-go v1 s3crypto, transitively pulled in by Pulumi but never
+# called). Those false positives are documented in vex/openvex.json
+# but govulncheck filters them at the scan level without needing the
+# VEX consult.
+#
+# CI behaviour:
+#   - PR: fails if govulncheck reports any reachable vulnerability.
+#   - main push: same gate; an unfixable transitive that suddenly
+#     becomes reachable would block the next release.
+#   - Weekly cron: catches newly-published advisories landing against
+#     existing reachable code paths.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '37 6 * * 1'  # Monday 06:37 UTC — early week, off-peak
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck (reachability-aware)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck -version
+
+      - name: Run govulncheck on source
+        run: |
+          set -euo pipefail
+          # -mode=source: scan the call graph from this module's main
+          # packages outward (reachability-aware). Exits non-zero if
+          # any reachable vulnerability is found.
+          govulncheck -mode=source ./...
