@@ -434,13 +434,23 @@ verify_sc_tarball() {
   # the only workflow allowed to publish tarballs to dist. Staging /
   # preview tarballs do not land at dist.simple-container.com, so a
   # single anchored regex suffices here. Mirror this in SECURITY.md.
-  if ! COSIGN_EXPERIMENTAL=1 cosign verify-blob --yes \
+  #
+  # IMPORTANT: do NOT pass --yes here. cosign 2.x only accepts --yes on
+  # sign-blob (skip interactive confirmation); on verify-blob it errors
+  # out with "unknown flag: --yes" — which is what broke every install
+  # after Phase 2c shipped. Capture cosign's stderr (don't /dev/null it)
+  # so future failures surface the real error instead of a generic
+  # message.
+  local cosign_err
+  if ! cosign_err=$(COSIGN_EXPERIMENTAL=1 cosign verify-blob \
       --bundle "$bundle_path" \
       --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-      "$tarball_path" >/dev/null 2>&1; then
+      "$tarball_path" 2>&1); then
     echo "❌"
     echo "❌ Signature verification FAILED for $tarball_path"
+    echo "    cosign output:"
+    echo "$cosign_err" | sed 's/^/      /'
     echo "    The tarball does not bear a valid signature from the SC"
     echo "    production publish workflow. This could mean: tarball was"
     echo "    tampered in transit, CDN was compromised, or the signing"
