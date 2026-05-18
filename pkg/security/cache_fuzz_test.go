@@ -209,8 +209,11 @@ func FuzzCacheGetPath(f *testing.F) {
 	f.Add("\x00null", "sha256:abc", "h")
 	// Long inputs.
 	f.Add(strings.Repeat("a", 10_000), "sha256:abc", "h")
-	// Unicode / control / multi-byte.
-	f.Add("‮sbom", "sha256:abc", "h")
+	// Unicode / control / multi-byte. Using \u202e escape (RTL OVERRIDE)
+	// instead of the literal codepoint so the source file stays ASCII
+	// and GitHub doesn't fire the bidi-Unicode warning on this file.
+	// The fuzz seed bytes at runtime are identical either way.
+	f.Add("\u202esbom", "sha256:abc", "h")
 
 	// Compute the absolute, symlink-resolved baseDir once so the
 	// containment check matches what filepath.Join produces.
