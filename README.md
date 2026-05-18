@@ -1,6 +1,7 @@
 # **Simple Container**
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/simple-container-com/api/badge)](https://scorecard.dev/viewer/?uri=github.com/simple-container-com/api)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12886/badge)](https://www.bestpractices.dev/projects/12886)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/12886/baseline)](https://www.bestpractices.dev/projects/12886)
 [![CodeQL](https://github.com/simple-container-com/api/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/codeql.yml)
 [![Semgrep](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml)
