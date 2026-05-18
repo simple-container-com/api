@@ -9,47 +9,50 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
-// Per-region session cache. Lambda containers may handle many sequential
-// invocations across their ~5-15 minute lifetime; reusing the session and its
-// underlying HTTP client avoids redoing TLS handshake + credential resolution
-// on every alarm. Keyed by region because different CloudTrail log groups may
-// live in different regions.
+// Per-region config cache. Lambda containers may handle many sequential
+// invocations across their ~5-15 minute lifetime; reusing the resolved
+// aws.Config (credentials provider, HTTP client) avoids redoing credential
+// resolution on every alarm. Keyed by region because different CloudTrail log
+// groups may live in different regions.
+//
+// aws-sdk-go-v2 replaces v1's *session.Session with aws.Config, which is a
+// value type — we cache it by value rather than by pointer.
 var (
-	sessionCacheMu sync.Mutex
-	sessionCache   = map[string]*session.Session{}
+	configCacheMu sync.Mutex
+	configCache   = map[string]aws.Config{}
 )
 
-func sessionForRegion(region string) (*session.Session, error) {
+func configForRegion(ctx context.Context, region string) (aws.Config, error) {
 	// Empty region → AWS SDK resolves from AWS_REGION / AWS_DEFAULT_REGION
 	// (set automatically in Lambda). We still cache under a sentinel key
-	// so repeat empty-region callers share one session.
+	// so repeat empty-region callers share one config.
 	key := region
 	if key == "" {
 		key = "__default__"
 	}
-	sessionCacheMu.Lock()
-	defer sessionCacheMu.Unlock()
-	if s, ok := sessionCache[key]; ok {
-		return s, nil
+	configCacheMu.Lock()
+	defer configCacheMu.Unlock()
+	if c, ok := configCache[key]; ok {
+		return c, nil
 	}
-	cfg := &aws.Config{}
+	opts := []func(*config.LoadOptions) error{}
 	if region != "" {
-		cfg.Region = aws.String(region)
+		opts = append(opts, config.WithRegion(region))
 	}
-	s, err := session.NewSession(cfg)
+	c, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		return nil, err
+		return aws.Config{}, err
 	}
-	sessionCache[key] = s
-	return s, nil
+	configCache[key] = c
+	return c, nil
 }
 
 // Subset of CloudTrail event schema — only the fields we surface in Slack/Discord/Telegram
@@ -117,7 +120,9 @@ const (
 	maxPages = 5
 	// perPageLimit is the Limit parameter sent to FilterLogEvents. Combined
 	// with maxPages, the hard ceiling per invocation is 250 events fetched.
-	perPageLimit = 50
+	// Typed int32 because aws-sdk-go-v2 narrowed the field from *int64 (v1)
+	// to *int32 (v2) — the over-the-wire ceiling is 10_000, so int32 is safe.
+	perPageLimit int32 = 50
 )
 
 // lookupTriggeringEvents calls CloudWatch Logs FilterLogEvents over the given
@@ -153,11 +158,11 @@ func lookupTriggeringEvents(
 		limit = 5
 	}
 
-	sess, err := sessionForRegion(cfg.LogGroupRegion)
+	awsCfg, err := configForRegion(ctx, cfg.LogGroupRegion)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "failed to create AWS session for %q", cfg.LogGroupRegion)
+		return nil, 0, errors.Wrapf(err, "failed to load AWS config for %q", cfg.LogGroupRegion)
 	}
-	client := cloudwatchlogs.New(sess)
+	client := cloudwatchlogs.NewFromConfig(awsCfg)
 
 	const lookback = 10 * time.Minute
 	const buffer = 1 * time.Minute
@@ -169,24 +174,30 @@ func lookupTriggeringEvents(
 	lookupCtx, cancel := context.WithTimeout(ctx, enrichmentTimeout)
 	defer cancel()
 
+	pageLimit := perPageLimit
 	input := &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName:  aws.String(cfg.LogGroupName),
 		FilterPattern: aws.String(cfg.FilterPattern),
 		StartTime:     aws.Int64(start),
 		EndTime:       aws.Int64(end),
-		Limit:         aws.Int64(perPageLimit),
+		Limit:         &pageLimit,
 	}
 
 	events := make([]ctEvent, 0, perPageLimit)
 	pages := 0
 	truncated := false
 	for {
-		out, err := client.FilterLogEventsWithContext(lookupCtx, input)
+		// aws-sdk-go-v2 folds the WithContext suffix into the canonical
+		// method signature; ctx is the first argument.
+		out, err := client.FilterLogEvents(lookupCtx, input)
 		if err != nil {
 			return nil, 0, errors.Wrapf(err, "FilterLogEvents on %q (page %d)", cfg.LogGroupName, pages+1)
 		}
+		// v2 returns []types.FilteredLogEvent (value slice) where v1 returned
+		// []*FilteredLogEvent; the element itself can no longer be nil, so we
+		// only need to guard against an absent Message pointer.
 		for _, e := range out.Events {
-			if e == nil || e.Message == nil {
+			if e.Message == nil {
 				continue
 			}
 			var ce ctEvent

@@ -10,7 +10,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-secretsmanager-caching-go/secretcache"
+	"github.com/aws/aws-secretsmanager-caching-go/v2/secretcache"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
