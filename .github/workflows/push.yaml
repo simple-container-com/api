@@ -362,7 +362,15 @@ jobs:
           # docs/requirements.txt (generated via `pip-compile --generate-hashes`
           # against docs/requirements.in). Closes Scorecard Pinned-Dependencies
           # warning on this line.
-          docker run --rm -v $PWD/docs:/docs -w /docs python:3.9.18 sh -c "pip install --require-hashes -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
+          #
+          # python:3.12-slim, SHA-pinned digest. Required because the
+          # patched versions of `requests` (>=2.33.0) and `urllib3`
+          # (>=2.7.0) used to close GHSA-gc5v / -mf9v / -qccp transitive-
+          # dep advisories declare `requires_python: >=3.10`. Python 3.9
+          # base would force keeping the vulnerable transitives.
+          # Digest is multi-platform (OCI image index) — covers amd64
+          # / arm64 / arm/v5 / arm/v7 / 386 / ppc64le / riscv64 / s390x.
+          docker run --rm -v $PWD/docs:/docs -w /docs python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461 sh -c "pip install --require-hashes -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
       - name: upload docs artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
