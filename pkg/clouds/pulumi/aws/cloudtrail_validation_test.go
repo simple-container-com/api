@@ -3,8 +3,8 @@ package aws
 import (
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/cloudtrail"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cloudtrailtypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	. "github.com/onsi/gomega"
 
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
@@ -34,7 +34,7 @@ func TestEvaluateTrailValidation(t *testing.T) {
 
 	t.Run("trail found with validation enabled — pass", func(t *testing.T) {
 		RegisterTestingT(t)
-		trails := []*cloudtrail.Trail{{
+		trails := []cloudtrailtypes.Trail{{
 			Name:                     aws.String("cloudtrail_events"),
 			LogFileValidationEnabled: aws.Bool(true),
 		}}
@@ -46,7 +46,7 @@ func TestEvaluateTrailValidation(t *testing.T) {
 
 	t.Run("trail found with validation disabled + require=true — hard error with remedy", func(t *testing.T) {
 		RegisterTestingT(t)
-		trails := []*cloudtrail.Trail{{
+		trails := []cloudtrailtypes.Trail{{
 			Name:                     aws.String("cloudtrail_events"),
 			LogFileValidationEnabled: aws.Bool(false),
 		}}
@@ -61,7 +61,7 @@ func TestEvaluateTrailValidation(t *testing.T) {
 
 	t.Run("trail found with validation disabled + require=false — warning only", func(t *testing.T) {
 		RegisterTestingT(t)
-		trails := []*cloudtrail.Trail{{
+		trails := []cloudtrailtypes.Trail{{
 			Name:                     aws.String("cloudtrail_events"),
 			LogFileValidationEnabled: aws.Bool(false),
 		}}
@@ -78,7 +78,7 @@ func TestEvaluateTrailValidation(t *testing.T) {
 		// so we surface it rather than silently passing an indeterminate
 		// trail as validated.
 		RegisterTestingT(t)
-		trails := []*cloudtrail.Trail{{
+		trails := []cloudtrailtypes.Trail{{
 			Name: aws.String("cloudtrail_events"),
 			// LogFileValidationEnabled intentionally omitted → nil pointer
 		}}

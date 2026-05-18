@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudtrail"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
+	cloudtrailtypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
 	"github.com/pkg/errors"
 
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws"
@@ -34,7 +35,11 @@ type trailValidationOutcome struct {
 // (require-on), produce either a pass outcome or an error. Isolating this
 // from the AWS call makes the tricky bits — trail absent, flag absent, flag
 // explicitly false — directly unit-testable.
-func evaluateTrailValidation(trailName string, require bool, trails []*cloudtrail.Trail) (trailValidationOutcome, error) {
+//
+// The trails slice is a value slice (aws-sdk-go-v2 returns []types.Trail, not
+// []*Trail as v1 did); the helper preserves that shape so unit tests can build
+// fixtures without unnecessary indirection.
+func evaluateTrailValidation(trailName string, require bool, trails []cloudtrailtypes.Trail) (trailValidationOutcome, error) {
 	if trailName == "" {
 		return trailValidationOutcome{TrailFound: true, Enabled: true, Message: "trail check skipped (no trailName set)"}, nil
 	}
@@ -79,23 +84,32 @@ func ensureTrailLogFileValidation(ctx context.Context, cfg *awsApi.CloudTrailSec
 		return trailValidationOutcome{TrailFound: true, Enabled: true, Message: "trail check skipped (no trailName set)"}, nil
 	}
 
-	awsCfg := &aws.Config{}
-	if cfg.LogGroupRegion != "" {
-		awsCfg.Region = aws.String(cfg.LogGroupRegion)
-	} else if cfg.AccountConfig.Region != "" {
-		awsCfg.Region = aws.String(cfg.AccountConfig.Region)
+	// aws-sdk-go-v2 replaces v1's session.NewSession with
+	// config.LoadDefaultConfig + functional option helpers. Region resolves to
+	// the explicit LogGroupRegion → AccountConfig.Region → ambient env, in
+	// that order. Static credentials are wired in via a CredentialsProvider
+	// rather than an embedded credentials.Value.
+	loadOpts := []func(*config.LoadOptions) error{}
+	region := cfg.LogGroupRegion
+	if region == "" {
+		region = cfg.AccountConfig.Region
+	}
+	if region != "" {
+		loadOpts = append(loadOpts, config.WithRegion(region))
 	}
 	if cfg.AccessKey != "" && cfg.SecretAccessKey != "" {
-		awsCfg.Credentials = credentials.NewStaticCredentials(cfg.AccessKey, cfg.SecretAccessKey, "")
+		loadOpts = append(loadOpts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretAccessKey, ""),
+		))
 	}
-	sess, err := session.NewSession(awsCfg)
+	awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
-		return trailValidationOutcome{}, errors.Wrap(err, "failed to create AWS session for CloudTrail pre-flight")
+		return trailValidationOutcome{}, errors.Wrap(err, "failed to load AWS config for CloudTrail pre-flight")
 	}
 
-	client := cloudtrail.New(sess)
-	out, err := client.DescribeTrailsWithContext(ctx, &cloudtrail.DescribeTrailsInput{
-		TrailNameList:       []*string{aws.String(cfg.TrailName)},
+	client := cloudtrail.NewFromConfig(awsCfg)
+	out, err := client.DescribeTrails(ctx, &cloudtrail.DescribeTrailsInput{
+		TrailNameList:       []string{cfg.TrailName},
 		IncludeShadowTrails: aws.Bool(false),
 	})
 	if err != nil {
