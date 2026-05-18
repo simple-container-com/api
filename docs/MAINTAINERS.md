@@ -68,6 +68,31 @@ run inside grants them, scoped per-job by GitHub Actions permissions.
   that pulls in additional reviewers for `pkg/security/` / `push.yaml` /
   `sc.sh` changes.
 
+### Decision-making
+
+This section satisfies the OpenSSF Best Practices `governance`
+criterion (how decisions on technical direction are made).
+
+- **Default rule: consensus via PR review.** Any change ships only
+  after a maintainer's approving review on the PR and all required
+  status checks (CI, signed commits, DCO sign-off) pass. Branch
+  protection on `main` enforces this — no maintainer self-merges
+  unreviewed work.
+- **Security-sensitive changes** (`pkg/security/`, `push.yaml`,
+  `sc.sh`, anything in the SLSA / cosign / Sigstore chain) require at
+  least one maintainer review on top of the automated codex + Gemini
+  review pass triggered by `/thorough-review`. The contribution rules
+  in [`CONTRIBUTING.md`](CONTRIBUTING.md) describe this protocol.
+- **Contentious technical decisions** (architecture, breaking changes,
+  security-policy shifts) are resolved by maintainer discussion in the
+  PR thread or repo Discussions. If consensus is not reached, the
+  project lead (currently [@smecsia](https://github.com/smecsia)) has
+  tiebreaker authority. Material direction changes are surfaced in the
+  Discussions tab before they ship.
+- **Roadmap shaping** follows the same pattern — see
+  [`ROADMAP.md`](ROADMAP.md) for how issues become shipped code, and
+  how maintainers triage them.
+
 ## Sensitive-resource access map
 
 The following resources have access controlled by the maintainer
@@ -172,8 +197,8 @@ Maintainer offboarding additionally:
   rotation schedule, accelerated to "immediate" on offboarding.
 - Revokes Sigstore / cosign signing identities if the maintainer's
   GitHub workflow identity was wired into any signing path.
-- Audits org-level 2FA enforcement (per
-  [HARDENING.md](../HARDENING.md) Phase 8 admin-UI list).
+- Audits org-level 2FA enforcement against the maintainer-side admin
+  checklist.
 
 ## Security contact
 
