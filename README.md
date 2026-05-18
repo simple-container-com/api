@@ -1,6 +1,7 @@
 # **Simple Container**
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/simple-container-com/api/badge)](https://scorecard.dev/viewer/?uri=github.com/simple-container-com/api)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12886/badge)](https://www.bestpractices.dev/projects/12886)
 [![OpenSSF Baseline](https://www.bestpractices.dev/projects/12886/baseline)](https://www.bestpractices.dev/projects/12886)
 [![CodeQL](https://github.com/simple-container-com/api/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/codeql.yml)
 [![Semgrep](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml)
@@ -69,7 +70,13 @@ Check out the [full documentation](https://docs.simple-container.com) for detail
 
 ## **Contributing**
 
-We welcome contributions! Please see our [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to get involved.
+We welcome contributions! Please see our [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to get involved, and our [CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) for the community standards every participant is expected to uphold.
+
+---
+
+## **Roadmap**
+
+See [ROADMAP.md](docs/ROADMAP.md) for current themes, release cadence, and where planned work surfaces in the [Issues](https://github.com/simple-container-com/api/issues) tracker.
 
 ---
 
