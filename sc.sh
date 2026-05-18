@@ -392,37 +392,116 @@ show_progress() {
   printf "   \b\b\b"
 }
 
+# Phase 2c — verify sc.sh tarball signatures before extraction.
+#
+# Every published tarball at dist.simple-container.com ships a sibling
+# `.cosign-bundle` (self-contained Sigstore bundle: cert + sig + Rekor
+# entry). When `cosign` is on PATH, we download both, verify the bundle
+# against the production OIDC identity, and only extract on success. When
+# `cosign` is missing, we warn loudly and continue — installers on a
+# fresh laptop without cosign should not be hard-blocked, per the
+# graceful-fallback contract documented in docs/SECURITY.md.
+#
+# This closes Phase 2c. The identity regex MUST stay in sync with the
+# "Verifying tarballs" block in docs/SECURITY.md.
+verify_sc_tarball() {
+  local tarball_path="$1"
+  local bundle_url="$2"
+  local temp_dir
+  temp_dir=$(dirname "$tarball_path")
+  local bundle_path="$tarball_path.cosign-bundle"
+
+  if ! command -v cosign >/dev/null 2>&1; then
+    echo "⚠️  cosign not found on PATH — skipping signature verification."
+    echo "    For end-to-end supply-chain integrity install cosign:"
+    echo "    https://docs.sigstore.dev/system_config/installation/"
+    return 0
+  fi
+
+  echo -n "🔏 Fetching signature bundle... "
+  if ! curl -fsSL "$bundle_url" -o "$bundle_path"; then
+    echo "❌"
+    echo "❌ Failed to fetch .cosign-bundle from $bundle_url"
+    echo "    The published tarball at dist.simple-container.com is expected"
+    echo "    to ship a sibling .cosign-bundle. Refusing to extract an"
+    echo "    artifact whose signature can't be retrieved."
+    return 1
+  fi
+  echo "✅"
+
+  echo -n "🔍 Verifying tarball signature against build-workflow identity... "
+  # Identity regex matches the production push.yaml on refs/heads/main —
+  # the only workflow allowed to publish tarballs to dist. Staging /
+  # preview tarballs do not land at dist.simple-container.com, so a
+  # single anchored regex suffices here. Mirror this in SECURITY.md.
+  if ! COSIGN_EXPERIMENTAL=1 cosign verify-blob --yes \
+      --bundle "$bundle_path" \
+      --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+      "$tarball_path" >/dev/null 2>&1; then
+    echo "❌"
+    echo "❌ Signature verification FAILED for $tarball_path"
+    echo "    The tarball does not bear a valid signature from the SC"
+    echo "    production publish workflow. This could mean: tarball was"
+    echo "    tampered in transit, CDN was compromised, or the signing"
+    echo "    identity rotated — see https://github.com/simple-container-com/api"
+    echo "    Refusing to extract."
+    return 1
+  fi
+  echo "✅"
+}
+
 # Safe download with validation
 safe_download_sc() {
   local url="$1"
   local temp_dir
   temp_dir=$(mktemp -d)
   local temp_binary="$temp_dir/sc"
-  
+  local temp_tarball="$temp_dir/$(basename "$url")"
+
   echo "🚀 Installing Simple Container..."
   echo "📦 Downloading from: $url"
-  
-  # Download with progress indicator
+
+  # Download tarball to a file (rather than streaming through tar) so we
+  # can run cosign verify-blob against the bytes BEFORE extracting any
+  # executable code. Streaming-then-verifying is a TOCTOU footgun.
   (
     cd "$temp_dir"
-    curl -fL --progress-bar "$url" | tar -xzp sc
+    curl -fL --progress-bar "$url" -o "$temp_tarball"
   ) &
-  
+
   local download_pid=$!
   show_progress $download_pid
-  
+
   # Wait for download to complete and check exit status
   wait $download_pid
   local download_status=$?
-  
+
   if [[ $download_status -ne 0 ]]; then
     echo ""
     echo "❌ Failed to download sc from $url"
     rm -rf "$temp_dir"
     return 1
   fi
-  
+
   echo " ✅"
+
+  # Phase 2c — verify before extract. Refuses to extract on hard
+  # signature failure (cosign present + bundle present + verify fails
+  # or bundle missing). Graceful pass-through when cosign is not on
+  # PATH (warns instead).
+  if ! verify_sc_tarball "$temp_tarball" "$url.cosign-bundle"; then
+    rm -rf "$temp_dir"
+    return 1
+  fi
+
+  # Now extract — bytes are trusted (verified) or explicitly opted into
+  # by the user (cosign absent + warning shown).
+  if ! tar -xzpf "$temp_tarball" -C "$temp_dir" sc; then
+    echo "❌ Failed to extract sc binary from tarball"
+    rm -rf "$temp_dir"
+    return 1
+  fi
   
   # Validate the downloaded binary
   echo -n "🔍 Validating binary... "
