@@ -131,6 +131,22 @@ tasks:
     runOn: host
     script:
       - if [ "${SKIP_TESTS}" != 'true' ]; then go test ./...; else echo "Skipping tests"; fi
+  coverage:
+    runOn: host
+    description: |
+      Aggregate test-coverage measurement against the targets documented
+      in docs/TESTING.md. Excludes cmd/*/main.go entry points and the
+      auto-generated mocks under pkg/**/mocks/, which contribute 0%
+      coverage by design and would hide real gains.
+    script:
+      - echo "Running test suite with coverage profile..."
+      - go test -coverprofile=${project:root}/dist/cover.raw.out -covermode=atomic ./...
+      - echo "Filtering out entry points + generated mocks..."
+      - grep -vE '/cmd/[^/]+/main\.go|/mocks/' ${project:root}/dist/cover.raw.out > ${project:root}/dist/cover.out
+      - echo "--- Coverage by package ---"
+      - go tool cover -func=${project:root}/dist/cover.out | tail -40
+      - echo "--- Aggregate ---"
+      - go tool cover -func=${project:root}/dist/cover.out | awk '/^total:/ {print "Total statement coverage:", $NF}'
   generate-schemas:
     runOn: host
     script:
