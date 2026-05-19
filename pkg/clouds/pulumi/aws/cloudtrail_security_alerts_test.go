@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -169,7 +170,26 @@ func TestApplyOverride_Exclusions(t *testing.T) {
 	Expect(out.filterPattern).To(HavePrefix(`{ (`))
 	Expect(out.filterPattern).To(HaveSuffix(` }`))
 	Expect(out.filterPattern).To(ContainSubstring(`PutRolePolicy`)) // base predicate intact
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.userName != "integrail-deployer-bot")`))
+
+	// Single-value exclusion form: (NOT EXISTS) || (!= "value")
+	// The NOT EXISTS guard keeps events where the field is absent (e.g.,
+	// AssumedRole events lacking top-level $.userIdentity.userName) IN the
+	// detector; without it, every assumed-role event would silently bypass
+	// the alarm.
+	Expect(out.filterPattern).To(ContainSubstring(`(($.userIdentity.userName NOT EXISTS) || ($.userIdentity.userName != "integrail-deployer-bot"))`))
+}
+
+func TestApplyOverride_NotExistsGuard_MultipleValues(t *testing.T) {
+	// Multi-value form uses inner-AND: De Morgan'd "NOT (v1 OR v2)" = "!= v1 AND != v2".
+	// The OR with NOT EXISTS still keeps absent-field events flowing through.
+	RegisterTestingT(t)
+
+	out := applyOverride(securityAlerts["iamPolicyChanges"], awsApi.CloudTrailAlertOverride{
+		ExcludeUserNames: []string{"alpha", "beta", "gamma"},
+	})
+	Expect(out.filterPattern).To(ContainSubstring(
+		`(($.userIdentity.userName NOT EXISTS) || (($.userIdentity.userName != "alpha") && ($.userIdentity.userName != "beta") && ($.userIdentity.userName != "gamma")))`,
+	))
 }
 
 func TestApplyOverride_MultipleExclusionFields(t *testing.T) {
@@ -184,12 +204,18 @@ func TestApplyOverride_MultipleExclusionFields(t *testing.T) {
 		},
 	})
 
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.userName != "prowler-readonly")`))
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.type != "AWSService")`))
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.type != "AWSAccount")`))
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.invokedBy != "s3.amazonaws.com")`))
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.invokedBy != "lambda.amazonaws.com")`))
-	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.arn != "arn:aws:sts::*:assumed-role/AWSServiceRoleFor*/*")`))
+	// Each exclusion field gets its own NOT EXISTS guard.
+	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.userName NOT EXISTS)`))
+	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.type NOT EXISTS)`))
+	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.invokedBy NOT EXISTS)`))
+	Expect(out.filterPattern).To(ContainSubstring(`($.userIdentity.arn NOT EXISTS)`))
+	// Values still wired up correctly:
+	Expect(out.filterPattern).To(ContainSubstring(`"prowler-readonly"`))
+	Expect(out.filterPattern).To(ContainSubstring(`"AWSService"`))
+	Expect(out.filterPattern).To(ContainSubstring(`"AWSAccount"`))
+	Expect(out.filterPattern).To(ContainSubstring(`"s3.amazonaws.com"`))
+	Expect(out.filterPattern).To(ContainSubstring(`"lambda.amazonaws.com"`))
+	Expect(out.filterPattern).To(ContainSubstring(`"arn:aws:sts::*:assumed-role/AWSServiceRoleFor*/*"`))
 }
 
 func TestApplyOverride_Deterministic(t *testing.T) {
@@ -232,17 +258,66 @@ func TestApplyOverride_EmptyOverrideIsNoop(t *testing.T) {
 	Expect(out.threshold).To(Equal(base.threshold))
 }
 
+// TestApplyOverride_WorstCaseBasePattern guards the trim-and-rewrap logic that wraps
+// the base pattern in parens before AND'ing exclusions. The shape we have to preserve:
+//   - leading/trailing whitespace inside the braces (idiomatic indentation),
+//   - internal parentheses from existing OR-groups,
+//   - mixed AND/OR/&& at the top level.
+// If a future contributor writes a pattern with leading whitespace or extra braces,
+// the wrap output should still be syntactically valid CloudWatch.
+func TestApplyOverride_WorstCaseBasePattern(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Synthetic worst-case: leading whitespace, internal OR-group, trailing whitespace,
+	// AND with a sub-expression.
+	worst := securityAlertDef{
+		name:          "worst-case",
+		description:   "synthetic",
+		filterPattern: `{   ($.eventName = "A") || ($.eventName = "B") && ($.eventSource = "x.amazonaws.com")   }`,
+	}
+	out := applyOverride(worst, awsApi.CloudTrailAlertOverride{
+		ExcludeUserNames: []string{"bot"},
+	})
+
+	// Output must still be a single braced expression
+	Expect(out.filterPattern).To(HavePrefix("{ "))
+	Expect(out.filterPattern).To(HaveSuffix(" }"))
+	// Base predicate atoms intact
+	Expect(out.filterPattern).To(ContainSubstring(`($.eventName = "A")`))
+	Expect(out.filterPattern).To(ContainSubstring(`($.eventName = "B")`))
+	Expect(out.filterPattern).To(ContainSubstring(`($.eventSource = "x.amazonaws.com")`))
+	// Exclusion present
+	Expect(out.filterPattern).To(ContainSubstring(`"bot"`))
+	// Top-level structure: base wrapped in parens, then `&&` to exclusion
+	Expect(out.filterPattern).To(MatchRegexp(`^\{ \(.*\) && \(.*\) \}$`))
+}
+
 func TestApplyOverride_EmptyStringsSkipped(t *testing.T) {
 	// Empty list entries (common YAML mistake: trailing `-`) must not produce
-	// nonsense clauses like `($.x != "")`.
+	// nonsense clauses like `($.x != "")`. Each non-empty value still contributes
+	// a NOT-EXISTS-guarded clause: in single-value form we get the field name twice
+	// (once for NOT EXISTS, once for !=).
 	RegisterTestingT(t)
 
 	out := applyOverride(securityAlerts["iamPolicyChanges"], awsApi.CloudTrailAlertOverride{
 		ExcludeUserNames: []string{"", "real-bot", ""},
 	})
-	// Should appear exactly once, not three times
-	Expect(strings.Count(out.filterPattern, `$.userIdentity.userName`)).To(Equal(1))
+	// Single-value clause shape: (($.field NOT EXISTS) || ($.field != "real-bot"))
+	// — two occurrences of $.userIdentity.userName, no empty-string match.
+	Expect(strings.Count(out.filterPattern, `$.userIdentity.userName`)).To(Equal(2))
 	Expect(out.filterPattern).To(ContainSubstring(`"real-bot"`))
+	Expect(out.filterPattern).ToNot(ContainSubstring(`!= ""`))
+}
+
+func TestApplyOverride_DeDupesValues(t *testing.T) {
+	// User pastes the same exclusion twice — generated filter must dedupe so we
+	// don't emit a redundant `&& ($.field != "v") && ($.field != "v")`.
+	RegisterTestingT(t)
+
+	out := applyOverride(securityAlerts["iamPolicyChanges"], awsApi.CloudTrailAlertOverride{
+		ExcludeUserNames: []string{"bot", "bot", "bot"},
+	})
+	Expect(strings.Count(out.filterPattern, `"bot"`)).To(Equal(1))
 }
 
 func TestEnabledAlerts_OverrideApplied(t *testing.T) {
@@ -260,6 +335,74 @@ func TestEnabledAlerts_OverrideApplied(t *testing.T) {
 	Expect(alerts).To(HaveLen(1))
 	Expect(alerts[0].name).To(Equal("ct-iam-policy-changes"))
 	Expect(alerts[0].filterPattern).To(ContainSubstring(`"integrail-deployer-bot"`))
+}
+
+// TestSelectorChecksWireUpAllDetectors guards against the regression where a contributor
+// adds a new bool to CloudTrailAlertSelectors + a new entry to securityAlerts but forgets
+// to wire it through selectorChecks. Without this test, the detector would never appear
+// in enabledAlerts and the new toggle would be silently dead.
+func TestSelectorChecksWireUpAllDetectors(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Flip every bool selector on via reflection. selectorChecks then enumerates
+	// the (key, enabled) pairs; we assert each securityAlerts key appears exactly once.
+	sel := awsApi.CloudTrailAlertSelectors{}
+	v := reflect.ValueOf(&sel).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() == reflect.Bool {
+			f.SetBool(true)
+		}
+	}
+
+	checkedKeys := map[string]int{}
+	for _, c := range selectorChecks(sel) {
+		Expect(c.enabled).To(BeTrue(), "selectorChecks did not pick up the bool for %q (likely missing wireup)", c.key)
+		checkedKeys[c.key]++
+	}
+
+	// Bidirectional: every securityAlerts key must be in selectorChecks
+	for key := range securityAlerts {
+		Expect(checkedKeys).To(HaveKey(key), "securityAlerts has %q but selectorChecks doesn't wire it up", key)
+		Expect(checkedKeys[key]).To(Equal(1), "selectorChecks lists %q more than once", key)
+	}
+	// And every selectorChecks key must be in securityAlerts
+	for key := range checkedKeys {
+		Expect(securityAlerts).To(HaveKey(key), "selectorChecks lists %q but securityAlerts has no entry", key)
+	}
+	// And the count must equal totalDetectors (catches half-applied additions)
+	Expect(checkedKeys).To(HaveLen(totalDetectors))
+}
+
+func TestValidateOverrides_Empty(t *testing.T) {
+	RegisterTestingT(t)
+	Expect(validateOverrides(awsApi.CloudTrailAlertSelectors{})).To(Succeed())
+}
+
+func TestValidateOverrides_KnownKey(t *testing.T) {
+	RegisterTestingT(t)
+	err := validateOverrides(awsApi.CloudTrailAlertSelectors{
+		Overrides: map[string]awsApi.CloudTrailAlertOverride{
+			"iamPolicyChanges": {ExcludeUserNames: []string{"bot"}},
+		},
+	})
+	Expect(err).To(Succeed())
+}
+
+func TestValidateOverrides_UnknownKeyIsLoudError(t *testing.T) {
+	// Common YAML mistake: misspell the detector key. Without validation the override
+	// is silently dropped and the operator gets no signal — they just keep seeing the
+	// alarm fire and wonder why their exclusion didn't take. Fail at deploy time instead.
+	RegisterTestingT(t)
+	err := validateOverrides(awsApi.CloudTrailAlertSelectors{
+		Overrides: map[string]awsApi.CloudTrailAlertOverride{
+			"unauthorizedApiCall": {ExcludeUserNames: []string{"bot"}}, // missing trailing 's'
+		},
+	})
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("unauthorizedApiCall"))
+	// Should hint at what the user can use
+	Expect(err.Error()).To(ContainSubstring("known"))
 }
 
 func TestSecurityAlertDefinitions_UniqueNames(t *testing.T) {

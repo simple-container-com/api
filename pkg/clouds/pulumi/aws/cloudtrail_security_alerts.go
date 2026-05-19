@@ -51,17 +51,24 @@ var securityAlerts = map[string]securityAlertDef{
 	},
 	// CloudWatch.3 — Console login without MFA (successful only).
 	//
-	// Scoped to userIdentity.type = "IAMUser". AWS Identity Center / federated logins
-	// always emit ConsoleLogin events with additionalEventData.MFAUsed = "No" because
-	// MFA is enforced upstream at the IdP rather than at the AWS console step. Without
-	// this scope the detector pages every SSO console session — a well-documented
-	// CIS CloudWatch.3 false positive. Identity Center sessions should be audited via
-	// signin.amazonaws.com UserAuthentication events (not currently provisioned by
-	// this plugin; surface via a separate detector if needed).
+	// Scoped to userIdentity.type ∈ {IAMUser, Root}. AWS Identity Center / federated
+	// logins always emit ConsoleLogin events with additionalEventData.MFAUsed = "No"
+	// because MFA is enforced upstream at the IdP rather than at the AWS console step;
+	// without the IAMUser-or-Root scope the detector pages every SSO console session —
+	// a well-documented CIS CloudWatch.3 false positive.
+	//
+	// Root is explicitly included here because Root-without-MFA is the highest-severity
+	// outcome of this detector. The separate rootAccountUsage detector (CIS CloudWatch.1)
+	// catches ALL Root activity, including MFA-protected sessions; this one specifically
+	// surfaces the MFA-disabled subset for triage. Dropping Root from scope to fix the
+	// SSO FP would have silently created a gap.
+	//
+	// Identity Center sessions should be audited via signin.amazonaws.com
+	// UserAuthentication events (not currently provisioned by this plugin).
 	"consoleLoginWithoutMfa": {
 		name:          "ct-console-login-no-mfa",
-		description:   "Successful IAM user console login without MFA detected",
-		filterPattern: `{ ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.responseElements.ConsoleLogin = "Success") && ($.userIdentity.type = "IAMUser") }`,
+		description:   "Successful IAM user or Root console login without MFA detected",
+		filterPattern: `{ ($.eventName = "ConsoleLogin") && ($.additionalEventData.MFAUsed != "Yes") && ($.responseElements.ConsoleLogin = "Success") && (($.userIdentity.type = "IAMUser") || ($.userIdentity.type = "Root")) }`,
 	},
 	// CloudWatch.4 — IAM policy changes
 	// SetDefaultPolicyVersion is included: flipping a managed policy's default version
@@ -178,12 +185,16 @@ var securityAlerts = map[string]securityAlertDef{
 
 	// Beyond-CIS — Security Hub disabled or standards turned off.
 	// Why: same attacker-blinding category as GuardDuty.
+	//
+	// Note: Security Hub "Insights" are saved dashboard searches, not detectors;
+	// DeleteInsight is intentionally excluded — it's a UI/housekeeping action and
+	// generates noise for an alarm that's meant to catch "visibility lost" moves.
 	"securityHubDisabled": {
 		name:        "ct-securityhub-disabled",
 		description: "Security Hub disabled or standards/import subscriptions turned off — security visibility lost",
 		filterPattern: `{ ($.eventSource = "securityhub.amazonaws.com") && (($.eventName = "DisableSecurityHub") || ` +
 			`($.eventName = "BatchDisableStandards") || ($.eventName = "DisableImportFindingsForProduct") || ` +
-			`($.eventName = "DeleteActionTarget") || ($.eventName = "DeleteInsight")) }`,
+			`($.eventName = "DeleteActionTarget")) }`,
 	},
 
 	// Beyond-CIS — IAM access key creation.
@@ -220,24 +231,42 @@ var securityAlerts = map[string]securityAlertDef{
 	// Beyond-CIS — KMS key policy / grant changes.
 	// Why: CIS CloudWatch.7 catches key deletion but not policy edits. PutKeyPolicy / CreateGrant
 	// can quietly hand decrypt rights to a new principal without touching the key's lifecycle.
+	//
+	// PutResourcePolicy is intentionally NOT included here — it is not a KMS API. (It exists on
+	// CloudTrail Lake and other services, but never under eventSource=kms.amazonaws.com, so the
+	// clause would be permanent dead code.) KMS uses PutKeyPolicy for resource policy edits.
+	// API ref: https://docs.aws.amazon.com/kms/latest/APIReference/API_Operations.html
 	"kmsKeyPolicyChanges": {
 		name:        "ct-kms-key-policy-changes",
 		description: "KMS key policy modified or grant created — verify principal scope and conditions",
 		filterPattern: `{ ($.eventSource = "kms.amazonaws.com") && (($.eventName = "PutKeyPolicy") || ` +
-			`($.eventName = "PutResourcePolicy") || ($.eventName = "CreateGrant") || ` +
-			`($.eventName = "RetireGrant") || ($.eventName = "RevokeGrant")) }`,
+			`($.eventName = "CreateGrant") || ($.eventName = "RetireGrant") || ($.eventName = "RevokeGrant")) }`,
 	},
 
-	// Beyond-CIS — AWS Organizations / SCP changes.
-	// Why: SCPs are the strongest preventative control in a multi-account org. Detaching
-	// or deleting one widens blast radius across every account it covered.
+	// Beyond-CIS — AWS Organizations changes.
+	// Why: SCPs are the strongest preventative control in a multi-account org. Detaching,
+	// deleting, or moving accounts to a different OU widens blast radius across every
+	// account it covered. Delegated-administrator events are the canonical "blind the
+	// management account" move: register a member account as the GuardDuty/Security Hub
+	// admin, then suppress findings there.
+	//
+	// Coverage by category:
+	//   policies:           CreatePolicy / DeletePolicy / UpdatePolicy / Attach/DetachPolicy / Enable/DisablePolicyType
+	//   OU & accounts:      MoveAccount / RemoveAccountFromOrganization / LeaveOrganization
+	//   delegated admin:    RegisterDelegatedAdministrator / DeregisterDelegatedAdministrator
+	//   service trust:      EnableAWSServiceAccess / DisableAWSServiceAccess
+	//
+	// API ref: https://docs.aws.amazon.com/organizations/latest/APIReference/API_Operations.html
 	"organizationsChanges": {
 		name:        "ct-organizations-changes",
-		description: "AWS Organizations policy modified — verify SCP boundaries",
+		description: "AWS Organizations policy, OU membership, or delegated admin changed — verify boundary",
 		filterPattern: `{ ($.eventSource = "organizations.amazonaws.com") && (($.eventName = "CreatePolicy") || ` +
 			`($.eventName = "DeletePolicy") || ($.eventName = "UpdatePolicy") || ($.eventName = "AttachPolicy") || ` +
 			`($.eventName = "DetachPolicy") || ($.eventName = "EnablePolicyType") || ($.eventName = "DisablePolicyType") || ` +
-			`($.eventName = "LeaveOrganization") || ($.eventName = "RemoveAccountFromOrganization")) }`,
+			`($.eventName = "MoveAccount") || ($.eventName = "RemoveAccountFromOrganization") || ` +
+			`($.eventName = "LeaveOrganization") || ($.eventName = "RegisterDelegatedAdministrator") || ` +
+			`($.eventName = "DeregisterDelegatedAdministrator") || ($.eventName = "EnableAWSServiceAccess") || ` +
+			`($.eventName = "DisableAWSServiceAccess")) }`,
 	},
 
 	// Beyond-CIS — Anonymous external probes (recon).
@@ -256,13 +285,15 @@ var securityAlerts = map[string]securityAlertDef{
 	},
 }
 
-// enabledAlerts returns the alert definitions that are enabled in the selector config.
-// Per-detector overrides (exclusions, threshold, period) are baked into the returned
-// definitions here so downstream provisioning code sees a single resolved struct per alert.
-// Results are sorted by name for deterministic Pulumi resource ordering.
-func enabledAlerts(selectors awsApi.CloudTrailAlertSelectors) []securityAlertDef {
-	var result []securityAlertDef
-	checks := []struct {
+// selectorChecks lists every bool selector keyed by the detector slug that maps it to
+// a securityAlerts entry. The list is the single source of truth for "what detectors
+// can be enabled" — reflection tests assert it covers every securityAlerts key, and the
+// override validation step rejects map keys outside this set.
+func selectorChecks(selectors awsApi.CloudTrailAlertSelectors) []struct {
+	key     string
+	enabled bool
+} {
+	return []struct {
 		key     string
 		enabled bool
 	}{
@@ -291,7 +322,46 @@ func enabledAlerts(selectors awsApi.CloudTrailAlertSelectors) []securityAlertDef
 		{"organizationsChanges", selectors.OrganizationsChanges},
 		{"anonymousProbes", selectors.AnonymousProbes},
 	}
-	for _, c := range checks {
+}
+
+// validateOverrides returns an error when selectors.Overrides contains a key that
+// doesn't correspond to any detector. Catches YAML typos like
+// `overrides: { unauthorizedApiCall: ... }` (missing trailing s) — without this guard
+// the override would be silently dropped at runtime and the operator would never know
+// why their exclusion didn't take effect.
+func validateOverrides(selectors awsApi.CloudTrailAlertSelectors) error {
+	if len(selectors.Overrides) == 0 {
+		return nil
+	}
+	known := map[string]struct{}{}
+	for _, c := range selectorChecks(selectors) {
+		known[c.key] = struct{}{}
+	}
+	var unknown []string
+	for k := range selectors.Overrides {
+		if _, ok := known[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	knownKeys := make([]string, 0, len(known))
+	for k := range known {
+		knownKeys = append(knownKeys, k)
+	}
+	sort.Strings(knownKeys)
+	return errors.Errorf("unknown detector key(s) in alerts.overrides: %v (known: %v)", unknown, knownKeys)
+}
+
+// enabledAlerts returns the alert definitions that are enabled in the selector config.
+// Per-detector overrides (exclusions, threshold, period) are baked into the returned
+// definitions here so downstream provisioning code sees a single resolved struct per alert.
+// Results are sorted by name for deterministic Pulumi resource ordering.
+func enabledAlerts(selectors awsApi.CloudTrailAlertSelectors) []securityAlertDef {
+	var result []securityAlertDef
+	for _, c := range selectorChecks(selectors) {
 		if !c.enabled {
 			continue
 		}
@@ -349,8 +419,33 @@ func applyOverride(def securityAlertDef, ov awsApi.CloudTrailAlertOverride) secu
 	return def
 }
 
-// buildExclusionClauses turns an override into a list of `(field != "val")` clauses
-// in deterministic order. The list is empty when the override has no exclusions.
+// buildExclusionClauses turns an override into a list of clauses in deterministic order.
+// The list is empty when the override has no exclusions.
+//
+// Each clause is guarded with a `NOT EXISTS` disjunction so that events where the field
+// is absent on the top-level $.userIdentity object pass through the filter unchanged.
+// This matters because CloudWatch metric filter patterns return FALSE for `$.field != "x"`
+// when $.field is absent — without the guard, a single exclusion would silently mask
+// every event whose userIdentity lacks that field. Concretely: AssumedRole events do not
+// carry $.userIdentity.userName at the top level (the role's userName lives at
+// $.userIdentity.sessionContext.sessionIssuer.userName), so an unguarded
+// `$.userIdentity.userName != "bot"` would drop every assumed-role event from the
+// detector, including ones that have nothing to do with the bot.
+//
+// Generated form per field is:
+//
+//	( ($.field NOT EXISTS) || ( ($.field != "v1") && ($.field != "v2") ) )
+//
+// Reading it: "field is absent OR field is none of {v1, v2}". The inner conjunction is
+// De Morgan'd from "NOT (field == v1 OR field == v2)" — we want to exclude any of the
+// enumerated values, which means the event-must-match predicate is the AND of `!=`s.
+//
+// References:
+//   - Filter pattern: `!=` returns FALSE when field is missing; AND/OR/NOT EXISTS are
+//     all supported.
+//     https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html
+//   - CloudTrail userIdentity field shape (AssumedRole vs IAMUser):
+//     https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-user-identity.html
 func buildExclusionClauses(ov awsApi.CloudTrailAlertOverride) []string {
 	var clauses []string
 	add := func(field string, values []string) {
@@ -359,13 +454,41 @@ func buildExclusionClauses(ov awsApi.CloudTrailAlertOverride) []string {
 		// run when the user reorders the YAML list).
 		vs := append([]string(nil), values...)
 		sort.Strings(vs)
+		// De-dupe + skip empties — common YAML mistake is a trailing `-` producing
+		// an empty list entry; would otherwise emit `($.x != "")` clauses that match
+		// nothing useful and just pad the filter pattern length.
+		seen := map[string]struct{}{}
+		nonEmpty := make([]string, 0, len(vs))
 		for _, v := range vs {
 			if v == "" {
 				continue
 			}
-			clauses = append(clauses, fmt.Sprintf(`($.%s != %q)`, field, v))
+			if _, dup := seen[v]; dup {
+				continue
+			}
+			seen[v] = struct{}{}
+			nonEmpty = append(nonEmpty, v)
 		}
+		if len(nonEmpty) == 0 {
+			return
+		}
+		// Single-value short form skips the inner AND wrapper: more readable in
+		// the generated filter pattern, identical semantics.
+		var inner string
+		if len(nonEmpty) == 1 {
+			inner = fmt.Sprintf(`($.%s != %q)`, field, nonEmpty[0])
+		} else {
+			parts := make([]string, 0, len(nonEmpty))
+			for _, v := range nonEmpty {
+				parts = append(parts, fmt.Sprintf(`($.%s != %q)`, field, v))
+			}
+			inner = "(" + strings.Join(parts, " && ") + ")"
+		}
+		clause := fmt.Sprintf(`(($.%s NOT EXISTS) || %s)`, field, inner)
+		clauses = append(clauses, clause)
 	}
+	// Field order is fixed (not sorted by field name) so a user re-ordering YAML keys
+	// within a single override doesn't churn Pulumi state.
 	add("userIdentity.userName", ov.ExcludeUserNames)
 	add("userIdentity.principalId", ov.ExcludePrincipalIds)
 	add("userIdentity.arn", ov.ExcludeUserArns)
@@ -399,6 +522,13 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 
 	if cfg.LogGroupName == "" {
 		return nil, errors.New("logGroupName is required for CloudTrail security alerts")
+	}
+
+	// Fail fast on `alerts.overrides` keys that don't match a known detector — silently
+	// dropping a typo would create a misleading "no exclusion applied" outcome that's
+	// very hard to diagnose from a noisy alert channel.
+	if err := validateOverrides(cfg.Alerts); err != nil {
+		return nil, err
 	}
 
 	// Pre-flight: if the user declared a trailName, verify the trail has
