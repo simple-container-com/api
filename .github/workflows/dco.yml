@@ -57,7 +57,18 @@ jobs:
         run: |
           set -euo pipefail
           # List commits introduced by this PR (BASE..HEAD).
-          commits=$(git log --format='%H' "${BASE_SHA}..${HEAD_SHA}")
+          #
+          # --no-merges skips merge commits (commits with 2+ parents).
+          # Merge commits are integration points without authored
+          # content — their diff is computed automatically from the
+          # parents — so DCO does not apply to them. The Probot DCO
+          # app and the Linux-kernel checkpatch tooling both skip
+          # merge commits for the same reason. This also means
+          # GitHub's "Update branch" button (which generates an
+          # unsigned-off merge commit) no longer breaks the check.
+          # Authored commits on both sides of the merge are still
+          # verified because they appear individually in BASE..HEAD.
+          commits=$(git log --no-merges --format='%H' "${BASE_SHA}..${HEAD_SHA}")
           if [ -z "$commits" ]; then
             echo "No new commits in this PR — nothing to check."
             exit 0

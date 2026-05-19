@@ -154,6 +154,22 @@ func intelligentTruncate(text string, maxLength int) string {
 		beginningLen = availableSpace - endLen
 	}
 
+	// Fall back to a simple end-trim if maxLength is too small for the
+	// 50-byte beginning / 100-byte end minimums to fit. Without this the
+	// floor clamps above push beginningLen / endLen negative and the
+	// slice operations below panic. The production caller (Send) guards
+	// against this via `availableSpace > 50`, but a defensive fallback
+	// here keeps the helper safe for any caller.
+	if beginningLen < 0 || endLen < 0 || beginningLen+endLen > len(text) {
+		if maxLength <= 3 {
+			if maxLength < 0 {
+				return ""
+			}
+			return text[:maxLength]
+		}
+		return text[:maxLength-3] + "..."
+	}
+
 	// Extract beginning and end portions
 	beginning := text[:beginningLen]
 	end := text[len(text)-endLen:]

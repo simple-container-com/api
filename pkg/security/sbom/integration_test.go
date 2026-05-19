@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/security/signing"
+	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
 // TestSyftGenerateIntegration tests real syft command execution
@@ -91,8 +92,9 @@ func TestAttacherIntegration(t *testing.T) {
 		t.Skip("Syft not installed:", err)
 	}
 
-	// Check if cosign is available
-	if err := signing.CheckCosignInstalled(ctx); err != nil {
+	// Check if cosign is available. CheckCosignInstalled was removed
+	// from the signing package; use the canonical tool-installer probe.
+	if err := tools.NewToolInstaller().CheckInstalled(ctx, "cosign"); err != nil {
 		t.Skip("Cosign not installed:", err)
 	}
 

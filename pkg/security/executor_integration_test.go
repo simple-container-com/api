@@ -19,8 +19,7 @@ import (
 func skipIfCosignNotInstalled(t *testing.T) {
 	t.Helper()
 	installer := tools.NewToolInstaller()
-	installed, err := installer.CheckInstalled("cosign")
-	if err != nil || !installed {
+	if err := installer.CheckInstalled(context.Background(), "cosign"); err != nil {
 		t.Skip("Skipping integration test: cosign not installed. Install from https://docs.sigstore.dev/cosign/installation/")
 	}
 }

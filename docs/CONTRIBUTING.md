@@ -13,7 +13,8 @@ change in front of maintainers and what we look for in a clean PR.
 3. **Sign your commits.** SSH or GPG, your choice. `main` enforces signed
    commits; unsigned PRs are blocked at merge.
 4. **Write tests** for behavioural changes. The bar is "is this change
-   regressable?" — if yes, add a test.
+   regressable?" — if yes, add a test. Follow the conventions in
+   [`TESTING.md`](TESTING.md) (gomega + table-driven + sub-tests).
 5. **Don't suppress findings.** Lint, SAST, vuln-scan, and Scorecard
    warnings are signals, not noise. If a finding is a real false
    positive, document why in the PR description, not via
@@ -43,12 +44,21 @@ go build ./...
 # Unit tests
 go test ./...
 
+# Unit + integration tests
+go test -tags integration ./...
+
+# Coverage (uses the welder task with entry-point + mock exclusions)
+welder run coverage
+
 # Fuzz tests (HMAC cache parse path)
 go test -run='^$' -fuzz=FuzzVerifyAndExtract -fuzztime=30s ./pkg/security/
 
 # Lint
 golangci-lint run    # if installed locally
 ```
+
+See [`TESTING.md`](TESTING.md) for the full set of test invocations,
+fixture conventions, and the coverage policy.
 
 CI runs golangci-lint, `go vet`, `staticcheck`, Semgrep, CodeQL, and
 fuzz on every PR — set up local tooling to catch most of these before
