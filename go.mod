@@ -38,7 +38,7 @@ require (
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.83.3
 	github.com/pulumi/pulumi-awsx/sdk/v2 v2.22.0
 	github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.15.0
-	github.com/pulumi/pulumi-command/sdk v0.9.2
+	github.com/pulumi/pulumi-command/sdk v1.2.1
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.11.2
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.41.1
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.31.0
