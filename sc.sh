@@ -430,10 +430,24 @@ verify_sc_tarball() {
   echo "✅"
 
   echo -n "🔍 Verifying tarball signature against build-workflow identity... "
-  # Identity regex matches the production push.yaml on refs/heads/main —
-  # the only workflow allowed to publish tarballs to dist. Staging /
-  # preview tarballs do not land at dist.simple-container.com, so a
-  # single anchored regex suffices here. Mirror this in SECURITY.md.
+  # Default regex matches the production push.yaml on refs/heads/main — the
+  # only workflow allowed to publish tarballs that the strict signature path
+  # accepts. Mirror in docs/SECURITY.md.
+  #
+  # When the caller sets SIMPLE_CONTAINER_ALLOW_PREVIEW=1, we widen the regex
+  # to ALSO accept branch-preview.yaml@refs/heads/* signatures. Preview
+  # tarballs published by branch-preview.yaml DO land at dist.simple-container.com
+  # (the earlier "do not land" comment was wrong — see the Publish step in
+  # .github/workflows/branch-preview.yaml). Without this opt-in path,
+  # consumers wanting to test a feature branch via `sc.sh` end up either
+  # bypassing the installer entirely or weakening their own verification
+  # locally — both worse outcomes than a documented, env-gated opt-in.
+  #
+  # The opt-in is intentional: production users default to strict, and
+  # picking up a preview build requires explicit acknowledgement that the
+  # signing identity is a feature-branch workflow run (lower bar than
+  # main-branch protected). The signature itself is still verified end-to-
+  # end via cosign + Rekor, just with a wider identity allowlist.
   #
   # IMPORTANT: do NOT pass --yes here. cosign 2.x only accepts --yes on
   # sign-blob (skip interactive confirmation); on verify-blob it errors
@@ -441,20 +455,39 @@ verify_sc_tarball() {
   # after Phase 2c shipped. Capture cosign's stderr (don't /dev/null it)
   # so future failures surface the real error instead of a generic
   # message.
+  local identity_regex='^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$'
+  if [ "${SIMPLE_CONTAINER_ALLOW_PREVIEW:-}" = "1" ]; then
+    identity_regex='^https://github\.com/simple-container-com/api/\.github/workflows/(push\.yaml@refs/heads/main|branch-preview\.yaml@refs/heads/.+)$'
+  fi
   local cosign_err
   if ! cosign_err=$(COSIGN_EXPERIMENTAL=1 cosign verify-blob \
       --bundle "$bundle_path" \
-      --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+      --certificate-identity-regexp "$identity_regex" \
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
       "$tarball_path" 2>&1); then
     echo "❌"
     echo "❌ Signature verification FAILED for $tarball_path"
     echo "    cosign output:"
     echo "$cosign_err" | sed 's/^/      /'
-    echo "    The tarball does not bear a valid signature from the SC"
-    echo "    production publish workflow. This could mean: tarball was"
-    echo "    tampered in transit, CDN was compromised, or the signing"
-    echo "    identity rotated — see https://github.com/simple-container-com/api"
+    # Detect the preview-signed-but-strict-mode case and give the user a
+    # specific hint instead of the generic "compromised CDN" copy. The
+    # cosign error includes the actual signer identity in `got subjects [...]`.
+    if echo "$cosign_err" | grep -q 'branch-preview\.yaml@refs/heads/'; then
+      echo "    The tarball was signed by branch-preview.yaml (a feature-branch"
+      echo "    build), not by the production push.yaml@main workflow. To allow"
+      echo "    preview builds explicitly, rerun with:"
+      echo ""
+      echo "      SIMPLE_CONTAINER_ALLOW_PREVIEW=1 SIMPLE_CONTAINER_VERSION=$VERSION \\"
+      echo "        bash <(curl -Ls https://dist.simple-container.com/sc.sh)"
+      echo ""
+      echo "    This is an intentional opt-in: production installs stay strict"
+      echo "    and only main-branch signatures are accepted by default."
+    else
+      echo "    The tarball does not bear a valid signature from the SC"
+      echo "    production publish workflow. This could mean: tarball was"
+      echo "    tampered in transit, CDN was compromised, or the signing"
+      echo "    identity rotated — see https://github.com/simple-container-com/api"
+    fi
     echo "    Refusing to extract."
     return 1
   fi

@@ -190,6 +190,37 @@ end-to-end supply-chain integrity should install cosign before
 bootstrapping (https://docs.sigstore.dev/system_config/installation/).
 The commands above remain the manual / out-of-band verification path.
 
+#### Installing preview / branch-preview builds
+
+Default `sc.sh` accepts only production-signed tarballs (signed by
+`push.yaml@refs/heads/main`). Tarballs produced by
+`branch-preview.yaml` carry a different OIDC identity (the feature
+branch's own workflow run) and are rejected by default — even though
+they ship to the same CDN with valid Sigstore bundles.
+
+To install a preview build, set `SIMPLE_CONTAINER_ALLOW_PREVIEW=1`:
+
+```bash
+SIMPLE_CONTAINER_ALLOW_PREVIEW=1 \
+SIMPLE_CONTAINER_VERSION=YYYY.M.D-pre.<sha>-preview.<sha> \
+  bash <(curl -Ls https://dist.simple-container.com/sc.sh)
+```
+
+When the env var is set, `verify_sc_tarball` widens the accepted
+identity regex to also include
+`branch-preview.yaml@refs/heads/<branch>`. The signature, Rekor log
+entry, and OIDC issuer are still verified — only the allowed
+signer-workflow set is broader. Production users never set this and
+remain on the strict `push.yaml@main`-only path.
+
+The manual `cosign verify-blob` equivalent for preview tarballs:
+
+```bash
+cosign verify-blob --bundle "$T.cosign-bundle" \
+  --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/(push\.yaml@refs/heads/main|branch-preview\.yaml@refs/heads/.+)$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$T"
+```
+
 ### Composite-action consumers — SHA-pin the underlying image
 
 `simple-container-com/api/.github/actions/{deploy-client-stack,
