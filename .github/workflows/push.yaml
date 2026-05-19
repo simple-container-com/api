@@ -123,7 +123,7 @@ jobs:
           path: docs/schemas
           key: schemas-${{ github.run_id }}
       - name: upload bin directory artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: bin-tools
           path: bin
@@ -267,7 +267,7 @@ jobs:
             echo "All tarball attestation steps succeeded for ${{ matrix.os }}/${{ matrix.arch }}."
           fi
       - name: upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
           # Match both versioned (sc-os-arch-vX.Y.Z.tar.gz) AND unversioned (sc-os-arch.tar.gz).
@@ -316,7 +316,7 @@ jobs:
         run: |
           go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
@@ -372,7 +372,7 @@ jobs:
           # / arm64 / arm/v5 / arm/v7 / 386 / ppc64le / riscv64 / s390x.
           docker run --rm -v $PWD/docs:/docs -w /docs python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461 sh -c "pip install --require-hashes -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
       - name: upload docs artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: docs-site
           path: docs/site
@@ -509,7 +509,7 @@ jobs:
           printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.image }}.txt"
       - name: Upload digest artifact for ${{ matrix.image }}
         if: steps.build_and_push.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
