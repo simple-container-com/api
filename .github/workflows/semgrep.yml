@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   semgrep:
-    uses: simple-container-com/actions/.github/workflows/semgrep.yml@0af5a697f24ea484991660619d0ae42d50343b9d # main
+    uses: simple-container-com/actions/.github/workflows/semgrep.yml@d7db72047469a36c10e683bc050c17838c7facf2 # main
     permissions:
       contents: read
     with:

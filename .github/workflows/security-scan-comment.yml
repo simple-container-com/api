@@ -9,7 +9,7 @@ permissions:
 jobs:
   comment:
     if: github.event.workflow_run.event == 'pull_request'
-    uses: simple-container-com/actions/.github/workflows/security-scan-comment.yml@0af5a697f24ea484991660619d0ae42d50343b9d # main
+    uses: simple-container-com/actions/.github/workflows/security-scan-comment.yml@d7db72047469a36c10e683bc050c17838c7facf2 # main
     permissions:
       pull-requests: write
       actions: read
