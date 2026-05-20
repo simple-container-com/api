@@ -1,6 +1,6 @@
 module github.com/simple-container-com/api
 
-go 1.26.0
+go 1.26.1
 
 require (
 	cloud.google.com/go/storage v1.62.2
