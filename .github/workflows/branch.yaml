@@ -11,6 +11,9 @@ name: Build simple-container in branch
 on:
   workflow_dispatch:
   pull_request:
+    # `labeled` is required so a codeowner adding the `ci-run` label
+    # re-triggers the workflow on an open Dependabot PR (see gate below).
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - 'main'
       - 'staging'
@@ -22,8 +25,22 @@ permissions:
   contents: read
 
 jobs:
+  # Cost gate: Dependabot PRs don't see `secrets.SC_CONFIG` (lives in the
+  # repo-secret namespace, not the `dependabot` one), so build-setup
+  # always fails on them. Worse, this workflow runs on paid Blacksmith
+  # runners — every Dependabot bot PR was burning Blacksmith minutes on
+  # a doomed build. Skip the whole pipeline by default for Dependabot;
+  # a codeowner adds the `ci-run` label when they want to actually
+  # validate a bump (e.g. before merging the consolidated dep PR). All
+  # downstream jobs `needs: build-setup`, so they cascade-skip; the
+  # `finalize` aggregator below has the same guard so it doesn't fire a
+  # spurious "build failed" Telegram on the cascade.
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.user.login != 'dependabot[bot]' ||
+      contains(github.event.pull_request.labels.*.name, 'ci-run')
     runs-on: blacksmith-8vcpu-ubuntu-2204
     outputs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
@@ -94,7 +111,7 @@ jobs:
           echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
           echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: upload bin directory artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: bin-tools
           path: bin
@@ -136,7 +153,7 @@ jobs:
           go build -ldflags "-s -w" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
       - name: upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
           path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
@@ -172,7 +189,7 @@ jobs:
         run: |
           go build -a -installsuffix cgo -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
@@ -195,7 +212,7 @@ jobs:
           mkdir -p bin
           go build -ldflags "-s -w" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
       - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: github-actions-staging-binary
           path: bin/github-actions
@@ -220,7 +237,16 @@ jobs:
   finalize:
     name: Finalize build in branch
     runs-on: ubuntu-latest
-    if: ${{ always() }}
+    # Match the build-setup gate: skip on Dependabot PRs without the
+    # `ci-run` label so we don't post a "build failed" sticky comment
+    # for a pipeline that was intentionally never run.
+    if: >-
+      always() &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.user.login != 'dependabot[bot]' ||
+        contains(github.event.pull_request.labels.*.name, 'ci-run')
+      )
     permissions:
       contents: write
     needs:

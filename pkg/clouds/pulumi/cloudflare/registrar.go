@@ -79,7 +79,7 @@ func (r *provisioner) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionPa
 			recordValue = sdk.String(record.Value).ToStringOutput()
 		}
 		res, err := cfImpl.NewRecord(ctx, recordName, &cfImpl.RecordArgs{
-			ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
+			ZoneId:  sdk.String(r.zone.ZoneId),
 			Name:    sdk.String(record.Name),
 			Type:    sdk.String(record.Type),
 			Content: recordValue,
@@ -108,7 +108,7 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 		recordValue = sdk.String(dnsRecord.Value).ToStringOutput()
 	}
 	ref, err := cfImpl.NewRecord(ctx, fmt.Sprintf("%s-record", dnsRecord.Name), &cfImpl.RecordArgs{
-		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
+		ZoneId:  sdk.String(r.zone.ZoneId),
 		Name:    sdk.String(dnsRecord.Name),
 		Type:    sdk.String(dnsRecord.Type),
 		Content: recordValue,
@@ -137,7 +137,7 @@ func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostN
 	}
 	routeName := fmt.Sprintf("%s-route", ruleName)
 	workerRoute, err := cfImpl.NewWorkersRoute(ctx, routeName, &cfImpl.WorkersRouteArgs{
-		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
+		ZoneId:  sdk.String(r.zone.ZoneId),
 		Pattern: sdk.String(fmt.Sprintf("%s/*", hostName)),
 		Script:  workerScript.ScriptName,
 	}, sdk.Provider(r.provider), sdk.RetainOnDelete(true))
@@ -314,7 +314,7 @@ async function handleRequest(origRequest) {
 
 	routeName := fmt.Sprintf("%s-route", ruleName)
 	workerRoute, err := cfImpl.NewWorkersRoute(ctx, routeName, &cfImpl.WorkersRouteArgs{
-		ZoneId:  sdk.String(lo.FromPtr(r.zone.ZoneId)),
+		ZoneId:  sdk.String(r.zone.ZoneId),
 		Pattern: sdk.String(fmt.Sprintf("%s/*", rule.FromHost)),
 		Script:  workerScript.ScriptName,
 	}, sdk.Provider(r.provider), sdk.RetainOnDelete(true))

@@ -27,7 +27,7 @@ func Cloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	if !ok {
 		return nil, errors.Errorf("failed to convert cloudrun config for %q", input.Descriptor.Type)
 	}
-	params.Log.Debug(ctx.Context(), "configure cloud run for %q", cloudrunInput)
+	params.Log.Debug(ctx.Context(), "configure cloud run for %+v", cloudrunInput)
 
 	params.Log.Error(ctx.Context(), "not implemented for %q", input.Descriptor.Type)
 	return &api.ResourceOutput{Ref: nil}, nil

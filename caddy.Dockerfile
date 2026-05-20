@@ -4,7 +4,7 @@
 # Bumping requires editing all three "2.11.x" sites below (two FROMs + xcaddy).
 # Refresh: docker buildx imagetools inspect caddy:X.Y.Z[-builder]
 
-FROM caddy:2.11.3-builder@sha256:14f5b3ecb208d45a37bc26435a8c0c29181de98115358b4b863c6ec5801116a5 AS builder
+FROM caddy:2.11.3-builder@sha256:f96a3b748f2ce4e5f6595453615da734b93993b231213fe35d0673893b5613ef AS builder
 
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
     && caddy version
 
-FROM caddy:2.11.3@sha256:3739ea4f0c877259a693d932693cf8f3408e9a9497c004f031b0e830e93e1546
+FROM caddy:2.11.3@sha256:ec18ee54aab3315c22e25f3b2babda73ff8007d39b13b3bd1bfffa2f0444c7d9
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 

@@ -167,7 +167,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		var clusterIPAddress string
 
 		if lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress) != "" {
-			params.Log.Info(ctx.Context(), "Using specified cluster IP address for domain %q (%q)", domain, kubeRunInput.Deployment.StackConfig.ClusterIPAddress)
+			params.Log.Info(ctx.Context(), "Using specified cluster IP address for domain %q (%q)", domain, lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress))
 			clusterIPAddress = lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress)
 		} else {
 			params.Log.Info(ctx.Context(), "Using provisioned cluster IP address for domain %q", domain)

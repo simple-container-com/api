@@ -65,7 +65,7 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	if !ok {
 		return errors.Errorf("failed to convert auth config to *gcloud.Credentials")
 	}
-	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue())))
+	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue()))) //nolint:staticcheck // SA1019: no in-memory replacement available
 	if err != nil {
 		return errors.Wrapf(err, "failed to initialize gcp client")
 	}

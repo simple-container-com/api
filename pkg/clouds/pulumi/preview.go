@@ -20,18 +20,18 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Previewing parent stack %q...", s.Ref().FullyQualifiedName().String()))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Previewing parent stack %q...", s.Ref().FullyQualifiedName().String()))
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.provisionProgram(stack, cfg))
 	if err != nil {
 		return nil, err
 	}
 	if !params.SkipRefresh {
-		p.logger.Info(ctx, color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
 		refreshResult, err := stackSource.Refresh(ctx)
 		if err != nil {
 			return nil, err
 		}
-		p.logger.Info(ctx, color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
 	}
 
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
@@ -42,7 +42,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
 	return p.toPreviewResult(stackSource.Name(), previewResult), nil
 }
 
@@ -51,7 +51,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Previewing child stack %q...", s.Ref().FullyQualifiedName().String()))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Previewing child stack %q...", s.Ref().FullyQualifiedName().String()))
 
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
@@ -61,7 +61,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Preview child stack %q...", stackSource.Name()))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child stack %q...", stackSource.Name()))
 	previewResult, err := stackSource.Preview(ctx,
 		optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
 		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
@@ -69,7 +69,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
 	return p.toPreviewResult(stackSource.Name(), previewResult), nil
 }
 

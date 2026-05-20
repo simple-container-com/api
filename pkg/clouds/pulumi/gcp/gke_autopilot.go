@@ -625,7 +625,7 @@ func createCloudNat(
 
 	// Add additional logging to help debug NAT configuration
 	params.Log.Info(ctx.Context(), "🔍 NAT Configuration Details:")
-	params.Log.Info(ctx.Context(), "   - IP Allocation: MANUAL_ONLY (using static IP %s)", staticIp.Name.ToStringOutput())
+	params.Log.Info(ctx.Context(), "   - IP Allocation: MANUAL_ONLY (using static IP %v)", staticIp.Name.ToStringOutput())
 	params.Log.Info(ctx.Context(), "   - Source Ranges: LIST_OF_SUBNETWORKS with ALL_IP_RANGES")
 	params.Log.Info(ctx.Context(), "   - Subnet: default (includes primary + secondary ranges)")
 	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM", 64, 65536)

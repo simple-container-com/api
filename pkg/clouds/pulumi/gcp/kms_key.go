@@ -80,7 +80,7 @@ func initServicesAPIClient(ctx context.Context, resourceConfig any) (*serviceusa
 	if !ok {
 		return nil, errors.Errorf("failed to convert config to api.AuthConfig")
 	}
-	svc, err := serviceusage.NewService(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue())))
+	svc, err := serviceusage.NewService(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue()))) //nolint:staticcheck // SA1019: no in-memory replacement available
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to init google API services client")
 	}

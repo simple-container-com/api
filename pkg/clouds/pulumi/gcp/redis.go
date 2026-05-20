@@ -72,7 +72,7 @@ func RedisComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resource
 	fullParentReference := params.ParentStack.FullReference
 	redisHostExport := toRedisHostExport(redisName)
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-	params.Log.Info(ctx.Context(), "Getting redis host from %q for %q from parent stack %q (%q)", stack.Name, fullParentReference, suffix)
+	params.Log.Info(ctx.Context(), "Getting redis host for stack %q from parent stack %q (suffix %q)", stack.Name, fullParentReference, suffix)
 	redisHost, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s%s-cproc-host", redisName, suffix), fullParentReference, redisHostExport, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get redis host from parent stack for %q", redisName)

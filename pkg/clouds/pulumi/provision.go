@@ -39,7 +39,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	}
 
 	if timeoutDuration, err := time.ParseDuration(params.Timeouts.ExecutionTimeout); err == nil {
-		p.logger.Info(ctx, color.YellowFmt("Setting timeout on whole execution %q...", timeoutDuration.String()))
+		p.logger.Info(ctx, "%s", color.YellowFmt("Setting timeout on whole execution %q...", timeoutDuration.String()))
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, timeoutDuration)
 		ctx = ctxWithTimeout
 		defer cancel()
@@ -54,7 +54,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
 	}
 	if !params.SkipPreview {
-		p.logger.Info(ctx, color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
 
 		previewOpts := []optpreview.Option{
 			optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
@@ -70,7 +70,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
 	upOpts := []optup.Option{
 		optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextProvision))),
@@ -86,7 +86,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), updateRes)))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), updateRes)))
 	return nil
 }
 

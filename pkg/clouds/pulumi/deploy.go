@@ -26,7 +26,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Deploying stack %q...", s.Ref().FullyQualifiedName()))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Deploying stack %q...", s.Ref().FullyQualifiedName()))
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
 
@@ -36,15 +36,15 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	}
 
 	if !params.SkipRefresh {
-		p.logger.Info(ctx, color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
 		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.GreenFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
 	if !params.SkipPreview {
-		p.logger.Info(ctx, color.GreenFmt("Preview stack %q...", stackSource.Name()))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Preview stack %q...", stackSource.Name()))
 
 		previewOpts := []optpreview.Option{
 			optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
@@ -60,11 +60,11 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
+		p.logger.Info(ctx, "%s", color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
-	p.logger.Info(ctx, color.GreenFmt("Updating stack %q...", stackSource.Name()))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Updating stack %q...", stackSource.Name()))
 	if timeoutDuration, err := time.ParseDuration(params.Timeouts.ExecutionTimeout); err == nil {
-		p.logger.Info(ctx, color.YellowFmt("Setting timeout on whole execution %q...", timeoutDuration.String()))
+		p.logger.Info(ctx, "%s", color.YellowFmt("Setting timeout on whole execution %q...", timeoutDuration.String()))
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, timeoutDuration)
 		ctx = ctxWithTimeout
 		defer cancel()
@@ -84,7 +84,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), upRes)))
+	p.logger.Info(ctx, "%s", color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), upRes)))
 	return nil
 }
 
