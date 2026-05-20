@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/disgo/webhook"
 	"github.com/pkg/errors"
 
@@ -18,7 +19,7 @@ const (
 )
 
 type alertSender struct {
-	client     webhook.Client
+	client     *webhook.Client
 	webhookUrl string
 }
 
@@ -100,7 +101,7 @@ func (a *alertSender) Send(alert api.Alert) error {
 
 	_, err := a.client.CreateMessage(discord.WebhookMessageCreate{
 		Content: fullMessage,
-	})
+	}, rest.CreateWebhookMessageParams{})
 	return err
 }
 
