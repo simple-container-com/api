@@ -11,8 +11,10 @@ import (
 )
 
 // totalDetectors is the count of built-in security detectors. Update when adding new ones.
-// Composition: 14 CIS CloudWatch.1-14 + 8 beyond-CIS additions.
-const totalDetectors = 22
+// Composition: 14 CIS CloudWatch.1-14 + 9 beyond-CIS additions
+// (kmsKeyPolicy + kmsKeyGrants count as two; they were split from the prior kmsKeyPolicyChanges
+// because the events have different signal density and warrant different thresholds).
+const totalDetectors = 23
 
 func TestEnabledAlerts_AllEnabled(t *testing.T) {
 	RegisterTestingT(t)
@@ -39,7 +41,8 @@ func TestEnabledAlerts_AllEnabled(t *testing.T) {
 		AccessKeyCreation:     true,
 		S3PublicAccessChanges: true,
 		LambdaUrlPublic:       true,
-		KmsKeyPolicyChanges:   true,
+		KmsKeyPolicy:          true,
+		KmsKeyGrants:          true,
 		OrganizationsChanges:  true,
 		AnonymousProbes:       true,
 	}
@@ -74,7 +77,8 @@ func TestEnabledAlerts_AllEnabled(t *testing.T) {
 		"ct-access-key-creation",
 		"ct-s3-public-access-changes",
 		"ct-lambda-url-public",
-		"ct-kms-key-policy-changes",
+		"ct-kms-key-policy",
+		"ct-kms-key-grants",
 		"ct-organizations-changes",
 		"ct-anonymous-probes",
 	} {
@@ -96,6 +100,74 @@ func TestAnonymousProbes_DefaultThreshold(t *testing.T) {
 	// "sustained reconnaissance" rather than one-off enumeration.
 	RegisterTestingT(t)
 	Expect(securityAlerts["anonymousProbes"].threshold).To(Equal(float64(10)))
+}
+
+func TestUnauthorizedApiCalls_DefaultThresholdIsTen(t *testing.T) {
+	// CIS Benchmark's "1 event = alert" is too noisy for any active AWS account;
+	// production data showed 10/300s absorbs natural permission-evaluation noise
+	// (eventual consistency, mistyped CLI commands, optional-service self-probes)
+	// without missing real bursts.
+	RegisterTestingT(t)
+	Expect(securityAlerts["unauthorizedApiCalls"].threshold).To(Equal(float64(10)))
+}
+
+func TestUnauthorizedApiCalls_DefaultExcludesAWSService(t *testing.T) {
+	// AWS service-linked roles continuously probe optional services for capability
+	// discovery (Macie scanning S3 buckets that aren't enrolled, etc.). 60% of
+	// historical events in our production sample were AWSService-type AccessDenied
+	// — pure noise that adds zero security signal in every AWS account. Excluding
+	// at the BASE filter (not just via consumer override) makes the detector quiet
+	// out-of-the-box. NOT EXISTS guard preserves events where the field is absent.
+	RegisterTestingT(t)
+	p := securityAlerts["unauthorizedApiCalls"].filterPattern
+	Expect(p).To(ContainSubstring(`($.userIdentity.type NOT EXISTS)`))
+	Expect(p).To(ContainSubstring(`$.userIdentity.type != "AWSService"`))
+}
+
+func TestUnauthorizedApiCalls_DefaultExcludesAWSAccount(t *testing.T) {
+	// AWSAccount cross-account AccessDenied events are covered by the dedicated
+	// anonymousProbes detector (same threshold). Excluding here avoids double-paging
+	// the same event class. Same NOT EXISTS guard.
+	RegisterTestingT(t)
+	p := securityAlerts["unauthorizedApiCalls"].filterPattern
+	Expect(p).To(ContainSubstring(`$.userIdentity.type != "AWSAccount"`))
+}
+
+func TestKmsKeyPolicy_HighSignalDefault(t *testing.T) {
+	// kmsKeyPolicy is the structural "who can use this key" change detector. Default
+	// threshold 1 — page on any PutKeyPolicy. Scoped to PutKeyPolicy only; grants
+	// live in the separate kmsKeyGrants detector.
+	RegisterTestingT(t)
+	def := securityAlerts["kmsKeyPolicy"]
+	Expect(def.filterPattern).To(ContainSubstring(`$.eventName = "PutKeyPolicy"`))
+	Expect(def.filterPattern).ToNot(ContainSubstring(`CreateGrant`),
+		"kmsKeyPolicy must NOT include grants — they belong in kmsKeyGrants")
+	Expect(def.filterPattern).ToNot(ContainSubstring(`RetireGrant`))
+	Expect(def.filterPattern).ToNot(ContainSubstring(`RevokeGrant`))
+	Expect(def.threshold).To(Equal(float64(0)),
+		"kmsKeyPolicy uses the default threshold (1) which is encoded as zero in the def")
+}
+
+func TestKmsKeyGrants_HighVolumeDefault(t *testing.T) {
+	// kmsKeyGrants is the high-volume detector. Default threshold 10/300s because
+	// any IaC tool issues a CreateGrant per resource that needs KMS — at typical
+	// deploy cadence ~25/hour from one bot.
+	RegisterTestingT(t)
+	def := securityAlerts["kmsKeyGrants"]
+	Expect(def.filterPattern).To(ContainSubstring(`CreateGrant`))
+	Expect(def.filterPattern).To(ContainSubstring(`RetireGrant`))
+	Expect(def.filterPattern).To(ContainSubstring(`RevokeGrant`))
+	Expect(def.filterPattern).ToNot(ContainSubstring(`PutKeyPolicy`),
+		"kmsKeyGrants must NOT include PutKeyPolicy — it belongs in kmsKeyPolicy")
+	Expect(def.threshold).To(Equal(float64(10)))
+}
+
+func TestKmsKeyPolicyChanges_OldNameRemoved(t *testing.T) {
+	// The old aggregate name kmsKeyPolicyChanges was split into kmsKeyPolicy +
+	// kmsKeyGrants. The old name must be gone from securityAlerts so that
+	// validateOverrides flags any consumer YAML still using it.
+	RegisterTestingT(t)
+	Expect(securityAlerts).ToNot(HaveKey("kmsKeyPolicyChanges"))
 }
 
 func TestEnabledAlerts_PartialEnabled(t *testing.T) {

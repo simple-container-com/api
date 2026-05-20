@@ -80,9 +80,19 @@ type CloudTrailAlertSelectors struct {
 	AccessKeyCreation     bool `json:"accessKeyCreation,omitempty" yaml:"accessKeyCreation,omitempty"`         // CreateAccessKey on any IAM user
 	S3PublicAccessChanges bool `json:"s3PublicAccessChanges,omitempty" yaml:"s3PublicAccessChanges,omitempty"` // Block Public Access toggled at account or bucket scope
 	LambdaUrlPublic       bool `json:"lambdaUrlPublic,omitempty" yaml:"lambdaUrlPublic,omitempty"`             // Lambda Function URL created/updated with AuthType=NONE
-	KmsKeyPolicyChanges   bool `json:"kmsKeyPolicyChanges,omitempty" yaml:"kmsKeyPolicyChanges,omitempty"`     // PutKeyPolicy / PutResourcePolicy on KMS
-	OrganizationsChanges  bool `json:"organizationsChanges,omitempty" yaml:"organizationsChanges,omitempty"`   // SCP / account-membership churn in AWS Organizations
-	AnonymousProbes       bool `json:"anonymousProbes,omitempty" yaml:"anonymousProbes,omitempty"`             // userIdentity.type=AWSAccount AccessDenied probes from public IPs
+	// KMS-related detectors are split into two by signal density:
+	//   KmsKeyPolicy  — PutKeyPolicy: rare, real signal, default threshold 1. The structural
+	//                   change to "who can use this key" — page on any occurrence.
+	//   KmsKeyGrants  — CreateGrant / RetireGrant / RevokeGrant: high-volume in any IaC-driven
+	//                   environment (Pulumi/Terraform issue a grant per encrypted resource).
+	//                   Default off; turn on only with the override.threshold tuned to your
+	//                   deploy cadence. Splitting was driven by production data showing
+	//                   ~25 CreateGrant/hour from one Pulumi bot account that would have
+	//                   buried a single PutKeyPolicy signal.
+	KmsKeyPolicy         bool `json:"kmsKeyPolicy,omitempty" yaml:"kmsKeyPolicy,omitempty"`                 // PutKeyPolicy (rare; default threshold 1)
+	KmsKeyGrants         bool `json:"kmsKeyGrants,omitempty" yaml:"kmsKeyGrants,omitempty"`                 // CreateGrant / RetireGrant / RevokeGrant (high-volume; default threshold 10)
+	OrganizationsChanges bool `json:"organizationsChanges,omitempty" yaml:"organizationsChanges,omitempty"` // SCP / account-membership churn in AWS Organizations
+	AnonymousProbes      bool `json:"anonymousProbes,omitempty" yaml:"anonymousProbes,omitempty"`           // userIdentity.type=AWSAccount AccessDenied probes from public IPs
 
 	// Overrides allows per-detector tuning without forking the plugin. Keyed by detector
 	// selector name (e.g. "iamPolicyChanges"). An override can:

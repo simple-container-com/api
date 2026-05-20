@@ -40,14 +40,28 @@ var securityAlerts = map[string]securityAlertDef{
 		description:   "Root account API call detected — investigate immediately",
 		filterPattern: `{ $.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != "AwsServiceEvent" }`,
 	},
-	// CloudWatch.2 — Unauthorized API calls (threshold 5 to reduce noise from normal permission probing)
+	// CloudWatch.2 — Unauthorized API calls.
+	//
+	// Base filter excludes AWSService + AWSAccount userIdentity types by default:
+	//   - AWSService: AWS service-linked roles (Macie/Config/ResourceExplorer/...) continuously
+	//     probe optional services for capability discovery. 60% of historical events in our
+	//     production sample. Zero security value: an attacker who compromises a service-linked
+	//     role surfaces as AssumedRole, not AWSService.
+	//   - AWSAccount: cross-account access from external accounts. Covered by the dedicated
+	//     anonymousProbes detector (also threshold 10) so excluding here avoids double-paging
+	//     on the same event.
+	//
+	// Default threshold is 10 events / 300s (raised from CIS's "1" guidance which is
+	// universally considered too noisy for any active account; aligned with what production
+	// data showed absorbs natural permission-evaluation noise without missing real bursts).
 	"unauthorizedApiCalls": {
 		name:        "ct-unauthorized-api-calls",
 		description: "Spike in unauthorized API calls — possible credential compromise or misconfiguration",
-		filterPattern: `{ ($.errorCode = "AccessDenied") || ($.errorCode = "AccessDeniedException") || ` +
+		filterPattern: `{ (($.errorCode = "AccessDenied") || ($.errorCode = "AccessDeniedException") || ` +
 			`($.errorCode = "UnauthorizedAccess") || ($.errorCode = "Client.UnauthorizedAccess") || ` +
-			`($.errorCode = "Client.UnauthorizedOperation") || ($.errorCode = "UnauthorizedOperation") }`,
-		threshold: 5,
+			`($.errorCode = "Client.UnauthorizedOperation") || ($.errorCode = "UnauthorizedOperation")) ` +
+			`&& (($.userIdentity.type NOT EXISTS) || (($.userIdentity.type != "AWSService") && ($.userIdentity.type != "AWSAccount"))) }`,
+		threshold: 10,
 	},
 	// CloudWatch.3 — Console login without MFA (successful only).
 	//
@@ -228,19 +242,39 @@ var securityAlerts = map[string]securityAlertDef{
 		filterPattern: `{ ($.eventSource = "lambda.amazonaws.com") && (($.eventName = "CreateFunctionUrlConfig") || ($.eventName = "UpdateFunctionUrlConfig")) && ($.requestParameters.authType = "NONE") }`,
 	},
 
-	// Beyond-CIS — KMS key policy / grant changes.
-	// Why: CIS CloudWatch.7 catches key deletion but not policy edits. PutKeyPolicy / CreateGrant
-	// can quietly hand decrypt rights to a new principal without touching the key's lifecycle.
+	// Beyond-CIS — KMS key policy edits.
 	//
-	// PutResourcePolicy is intentionally NOT included here — it is not a KMS API. (It exists on
-	// CloudTrail Lake and other services, but never under eventSource=kms.amazonaws.com, so the
-	// clause would be permanent dead code.) KMS uses PutKeyPolicy for resource policy edits.
+	// Scoped to PutKeyPolicy only. This is the structural change to "who can use this key" —
+	// a security boundary edit that should page on any occurrence. Other key-related signals
+	// have their own detectors:
+	//   - Key deletion / disable: kmsKeyDeletion (CIS CloudWatch.7)
+	//   - Grant lifecycle:        kmsKeyGrants (below; high-volume; default off)
+	//
+	// PutResourcePolicy is not a KMS API — it exists on CloudTrail Lake and other services
+	// but never under eventSource=kms.amazonaws.com, so it would be dead code if included.
 	// API ref: https://docs.aws.amazon.com/kms/latest/APIReference/API_Operations.html
-	"kmsKeyPolicyChanges": {
-		name:        "ct-kms-key-policy-changes",
-		description: "KMS key policy modified or grant created — verify principal scope and conditions",
-		filterPattern: `{ ($.eventSource = "kms.amazonaws.com") && (($.eventName = "PutKeyPolicy") || ` +
-			`($.eventName = "CreateGrant") || ($.eventName = "RetireGrant") || ($.eventName = "RevokeGrant")) }`,
+	"kmsKeyPolicy": {
+		name:          "ct-kms-key-policy",
+		description:   "KMS key policy modified — verify principal scope and conditions",
+		filterPattern: `{ ($.eventSource = "kms.amazonaws.com") && ($.eventName = "PutKeyPolicy") }`,
+	},
+
+	// Beyond-CIS — KMS grant lifecycle.
+	//
+	// CreateGrant / RetireGrant / RevokeGrant. Any IaC tool (Pulumi, Terraform) issues at
+	// least one CreateGrant per resource that needs to use a KMS key. Production observation:
+	// ~25 CreateGrant/hour from one Pulumi bot during normal deploys. Coalescing this with
+	// PutKeyPolicy in a single detector with threshold 1 would either flood (current bug we
+	// fixed) or hide PutKeyPolicy under a high threshold needed to mute Pulumi noise. So this
+	// is its own detector with default threshold 10/300s — fires only on sustained grant
+	// churn beyond expected deploy cadence. Default OFF: most consumers won't want this on
+	// unless they have a specific need (compliance audit, suspected lateral movement via grants).
+	"kmsKeyGrants": {
+		name:        "ct-kms-key-grants",
+		description: "KMS grant burst — sustained CreateGrant/RetireGrant/RevokeGrant outside expected deploy cadence",
+		filterPattern: `{ ($.eventSource = "kms.amazonaws.com") && (($.eventName = "CreateGrant") || ` +
+			`($.eventName = "RetireGrant") || ($.eventName = "RevokeGrant")) }`,
+		threshold: 10,
 	},
 
 	// Beyond-CIS — AWS Organizations changes.
@@ -318,7 +352,8 @@ func selectorChecks(selectors awsApi.CloudTrailAlertSelectors) []struct {
 		{"accessKeyCreation", selectors.AccessKeyCreation},
 		{"s3PublicAccessChanges", selectors.S3PublicAccessChanges},
 		{"lambdaUrlPublic", selectors.LambdaUrlPublic},
-		{"kmsKeyPolicyChanges", selectors.KmsKeyPolicyChanges},
+		{"kmsKeyPolicy", selectors.KmsKeyPolicy},
+		{"kmsKeyGrants", selectors.KmsKeyGrants},
 		{"organizationsChanges", selectors.OrganizationsChanges},
 		{"anonymousProbes", selectors.AnonymousProbes},
 	}
