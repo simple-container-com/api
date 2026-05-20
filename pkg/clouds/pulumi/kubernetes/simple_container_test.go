@@ -94,6 +94,29 @@ func createVPATestArgs() *SimpleContainerArgs {
 	return args
 }
 
+// createVPATestArgsWithControlledValues exercises the full VPA surface area:
+// minAllowed, maxAllowed, controlledResources (which lives inside the
+// containerPolicy per the VPA CRD), and the controlledValues knob that lets
+// callers opt out of VPA scaling limits proportionally with requests.
+func createVPATestArgsWithControlledValues() *SimpleContainerArgs {
+	args := createBasicTestArgs()
+	args.VPA = &k8s.VPAConfig{
+		Enabled:    true,
+		UpdateMode: lo.ToPtr("Auto"),
+		MinAllowed: &k8s.VPAResourceRequirements{
+			CPU:    lo.ToPtr("50m"),
+			Memory: lo.ToPtr("64Mi"),
+		},
+		MaxAllowed: &k8s.VPAResourceRequirements{
+			CPU:    lo.ToPtr("2"),
+			Memory: lo.ToPtr("4Gi"),
+		},
+		ControlledResources: []string{"cpu", "memory"},
+		ControlledValues:    lo.ToPtr("RequestsOnly"),
+	}
+	return args
+}
+
 // createComplexTestArgs creates SimpleContainerArgs with many features enabled
 func createComplexTestArgs() *SimpleContainerArgs {
 	args := createBasicTestArgs()
@@ -326,6 +349,28 @@ func TestNewSimpleContainer_WithHPA(t *testing.T) {
 		Expect(sc.Namespace).ToNot(BeNil(), "Namespace should not be nil")
 		Expect(sc.Deployment).ToNot(BeNil(), "Deployment should not be nil")
 
+		return nil
+	}, pulumi.WithMocks("project", "stack", mocks))
+
+	Expect(err).ToNot(HaveOccurred(), "Test should complete without errors")
+}
+
+// TestNewSimpleContainer_WithVPA_ControlledValues exercises the new
+// ControlledValues + ControlledResources fields on VPAConfig. Asserts the
+// resource creation succeeds; the actual CRD shape (controlledValues +
+// controlledResources living inside containerPolicy, not at resourcePolicy
+// level) is enforced by simple_container.go's createVPA implementation.
+func TestNewSimpleContainer_WithVPA_ControlledValues(t *testing.T) {
+	RegisterTestingT(t)
+
+	mocks := NewSimpleContainerMocks()
+	args := createVPATestArgsWithControlledValues()
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		sc, err := NewSimpleContainer(ctx, args)
+		Expect(err).ToNot(HaveOccurred(), "SimpleContainer with VPA controlledValues should be created successfully")
+		Expect(sc).ToNot(BeNil(), "SimpleContainer should not be nil")
+		Expect(sc.Deployment).ToNot(BeNil(), "Deployment should not be nil")
 		return nil
 	}, pulumi.WithMocks("project", "stack", mocks))
 
