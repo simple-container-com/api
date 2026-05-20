@@ -71,8 +71,12 @@ func AdoptRedis(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 		params.Log.Info(ctx.Context(), "overriding region with config value: %q", *region)
 	}
 
+	regionStr := ""
+	if region != nil {
+		regionStr = *region
+	}
 	params.Log.Info(ctx.Context(), "found existing Redis instance with memory size %dGB, version %q, region %q",
-		memorySizeGb, redisVersion, region)
+		memorySizeGb, redisVersion, regionStr)
 
 	// Import existing Redis instance into Pulumi state
 	// The instance resource ID in GCP is: projects/{project}/locations/{location}/instances/{instance}

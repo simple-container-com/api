@@ -77,7 +77,11 @@ func NewGcpBucketUploader(ctx *sdk.Context, name string, args BucketUploaderArgs
 }
 
 func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCreds string, params pApi.ProvisionParams) (int64, error) {
-	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(gcpCreds)))
+	// WithCredentialsJSON is SA1019-deprecated by Google as a "potential
+	// security risk" but provides no equivalent in-memory replacement —
+	// the recommended alternatives all require writing credentials to disk
+	// or to a SecretManager round-trip, neither of which fits this flow.
+	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(gcpCreds))) //nolint:staticcheck // SA1019: no in-memory replacement available
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to initialize gcp client")
 	}
