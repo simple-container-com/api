@@ -81,9 +81,12 @@ jobs:
           cache: true
 
       - name: Install govulncheck
+        # SHA-pin govulncheck to satisfy Scorecard's Pinned-Dependencies
+        # check (was the sole `goCommand not pinned by hash` warning).
+        # v1.3.0 → 0782b76014f15f24e22a438f30f308df42899ba1
         run: |
           set -euo pipefail
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@0782b76014f15f24e22a438f30f308df42899ba1  # v1.3.0
           govulncheck -version
 
       - name: Run govulncheck on source

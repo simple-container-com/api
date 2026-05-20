@@ -63,6 +63,22 @@ if [ ${#arr_sigstores[@]} -eq 0 ]; then
   exit 1
 fi
 
+# Dual-publish each .sigstore.json as a `.intoto.jsonl` alias so
+# OpenSSF Scorecard's `releasesHaveProvenance` probe finds provenance
+# alongside the existing signature. Scorecard's
+# probes/releasesHaveProvenance/impl.go matches on the
+# `.intoto.jsonl` suffix and ignores `.sigstore.json`, even though the
+# latter IS the SLSA build-provenance bundle from
+# actions/attest-build-provenance@v4. Keep the .sigstore.json as
+# canonical for proper consumers (cosign / sigstore CLI); the
+# .intoto.jsonl copy exists solely to satisfy the probe. Naming-wise,
+# the Sigstore bundle is a single JSON object — not line-delimited —
+# so `.intoto.jsonl` is technically misleading but is what Scorecard
+# expects today (tracked in scorecard#3699).
+for sb in sc-*-v${VERSION}.tar.gz.sigstore.json; do
+  cp "$sb" "${sb%.sigstore.json}.intoto.jsonl"
+done
+
 # Collect every signed sidecar + SBOM + checksum + tarball for the
 # specific version we just published. The gh CLI takes the tag
 # positionally, followed by any number of asset paths.
@@ -71,6 +87,7 @@ for f in sc-*-v${VERSION}.tar.gz \
          sc-*-v${VERSION}.tar.gz.sha256 \
          sc-*-v${VERSION}.tar.gz.cosign-bundle \
          sc-*-v${VERSION}.tar.gz.sigstore.json \
+         sc-*-v${VERSION}.tar.gz.intoto.jsonl \
          sc-*-v${VERSION}.tar.gz.sbom.cdx.json; do
   assets+=( "$f" )
 done
