@@ -15,6 +15,14 @@ type StaticSiteInput struct {
 	StackName             string `json:"stackName" yaml:"stackName"`
 }
 
+// OverriddenBaseZone implements api.DnsConfigAware so the Cloudflare registrar
+// uses the stack's baseDnsZone instead of the parent stack's default zone —
+// otherwise records get created with the parent zone suffixed (e.g.
+// simple-forge.com → simple-forge.com.simple-container.com).
+func (i *StaticSiteInput) OverriddenBaseZone() string {
+	return i.Site.BaseDnsZone
+}
+
 func ToStaticSiteConfig(tpl any, stackDir, stackName string, stackCfg *api.StackConfigStatic) (any, error) {
 	templateCfg, ok := tpl.(*TemplateConfig)
 	if !ok {
