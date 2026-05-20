@@ -22,9 +22,9 @@ func (p *provisioner) Deploy(ctx context.Context, params api.DeployParams) error
 }
 
 func (p *provisioner) logWelcome(ctx context.Context, deployParams *api.DeployParams) {
-	p.log.Info(ctx, color.GreenString("Simple Container CLI version: %s", build.Version))
+	p.log.Info(ctx, "%s", color.GreenString("Simple Container CLI version: %s", build.Version))
 	if deployParams != nil {
-		p.log.Info(ctx, color.GreenString("Deploy version: %s", deployParams.Version))
+		p.log.Info(ctx, "%s", color.GreenString("Deploy version: %s", deployParams.Version))
 	}
 }
 

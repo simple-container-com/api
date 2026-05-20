@@ -444,7 +444,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 }
 
 func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, lambdaName, domain string, endpointUrl sdk.StringOutput) (*api.ResourceOutput, error) {
-	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for %q in %q...", domain, stack.Name)
+	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for stack %q...", domain, stack.Name)
 
 	endpointHost := endpointUrl.ApplyT(func(epUrl string) (string, error) {
 		parsed, err := url.Parse(epUrl)

@@ -90,7 +90,7 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
 
-	params.Log.Debug(ctx.Context(), "configure ECS Fargate for stack %q in %q: %q...", stack.Name, deployParams.Environment, crInput)
+	params.Log.Debug(ctx.Context(), "configure ECS Fargate for stack %q in %q: %+v...", stack.Name, deployParams.Environment, crInput)
 
 	err := buildAndPushECSFargateImages(ctx, stack, params, deployParams, crInput, ref)
 	if err != nil {

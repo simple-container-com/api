@@ -955,7 +955,7 @@ ${proto}://${domain} {
 			return nil, errors.Wrapf(err, "failed to create HPA for deployment %s", sanitizedDeployment)
 		}
 
-		args.Log.Info(ctx.Context(), "✅ Created HPA %s with min=%d, max=%d replicas",
+		args.Log.Info(ctx.Context(), "✅ Created HPA %v with min=%d, max=%d replicas",
 			hpa.Metadata.Name(), args.Scale.MinReplicas, args.Scale.MaxReplicas)
 	}
 

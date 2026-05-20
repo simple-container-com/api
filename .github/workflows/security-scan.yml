@@ -25,3 +25,8 @@ jobs:
         docs/docs/guides/parent-gcp-gke-autopilot\.md
         pkg/api/secrets/testdata/repo/
         pkg/provisioner/testdata/
+        # Go module-checksum file. TruffleHog's CloudflareApiToken
+        # detector pattern-matches against the base64 `h1:` hashes
+        # in go.sum (PR #279 flagged a pulumi-cloudflare hash).
+        # The hashes are SHA-256 of module contents, not credentials.
+        go\.sum

@@ -35,7 +35,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Get next version
-        uses: reecetech/version-increment@71036b212bbdc100b48aae069870f10953433346  # 2023.10.2
+        uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e  # 2024.10.1
         id: base-version
         with:
           scheme: "calver"
@@ -121,7 +121,7 @@ jobs:
           echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
           echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
       - name: upload bin directory artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: bin-tools
           path: bin
@@ -226,7 +226,7 @@ jobs:
         run: |
           cp "$BUNDLE_PATH" ".sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sigstore.json"
       - name: upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
           path: |
@@ -268,7 +268,7 @@ jobs:
         run: |
           go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
@@ -316,7 +316,7 @@ jobs:
         with:
           persist-credentials: false
       - name: download ${{ matrix.target }} binary
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: ${{ matrix.target }}-binary
           path: dist
@@ -331,7 +331,7 @@ jobs:
           EOF
           sc secrets reveal
       - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
         with:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
@@ -378,7 +378,7 @@ jobs:
           printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.target }}.txt"
       - name: Upload digest artifact for ${{ matrix.target }}
         if: steps.build_and_push.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: image-digest-${{ matrix.target }}
           path: digests/${{ matrix.target }}.txt
@@ -414,12 +414,12 @@ jobs:
         with:
           persist-credentials: false
       - name: download all sc platform artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           path: artifacts
           pattern: sc-*
       - name: download bin tools artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: bin-tools
           path: bin

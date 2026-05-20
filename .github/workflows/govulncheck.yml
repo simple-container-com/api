@@ -49,6 +49,25 @@ jobs:
   govulncheck:
     name: govulncheck (reachability-aware)
     runs-on: ubuntu-24.04
+    # Locally `govulncheck -mode=source ./...` on this module peaks at
+    # ~13.5 GB RSS over ~12 min (full call-graph construction across
+    # pulumi v3, k8s.io, aws-sdk-v2, langchaingo, etc — 492 require lines
+    # post-PR #279). GH-hosted ubuntu-24.04 has 16 GB RAM minus 2-3 GB
+    # for OS + runner agent, so peak crosses the OOM cliff right around
+    # the 3-min mark — every prior run on this PR died there with
+    # "runner has received a shutdown signal" (the kernel killing the
+    # runner agent process). 20 minutes is the soft cap so the GC-paced
+    # variant below has room to finish on the first try.
+    timeout-minutes: 20
+    env:
+      # Soft-cap Go's heap so the GC runs more aggressively as we
+      # approach the limit. 12 GiB keeps us comfortably below the
+      # runner's available RAM. Trades wall time for memory safety.
+      GOMEMLIMIT: 12GiB
+      # Default GOGC is 100 (collect when heap doubles). 25 collects
+      # 4x more often — extra CPU for the assurance that RSS doesn't
+      # balloon past GOMEMLIMIT between collection cycles.
+      GOGC: "25"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -62,9 +81,12 @@ jobs:
           cache: true
 
       - name: Install govulncheck
+        # SHA-pin govulncheck to satisfy Scorecard's Pinned-Dependencies
+        # check (was the sole `goCommand not pinned by hash` warning).
+        # v1.3.0 → 0782b76014f15f24e22a438f30f308df42899ba1
         run: |
           set -euo pipefail
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@0782b76014f15f24e22a438f30f308df42899ba1  # v1.3.0
           govulncheck -version
 
       - name: Run govulncheck on source

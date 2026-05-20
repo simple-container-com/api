@@ -28,6 +28,13 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
+// PULUMI_HOME env-var name. Inlined here because `workspace.PulumiHomeEnvVar`
+// from pulumi/sdk/v3/go/common/workspace is marked SA1019-deprecated in favour
+// of the newer `env.Home` Var indirection — switching to env.Home would couple
+// us to the env.Var API surface for no behavioural change. The literal value
+// is stable contract with the pulumi CLI.
+const pulumiHomeEnvVar = "PULUMI_HOME"
+
 func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack) error {
 	cmdutil.DisableInteractive = true
 
@@ -51,7 +58,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 	}
 
 	var pulumiHome string
-	if os.Getenv(workspace.PulumiHomeEnvVar) == "" {
+	if os.Getenv(pulumiHomeEnvVar) == "" {
 		if pulumiHome, err = path_util.ReplaceTildeWithHome("~/.pulumi"); err != nil {
 			p.logger.Warn(ctx, "failed to replace tilde with home: %q", err.Error())
 		} else if err := os.Setenv("PATH", fmt.Sprintf("%s/bin:%s", pulumiHome, os.Getenv("PATH"))); err != nil {
@@ -61,8 +68,8 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		newPulumiHome := filepath.Join("~/.pulumi", "sc", cfg.ProjectName, stack.Name)
 		if overridePulumiHome, err := homedir.Expand(newPulumiHome); err != nil {
 			p.logger.Warn(ctx, "failed to expand overridden pulumi home %q: %v", newPulumiHome, err)
-		} else if err := os.Setenv(workspace.PulumiHomeEnvVar, overridePulumiHome); err != nil {
-			p.logger.Warn(ctx, "failed to override %q to %q: %v", workspace.PulumiHomeEnvVar, newPulumiHome, err)
+		} else if err := os.Setenv(pulumiHomeEnvVar, overridePulumiHome); err != nil {
+			p.logger.Warn(ctx, "failed to override %q to %q: %v", pulumiHomeEnvVar, newPulumiHome, err)
 		}
 	}
 
@@ -154,12 +161,12 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		} else if out, err := secretsProviderStackSource.Outputs(ctx); err != nil {
 			return errors.Wrapf(err, "failed to get outputs for stack %q before update", stackRefString)
 		} else if e, ok := out[secretsProviderUrlExportName]; !ok || e.Value == nil {
-			p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
+			p.logger.Info(ctx, "%s", color.GreenFmt("init secrets provider for stack %q...", stackRefString))
 			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextInit))))
 			if err != nil {
 				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
 			}
-			p.logger.Debug(ctx, color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
+			p.logger.Debug(ctx, "%s", color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
 			out, err := secretsProviderStackSource.Outputs(ctx)
 			if err != nil {
 				return errors.Wrapf(err, "failed to get outputs from secrets provider stack %q", secretsProviderStackSource.Name())
