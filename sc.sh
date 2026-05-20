@@ -430,24 +430,30 @@ verify_sc_tarball() {
   echo "✅"
 
   echo -n "🔍 Verifying tarball signature against build-workflow identity... "
-  # Default regex matches the production push.yaml on refs/heads/main — the
-  # only workflow allowed to publish tarballs that the strict signature path
-  # accepts. Mirror in docs/SECURITY.md.
+  # Default: STRICT. Identity regex matches the production push.yaml on
+  # refs/heads/main — the only workflow allowed to publish tarballs that
+  # this code path accepts without further opt-in. Mirror in docs/SECURITY.md.
   #
-  # When the caller sets SIMPLE_CONTAINER_ALLOW_PREVIEW=1, we widen the regex
-  # to ALSO accept branch-preview.yaml@refs/heads/* signatures. Preview
-  # tarballs published by branch-preview.yaml DO land at dist.simple-container.com
-  # (the earlier "do not land" comment was wrong — see the Publish step in
-  # .github/workflows/branch-preview.yaml). Without this opt-in path,
-  # consumers wanting to test a feature branch via `sc.sh` end up either
-  # bypassing the installer entirely or weakening their own verification
-  # locally — both worse outcomes than a documented, env-gated opt-in.
+  # Preview opt-in (SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH=<branch>) narrows
+  # the trust extension to ONE named branch's branch-preview.yaml signature.
+  # We deliberately do NOT support an "any branch" opt-in (e.g. =1), because
+  # accepting `branch-preview.yaml@refs/heads/.+` would trust every push-
+  # writer on any branch in the repo — a much broader radius than picking
+  # up an unreviewed feature branch you actually want to test.
   #
-  # The opt-in is intentional: production users default to strict, and
-  # picking up a preview build requires explicit acknowledgement that the
-  # signing identity is a feature-branch workflow run (lower bar than
-  # main-branch protected). The signature itself is still verified end-to-
-  # end via cosign + Rekor, just with a wider identity allowlist.
+  # Why this still requires explicit user action:
+  #   - branch-preview.yaml runs on workflow_dispatch from feature branches
+  #     that lack main's branch protection / required reviews / signed
+  #     commits. The cosign certificate proves "this run dispatched from
+  #     this ref" but cannot attest to the integrity of the workflow's
+  #     contents at that ref (no SHA pinning at the identity layer).
+  #   - For higher assurance, also set SIMPLE_CONTAINER_TRUST_PREVIEW_SHA
+  #     to a 40-char commit SHA. We pass --certificate-github-workflow-sha
+  #     to cosign so the Sigstore cert's workflow_sha claim must match
+  #     EXACTLY — pinning to a specific commit, not a mutable branch head.
+  #     This neutralizes "attacker pushes new commit to the branch then
+  #     re-dispatches" and "CDN replays an old tarball signed from the
+  #     same branch."
   #
   # IMPORTANT: do NOT pass --yes here. cosign 2.x only accepts --yes on
   # sign-blob (skip interactive confirmation); on verify-blob it errors
@@ -455,15 +461,92 @@ verify_sc_tarball() {
   # after Phase 2c shipped. Capture cosign's stderr (don't /dev/null it)
   # so future failures surface the real error instead of a generic
   # message.
-  local identity_regex='^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$'
+
+  # Refuse the deprecated/never-shipped "=1" form loudly, with a hint at
+  # the supported form. This forces the user to commit to a specific
+  # branch instead of broadening trust to the entire repo's push-writers.
   if [ "${SIMPLE_CONTAINER_ALLOW_PREVIEW:-}" = "1" ]; then
-    identity_regex='^https://github\.com/simple-container-com/api/\.github/workflows/(push\.yaml@refs/heads/main|branch-preview\.yaml@refs/heads/.+)$'
+    echo "❌"
+    echo "❌ SIMPLE_CONTAINER_ALLOW_PREVIEW=1 is not supported (security: trusts every branch in the repo)."
+    echo "    Use SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH=<branch-name> instead — it pins"
+    echo "    cosign verification to one branch's branch-preview.yaml signature."
+    echo "    Optionally also set SIMPLE_CONTAINER_TRUST_PREVIEW_SHA=<40-char-commit-sha>"
+    echo "    to pin the exact commit of that branch (recommended for CI)."
+    echo "    See https://github.com/simple-container-com/api/blob/main/docs/SECURITY.md#installing-preview--branch-preview-builds"
+    return 1
   fi
+
+  local identity_regex='^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$'
+  local preview_branch="${SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH:-}"
+  local preview_sha="${SIMPLE_CONTAINER_TRUST_PREVIEW_SHA:-}"
+  local cosign_extra_args=()
+  if [ -n "$preview_branch" ]; then
+    # Validate against a conservative allowlist BEFORE interpolating into the
+    # regex. Git's check-ref-format is more permissive than what we want here
+    # (it allows `+`, `(`, `)`, `{`, `}`, `|`, `$` — all regex metachars).
+    # Constraining to alphanumerics + `._/-` keeps the regex string literal-
+    # equivalent so we don't need a separate escape pass, and matches the
+    # naming conventions every Integrail/SC branch already uses (feat/fix/
+    # chore/docs prefixes with kebab-case bodies).
+    if ! printf '%s' "$preview_branch" | grep -qE '^[A-Za-z0-9._/-]+$'; then
+      echo "❌"
+      echo "❌ Invalid SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH value: $preview_branch"
+      echo "    Allowed characters: letters, digits, dot, underscore, slash, hyphen."
+      echo "    Refusing to interpolate into the cosign identity regex."
+      return 1
+    fi
+    # Additional git-style rejections (parts of check-ref-format that our
+    # allowlist already covers but worth being explicit about):
+    case "$preview_branch" in
+      ..*|*..*|*/..*|*..)
+        echo "❌"; echo "❌ Branch name must not contain '..' segments."; return 1 ;;
+      /*|*/)
+        echo "❌"; echo "❌ Branch name must not start or end with '/'."; return 1 ;;
+      *.lock|*.lock/*|*/*.lock)
+        echo "❌"; echo "❌ Branch name segments must not end with '.lock'."; return 1 ;;
+    esac
+
+    # Optional SHA pin — must be 40 lowercase hex chars (canonical git SHA-1).
+    if [ -n "$preview_sha" ]; then
+      if ! printf '%s' "$preview_sha" | grep -qE '^[a-f0-9]{40}$'; then
+        echo "❌"
+        echo "❌ Invalid SIMPLE_CONTAINER_TRUST_PREVIEW_SHA value: $preview_sha"
+        echo "    Must be 40 lowercase hex characters (a full git commit SHA-1)."
+        return 1
+      fi
+      cosign_extra_args+=(--certificate-github-workflow-sha "$preview_sha")
+    fi
+
+    # Loud warning to stderr so a forgotten `export` in shell rc is visible
+    # on every install, not just the first. T3 mitigation per review.
+    echo "" >&2
+    echo "⚠️  PREVIEW SIGNATURE TRUST EXTENDED" >&2
+    echo "    SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH is set — accepting tarballs signed by" >&2
+    echo "      branch-preview.yaml on refs/heads/$preview_branch" >&2
+    if [ -n "$preview_sha" ]; then
+      echo "    pinned to commit SHA $preview_sha" >&2
+    else
+      echo "    (no SHA pin — branch HEAD trusted; set SIMPLE_CONTAINER_TRUST_PREVIEW_SHA=<sha> to pin)" >&2
+    fi
+    echo "    Production-strict mode disabled. Unset the env var to restore strict mode." >&2
+    echo "" >&2
+
+    # Build the widened regex with the validated branch name. The branch
+    # name has already been allowlist-restricted; the only metachar that
+    # could appear is `.`, which we escape here to avoid e.g. `feat.main`
+    # matching a regex intended for `feat/main` (gemini's "identity
+    # shadowing" point). `/` and `-` are regex-safe.
+    local escaped_branch
+    escaped_branch=$(printf '%s' "$preview_branch" | sed 's/\./\\./g')
+    identity_regex="^https://github\\.com/simple-container-com/api/\\.github/workflows/(push\\.yaml@refs/heads/main|branch-preview\\.yaml@refs/heads/${escaped_branch})\$"
+  fi
+
   local cosign_err
   if ! cosign_err=$(COSIGN_EXPERIMENTAL=1 cosign verify-blob \
       --bundle "$bundle_path" \
       --certificate-identity-regexp "$identity_regex" \
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+      "${cosign_extra_args[@]}" \
       "$tarball_path" 2>&1); then
     echo "❌"
     echo "❌ Signature verification FAILED for $tarball_path"
@@ -473,15 +556,25 @@ verify_sc_tarball() {
     # specific hint instead of the generic "compromised CDN" copy. The
     # cosign error includes the actual signer identity in `got subjects [...]`.
     if echo "$cosign_err" | grep -q 'branch-preview\.yaml@refs/heads/'; then
+      # Try to surface the branch the tarball was actually signed from so
+      # the user can copy-paste it as the env var value. The cosign error
+      # text format is "got subjects [URL]".
+      local actual_branch
+      actual_branch=$(echo "$cosign_err" | grep -oE 'branch-preview\.yaml@refs/heads/[^]]+' | head -1 | sed 's|branch-preview\.yaml@refs/heads/||')
       echo "    The tarball was signed by branch-preview.yaml (a feature-branch"
-      echo "    build), not by the production push.yaml@main workflow. To allow"
-      echo "    preview builds explicitly, rerun with:"
+      echo "    build), not by the production push.yaml@main workflow. If you"
+      echo "    trust this preview, set:"
       echo ""
-      echo "      SIMPLE_CONTAINER_ALLOW_PREVIEW=1 SIMPLE_CONTAINER_VERSION=$VERSION \\"
-      echo "        bash <(curl -Ls https://dist.simple-container.com/sc.sh)"
+      if [ -n "$actual_branch" ]; then
+        echo "      export SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH=$actual_branch"
+      else
+        echo "      export SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH=<branch-name>"
+      fi
       echo ""
-      echo "    This is an intentional opt-in: production installs stay strict"
-      echo "    and only main-branch signatures are accepted by default."
+      echo "    Optionally also pin the exact commit:"
+      echo "      export SIMPLE_CONTAINER_TRUST_PREVIEW_SHA=<40-char-sha>"
+      echo ""
+      echo "    See https://github.com/simple-container-com/api/blob/main/docs/SECURITY.md#installing-preview--branch-preview-builds"
     else
       echo "    The tarball does not bear a valid signature from the SC"
       echo "    production publish workflow. This could mean: tarball was"
