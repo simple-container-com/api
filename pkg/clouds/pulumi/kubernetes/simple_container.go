@@ -994,17 +994,24 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName strin
 	}
 
 	// Add resource policy if specified
-	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 {
+	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 || args.VPA.ControlledValues != nil {
 		resourcePolicy := map[string]interface{}{}
 
-		// Add controlled resources
-		if len(args.VPA.ControlledResources) > 0 {
-			resourcePolicy["controlledResources"] = args.VPA.ControlledResources
-		}
-
-		// Add container policies
+		// Build the container policy. Per the VPA CRD, controlledResources and
+		// controlledValues are per-container fields and live inside the
+		// containerPolicy entry — not at the resourcePolicy level. Placing them
+		// at resourcePolicy level (the previous behavior) caused k8s to silently
+		// drop them.
 		containerPolicy := map[string]interface{}{
 			"containerName": "*",
+		}
+
+		if len(args.VPA.ControlledResources) > 0 {
+			containerPolicy["controlledResources"] = args.VPA.ControlledResources
+		}
+
+		if args.VPA.ControlledValues != nil {
+			containerPolicy["controlledValues"] = lo.FromPtr(args.VPA.ControlledValues)
 		}
 
 		if args.VPA.MinAllowed != nil {
