@@ -161,12 +161,12 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		} else if out, err := secretsProviderStackSource.Outputs(ctx); err != nil {
 			return errors.Wrapf(err, "failed to get outputs for stack %q before update", stackRefString)
 		} else if e, ok := out[secretsProviderUrlExportName]; !ok || e.Value == nil {
-			p.logger.Info(ctx, color.GreenFmt("init secrets provider for stack %q...", stackRefString))
+			p.logger.Info(ctx, "%s", color.GreenFmt("init secrets provider for stack %q...", stackRefString))
 			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextInit))))
 			if err != nil {
 				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
 			}
-			p.logger.Debug(ctx, color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
+			p.logger.Debug(ctx, "%s", color.GreenFmt("Update secrets provider result: \n%s", p.toUpdateResult(secretsProviderStackSource.Name(), upRes)))
 			out, err := secretsProviderStackSource.Outputs(ctx)
 			if err != nil {
 				return errors.Wrapf(err, "failed to get outputs from secrets provider stack %q", secretsProviderStackSource.Name())

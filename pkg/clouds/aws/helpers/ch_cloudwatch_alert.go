@@ -56,7 +56,7 @@ const (
 var secretCache, _ = secretcache.New()
 
 func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
-	l.log.Info(ctx, fmt.Sprintf("lambda executing handler with event... %v", event))
+	l.log.Info(ctx, "%s", fmt.Sprintf("lambda executing handler with event... %v", event))
 
 	var alarmEvent *AlarmEvent
 	if d, ok := event.(map[string]any); !ok {

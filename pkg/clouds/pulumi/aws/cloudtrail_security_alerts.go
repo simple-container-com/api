@@ -225,10 +225,10 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 			return nil, errors.Wrap(err, "CloudTrail trail pre-flight failed")
 		}
 		if outcome.Enabled {
-			params.Log.Info(ctx.Context(), outcome.Message)
+			params.Log.Info(ctx.Context(), "%s", outcome.Message)
 		} else {
 			// Warning path: log but don't fail (user opted into soft mode).
-			params.Log.Warn(ctx.Context(), outcome.Message)
+			params.Log.Warn(ctx.Context(), "%s", outcome.Message)
 		}
 	}
 

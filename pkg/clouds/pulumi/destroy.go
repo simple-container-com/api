@@ -22,12 +22,12 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 	}
 
 	if !params.SkipRefresh {
-		p.logger.Info(ctx, color.YellowFmt("Refreshing stack %q...", s.Ref().FullyQualifiedName()))
+		p.logger.Info(ctx, "%s", color.YellowFmt("Refreshing stack %q...", s.Ref().FullyQualifiedName()))
 		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
+		p.logger.Info(ctx, "%s", color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
 
 	if !preview {
@@ -37,30 +37,30 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 	}
 
 	if preview {
-		p.logger.Info(ctx, color.RedFmt("Previewing destroy stack %q...", s.Ref().FullyQualifiedName()))
+		p.logger.Info(ctx, "%s", color.RedFmt("Previewing destroy stack %q...", s.Ref().FullyQualifiedName()))
 		previewResult, err := stackSource.PreviewDestroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.RedFmt("Preview destroy summary: \n%s", p.toPreviewResult(params.StackName, previewResult)))
+		p.logger.Info(ctx, "%s", color.RedFmt("Preview destroy summary: \n%s", p.toPreviewResult(params.StackName, previewResult)))
 		return nil
 	}
-	p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", s.Ref().FullyQualifiedName()))
+	p.logger.Info(ctx, "%s", color.RedFmt("Destroying stack %q...", s.Ref().FullyQualifiedName()))
 	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
+	p.logger.Info(ctx, "%s", color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
 	s, err = p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.RedFmt("Removing stack: %q...", stackSource.Name()))
+	p.logger.Info(ctx, "%s", color.RedFmt("Removing stack: %q...", stackSource.Name()))
 	res, err := p.backend.RemoveStack(ctx, s, false, false)
 	if err != nil {
 		return err
 	}
-	p.logger.Info(ctx, color.RedFmt("Removed stack: %s",
+	p.logger.Info(ctx, "%s", color.RedFmt("Removed stack: %s",
 		lo.If(res, "WARN: some resources have remained!").Else("all resources have been destroyed")))
 	if params.DestroySecretsStack && p.secretsStackRef != nil {
 		defer p.withPulumiPassphrase(ctx)()
@@ -72,12 +72,12 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.RedFmt("Destroying stack %q...", ssSource.Name()))
+		p.logger.Info(ctx, "%s", color.RedFmt("Destroying stack %q...", ssSource.Name()))
 		destroyResult, err = ssSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
+		p.logger.Info(ctx, "%s", color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
 		_, err = p.backend.RemoveStack(ctx, sStack, false, false)
 		if err != nil {
 			return err

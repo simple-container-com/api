@@ -30,7 +30,7 @@ func (p *pulumi) cancelStack(ctx context.Context, cfg *api.ConfigFile) error {
 		return err
 	}
 
-	p.logger.Info(ctx, color.RedFmt("Canceling stack %q...", s.Ref().String()))
+	p.logger.Info(ctx, "%s", color.RedFmt("Canceling stack %q...", s.Ref().String()))
 	err = stackSource.Cancel(ctx)
 	if err != nil {
 		return err
@@ -42,7 +42,7 @@ func (p *pulumi) cancelStack(ctx context.Context, cfg *api.ConfigFile) error {
 		if err != nil {
 			return err
 		}
-		p.logger.Info(ctx, color.RedFmt("Canceling stack %q...", ssSource.Name()))
+		p.logger.Info(ctx, "%s", color.RedFmt("Canceling stack %q...", ssSource.Name()))
 		err = ssSource.Cancel(ctx)
 		if err != nil {
 			return err

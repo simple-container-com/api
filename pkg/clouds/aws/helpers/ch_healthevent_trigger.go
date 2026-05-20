@@ -15,7 +15,7 @@ import (
 const CHHealthBridgeAlertLambda api.CloudHelperType = "sc-helper-aws-health-bridge-lambda"
 
 func (l *lambdaHealthBridgeCloudHelper) handler(ctx context.Context, event any) error {
-	l.log.Info(ctx, fmt.Sprintf("health bridge lambda executing handler with event... %v", event))
+	l.log.Info(ctx, "%s", fmt.Sprintf("health bridge lambda executing handler with event... %v", event))
 	// TODO: CU-86bytgw4y
 
 	return nil

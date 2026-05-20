@@ -96,17 +96,17 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 			return nil
 		}
 		if walkErr != nil {
-			params.Log.Error(ctx, color.RedFmt("failed to walk through path %q: %v", filePath, walkErr))
+			params.Log.Error(ctx, "%s", color.RedFmt("failed to walk through path %q: %v", filePath, walkErr))
 			return nil
 		}
 		copyPath, err := filepath.Rel(syncDir, filePath)
 		if err != nil {
 			return err
 		}
-		params.Log.Info(ctx, color.YellowFmt("uploading file %q to gs://%s/%s...", filePath, bucketName, copyPath))
+		params.Log.Info(ctx, "%s", color.YellowFmt("uploading file %q to gs://%s/%s...", filePath, bucketName, copyPath))
 		f, err := os.Open(path.Join(syncDir, copyPath))
 		if err != nil {
-			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
+			params.Log.Error(ctx, "%s", color.RedFmt("Error uploading %s: %v", filePath, err))
 			return fmt.Errorf("os.Open: %w", err)
 		}
 		defer func(f *os.File) {
@@ -116,12 +116,12 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 		wc := object.NewWriter(ctx)
 		bytesCopied, err := io.Copy(wc, f)
 		if err != nil {
-			params.Log.Error(ctx, color.RedFmt("Error uploading %s: %v", filePath, err))
+			params.Log.Error(ctx, "%s", color.RedFmt("Error uploading %s: %v", filePath, err))
 			return fmt.Errorf("io.Copy: %w", err)
 		}
 		totalBytes.Add(bytesCopied)
 		if err := wc.Close(); err != nil {
-			params.Log.Error(ctx, color.RedFmt("Error closing bucket object %s: %v", filePath, err))
+			params.Log.Error(ctx, "%s", color.RedFmt("Error closing bucket object %s: %v", filePath, err))
 			return fmt.Errorf("Writer.Close: %w", err)
 		}
 		var contentType string
@@ -130,7 +130,7 @@ func copyAllFilesToBucket(ctx context.Context, bucketName string, syncDir, gcpCr
 		} else {
 			contentType = attrs.ContentType
 		}
-		params.Log.Info(ctx, color.GreenFmt("DONE gs://%s/%s (MIME: %s) (%d bytes)", bucketName, copyPath, contentType, bytesCopied))
+		params.Log.Info(ctx, "%s", color.GreenFmt("DONE gs://%s/%s (MIME: %s) (%d bytes)", bucketName, copyPath, contentType, bytesCopied))
 		return nil
 	})
 	return totalBytes.Load(), err
