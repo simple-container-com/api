@@ -117,8 +117,17 @@ type VPAConfig struct {
 	MinAllowed *VPAResourceRequirements `json:"minAllowed" yaml:"minAllowed"`
 	// MaxAllowed specifies maximum allowed resources
 	MaxAllowed *VPAResourceRequirements `json:"maxAllowed" yaml:"maxAllowed"`
-	// ControlledResources specifies which resources VPA should control
+	// ControlledResources specifies which resources VPA should control.
+	// Per the VPA CRD this is a per-container field; SC places it inside each
+	// containerPolicy entry, not at resourcePolicy level.
 	ControlledResources []string `json:"controlledResources" yaml:"controlledResources"`
+	// ControlledValues specifies which resource values VPA should control.
+	// One of "RequestsAndLimits" (default) or "RequestsOnly". Use "RequestsOnly"
+	// when the underlying deployment template's limits are sized for cold-start
+	// bursts (e.g. Django/gunicorn) and you don't want VPA to scale the limit
+	// proportionally with a lowered request — the proportional shrink causes
+	// CPU-throttle-induced startup probe failures.
+	ControlledValues *string `json:"controlledValues" yaml:"controlledValues"`
 }
 
 // VPAResourceRequirements defines resource requirements for VPA

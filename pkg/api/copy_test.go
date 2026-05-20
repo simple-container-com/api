@@ -224,6 +224,7 @@ func TestStackConfigCompose_Copy(t *testing.T) {
 							"memory": "2Gi",
 						},
 						"controlledResources": []interface{}{"cpu", "memory"},
+						"controlledValues":    "RequestsOnly",
 					},
 				}
 				cloudExtras := any(vpaConfig)
