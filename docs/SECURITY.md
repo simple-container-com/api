@@ -190,6 +190,66 @@ end-to-end supply-chain integrity should install cosign before
 bootstrapping (https://docs.sigstore.dev/system_config/installation/).
 The commands above remain the manual / out-of-band verification path.
 
+#### Installing preview / branch-preview builds
+
+Default `sc.sh` accepts only production-signed tarballs (signed by
+`push.yaml@refs/heads/main`). Tarballs produced by
+`branch-preview.yaml` carry a different OIDC identity (the feature
+branch's own workflow run) and are rejected by default — even though
+they ship to the same CDN with valid Sigstore bundles. Feature branches
+lack `main`'s branch protection (required reviews, signed commits), so
+extending trust to *every* branch is materially weaker than the strict
+production posture. Preview installs therefore require **explicit pinning
+to one named branch** — and, when possible, the exact commit SHA.
+
+Minimum (branch-pinned):
+
+```bash
+SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH=feat/your-feature-branch \
+SIMPLE_CONTAINER_VERSION=YYYY.M.D-pre.<sha>-preview.<sha> \
+  bash <(curl -Ls https://dist.simple-container.com/sc.sh)
+```
+
+Recommended for CI (branch + commit SHA pin):
+
+```bash
+SIMPLE_CONTAINER_TRUST_PREVIEW_BRANCH=feat/your-feature-branch \
+SIMPLE_CONTAINER_TRUST_PREVIEW_SHA=4cc1a03ca5c259a428e07d4f0bb8eb9120a6e2b7 \
+SIMPLE_CONTAINER_VERSION=YYYY.M.D-pre.<sha>-preview.<sha> \
+  bash <(curl -Ls https://dist.simple-container.com/sc.sh)
+```
+
+When `_BRANCH` is set, `verify_sc_tarball` widens the accepted identity
+regex to also include `branch-preview.yaml@refs/heads/<that exact branch>`.
+When `_SHA` is also set, `cosign verify-blob` is given
+`--certificate-github-workflow-sha <sha>`, which the Sigstore certificate's
+GitHub OIDC claim must match exactly — pinning the verification to a
+specific commit rather than the mutable branch head.
+
+Security properties preserved across both modes:
+
+- Signature, Rekor log entry, OIDC issuer, and SHA-256 sidecar are all
+  still verified end-to-end. The opt-in only changes which signer-workflow
+  identities the regex permits.
+- Branch name is validated against `^[A-Za-z0-9._/-]+$` and `..` /
+  leading-slash / trailing-slash / `.lock`-suffix rejections before being
+  interpolated into the regex. The `.` regex metachar is escaped to prevent
+  e.g. `feat.foo` shadowing `feat/foo`.
+- Production users default to strict. The previous `SIMPLE_CONTAINER_ALLOW_PREVIEW=1`
+  shape (any branch) is intentionally **not** supported and fails loudly with
+  a pointer to `_BRANCH`. There is no "trust all preview" mode.
+- A loud stderr warning is printed on every invocation when preview mode is
+  active so a forgotten `export` in shell config is visible, not silent.
+
+The manual `cosign verify-blob` equivalent for preview tarballs (branch + SHA pin):
+
+```bash
+cosign verify-blob --bundle "$T.cosign-bundle" \
+  --certificate-identity-regexp "^https://github\.com/simple-container-com/api/\.github/workflows/(push\.yaml@refs/heads/main|branch-preview\.yaml@refs/heads/$BRANCH)$" \
+  --certificate-github-workflow-sha "$SHA" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com "$T"
+```
+
 ### Composite-action consumers — SHA-pin the underlying image
 
 `simple-container-com/api/.github/actions/{deploy-client-stack,
