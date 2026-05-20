@@ -87,8 +87,10 @@ RUN rm -rf \
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 # python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
+# aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
+# static-website template at pkg/clouds/pulumi/aws/static_website.go).
 RUN apk update && apk upgrade --no-cache \
-    && apk add --no-cache ca-certificates git openssh-client curl jq bash python3 \
+    && apk add --no-cache ca-certificates git openssh-client curl jq bash python3 aws-cli \
     && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
 
 COPY --from=builder /opt/pulumi /opt/pulumi
@@ -107,6 +109,7 @@ RUN chmod +x ./github-actions \
 RUN pulumi version > /dev/null \
     && gcloud version > /dev/null \
     && gcloud components list --filter="name:gke-gcloud-auth-plugin" --format="value(name)" | grep -q gke-gcloud-auth-plugin \
+    && aws --version > /dev/null \
     && test -L /usr/local/bin/sc && test -x /usr/local/bin/sc
 
 LABEL org.opencontainers.image.source="https://github.com/simple-container-com/api" \
