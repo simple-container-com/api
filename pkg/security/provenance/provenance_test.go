@@ -39,8 +39,31 @@ func TestStatementPredicateFromBarePredicate(t *testing.T) {
 func TestAttestationType(t *testing.T) {
 	RegisterTestingT(t)
 
-	Expect(attestationType(FormatSLSAV10)).To(Equal(CosignAttestationTypeV10))
-	Expect(attestationType(FormatSLSAV02)).To(Equal(CosignAttestationTypeV02))
+	// Canonical URI form so the value `cosign attest --type ...` writes into
+	// the DSSE envelope's predicateType is byte-identical to what
+	// `cosign verify-attestation --type ...` matches against. Asymmetry here
+	// silently breaks the attach→verify cycle (see PR fixing the SLSA-v1
+	// verify-provenance regression).
+	Expect(attestationType(FormatSLSAV10)).To(Equal(PredicateTypeSLSAV10))
+	Expect(attestationType(FormatSLSAV02)).To(Equal(PredicateTypeSLSAV02))
+	Expect(attestationType(FormatSLSAV10)).To(Equal("https://slsa.dev/provenance/v1"))
+	Expect(attestationType(FormatSLSAV02)).To(Equal("https://slsa.dev/provenance/v0.2"))
+}
+
+func TestAttachAndVerifyUseSamePredicateType(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Regression guard: the verify-attestation step in
+	// pkg/clouds/pulumi/docker/build_and_push.go hard-coded
+	// "https://slsa.dev/provenance/v1" while Attacher.Attach passed the
+	// short alias "slsaprovenance1" to `cosign attest --type`. Cosign 3.x
+	// changed how aliases resolve on the verify side; only matching URIs
+	// are guaranteed to round-trip. Both sides MUST use the same constant.
+	attachType := attestationType(FormatSLSAV10)
+	verifyType := PredicateTypeSLSAV10
+	Expect(attachType).To(Equal(verifyType),
+		"attest --type must equal verify-attestation --type (got attest=%q verify=%q)",
+		attachType, verifyType)
 }
 
 func TestMatchesExpectedEnvelope(t *testing.T) {

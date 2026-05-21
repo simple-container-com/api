@@ -10,6 +10,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/security/provenance"
 )
 
 // --- Shell utilities ---
@@ -121,6 +122,18 @@ func signingCLIArgs(cfg *api.SigningDescriptor) []string {
 		return []string{"--key", cfg.PrivateKey}
 	}
 	return nil
+}
+
+// verifyProvenanceArgs builds the cosign verify-attestation command for a
+// SLSA-v1 provenance attestation. The --type value MUST match what
+// `Attacher.Attach` passes to `cosign attest --type` (see
+// pkg/security/provenance/attestationType). The two sides used to drift —
+// short alias on attest vs. URL on verify — and cosign 3.x's alias rewrite
+// turned that drift into a silent attach→verify failure.
+func verifyProvenanceArgs(signing *api.SigningDescriptor, img string) []string {
+	args := []string{"cosign", "verify-attestation", "--type", provenance.PredicateTypeSLSAV10}
+	args = append(args, verifyIdentityArgs(signing)...)
+	return append(args, img)
 }
 
 // verifyIdentityArgs returns cosign verify/verify-attestation args for identity

@@ -462,9 +462,7 @@ func createProvenanceCommands(ctx *sdk.Context, security *api.SecurityDescriptor
 	}
 	provVerifyCmd, err := newSecurityCommand(ctx, fmt.Sprintf("verify-provenance-%s", imageName), imageRef,
 		func(img string) []string {
-			args := []string{"cosign", "verify-attestation", "--type", "https://slsa.dev/provenance/v1"}
-			args = append(args, verifyIdentityArgs(security.Signing)...)
-			return append(args, img)
+			return verifyProvenanceArgs(security.Signing, img)
 		}, "> /dev/null", verifyCommandEnvironment(security.Signing), []sdk.Resource{provCmd})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create provenance attestation verification for image %q", imageName)

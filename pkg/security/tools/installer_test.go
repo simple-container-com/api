@@ -207,6 +207,38 @@ func TestToolRegistryRegisterAndUnregister(t *testing.T) {
 	Expect(registry.HasTool("custom-tool")).To(BeFalse())
 }
 
+func TestInstallIfMissingChecksVersion(t *testing.T) {
+	RegisterTestingT(t)
+
+	installer := NewToolInstaller()
+	ctx := context.Background()
+
+	// Register a fake tool that resolves to a binary almost certainly already
+	// on PATH ("sh") but with a MinVersion the GNU coreutils-ish output won't
+	// satisfy. Prior to the fix, InstallIfMissing returned nil because the
+	// command was found in PATH — version was never compared. With the fix
+	// it must reject and attempt install (which then fails because there's
+	// no install script for "fake-versioned-tool" — exactly the surfacing
+	// behavior we want).
+	installer.registry.Register(ToolMetadata{
+		Name:        "fake-versioned-tool",
+		Command:     "sh",
+		MinVersion:  "999.999.999",
+		InstallURL:  "https://example.com/never-installed",
+		Description: "version-gate regression guard",
+		VersionFlag: "--version",
+	})
+	defer installer.registry.Unregister("fake-versioned-tool")
+
+	err := installer.InstallIfMissing(ctx, "fake-versioned-tool")
+	// We expect a non-nil error: either the version-check rejection
+	// propagates, or it falls through to the install branch and the
+	// "unknown tool" install script returns its own error. The point of the
+	// assertion is that we no longer get a silent nil return.
+	Expect(err).To(HaveOccurred(),
+		"InstallIfMissing must NOT silently accept a tool that does not meet MinVersion")
+}
+
 func TestInstallScriptVersionValidation(t *testing.T) {
 	RegisterTestingT(t)
 

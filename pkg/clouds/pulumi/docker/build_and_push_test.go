@@ -12,6 +12,7 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/security/provenance"
 )
 
 func TestCanUseMergedScanCommand(t *testing.T) {
@@ -279,6 +280,31 @@ func TestWriteDockerConfigScript(t *testing.T) {
 	Expect(script).To(ContainSubstring("registry.example.com"))
 	Expect(script).To(ContainSubstring("dGVzdC1hdXRo"))
 	Expect(script).To(ContainSubstring(".docker/config.json"))
+}
+
+func TestVerifyProvenanceArgs(t *testing.T) {
+	RegisterTestingT(t)
+
+	signing := &api.SigningDescriptor{
+		Keyless: true,
+		Verify: &api.VerifyDescriptor{
+			OIDCIssuer:     "https://token.actions.githubusercontent.com",
+			IdentityRegexp: "^https://github.com/integrail/.*$",
+		},
+	}
+	args := verifyProvenanceArgs(signing, "registry.example.com/img@sha256:"+strings.Repeat("a", 64))
+
+	Expect(args[0]).To(Equal("cosign"))
+	Expect(args[1]).To(Equal("verify-attestation"))
+	Expect(args[2]).To(Equal("--type"))
+	// Must equal what `Attacher.Attach` passes to `cosign attest --type` so
+	// the DSSE envelope's predicateType is byte-identical to the verifier's
+	// match string. Asymmetry here is the root cause this PR fixes.
+	Expect(args[3]).To(Equal(provenance.PredicateTypeSLSAV10))
+	Expect(args[3]).To(Equal("https://slsa.dev/provenance/v1"))
+	Expect(args[len(args)-1]).To(HavePrefix("registry.example.com/img@sha256:"))
+	Expect(args).To(ContainElement("--certificate-oidc-issuer"))
+	Expect(args).To(ContainElement("--certificate-identity-regexp"))
 }
 
 func TestVerifyAttestationStdoutRedirect(t *testing.T) {

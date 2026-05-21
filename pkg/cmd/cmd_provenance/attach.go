@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/security"
 	"github.com/simple-container-com/api/pkg/security/provenance"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
@@ -64,12 +65,32 @@ func runAttach(ctx context.Context, opts *attachOptions) error {
 		return fmt.Errorf("cannot specify both --keyless and --key")
 	}
 
-	attacher := provenance.NewAttacher(&signing.Config{
+	signingCfg := &signing.Config{
 		Enabled:    true,
 		Keyless:    useKeyless,
 		PrivateKey: opts.key,
 		Password:   opts.password,
-	})
+	}
+
+	// Keyless cosign attest needs an OIDC identity token. Without it cosign 3.x
+	// can exit 0 while uploading no attestation, leaving the verify step to
+	// fail with "none of the attestations matched the predicate type". Mirror
+	// the CLI sign path: pull from SIGSTORE_ID_TOKEN or the GitHub Actions
+	// OIDC request endpoint, and fail loudly if neither is available.
+	if useKeyless {
+		execCtx, err := security.NewExecutionContext(ctx)
+		if err != nil {
+			return fmt.Errorf("creating execution context: %w", err)
+		}
+		if execCtx.OIDCToken == "" {
+			return fmt.Errorf("OIDC token not available for keyless provenance attestation. " +
+				"Ensure you're running in a CI environment with OIDC configured " +
+				"(id-token: write permission on GitHub Actions), or set SIGSTORE_ID_TOKEN")
+		}
+		signingCfg.OIDCToken = execCtx.OIDCToken
+	}
+
+	attacher := provenance.NewAttacher(signingCfg)
 	if err := attacher.Attach(ctx, statement, opts.image); err != nil {
 		return fmt.Errorf("attaching provenance: %w", err)
 	}

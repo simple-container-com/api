@@ -36,10 +36,15 @@ func (i *ToolInstaller) CheckInstalled(ctx context.Context, toolName string) err
 	return nil
 }
 
-// InstallIfMissing checks if a tool is installed and auto-installs it if not.
+// InstallIfMissing checks if a tool is installed at the registered MinVersion
+// and auto-installs the pinned version if it is missing OR present-but-stale.
+// A bare PATH-only check is unsafe: e.g., a Blacksmith runner shipping cosign
+// 2.x would be accepted even though `MinVersion = 3.0.2`, and cosign 3.x
+// changed several attestation-related defaults — silent acceptance lets the
+// runner-installed binary drive behavior instead of the SC-pinned version.
 // Supports: cosign, syft, grype, trivy.
 func (i *ToolInstaller) InstallIfMissing(ctx context.Context, toolName string) error {
-	if i.IsToolAvailable(ctx, toolName) {
+	if err := i.CheckInstalledWithVersion(ctx, toolName); err == nil {
 		return nil
 	}
 
