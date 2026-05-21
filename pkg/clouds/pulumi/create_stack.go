@@ -106,18 +106,29 @@ func stackCheckpointNotFound(err error) bool {
 		return false
 	}
 	// Provider-specific 404 markers that gcerrors.Code may miss after a
-	// transitive bump:
+	// transitive bump. Match case-insensitively to defend against
+	// formatting drift across client versions ("NotFound" vs "notFound",
+	// "Not Found" with space, etc.):
 	//   - GCS:   "object doesn't exist" / "notFound" / "Error 404"
-	//   - S3:    "NoSuchKey"
+	//   - S3 v1: "NoSuchKey"
+	//   - S3 v2: "api error NotFound" / "StatusCode: 404"
 	//   - Azure: "BlobNotFound" / "ResourceNotFound"
+	//
+	// The "404" suffix is intentional and load-bearing: it's the HTTP
+	// status code that virtually every cloud-storage provider includes
+	// in the wrapped error for a missing object, regardless of the
+	// SDK's NotFound enum naming.
+	msgLower := strings.ToLower(msg)
 	for _, marker := range []string{
 		"object doesn't exist",
-		"notFound",
-		"NoSuchKey",
-		"BlobNotFound",
-		"ResourceNotFound",
+		"notfound",
+		"nosuchkey",
+		"blobnotfound",
+		"resourcenotfound",
+		"statuscode: 404",
+		"error 404",
 	} {
-		if strings.Contains(msg, marker) {
+		if strings.Contains(msgLower, marker) {
 			return true
 		}
 	}

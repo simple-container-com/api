@@ -36,15 +36,33 @@ func TestStackCheckpointNotFound(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "S3 NoSuchKey wrapped through Pulumi diy backend",
+			name: "S3 v1 NoSuchKey wrapped through Pulumi diy backend",
 			err: fmt.Errorf("failed to load checkpoint: %w",
 				errors.New(`blob (key ".pulumi/stacks/foo/bar.json") (code=Unknown): NoSuchKey: The specified key does not exist`)),
+			want: true,
+		},
+		{
+			name: "S3 v2 SDK 'api error NotFound' wrapped through Pulumi diy backend",
+			err: fmt.Errorf("failed to load checkpoint: %w",
+				errors.New(`blob (key ".pulumi/stacks/foo/bar.json") (code=Unknown): operation error S3: HeadObject, https response error StatusCode: 404, RequestID: x, HostID: y, api error NotFound: Not Found`)),
 			want: true,
 		},
 		{
 			name: "Azure BlobNotFound wrapped through Pulumi diy backend",
 			err: fmt.Errorf("failed to load checkpoint: %w",
 				errors.New(`blob (key ".pulumi/stacks/foo/bar.json") (code=Unknown): BlobNotFound`)),
+			want: true,
+		},
+		{
+			name: "GCS NotFound with capitalized 'Not Found' (case-insensitivity guard)",
+			err: fmt.Errorf("failed to load checkpoint: %w",
+				errors.New(`blob (key ".pulumi/stacks/foo/bar.json") (code=Unknown): NotFound: object Not Found`)),
+			want: true,
+		},
+		{
+			name: "Generic 'StatusCode: 404' wrap (covers future client SDKs we don't enumerate)",
+			err: fmt.Errorf("failed to load checkpoint: %w",
+				errors.New(`blob (key ".pulumi/stacks/foo/bar.json") (code=Unknown): StatusCode: 404`)),
 			want: true,
 		},
 		{
