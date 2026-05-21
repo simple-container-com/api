@@ -67,6 +67,7 @@ func runGenerate(ctx context.Context, opts *generateOptions) error {
 		Enabled: true,
 		SBOM: &security.SBOMConfig{
 			Enabled:   true,
+			Required:  true,
 			Format:    string(format),
 			Generator: "syft",
 			Output: &security.OutputConfig{
@@ -90,9 +91,6 @@ func runGenerate(ctx context.Context, opts *generateOptions) error {
 	generatedSBOM, err := executor.ExecuteSBOM(ctx, opts.image)
 	if err != nil {
 		return fmt.Errorf("failed to generate SBOM: %w", err)
-	}
-	if generatedSBOM == nil {
-		return fmt.Errorf("no SBOM generated")
 	}
 
 	// Print summary
