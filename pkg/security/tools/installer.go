@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // ToolInstaller checks tool availability and auto-installs missing tools.
@@ -69,29 +70,34 @@ func (i *ToolInstaller) InstallIfMissing(ctx context.Context, toolName string) e
 		return fmt.Errorf("auto-install of %s failed: %w — install manually from %s", toolName, err, tool.InstallURL)
 	}
 
-	// Ensure the install directory is in PATH for this process and subprocesses.
-	// Inside Docker containers, ~/.local/bin may not be in the default PATH.
-	// Use filepath.SplitList + exact match to avoid substring false positives
-	// (e.g., "/usr/local/binutils" should not match "/usr/local/bin").
-	currentPath := os.Getenv("PATH")
-	found := false
-	for _, dir := range filepath.SplitList(currentPath) {
-		if dir == installDir {
-			found = true
-			break
-		}
-	}
-	if !found {
-		os.Setenv("PATH", installDir+":"+currentPath)
-	}
+	os.Setenv("PATH", prependToPath(installDir, os.Getenv("PATH")))
 
-	// Verify installation succeeded
-	if err := i.CheckInstalled(ctx, toolName); err != nil {
-		return fmt.Errorf("%s installed but not found in PATH — check %s", toolName, installDir)
+	// Verify installation succeeded AND meets the pinned MinVersion — a
+	// bare presence check would silently accept a stale binary that still
+	// shadows the install (e.g., kernel/glibc mismatch leaves the new
+	// download non-executable and PATH falls back to the old one).
+	if err := i.CheckInstalledWithVersion(ctx, toolName); err != nil {
+		return fmt.Errorf("%s install verification failed: %w — check %s", toolName, err, installDir)
 	}
 
 	fmt.Fprintf(os.Stderr, "Tool %s installed successfully\n", toolName)
 	return nil
+}
+
+// prependToPath returns currentPath with installDir moved to the front,
+// removing any prior occurrence so the freshly-installed binary always wins
+// over a stale copy earlier in PATH (e.g., system-package cosign 2.x at
+// /usr/bin/cosign vs. our pinned 3.x at ~/.local/bin/cosign). Empty path
+// entries are dropped. Uses filepath.SplitList + exact match so
+// "/usr/local/binutils" does NOT match "/usr/local/bin".
+func prependToPath(installDir, currentPath string) string {
+	parts := []string{installDir}
+	for _, dir := range filepath.SplitList(currentPath) {
+		if dir != installDir && dir != "" {
+			parts = append(parts, dir)
+		}
+	}
+	return strings.Join(parts, string(os.PathListSeparator))
 }
 
 // resolveInstallDir returns a writable bin directory.

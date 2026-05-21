@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -237,6 +238,62 @@ func TestInstallIfMissingChecksVersion(t *testing.T) {
 	// assertion is that we no longer get a silent nil return.
 	Expect(err).To(HaveOccurred(),
 		"InstallIfMissing must NOT silently accept a tool that does not meet MinVersion")
+}
+
+func TestPrependToPath(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Codex review caught that the prior "append installDir if missing"
+	// logic left stale binaries winning when installDir was already on
+	// PATH after the stale location. After the fix, installDir must
+	// always end up at the FRONT of PATH, with any prior occurrence
+	// removed (not duplicated).
+	sep := string(os.PathListSeparator)
+
+	tests := []struct {
+		name        string
+		installDir  string
+		currentPath string
+		want        string
+	}{
+		{
+			name:        "installDir not on PATH — prepended",
+			installDir:  "/home/u/.local/bin",
+			currentPath: "/usr/local/bin" + sep + "/usr/bin",
+			want:        "/home/u/.local/bin" + sep + "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "installDir already last — moved to front (regression guard)",
+			installDir:  "/home/u/.local/bin",
+			currentPath: "/usr/bin" + sep + "/home/u/.local/bin",
+			want:        "/home/u/.local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "installDir already first — kept first, no duplication",
+			installDir:  "/usr/local/bin",
+			currentPath: "/usr/local/bin" + sep + "/usr/bin",
+			want:        "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "empty entries dropped",
+			installDir:  "/usr/local/bin",
+			currentPath: sep + "/usr/bin" + sep + sep,
+			want:        "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "substring lookalike NOT collapsed (/usr/local/binutils preserved)",
+			installDir:  "/usr/local/bin",
+			currentPath: "/usr/local/binutils" + sep + "/usr/local/bin",
+			want:        "/usr/local/bin" + sep + "/usr/local/binutils",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			Expect(prependToPath(tt.installDir, tt.currentPath)).To(Equal(tt.want))
+		})
+	}
 }
 
 func TestInstallScriptVersionValidation(t *testing.T) {
