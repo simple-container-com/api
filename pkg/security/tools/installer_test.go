@@ -275,16 +275,28 @@ func TestPrependToPath(t *testing.T) {
 			want:        "/usr/local/bin" + sep + "/usr/bin",
 		},
 		{
-			name:        "empty entries dropped",
+			name:        "POSIX empty entries (CWD) preserved, not stripped",
 			installDir:  "/usr/local/bin",
 			currentPath: sep + "/usr/bin" + sep + sep,
-			want:        "/usr/local/bin" + sep + "/usr/bin",
+			want:        "/usr/local/bin" + sep + sep + "/usr/bin" + sep + sep,
 		},
 		{
 			name:        "substring lookalike NOT collapsed (/usr/local/binutils preserved)",
 			installDir:  "/usr/local/bin",
 			currentPath: "/usr/local/binutils" + sep + "/usr/local/bin",
 			want:        "/usr/local/bin" + sep + "/usr/local/binutils",
+		},
+		{
+			name:        "trailing slash on existing PATH entry still deduped",
+			installDir:  "/usr/local/bin",
+			currentPath: "/usr/bin" + sep + "/usr/local/bin/",
+			want:        "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "trailing slash on installDir still deduped",
+			installDir:  "/usr/local/bin/",
+			currentPath: "/usr/bin" + sep + "/usr/local/bin",
+			want:        "/usr/local/bin/" + sep + "/usr/bin",
 		},
 	}
 

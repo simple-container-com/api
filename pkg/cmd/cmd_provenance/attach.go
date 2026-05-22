@@ -84,8 +84,8 @@ func runAttach(ctx context.Context, opts *attachOptions) error {
 		}
 		if execCtx.OIDCToken == "" {
 			return fmt.Errorf("OIDC token not available for keyless provenance attestation. " +
-				"Ensure you're running in a CI environment with OIDC configured " +
-				"(id-token: write permission on GitHub Actions), or set SIGSTORE_ID_TOKEN")
+				"Set SIGSTORE_ID_TOKEN, or run from a CI provider that supplies one " +
+				"(e.g. GitHub Actions with `permissions: id-token: write`)")
 		}
 		signingCfg.OIDCToken = execCtx.OIDCToken
 	}
