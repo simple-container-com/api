@@ -144,6 +144,30 @@ vpa:
   controlledResources: ["cpu", "memory"]  # Specify which resources to manage
 ```
 
+### **Controlled Values**
+
+By default VPA rewrites both `requests` and `limits` at admission, scaling the limit proportionally with the request. For workloads whose limits are sized to absorb cold-start CPU bursts (Django/gunicorn, Node SSR, JVM warmup), a low `minAllowed.cpu` paired with the default behaviour can shrink the CPU limit below what the cold-start path needs, causing startup-probe failures and SIGKILLs.
+
+Set `controlledValues: "RequestsOnly"` to tell VPA to only rewrite `requests` and leave the deployment template's `limits` untouched. The deployment then keeps its full cold-start headroom while VPA still right-sizes the steady-state request.
+
+```yaml
+vpa:
+  enabled: true
+  updateMode: "Auto"
+  minAllowed:
+    cpu: "50m"       # safe at this floor when limit is preserved
+    memory: "64Mi"
+  maxAllowed:
+    cpu: "2"
+    memory: "4Gi"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsOnly"     # leave deployment-template limits alone
+```
+
+Valid values:
+- `RequestsAndLimits` (default) — VPA scales both. Equivalent to omitting the field.
+- `RequestsOnly` — VPA scales only `requests`; `limits` stay at the values in the underlying deployment template.
+
 ## **VPA Best Practices**
 
 ### **1. Environment-Specific Configuration**
