@@ -249,22 +249,23 @@ async function handleRequest(origRequest) {
 		if (location) {
 			const target = new URL(location, url);
 
-			// merge original query string with redirect's own query params
-			// redirect params take precedence over original request params
-			if (url.search) {
-				const origParams = new URLSearchParams(url.search);
-				const targetParams = new URLSearchParams(target.search);
-				for (const [key, value] of origParams) {
-					if (!targetParams.has(key)) {
-						targetParams.append(key, value);
-					}
-				}
-				target.search = targetParams.toString();
-			}
-
-			// Only rewrite hostname if redirect is to our target upstream (overrideHost)
-			// External redirects (e.g., to Microsoft login) should pass through unchanged
+			// Only rewrite hostname AND merge query params if redirect is to our
+			// target upstream. External redirects (S3 presigned URLs, OAuth, etc.)
+			// must pass through unchanged — extra query params break S3 signatures
+			// and may leak request secrets (e.g. ?secret=) to third parties.
 			if (target.hostname === overrideHost) {
+				// merge original query string with redirect's own query params
+				// redirect params take precedence over original request params
+				if (url.search) {
+					const origParams = new URLSearchParams(url.search);
+					const targetParams = new URLSearchParams(target.search);
+					for (const [key, value] of origParams) {
+						if (!targetParams.has(key)) {
+							targetParams.append(key, value);
+						}
+					}
+					target.search = targetParams.toString();
+				}
 				target.hostname = origHost;
 				target.protocol = new URL(request.url).protocol;
 			}
