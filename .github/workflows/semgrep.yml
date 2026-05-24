@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   semgrep:
-    uses: simple-container-com/actions/.github/workflows/semgrep.yml@0af5a697f24ea484991660619d0ae42d50343b9d # main
+    uses: simple-container-com/actions/.github/workflows/semgrep.yml@5061c0a28f850f4d8f5f990856cd31c9699760fc # main (actions#23 merged)
     permissions:
       contents: read
     with:
@@ -29,3 +29,27 @@ jobs:
       # Pinned at the action level via Semgrep image digest in
       # semgrep-scan/action.yml; pack content is fetched at runtime.
       registry-packs: 'p/ci,p/golang,p/gosec'
+      # Suppress two over-broad registry rules whose threat models don't
+      # transfer to SC code. Replacement coverage:
+      #
+      #   `use-of-md5` — gosec fires on every md5.Sum call. All 7 SC
+      #   call sites are non-cryptographic fingerprints: S3-etag-style
+      #   bundle checksums (static_website.go, bucket_uploader.go),
+      #   K8s annotation change-hashes for Caddy restart triggers
+      #   (gke_autopilot_stack.go, kube_run.go), and a dedup suffix for
+      #   Pulumi resource names on duplicate-name DNS records
+      #   (registrar.go). Real MD5-in-crypto coverage is provided by
+      #   `go-md5-in-crypto-context` in go-canon.yml, which fires on
+      #   `hmac.New(md5.New, ...)` and on md5 result assigned to
+      #   variables named `mac` / `signature` / `password` / etc.
+      #
+      #   `unsafe-deserialization-interface` — calibrated to Python
+      #   pickle / yaml.load which execute code on unmarshal. Go's
+      #   yaml.v3 / encoding-json do not execute on unmarshal; the
+      #   threat model doesn't transfer. The 3 SC call sites are
+      #   credential obfuscators that walk untyped YAML to redact
+      #   secrets BEFORE logging (commands_project.go,
+      #   secure_file_reader.go). The SC team explicitly dropped its
+      #   own equivalent rule in round-6 triage for the same reason
+      #   (see go-canon.yml comment in actions repo).
+      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface'
