@@ -31,10 +31,15 @@ func NewExecutionContext(ctx context.Context) (*ExecutionContext, error) {
 	execCtx := &ExecutionContext{}
 	execCtx.DetectCI()
 
-	if execCtx.IsCI {
-		if err := execCtx.GetOIDCToken(ctx); err != nil {
-			// Non-fatal: OIDC token is optional (only needed for keyless signing).
-			// Log to stderr so callers that need the token get diagnostic info.
+	// Always attempt OIDC resolution — SIGSTORE_ID_TOKEN may be set by a
+	// developer running `sc image sign --keyless` or `sc provenance attach
+	// --keyless` locally (outside any detected CI provider). GetOIDCToken
+	// checks the env var first, then falls back to the GitHub-Actions
+	// request endpoint when applicable. A failure here is non-fatal:
+	// OIDC is only needed for keyless flows, and those will return their
+	// own clearer error when execCtx.OIDCToken is empty.
+	if err := execCtx.GetOIDCToken(ctx); err != nil {
+		if execCtx.IsCI {
 			fmt.Fprintf(os.Stderr, "OIDC token not acquired: %v\n", err)
 		}
 	}

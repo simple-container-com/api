@@ -18,7 +18,20 @@ import (
 )
 
 const (
-	// Cosign attestation types for supported provenance predicate schemas.
+	// PredicateTypeSLSAV10 is the canonical in-toto predicateType URI for SLSA v1.0
+	// provenance. Pass this to `cosign attest --type` AND `cosign verify-attestation
+	// --type` so the value written into the DSSE envelope is byte-identical to the
+	// value the verifier matches against, irrespective of cosign's alias mappings
+	// (which changed between cosign 2.x and 3.x).
+	PredicateTypeSLSAV10 = "https://slsa.dev/provenance/v1"
+	// PredicateTypeSLSAV02 is the canonical predicateType URI for the legacy SLSA
+	// v0.2 schema. Retained for envelope detection on existing attestations.
+	PredicateTypeSLSAV02 = "https://slsa.dev/provenance/v0.2"
+
+	// CosignAttestationTypeV10 / CosignAttestationTypeV02 are the cosign short-form
+	// aliases. Deprecated: prefer the PredicateType* URI constants — cosign 3.x
+	// dropped some short-form aliases on verify-attestation, and asymmetry between
+	// attest and verify silently breaks the attach→verify cycle.
 	CosignAttestationTypeV10 = "slsaprovenance1"
 	CosignAttestationTypeV02 = "slsaprovenance02"
 )
@@ -381,14 +394,18 @@ func matchesExpectedEnvelope(format Format, actualType, actualPredicateType stri
 	}
 }
 
+// attestationType returns the canonical predicateType URI for the given format.
+// Both `cosign attest --type` and `cosign verify-attestation --type` accept URI
+// values; using the URI on both sides keeps the envelope predicateType byte-
+// identical to the verifier's match string across cosign 2.x and 3.x.
 func attestationType(format Format) string {
 	switch format {
 	case FormatSLSAV02:
-		return CosignAttestationTypeV02
+		return PredicateTypeSLSAV02
 	case FormatSLSAV10:
 		fallthrough
 	default:
-		return CosignAttestationTypeV10
+		return PredicateTypeSLSAV10
 	}
 }
 
