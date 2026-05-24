@@ -9,10 +9,7 @@ permissions:
   contents: read
 jobs:
   semgrep:
-    # NOTE: pinned to the chore/semgrep-disable-rules-and-md5-refinement
-    # head SHA on simple-container-com/actions until that PR (actions#23)
-    # merges; bump to the resulting main-merge SHA before merging this PR.
-    uses: simple-container-com/actions/.github/workflows/semgrep.yml@2a7604ddac4fd9f912a1ab6896ac87c5b07bc537 # chore/semgrep-disable-rules-and-md5-refinement (actions#23)
+    uses: simple-container-com/actions/.github/workflows/semgrep.yml@5061c0a28f850f4d8f5f990856cd31c9699760fc # main (actions#23 merged)
     permissions:
       contents: read
     with:
