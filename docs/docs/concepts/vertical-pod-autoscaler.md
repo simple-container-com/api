@@ -165,6 +165,7 @@ vpa:
 ```
 
 Valid values:
+
 - `RequestsAndLimits` (default) — VPA scales both. Equivalent to omitting the field.
 - `RequestsOnly` — VPA scales only `requests`; `limits` stay at the values in the underlying deployment template.
 

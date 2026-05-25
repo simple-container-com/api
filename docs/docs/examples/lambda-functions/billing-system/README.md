@@ -56,6 +56,7 @@ beta:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `lambda-eu` template with extended timeout support
 - `mongodb` resource for billing data storage
 - Multi-environment support with parent environment inheritance

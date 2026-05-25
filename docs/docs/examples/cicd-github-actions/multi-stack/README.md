@@ -5,6 +5,7 @@ This example demonstrates a complex CI/CD setup managing multiple related stacks
 ## Overview
 
 This setup manages:
+
 - **Infrastructure Stack** - Shared resources (VPC, databases, load balancers)
 - **API Stack** - Backend services with database dependencies
 - **Frontend Stack** - Web application with API dependencies

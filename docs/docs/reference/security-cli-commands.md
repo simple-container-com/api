@@ -16,6 +16,7 @@ sc image scan --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image to scan (e.g., myapp:v1.0)
 - `--tool`: Scanner tool (grype, trivy, all) (default: grype)
 - `--fail-on`: Optional quality gate severity (critical, high, medium, low)
@@ -66,6 +67,7 @@ sc image scan \
 ```
 
 **Exit Codes:**
+
 - 0: Success, no policy violations
 - 1: Scan failed or policy violation
 - 2: Tool not installed
@@ -80,11 +82,13 @@ sc image sign --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image to sign
 - `--keyless`: Use keyless signing with OIDC
 - `--key`: Path to private key (for key-based signing)
 
 **Environment Variables:**
+
 - `SIGSTORE_ID_TOKEN`: OIDC token for keyless signing
 
 **Examples:**
@@ -106,6 +110,7 @@ sc image verify --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image to verify
 - `--public-key`: Path to public key (for key-based verification)
 - `--oidc-issuer`: OIDC issuer for keyless verification
@@ -136,6 +141,7 @@ sc sbom generate --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image
 - `--format`: SBOM format (cyclonedx-json, cyclonedx-xml, spdx-json, spdx-tag-value, syft-json) (default: cyclonedx-json)
 - `--output`: Output file path
@@ -159,6 +165,7 @@ sc sbom attach --image IMAGE --sbom FILE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image
 - `--sbom` (required): SBOM file to attach
 - `--keyless`: Use keyless signing with OIDC. If `--key` is omitted, keyless mode is used.
@@ -184,6 +191,7 @@ sc sbom verify --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image
 - `--output` (required): Output file for verified SBOM
 - `--keyless`: Use keyless verification
@@ -233,6 +241,7 @@ sc provenance attach --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image
 - `--format`: Provenance format (`slsa-v1.0`)
 - `--output`: Save the generated predicate locally before attaching
@@ -269,6 +278,7 @@ sc provenance verify --image IMAGE [flags]
 ```
 
 **Flags:**
+
 - `--image` (required): Container image
 - `--format`: Expected provenance format
 - `--output`: Output file for verified provenance
@@ -311,6 +321,7 @@ sc release create -s STACK -e ENVIRONMENT [flags]
 ```
 
 **Flags:**
+
 - `-s, --stack` (required): Stack name
 - `-e, --environment` (required): Environment name
 - `--yes`: Auto-approve deployment without prompts
@@ -335,6 +346,7 @@ sc release create -s mystack -e production --yes
 4. Deploy infrastructure
 
 **Security Integration:**
+
 - Security operations run automatically if configured in stack
 - Scanning runs first so policy/reporting artifacts are produced before promotion
 - Signing, SBOM, and provenance run in parallel after scanning

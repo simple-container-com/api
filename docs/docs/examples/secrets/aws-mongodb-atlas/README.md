@@ -85,6 +85,7 @@ echo -n "your-secret-key" | base64
 
 ### 5. CI/CD Webhooks
 Configure webhook URLs for your notification services:
+
 - **Discord**: Server Settings → Integrations → Webhooks
 - **Slack**: App Settings → Incoming Webhooks
 

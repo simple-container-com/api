@@ -5,6 +5,7 @@ This directory contains examples demonstrating how to configure CPU and memory r
 ## Overview
 
 Simple Container supports comprehensive resource management with separate configuration for:
+
 - **Resource Limits**: Maximum resources a container can use
 - **Resource Requests**: Resources guaranteed to be available for the container
 

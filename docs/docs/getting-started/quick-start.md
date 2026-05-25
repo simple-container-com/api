@@ -163,6 +163,7 @@ Simple Container will:
 Your website should now be live at your configured domain!
 
 You can verify the deployment by:
+
 - Visiting your domain in a web browser
 - Checking your AWS S3 bucket for the deployed files
 - Verifying CloudFront distribution is active in AWS Console

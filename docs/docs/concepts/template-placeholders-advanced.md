@@ -187,6 +187,7 @@ Google Cloud Storage bucket with S3-compatible access via HMAC keys.
 **Auto-injected Environment Variables:**
 
 **Bucket-Specific Variables** (where `BUCKET_NAME` is the sanitized bucket name):
+
 - `GCS_<BUCKET_NAME>_BUCKET` - Bucket name
 - `GCS_<BUCKET_NAME>_LOCATION` - Bucket location/region
 - `GCS_<BUCKET_NAME>_ACCESS_KEY` - HMAC access key ID (secret)
@@ -194,6 +195,7 @@ Google Cloud Storage bucket with S3-compatible access via HMAC keys.
 - `GCS_<BUCKET_NAME>_ENDPOINT` - GCS S3-compatible endpoint
 
 **S3-Compatible Variables** (for applications expecting AWS S3):
+
 - `S3_<BUCKET_NAME>_BUCKET` - Bucket name
 - `S3_<BUCKET_NAME>_REGION` - Bucket location/region
 - `S3_<BUCKET_NAME>_ACCESS_KEY` - HMAC access key ID (secret)
@@ -201,6 +203,7 @@ Google Cloud Storage bucket with S3-compatible access via HMAC keys.
 - `S3_<BUCKET_NAME>_ENDPOINT` - GCS S3-compatible endpoint
 
 **Generic Variables** (when only one bucket is used):
+
 - `GCS_BUCKET` - Bucket name
 - `GCS_LOCATION` - Bucket location
 - `GCS_ACCESS_KEY` - HMAC access key ID (secret)
@@ -208,6 +211,7 @@ Google Cloud Storage bucket with S3-compatible access via HMAC keys.
 - `GCS_ENDPOINT` - GCS S3-compatible endpoint
 
 **AWS SDK Compatible Variables** (for seamless AWS SDK integration):
+
 - `AWS_ACCESS_KEY_ID` - HMAC access key ID (secret)
 - `AWS_SECRET_ACCESS_KEY` - HMAC secret key (secret)
 - `S3_ENDPOINT` - GCS S3-compatible endpoint
@@ -215,6 +219,7 @@ Google Cloud Storage bucket with S3-compatible access via HMAC keys.
 - `S3_REGION` - Bucket location
 
 **Template Placeholders:**
+
 - `${resource:bucket-name.bucket}` - Bucket name
 - `${resource:bucket-name.location}` - Bucket location
 - `${resource:bucket-name.access-key}` - HMAC access key ID
@@ -344,6 +349,7 @@ MongoDB Atlas database cluster connection details and credentials.
 - `${resource:mongodb-name.oplogUri}` - MongoDB oplog connection string
 
 **For Dependencies** (when used via `dependencies` section):
+
 - `${dependency:dep-name.uri}` - Full MongoDB connection string for dependency
 - `${dependency:dep-name.user}` - Database username for dependency
 - `${dependency:dep-name.password}` - Database password for dependency

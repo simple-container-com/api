@@ -100,6 +100,7 @@ Secure Software Development Framework compliance mapping.
 | Timestamp | GeneratedAt field | Included |
 
 **SBOM Format Compliance:**
+
 - CycloneDX 1.4+ (JSON/XML)
 - SPDX 2.3+ (JSON/tag-value)
 

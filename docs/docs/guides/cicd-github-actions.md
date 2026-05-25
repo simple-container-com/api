@@ -304,10 +304,12 @@ All Simple Container GitHub Actions support these common inputs:
 - **`notify-on-completion`** - Send notifications when operation completes (`true`/`false`, default: `true`)
 
 **Available Outputs:**
+
 - **`stack-name`** - Name of the deployed stack
 - **`status`** - Deployment status ("success")
 
 For `deploy@v2025.10.4` action:
+
 - **`version`** - Deployed application version
 - **`environment`** - Target environment name
 
@@ -347,9 +349,11 @@ jobs:
 Configure these secrets in your GitHub repository settings:
 
 **Only ONE GitHub secret required:**
+
 - `SC_CONFIG` - Simple Container configuration with SSH key pair to decrypt repository secrets
 
 **All other secrets are managed in Simple Container's encrypted secrets.yaml files:**
+
 - **Cloud provider credentials** - AWS, GCP, Azure authentication
 - **Notification webhooks** - Slack, Discord, Telegram configurations  
 - **Application secrets** - Database URLs, API keys, environment-specific values

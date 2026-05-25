@@ -8,12 +8,14 @@ This directory contains practical examples of adopting existing cloud infrastruc
 Complete example showing how to adopt existing resources across production, staging, and development environments.
 
 **Includes:**
+
 - MongoDB Atlas clusters (3 environments)
 - GCP Cloud SQL Postgres instances (3 environments)  
 - GCP Redis Memorystore instances (3 environments)
 - GKE Autopilot clusters (3 environments)
 
 **Files:**
+
 - `server.yaml` - Parent stack with resource adoption configuration
 - `secrets.yaml` - Template for required secrets and authentication
 - `client.yaml` - Example client service using adopted resources

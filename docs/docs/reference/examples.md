@@ -121,6 +121,7 @@ With `sc`, migrations **only require modifying `server.yaml`**, while `client.ya
 **Supports AWS ECS, Kubernetes, and Google Cloud Run natively.**
 
 **Example: Migrating from AWS to GCP**
+
 - **Terraform/Pulumi:** Requires modifying state storage, networking, IAM policies.
 - **SC:** Just update `server.yaml`,**no changes at the service level**.
 

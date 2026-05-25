@@ -413,6 +413,7 @@ resources:
 ## **What is PriorityClass?**
 
 Kubernetes **PriorityClass** allows you to specify the importance of pods relative to other pods. When resources are scarce, higher priority pods are:
+
 - Scheduled before lower priority pods
 - Able to preempt lower priority pods if necessary
 
@@ -421,6 +422,7 @@ On **GKE Autopilot**, this is critical for preventing your workloads from being 
 ## **Default Behavior**
 
 Without a PriorityClass, pods are created with **priority 0** (the default). This means:
+
 - System critical pods (priority: 2000000000) will preempt your pods
 - Your pods may be evicted during node pressure
 - "Balloon pods" can displace your workloads
@@ -502,6 +504,7 @@ stacks:
 ## **What are Generic Ephemeral Volumes?**
 
 **Generic Ephemeral Volumes** provide **truly temporary storage** that:
+
 - Supports sizes up to **64TB** (vs 10GB limit for regular ephemeral storage)
 - Creates a PersistentVolumeClaim **automatically for each pod**
 - **Deletes the PVC when the pod is deleted** (truly ephemeral)
@@ -510,6 +513,7 @@ stacks:
 ## **Why You Need This**
 
 GKE Autopilot **hard-limits** regular ephemeral storage to **10GB maximum**. This limitation:
+
 - Cannot be increased through configuration
 - Cannot be bypassed with VPA
 - Creates bottlenecks for applications needing more temp storage
@@ -722,6 +726,7 @@ cloudExtras:
 ```
 
 **How it works:**
+
 - GKE Autopilot automatically creates nodes with your custom labels
 - Pods are scheduled only on nodes matching the `nodeSelector`
 - Tolerations allow pods to run on tainted nodes
@@ -790,6 +795,7 @@ cloudExtras:
 ```
 
 **Use Cases for HTTP Headers:**
+
 - **Multi-tenant routing** - Route health checks to correct tenant backend
 - **Authentication bypass** - Bypass authentication for health check endpoints
 - **Custom routing** - Direct health checks through proxies/load balancers

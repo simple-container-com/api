@@ -225,12 +225,14 @@ stacks:
 ### PriorityClassName
 
 **Do:**
+
 - Use priority classes for critical production workloads
 - Create separate priority classes for different service tiers
 - Document priority class values in your runbook
 - Test with lower priorities before using system-critical
 
 **Don't:**
+
 - Use system-critical priority classes for non-system workloads
 - Set all workloads to high priority (defeats the purpose)
 - Use extremely high priority values unnecessarily
@@ -238,12 +240,14 @@ stacks:
 ### Ephemeral Volumes
 
 **Do:**
+
 - Delete pods promptly when not needed to free storage
 - Use appropriate storage classes for your workload
 - Monitor PVC usage and cleanup
 - Set size limits based on actual needs
 
 **Don't:**
+
 - Use ephemeral volumes for permanent data
 - Oversize volumes unnecessarily (costs money)
 - Use pd-extreme unless latency is truly critical

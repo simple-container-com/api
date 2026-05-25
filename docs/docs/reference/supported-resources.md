@@ -1332,6 +1332,7 @@ resources:
 **Backup Security:**
 
 MongoDB Atlas encrypts **all backups automatically by default** using your cloud provider's encryption:
+
 - **Automatic encryption**: No configuration required - all snapshots are encrypted at rest
 - **Cloud provider managed**: Encryption keys managed by AWS/GCP/Azure
 - **Universal**: Applies to all cluster tiers and backup types (hourly, daily, weekly, monthly)
@@ -1399,6 +1400,7 @@ resources:
 ### **State Storage and Secrets Management**
 
 The provisioner manages two key components:
+
 - **State Storage**: Stores Pulumi's state (supports `s3-bucket`, `fs`, `gcp-bucket`, `pulumi-cloud`)
 - **Secrets Provider**: Provides encryption for created resources' confidential outputs
 
@@ -1629,6 +1631,7 @@ alerts:
 ```
 
 **Alert Configuration Properties:**
+
 - **`alertName`** - Unique identifier for the CloudWatch alarm
 - **`description`** - Human-readable description of the alert
 - **`threshold`** - Numeric threshold value that triggers the alarm
@@ -1636,12 +1639,14 @@ alerts:
 - **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
 
 **CloudWatch Metrics and Dimensions:**
+
 - **`serverErrors`** - Uses `HTTPCode_Target_5XX_Count` metric with LoadBalancer dimension
 - **`unhealthyHosts`** - Uses `UnHealthyHostCount` metric with LoadBalancer + TargetGroup dimensions  
 - **`responseTime`** - Uses `TargetResponseTime` metric with LoadBalancer dimension
 - All metrics use full AWS load balancer identifiers (including AWS-generated suffixes) for reliable targeting
 
 **Notification Channel Properties:**
+
 - **`email.addresses`** - Array of email addresses for email notifications
 - **`slack.webhookUrl`** - Slack webhook URL (use secrets management)
 - **`discord.webhookUrl`** - Discord webhook URL (use secrets management)
@@ -1964,16 +1969,19 @@ stacks:
 ### **Scaling Benefits Demonstrated**
 
 **1. Resource Pool Management:**
+
 - DevOps defines resource pools once (`mongodb-shared-us`, `mongodb-enterprise-1`)
 - Developers allocate customers flexibly using `uses` directive
 - Easy migration between tiers by changing `uses` configuration
 
 **2. Cost Optimization:**
+
 - Standard customers share `mongodb-shared-us` (cost-effective)
 - Enterprise customers get dedicated `mongodb-enterprise-1` (performance)
 - Automatic resource utilization optimization
 
 **3. Geographic Compliance:**
+
 - EU customers automatically use `mongodb-shared-eu` for data residency
 - US customers use `mongodb-shared-us`
 - Simple configuration change for compliance

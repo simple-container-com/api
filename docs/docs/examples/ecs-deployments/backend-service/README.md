@@ -40,6 +40,7 @@ This example shows how to deploy a Node.js backend service with MongoDB integrat
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `mongodb` resource with URI access
 - ECS deployment capabilities
 - Domain management

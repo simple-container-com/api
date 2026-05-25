@@ -26,6 +26,7 @@ This example shows how to deploy a static documentation site using MkDocs output
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `dist` template with static website deployment capabilities
 - GCP static hosting configuration
 - Domain management

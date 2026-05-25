@@ -120,6 +120,7 @@ mongodb:
 ```
 
 **Requirements:**
+
 - MongoDB Atlas API keys with project access
 - Existing cluster name and project ID
 - Cluster must be accessible from your applications
@@ -146,6 +147,7 @@ postgres:
 ```
 
 **Requirements:**
+
 - GCP service account with Cloud SQL Admin permissions
 - Existing instance name and connection name
 - Root password for database user creation
@@ -166,6 +168,7 @@ redis:
 ```
 
 **Requirements:**
+
 - GCP service account with Redis Admin permissions
 - Existing Redis instance ID
 - Instance must be accessible from your applications
@@ -190,6 +193,7 @@ gke-cluster:
 ```
 
 **Requirements:**
+
 - GCP service account with GKE Admin permissions
 - Existing cluster name and location
 - Cluster must be accessible for deployments
@@ -210,6 +214,7 @@ storage:
 ```
 
 **Requirements:**
+
 - GCP service account with Storage Admin permissions
 - Existing bucket name
 - Bucket must be accessible for your applications
@@ -256,6 +261,7 @@ resources:
 ```
 
 **Benefits:**
+
 - Same resource names across environments
 - Identical client.yaml configuration
 - Easy environment switching
@@ -296,11 +302,13 @@ auth:
 Ensure service accounts have minimal required permissions:
 
 **MongoDB Atlas:**
+
 - Project Read access
 - Cluster Read access
 - Database User Admin (for user creation)
 
 **Google Cloud:**
+
 - Cloud SQL Admin (for PostgreSQL)
 - Redis Admin (for Redis)
 - Kubernetes Engine Admin (for GKE)
@@ -309,6 +317,7 @@ Ensure service accounts have minimal required permissions:
 ### **Validation Checklist**
 
 Before adoption:
+
 - [ ] Resources are accessible from your applications
 - [ ] Service accounts have required permissions
 - [ ] Resource names and IDs are correct

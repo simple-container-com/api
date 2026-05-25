@@ -5,6 +5,7 @@ This example demonstrates comprehensive notification setup with multiple channel
 ## Overview
 
 This setup provides:
+
 - **Multi-channel notifications** (Slack, Discord, Telegram)
 - **Status-specific messaging** with custom templates
 - **Team mentions and escalations** based on environment

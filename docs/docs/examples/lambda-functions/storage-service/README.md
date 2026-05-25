@@ -54,6 +54,7 @@ lambdaSchedules:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `lambda-eu` template with scheduling support
 - `object-storage` resource (S3 bucket)
 - `mongodb` resource for metadata

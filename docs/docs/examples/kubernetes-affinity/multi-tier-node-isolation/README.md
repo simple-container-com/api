@@ -121,6 +121,7 @@ gcloud container clusters create spacepay-cluster \
 
 ### **Node Pool Configuration**
 The example assumes these node pools exist:
+
 - **processing**: High-CPU/memory nodes (e.g., n1-highmem-4)
 - **bots**: Balanced nodes (e.g., n1-standard-2)  
 - **whitelabel**: Cost-optimized nodes (e.g., e2-small)

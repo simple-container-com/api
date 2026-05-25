@@ -27,6 +27,7 @@ This example shows how to deploy a media-specific static hosting site with custo
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `static-site` template
 - Static website deployment capabilities
 - Domain management for media subdomain

@@ -15,6 +15,7 @@ Simple Container's affinity rules enable enterprise-grade workload placement str
 
 ### **1. Multi-Tier Node Isolation (`multi-tier-node-isolation/`)**
 Real-world example based on enterprise GCP migration requirements:
+
 - **Processing Services**: High-performance node pool isolation
 - **Bot Services**: General-purpose node pool for Telegram bots
 - **White Label Clients**: Scale-out node pool with cost optimization
@@ -22,6 +23,7 @@ Real-world example based on enterprise GCP migration requirements:
 
 ### **2. High Availability Patterns (`high-availability/`)**
 Advanced scheduling patterns for production workloads:
+
 - **Zone Anti-Affinity**: Spread pods across availability zones
 - **Node Anti-Affinity**: Distribute workloads across nodes
 - **Pod Co-location**: Group related services together
@@ -29,6 +31,7 @@ Advanced scheduling patterns for production workloads:
 
 ### **3. Performance Optimization (`performance-optimization/`)**
 Examples focused on performance and resource optimization:
+
 - **CPU-Intensive Workloads**: Dedicated high-CPU node pools
 - **Memory-Intensive Services**: High-memory node pool targeting
 - **Storage-Optimized**: SSD-backed node pool selection
@@ -89,6 +92,7 @@ stacks:
 
 ### **GKE Integration**
 Simple Container automatically maps affinity rules to GKE-specific labels:
+
 - `nodePool` → `cloud.google.com/gke-nodepool`
 - `computeClass` → `node.kubernetes.io/instance-type`
 

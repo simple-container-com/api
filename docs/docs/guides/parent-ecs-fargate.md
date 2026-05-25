@@ -357,6 +357,7 @@ lambdaSchedules:
 ```
 
 **Lambda Schedule Request Structure:**
+
 - `name`: Unique identifier for the schedule
 - `expression`: Cron or rate expression for timing
 - `timezone`: Timezone for schedule execution (optional)

@@ -124,6 +124,7 @@ registrar:
 ```
 
 **Features:**
+
 - Multi-region AWS deployment (US East, EU West)
 - Cloudflare DNS management with proxying
 - MongoDB Atlas with cross-region networking
@@ -229,6 +230,7 @@ registrar:
 ```
 
 **Features:**
+
 - GKE Autopilot for managed Kubernetes
 - Artifact Registry for container images
 - Cloud SQL PostgreSQL database
@@ -308,6 +310,7 @@ resources:
 ```
 
 **Features:**
+
 - AWS for compute-intensive workloads
 - GCP for data analytics and processing
 - Cross-cloud resource sharing

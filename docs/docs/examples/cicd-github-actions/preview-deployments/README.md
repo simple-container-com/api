@@ -5,6 +5,7 @@ This example demonstrates setting up PR-based preview environments that automati
 ## Overview
 
 This setup provides:
+
 - **Automatic preview deployment** when PRs are opened or updated
 - **Temporary environment creation** with unique URLs
 - **Resource cleanup** when PRs are closed or merged
@@ -373,24 +374,29 @@ sc cicd generate --stack preview-app --output .github/workflows/
 ### 3. GitHub Repository Settings
 
 **Environment Configuration:**
+
 - Create `preview` environment with no protection rules
 - Enable automatic deployment for preview environment
 
 **Required Secrets:**
+
 - `SC_CONFIG` - Simple Container configuration with SSH key pair to decrypt repository secrets
 
 **Branch Protection:**
+
 - Require status checks from preview deployment
 - Require branches to be up to date
 
 ## Cost Optimization
 
 **Automatic Cleanup:**
+
 - Preview environments are automatically cleaned up when PRs are closed
 - Daily scheduled cleanup removes stale environments older than 7 days
 - Built-in notifications keep teams informed of cleanup activities
 
 **Resource Management:**
+
 - Use smaller instance sizes for preview environments
 - Configure shorter TTL for preview resources
 - Consider using spot instances where applicable
@@ -418,15 +424,18 @@ sc cicd generate --stack preview-app --output .github/workflows/
 ### 3. GitHub Repository Settings
 
 **Environment Configuration:**
+
 - Create `preview` environment with no protection rules
 - Enable automatic deployment for preview environment
 
 **Required Secrets:**
+
 - `SC_CONFIG` - Simple Container configuration with SSH key pair to decrypt repository secrets
 
 **Note:** All cloud provider credentials, API tokens, and application secrets are managed in `.sc/stacks/preview-app/secrets.yaml` and encrypted using Simple Container's secrets management. GitHub Actions only needs the `SC_CONFIG` secret to decrypt and access all other secrets.
 
 **Branch Protection:**
+
 - Require status checks from preview deployment
 - Require branches to be up to date
 
@@ -512,6 +521,7 @@ npm run test:integration -- --baseUrl="https://pr-${PR_NUMBER}.preview.myapp.com
 ### Resource Sizing
 
 Preview environments use minimal resources:
+
 - **CPU**: 128 (vs 512 for production)
 - **Memory**: 256MB (vs 1GB for production)
 - **Instance Count**: 1 (vs 2-10 for production)
@@ -608,16 +618,19 @@ Add security scanning for preview deployments:
 ### Common Issues
 
 **Preview deployment fails:**
+
 - Check AWS permissions for temporary resource creation
 - Ensure Cloudflare registrar is properly configured in server.yaml for automatic DNS provisioning
 - Ensure cleanup jobs aren't interfering with active deployments
 
 **Cleanup not working:**
+
 - Check GitHub token permissions for PR access
 - Verify AWS credentials for resource destruction
 - Review scheduled cleanup job timing
 
 **High costs:**
+
 - Monitor preview environment resource usage
 - Implement stricter cleanup policies
 - Set up cost alerts and budgets
@@ -634,6 +647,7 @@ env:
 ## Next Steps
 
 After setting up preview deployments:
+
 - **[Advanced Notifications](../advanced-notifications/README.md)** - Enhanced PR notifications
 - **[Multi-Stack Deployment](../multi-stack/README.md)** - Complex preview environments
 - **[Basic Setup](../basic-setup/README.md)** - Simpler deployment patterns
