@@ -16,10 +16,10 @@ This setup provides:
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   GitHub Repo   │    │  GitHub Actions │    │ Simple Container│
 │                 │    │                 │    │                 │
-│ Push to main ───┼───▶│ Deploy Staging  │───▶│   AWS ECS       │
+│ Push to main ───┼───│ Deploy Staging  │───│   AWS ECS       │
 │                 │    │                 │    │   (Staging)     │
 │                 │    │                 │    │                 │
-│ Manual trigger ─┼───▶│ Deploy Prod     │───▶│   AWS ECS       │
+│ Manual trigger ─┼───│ Deploy Prod     │───│   AWS ECS       │
 │ (with approval) │    │ (with approval) │    │  (Production)   │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
@@ -281,7 +281,7 @@ stacks:
 
 ### 1. Configure GitHub Secrets
 
-Go to your repository **Settings** → **Secrets and variables** → **Actions** and add:
+Go to your repository **Settings** →**Secrets and variables** →**Actions** and add:
 
 **Required secrets:**
 - `SC_CONFIG` - Simple Container configuration with SSH key pair to decrypt repository secrets
@@ -324,7 +324,7 @@ cat ~/.ssh/id_rsa
 
 ### 3. Configure Environments
 
-Go to **Settings** → **Environments** and create:
+Go to **Settings** →**Environments** and create:
 
 **Staging Environment:**
 - Name: `staging`
@@ -620,6 +620,6 @@ After setting up basic CI/CD:
 5. **Custom domains** - Set up DNS and SSL certificates
 
 For more advanced setups, check out:
-- **[Multi-Stack Deployment](../multi-stack/)** - Deploy multiple related stacks
-- **[Preview Deployments](../preview-deployments/)** - PR-based testing environments
-- **[Advanced Notifications](../advanced-notifications/)** - Multi-channel alerts
+- **[Multi-Stack Deployment](../multi-stack/README.md)** - Deploy multiple related stacks
+- **[Preview Deployments](../preview-deployments/README.md)** - PR-based testing environments
+- **[Advanced Notifications](../advanced-notifications/README.md)** - Multi-channel alerts

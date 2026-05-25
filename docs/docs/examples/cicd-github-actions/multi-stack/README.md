@@ -19,7 +19,7 @@ This setup manages:
 │                 │    │                 │    │                 │
 │  ┌───────────┐  │    │  ┌───────────┐  │    │  ┌───────────┐  │
 │  │    VPC    │  │    │  │  Backend  │  │    │  │   React   │  │
-│  │ Database  │  │────┼─▶│  Service  │  │────┼─▶│    App    │  │
+│  │ Database  │  │────┼─│  Service  │  │────┼─│    App    │  │
 │  │    ALB    │  │    │  │           │  │    │  │           │  │
 │  └───────────┘  │    │  └───────────┘  │    │  └───────────┘  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
@@ -682,6 +682,6 @@ services:
 
 ## Next Steps
 
-- **[Preview Deployments](../preview-deployments/)** - Add PR-based testing
-- **[Advanced Notifications](../advanced-notifications/)** - Multi-channel alerts
-- **[Basic Setup](../basic-setup/)** - Simpler single-stack pattern
+- **[Preview Deployments](../preview-deployments/README.md)** - Add PR-based testing
+- **[Advanced Notifications](../advanced-notifications/README.md)** - Multi-channel alerts
+- **[Basic Setup](../basic-setup/README.md)** - Simpler single-stack pattern

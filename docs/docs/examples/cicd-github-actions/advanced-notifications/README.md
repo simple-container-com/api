@@ -51,7 +51,7 @@ cicd:
     # Custom templates
     templates:
       success-detailed:
-        title: "✅ Deployment Successful"
+        title: "Deployment Successful"
         color: "good"
         fields:
           - name: "Environment"
@@ -67,7 +67,7 @@ cicd:
             url: "${monitoring:dashboard-url}"
             
       failure-critical:
-        title: "🚨 CRITICAL: Production Deployment Failed"
+        title: "CRITICAL: Production Deployment Failed"
         color: "danger"
         urgency: "high"
         fields:
@@ -135,7 +135,7 @@ For production environments, you can configure additional notification channels 
       "type": "header",
       "text": {
         "type": "plain_text",
-        "text": "✅ Deployment Successful"
+        "text": "Deployment Successful"
       }
     },
     {
@@ -179,7 +179,7 @@ For production environments, you can configure additional notification channels 
       "type": "header",
       "text": {
         "type": "plain_text",
-        "text": "🚨 Deployment Failed"
+        "text": "Deployment Failed"
       }
     },
     {
@@ -207,13 +207,13 @@ For production environments, you can configure additional notification channels 
       "elements": [
         {
           "type": "button",
-          "text": {"type": "plain_text", "text": "🔍 View Logs"},
+          "text": {"type": "plain_text", "text": "View Logs"},
           "url": "${deployment:logs-url}",
           "style": "danger"
         },
         {
           "type": "button",
-          "text": {"type": "plain_text", "text": "🔄 Retry"},
+          "text": {"type": "plain_text", "text": "Retry"},
           "url": "${deployment:retry-url}",
           "style": "primary"
         }
@@ -277,6 +277,6 @@ Configure notification webhooks:
 ## Next Steps
 
 After setting up advanced notifications:
-- **[Basic Setup](../basic-setup/)** - Simple notification patterns
-- **[Multi-Stack Deployment](../multi-stack/)** - Complex deployment notifications  
-- **[Preview Deployments](../preview-deployments/)** - PR-based notifications
+- **[Basic Setup](../basic-setup/README.md)** - Simple notification patterns
+- **[Multi-Stack Deployment](../multi-stack/README.md)** - Complex deployment notifications  
+- **[Preview Deployments](../preview-deployments/README.md)** - PR-based notifications

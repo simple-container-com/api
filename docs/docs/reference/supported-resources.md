@@ -237,7 +237,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for S3 bucket access.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS S3 Bucket](../concepts/template-placeholders-advanced.md#s3-bucket)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS S3 Bucket](../concepts/template-placeholders-advanced.md#s3-bucket)
 
 #### **ECR Repository** (`ecr-repository`)
 
@@ -307,7 +307,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for PostgreSQL database connection.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS PostgreSQL](../concepts/template-placeholders-advanced.md#rds-postgresql)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS PostgreSQL](../concepts/template-placeholders-advanced.md#rds-postgresql)
 
 #### **RDS MySQL** (`aws-rds-mysql`)
 
@@ -343,7 +343,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for MySQL database connection.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
 
 #### **CloudTrail Security Alerts** (`aws-cloudtrail-security-alerts`)
 
@@ -382,10 +382,10 @@ resources:
             slack:
               webhookUrl: "${secret:security-slack-webhook}"
             # discord:
-            #   webhookUrl: "${secret:security-discord-webhook}"
+            # webhookUrl: "${secret:security-discord-webhook}"
             # telegram:
-            #   chatID: "-1001234567890"
-            #   token: "${secret:security-telegram-token}"
+            # chatID: "-1001234567890"
+            # token: "${secret:security-telegram-token}"
 
             # Alert selectors (all default to false)
             alerts:
@@ -791,7 +791,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for GCS bucket access with S3-compatible HMAC authentication.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Bucket](../concepts/template-placeholders-advanced.md#gcp-bucket)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Bucket](../concepts/template-placeholders-advanced.md#gcp-bucket)
 
 #### **Artifact Registry** (`gcp-artifact-registry`)
 
@@ -865,7 +865,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for PostgreSQL connection details.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP PostgreSQL Cloud SQL](../concepts/template-placeholders-advanced.md#postgresql-cloud-sql)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP PostgreSQL Cloud SQL](../concepts/template-placeholders-advanced.md#postgresql-cloud-sql)
 
 #### **Redis** (`gcp-redis`)
 
@@ -903,7 +903,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for Redis connection details.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Redis Memorystore](../concepts/template-placeholders-advanced.md#redis-memorystore)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Redis Memorystore](../concepts/template-placeholders-advanced.md#redis-memorystore)
 
 ### **Messaging Resources**
 
@@ -1309,7 +1309,7 @@ For enterprise customers requiring additional control, MongoDB Atlas also suppor
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for MongoDB Atlas database connection.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - MongoDB Atlas Cluster](../concepts/template-placeholders-advanced.md#mongodb-atlas-cluster)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - MongoDB Atlas Cluster](../concepts/template-placeholders-advanced.md#mongodb-atlas-cluster)
 
 **See Also:**
 
@@ -1554,7 +1554,7 @@ alerts:
     periodSec: 300
 ```
 
-> **📧 Email Integration**: Each notification channel works independently. When email addresses are configured, email notifications are sent alongside any configured webhook channels. Email recipients must confirm their subscription to receive notifications.
+> **Email Integration**: Each notification channel works independently. When email addresses are configured, email notifications are sent alongside any configured webhook channels. Email recipients must confirm their subscription to receive notifications.
 
 **Complete Monitoring Configuration:**
 ```yaml
@@ -1611,7 +1611,7 @@ alerts:
 - **`email.addresses`** - Array of email addresses for email notifications
 - **`slack.webhookUrl`** - Slack webhook URL (use secrets management)
 - **`discord.webhookUrl`** - Discord webhook URL (use secrets management)
-- **`telegram.chatID`** & **`telegram.token`** - Telegram bot configuration
+- **`telegram.chatID`** &**`telegram.token`** - Telegram bot configuration
 
 ---
 
@@ -1994,6 +1994,4 @@ eu-customer:
     uses: [mongodb-eu-cluster]
 ```
 
-This comprehensive reference covers all supported resources in Simple Container. The multidimensional resource allocation approach enables organizations to scale from startup to enterprise without operational complexity growth.
-
-For specific implementation examples and tutorials, refer to the [How-To Guides](./howto/) section.
+For end-to-end deployment examples that use these resources, see the [Examples](../examples/README.md) section and the [Guides](../guides/index.md).

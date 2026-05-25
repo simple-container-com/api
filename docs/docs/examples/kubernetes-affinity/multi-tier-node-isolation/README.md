@@ -2,7 +2,7 @@
 
 This example demonstrates **node pool isolation** using Simple Container's affinity rules, based on real-world enterprise migration requirements. It shows how to implement multi-tier architecture with dedicated node pools for different service types.
 
-## 🎯 **Use Case**
+## **Use Case**
 
 A fintech company needed to migrate from dedicated servers to GCP with cost optimization and performance isolation:
 
@@ -11,14 +11,14 @@ A fintech company needed to migrate from dedicated servers to GCP with cost opti
 - **White Label Clients**: Scale-out node pool for cost-effective client isolation
 - **Shared Resources**: Cloud SQL PostgreSQL and Redis Memorystore
 
-## 💰 **Cost Benefits**
+## **Cost Benefits**
 
 - **82% cost reduction** in Phase 1 ($485/month savings)
 - **Pod-based billing** with GKE Autopilot
 - **Efficient resource utilization** through node pool isolation
 - **White Label scaling**: $3-15/month per client vs $200/month previously
 
-## 🏗 **Architecture Overview**
+## **Architecture Overview**
 
 ```
 GKE Autopilot Cluster
@@ -37,14 +37,14 @@ GKE Autopilot Cluster
     └── Redis Memorystore
 ```
 
-## 📁 **Files in This Example**
+## **Files in This Example**
 
 - **`server.yaml`** - Parent stack with GKE cluster and shared resources
 - **`client.yaml`** - Service stacks with affinity rules
 - **`secrets.yaml`** - Authentication configuration
 - **`docker-compose.yaml`** - Application containers
 
-## 🚀 **Key Features**
+## **Key Features**
 
 - **Node Pool Isolation**: Each service type runs on dedicated node pools
 - **Exclusive Scheduling**: `exclusiveNodePool: true` prevents cross-contamination
@@ -52,7 +52,7 @@ GKE Autopilot Cluster
 - **Auto-scaling**: HPA configuration with min/max replicas
 - **Cost Optimization**: Efficient resource allocation per workload type
 
-## 🔧 **Affinity Rules Explained**
+## **Affinity Rules Explained**
 
 ### **Processing Services**
 ```yaml
@@ -98,7 +98,7 @@ cloudExtras:
 - Anti-affinity spreads clients across nodes
 - Prevents single points of failure
 
-## 📊 **Scaling Configuration**
+## **Scaling Configuration**
 
 | Service Type | Min Replicas | Max Replicas | Node Pool | Compute Class |
 |-------------|-------------|-------------|-----------|---------------|
@@ -108,7 +108,7 @@ cloudExtras:
 | Support Bot | 1 | 6 | bots | general-purpose |
 | White Label (per client) | 0 | 3 | whitelabel | Scale-Out |
 
-## 🛠 **Prerequisites**
+## **Prerequisites**
 
 ### **GKE Cluster Setup**
 ```bash
@@ -125,7 +125,7 @@ The example assumes these node pools exist:
 - **bots**: Balanced nodes (e.g., n1-standard-2)  
 - **whitelabel**: Cost-optimized nodes (e.g., e2-small)
 
-## 📋 **Deployment Steps**
+## **Deployment Steps**
 
 ### **1. Deploy Parent Stack**
 ```bash
@@ -154,7 +154,7 @@ sc deploy --stack telegram-bots --env production
 sc deploy --stack whitelabel-client-a --env production
 ```
 
-## 🔍 **Monitoring & Verification**
+## **Monitoring & Verification**
 
 ### **Verify Node Pool Assignment**
 ```bash
@@ -174,7 +174,7 @@ kubectl get hpa --all-namespaces
 kubectl top nodes
 ```
 
-## 🎛 **Customization Options**
+## **Customization Options**
 
 ### **Adjust Node Pool Names**
 Update the `nodePool` values to match your cluster:
@@ -206,7 +206,7 @@ cloudExtras:
                 values: ["custom-value"]
 ```
 
-## 🚨 **Troubleshooting**
+## **Troubleshooting**
 
 ### **Pods Stuck in Pending**
 - Check node pool capacity: `kubectl describe nodes`
@@ -223,11 +223,10 @@ cloudExtras:
 - Check for over-provisioning in HPA settings
 - Review node pool utilization metrics
 
-## 📚 **Related Examples**
+## **Related Examples**
 
-- [High Availability Patterns](../high-availability/) - Zone anti-affinity
-- [Performance Optimization](../performance-optimization/) - Resource-specific scheduling
-- [GKE Autopilot Examples](../../gke-autopilot/) - GKE-specific configurations
+- [GKE Autopilot Examples](../../gke-autopilot/index.md) — GKE-specific configurations
+- [Vertical Pod Autoscaler](../../kubernetes-vpa/README.md) — VPA-based scheduling on Kubernetes
 
 ---
 

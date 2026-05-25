@@ -18,7 +18,7 @@ This setup provides:
 │   Pull Request  │    │ Preview Deploy  │    │ Preview Env     │
 │     #123        │    │    Workflow     │    │  pr-123-app     │
 │                 │    │                 │    │                 │
-│ feat/new-ui ────┼───▶│ Deploy PR-123   │───▶│ https://        │
+│ feat/new-ui ────┼───│ Deploy PR-123   │───│ https://        │
 │                 │    │                 │    │ pr-123.app.com  │
 │                 │    │                 │    │                 │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
@@ -575,13 +575,13 @@ Automated performance testing in preview:
       const report = fs.readFileSync('performance-report.json', 'utf8');
       const data = JSON.parse(report);
       
-      const comment = `## ⚡ Performance Report
+      const comment = `## Performance Report
       
       **Load Time**: ${data.loadTime}ms
       **Memory Usage**: ${data.memoryUsage}MB
       **API Response Time**: ${data.apiResponseTime}ms
       
-      ${data.score >= 90 ? '✅ Performance looks good!' : '⚠️ Performance needs attention'}`;
+      ${data.score >= 90 ? 'Performance looks good!' : '⚠️ Performance needs attention'}`;
       
       github.rest.issues.createComment({
         issue_number: context.issue.number,
@@ -634,6 +634,6 @@ env:
 ## Next Steps
 
 After setting up preview deployments:
-- **[Advanced Notifications](../advanced-notifications/)** - Enhanced PR notifications
-- **[Multi-Stack Deployment](../multi-stack/)** - Complex preview environments
-- **[Basic Setup](../basic-setup/)** - Simpler deployment patterns
+- **[Advanced Notifications](../advanced-notifications/README.md)** - Enhanced PR notifications
+- **[Multi-Stack Deployment](../multi-stack/README.md)** - Complex preview environments
+- **[Basic Setup](../basic-setup/README.md)** - Simpler deployment patterns

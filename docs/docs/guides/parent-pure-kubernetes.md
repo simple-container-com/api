@@ -18,15 +18,15 @@ With this setup, developers can deploy microservices without needing to manage t
 
 ---
 
-# **1️⃣ Prerequisites**
+# **Prerequisites**
 
 Before configuring the parent stack, ensure that:
 
-✅ A **Kubernetes cluster** is running and accessible.
+A **Kubernetes cluster** is running and accessible.
 
-✅ You have a **`kubeconfig` file** for authentication.
+You have a **`kubeconfig` file** for authentication.
 
-✅ Simple Container is installed:
+Simple Container is installed:
 
    ```sh
    curl -s "https://dist.simple-container.com/sc.sh" | bash
@@ -34,7 +34,7 @@ Before configuring the parent stack, ensure that:
 
 ---
 
-# **2️⃣ Setting Up Secrets for Kubernetes Cluster Authentication**
+# **Setting Up Secrets for Kubernetes Cluster Authentication**
 
 In **self-managed Kubernetes clusters**, `sc` needs a `kubeconfig` file for authentication.
 
@@ -79,15 +79,15 @@ values:
   pass-phrase: some-secret-passphrase
 ```
 
-### **🔹 What This Does**
+### **What This Does**
 
-✅ Stores **Kubernetes authentication (`kubeconfig`)**.
+Stores **Kubernetes authentication (`kubeconfig`)**.
 
-✅ Saves **Docker registry credentials** for pulling images.
+Saves **Docker registry credentials** for pulling images.
 
 ---
 
-# **3️⃣ Configuring Infra Provisioning (`server.yaml`)**
+# **Configuring Infra Provisioning (`server.yaml`)**
 
 Now, define **`.sc/stacks/devops/server.yaml`** to provision infrastructure inside Kubernetes.
 
@@ -162,20 +162,20 @@ resources:
             kubeconfig: "${auth:kubernetes}"
 ```
 
-### **🔹 What This Does**
+### **What This Does**
 
-✅ **Configures Pulumi for state management** (`fs` for local storage).
+**Configures Pulumi for state management** (`fs` for local storage).
 
-✅ **Defines deployment templates** (`kubernetes-cloudrun`).
+**Defines deployment templates** (`kubernetes-cloudrun`).
 
-✅ **Provisions Kubernetes resources**:
+**Provisions Kubernetes resources**:
 
 - **Caddy** → Handles ingress and routing.
 - **PostgreSQL, RabbitMQ, Redis, MongoDB** → Deployed using **Helm operators**.
 
 ---
 
-# **4️⃣ Provisioning the Kubernetes Parent Stack**
+# **Provisioning the Kubernetes Parent Stack**
 
 Once `server.yaml` is configured, **provision** the Kubernetes infrastructure:
 
@@ -185,15 +185,15 @@ sc provision -s devops
 
 ### **What This Does**
 
-✅ Connects to **Kubernetes using `kubeconfig`**.
+Connects to **Kubernetes using `kubeconfig`**.
 
-✅ Deploys **Caddy, PostgreSQL, RabbitMQ, Redis, MongoDB** inside Kubernetes.
+Deploys **Caddy, PostgreSQL, RabbitMQ, Redis, MongoDB** inside Kubernetes.
 
-✅ Configures **persistent storage and networking**.
+Configures **persistent storage and networking**.
 
 ---
 
-# **5️⃣ Deploying Microservices to Kubernetes**
+# **Deploying Microservices to Kubernetes**
 
 Once the infrastructure is provisioned, developers can deploy their microservices.
 
@@ -231,7 +231,7 @@ stacks:
 sc deploy -s myservice -e production
 ```
 
-✅ The service is **automatically deployed to Kubernetes** using the defined settings.
+The service is **automatically deployed to Kubernetes** using the defined settings.
 
 ### **Namespace layout**
 
@@ -244,7 +244,7 @@ This isolation is automatic and is what makes `sc destroy -s myservice -e <env>`
 
 ---
 
-# **6️⃣ Summary**
+# **Summary**
 
 | Step                | Command                                | Purpose                                             |
 |---------------------|----------------------------------------|-----------------------------------------------------|

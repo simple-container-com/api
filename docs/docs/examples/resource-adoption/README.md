@@ -2,7 +2,7 @@
 
 This directory contains practical examples of adopting existing cloud infrastructure into Simple Container.
 
-## 📋 **Available Examples**
+## **Available Examples**
 
 ### **Multi-Environment Adoption**
 Complete example showing how to adopt existing resources across production, staging, and development environments.
@@ -21,13 +21,13 @@ Complete example showing how to adopt existing resources across production, stag
 
 ### **Key Features Demonstrated**
 
-✅ **Zero Downtime Adoption** - Import existing resources without modification
-✅ **Multi-Environment Support** - Consistent configuration across environments  
-✅ **Resource Compatibility** - Adopted resources work identically to provisioned ones
-✅ **Secrets Management** - Secure handling of adoption credentials
-✅ **Client Integration** - Services automatically connect to adopted resources
+**Zero Downtime Adoption** - Import existing resources without modification
+**Multi-Environment Support** - Consistent configuration across environments  
+**Resource Compatibility** - Adopted resources work identically to provisioned ones
+**Secrets Management** - Secure handling of adoption credentials
+**Client Integration** - Services automatically connect to adopted resources
 
-## 🚀 **Quick Start**
+## **Quick Start**
 
 1. **Copy the example files** to your project
 2. **Update resource identifiers** with your actual resource names/IDs
@@ -52,13 +52,13 @@ sc provision -s infrastructure
 sc deploy -s your-service -e prod
 ```
 
-## 📖 **Learn More**
+## **Learn More**
 
 - **[Resource Adoption Guide](../../guides/resource-adoption.md)** - Complete documentation
 - **[Supported Resources](../../reference/supported-resources.md)** - Full resource reference
 - **[Secrets Management](../../guides/secrets-management.md)** - Security best practices
 
-## 💡 **Use Cases**
+## **Use Cases**
 
 ### **Enterprise Migration**
 - Adopt existing production infrastructure
@@ -77,4 +77,4 @@ sc deploy -s your-service -e prod
 
 ---
 
-**Ready to adopt your infrastructure?** Start with the [Resource Adoption Guide](../../guides/resource-adoption.md)! 🚀
+**Ready to adopt your infrastructure?** Start with the [Resource Adoption Guide](../../guides/resource-adoption.md)!

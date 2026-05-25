@@ -361,7 +361,7 @@ Configure these secrets in your GitHub repository settings:
 
 Configure environment protection rules in GitHub:
 
-1. Go to **Settings** → **Environments** in your repository
+1. Go to **Settings** →**Environments** in your repository
 2. Create environments for `staging` and `production`
 3. For **production environment**:
    - Enable **Required reviewers** and add team members
@@ -493,7 +493,7 @@ sc cicd preview --stack myorg/infrastructure --show-content
    - Git repository initialization details
 
 2. **Enable GitHub Actions debug logging** (additional system-level debugging):
-   - Go to repository **Settings** → **Secrets**
+   - Go to repository **Settings** →**Secrets**
    - Add secret `ACTIONS_STEP_DEBUG` with value `true`
 
 3. **Check workflow logs** in the Actions tab of your repository
@@ -521,19 +521,19 @@ sc cicd preview --stack myorg/infrastructure --show-content
 
 Check out complete examples in the [examples/cicd-github-actions/](../examples/cicd-github-actions/README.md) directory:
 
-- **[Basic Setup](../examples/cicd-github-actions/basic-setup/)** - Simple staging/production pipeline
-- **[Multi-Stack Deployment](../examples/cicd-github-actions/multi-stack/)** - Deploy multiple related stacks
-- **[Preview Deployments](../examples/cicd-github-actions/preview-deployments/)** - PR-based preview environments
-- **[Advanced Notifications](../examples/cicd-github-actions/advanced-notifications/)** - Multi-channel notification setup
+- **[Basic Setup](../examples/cicd-github-actions/basic-setup/README.md)** - Simple staging/production pipeline
+- **[Multi-Stack Deployment](../examples/cicd-github-actions/multi-stack/README.md)** - Deploy multiple related stacks
+- **[Preview Deployments](../examples/cicd-github-actions/preview-deployments/README.md)** - PR-based preview environments
+- **[Advanced Notifications](../examples/cicd-github-actions/advanced-notifications/README.md)** - Multi-channel notification setup
 
 ## Next Steps
 
 After setting up CI/CD:
 
-1. Explore **[Advanced Deployment Patterns](../advanced/deployment-patterns.md)** for complex scenarios
+1. Review **[Best Practices](../advanced/best-practices.md)** for production-readiness tips
 2. Review **[Secrets Management](secrets-management.md)** for secure credential handling
 3. Check **[DNS Management](dns-management.md)** for custom domain configuration
-4. Set up **[Monitoring and Alerting](../advanced/monitoring.md)** for deployment health
+4. Set up **[Container Security](container-security.md)** for signing, SBOM, and scanning
 
 ## Need Help?
 

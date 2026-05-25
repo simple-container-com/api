@@ -13,25 +13,25 @@ date: '2024-06-12'
 
 As a **developer at Organization**, you can **deploy a new service (`billing`)** with **Simple Container** **without requiring DevOps involvement**.
 
-✅ **MongoDB and PostgreSQL are already available** in the organization's infrastructure.
+**MongoDB and PostgreSQL are already available** in the organization's infrastructure.
 
-✅ **You only need to define `client.yaml`** and use familiar tools like **Dockerfile & docker-compose**.
+**You only need to define `client.yaml`** and use familiar tools like **Dockerfile & docker-compose**.
 
-✅ **Deployment is automated** using `sc deploy`.
+**Deployment is automated** using `sc deploy`.
 
 ---
 
-# **1️⃣ Steps to Deploy the `billing` Service**
+# **Steps to Deploy the `billing` Service**
 Follow these steps to deploy the **`billing`** service:
 
-### **🔹 Step 1: Create the Service Directory**
+### **Step 1: Create the Service Directory**
 ```sh
 mkdir -p .sc/stacks/billing
 ```
 
 ---
 
-### **🔹 Step 2: Define `client.yaml`**
+### **Step 2: Define `client.yaml`**
 Create and edit **`.sc/stacks/billing/client.yaml`**:
 ```yaml
 ---
@@ -60,13 +60,13 @@ stacks:
         POSTGRES_PASSWORD: "${resource:postgres.password}"  # Securely inject PostgreSQL password
 ```
 
-✅ **This defines how `billing` connects to existing infrastructure**.
+**This defines how `billing` connects to existing infrastructure**.
 
-✅ **No changes required from DevOps** since resources (`mongodb`, `postgres`) are already available.
+**No changes required from DevOps** since resources (`mongodb`, `postgres`) are already available.
 
 ---
 
-### **🔹 Step 3: Define `docker-compose.yaml`**
+### **Step 3: Define `docker-compose.yaml`**
 Create a **Docker Compose file** for running the service locally **and deploying it**.
 
 ```yaml
@@ -88,11 +88,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 ```
 
-✅ **Ensures the service runs identically in local and cloud environments**.
+**Ensures the service runs identically in local and cloud environments**.
 
 ---
 
-### **🔹 Step 4: Deploy the Service**
+### **Step 4: Deploy the Service**
 Run the following command to deploy **`billing`** to **staging**:
 ```sh
 sc deploy -s billing -e staging
@@ -103,13 +103,13 @@ To deploy to **production**, use:
 sc deploy -s billing -e production
 ```
 
-✅ **SC automatically builds, pushes, and deploys the service to Organization's cloud infrastructure**.
+**SC automatically builds, pushes, and deploys the service to Organization's cloud infrastructure**.
 
-✅ **Secrets (e.g., `POSTGRES_PASSWORD`) are securely injected**.
+**Secrets (e.g., `POSTGRES_PASSWORD`) are securely injected**.
 
 ---
 
-### **🔹 Step 5: Verify Deployment**
+### **Step 5: Verify Deployment**
 Verify your service deployment:
 
 - **Check your cloud provider console** (AWS ECS, GKE, etc.) to confirm the service is running
@@ -117,11 +117,11 @@ Verify your service deployment:
 - **Check cloud provider logs** (CloudWatch for AWS, Cloud Logging for GCP) for any issues
 - **Monitor resource usage** through your cloud provider's monitoring tools
 
-✅ **You can now monitor and debug your service using your cloud provider's native tools**.
+**You can now monitor and debug your service using your cloud provider's native tools**.
 
 ---
 
-# **2️⃣ Summary**
+# **Summary**
 | Step                             | Command                               | Purpose                             |
 |----------------------------------|---------------------------------------|-------------------------------------|
 | **Create the service directory** | `mkdir -p .sc/stacks/billing`         | Sets up `billing` service stack     |
