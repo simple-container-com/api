@@ -2,14 +2,39 @@ site_name: Simple Container
 theme:
   name: material
   logo: images/sc-logo.png
+  favicon: images/sc-logo.png
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  font:
+    text: Plus Jakarta Sans
+    code: DM Mono
   features:
     - navigation.tabs
     - navigation.sections
     - navigation.expand
     - navigation.path
+    - navigation.top
     - toc.follow
     - search.suggest
     - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+extra_css:
+  - stylesheets/extra.css
 
 nav:
   - Home: index.md
