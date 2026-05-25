@@ -84,9 +84,35 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+          format: !!python/name:mermaid2.fence_mermaid
   - admonition
   - pymdownx.details
 
 plugins:
   - search
+  - mermaid2:
+      version: 10.6.1
+      arguments:
+        theme: base
+        themeVariables:
+          # Aligned with simple-container.com palette (dark scheme).
+          # See landing/.agents/design/2026-05-25/docs-refactor/07-theming-and-brand.md
+          background: '#07070f'
+          primaryColor: '#1e1b4b'
+          primaryTextColor: '#eeeeff'
+          primaryBorderColor: '#a855f7'
+          secondaryColor: '#0a0a1f'
+          secondaryTextColor: '#eeeeff'
+          secondaryBorderColor: '#3b82f6'
+          tertiaryColor: '#12122b'
+          tertiaryTextColor: '#eeeeff'
+          tertiaryBorderColor: '#22d3ee'
+          mainBkg: '#1e1b4b'
+          secondBkg: '#0a0a1f'
+          lineColor: '#a855f7'
+          textColor: '#eeeeff'
+          edgeLabelBackground: '#0a0a1f'
+          nodeBorder: '#a855f7'
+          clusterBkg: 'rgba(168, 85, 247, 0.06)'
+          clusterBorder: 'rgba(168, 85, 247, 0.3)'
+          titleColor: '#c4b5fd'
