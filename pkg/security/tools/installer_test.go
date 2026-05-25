@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -205,6 +206,106 @@ func TestToolRegistryRegisterAndUnregister(t *testing.T) {
 	// Unregister
 	registry.Unregister("custom-tool")
 	Expect(registry.HasTool("custom-tool")).To(BeFalse())
+}
+
+func TestInstallIfMissingChecksVersion(t *testing.T) {
+	RegisterTestingT(t)
+
+	installer := NewToolInstaller()
+	ctx := context.Background()
+
+	// Register a fake tool that resolves to a binary almost certainly already
+	// on PATH ("sh") but with a MinVersion the GNU coreutils-ish output won't
+	// satisfy. Prior to the fix, InstallIfMissing returned nil because the
+	// command was found in PATH — version was never compared. With the fix
+	// it must reject and attempt install (which then fails because there's
+	// no install script for "fake-versioned-tool" — exactly the surfacing
+	// behavior we want).
+	installer.registry.Register(ToolMetadata{
+		Name:        "fake-versioned-tool",
+		Command:     "sh",
+		MinVersion:  "999.999.999",
+		InstallURL:  "https://example.com/never-installed",
+		Description: "version-gate regression guard",
+		VersionFlag: "--version",
+	})
+	defer installer.registry.Unregister("fake-versioned-tool")
+
+	err := installer.InstallIfMissing(ctx, "fake-versioned-tool")
+	// We expect a non-nil error: either the version-check rejection
+	// propagates, or it falls through to the install branch and the
+	// "unknown tool" install script returns its own error. The point of the
+	// assertion is that we no longer get a silent nil return.
+	Expect(err).To(HaveOccurred(),
+		"InstallIfMissing must NOT silently accept a tool that does not meet MinVersion")
+}
+
+func TestPrependToPath(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Codex review caught that the prior "append installDir if missing"
+	// logic left stale binaries winning when installDir was already on
+	// PATH after the stale location. After the fix, installDir must
+	// always end up at the FRONT of PATH, with any prior occurrence
+	// removed (not duplicated).
+	sep := string(os.PathListSeparator)
+
+	tests := []struct {
+		name        string
+		installDir  string
+		currentPath string
+		want        string
+	}{
+		{
+			name:        "installDir not on PATH — prepended",
+			installDir:  "/home/u/.local/bin",
+			currentPath: "/usr/local/bin" + sep + "/usr/bin",
+			want:        "/home/u/.local/bin" + sep + "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "installDir already last — moved to front (regression guard)",
+			installDir:  "/home/u/.local/bin",
+			currentPath: "/usr/bin" + sep + "/home/u/.local/bin",
+			want:        "/home/u/.local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "installDir already first — kept first, no duplication",
+			installDir:  "/usr/local/bin",
+			currentPath: "/usr/local/bin" + sep + "/usr/bin",
+			want:        "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "POSIX empty entries (CWD) preserved, not stripped",
+			installDir:  "/usr/local/bin",
+			currentPath: sep + "/usr/bin" + sep + sep,
+			want:        "/usr/local/bin" + sep + sep + "/usr/bin" + sep + sep,
+		},
+		{
+			name:        "substring lookalike NOT collapsed (/usr/local/binutils preserved)",
+			installDir:  "/usr/local/bin",
+			currentPath: "/usr/local/binutils" + sep + "/usr/local/bin",
+			want:        "/usr/local/bin" + sep + "/usr/local/binutils",
+		},
+		{
+			name:        "trailing slash on existing PATH entry still deduped",
+			installDir:  "/usr/local/bin",
+			currentPath: "/usr/bin" + sep + "/usr/local/bin/",
+			want:        "/usr/local/bin" + sep + "/usr/bin",
+		},
+		{
+			name:        "trailing slash on installDir still deduped",
+			installDir:  "/usr/local/bin/",
+			currentPath: "/usr/bin" + sep + "/usr/local/bin",
+			want:        "/usr/local/bin/" + sep + "/usr/bin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			Expect(prependToPath(tt.installDir, tt.currentPath)).To(Equal(tt.want))
+		})
+	}
 }
 
 func TestInstallScriptVersionValidation(t *testing.T) {

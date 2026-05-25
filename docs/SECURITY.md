@@ -190,6 +190,53 @@ end-to-end supply-chain integrity should install cosign before
 bootstrapping (https://docs.sigstore.dev/system_config/installation/).
 The commands above remain the manual / out-of-band verification path.
 
+### Verifying sc.sh itself
+
+`sc.sh` verifies the tarball it downloads, but a CDN compromise (or
+bucket write that bypasses the publish workflow) could swap `sc.sh`
+itself for a version whose `verify_sc_tarball` is stripped or
+hard-coded to succeed. Consumers running `bash <(curl ... sc.sh)`
+would then execute an unverified script, silently regressing the
+in-script protection.
+
+The publish workflow therefore signs `sc.sh` itself with the same
+cosign keyless scheme used for the tarballs. The bundle ships next to
+the script:
+
+- `https://dist.simple-container.com/sc.sh`
+- `https://dist.simple-container.com/sc.sh.cosign-bundle`
+
+Identity matches the tarball identity (push.yaml@refs/heads/main), so
+the same regex verifies both. Recommended pattern for consumers who
+want the script itself verified before execution:
+
+```bash
+curl -fsSL https://dist.simple-container.com/sc.sh \
+  -o sc.sh
+curl -fsSL https://dist.simple-container.com/sc.sh.cosign-bundle \
+  -o sc.sh.cosign-bundle
+cosign verify-blob \
+  --bundle sc.sh.cosign-bundle \
+  --certificate-identity-regexp '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  sc.sh
+bash sc.sh
+```
+
+Verification is signing-side only: the publish workflow hard-fails the
+release if `cosign sign-blob` does not succeed for `sc.sh`, so a new
+`sc.sh` is never uploaded without a matching `.cosign-bundle`. We
+deliberately do NOT teach `sc.sh` to self-verify before executing —
+the script doing so would be the same code an attacker would tamper
+with. Verification has to happen out-of-band, in the consumer's
+runner, before the script is invoked.
+
+Consumers who cannot install cosign (e.g., minimal CI images) keep
+working: the existing piped form (`bash <(curl ... sc.sh)`) still
+works and still gives them the Phase 2c in-script tarball
+verification. They simply don't gain the additional script-bytes
+guarantee that the verify-then-bash pattern above provides.
+
 #### Installing preview / branch-preview builds
 
 Default `sc.sh` accepts only production-signed tarballs (signed by

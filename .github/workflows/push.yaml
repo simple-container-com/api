@@ -537,7 +537,9 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
-      contents: write  # `welder run tag-release` pushes the release git tag
+      contents: write    # `welder run tag-release` pushes the release git tag
+      id-token: write    # OIDC for keyless cosign sign-blob of sc.sh
+      attestations: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -545,6 +547,8 @@ jobs:
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: install sc + welder tools
         uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+      - name: Install attestation tools (cosign for sc.sh sign-blob)
+        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -636,6 +640,24 @@ jobs:
           cp sc.sh .sc/stacks/dist/bundle/sc.sh
           sed -i -e 's/VERSION="0\.0\.0"/VERSION="${VERSION}"/g' .sc/stacks/dist/bundle/sc.sh
           echo "${VERSION}" > .sc/stacks/dist/bundle/version
+      # Sign the post-template sc.sh that will land on dist.simple-container.com.
+      # Signing the *post-sed* artifact is intentional: consumers verify the
+      # bytes they actually fetch. Identity matches the tarball regex in
+      # docs/SECURITY.md ("Verifying sc.sh itself") — push.yaml@refs/heads/main.
+      #
+      # Hard-fail on purpose (no continue-on-error): if signing breaks, the
+      # `welder deploy` step that publishes sc.sh + sc.sh.cosign-bundle never
+      # runs, so consumers never observe an sc.sh whose bundle is missing or
+      # stale. Atomic w.r.t. the script — both publish or neither.
+      - name: Cosign sign-blob (keyless, bundle) for sc.sh
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          cd .sc/stacks/dist/bundle
+          cosign sign-blob --yes \
+            --bundle sc.sh.cosign-bundle \
+            sc.sh
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
