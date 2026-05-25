@@ -15,27 +15,27 @@ This guide is for **both DevOps teams and developers** who want to install and s
 
 ---
 
-# **1️⃣ What is Simple Container?**
+# **What is Simple Container?**
 Simple Container is a **cloud-agnostic CI/CD tool** that simplifies the deployment of **microservices and static websites** across platforms like **Kubernetes, AWS ECS, and Google Cloud**.
 
-✅ **Supports multiple cloud providers** (AWS, GCP, Kubernetes).
+**Supports multiple cloud providers** (AWS, GCP, Kubernetes).
 
-✅ **Easy configuration using `client.yaml` and `server.yaml`**.
+**Easy configuration using `client.yaml` and `server.yaml`**.
 
-✅ **Secure secrets management** with SSH-based encryption.
+**Secure secrets management** with SSH-based encryption.
 
-✅ **Automated infrastructure provisioning and deployments**.
+**Automated infrastructure provisioning and deployments**.
 
 ---
 
-# **2️⃣ Installing `sc`**
-## **🔹 Install `sc` on Linux/macOS**
+# **Installing `sc`**
+## **Install `sc` on Linux/macOS**
 To install `sc`, run:
 ```sh
 curl -s "https://dist.simple-container.com/sc.sh" | bash
 ```
 
-✅ This automatically downloads and installs `sc` in `/usr/local/bin`.
+This automatically downloads and installs `sc` in `/usr/local/bin`.
 
 **Verify the installation:**
 ```sh
@@ -44,10 +44,10 @@ sc --version
 
 ---
 
-# **3️⃣ Initializing `sc`**
+# **Initializing `sc`**
 After installing `sc`, you need to **set up SSH authentication** for secrets management.
 
-## **🔹 Step 3: Set Up SSH Key for Secrets**
+## **Step 3: Set Up SSH Key for Secrets**
 If you **already have an SSH key**, initialize `sc`:
 ```sh
 sc secrets init
@@ -57,14 +57,14 @@ If you **need to generate a new SSH key**, use:
 sc secrets init -g
 ```
 
-✅ This ensures that **secrets** can be securely encrypted and managed.
+This ensures that **secrets** can be securely encrypted and managed.
 
 ---
 
-# **4️⃣ Setting Up the Parent Stack (For DevOps)**
+# **Setting Up the Parent Stack (For DevOps)**
 The **DevOps team** must configure a **parent stack** (`server.yaml`) to define infrastructure and cloud resources.
 
-## **🔹 Step 4: Create `secrets.yaml`**
+## **Step 4: Create `secrets.yaml`**
 ```sh
 mkdir -p .sc/stacks/devops
 touch .sc/stacks/devops/secrets.yaml
@@ -88,11 +88,11 @@ values:
   MONGODB_ATLAS_PRIVATE_KEY: "private-key-456"
 ```
 
-✅ This securely **stores AWS credentials and API tokens**.
+This securely **stores AWS credentials and API tokens**.
 
 ---
 
-## **🔹 Step 5: Define the Infrastructure in `server.yaml`**
+## **Step 5: Define the Infrastructure in `server.yaml`**
 Now, define **infrastructure resources** inside `.sc/stacks/devops/server.yaml`:
 ```yaml
 ---
@@ -135,20 +135,20 @@ resources:
           publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
 ```
 
-### **🔹 Step 6: Provision the Parent Stack**
+### **Step 6: Provision the Parent Stack**
 Once `server.yaml` is configured, **provision the infrastructure**:
 ```sh
 sc provision -s devops
 ```
 
-✅ This **creates AWS infrastructure and configures MongoDB Atlas**.
+This **creates AWS infrastructure and configures MongoDB Atlas**.
 
 ---
 
-# **5️⃣ Setting Up Services (For Developers)**
+# **Setting Up Services (For Developers)**
 Once the **parent stack is ready**, developers can configure **`client.yaml`** to deploy services.
 
-## **🔹 Step 7: Create `client.yaml` for a Microservice**
+## **Step 7: Create `client.yaml` for a Microservice**
 ```sh
 mkdir -p .sc/stacks/myservice
 touch .sc/stacks/myservice/client.yaml
@@ -179,39 +179,39 @@ stacks:
 
 ---
 
-# **6️⃣ Deploying a Microservice**
+# **Deploying a Microservice**
 Once **`client.yaml`** is defined, deploy the service.
 
-### **🔹 Step 8: Deploy the Service to Staging**
+### **Step 8: Deploy the Service to Staging**
 ```sh
 sc deploy -s myservice -e staging
 ```
-✅ This **builds, pushes, and deploys the service to AWS ECS Fargate**.
+This **builds, pushes, and deploys the service to AWS ECS Fargate**.
 
 ---
 
-# **7️⃣ Managing Secrets with `sc`**
-### **🔹 Add a Secret File**
+# **Managing Secrets with `sc`**
+### **Add a Secret File**
 ```sh
 sc secrets add .env
 ```
-✅ Encrypts `.env` before committing to Git.
+Encrypts `.env` before committing to Git.
 
-### **🔹 Hide Secrets Before Committing**
+### **Hide Secrets Before Committing**
 ```sh
 sc secrets hide
 ```
-✅ Ensures **no secrets are leaked in Git**.
+Ensures **no secrets are leaked in Git**.
 
-### **🔹 Reveal Secrets After Pulling Changes**
+### **Reveal Secrets After Pulling Changes**
 ```sh
 sc secrets reveal
 ```
-✅ **Decrypts and restores** secret files locally.
+**Decrypts and restores** secret files locally.
 
 ---
 
-# **8️⃣ Summary**
+# **Summary**
 | Step                      | For                 | Command                                            | Purpose                              |
 |---------------------------|---------------------|----------------------------------------------------|--------------------------------------|
 | **Install `sc`**          | DevOps & Developers | `curl -s "https://dist.simple-container.com/sc.sh" | bash`                                | Installs Simple Container CLI |

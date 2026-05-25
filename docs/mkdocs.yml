@@ -2,14 +2,39 @@ site_name: Simple Container
 theme:
   name: material
   logo: images/sc-logo.png
+  favicon: images/sc-logo.png
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  font:
+    text: Plus Jakarta Sans
+    code: DM Mono
   features:
     - navigation.tabs
     - navigation.sections
     - navigation.expand
     - navigation.path
-    - toc.follow
+    - navigation.top
+    - toc.integrate
     - search.suggest
     - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+extra_css:
+  - stylesheets/extra.css
 
 nav:
   - Home: index.md
@@ -22,13 +47,20 @@ nav:
     - Template Placeholders: concepts/template-placeholders.md
     - Advanced Template Placeholders: concepts/template-placeholders-advanced.md
     - Kubernetes Namespace Layout: concepts/kubernetes-namespaces.md
-    - Why Simple Container: concepts/motivation.md
+    - Vertical Pod Autoscaler: concepts/vertical-pod-autoscaler.md
   - Guides:
     - Deployment Guides: guides/index.md
     - ECS Fargate: guides/parent-ecs-fargate.md
     - GKE Autopilot: guides/parent-gcp-gke-autopilot.md
     - Pure Kubernetes: guides/parent-pure-kubernetes.md
+    - Service Deploy Steps: guides/service-steps-to-deploy.md
+    - CI/CD with GitHub Actions: guides/cicd-github-actions.md
     - Secrets Management: guides/secrets-management.md
+    - Container Security: guides/container-security.md
+    - DNS Management: guides/dns-management.md
+    - GKE Version Management: guides/gke-version-management.md
+    - Resource Adoption: guides/resource-adoption.md
+    - AI Assistant: ai-assistant/index.md
     - Migration: guides/migration.md
   - Examples:
     - Overview: examples/README.md
@@ -42,11 +74,26 @@ nav:
   - Reference:
     - Supported Resources: reference/supported-resources.md
     - Deployment Schemas: reference/service-available-deployment-schemas.md
-    - Use Cases: reference/use-cases.md
+  - Troubleshooting:
+    - Container Security: troubleshooting/container-security.md
+  - Compliance:
+    - NIST SSDF Mapping: compliance/nist-sp-800-218-mapping.md
   - Advanced:
-    - Scaling Advantages: advanced/scaling-advantages.md
-    - Tool Comparisons: advanced/compare-with-other-tools.md
     - Best Practices: advanced/best-practices.md
+
+# Pages intentionally not in nav. The ai-assistant/* deep pages need a
+# separate content audit (per landing/.agents/design/2026-05-25/docs-refactor/05-orphans-and-nav.md
+# §4 Option B — surface a 1-page summary now, defer the full surfacing).
+not_in_nav: |
+  /ai-assistant/commands.md
+  /ai-assistant/developer-mode.md
+  /ai-assistant/devops-mode.md
+  /ai-assistant/getting-started.md
+  /ai-assistant/mcp-integration.md
+  /ai-assistant/templates-config-requirements.md
+  /ai-assistant/troubleshooting.md
+  /ai-assistant/usage-examples.md
+  /ai-assistant/examples/*.md
 
 markdown_extensions:
   - pymdownx.highlight:
@@ -59,10 +106,35 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+          format: !!python/name:mermaid2.fence_mermaid
   - admonition
   - pymdownx.details
 
 plugins:
   - search
-  - mermaid2
+  - mermaid2:
+      version: 10.6.1
+      arguments:
+        theme: base
+        themeVariables:
+          # Aligned with simple-container.com palette (dark scheme).
+          # See landing/.agents/design/2026-05-25/docs-refactor/07-theming-and-brand.md
+          background: '#07070f'
+          primaryColor: '#1e1b4b'
+          primaryTextColor: '#eeeeff'
+          primaryBorderColor: '#a855f7'
+          secondaryColor: '#0a0a1f'
+          secondaryTextColor: '#eeeeff'
+          secondaryBorderColor: '#3b82f6'
+          tertiaryColor: '#12122b'
+          tertiaryTextColor: '#eeeeff'
+          tertiaryBorderColor: '#22d3ee'
+          mainBkg: '#1e1b4b'
+          secondBkg: '#0a0a1f'
+          lineColor: '#a855f7'
+          textColor: '#eeeeff'
+          edgeLabelBackground: '#0a0a1f'
+          nodeBorder: '#a855f7'
+          clusterBkg: 'rgba(168, 85, 247, 0.06)'
+          clusterBorder: 'rgba(168, 85, 247, 0.3)'
+          titleColor: '#c4b5fd'

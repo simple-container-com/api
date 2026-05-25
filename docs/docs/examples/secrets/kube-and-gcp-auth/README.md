@@ -450,26 +450,26 @@ services:
 
 ## Security Best Practices
 
-### ✅ Kubernetes Security
+### Kubernetes Security
 - **RBAC**: Use Role-Based Access Control with minimal required permissions
 - **Service Accounts**: Use dedicated service accounts, never default
 - **TLS**: Always use certificate-based authentication in production
 - **Network Policies**: Implement network segmentation
 - **Secret Management**: Store sensitive data in Kubernetes Secrets, not ConfigMaps
 
-### ✅ GCP Security  
+### GCP Security  
 - **IAM Roles**: Follow principle of least privilege
 - **Key Rotation**: Rotate service account keys every 90 days
 - **Audit Logging**: Enable Cloud Audit Logs
 - **VPC Security**: Use private GKE clusters where possible
 
-### ✅ Container Registry Security
+### Container Registry Security
 - **Image Scanning**: Enable vulnerability scanning
 - **Signed Images**: Use container image signing
 - **Private Registries**: Use private registries for production images
 - **Access Control**: Limit registry access with appropriate IAM roles
 
-### ❌ Security Anti-Patterns
+### Security Anti-Patterns
 - **Don't**: Use `insecure-skip-tls-verify: true` in production
 - **Don't**: Store kubeconfig with admin privileges
 - **Don't**: Use default service accounts for deployments

@@ -136,6 +136,7 @@ Configure pod priority classes and generic ephemeral volumes for production work
 **Use Case:** Critical production services, data processing pipelines, ML workloads, streaming platforms
 
 **Features:**
+
 - **PriorityClassName** - Prevent pod preemption by system pods
 - **Generic Ephemeral Volumes** - Support >10GB temporary storage (up to 64TB)
 - **VPA** - Vertical Pod Autoscaler integration
@@ -162,6 +163,7 @@ stacks:
 ```
 
 **Benefits:**
+
 - Prevents preemption of critical workloads
 - Supports large temporary datasets for processing
 - Automatic resource optimization with VPA

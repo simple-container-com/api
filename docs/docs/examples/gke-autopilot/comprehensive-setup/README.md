@@ -38,6 +38,7 @@ This example shows how to deploy a complete GCP setup with GKE Autopilot, all ma
 ## Pub/Sub Configuration
 
 Advanced Pub/Sub setup with:
+
 - **Dead Letter Policies**: Message retention and exactly-once delivery
 - **Multiple Topics**: Image generation and data processing workers
 - **Subscriptions**: 600s ack deadline, 24h message retention
@@ -117,6 +118,7 @@ If you encounter "Master version unsupported" errors:
 ## Regional Configuration
 
 All resources deployed in **europe-west3** for:
+
 - Low latency within Europe
 - GDPR compliance
 - Cost optimization

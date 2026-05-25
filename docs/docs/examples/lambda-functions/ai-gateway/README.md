@@ -53,6 +53,7 @@ awsRoles:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `lambda-eu` template with Bedrock IAM role support
 - Lambda deployment capabilities with custom IAM roles
 - Domain management

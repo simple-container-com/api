@@ -215,6 +215,7 @@ stacks:
 ```
 
 **Features:**
+
 - Multi-cloud deployment (AWS, GCP, Azure)
 - Geographic distribution
 - Cloud-specific resource utilization

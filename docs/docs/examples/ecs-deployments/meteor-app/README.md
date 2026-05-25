@@ -55,6 +55,7 @@ This ensures only Cloudflare can access the application directly.
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `mongodb` resource with URI access
 - `media-storage` resource (S3 bucket)
 - ECS deployment capabilities

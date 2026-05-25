@@ -53,11 +53,14 @@ templates:
 resources:
   resources:
     prod:
-      main-bucket:
-        type: s3-bucket
-        config:
-          name: "my-app-${env:ENVIRONMENT}-bucket"
-          allowOnlyHttps: true
+      template: static-site
+      resources:
+        main-bucket:
+          type: s3-bucket
+          name: main-bucket
+          config:
+            name: "my-app-${env:ENVIRONMENT}-bucket"
+            allowOnlyHttps: true
 ```
 
 Create the client stack configuration file `.sc/stacks/myapp/client.yaml`:
@@ -119,9 +122,30 @@ Add the secrets file to Simple Container's managed secrets:
 sc secrets add .sc/stacks/infrastructure/secrets.yaml
 ```
 
-## Step 4: Deploy
+## Step 4: Provision the parent stack
 
-Deploy your application:
+Before any service deploys, the parent stack must be provisioned so that its
+shared resources (S3 buckets, templates, registrar config, secret backends)
+exist and are reachable. Provisioning runs Pulumi against the cloud account
+and is idempotent — re-runs only apply changes.
+
+```bash
+sc provision -s infrastructure -e prod
+```
+
+This step:
+
+1. Reads `server.yaml` from `.sc/stacks/infrastructure/`
+2. Creates the S3 bucket, CloudFront distribution, and any other resources declared in `resources.resources.prod.resources`
+3. Registers the deployment templates so child stacks can target them
+4. Persists Pulumi state via the configured `state-storage` backend
+
+You only re-run `sc provision` when the parent's `server.yaml` changes (new
+resource, new environment, new template). Service deploys do not require it.
+
+## Step 5: Deploy your service
+
+Deploy the application stack:
 
 ```bash
 sc deploy -s my-first-app -e prod
@@ -129,16 +153,17 @@ sc deploy -s my-first-app -e prod
 
 Simple Container will:
 
-1. Create the S3 bucket
-2. Set up CloudFront distribution
-3. Configure DNS (if using Route53)
-4. Deploy your static files
+1. Resolve the parent reference (`parent: infrastructure`) from `client.yaml`
+2. Match the deployment template
+3. Build and push the artifact (if applicable)
+4. Apply the service-level resources and configuration
 
-## Step 5: Verify Deployment
+## Step 6: Verify Deployment
 
 Your website should now be live at your configured domain!
 
 You can verify the deployment by:
+
 - Visiting your domain in a web browser
 - Checking your AWS S3 bucket for the deployed files
 - Verifying CloudFront distribution is active in AWS Console

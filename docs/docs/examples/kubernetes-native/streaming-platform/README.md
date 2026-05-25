@@ -65,6 +65,7 @@ cloudExtras:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - ECS deployment capabilities with external cluster support
 - Domain management with base DNS zone configuration
 - Secrets management for database and service credentials

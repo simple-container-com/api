@@ -13,7 +13,7 @@ date: '2024-06-12'
 
 This tutorial guides **DevOps teams and developers** on how to migrate from **Terraform or Pulumi** to **Simple Container** for microservice deployment and infrastructure management.
 
-✅ **Why Migrate to `sc`?**
+**Why Migrate to `sc`?**
 
 - **Simplifies microservice deployment** (CI/CD, scaling, rollbacks, and secrets included).
 - **Reduces complexity** (high-level YAML configuration instead of Terraform HCL or Pulumi code).
@@ -21,25 +21,25 @@ This tutorial guides **DevOps teams and developers** on how to migrate from **Te
 
 ---
 
-# **1️⃣ Understanding the Migration Approach**
+# **Understanding the Migration Approach**
 
 | Feature                       | Terraform / Pulumi                      | Simple Container                                |
 |-------------------------------|-----------------------------------------|-------------------------------------------------|
-| **Infrastructure Management** | Declarative IaC (HCL, Python, Go, etc.) | **High-level YAML (`server.yaml`)**             |
-| **Microservice Deployment**   | Requires external CI/CD                 | **Built-in (`client.yaml`)**                    |
-| **Secrets Management**        | Requires external tools (Vault, SSM)    | **Built-in (`sc secrets`)**                     |
-| **Networking & Routing**      | Requires manual configuration           | **Simplified with `caddy` and ingress support** |
+| **Infrastructure Management** | Declarative IaC (HCL, Python, Go, etc.) |**High-level YAML (`server.yaml`)**             |
+| **Microservice Deployment** | Requires external CI/CD                 |**Built-in (`client.yaml`)**                    |
+| **Secrets Management** | Requires external tools (Vault, SSM)    |**Built-in (`sc secrets`)**                     |
+| **Networking & Routing** | Requires manual configuration           |**Simplified with `caddy` and ingress support** |
 
-✅ **SC abstracts infrastructure complexity while keeping cloud provider flexibility**.
+**SC abstracts infrastructure complexity while keeping cloud provider flexibility**.
 
 ---
 
-# **2️⃣ Step-by-Step Migration Guide**
+# **Step-by-Step Migration Guide**
 This guide covers **migrating an AWS ECS Fargate and MongoDB Atlas setup** from Terraform/Pulumi to **Simple Container**.
 
 ---
 
-## **🔹 Step 1: Extract Infrastructure Configuration**
+## **Step 1: Extract Infrastructure Configuration**
 Identify Terraform or Pulumi resources you need to migrate.
 
 ### **Example Terraform Setup**
@@ -74,11 +74,11 @@ const db = new aws.rds.Instance("database", {
 });
 ```
 
-✅ **We will migrate these resources to `server.yaml`.**
+**We will migrate these resources to `server.yaml`.**
 
 ---
 
-## **🔹 Step 2: Create `secrets.yaml`**
+## **Step 2: Create `secrets.yaml`**
 Define **cloud authentication and credentials** in **SC’s secrets file**.
 
 ```sh
@@ -107,11 +107,11 @@ values:
   MONGODB_ATLAS_PRIVATE_KEY: "private-key-456"
 ```
 
-✅ **SC securely manages AWS and MongoDB credentials**.
+**SC securely manages AWS and MongoDB credentials**.
 
 ---
 
-## **🔹 Step 3: Define `server.yaml` for Infrastructure**
+## **Step 3: Define `server.yaml` for Infrastructure**
 Instead of using **Terraform** or **Pulumi**, SC defines **infrastructure in `server.yaml`**.
 
 ```sh
@@ -173,20 +173,20 @@ resources:
             publicKey: "${secret:MONGODB_ATLAS_PUBLIC_KEY}"
 ```
 
-✅ **SC simplifies infrastructure by grouping resources logically in `server.yaml`**.
+**SC simplifies infrastructure by grouping resources logically in `server.yaml`**.
 
 ---
 
-## **🔹 Step 4: Provision the Infrastructure**
+## **Step 4: Provision the Infrastructure**
 Instead of running **Pulumi or Terraform**, use:
 ```sh
 sc provision -s devops
 ```
-✅ **This provisions AWS ECS, MongoDB Atlas, and networking automatically**.
+**This provisions AWS ECS, MongoDB Atlas, and networking automatically**.
 
 ---
 
-## **🔹 Step 5: Define `client.yaml` for Microservices Deployment**
+## **Step 5: Define `client.yaml` for Microservices Deployment**
 Configure **SC’s microservice deployment** instead of Terraform’s ECS task definitions.
 
 ```sh
@@ -220,20 +220,20 @@ stacks:
         DATABASE_PASSWORD: "${resource:mongodb.password}"
 ```
 
-✅ **SC automatically maps microservices to infrastructure resources**.
+**SC automatically maps microservices to infrastructure resources**.
 
 ---
 
-## **🔹 Step 6: Deploy the Microservice**
+## **Step 6: Deploy the Microservice**
 Instead of manually defining ECS tasks in Terraform or Pulumi, use:
 ```sh
 sc deploy -s myservice -e staging
 ```
-✅ **SC automates the CI/CD process**.
+**SC automates the CI/CD process**.
 
 ---
 
-# **3️⃣ Summary of Migration**
+# **Summary of Migration**
 | Task                               | Terraform / Pulumi                | Simple Container             |
 |------------------------------------|-----------------------------------|-------------------------------------|
 | **Define Secrets**                 | AWS Secrets Manager, Vault        | `secrets.yaml`                      |
@@ -242,4 +242,4 @@ sc deploy -s myservice -e staging
 | **Define Microservice Deployment** | ECS Task Definitions, Helm Charts | `client.yaml`                       |
 | **Deploy Microservice**            | CI/CD + Terraform                 | `sc deploy -s myservice -e staging` |
 
-✅ **SC simplifies infrastructure and deployment** while keeping cloud flexibility.
+**SC simplifies infrastructure and deployment** while keeping cloud flexibility.

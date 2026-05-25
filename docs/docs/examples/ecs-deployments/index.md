@@ -343,6 +343,7 @@ alerts:
 ```
 
 **Technical Details:**
+
 - Server errors use `HTTPCode_Target_5XX_Count` metric with LoadBalancer dimension
 - Unhealthy hosts use `UnHealthyHostCount` metric with LoadBalancer + TargetGroup dimensions
 - Response time uses `TargetResponseTime` metric with LoadBalancer dimension

@@ -69,13 +69,13 @@ echo -n "your-secret-key" | base64
 
 ### 2. MongoDB Atlas Setup
 1. Log into [MongoDB Atlas](https://cloud.mongodb.com/)
-2. Go to **Access Manager** → **API Keys**
+2. Go to **Access Manager** →**API Keys**
 3. Create new API key with appropriate permissions
 4. Use the public key directly and private key as-is
 
 ### 3. Pulumi Token
 1. Go to [Pulumi Console](https://app.pulumi.com/)
-2. Navigate to **Settings** → **Access Tokens**
+2. Navigate to **Settings** →**Access Tokens**
 3. Create new token and copy the value
 
 ### 4. Cloudflare API Token
@@ -85,6 +85,7 @@ echo -n "your-secret-key" | base64
 
 ### 5. CI/CD Webhooks
 Configure webhook URLs for your notification services:
+
 - **Discord**: Server Settings → Integrations → Webhooks
 - **Slack**: App Settings → Incoming Webhooks
 
@@ -209,13 +210,13 @@ stacks:
 
 ## Security Best Practices
 
-### ✅ Do
+### Do
 - **Encrypt secrets**: Use `sc secrets add` to add and encrypt secret files
 - **Separate environments**: Use different stack directories for prod/staging environments
 - **Rotate regularly**: Update API keys and tokens periodically
 - **Limit permissions**: Use minimal required permissions for each service
 
-### ❌ Don't
+### Don't
 - **Commit plaintext**: Never commit unencrypted secrets to version control
 - **Share widely**: Limit access to secrets files to necessary team members
 - **Reuse across environments**: Use separate credentials for production vs development

@@ -56,6 +56,7 @@ lambdaSchedules:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `lambda-eu` template with high-frequency scheduling support
 - `mongodb` resource for task storage and tracking
 - Lambda deployment with cron scheduling (every minute)

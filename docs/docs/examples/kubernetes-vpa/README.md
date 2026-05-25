@@ -13,7 +13,7 @@ date: '2024-12-07'
 
 This example demonstrates how to configure **Vertical Pod Autoscaler (VPA)** in Simple Container for automatic resource optimization in Kubernetes deployments.
 
-## 🎯 **Overview**
+## **Overview**
 
 VPA automatically adjusts CPU and memory requests for your containers based on actual usage patterns, providing:
 
@@ -21,7 +21,7 @@ VPA automatically adjusts CPU and memory requests for your containers based on a
 - **Performance Optimization**: Ensures adequate resources during load spikes
 - **Operational Efficiency**: Reduces manual resource tuning
 
-## 📁 **Example Structure**
+## **Example Structure**
 
 ```
 kubernetes-vpa/
@@ -37,7 +37,7 @@ kubernetes-vpa/
 └── Dockerfile                   # Application container
 ```
 
-## 🚀 **Quick Start**
+## **Quick Start**
 
 1. **Deploy the parent stack** (GKE Autopilot with Caddy VPA):
    ```bash
@@ -55,7 +55,7 @@ kubernetes-vpa/
    kubectl describe vpa vpa-demo-vpa
    ```
 
-## 📋 **Configuration Examples**
+## **Configuration Examples**
 
 ### **Application VPA Configuration** (`client.yaml`)
 
@@ -166,7 +166,7 @@ resources:
           region: "US_CENTRAL_1"
 ```
 
-## 🔧 **VPA Update Modes**
+## **VPA Update Modes**
 
 | Mode | Description | Use Case | Behavior |
 |------|-------------|----------|----------|
@@ -175,7 +175,7 @@ resources:
 | **Auto** | Updates by recreating pods | Recommended for stateless apps | Pod restart required |
 | **InPlaceOrRecreate** | Updates resources in-place or recreates | Advanced use (preview) | May cause brief interruptions |
 
-## 📊 **VPA Best Practices**
+## **VPA Best Practices**
 
 ### **1. Resource Boundaries**
 
@@ -227,7 +227,7 @@ vpa:
     memory: "4Gi" # Matches manual limit
 ```
 
-## 🔍 **Monitoring VPA**
+## **Monitoring VPA**
 
 ### **Check VPA Status**
 ```bash
@@ -250,7 +250,7 @@ kubectl top pods
 kubectl get vpa <vpa-name> -o jsonpath='{.status.recommendation}'
 ```
 
-## 🚨 **Troubleshooting**
+## **Troubleshooting**
 
 ### **VPA Not Creating Recommendations**
 - Ensure VPA controller is installed in the cluster
@@ -267,14 +267,14 @@ kubectl get vpa <vpa-name> -o jsonpath='{.status.recommendation}'
 - Check if workload patterns are representative
 - Consider using `controlledResources` to limit scope
 
-## 🔗 **Related Examples**
+## **Related Examples**
 
-- [GKE Autopilot Setup](../gke-autopilot/) - Basic GKE Autopilot configuration
-- [Kubernetes Affinity](../kubernetes-affinity/) - Advanced pod scheduling
-- [Resource Management](../kubernetes-native/) - Manual resource configuration
+- [GKE Autopilot Setup](../gke-autopilot/index.md) - Basic GKE Autopilot configuration
+- [Kubernetes Affinity](../kubernetes-affinity/README.md) - Advanced pod scheduling
+- [Resource Management](../kubernetes-native/index.md) - Manual resource configuration
 
-## 📚 **Additional Resources**
+## **Additional Resources**
 
 - [Kubernetes VPA Documentation](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler)
 - [GKE Autopilot VPA Guide](https://cloud.google.com/kubernetes-engine/docs/concepts/verticalpodautoscaler)
-- [Simple Container VPA Reference](../../reference/supported-resources.md#vertical-pod-autoscaler-vpa)
+- [Vertical Pod Autoscaler concept](../../concepts/vertical-pod-autoscaler.md)

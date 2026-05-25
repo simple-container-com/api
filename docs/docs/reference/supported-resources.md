@@ -11,7 +11,41 @@ date: '2024-12-07'
 
 # **Supported Resources Reference**
 
-This document provides a comprehensive reference of all supported cloud resources and their properties that can be defined in the **parent stack**. The parent stack is managed by DevOps teams and provides the core infrastructure that microservices consume.
+This document lists every cloud resource type SC can provision in a parent
+stack (`server.yaml`), with the config keys each accepts.
+
+## Where resources live in `server.yaml`
+
+The `resources` block in `server.yaml` is **three nesting levels deep** — the
+literal key `resources:` appears three times. This is intentional: the outer
+`resources` is the per-stack container, the middle `resources` is the per-env
+map, and the innermost `resources` is the per-resource map. Skipping any
+level is invalid.
+
+```yaml
+schemaVersion: "1.0"
+# ...
+resources:                              # (1) per-stack container
+  registrar:                            #     single registrar shared across envs
+    type: cloudflare
+    config: { ... }
+  resources:                            # (2) per-env map
+    staging:                            #     env name
+      template: ecs-fargate-template    #     optional; ref into templates[]
+      resources:                        # (3) per-resource map
+        main-db:                        #     user-chosen resource name
+          type: aws-rds-postgres        #     see the type tables below
+          name: main-db
+          config:
+            # resource-specific keys (see per-type sections)
+    production:
+      # ... same shape
+```
+
+For the full canonical shape (provisioner, secrets, cicd, templates,
+variables) the source of truth is the Go struct `ServerDescriptor` in
+`pkg/api/server.go` of the [simple-container-com/api](https://github.com/simple-container-com/api)
+repository.
 
 ## **Understanding Simple Container Architecture**
 
@@ -237,7 +271,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for S3 bucket access.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS S3 Bucket](../concepts/template-placeholders-advanced.md#s3-bucket)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS S3 Bucket](../concepts/template-placeholders-advanced.md#s3-bucket)
 
 #### **ECR Repository** (`ecr-repository`)
 
@@ -307,7 +341,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for PostgreSQL database connection.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS PostgreSQL](../concepts/template-placeholders-advanced.md#rds-postgresql)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS PostgreSQL](../concepts/template-placeholders-advanced.md#rds-postgresql)
 
 #### **RDS MySQL** (`aws-rds-mysql`)
 
@@ -343,7 +377,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for MySQL database connection.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - AWS RDS MySQL](../concepts/template-placeholders-advanced.md#rds-mysql)
 
 #### **CloudTrail Security Alerts** (`aws-cloudtrail-security-alerts`)
 
@@ -382,10 +416,10 @@ resources:
             slack:
               webhookUrl: "${secret:security-slack-webhook}"
             # discord:
-            #   webhookUrl: "${secret:security-discord-webhook}"
+            # webhookUrl: "${secret:security-discord-webhook}"
             # telegram:
-            #   chatID: "-1001234567890"
-            #   token: "${secret:security-telegram-token}"
+            # chatID: "-1001234567890"
+            # token: "${secret:security-telegram-token}"
 
             # Alert selectors (all default to false)
             alerts:
@@ -791,7 +825,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for GCS bucket access with S3-compatible HMAC authentication.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Bucket](../concepts/template-placeholders-advanced.md#gcp-bucket)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Bucket](../concepts/template-placeholders-advanced.md#gcp-bucket)
 
 #### **Artifact Registry** (`gcp-artifact-registry`)
 
@@ -865,7 +899,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for PostgreSQL connection details.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP PostgreSQL Cloud SQL](../concepts/template-placeholders-advanced.md#postgresql-cloud-sql)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP PostgreSQL Cloud SQL](../concepts/template-placeholders-advanced.md#postgresql-cloud-sql)
 
 #### **Redis** (`gcp-redis`)
 
@@ -903,7 +937,7 @@ resources:
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for Redis connection details.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Redis Memorystore](../concepts/template-placeholders-advanced.md#redis-memorystore)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - GCP Redis Memorystore](../concepts/template-placeholders-advanced.md#redis-memorystore)
 
 ### **Messaging Resources**
 
@@ -1298,6 +1332,7 @@ resources:
 **Backup Security:**
 
 MongoDB Atlas encrypts **all backups automatically by default** using your cloud provider's encryption:
+
 - **Automatic encryption**: No configuration required - all snapshots are encrypted at rest
 - **Cloud provider managed**: Encryption keys managed by AWS/GCP/Azure
 - **Universal**: Applies to all cluster tiers and backup types (hourly, daily, weekly, monthly)
@@ -1309,7 +1344,7 @@ For enterprise customers requiring additional control, MongoDB Atlas also suppor
 
 When this resource is used in a client stack via the `uses` section, Simple Container automatically injects environment variables and template placeholders for MongoDB Atlas database connection.
 
-📖 **For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - MongoDB Atlas Cluster](../concepts/template-placeholders-advanced.md#mongodb-atlas-cluster)
+**For complete details on environment variables and template placeholders, see:** [Template Placeholders Advanced - MongoDB Atlas Cluster](../concepts/template-placeholders-advanced.md#mongodb-atlas-cluster)
 
 **See Also:**
 
@@ -1365,6 +1400,7 @@ resources:
 ### **State Storage and Secrets Management**
 
 The provisioner manages two key components:
+
 - **State Storage**: Stores Pulumi's state (supports `s3-bucket`, `fs`, `gcp-bucket`, `pulumi-cloud`)
 - **Secrets Provider**: Provides encryption for created resources' confidential outputs
 
@@ -1554,7 +1590,7 @@ alerts:
     periodSec: 300
 ```
 
-> **📧 Email Integration**: Each notification channel works independently. When email addresses are configured, email notifications are sent alongside any configured webhook channels. Email recipients must confirm their subscription to receive notifications.
+> **Email Integration**: Each notification channel works independently. When email addresses are configured, email notifications are sent alongside any configured webhook channels. Email recipients must confirm their subscription to receive notifications.
 
 **Complete Monitoring Configuration:**
 ```yaml
@@ -1595,6 +1631,7 @@ alerts:
 ```
 
 **Alert Configuration Properties:**
+
 - **`alertName`** - Unique identifier for the CloudWatch alarm
 - **`description`** - Human-readable description of the alert
 - **`threshold`** - Numeric threshold value that triggers the alarm
@@ -1602,16 +1639,18 @@ alerts:
 - **`errorLogMessageRegexp`** - (maxErrors only) Regex pattern to match error log messages
 
 **CloudWatch Metrics and Dimensions:**
+
 - **`serverErrors`** - Uses `HTTPCode_Target_5XX_Count` metric with LoadBalancer dimension
 - **`unhealthyHosts`** - Uses `UnHealthyHostCount` metric with LoadBalancer + TargetGroup dimensions  
 - **`responseTime`** - Uses `TargetResponseTime` metric with LoadBalancer dimension
 - All metrics use full AWS load balancer identifiers (including AWS-generated suffixes) for reliable targeting
 
 **Notification Channel Properties:**
+
 - **`email.addresses`** - Array of email addresses for email notifications
 - **`slack.webhookUrl`** - Slack webhook URL (use secrets management)
 - **`discord.webhookUrl`** - Discord webhook URL (use secrets management)
-- **`telegram.chatID`** & **`telegram.token`** - Telegram bot configuration
+- **`telegram.chatID`** &**`telegram.token`** - Telegram bot configuration
 
 ---
 
@@ -1930,16 +1969,19 @@ stacks:
 ### **Scaling Benefits Demonstrated**
 
 **1. Resource Pool Management:**
+
 - DevOps defines resource pools once (`mongodb-shared-us`, `mongodb-enterprise-1`)
 - Developers allocate customers flexibly using `uses` directive
 - Easy migration between tiers by changing `uses` configuration
 
 **2. Cost Optimization:**
+
 - Standard customers share `mongodb-shared-us` (cost-effective)
 - Enterprise customers get dedicated `mongodb-enterprise-1` (performance)
 - Automatic resource utilization optimization
 
 **3. Geographic Compliance:**
+
 - EU customers automatically use `mongodb-shared-eu` for data residency
 - US customers use `mongodb-shared-us`
 - Simple configuration change for compliance
@@ -1994,6 +2036,4 @@ eu-customer:
     uses: [mongodb-eu-cluster]
 ```
 
-This comprehensive reference covers all supported resources in Simple Container. The multidimensional resource allocation approach enables organizations to scale from startup to enterprise without operational complexity growth.
-
-For specific implementation examples and tutorials, refer to the [How-To Guides](./howto/) section.
+For end-to-end deployment examples that use these resources, see the [Examples](../examples/README.md) section and the [Guides](../guides/index.md).

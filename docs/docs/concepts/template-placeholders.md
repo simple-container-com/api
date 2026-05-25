@@ -586,15 +586,15 @@ region: "${env:AWS_REGION}"
 # Good - relative to project root (works in all environments)
 dockerComposeFile: docker-compose.yaml  # References ${project:root}/docker-compose.yaml
 image:
-  dockerfile: ${project:root}/Dockerfile  # ✅ Full path to file
-  context: ${project:root}                # ✅ Directory path
+  dockerfile: ${project:root}/Dockerfile  # Full path to file
+  context: ${project:root}                # Directory path
 
 # Also good - explicit git root for git-specific operations
 buildContext: ${git:root}/build
 
-# ❌ COMMON MISTAKE - Missing filename
+# COMMON MISTAKE - Missing filename
 image:
-  dockerfile: ${project:root}  # ❌ This is a directory, not a file!
+  dockerfile: ${project:root}  # This is a directory, not a file!
   
 # Avoid - absolute paths that may not exist
 dockerComposeFile: /home/user/project/docker-compose.yaml
@@ -729,9 +729,9 @@ stacks:
 
 ## **See Also**
 
-- [Supported Resources Reference](supported-resources.md) - Complete resource configuration guide
-- [Examples Directory](examples/) - Production-tested configuration examples
-- [Parent Stack Examples](examples/parent-stacks/) - Multi-region and hybrid cloud configurations
-- [Authentication Guide](authentication.md) - Setting up auth configurations for template placeholders
+- [Supported Resources Reference](../reference/supported-resources.md) — complete resource configuration guide
+- [Examples](../examples/README.md) — production-tested configuration examples
+- [Parent Stack Examples](../examples/parent-stacks/index.md) — multi-region and hybrid cloud configurations
+- [Secrets Management](../guides/secrets-management.md) — setting up auth configurations for template placeholders
 
 This template system enables Simple Container to provide flexible, reusable, and secure configuration management across different environments and deployment scenarios.

@@ -26,6 +26,7 @@ This example shows how to deploy a blog platform with multi-service deployment (
 ## Database Configuration
 
 Uses comprehensive MySQL resource references:
+
 - `${resource:mysql.user}` - Database username
 - `${resource:mysql.password}` - Database password
 - `${resource:mysql.host}` - Database host
@@ -35,6 +36,7 @@ Uses comprehensive MySQL resource references:
 ## Email Configuration
 
 Gmail SMTP setup for blog notifications:
+
 - **Service**: Gmail SMTP
 - **Security**: SSL/TLS enabled
 - **Port**: 465 (secure)
@@ -51,6 +53,7 @@ Gmail SMTP setup for blog notifications:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `mysql` resource with full connection details
 - ECS deployment capabilities
 - Domain management

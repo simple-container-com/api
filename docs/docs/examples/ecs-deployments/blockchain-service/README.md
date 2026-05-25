@@ -52,6 +52,7 @@ dependencies:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - ECS deployment capabilities
 - Cross-service dependency resolution
 - Secrets management for contract addresses

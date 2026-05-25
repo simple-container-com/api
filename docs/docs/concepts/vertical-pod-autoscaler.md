@@ -17,17 +17,17 @@ date: '2024-12-07'
 
 ## **Key Benefits**
 
-### **💰 Cost Optimization**
+### **Cost Optimization**
 - **Prevents over-provisioning**: Reduces wasted resources and cloud costs
 - **Right-sizing**: Automatically adjusts to actual usage patterns
 - **Resource efficiency**: Optimizes cluster utilization
 
-### **🚀 Performance Optimization**
+### **Performance Optimization**
 - **Prevents resource starvation**: Ensures adequate resources during load spikes
 - **Automatic scaling**: Responds to changing workload demands
 - **Reduced manual tuning**: Eliminates guesswork in resource allocation
 
-### **🔧 Operational Efficiency**
+### **Operational Efficiency**
 - **Hands-off management**: Reduces manual resource configuration
 - **Data-driven decisions**: Based on actual usage metrics
 - **Continuous optimization**: Adapts to changing application behavior
@@ -165,6 +165,7 @@ vpa:
 ```
 
 Valid values:
+
 - `RequestsAndLimits` (default) — VPA scales both. Equivalent to omitting the field.
 - `RequestsOnly` — VPA scales only `requests`; `limits` stay at the values in the underlying deployment template.
 
@@ -345,6 +346,6 @@ This separation ensures that VPA configuration follows Simple Container's princi
 
 ## **Next Steps**
 
-- [VPA Configuration Example](../examples/kubernetes-vpa/) - Complete VPA setup example
+- [VPA Configuration Example](../examples/kubernetes-vpa/README.md) - Complete VPA setup example
 - [GKE Autopilot Guide](../guides/parent-gcp-gke-autopilot.md) - VPA with GKE Autopilot
 - [Supported Resources Reference](../reference/supported-resources.md) - VPA configuration reference

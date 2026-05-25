@@ -4,19 +4,19 @@ This directory contains comprehensive examples of secrets configuration for diff
 
 ## Available Examples
 
-### 🔐 [AWS + MongoDB Atlas](./aws-mongodb-atlas/)
+### [AWS + MongoDB Atlas](aws-mongodb-atlas/README.md)
 **Use Case**: Multi-region AWS deployment with database and CI/CD integrations
 - **Authentication**: AWS multi-region credentials, Pulumi tokens
 - **Services**: MongoDB Atlas, Cloudflare DNS, CI/CD webhooks
 - **Best For**: AWS-centric deployments with external database and notification needs
 
-### 🌐 [GCP Multi-Service Integration](./gcp-auth-cloudflare-mongodb-discord-telegram/)  
+### [GCP Multi-Service Integration](gcp-auth-cloudflare-mongodb-discord-telegram/README.md)  
 **Use Case**: Comprehensive GCP setup with multiple third-party service integrations
 - **Authentication**: GCP service accounts (staging + production)
 - **Services**: MongoDB Atlas, Cloudflare, Discord, Telegram
 - **Best For**: GCP-primary deployments with rich integration ecosystem
 
-### ☸️ [Kubernetes + GCP Hybrid](./kube-and-gcp-auth/)
+###️ [Kubernetes + GCP Hybrid](kube-and-gcp-auth/README.md)
 **Use Case**: Kubernetes cluster management with GCP cloud services
 - **Authentication**: Kubernetes cluster access, GCP service accounts
 - **Services**: Docker registry, container orchestration
@@ -28,20 +28,20 @@ This directory contains comprehensive examples of secrets configuration for diff
 
 | Infrastructure       | Recommended Example                                                                             | Key Features                                      |
 |----------------------|-------------------------------------------------------------------------------------------------|---------------------------------------------------|
-| **AWS Focused**      | [aws-mongodb-atlas](./aws-mongodb-atlas/)                                                       | Multi-region AWS, Pulumi IaC, external services   |
-| **GCP Focused**      | [gcp-auth-cloudflare-mongodb-discord-telegram](./gcp-auth-cloudflare-mongodb-discord-telegram/) | Multi-environment GCP, comprehensive integrations |
-| **Kubernetes First** | [kube-and-gcp-auth](./kube-and-gcp-auth/)                                                       | Container orchestration, hybrid deployments       |
+| **AWS Focused**      | [aws-mongodb-atlas](aws-mongodb-atlas/README.md)                                                       | Multi-region AWS, Pulumi IaC, external services   |
+| **GCP Focused**      | [gcp-auth-cloudflare-mongodb-discord-telegram](gcp-auth-cloudflare-mongodb-discord-telegram/README.md) | Multi-environment GCP, comprehensive integrations |
+| **Kubernetes First** | [kube-and-gcp-auth](kube-and-gcp-auth/README.md)                                                       | Container orchestration, hybrid deployments       |
 
 ### Choose by Integration Needs
 
 | Integration Type        | AWS Example      | GCP Example         | Kubernetes Example     |
 |-------------------------|------------------|---------------------|------------------------|
-| **Database**            | MongoDB Atlas ✅  | MongoDB Atlas ✅     | Registry Auth ✅        |
-| **DNS Management**      | Cloudflare ✅     | Cloudflare ✅        | -                      |
-| **CI/CD Notifications** | Discord, Slack ✅ | Discord, Telegram ✅ | -                      |
-| **Container Registry**  | -                | -                   | Docker Hub, GCR, ECR ✅ |
-| **Multi-Region**        | US + EU ✅        | Staging + Prod ✅    | Multi-Cluster ✅        |
-| **IaC Integration**     | Pulumi ✅         | GCP Native ✅        | Kubernetes Native ✅    |
+| **Database**            | MongoDB Atlas | MongoDB Atlas | Registry Auth |
+| **DNS Management**      | Cloudflare | Cloudflare | -                      |
+| **CI/CD Notifications** | Discord, Slack | Discord, Telegram | -                      |
+| **Container Registry**  | -                | -                   | Docker Hub, GCR, ECR |
+| **Multi-Region**        | US + EU | Staging + Prod | Multi-Cluster |
+| **IaC Integration**     | Pulumi | GCP Native | Kubernetes Native |
 
 ## Common Configuration Patterns
 
@@ -81,7 +81,7 @@ values:
 
 ## Security Best Practices
 
-### ✅ Essential Security Measures
+### Essential Security Measures
 
 #### 1. **Encryption at Rest**
 ```bash
@@ -129,7 +129,7 @@ echo "*.yaml.encrypted filter=git-crypt diff=git-crypt" >> .gitattributes
 # 5. Revoke old credentials
 ```
 
-### ❌ Security Anti-Patterns to Avoid
+### Security Anti-Patterns to Avoid
 
 - **Never commit plaintext secrets** to version control
 - **Don't share production secrets** across environments
@@ -365,10 +365,10 @@ kubectl auth can-i create deployments
 
 ## Related Documentation
 
-- **[Simple Container CLI Reference](../../reference/cli.md)** - Complete command documentation
-- **[Client Configuration Guide](../../guides/client-configuration.md)** - Application setup
-- **[Server Configuration Guide](../../guides/server-configuration.md)** - Infrastructure setup
-- **[Security Best Practices](../../guides/security.md)** - Comprehensive security guidance
+- **[Supported Resources](../../reference/supported-resources.md)** — full resource configuration reference
+- **[Deployment Schemas](../../reference/service-available-deployment-schemas.md)** — per-template config keys
+- **[Secrets Management](../../guides/secrets-management.md)** — secret-backend setup and `sc secrets` workflow
+- **[Container Security](../../guides/container-security.md)** — signing, SBOM, provenance, scanning
 
 ## Contributing
 

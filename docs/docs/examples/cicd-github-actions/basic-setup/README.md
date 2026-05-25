@@ -5,6 +5,7 @@ This example demonstrates a simple CI/CD setup with staging and production envir
 ## Overview
 
 This setup provides:
+
 - **Automatic staging deployment** when code is pushed to the main branch
 - **Manual production deployment** with approval requirement
 - **Slack notifications** for deployment status
@@ -16,10 +17,10 @@ This setup provides:
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   GitHub Repo   │    │  GitHub Actions │    │ Simple Container│
 │                 │    │                 │    │                 │
-│ Push to main ───┼───▶│ Deploy Staging  │───▶│   AWS ECS       │
+│ Push to main ───┼───│ Deploy Staging  │───│   AWS ECS       │
 │                 │    │                 │    │   (Staging)     │
 │                 │    │                 │    │                 │
-│ Manual trigger ─┼───▶│ Deploy Prod     │───▶│   AWS ECS       │
+│ Manual trigger ─┼───│ Deploy Prod     │───│   AWS ECS       │
 │ (with approval) │    │ (with approval) │    │  (Production)   │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │
@@ -281,9 +282,10 @@ stacks:
 
 ### 1. Configure GitHub Secrets
 
-Go to your repository **Settings** → **Secrets and variables** → **Actions** and add:
+Go to your repository **Settings** →**Secrets and variables** →**Actions** and add:
 
 **Required secrets:**
+
 - `SC_CONFIG` - Simple Container configuration with SSH key pair to decrypt repository secrets
 
 **Note:** All cloud provider credentials, API tokens, and application secrets are managed in `.sc/stacks/my-app/secrets.yaml` and encrypted using Simple Container's secrets management. GitHub Actions only needs the `SC_CONFIG` secret to decrypt and access all other secrets.
@@ -324,13 +326,15 @@ cat ~/.ssh/id_rsa
 
 ### 3. Configure Environments
 
-Go to **Settings** → **Environments** and create:
+Go to **Settings** →**Environments** and create:
 
 **Staging Environment:**
+
 - Name: `staging`
 - No protection rules (allows automatic deployment)
 
 **Production Environment:**
+
 - Name: `production`  
 - Enable **Required reviewers** and add team members
 - Optionally set **Wait timer** (e.g., 10 minutes)
@@ -352,6 +356,7 @@ mkdir -p .sc/stacks/my-app
 ### 2. Add Configuration Files
 
 Copy the configuration files above into your project:
+
 - `server.yaml` → `.sc/stacks/my-app/server.yaml`
 - `secrets.yaml` → `.sc/stacks/my-app/secrets.yaml` 
 - `client.yaml` → `.sc/stacks/my-app/client.yaml`
@@ -512,6 +517,7 @@ To destroy resources in an environment:
 ### Deployment Status
 
 Monitor deployments through:
+
 - **GitHub Actions** - View workflow runs and logs
 - **Slack notifications** - Receive status updates in your channel
 - **AWS Console** - Monitor ECS services and RDS databases
@@ -519,12 +525,14 @@ Monitor deployments through:
 ### Health Checks
 
 The application includes health check endpoints:
+
 - **Staging**: `https://staging.my-app.com/health`
 - **Production**: `https://my-app.com/health`
 
 ### Logs and Metrics
 
 Access application logs through:
+
 - **CloudWatch Logs** - Application and infrastructure logs
 - **ECS Console** - Container-level metrics
 - **Application Insights** - Custom application metrics
@@ -582,16 +590,19 @@ on:
 ### Common Issues
 
 **Deployment fails with "AWS credentials not found":**
+
 - Verify GitHub secrets are properly configured
 - Check AWS IAM permissions for the access key
 - Ensure AWS region is correct in server.yaml
 
 **Workflow doesn't trigger automatically:**
+
 - Check branch protection rules don't block pushes
 - Verify workflow file syntax is correct
 - Ensure the file is in `.github/workflows/` directory
 
 **Production deployment hangs on approval:**
+
 - Check environment protection settings
 - Ensure reviewers have repository access
 - Verify reviewers are available to approve
@@ -620,6 +631,7 @@ After setting up basic CI/CD:
 5. **Custom domains** - Set up DNS and SSL certificates
 
 For more advanced setups, check out:
-- **[Multi-Stack Deployment](../multi-stack/)** - Deploy multiple related stacks
-- **[Preview Deployments](../preview-deployments/)** - PR-based testing environments
-- **[Advanced Notifications](../advanced-notifications/)** - Multi-channel alerts
+
+- **[Multi-Stack Deployment](../multi-stack/README.md)** - Deploy multiple related stacks
+- **[Preview Deployments](../preview-deployments/README.md)** - PR-based testing environments
+- **[Advanced Notifications](../advanced-notifications/README.md)** - Multi-channel alerts

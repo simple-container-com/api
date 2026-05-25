@@ -99,7 +99,7 @@ gcloud iam service-accounts create simple-container-deploy-bot \
 
 ### 2. MongoDB Atlas Configuration
 1. Visit [MongoDB Atlas Console](https://cloud.mongodb.com/)
-2. Navigate to **Access Manager** → **API Keys**
+2. Navigate to **Access Manager** →**API Keys**
 3. Create API Key with **Project Owner** or **Organization Member** role
 4. Copy public key and private key
 5. Base64 encode the public key: `echo -n "your-public-key" | base64`
@@ -113,7 +113,7 @@ gcloud iam service-accounts create simple-container-deploy-bot \
 
 ### 4. Discord Webhook Setup
 1. Open Discord Server Settings
-2. Navigate to **Integrations** → **Webhooks**
+2. Navigate to **Integrations** →**Webhooks**
 3. Click **New Webhook**
 4. Configure webhook name and channel
 5. Copy webhook URL
@@ -321,24 +321,24 @@ stacks:
 
 ## Security Best Practices
 
-### ✅ Service Account Security
+### Service Account Security
 - **Principle of Least Privilege**: Grant minimal required IAM roles
 - **Key Rotation**: Rotate service account keys every 90 days
 - **Environment Separation**: Use separate service accounts for staging/prod
 - **Audit Logging**: Enable Cloud Audit Logs for service account usage
 
-### ✅ Secret Management
+### Secret Management
 - **Encrypt Everything**: Use `sc secrets add` to add and encrypt secret files
 - **Base64 Encoding**: Encode all tokens before storing
 - **Regular Rotation**: Update API keys and tokens quarterly
 - **Environment Isolation**: Never share secrets between environments
 
-### ✅ Communication Security
+### Communication Security
 - **Bot Token Security**: Treat Telegram bot tokens as highly sensitive
 - **Webhook Validation**: Implement webhook signature validation where possible
 - **Channel Restrictions**: Limit Discord/Telegram bot permissions to required channels
 
-### ❌ Common Mistakes to Avoid
+### Common Mistakes to Avoid
 - **Don't**: Store plaintext service account JSON in version control
 - **Don't**: Use production credentials in development/staging
 - **Don't**: Share bot tokens or API keys in chat/email
@@ -376,12 +376,12 @@ curl -X GET "https://api.cloudflare.com/client/v4/zones" \
 # Test Discord webhook
 curl -X POST "$DISCORD_WEBHOOK_URL" \
   -H "Content-Type: application/json" \
-  -d '{"content": "🚀 Simple Container deployment test"}'
+  -d '{"content": "Simple Container deployment test"}'
 
 # Test Telegram bot
 curl -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
   -d "chat_id=$TELEGRAM_CHAT" \
-  -d "text=🚀 Simple Container deployment test"
+  -d "text=Simple Container deployment test"
 ```
 
 ## Integration Examples

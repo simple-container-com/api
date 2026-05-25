@@ -71,6 +71,7 @@ lambdaSchedules:
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `lambda-eu` template with comprehensive IAM role support
 - `mongodb` resource for cost data storage
 - Lambda deployment with extended timeout capabilities

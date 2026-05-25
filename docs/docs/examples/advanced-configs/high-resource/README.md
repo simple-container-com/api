@@ -63,6 +63,7 @@ This example shows how to deploy a high-resource code execution environment with
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - ECS deployment with high-resource support
 - External Kubernetes cluster integration
 - Secrets management for OAuth and registry credentials

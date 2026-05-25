@@ -54,22 +54,22 @@ Secure Software Development Framework compliance mapping.
 
 | Requirement | Simple Container Feature | Status |
 |-------------|-------------------------|---------|
-| Build process documented | Release workflow | ✅ Documented |
+| Build process documented | Release workflow | Documented |
 
 ### SLSA Level 2: Build as Code
 
 | Requirement | Simple Container Feature | Status |
 |-------------|-------------------------|---------|
-| Version controlled build | Pulumi infrastructure as code | ✅ Implemented |
-| Build service generates provenance | SLSA v1.0 provenance | ✅ Implemented |
-| Provenance distributed with artifact | Attestation attachment | ✅ Implemented |
+| Version controlled build | Pulumi infrastructure as code | Implemented |
+| Build service generates provenance | SLSA v1.0 provenance | Implemented |
+| Provenance distributed with artifact | Attestation attachment | Implemented |
 
 ### SLSA Level 3: Hardened Build
 
 | Requirement | Simple Container Feature | Status |
 |-------------|-------------------------|---------|
-| Signed provenance | Keyless or key-based signing | ✅ Implemented |
-| Non-falsifiable provenance | Rekor transparency log | ✅ Implemented |
+| Signed provenance | Keyless or key-based signing | Implemented |
+| Non-falsifiable provenance | Rekor transparency log | Implemented |
 
 **SLSA Level Achieved: Level 2-3** (Level 3 when using keyless signing with Rekor)
 
@@ -84,7 +84,7 @@ Secure Software Development Framework compliance mapping.
 | Third-party component testing | SBOM with dependencies | Full dependency tree in SBOM |
 | Attestation of conformance | Signed attestations | Cosign signatures with SBOM/provenance |
 
-**Compliance Status:** ✅ Compliant
+**Compliance Status:** Compliant
 
 ## CISA SBOM Requirements
 
@@ -92,16 +92,17 @@ Secure Software Development Framework compliance mapping.
 
 | Element | Simple Container Feature | Status |
 |---------|-------------------------|---------|
-| Supplier Name | Syft metadata | ✅ Included |
-| Component Name | Package inventory | ✅ Included |
-| Version of Component | Package versions | ✅ Included |
-| Dependency Relationship | CycloneDX relationships | ✅ Included |
-| Author of SBOM | Tool metadata | ✅ Included |
-| Timestamp | GeneratedAt field | ✅ Included |
+| Supplier Name | Syft metadata | Included |
+| Component Name | Package inventory | Included |
+| Version of Component | Package versions | Included |
+| Dependency Relationship | CycloneDX relationships | Included |
+| Author of SBOM | Tool metadata | Included |
+| Timestamp | GeneratedAt field | Included |
 
 **SBOM Format Compliance:**
-- ✅ CycloneDX 1.4+ (JSON/XML)
-- ✅ SPDX 2.3+ (JSON/tag-value)
+
+- CycloneDX 1.4+ (JSON/XML)
+- SPDX 2.3+ (JSON/tag-value)
 
 ## OpenSSF Scorecard
 
