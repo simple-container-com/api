@@ -188,24 +188,25 @@ For production environments that require network isolation and static egress IPs
 ```yaml
 # File: "myproject/.sc/stacks/devops/server.yaml"
 resources:
-  production:
-    template: stack-per-app-gke
-    resources:
-      gke-autopilot-res:
-        type: gcp-gke-autopilot-cluster
-        config:
-          gkeMinVersion: "1.33.4-gke.1245000"
-          projectId: "${auth:gcloud.projectId}"
-          credentials: "${auth:gcloud}"
-          location: europe-west3
-          
-          # Private VPC Configuration
-          privateVpc: true              # Creates dedicated VPC with automatic peering
-          
-          # Static Egress IP Configuration
-          externalEgressIp:
-            enabled: true               # Enables CloudNAT with static IP
-            # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Optional: use existing IP
+  resources:
+    production:
+      template: stack-per-app-gke
+      resources:
+        gke-autopilot-res:
+          type: gcp-gke-autopilot-cluster
+          config:
+            gkeMinVersion: "1.33.4-gke.1245000"
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: europe-west3
+
+            # Private VPC Configuration
+            privateVpc: true              # Creates dedicated VPC with automatic peering
+
+            # Static Egress IP Configuration
+            externalEgressIp:
+              enabled: true               # Enables CloudNAT with static IP
+              # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Optional: use existing IP
 ```
 
 ### **What Private VPC Does**

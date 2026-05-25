@@ -11,7 +11,41 @@ date: '2024-12-07'
 
 # **Supported Resources Reference**
 
-This document provides a comprehensive reference of all supported cloud resources and their properties that can be defined in the **parent stack**. The parent stack is managed by DevOps teams and provides the core infrastructure that microservices consume.
+This document lists every cloud resource type SC can provision in a parent
+stack (`server.yaml`), with the config keys each accepts.
+
+## Where resources live in `server.yaml`
+
+The `resources` block in `server.yaml` is **three nesting levels deep** — the
+literal key `resources:` appears three times. This is intentional: the outer
+`resources` is the per-stack container, the middle `resources` is the per-env
+map, and the innermost `resources` is the per-resource map. Skipping any
+level is invalid.
+
+```yaml
+schemaVersion: "1.0"
+# ...
+resources:                              # (1) per-stack container
+  registrar:                            #     single registrar shared across envs
+    type: cloudflare
+    config: { ... }
+  resources:                            # (2) per-env map
+    staging:                            #     env name
+      template: ecs-fargate-template    #     optional; ref into templates[]
+      resources:                        # (3) per-resource map
+        main-db:                        #     user-chosen resource name
+          type: aws-rds-postgres        #     see the type tables below
+          name: main-db
+          config:
+            # resource-specific keys (see per-type sections)
+    production:
+      # ... same shape
+```
+
+For the full canonical shape (provisioner, secrets, cicd, templates,
+variables) the source of truth is the Go struct `ServerDescriptor` in
+`pkg/api/server.go` of the [simple-container-com/api](https://github.com/simple-container-com/api)
+repository.
 
 ## **Understanding Simple Container Architecture**
 

@@ -53,11 +53,14 @@ templates:
 resources:
   resources:
     prod:
-      main-bucket:
-        type: s3-bucket
-        config:
-          name: "my-app-${env:ENVIRONMENT}-bucket"
-          allowOnlyHttps: true
+      template: static-site
+      resources:
+        main-bucket:
+          type: s3-bucket
+          name: main-bucket
+          config:
+            name: "my-app-${env:ENVIRONMENT}-bucket"
+            allowOnlyHttps: true
 ```
 
 Create the client stack configuration file `.sc/stacks/myapp/client.yaml`:
