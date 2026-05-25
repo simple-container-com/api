@@ -40,9 +40,9 @@ graph TB
     PS --> SS
     SS -.-> PS
     
-    classDef parentStack fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef serviceStack fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
-    classDef deployFlow fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+    classDef parentStack fill:#0c1f3f,stroke:#3b82f6,stroke-width:2px,color:#dbeafe
+    classDef serviceStack fill:#1a1740,stroke:#a855f7,stroke-width:2px,color:#e9d5ff
+    classDef deployFlow fill:#0f2a2e,stroke:#22d3ee,stroke-width:2px,color:#cffafe
     
     class PS,SY,IR,PSN parentStack
     class SS,CY,DC,AS,SSN serviceStack
