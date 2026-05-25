@@ -27,7 +27,7 @@ theme:
     - navigation.expand
     - navigation.path
     - navigation.top
-    - toc.follow
+    - toc.integrate
     - search.suggest
     - search.highlight
     - content.code.copy
