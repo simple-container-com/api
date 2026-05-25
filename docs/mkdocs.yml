@@ -22,7 +22,6 @@ nav:
     - Template Placeholders: concepts/template-placeholders.md
     - Advanced Template Placeholders: concepts/template-placeholders-advanced.md
     - Kubernetes Namespace Layout: concepts/kubernetes-namespaces.md
-    - Why Simple Container: concepts/motivation.md
   - Guides:
     - Deployment Guides: guides/index.md
     - ECS Fargate: guides/parent-ecs-fargate.md
@@ -42,10 +41,7 @@ nav:
   - Reference:
     - Supported Resources: reference/supported-resources.md
     - Deployment Schemas: reference/service-available-deployment-schemas.md
-    - Use Cases: reference/use-cases.md
   - Advanced:
-    - Scaling Advantages: advanced/scaling-advantages.md
-    - Tool Comparisons: advanced/compare-with-other-tools.md
     - Best Practices: advanced/best-practices.md
 
 markdown_extensions:

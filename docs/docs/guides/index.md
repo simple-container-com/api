@@ -63,7 +63,7 @@ This section provides step-by-step guides for deploying applications using Simpl
 After completing a deployment guide:
 
 1. Explore **[Examples](../examples/README.md)** for real-world configurations
-2. Review **[Advanced Topics](../advanced/scaling-advantages.md)** for optimization strategies
+2. Review **[Best Practices](../advanced/best-practices.md)** for production-readiness tips
 3. Check **[Reference Documentation](../reference/supported-resources.md)** for complete API details
 
 ## Need Help?
