@@ -17,14 +17,14 @@ With this setup, developers can **deploy microservices to GKE Autopilot** while 
 
 ---
 
-# **1️⃣ Prerequisites**
+# **Prerequisites**
 Before configuring the parent stack, ensure that:
 
-✅ You have a **GCP account** and a **GCP project**.
+You have a **GCP account** and a **GCP project**.
 
-✅ You have a **GCP service account with proper IAM permissions** to create GKE clusters and other resources.
+You have a **GCP service account with proper IAM permissions** to create GKE clusters and other resources.
 
-✅ **Simple Container** is installed:
+**Simple Container** is installed:
 
    ```sh
    curl -s "https://dist.simple-container.com/sc.sh" | bash
@@ -32,7 +32,7 @@ Before configuring the parent stack, ensure that:
 
 ---
 
-# **2️⃣ Setting Up GCP Authentication & Secrets**
+# **Setting Up GCP Authentication & Secrets**
 
 ## **Step 1: Define `secrets.yaml`**
 Create the **`.sc/stacks/devops/secrets.yaml`** file to store GCP credentials:
@@ -66,15 +66,15 @@ values:
   MONGODB_ATLAS_PRIVATE_KEY: "private-key-456"
 ```
 
-### **🔹 What This Does**
+### **What This Does**
 
-✅ **Stores GCP service account credentials** (`gcloud`).
+**Stores GCP service account credentials** (`gcloud`).
 
-✅ **Saves API tokens for DNS management**.
+**Saves API tokens for DNS management**.
 
 ---
 
-# **3️⃣ Configuring Infrastructure Provisioning (`server.yaml`)**
+# **Configuring Infrastructure Provisioning (`server.yaml`)**
 
 Now, define **`.sc/stacks/devops/server.yaml`** to provision **GKE Autopilot, CloudSQL, Redis, and Pub/Sub**.
 
@@ -167,19 +167,19 @@ resources:
                 topic: workers.image-generator
 ```
 
-### **🔹 What This Does**
+### **What This Does**
 
-✅ **Configures Pulumi** for managing **state in a Google Cloud Storage bucket**.
+**Configures Pulumi** for managing **state in a Google Cloud Storage bucket**.
 
-✅ **Uses GCP KMS to encrypt secrets**.
+**Uses GCP KMS to encrypt secrets**.
 
-✅ **Defines a GKE Autopilot template** (`stack-per-app-gke`) for deploying workloads.
+**Defines a GKE Autopilot template** (`stack-per-app-gke`) for deploying workloads.
 
-✅ **Provisions MongoDB Atlas, Redis, Pub/Sub, and Artifact Registry** to support microservices.
+**Provisions MongoDB Atlas, Redis, Pub/Sub, and Artifact Registry** to support microservices.
 
 ---
 
-# **4️⃣ Advanced Networking Configuration**
+# **Advanced Networking Configuration**
 
 ## **Private VPC and Static Egress IP**
 
@@ -188,39 +188,40 @@ For production environments that require network isolation and static egress IPs
 ```yaml
 # File: "myproject/.sc/stacks/devops/server.yaml"
 resources:
-  production:
-    template: stack-per-app-gke
-    resources:
-      gke-autopilot-res:
-        type: gcp-gke-autopilot-cluster
-        config:
-          gkeMinVersion: "1.33.4-gke.1245000"
-          projectId: "${auth:gcloud.projectId}"
-          credentials: "${auth:gcloud}"
-          location: europe-west3
-          
-          # Private VPC Configuration
-          privateVpc: true              # Creates dedicated VPC with automatic peering
-          
-          # Static Egress IP Configuration
-          externalEgressIp:
-            enabled: true               # Enables CloudNAT with static IP
-            # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Optional: use existing IP
+  resources:
+    production:
+      template: stack-per-app-gke
+      resources:
+        gke-autopilot-res:
+          type: gcp-gke-autopilot-cluster
+          config:
+            gkeMinVersion: "1.33.4-gke.1245000"
+            projectId: "${auth:gcloud.projectId}"
+            credentials: "${auth:gcloud}"
+            location: europe-west3
+
+            # Private VPC Configuration
+            privateVpc: true              # Creates dedicated VPC with automatic peering
+
+            # Static Egress IP Configuration
+            externalEgressIp:
+              enabled: true               # Enables CloudNAT with static IP
+              # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Optional: use existing IP
 ```
 
-### **🔹 What Private VPC Does**
+### **What Private VPC Does**
 
-✅ **Creates dedicated VPC**: `{cluster-name}-vpc` with isolated networking
+**Creates dedicated VPC**: `{cluster-name}-vpc` with isolated networking
 
-✅ **Automatic subnet allocation**: Environment-based CIDR ranges (production: 10.1.0.0/16, staging: 10.2.0.0/16)
+**Automatic subnet allocation**: Environment-based CIDR ranges (production: 10.1.0.0/16, staging: 10.2.0.0/16)
 
-✅ **VPC peering**: Automatic bidirectional peering with default VPC for shared resources
+**VPC peering**: Automatic bidirectional peering with default VPC for shared resources
 
-✅ **CloudNAT isolation**: Each environment gets separate CloudNAT (prevents conflicts)
+**CloudNAT isolation**: Each environment gets separate CloudNAT (prevents conflicts)
 
-✅ **Shared resource access**: Production can access staging Redis/CloudSQL via VPC peering
+**Shared resource access**: Production can access staging Redis/CloudSQL via VPC peering
 
-### **🔹 Network Architecture**
+### **Network Architecture**
 
 ```
 Production VPC (10.1.0.0/16) ←→ Default VPC (10.128.0.0/20)
@@ -229,17 +230,17 @@ Production VPC (10.1.0.0/16) ←→ Default VPC (10.128.0.0/20)
 └── VPC Peering                 └── Shared Redis/CloudSQL
 ```
 
-### **🔹 When to Use Private VPC**
+### **When to Use Private VPC**
 
-✅ **Multiple environments**: Prevents CloudNAT subnet conflicts between staging/production
+**Multiple environments**: Prevents CloudNAT subnet conflicts between staging/production
 
-✅ **Network isolation**: Production workloads isolated from other environments
+**Network isolation**: Production workloads isolated from other environments
 
-✅ **Compliance requirements**: Dedicated network boundaries for security
+**Compliance requirements**: Dedicated network boundaries for security
 
-✅ **Static egress IPs**: Required for external API allowlisting
+**Static egress IPs**: Required for external API allowlisting
 
-### **🔹 Cost Considerations**
+### **Cost Considerations**
 
 - **VPC peering**: No additional cost for traffic within same region
 - **CloudNAT**: Per-NAT gateway and data processing charges apply
@@ -247,7 +248,7 @@ Production VPC (10.1.0.0/16) ←→ Default VPC (10.128.0.0/20)
 
 ---
 
-# **5️⃣ Provisioning the GCP & GKE Autopilot Parent Stack**
+# **Provisioning the GCP & GKE Autopilot Parent Stack**
 Once `server.yaml` is configured, **provision** the infrastructure:
 
 ```sh
@@ -256,15 +257,15 @@ sc provision -s devops
 
 ### **What This Does**
 
-✅ Creates a **Google Cloud Storage bucket** for state storage.
+Creates a **Google Cloud Storage bucket** for state storage.
 
-✅ Deploys **MongoDB Atlas, Redis, and Pub/Sub** in GCP.
+Deploys **MongoDB Atlas, Redis, and Pub/Sub** in GCP.
 
-✅ Configures **GKE Autopilot for running microservices**.
+Configures **GKE Autopilot for running microservices**.
 
 ---
 
-# **6️⃣ Deploying Microservices to GKE Autopilot**
+# **Deploying Microservices to GKE Autopilot**
 Once the infrastructure is provisioned, developers can deploy their microservices.
 
 ## **Step 1: Define `client.yaml` for a Microservice**
@@ -298,7 +299,7 @@ stacks:
 sc deploy -s myservice -e staging
 ```
 
-✅ The service is **automatically deployed to GKE Autopilot** using the defined settings.
+The service is **automatically deployed to GKE Autopilot** using the defined settings.
 
 ### **Namespace layout**
 
@@ -311,7 +312,7 @@ This isolation is automatic and is what makes `sc destroy -s myservice -e <env>`
 
 ---
 
-# **7️⃣ Advanced Configuration: Vertical Pod Autoscaler (VPA)**
+# **Advanced Configuration: Vertical Pod Autoscaler (VPA)**
 
 GKE Autopilot supports **Vertical Pod Autoscaler (VPA)** for automatic resource optimization. Simple Container provides built-in VPA support for both **application deployments** and **Caddy ingress controllers**.
 
@@ -395,23 +396,24 @@ resources:
 
 ## **VPA Best Practices for GKE Autopilot**
 
-✅ **Use `Auto` mode** for ingress controllers like Caddy to ensure proper resource scaling
+**Use `Auto` mode** for ingress controllers like Caddy to ensure proper resource scaling
 
-✅ **Set appropriate `minAllowed`** to prevent resource starvation
+**Set appropriate `minAllowed`** to prevent resource starvation
 
-✅ **Set reasonable `maxAllowed`** to control costs
+**Set reasonable `maxAllowed`** to control costs
 
-✅ **Monitor VPA recommendations** before enabling automatic updates
+**Monitor VPA recommendations** before enabling automatic updates
 
-✅ **Combine with manual resource limits** for fine-grained control
+**Combine with manual resource limits** for fine-grained control
 
 ---
 
-# **8️⃣ Advanced Configuration: Pod Priority and Preemption Control**
+# **Advanced Configuration: Pod Priority and Preemption Control**
 
 ## **What is PriorityClass?**
 
 Kubernetes **PriorityClass** allows you to specify the importance of pods relative to other pods. When resources are scarce, higher priority pods are:
+
 - Scheduled before lower priority pods
 - Able to preempt lower priority pods if necessary
 
@@ -420,6 +422,7 @@ On **GKE Autopilot**, this is critical for preventing your workloads from being 
 ## **Default Behavior**
 
 Without a PriorityClass, pods are created with **priority 0** (the default). This means:
+
 - System critical pods (priority: 2000000000) will preempt your pods
 - Your pods may be evicted during node pressure
 - "Balloon pods" can displace your workloads
@@ -496,11 +499,12 @@ stacks:
 
 ---
 
-# **9️⃣ Advanced Configuration: Large Temporary Storage**
+# **Advanced Configuration: Large Temporary Storage**
 
 ## **What are Generic Ephemeral Volumes?**
 
 **Generic Ephemeral Volumes** provide **truly temporary storage** that:
+
 - Supports sizes up to **64TB** (vs 10GB limit for regular ephemeral storage)
 - Creates a PersistentVolumeClaim **automatically for each pod**
 - **Deletes the PVC when the pod is deleted** (truly ephemeral)
@@ -509,6 +513,7 @@ stacks:
 ## **Why You Need This**
 
 GKE Autopilot **hard-limits** regular ephemeral storage to **10GB maximum**. This limitation:
+
 - Cannot be increased through configuration
 - Cannot be bypassed with VPA
 - Creates bottlenecks for applications needing more temp storage
@@ -585,7 +590,7 @@ cloudExtras:
 
 ---
 
-# **🔟 Advanced Configuration: Kubernetes CloudExtras**
+# **Advanced Configuration: Kubernetes CloudExtras**
 
 Beyond VPA, Simple Container supports comprehensive Kubernetes configuration through `cloudExtras`. This section covers all available options for fine-tuning your GKE Autopilot deployments.
 
@@ -684,16 +689,16 @@ stacks:
 
 | Field                | Type                | Description                                  | GKE Autopilot Support           |
 |----------------------|---------------------|----------------------------------------------|--------------------------------|
-| `nodeSelector`       | `map[string]string` | Node selection labels                        | ✅ Custom labels supported        |
-| `disruptionBudget`   | `object`            | Pod disruption budget for HA                 | ✅ Full support                   |
-| `rollingUpdate`      | `object`            | Rolling update strategy                      | ✅ Full support                   |
-| `affinity`           | `object`            | Pod affinity and anti-affinity               | ✅ With workload separation       |
-| `tolerations`        | `[]object`          | Pod tolerations for taints                   | ✅ Custom tolerations             |
-| `vpa`                | `object`            | Vertical Pod Autoscaler                      | ✅ Native GKE support             |
-| `readinessProbe`     | `object`            | Global readiness probe                       | ✅ Full support                   |
-| `livenessProbe`      | `object`            | Global liveness probe                        | ✅ Full support                   |
-| `priorityClassName`  | `string`            | Kubernetes PriorityClass for pod scheduling  | ✅ Full support                   |
-| `ephemeralVolumes`   | `[]object`          | Generic ephemeral volumes (>10GB storage)    | ✅ Full support                   |
+| `nodeSelector`       | `map[string]string` | Node selection labels                        | Custom labels supported        |
+| `disruptionBudget`   | `object`            | Pod disruption budget for HA                 | Full support                   |
+| `rollingUpdate`      | `object`            | Rolling update strategy                      | Full support                   |
+| `affinity`           | `object`            | Pod affinity and anti-affinity               | With workload separation       |
+| `tolerations`        | `[]object`          | Pod tolerations for taints                   | Custom tolerations             |
+| `vpa`                | `object`            | Vertical Pod Autoscaler                      | Native GKE support             |
+| `readinessProbe`     | `object`            | Global readiness probe                       | Full support                   |
+| `livenessProbe`      | `object`            | Global liveness probe                        | Full support                   |
+| `priorityClassName`  | `string`            | Kubernetes PriorityClass for pod scheduling  | Full support                   |
+| `ephemeralVolumes`   | `[]object`          | Generic ephemeral volumes (>10GB storage)    | Full support                   |
 
 ## **Node Selection and Workload Separation**
 
@@ -721,6 +726,7 @@ cloudExtras:
 ```
 
 **How it works:**
+
 - GKE Autopilot automatically creates nodes with your custom labels
 - Pods are scheduled only on nodes matching the `nodeSelector`
 - Tolerations allow pods to run on tainted nodes
@@ -789,6 +795,7 @@ cloudExtras:
 ```
 
 **Use Cases for HTTP Headers:**
+
 - **Multi-tenant routing** - Route health checks to correct tenant backend
 - **Authentication bypass** - Bypass authentication for health check endpoints
 - **Custom routing** - Direct health checks through proxies/load balancers
@@ -848,7 +855,7 @@ stacks:
 
 ---
 
-# **9️⃣ Summary**
+# **Summary**
 | Step                | Command                             | Purpose                                 |
 |---------------------|-------------------------------------|-----------------------------------------|
 | **Define Secrets**  | `secrets.yaml`                      | Stores GCP credentials                  |

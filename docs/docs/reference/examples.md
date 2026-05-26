@@ -11,17 +11,17 @@ date: '2024-06-12'
 
 # **Examples**
 
-## **1️⃣ Simplifying Microservice Deployment for Developers**
+## **Simplifying Microservice Deployment for Developers**
 
 One of the biggest challenges in a **microservices architecture** is ensuring that **developers can deploy new services independently** without requiring constant DevOps involvement.
 
 ### **How `sc` Helps**
 
-✅ **Developers only need a `client.yaml` configuration** to deploy a new service.
+**Developers only need a `client.yaml` configuration** to deploy a new service.
 
-✅ **Familiar tooling** like **Dockerfile** and **docker-compose** keeps onboarding simple.
+**Familiar tooling** like **Dockerfile** and **docker-compose** keeps onboarding simple.
 
-✅ **No need for Terraform/Pulumi modifications**—DevOps manages infrastructure separately.
+**No need for Terraform/Pulumi modifications** —DevOps manages infrastructure separately.
 
 ### **Example: Adding a New Microservice**
 With traditional CI/CD pipelines, adding a microservice requires:
@@ -53,12 +53,12 @@ stacks:
         DATABASE_PASSWORD: "${resource:postgres.password}"
 ```
 
-✅ **One simple YAML file replaces hours of DevOps work.**
-✅ **Developers focus on coding, not cloud infrastructure.**
+**One simple YAML file replaces hours of DevOps work.**
+**Developers focus on coding, not cloud infrastructure.**
 
 ---
 
-## **2️⃣ Centralized Infrastructure Management for DevOps**
+## **Centralized Infrastructure Management for DevOps**
 
 Traditional **microservice deployments** require DevOps teams to configure:
 
@@ -82,47 +82,48 @@ resources:
           projectId: "${auth:gcloud.projectId}"
 ```
 
-✅ **Once defined, this setup supports all microservices without modifications.**
+**Once defined, this setup supports all microservices without modifications.**
 
-✅ **Developers are isolated from infrastructure complexity.**
+**Developers are isolated from infrastructure complexity.**
 
 ---
 
-## **3️⃣ Built-in CI/CD, No Need for External Automation**
+## **Built-in CI/CD, No Need for External Automation**
 
 Most CI/CD tools **require custom scripts** for building, pushing, and deploying services. With `sc`:
 
-✅ **CI/CD is built-in**—no need for **Jenkins, GitHub Actions, or manual Helm deployments**.
+**CI/CD is built-in** —no need for **Jenkins, GitHub Actions, or manual Helm deployments**.
 
-✅ **Deploy with a single command**:
+**Deploy with a single command**:
 
 ```sh
 sc deploy -s myservice -e staging
 ```
-✅ **Automatic rollbacks** make it safer than traditional pipelines.
+**Automatic rollbacks** make it safer than traditional pipelines.
 
 ### **Comparison: CI/CD Complexity**
 | Feature                 | Traditional CI/CD                          | Simple Container        |
 |-------------------------|--------------------------------------------|--------------------------------|
-| **Pipeline Complexity** | Requires scripting (Bash, Terraform, Helm) | **Just use `sc deploy`**       |
-| **Secret Injection**    | Needs Vault, AWS Secrets Manager           | **Built-in (`sc secrets`)**    |
-| **Rollback Mechanism**  | Manual process                             | **Automated rollback support** |
+| **Pipeline Complexity** | Requires scripting (Bash, Terraform, Helm) |**Just use `sc deploy`**       |
+| **Secret Injection** | Needs Vault, AWS Secrets Manager           |**Built-in (`sc secrets`)**    |
+| **Rollback Mechanism** | Manual process                             |**Automated rollback support** |
 
 ---
 
-## **4️⃣ Cloud-Agnostic & Easy Migration**
+## **Cloud-Agnostic & Easy Migration**
 
 Organizations **often need to migrate workloads** between **AWS, GCP, and Kubernetes clusters**. With Terraform or Pulumi, migrations **require rewriting infrastructure code**.
 
 With `sc`, migrations **only require modifying `server.yaml`**, while `client.yaml` remains **unchanged**.
 
-✅ **Move workloads from AWS to GCP without changing service configurations.**
+**Move workloads from AWS to GCP without changing service configurations.**
 
-✅ **Supports AWS ECS, Kubernetes, and Google Cloud Run natively.**
+**Supports AWS ECS, Kubernetes, and Google Cloud Run natively.**
 
-🔹 **Example: Migrating from AWS to GCP**
+**Example: Migrating from AWS to GCP**
+
 - **Terraform/Pulumi:** Requires modifying state storage, networking, IAM policies.
-- **SC:** Just update `server.yaml`, **no changes at the service level**.
+- **SC:** Just update `server.yaml`,**no changes at the service level**.
 
 ```yaml
 ---
@@ -146,19 +147,19 @@ resources:
         config:
           instanceSize: "db-f1-micro"
 ```
-✅ **Migrate entire workloads in minutes, not weeks.**
+**Migrate entire workloads in minutes, not weeks.**
 
 ---
 
-## **5️⃣ Secure Secrets Management Built-In**
+## **Secure Secrets Management Built-In**
 
 Managing secrets securely is **a major challenge in CI/CD**. Most organizations rely on **Vault, AWS Secrets Manager, or Kubernetes Secrets**, requiring **manual configuration**.
 
 ### **How `sc` Handles Secrets Automatically**
 
-✅ **Secrets are securely stored in the cloud provider's native secret manager**.
+**Secrets are securely stored in the cloud provider's native secret manager**.
 
-✅ **No need for manual secret injection—SC provisions and injects secrets automatically.**
+**No need for manual secret injection—SC provisions and injects secrets automatically.**
 
 | Cloud Provider | Secrets Storage       |
 |----------------|-----------------------|
@@ -171,27 +172,27 @@ Example **secret injection in `client.yaml`**:
 secrets:
   DATABASE_PASSWORD: "${resource:postgres.password}"
 ```
-✅ **Automatically stored in AWS/GCP/Kubernetes Secrets—fully managed by `sc`.**
+**Automatically stored in AWS/GCP/Kubernetes Secrets—fully managed by `sc`.**
 
 ---
 
-## **6️⃣ Faster Time to Market with Less Overhead**
+## **Faster Time to Market with Less Overhead**
 
 By adopting `sc`, organizations gain:
 
-✅ **Faster onboarding**—developers deploy services with a simple YAML config.
+**Faster onboarding** —developers deploy services with a simple YAML config.
 
-✅ **Less DevOps overhead**—DevOps teams focus on core infrastructure, not microservices.
+**Less DevOps overhead** —DevOps teams focus on core infrastructure, not microservices.
 
-✅ **Reduced CI/CD complexity**—built-in deployment automation eliminates external tooling.
+**Reduced CI/CD complexity** —built-in deployment automation eliminates external tooling.
 
 ### **Comparison: Developer Workflow**
 | Task                       | Traditional Pipeline                 | SC-Powered Pipeline                          |
 |----------------------------|--------------------------------------|----------------------------------------------|
 | **Add a new microservice** | Modify Terraform/Pulumi, Helm charts | Add `client.yaml`, deploy instantly          |
-| **Manage secrets**         | Requires Vault, AWS Secrets Manager  | **Built-in (`sc secrets`)**                  |
-| **Deploy a service**       | Manual CI/CD setup                   | **`sc deploy -s myservice -e staging`**      |
-| **Migrate across clouds**  | Requires rewriting Terraform/Pulumi  | **Update `server.yaml`, no service changes** |
+| **Manage secrets** | Requires Vault, AWS Secrets Manager  |**Built-in (`sc secrets`)**                  |
+| **Deploy a service** | Manual CI/CD setup                   |**`sc deploy -s myservice -e staging`**      |
+| **Migrate across clouds** | Requires rewriting Terraform/Pulumi  |**Update `server.yaml`, no service changes** |
 
 ---
 
@@ -199,12 +200,12 @@ By adopting `sc`, organizations gain:
 
 Organizations adopting **Simple Container (`sc`)** for their **CI/CD pipelines** gain:
 
-✅ **Faster deployments** with minimal configuration.
+**Faster deployments** with minimal configuration.
 
-✅ **Cloud-agnostic flexibility** without rewriting infrastructure.
+**Cloud-agnostic flexibility** without rewriting infrastructure.
 
-✅ **Reduced DevOps effort**—developers manage deployments independently.
+**Reduced DevOps effort** —developers manage deployments independently.
 
-✅ **Built-in security and secrets management** without external tools.
+**Built-in security and secrets management** without external tools.
 
-By **simplifying microservice deployment**, **reducing overhead**, and **automating infrastructure management**, `sc` **transforms CI/CD pipelines into a developer-friendly, efficient workflow**.
+By **simplifying microservice deployment**,**reducing overhead**, and **automating infrastructure management**, `sc`**transforms CI/CD pipelines into a developer-friendly, efficient workflow**.

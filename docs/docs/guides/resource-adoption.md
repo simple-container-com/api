@@ -2,7 +2,7 @@
 
 Adopt existing cloud infrastructure into Simple Container without downtime or modifications. This guide shows how to import existing resources and immediately gain access to Simple Container's deployment and management capabilities.
 
-## 🎯 **What is Resource Adoption?**
+## **What is Resource Adoption?**
 
 Resource adoption allows you to **import existing cloud resources** into Simple Container's management without creating new resources or modifying existing ones. Your applications continue running unchanged while gaining access to Simple Container's features.
 
@@ -10,13 +10,13 @@ Resource adoption allows you to **import existing cloud resources** into Simple 
 
 | Resource Type          | Provider     | Description                   | Status      |
 |------------------------|--------------|-------------------------------|-------------|
-| **MongoDB Atlas**      | MongoDB      | Existing Atlas clusters       | ✅ Available |
-| **Cloud SQL Postgres** | Google Cloud | Existing PostgreSQL instances | ✅ Available |
-| **Redis Memorystore**  | Google Cloud | Existing Redis instances      | ✅ Available |
-| **GKE Autopilot**      | Google Cloud | Existing Kubernetes clusters  | ✅ Available |
-| **GCS Buckets**        | Google Cloud | Existing storage buckets      | ✅ Available |
+| **MongoDB Atlas**      | MongoDB      | Existing Atlas clusters       | Available |
+| **Cloud SQL Postgres** | Google Cloud | Existing PostgreSQL instances | Available |
+| **Redis Memorystore**  | Google Cloud | Existing Redis instances      | Available |
+| **GKE Autopilot**      | Google Cloud | Existing Kubernetes clusters  | Available |
+| **GCS Buckets**        | Google Cloud | Existing storage buckets      | Available |
 
-## 🚀 **Quick Start**
+## **Quick Start**
 
 ### **Step 1: Identify Resources to Adopt**
 
@@ -76,9 +76,9 @@ resources:
 sc provision -s infrastructure
 
 # Expected output:
-# ✅ Adopting MongoDB Atlas cluster your-existing-cluster (not creating)
-# ✅ Adopting Cloud SQL instance your-existing-instance (not creating)
-# ✅ Creating Artifact Registry (provisioning new resource)
+# Adopting MongoDB Atlas cluster your-existing-cluster (not creating)
+# Adopting Cloud SQL instance your-existing-instance (not creating)
+# Creating Artifact Registry (provisioning new resource)
 ```
 
 ### **Step 4: Deploy Services**
@@ -98,7 +98,7 @@ stacks:
       # ... service configuration
 ```
 
-## 📋 **Resource-Specific Adoption**
+## **Resource-Specific Adoption**
 
 ### **MongoDB Atlas Adoption**
 
@@ -120,6 +120,7 @@ mongodb:
 ```
 
 **Requirements:**
+
 - MongoDB Atlas API keys with project access
 - Existing cluster name and project ID
 - Cluster must be accessible from your applications
@@ -146,6 +147,7 @@ postgres:
 ```
 
 **Requirements:**
+
 - GCP service account with Cloud SQL Admin permissions
 - Existing instance name and connection name
 - Root password for database user creation
@@ -166,6 +168,7 @@ redis:
 ```
 
 **Requirements:**
+
 - GCP service account with Redis Admin permissions
 - Existing Redis instance ID
 - Instance must be accessible from your applications
@@ -190,6 +193,7 @@ gke-cluster:
 ```
 
 **Requirements:**
+
 - GCP service account with GKE Admin permissions
 - Existing cluster name and location
 - Cluster must be accessible for deployments
@@ -210,11 +214,12 @@ storage:
 ```
 
 **Requirements:**
+
 - GCP service account with Storage Admin permissions
 - Existing bucket name
 - Bucket must be accessible for your applications
 
-## 🔧 **Multi-Environment Adoption**
+## **Multi-Environment Adoption**
 
 Adopt resources across multiple environments with consistent naming:
 
@@ -256,12 +261,13 @@ resources:
 ```
 
 **Benefits:**
-- ✅ Same resource names across environments
-- ✅ Identical client.yaml configuration
-- ✅ Easy environment switching
-- ✅ Consistent developer experience
 
-## 🛡️ **Security & Best Practices**
+- Same resource names across environments
+- Identical client.yaml configuration
+- Easy environment switching
+- Consistent developer experience
+
+##️ **Security & Best Practices**
 
 ### **Secrets Management**
 
@@ -296,11 +302,13 @@ auth:
 Ensure service accounts have minimal required permissions:
 
 **MongoDB Atlas:**
+
 - Project Read access
 - Cluster Read access
 - Database User Admin (for user creation)
 
 **Google Cloud:**
+
 - Cloud SQL Admin (for PostgreSQL)
 - Redis Admin (for Redis)
 - Kubernetes Engine Admin (for GKE)
@@ -309,13 +317,14 @@ Ensure service accounts have minimal required permissions:
 ### **Validation Checklist**
 
 Before adoption:
+
 - [ ] Resources are accessible from your applications
 - [ ] Service accounts have required permissions
 - [ ] Resource names and IDs are correct
 - [ ] Secrets are properly encrypted
 - [ ] Network connectivity is configured
 
-## 🔍 **Troubleshooting**
+## **Troubleshooting**
 
 ### **Common Issues**
 
@@ -364,26 +373,26 @@ kubectl --kubeconfig=kubeconfig get nodes
 gsutil ls gs://bucket-name
 ```
 
-## 📈 **Benefits of Resource Adoption**
+## **Benefits of Resource Adoption**
 
 ### **Immediate Value**
-- ✅ **Zero Downtime** - Applications continue running unchanged
-- ✅ **No Resource Modification** - Existing resources remain untouched
-- ✅ **Instant SC Features** - Immediate access to deployment capabilities
-- ✅ **Unified Management** - Single interface for all infrastructure
+- **Zero Downtime** - Applications continue running unchanged
+- **No Resource Modification** - Existing resources remain untouched
+- **Instant SC Features** - Immediate access to deployment capabilities
+- **Unified Management** - Single interface for all infrastructure
 
 ### **Long-Term Benefits**
-- ✅ **Consistent Environments** - Same configuration across dev/staging/prod
-- ✅ **Simplified Operations** - Single deployment workflow
-- ✅ **Enhanced Security** - Centralized secrets management
-- ✅ **Better Scaling** - Automatic resource optimization
+- **Consistent Environments** - Same configuration across dev/staging/prod
+- **Simplified Operations** - Single deployment workflow
+- **Enhanced Security** - Centralized secrets management
+- **Better Scaling** - Automatic resource optimization
 
 ### **Cost Optimization**
-- ✅ **Resource Reuse** - No duplicate infrastructure costs
-- ✅ **Efficient Scaling** - Optimize existing resource utilization
-- ✅ **Reduced Complexity** - Lower operational overhead
+- **Resource Reuse** - No duplicate infrastructure costs
+- **Efficient Scaling** - Optimize existing resource utilization
+- **Reduced Complexity** - Lower operational overhead
 
-## 🎓 **Next Steps**
+## **Next Steps**
 
 After successful resource adoption:
 
@@ -398,10 +407,10 @@ After successful resource adoption:
 Need help with resource adoption?
 
 - **Documentation**: [Simple Container Docs](../index.md)
-- **Examples**: [Resource Adoption Examples](../examples/resource-adoption/)
+- **Examples**: [Resource Adoption Examples](../examples/resource-adoption/README.md)
 - **Community**: [GitHub Discussions](https://github.com/simple-container-com/api/discussions)
 - **Support**: [support@simple-container.com](mailto:support@simple-container.com)
 
 ---
 
-**Ready to adopt your existing infrastructure?** Start with our [Quick Start](#quick-start) guide above! 🚀
+**Ready to adopt your existing infrastructure?** Start with our [Quick Start](#quick-start) guide above!

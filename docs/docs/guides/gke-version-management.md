@@ -34,7 +34,7 @@ gcloud container get-server-config --location=YOUR_REGION \
 gke-cluster:
   type: gcp-gke-autopilot-cluster
   config:
-    gkeMinVersion: 1.27.16-gke.1296000  # ❌ Deprecated
+    gkeMinVersion: 1.27.16-gke.1296000  # Deprecated
     location: europe-west3
 ```
 
@@ -43,7 +43,7 @@ gke-cluster:
 gke-cluster:
   type: gcp-gke-autopilot-cluster
   config:
-    gkeMinVersion: 1.33.4-gke.1245000  # ✅ Check: gcloud container get-server-config --location=europe-west3
+    gkeMinVersion: 1.33.4-gke.1245000  # Check: gcloud container get-server-config --location=europe-west3
     location: europe-west3
 ```
 
@@ -77,23 +77,23 @@ done
 ```yaml
 gkeMinVersion: "1.33.4-gke.1245000"
 ```
-- ✅ **Pros**: Predictable, consistent deployments
-- ❌ **Cons**: Requires regular updates
+- **Pros**: Predictable, consistent deployments
+- **Cons**: Requires regular updates
 
 ### 2. **Major Version** (Flexible)
 ```yaml
 gkeMinVersion: "1.33"
 ```
-- ✅ **Pros**: Auto-selects latest patch within major version
-- ❌ **Cons**: May get unexpected updates
+- **Pros**: Auto-selects latest patch within major version
+- **Cons**: May get unexpected updates
 
 ### 3. **Latest Stable** (Dynamic)
 ```yaml
 # Use latest stable (not recommended for production)
 # Omit gkeMinVersion entirely
 ```
-- ✅ **Pros**: Always current
-- ❌ **Cons**: May break on GCP updates
+- **Pros**: Always current
+- **Cons**: May break on GCP updates
 
 ## Troubleshooting Workflow
 
@@ -189,7 +189,7 @@ echo "Update your server.yaml files with this version"
 ## Version Lifecycle
 
 ### GCP Version Support Timeline:
-1. **Alpha** → **Beta** → **Stable** → **Default** → **Deprecated** → **Unsupported**
+1. **Alpha** →**Beta** →**Stable** →**Default** →**Deprecated** →**Unsupported**
 2. **Typical Lifecycle**: ~6-12 months from stable to deprecated
 3. **Deprecation Notice**: GCP provides 3+ months advance notice
 
@@ -206,4 +206,4 @@ echo "Update your server.yaml files with this version"
 
 ---
 
-**💡 Pro Tip**: Bookmark this page and check GKE versions monthly to avoid deployment surprises!
+**Pro Tip**: Bookmark this page and check GKE versions monthly to avoid deployment surprises!

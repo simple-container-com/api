@@ -39,6 +39,7 @@ This example shows how to deploy a high-performance vector database with Network
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - ECS deployment capabilities with NLB support
 - Domain management with proxy control
 - Performance monitoring for scaling decisions

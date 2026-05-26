@@ -2,7 +2,7 @@
 
 This directory contains comprehensive examples demonstrating Simple Container's **affinity rules support** for Kubernetes CloudRun templates. These examples show how to implement sophisticated pod scheduling and node pool isolation strategies.
 
-## 🎯 **Overview**
+## **Overview**
 
 Simple Container's affinity rules enable enterprise-grade workload placement strategies through the `cloudExtras.affinity` configuration block. This feature supports:
 
@@ -11,10 +11,11 @@ Simple Container's affinity rules enable enterprise-grade workload placement str
 - **Compute Class Optimization**: Specify performance characteristics
 - **Advanced Kubernetes Affinity**: Full node/pod affinity and anti-affinity rules
 
-## 📁 **Examples in This Directory**
+## **Examples in This Directory**
 
 ### **1. Multi-Tier Node Isolation (`multi-tier-node-isolation/`)**
 Real-world example based on enterprise GCP migration requirements:
+
 - **Processing Services**: High-performance node pool isolation
 - **Bot Services**: General-purpose node pool for Telegram bots
 - **White Label Clients**: Scale-out node pool with cost optimization
@@ -22,6 +23,7 @@ Real-world example based on enterprise GCP migration requirements:
 
 ### **2. High Availability Patterns (`high-availability/`)**
 Advanced scheduling patterns for production workloads:
+
 - **Zone Anti-Affinity**: Spread pods across availability zones
 - **Node Anti-Affinity**: Distribute workloads across nodes
 - **Pod Co-location**: Group related services together
@@ -29,12 +31,13 @@ Advanced scheduling patterns for production workloads:
 
 ### **3. Performance Optimization (`performance-optimization/`)**
 Examples focused on performance and resource optimization:
+
 - **CPU-Intensive Workloads**: Dedicated high-CPU node pools
 - **Memory-Intensive Services**: High-memory node pool targeting
 - **Storage-Optimized**: SSD-backed node pool selection
 - **GPU Workloads**: GPU node pool affinity rules
 
-## 🚀 **Quick Start**
+## **Quick Start**
 
 ### **Basic Node Pool Isolation**
 ```yaml
@@ -73,7 +76,7 @@ stacks:
                 topologyKey: "topology.kubernetes.io/zone"
 ```
 
-## 📋 **Supported Affinity Properties**
+## **Supported Affinity Properties**
 
 ### **Simple Container Properties**
 - **`nodePool`**: Target node pool name (e.g., "processing", "bots")
@@ -85,10 +88,11 @@ stacks:
 - **`podAffinity`**: Pod co-location rules
 - **`podAntiAffinity`**: Pod separation and distribution rules
 
-## 🔧 **Implementation Details**
+## **Implementation Details**
 
 ### **GKE Integration**
 Simple Container automatically maps affinity rules to GKE-specific labels:
+
 - `nodePool` → `cloud.google.com/gke-nodepool`
 - `computeClass` → `node.kubernetes.io/instance-type`
 
@@ -98,7 +102,7 @@ Simple Container automatically maps affinity rules to GKE-specific labels:
 3. **Deployment** → Applied to pod specifications
 4. **Scheduling** → Kubernetes scheduler enforces rules
 
-## 📚 **Use Cases**
+## **Use Cases**
 
 ### **Enterprise Scenarios**
 - **Multi-tenant Applications**: Isolate customer workloads
@@ -112,20 +116,20 @@ Simple Container automatically maps affinity rules to GKE-specific labels:
 - **Web Services**: Load balancer affinity
 - **Microservices**: Service mesh optimization
 
-## 🛠 **Prerequisites**
+## **Prerequisites**
 
 - Simple Container with Kubernetes CloudRun template support
 - GKE cluster with multiple node pools (for node pool examples)
 - Understanding of Kubernetes affinity concepts
 
-## 🔗 **Related Documentation**
+## **Related Documentation**
 
-- [Simple Container Kubernetes Guide](../../guides/kubernetes-native/)
-- [GKE Autopilot Examples](../gke-autopilot/)
-- [Advanced Configurations](../advanced-configs/)
-- [Template Placeholders](../../concepts/template-placeholders/)
+- [Pure Kubernetes Guide](../../guides/parent-pure-kubernetes.md)
+- [GKE Autopilot Examples](../gke-autopilot/index.md)
+- [Advanced Configurations](../advanced-configs/index.md)
+- [Template Placeholders](../../concepts/template-placeholders.md)
 
-## 📝 **Contributing**
+## **Contributing**
 
 When adding new affinity examples:
 1. Create a dedicated subdirectory

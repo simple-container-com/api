@@ -134,6 +134,7 @@ sc sbom verify --image myapp@sha256:... --key cosign.pub --output verified-sbom.
 ```
 
 **Supported Formats:**
+
 - `cyclonedx-json` (default)
 - `cyclonedx-xml`
 - `spdx-json`

@@ -689,4 +689,3 @@ Simple Container's secrets management provides a secure, Git-native way to handl
 - **Integrated**: Seamless integration with Simple Container deployments
 
 Use the commands outlined in this guide to implement robust secrets management in your Simple Container projects.
-

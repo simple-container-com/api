@@ -17,14 +17,14 @@ With this setup, developers can **deploy microservices to ECS Fargate** while us
 
 ---
 
-# **1️⃣ Prerequisites**
+# **Prerequisites**
 Before configuring the parent stack, ensure that:
 
-✅ You have an **AWS account** & IAM credentials with permissions to create ECS Fargate clusters.
+You have an **AWS account** & IAM credentials with permissions to create ECS Fargate clusters.
 
-✅ You have a **MongoDB Atlas account** with a valid API key.
+You have a **MongoDB Atlas account** with a valid API key.
 
-✅ **Simple Container is installed**:
+**Simple Container is installed**:
 
    ```sh
    curl -s "https://dist.simple-container.com/sc.sh" | bash
@@ -32,7 +32,7 @@ Before configuring the parent stack, ensure that:
 
 ---
 
-# **2️⃣ Setting Up AWS & MongoDB Atlas Secrets**
+# **Setting Up AWS & MongoDB Atlas Secrets**
 
 AWS and MongoDB Atlas credentials must be stored in **`secrets.yaml`**.
 
@@ -58,15 +58,15 @@ values:
   MONGODB_ATLAS_PRIVATE_KEY: "private-key-456"
 ```
 
-### **🔹 What This Does**
+### **What This Does**
 
-✅ Stores **AWS credentials** for programmatic access.
+Stores **AWS credentials** for programmatic access.
 
-✅ Saves **MongoDB Atlas API keys** for provisioning databases.
+Saves **MongoDB Atlas API keys** for provisioning databases.
 
 ---
 
-# **3️⃣ Configuring Infrastructure Provisioning (`server.yaml`)**
+# **Configuring Infrastructure Provisioning (`server.yaml`)**
 
 Now, define `.sc/stacks/devops/server.yaml` to provision **ECS Fargate & MongoDB Atlas**.
 
@@ -128,19 +128,19 @@ resources:
               retention: 24h
 ```
 
-### **🔹 What This Does**
+### **What This Does**
 
-✅ **Configures Pulumi** for managing **state in an S3 bucket**.
+**Configures Pulumi** for managing **state in an S3 bucket**.
 
-✅ **Uses AWS KMS to encrypt secrets**.
+**Uses AWS KMS to encrypt secrets**.
 
-✅ **Defines an ECS Fargate template (`stack-per-app`)** for developers to deploy microservices.
+**Defines an ECS Fargate template (`stack-per-app`)** for developers to deploy microservices.
 
-✅ **Provisions MongoDB Atlas**, making it available for microservices.
+**Provisions MongoDB Atlas**, making it available for microservices.
 
 ---
 
-# **4️⃣ Provisioning the AWS & MongoDB Atlas Parent Stack**
+# **Provisioning the AWS & MongoDB Atlas Parent Stack**
 Once `server.yaml` is configured, **provision** the infrastructure:
 
 ```sh
@@ -149,17 +149,17 @@ sc provision -s devops
 
 ### **What This Does**
 
-✅ Creates an **S3 bucket** for state storage.
+Creates an **S3 bucket** for state storage.
 
-✅ Deploys **MongoDB Atlas** with provisioned users.
+Deploys **MongoDB Atlas** with provisioned users.
 
-✅ Configures **Cloudflare DNS (optional)**.
+Configures **Cloudflare DNS (optional)**.
 
-✅ Prepares **ECS Fargate infrastructure for microservices**.
+Prepares **ECS Fargate infrastructure for microservices**.
 
 ---
 
-# **5️⃣ Deploying Microservices to ECS Fargate**
+# **Deploying Microservices to ECS Fargate**
 Once the infrastructure is provisioned, developers can deploy their microservices.
 
 ## **Step 1: Define `client.yaml` for a Microservice**
@@ -291,10 +291,10 @@ stacks:
 **LambdaSchedules Object Fields:**
 | Field        | Type     | Description                          | Required |
 |--------------|----------|--------------------------------------|----------|
-| `name`       | `string` | Unique identifier for the schedule   | ✅ Yes   |
-| `expression` | `string` | Cron or rate expression              | ✅ Yes   |
-| `timezone`   | `string` | Timezone for execution               | ❌ Optional |
-| `request`    | `string` | Complete HTTP request payload (JSON) | ✅ Yes   |
+| `name`       | `string` | Unique identifier for the schedule   | Yes   |
+| `expression` | `string` | Cron or rate expression              | Yes   |
+| `timezone`   | `string` | Timezone for execution               | Optional |
+| `request`    | `string` | Complete HTTP request payload (JSON) | Yes   |
 
 #### **Security Group Configuration**
 
@@ -357,6 +357,7 @@ lambdaSchedules:
 ```
 
 **Lambda Schedule Request Structure:**
+
 - `name`: Unique identifier for the schedule
 - `expression`: Cron or rate expression for timing
 - `timezone`: Timezone for schedule execution (optional)
@@ -374,11 +375,11 @@ lambdaSchedules:
 sc deploy -s myservice -e staging
 ```
 
-✅ The service is **automatically deployed to ECS Fargate** using the defined settings.
+The service is **automatically deployed to ECS Fargate** using the defined settings.
 
 ---
 
-# **6️⃣ Summary**
+# **Summary**
 | Step                | Command                             | Purpose                                       |
 |---------------------|-------------------------------------|-----------------------------------------------|
 | **Define Secrets**  | `secrets.yaml`                      | Stores AWS & MongoDB Atlas credentials        |

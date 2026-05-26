@@ -118,6 +118,7 @@ signing:
 **Problem:** Keyless signature not in transparency log.
 
 **Solution:**
+
 - This is expected for key-based signing
 - For keyless signing, check SIGSTORE_ID_TOKEN was set correctly
 - Verify Rekor service is accessible
@@ -222,6 +223,7 @@ git --version
 **Problem:** CI environment not detected.
 
 **Solution:**
+
 - Provenance auto-detects: GitHub Actions, GitLab CI, CircleCI, Jenkins
 - For other CI systems, builder.id defaults to "https://simple-container.com/local"
 - This is not an error, just informational

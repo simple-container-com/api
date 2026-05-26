@@ -4,10 +4,11 @@ This directory contains practical examples for setting up continuous integration
 
 ## Examples Overview
 
-### [Basic Setup](basic-setup/)
+### [Basic Setup](basic-setup/README.md)
 A simple staging/production pipeline setup with automatic deployment to staging and manual approval for production.
 
 **Features:**
+
 - Automatic staging deployment on main branch push
 - Manual production deployment with approval
 - Slack/Discord notifications
@@ -15,10 +16,11 @@ A simple staging/production pipeline setup with automatic deployment to staging 
 
 **Best for:** Small teams, simple applications, getting started with CI/CD
 
-### [Multi-Stack Deployment](multi-stack/)
+### [Multi-Stack Deployment](multi-stack/README.md)
 Complex deployment pipeline managing multiple related stacks (infrastructure, databases, applications).
 
 **Features:**
+
 - Infrastructure-first deployment order
 - Dependency management between stacks
 - Cross-stack resource sharing
@@ -26,10 +28,11 @@ Complex deployment pipeline managing multiple related stacks (infrastructure, da
 
 **Best for:** Microservices architecture, complex applications with multiple components
 
-### [Preview Deployments](preview-deployments/)
+### [Preview Deployments](preview-deployments/README.md)
 PR-based preview environments for testing changes before merging to main.
 
 **Features:**
+
 - Automatic preview deployment on PR creation
 - Preview environment cleanup on PR close
 - Temporary domain assignment
@@ -37,10 +40,11 @@ PR-based preview environments for testing changes before merging to main.
 
 **Best for:** Teams that want to test changes in isolation, QA processes
 
-### [Advanced Notifications](advanced-notifications/)
+### [Advanced Notifications](advanced-notifications/README.md)
 Comprehensive notification setup with multiple channels and custom messaging.
 
 **Features:**
+
 - Multi-channel notifications (Slack, Discord, Telegram)
 - Custom notification templates
 - Status-specific messaging
@@ -98,6 +102,7 @@ values:
 ### GitHub Secrets Setup
 
 **Only ONE GitHub secret required:**
+
 - `SC_CONFIG` - Simple Container configuration with SSH key pair to decrypt repository secrets
 
 **All notification webhooks are configured in your secrets.yaml file and managed by Simple Container's secrets system.**
@@ -166,16 +171,19 @@ config:
 ### Common Issues
 
 **Workflow not triggering:**
+
 - Check branch protection rules
 - Verify workflow file syntax
 - Ensure proper event triggers configured
 
 **Authentication errors:**
+
 - Verify GitHub secrets are properly set
 - Check cloud provider credential validity
 - Confirm Simple Container configuration
 
 **Deployment failures:**
+
 - Enable verbose logging in GitHub Actions (add `verbose: 'true'` to action inputs)
 - Review workflow logs in GitHub Actions
 - Validate server.yaml configuration locally
@@ -200,6 +208,7 @@ To add a new example:
 ## Next Steps
 
 After setting up CI/CD:
-- Explore **[Advanced Deployment Patterns](../../advanced/deployment-patterns.md)**
+
+- Review **[Best Practices](../../advanced/best-practices.md)**
 - Review **[Secrets Management](../../guides/secrets-management.md)**
 - Set up **[DNS Management](../../guides/dns-management.md)** for custom domains

@@ -68,6 +68,7 @@ This directory contains production-tested Simple Container configurations based 
 ## Usage
 
 Each example directory contains:
+
 - `client.yaml` - Service deployment configuration
 - `server.yaml` - Parent stack with resource definitions (when applicable)
 - `README.md` - Specific documentation for the example

@@ -26,6 +26,7 @@ This example shows how to deploy a main website with SPA (Single Page Applicatio
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - Static website deployment template
 - GCP static hosting configuration
 - Domain management for root domain

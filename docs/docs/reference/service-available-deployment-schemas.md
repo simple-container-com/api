@@ -24,13 +24,13 @@ This guide explains how to configure each deployment type using **`client.yaml`*
 
 ---
 
-# **1️⃣ `cloud-compose`: Multi-Container Microservices**
+# **`cloud-compose`: Multi-Container Microservices**
 
-✅ Use **`cloud-compose`** for **microservices that require multiple containers, databases, message queues, or networking**.
+Use **`cloud-compose`** for **microservices that require multiple containers, databases, message queues, or networking**.
 
-✅ Requires a **Dockerfile** and a **`docker-compose.yaml`** file.
+Requires a **Dockerfile** and a **`docker-compose.yaml`** file.
 
-✅ Works with **Kubernetes, ECS Fargate, Cloud Run, etc.**
+Works with **Kubernetes, ECS Fargate, Cloud Run, etc.**
 
 ## **Example `client.yaml` for `cloud-compose`**
 ```yaml
@@ -67,7 +67,7 @@ stacks:
         DATABASE_PASSWORD: "${resource:mongodb.password}"
 ```
 
-### **🔹 Required Files**
+### **Required Files**
 - **`Dockerfile`** → Defines how the service is built.
 - **`docker-compose.yaml`** → Defines how the service runs.
 
@@ -93,13 +93,13 @@ sc deploy -s myservice -e staging
 
 ---
 
-# **2️⃣ `single-image`: Single-Container Applications**
+# **`single-image`: Single-Container Applications**
 
-✅ Use **`single-image`** for **single-container services like AWS Lambda or Cloud Run**.
+Use **`single-image`** for **single-container services like AWS Lambda or Cloud Run**.
 
-✅ Only requires a **Dockerfile** (no `docker-compose.yaml` needed).
+Only requires a **Dockerfile** (no `docker-compose.yaml` needed).
 
-✅ Supports **cloud-specific configurations** like AWS Lambda settings.
+Supports **cloud-specific configurations** like AWS Lambda settings.
 
 ## **Example `client.yaml` for `single-image`**
 ```yaml
@@ -131,7 +131,7 @@ stacks:
         MONGO_URI: "${resource:mongodb.uri}"
 ```
 
-### **🔹 Required Files**
+### **Required Files**
 - **`Dockerfile`** → Defines how the service is packaged into a container.
 
 ### **Example `Dockerfile`**
@@ -150,13 +150,13 @@ sc deploy -s myservice -e staging
 
 ---
 
-# **3️⃣ `static`: Deploying Static Websites**
+# **`static`: Deploying Static Websites**
 
-✅ Use **`static`** for **deploying static websites** (e.g., React, Vue, Angular).
+Use **`static`** for **deploying static websites** (e.g., React, Vue, Angular).
 
-✅ Requires a **pre-built directory with static files**.
+Requires a **pre-built directory with static files**.
 
-✅ Supports **public cloud storage, CDN caching, and custom domains**.
+Supports **public cloud storage, CDN caching, and custom domains**.
 
 ## **Example `client.yaml` for `static` Deployment**
 ```yaml
@@ -177,7 +177,7 @@ stacks:
       location: EUROPE-CENTRAL2
 ```
 
-### **🔹 Required Files**
+### **Required Files**
 - **A built directory (`public/`)** → Contains `index.html`, `assets/`, etc.
 
 ### **Building a Static Site (Example for React)**
@@ -194,7 +194,7 @@ sc deploy -s landing-page -e prod
 
 ---
 
-# **4️⃣ Summary**
+# **Summary**
 | Deployment Type     | Use Case                      | Required Files                      | Example Platforms         |
 |---------------------|-------------------------------|-------------------------------------|---------------------------|
 | **`cloud-compose`** | Multi-container microservices | `Dockerfile`, `docker-compose.yaml` | Kubernetes, ECS Fargate   |

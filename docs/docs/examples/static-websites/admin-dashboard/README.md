@@ -31,6 +31,7 @@ This example shows how to deploy an admin UI with multi-environment configuratio
 ## Parent Stack Requirements
 
 This example requires a parent stack that provides:
+
 - `static-site` template
 - Static website deployment capabilities
 - Domain management for both environments
