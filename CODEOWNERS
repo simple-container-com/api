@@ -27,7 +27,7 @@
 # ---------------------------------------------------------------------
 # Default — every file pulls in at least one lead for review.
 # ---------------------------------------------------------------------
-*                                       @Cre-eD @smecsia
+*                                       @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # CI / supply-chain — sensitive paths. Multi-reviewer gating depends
@@ -35,48 +35,48 @@
 # these files changes how every release is built and how secrets
 # reach the runner.
 # ---------------------------------------------------------------------
-/.github/                               @Cre-eD @smecsia
-/.github/workflows/                     @Cre-eD @smecsia
-/.github/actions/                       @Cre-eD @smecsia
-/.github/dependabot.yml                 @Cre-eD @smecsia
+/.github/                               @Cre-eD @smecsia @universe-ops @Laboratory
+/.github/workflows/                     @Cre-eD @smecsia @universe-ops @Laboratory
+/.github/actions/                       @Cre-eD @smecsia @universe-ops @Laboratory
+/.github/dependabot.yml                 @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # Image build context.
 # ---------------------------------------------------------------------
-/*.Dockerfile                           @Cre-eD @smecsia
-/welder.yaml                            @Cre-eD @smecsia
-/sc.sh                                  @Cre-eD @smecsia
+/*.Dockerfile                           @Cre-eD @smecsia @universe-ops @Laboratory
+/welder.yaml                            @Cre-eD @smecsia @universe-ops @Laboratory
+/sc.sh                                  @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # Security pipeline source — code that signs, scans, attests, and
 # decides what gets blocked. Tamper with this and the whole consumer
 # supply chain weakens.
 # ---------------------------------------------------------------------
-/pkg/security/                          @Cre-eD @smecsia
+/pkg/security/                          @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # Secrets / config plumbing.
 # ---------------------------------------------------------------------
-/pkg/api/secrets/                       @Cre-eD @smecsia
-/pkg/cmd/cmd_secrets/                   @Cre-eD @smecsia
+/pkg/api/secrets/                       @Cre-eD @smecsia @universe-ops @Laboratory
+/pkg/cmd/cmd_secrets/                   @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # Cloud provisioning — IAM and resource defaults that ship to every
 # consumer account.
 # ---------------------------------------------------------------------
-/pkg/clouds/pulumi/aws/                 @Cre-eD @smecsia
-/pkg/clouds/pulumi/gcp/                 @Cre-eD @smecsia
+/pkg/clouds/pulumi/aws/                 @Cre-eD @smecsia @universe-ops @Laboratory
+/pkg/clouds/pulumi/gcp/                 @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # Module graph — dep bumps need security review (see
 # `feedback_sc_ci_tools_step` for the CI-quirk caveat).
 # ---------------------------------------------------------------------
-/go.mod                                 @Cre-eD @smecsia
-/go.sum                                 @Cre-eD @smecsia
-/tools.go                               @Cre-eD @smecsia
+/go.mod                                 @Cre-eD @smecsia @universe-ops @Laboratory
+/go.sum                                 @Cre-eD @smecsia @universe-ops @Laboratory
+/tools.go                               @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
 # This policy + ownership file itself.
 # ---------------------------------------------------------------------
-/docs/SECURITY.md                       @Cre-eD @smecsia
-/CODEOWNERS                             @Cre-eD @smecsia
+/docs/SECURITY.md                       @Cre-eD @smecsia @universe-ops @Laboratory
+/CODEOWNERS                             @Cre-eD @smecsia @universe-ops @Laboratory
