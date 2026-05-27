@@ -97,13 +97,23 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 	cfg.provisionParams.Log.Info(ctx.Context(), "pushing cloud-helpers image...")
 	ecrImage, err := docker.NewImage(ctx, helpersImageName, &docker.ImageArgs{
 		Build: &docker.DockerBuildArgs{
-			Context:    sdk.String("."),
+			// The generated Dockerfile only does `FROM ${SOURCE_IMAGE}` + a
+			// VERSION label and COPYs nothing, so the build context is
+			// irrelevant to the output. Point it at the temp dir holding the
+			// Dockerfile rather than "." — otherwise Pulumi hashes the entire
+			// project directory and reports `build: update` on every preview
+			// the moment any unrelated repo file changes.
+			Context:    sdk.String(filepath.Dir(dockerFilePath)),
 			Dockerfile: sdk.String(dockerFilePath),
 			Args: sdk.StringMap{
 				"SOURCE_IMAGE": chImage.Name,
 				"VERSION":      sdk.String(version),
 			},
 		},
+		// SkipPush stays true during preview (no push side effect) and false
+		// during up. That makes the desired value differ from the deployed
+		// state every preview, so IgnoreChanges below stops Pulumi reporting a
+		// permanent phantom `skipPush: update` diff.
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
 		Registry: docker.RegistryArgs{
@@ -111,7 +121,7 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
 			Password: ecrRepo.Password,
 		},
-	}, cfg.opts...)
+	}, append(cfg.opts, sdk.IgnoreChanges([]string{"skipPush"}))...)
 	if err != nil {
 		return nil, err
 	}
