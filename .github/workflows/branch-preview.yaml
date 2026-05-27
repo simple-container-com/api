@@ -495,13 +495,24 @@ jobs:
           RELEASE_BRANCH="release/${VERSION}"
           git checkout -b "${RELEASE_BRANCH}"
 
-          # Replace :staging image tag with the preview version tag in all action.yml files
+          # Rewrite whatever tag the action.yml files currently pin (latest,
+          # staging, …) to the preview version. Matching a fixed base tag is
+          # brittle: #284 switched :staging -> :latest and silently broke every
+          # preview build, because this sed still looked for :staging — the
+          # rewrite became a no-op, leaving "nothing to commit" downstream.
           find .github/actions -name "action.yml" | while read f; do
-            sed -i "s|docker://simplecontainer/github-actions:staging|docker://simplecontainer/github-actions:${VERSION}|g" "$f"
+            sed -i -E "s|(docker://simplecontainer/github-actions):[A-Za-z0-9._-]+|\1:${VERSION}|g" "$f"
           done
 
           echo "Updated action.yml files:"
           grep -r "docker://simplecontainer/github-actions:" .github/actions/
+
+          # Fail loudly if the rewrite matched nothing (base-tag drift again),
+          # instead of producing a confusing empty-commit error in the next step.
+          if ! grep -rq "docker://simplecontainer/github-actions:${VERSION}" .github/actions/; then
+            echo "::error::No action.yml image tag was rewritten to ${VERSION} — the base image tag pattern drifted. Update the sed above."
+            exit 1
+          fi
       - name: commit, tag and push
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
