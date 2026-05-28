@@ -33,6 +33,8 @@ theme:
     - content.code.copy
     - content.code.annotate
 
+  copyright: ""
+
 extra_css:
   - stylesheets/extra.css
 
