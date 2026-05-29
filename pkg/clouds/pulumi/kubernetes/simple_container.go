@@ -714,6 +714,13 @@ ${proto}://${domain} {
 		// `header_down Server nginx ${addHeaders}` line in the template,
 		// which would produce an invalid Caddyfile. Entries are sorted by key
 		// for deterministic output (Go map iteration order is randomized).
+		//
+		// `%q` round-trips through Caddy's quoted-string lexer correctly for
+		// embedded `"` (→ `\"` → `"`) and `\` (→ `\\` → `\`). HTTP header
+		// values MUST be single-line ASCII (RFC 9110), so the Go-vs-Caddy
+		// divergence on `\n`/`\t`/`\xNN` is outside the legal-input domain;
+		// pathological inputs round-trip as a literal `\n` byte sequence
+		// instead of a newline, which is the safer failure mode.
 		addHeadersStr := ""
 		if hdrs := lo.FromPtr(args.Headers); len(hdrs) > 0 {
 			keys := lo.Keys(hdrs)

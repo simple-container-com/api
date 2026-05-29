@@ -516,15 +516,16 @@ func TestCaddyfileEntry_HeadersAreSortedDeterministically(t *testing.T) {
 		"X-Content-Type-Options": "nosniff",
 	}
 
-	// Render twice and compare — Go map iteration is randomized, so without
-	// explicit sorting the output would drift between runs (causing pulumi
-	// diffs / change-hash flapping).
+	// Two-render equality is probabilistic with only 4 keys (~75% miss
+	// rate even with broken sorting), so it's a weak signal on its own.
+	// The load-bearing assertion is the alphabetical index check below.
 	a := caddyfileEntryFor(t, args)
 	b := caddyfileEntryFor(t, args)
 	Expect(a).To(Equal(b), "two renders with the same Headers map must be byte-identical")
 
-	// Sanity: ordering must be alphabetical (A-Header before Referrer-Policy
-	// before X-* etc.) so we can rely on it for the change-hash signal.
+	// This is what actually proves determinism: deterministic alphabetical
+	// ordering (A-Header before Referrer-Policy before X-* etc.) so we
+	// can rely on the rendered bytes for the change-hash signal.
 	idxA := strings.Index(a, "header_down A-Header ")
 	idxR := strings.Index(a, "header_down Referrer-Policy ")
 	idxXC := strings.Index(a, "header_down X-Content-Type-Options ")
@@ -547,6 +548,73 @@ func TestCaddyfileEntry_EmptyHeadersStillRenders(t *testing.T) {
 	Expect(entry).To(ContainSubstring("header_down Server nginx"))
 	Expect(entry).ToNot(MatchRegexp(`header_down Server nginx[^\n]+header_down`),
 		"with empty Headers, the Server nginx line must not be followed by any other header_down on the same line, got:\n%s", entry)
+}
+
+func TestCaddyfileEntry_EmptyHeadersByteIdenticalToPreFix(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	// args.Headers is &k8s.Headers{} (empty) from createBasicTestArgs.
+	entry := caddyfileEntryFor(t, args)
+
+	// Lock in the compatibility contract: when Headers is empty, the
+	// rendered Caddyfile must contain `header_down Server nginx ` followed
+	// immediately by a newline (the trailing space comes from the literal
+	// space in the template between `nginx` and the now-empty `${addHeaders}`
+	// substitution). Pre-fix output had exactly this shape; we must not
+	// drift it, or the parent Caddy aggregator sees a spurious change-hash
+	// flap on every existing header-less stack after the SC upgrade.
+	Expect(entry).To(ContainSubstring("header_down Server nginx \n"),
+		"empty-Headers output must end the Server-nginx line with a single space + newline (byte-identical to pre-fix), got:\n%s", entry)
+}
+
+func TestCaddyfileEntry_HeaderValueWithEmbeddedDoubleQuote(t *testing.T) {
+	RegisterTestingT(t)
+
+	// CSP with a strict-dynamic attribute that uses double-quoted hashes
+	// is a realistic case that contains a literal `"`. `%q` must escape it
+	// so Caddy's lexer round-trips back to the original value.
+	value := `default-src 'self'; script-src 'self' "sha256-abc=" "strict-dynamic"`
+
+	args := createBasicTestArgs()
+	args.Headers = &k8s.Headers{
+		"Content-Security-Policy": value,
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	// %q emits each embedded `"` as `\"`. Caddy's quoted-string lexer
+	// supports `\"` and `\\` as escape sequences; on round-trip the header
+	// value the server sets equals `value` exactly. This assertion locks in
+	// the escape behaviour — without it, a future refactor to bare `%s`
+	// would silently break any header value that contains a quote.
+	escaped := strings.ReplaceAll(value, `"`, `\"`)
+	Expect(entry).To(ContainSubstring(`header_down Content-Security-Policy "`+escaped+`"`),
+		"value containing embedded \" must be %%q-escaped (\\\") in the rendered Caddyfile, got:\n%s", entry)
+}
+
+func TestCaddyfileEntry_HeadersOnPrefixTemplate(t *testing.T) {
+	RegisterTestingT(t)
+
+	// The Prefix template branch (handle_path /<prefix>* ...) shares the
+	// same addHeaders placeholder as the Domain branch but at a different
+	// indent level. Without a test here, the second template variant has
+	// zero CI coverage of the header-rendering path.
+	args := createBasicTestArgs()
+	args.Domain = ""
+	args.Prefix = "api"
+	args.Headers = &k8s.Headers{
+		"X-Frame-Options":    "DENY",
+		"Permissions-Policy": "geolocation=(), camera=()",
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	// Both directives must appear on their own lines and the
+	// multi-token Permissions-Policy must be quoted, same contract as
+	// the Domain template.
+	Expect(entry).To(MatchRegexp(`(?m)^[\t ]*header_down X-Frame-Options `))
+	Expect(entry).To(ContainSubstring(`header_down Permissions-Policy "geolocation=(), camera=()"`))
 }
 
 // Name Sanitization Tests
