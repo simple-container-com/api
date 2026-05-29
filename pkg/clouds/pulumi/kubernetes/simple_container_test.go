@@ -1,6 +1,8 @@
 package kubernetes
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -422,6 +424,129 @@ func TestNewSimpleContainer_ComplexConfiguration(t *testing.T) {
 	}, pulumi.WithMocks("project", "stack", mocks))
 
 	Expect(err).ToNot(HaveOccurred(), "Test should complete without errors")
+}
+
+// CaddyfileEntry Header Rendering Tests
+//
+// Regression coverage for two coupled bugs in the `args.Headers` rendering
+// path: (a) the first `header_down` was being concatenated onto the
+// `header_down Server nginx ${addHeaders}` template line, producing
+// invalid Caddyfile syntax, and (b) values weren't quoted, so multi-token
+// headers (CSP, Permissions-Policy) broke Caddy's whitespace tokenizer.
+// Both stay fixed only if these assertions hold.
+
+// caddyfileEntryFor returns the rendered Caddyfile entry for the given
+// args. Uses the same pulumi-mocks pattern as the rest of this file.
+func caddyfileEntryFor(t *testing.T, args *SimpleContainerArgs) string {
+	t.Helper()
+	mocks := NewSimpleContainerMocks()
+	var rendered string
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		sc, err := NewSimpleContainer(ctx, args)
+		if err != nil {
+			return err
+		}
+		rendered = string(sc.CaddyfileEntry)
+		return nil
+	}, pulumi.WithMocks("project", "stack", mocks))
+	Expect(err).ToNot(HaveOccurred(), "pulumi run should not fail")
+	return rendered
+}
+
+func TestCaddyfileEntry_HeadersRenderOnTheirOwnLines(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.Headers = &k8s.Headers{
+		"X-Frame-Options":        "DENY",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	// The bug: first custom header_down landed on the same line as
+	// `header_down Server nginx`. Assert each of our headers gets its
+	// own line.
+	for _, hdr := range []string{"X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy"} {
+		// `(?m)^[\t ]*header_down ` ensures the directive starts a line
+		// (only leading whitespace allowed before it).
+		Expect(entry).To(MatchRegexp(`(?m)^[\t ]*header_down `+regexp.QuoteMeta(hdr)+` `),
+			"header_down for %s must start its own line, got:\n%s", hdr, entry)
+	}
+
+	// And the `Server nginx` directive must end its own line — i.e. the
+	// next non-whitespace token after `nginx` is a newline.
+	Expect(entry).To(MatchRegexp(`header_down Server nginx[\t ]*\n`),
+		"`header_down Server nginx` must be followed by a newline, got:\n%s", entry)
+}
+
+func TestCaddyfileEntry_MultiTokenHeaderValuesAreQuoted(t *testing.T) {
+	RegisterTestingT(t)
+
+	csp := `default-src 'self'; script-src 'self' 'unsafe-inline' https://example.com; frame-ancestors 'none'`
+	permissions := `geolocation=(), camera=(), microphone=(), payment=()`
+
+	args := createBasicTestArgs()
+	args.Headers = &k8s.Headers{
+		"Content-Security-Policy-Report-Only": csp,
+		"Permissions-Policy":                  permissions,
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	// Caddy tokenizes on whitespace; multi-word header values MUST be
+	// wrapped in double quotes or the parser sees them as extra args.
+	// %q also escapes embedded double quotes — there are none in CSP, but
+	// the literal single quotes around 'self' are passed through.
+	Expect(entry).To(ContainSubstring(`header_down Content-Security-Policy-Report-Only "`+csp+`"`),
+		"CSP value must be double-quoted in the rendered Caddyfile, got:\n%s", entry)
+	Expect(entry).To(ContainSubstring(`header_down Permissions-Policy "`+permissions+`"`),
+		"Permissions-Policy value must be double-quoted, got:\n%s", entry)
+}
+
+func TestCaddyfileEntry_HeadersAreSortedDeterministically(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.Headers = &k8s.Headers{
+		"X-Frame-Options":        "DENY",
+		"A-Header":               "first-alphabetically",
+		"Referrer-Policy":        "no-referrer",
+		"X-Content-Type-Options": "nosniff",
+	}
+
+	// Render twice and compare — Go map iteration is randomized, so without
+	// explicit sorting the output would drift between runs (causing pulumi
+	// diffs / change-hash flapping).
+	a := caddyfileEntryFor(t, args)
+	b := caddyfileEntryFor(t, args)
+	Expect(a).To(Equal(b), "two renders with the same Headers map must be byte-identical")
+
+	// Sanity: ordering must be alphabetical (A-Header before Referrer-Policy
+	// before X-* etc.) so we can rely on it for the change-hash signal.
+	idxA := strings.Index(a, "header_down A-Header ")
+	idxR := strings.Index(a, "header_down Referrer-Policy ")
+	idxXC := strings.Index(a, "header_down X-Content-Type-Options ")
+	idxXF := strings.Index(a, "header_down X-Frame-Options ")
+	Expect(idxA).To(BeNumerically(">", 0), "A-Header must be present")
+	Expect(idxA).To(BeNumerically("<", idxR), "A-Header before Referrer-Policy")
+	Expect(idxR).To(BeNumerically("<", idxXC), "Referrer-Policy before X-Content-Type-Options")
+	Expect(idxXC).To(BeNumerically("<", idxXF), "X-Content-Type-Options before X-Frame-Options")
+}
+
+func TestCaddyfileEntry_EmptyHeadersStillRenders(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	// args.Headers is &k8s.Headers{} (empty) from createBasicTestArgs.
+	entry := caddyfileEntryFor(t, args)
+
+	// Server nginx still rendered, no spurious `header_down` directives,
+	// no trailing garbage from a leaked newline.
+	Expect(entry).To(ContainSubstring("header_down Server nginx"))
+	Expect(entry).ToNot(MatchRegexp(`header_down Server nginx[^\n]+header_down`),
+		"with empty Headers, the Server nginx line must not be followed by any other header_down on the same line, got:\n%s", entry)
 }
 
 // Name Sanitization Tests
