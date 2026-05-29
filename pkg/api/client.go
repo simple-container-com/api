@@ -150,8 +150,21 @@ type TextVolume struct {
 type Headers map[string]string
 
 type SimpleContainerLBConfig struct {
-	Https        bool     `json:"https" yaml:"https"`
+	Https bool `json:"https" yaml:"https"`
+	// ExtraHelpers renders one directive per line INSIDE the per-stack
+	// `reverse_proxy { ... }` block (alongside `header_down`, `import
+	// handle_server_error`, etc.). Use this for reverse-proxy-subdirective
+	// configuration: `header_down`, `lb_retries`, `transport`, `header_up`.
 	ExtraHelpers []string `json:"extraHelpers" yaml:"extraHelpers"`
+	// SiteExtraHelpers renders one directive per line at the SITE LEVEL,
+	// AFTER the `reverse_proxy { ... }` block closes (alongside `import
+	// gzip`, `import hsts`, etc.). Use this for site-level HTTP handlers
+	// that aren't valid as reverse_proxy subdirectives — `rate_limit`,
+	// `redir`, top-level matchers, `route` blocks, `respond` on specific
+	// paths. The two fields are distinct because Caddy's grammar gates
+	// what's accepted at each scope; mis-placing a directive yields a
+	// Caddyfile parse error at reload time.
+	SiteExtraHelpers []string `json:"siteExtraHelpers" yaml:"siteExtraHelpers"`
 }
 
 type StackConfigCompose struct {
