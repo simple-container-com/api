@@ -147,6 +147,18 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity is nil")
 	}
 
+	// UseSSL gates the per-stack `import hsts` line in the Caddyfile entry.
+	// Default true matches CloudrunTemplate.UseSSL semantics — most stacks
+	// run behind HTTPS and want HSTS. Override via templateConfig.useSSL
+	// (parent stack server.yaml) on the rare HTTP-only stack to suppress
+	// the redirect-to-HTTPS that the snippet would otherwise emit.
+	//
+	// Pre-this-fix, the field was unset on the kubernetes.Args struct, so
+	// it landed at the bool zero value (false) and `import hsts` was never
+	// added — silently dropping HSTS on every GKE Autopilot deploy. See
+	// kube_run.go for the analogous CloudrunTemplate plumbing.
+	useSSL := gkeAutopilotInput.UseSSL == nil || *gkeAutopilotInput.UseSSL
+
 	kubeArgs := kubernetes.Args{
 		Input:                  input,
 		Deployment:             gkeAutopilotInput.Deployment,
@@ -154,6 +166,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Params:                 params,
 		KubeProvider:           kubeProvider,
 		ComputeContext:         params.ComputeContext,
+		UseSSL:                 useSSL,
 		GenerateCaddyfileEntry: domain != "",
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",

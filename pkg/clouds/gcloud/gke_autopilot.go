@@ -51,6 +51,12 @@ type GkeAutopilotTemplate struct {
 	Credentials              `json:",inline" yaml:",inline"`
 	GkeClusterResource       string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
 	ArtifactRegistryResource string `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	// UseSSL controls whether per-stack Caddyfile entries `import hsts` from
+	// the parent Caddy snippet library. Defaults to true (consistent with
+	// CloudrunTemplate.UseSSL). Set to false for stacks that intentionally
+	// serve plain HTTP — otherwise the `(hsts)` snippet's redir-to-HTTPS
+	// would loop on origins that don't have a TLS cert.
+	UseSSL *bool `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`
 }
 
 type GkeAutopilotInput struct {
