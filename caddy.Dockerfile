@@ -6,7 +6,8 @@
 #
 # Plugins:
 # - github.com/grafana/certmagic-gcs — GCS-backed certmagic storage for GKE.
-# - github.com/mholt/caddy-ratelimit — distributed request rate limiting.
+# - github.com/mholt/caddy-ratelimit — request rate limiting (third-party
+#   module; not part of the official Caddy distribution).
 #   Needed for grey-cloud-only deployments (no Cloudflare in front of the
 #   origin) where a CF zone rate-limit rule can't be the enforcement layer
 #   — e.g. PAY-SPACE's pay.space / app.pay.space / app.x-core.pro, which
@@ -18,17 +19,43 @@
 #   so a commit-pin is the conventional approach here. The build-time
 #   `caddy list-modules | grep` below guards against silent plugin drops.
 #
-#   Usage from SC consumers (cloud-compose stack yaml):
-#     1. Declare zones globally in `caddy.caddyfilePrefix`:
-#          {
-#            rate_limit_zones {
-#              login { events 5  window 1m }
-#              api   { events 60 window 1m }
-#            }
-#          }
-#     2. Bind per-site via `lbConfig.extraHelpers` inside `reverse_proxy`:
-#          - '@login_req path /login*'
-#          - 'rate_limit @login_req login {key {client_ip}}'
+#   Usage from SC consumers (cloud-compose stack yaml). Real upstream
+#   Caddyfile syntax (verified against the module README — there is NO
+#   `rate_limit_zones` global block):
+#
+#       rate_limit {
+#           distributed                       # required for multi-replica
+#           zone login {
+#               key    {remote_host}          # or a header / custom field
+#               events 5
+#               window 1m
+#           }
+#           zone api {
+#               key    {remote_host}
+#               events 60
+#               window 1m
+#           }
+#       }
+#
+#   The `rate_limit` directive is a SITE-LEVEL HTTP handler (sibling of
+#   `reverse_proxy`), NOT a `reverse_proxy` subdirective — so it can't be
+#   placed via the existing `lbConfig.extraHelpers` field, which renders
+#   inside the `reverse_proxy` block. Consumers wire it via the new
+#   `lbConfig.siteExtraHelpers` field introduced in the same PR as this
+#   plugin (see pkg/api/client.go + simple_container.go).
+#
+#   Two landmines worth knowing:
+#     - WITHOUT `distributed`, rate-limit state is per-pod in-memory. On
+#       multi-replica deployments a "5/min login" limit becomes 5×replicas
+#       per minute → enforcement silently weakened. `distributed` requires
+#       a shared Caddy storage module — the parent stack already uses
+#       certmagic-gcs, which doubles as shared storage.
+#     - `{remote_host}` is only the true client IP if Caddy actually sees
+#       it. On a GKE Service with default `externalTrafficPolicy: Cluster`
+#       the source IP is SNAT'd to a node IP, so all clients collapse into
+#       a few buckets — rate-limit becomes either useless or self-DoS.
+#       Verify the LB is `externalTrafficPolicy: Local` + the parent
+#       Caddy's `trustedProxies` covers the LB CIDR range.
 
 FROM caddy:2.11.3-builder@sha256:f96a3b748f2ce4e5f6595453615da734b93993b231213fe35d0673893b5613ef AS builder
 
