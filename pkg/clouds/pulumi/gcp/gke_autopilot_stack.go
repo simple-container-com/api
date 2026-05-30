@@ -147,6 +147,30 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity is nil")
 	}
 
+	// UseSSL gates two SC outputs in the kubernetes.Args contract:
+	//   1. `import hsts` in the per-stack Caddyfile entry → the parent
+	//      Caddy's `(hsts)` snippet then sets Strict-Transport-Security
+	//      site-level AND redirects HTTP→HTTPS on X-Forwarded-Proto: http.
+	//   2. The `ingress.kubernetes.io/ssl-redirect: false` annotation on
+	//      the Ingress (Caddy owns the redirect, so the ingress shouldn't).
+	//
+	// We derive it from `lbConfig.https` (a per-stack yaml field that the
+	// consumer already sets when their stack is HTTPS-fronted) rather than
+	// introducing a new template-level knob — same signal, fewer concepts.
+	// Net behaviour: stacks declaring `lbConfig.https: true` opt into the
+	// HSTS snippet; everything else stays plain HTTP and the snippet stays
+	// inert (its `redir @httpReq` would otherwise loop on origins without
+	// a TLS cert).
+	//
+	// Pre-this-fix, the field was unset on the kubernetes.Args struct, so
+	// it landed at the bool zero value and `import hsts` was never added —
+	// silently dropping HSTS on every GKE Autopilot deploy regardless of
+	// the consumer's lbConfig.https setting.
+	var useSSL bool
+	if sc := gkeAutopilotInput.Deployment.StackConfig; sc != nil {
+		useSSL = lo.FromPtr(sc.LBConfig).Https
+	}
+
 	kubeArgs := kubernetes.Args{
 		Input:                  input,
 		Deployment:             gkeAutopilotInput.Deployment,
@@ -154,6 +178,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Params:                 params,
 		KubeProvider:           kubeProvider,
 		ComputeContext:         params.ComputeContext,
+		UseSSL:                 useSSL,
 		GenerateCaddyfileEntry: domain != "",
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
