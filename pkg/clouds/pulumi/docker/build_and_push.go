@@ -252,6 +252,35 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 			}
 			return fmt.Sprintf("sh %s", shellQuote(path))
 		}).(sdk.StringOutput),
+
+		// Disable the default behaviour of passing the previous run's
+		// stdout/stderr back as PULUMI_COMMAND_STDOUT / PULUMI_COMMAND_STDERR
+		// env vars on Update. pulumi-command's
+		// `run()` builds envp with:
+		//
+		//   if in.AddPreviousOutputInEnv == nil || *in.AddPreviousOutputInEnv {
+		//     if out.Stdout != "" {
+		//       cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s",
+		//         util.PulumiCommandStdout, out.Stdout))
+		//     }
+		//     ...
+		//   }
+		//
+		// The security-report script writes the full rendered vulnerability
+		// table to stdout for inline build-log visibility. On a chrome-base-
+		// derived image that's a 150-200 KB markdown table (thousands of CVE
+		// rows). pulumi-command captures that into the resource's `Stdout`
+		// output, which is then echoed back as a SINGLE envp entry on the
+		// next Update. Kernel ARG_MAX (~128 KB on Linux) covers argv+envp
+		// combined, so the next deploy fails at `fork/exec /bin/sh: argument
+		// list too long` — even though our argv is now ~80 bytes thanks to
+		// tempfile staging.
+		//
+		// Our security scripts don't read PULUMI_COMMAND_STDOUT; turning
+		// this off is purely a no-op for the script's behaviour. The
+		// stdout is still captured into state for `pulumi stack output` and
+		// downstream resource references, just not re-injected into envp.
+		AddPreviousOutputInEnv: sdk.Bool(false),
 	}, sdk.DependsOn(reportDeps))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create security report for image %q", imageName)
