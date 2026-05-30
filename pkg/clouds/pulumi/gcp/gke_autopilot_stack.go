@@ -147,11 +147,21 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity is nil")
 	}
 
-	// UseSSL gates the per-stack `import hsts` line in the Caddyfile entry.
+	// UseSSL gates two SC outputs:
+	//   1. `import hsts` in the per-stack Caddyfile entry → the `(hsts)`
+	//      snippet then sets `Strict-Transport-Security` on every response
+	//      AND redirects HTTP requests (matched by X-Forwarded-Proto) to
+	//      HTTPS.
+	//   2. The `ingress.kubernetes.io/ssl-redirect: false` annotation on
+	//      the Ingress (Caddy owns the redirect, so the ingress shouldn't).
 	// Default true matches CloudrunTemplate.UseSSL semantics — most stacks
 	// run behind HTTPS and want HSTS. Override via templateConfig.useSSL
-	// (parent stack server.yaml) on the rare HTTP-only stack to suppress
-	// the redirect-to-HTTPS that the snippet would otherwise emit.
+	// in parent stack server.yaml for the rare HTTP-only stack: the HSTS
+	// header is sticky (`max-age=31536000; includeSubDomains; preload`),
+	// so once a client visits an HTTP-only stack over HTTPS once, the
+	// browser refuses plain HTTP for the next year — and `preload` is a
+	// one-way commitment if the apex domain ever gets submitted to the
+	// preload list.
 	//
 	// Pre-this-fix, the field was unset on the kubernetes.Args struct, so
 	// it landed at the bool zero value (false) and `import hsts` was never

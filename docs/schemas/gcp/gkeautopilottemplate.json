@@ -36,6 +36,9 @@
       },
       "gkeClusterResource": {
         "type": "string"
+      },
+      "useSSL": {
+        "type": "boolean"
       }
     },
     "required": [

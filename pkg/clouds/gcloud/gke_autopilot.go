@@ -54,8 +54,12 @@ type GkeAutopilotTemplate struct {
 	// UseSSL controls whether per-stack Caddyfile entries `import hsts` from
 	// the parent Caddy snippet library. Defaults to true (consistent with
 	// CloudrunTemplate.UseSSL). Set to false for stacks that intentionally
-	// serve plain HTTP — otherwise the `(hsts)` snippet's redir-to-HTTPS
-	// would loop on origins that don't have a TLS cert.
+	// serve plain HTTP. The snippet sets a long-lived
+	// `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+	// header on every response, and on `X-Forwarded-Proto: http` (only) it
+	// redirects to HTTPS — so an HTTP-only origin without a valid TLS cert
+	// would have its clients pinned to HTTPS and then fail the handshake
+	// for any future visit.
 	UseSSL *bool `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`
 }
 
