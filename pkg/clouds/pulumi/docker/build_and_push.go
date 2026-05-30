@@ -223,10 +223,22 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	if scanGate != nil {
 		reportDeps = append(reportDeps, scanGate)
 	}
-	_, err = local.NewCommand(ctx, fmt.Sprintf("security-report-%s", imageName), &local.CommandArgs{
+	reportResourceName := fmt.Sprintf("security-report-%s", imageName)
+	_, err = local.NewCommand(ctx, reportResourceName, &local.CommandArgs{
+		// Stage the report script to a tempfile and invoke it by path —
+		// keeps the Create argv under ARG_MAX regardless of how many
+		// vulnerabilities the merged scan-results.json enumerates. On any
+		// filesystem error the helper returns "" and we fall back to
+		// inlining the script (preserves prior behaviour for short
+		// reports). See stageSecurityReportScript for the full rationale.
 		Create: securityImageRef.ApplyT(func(img string) string {
 			commentOutput := resolveCommentOutputPath(security, imageName)
-			return buildSecurityReportScript(img, imageName, security, commentOutput)
+			script := buildSecurityReportScript(img, imageName, security, commentOutput)
+			path, err := stageSecurityReportScript(reportResourceName, script)
+			if err != nil || path == "" {
+				return script
+			}
+			return fmt.Sprintf("bash %s", shellQuote(path))
 		}).(sdk.StringOutput),
 	}, sdk.DependsOn(reportDeps))
 	if err != nil {

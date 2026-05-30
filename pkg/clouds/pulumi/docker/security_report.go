@@ -1,12 +1,56 @@
 package docker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
+
+// sanitizeForFilenameRe replaces any char outside the safelist with `_`, used
+// when composing a tempfile name from a Pulumi resource name (which may
+// contain registry hostnames, `:`, `/`, etc.).
+var sanitizeForFilenameRe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+
+// stageSecurityReportScript writes the dynamically-built report script to a
+// deterministic tempfile under $TMPDIR and returns the path.
+//
+// Why: the script is composed from the merged scan-results.json (Trivy +
+// Grype) — which on an image carrying a fresh Ubuntu base can run into
+// thousands of CVEs. The Pulumi `command:local:Command` resource invokes its
+// `Create` field via `/bin/sh -c "<Create>"`, which means the script content
+// counts against the kernel's ARG_MAX (typically 128 KB on Linux). On a
+// chrome-base-derived image we observed 5,025 merged findings producing a
+// >150 KB script body, and every deploy failed with:
+//
+//	error: fork/exec /bin/sh: argument list too long
+//	error: update failed
+//
+// Staging the script to a tempfile and returning a short `bash <path>`
+// invocation keeps the Create argv well under ARG_MAX regardless of how many
+// vulnerabilities the report enumerates.
+//
+// Path is deterministic on (resourceName, script-content) — same inputs
+// produce the same path, so Pulumi doesn't see spurious "drift" between
+// runs that would otherwise re-trigger the resource on no-op refreshes.
+//
+// On any filesystem error, returns the empty string and the error; callers
+// should fall back to inlining the script (preserves prior behaviour for
+// short reports where ARG_MAX is not a concern).
+func stageSecurityReportScript(resourceName, script string) (string, error) {
+	sum := sha256.Sum256([]byte(resourceName + "\x00" + script))
+	safeName := sanitizeForFilenameRe.ReplaceAllString(resourceName, "_")
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("sc-security-report-%s-%s.sh", safeName, hex.EncodeToString(sum[:8])))
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
 
 // buildSecurityReportScript generates a shell script that reads scan results and
 // outputs a unified security summary to the console, $GITHUB_STEP_SUMMARY, and
