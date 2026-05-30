@@ -311,6 +311,15 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		TextVolumes: caddyVolumes,
 	}
 
+	// HSTSValue overrides the Strict-Transport-Security value emitted by
+	// the embedded `(hsts)` snippet via Caddy's `{$HSTS_VALUE:default}`
+	// placeholder. When unset, the placeholder's default kicks in and the
+	// rendered Caddyfile is byte-identical to the prior version — no env
+	// var is added, no diff for existing consumers.
+	if v := lo.FromPtr(caddy.CaddyConfig).HSTSValue; v != nil {
+		deploymentConfig.StackConfig.Env["HSTS_VALUE"] = *v
+	}
+
 	// Prepare secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS for GCP)
 	secretEnvs := make(map[string]string)
 	if len(caddy.SecretEnvs) > 0 {

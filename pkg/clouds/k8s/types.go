@@ -61,6 +61,19 @@ type CaddyConfig struct {
 	// "Local" preserves the client source IP (required for correct X-Forwarded-For from Cloudflare).
 	// "Cluster" (default) SNATs source IP to a node IP, losing the direct client IP.
 	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
+	// HSTSValue overrides the Strict-Transport-Security header value emitted
+	// by the embedded `(hsts)` snippet. When unset, the snippet emits the
+	// conservative default `max-age=31536000; includeSubDomains; preload`
+	// (byte-identical to the prior hard-coded value). Set to a different
+	// string to relax or tighten the policy without forking the snippet —
+	// e.g. omit `preload` to avoid committing the apex domain to the HSTS
+	// preload list, or shorten max-age during a staged rollout.
+	//
+	// Implementation: the snippet uses Caddy's `{$HSTS_VALUE:default}` env
+	// placeholder, evaluated at Caddy config parse time. When this field is
+	// non-nil, the value is set as the `HSTS_VALUE` env var on the Caddy
+	// container; otherwise the placeholder's default kicks in.
+	HSTSValue *string `json:"hstsValue,omitempty" yaml:"hstsValue,omitempty"`
 }
 
 type DisruptionBudget struct {
