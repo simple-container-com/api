@@ -36,6 +36,18 @@ func isPulumiOutputSet(output sdk.StringOutput) bool {
 	return output.ElementType() != nil
 }
 
+// caddyHSTSEnv returns env-var additions overriding the `(hsts)` snippet's
+// header. Empty string is treated as unset — Caddy's `os.LookupEnv` would
+// otherwise treat a present-but-empty var as "found" and ship a broken
+// `Strict-Transport-Security ""`.
+func caddyHSTSEnv(cfg *k8s.CaddyConfig) map[string]string {
+	v := lo.FromPtr(cfg).HSTSValue
+	if v == nil || *v == "" {
+		return nil
+	}
+	return map[string]string{"HSTS_VALUE": *v}
+}
+
 func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != k8s.ResourceTypeCaddy {
 		return nil, errors.Errorf("unsupported caddy type %q", input.Descriptor.Type)
@@ -311,13 +323,8 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		TextVolumes: caddyVolumes,
 	}
 
-	// HSTSValue overrides the Strict-Transport-Security value emitted by
-	// the embedded `(hsts)` snippet via Caddy's `{$HSTS_VALUE:default}`
-	// placeholder. When unset, the placeholder's default kicks in and the
-	// rendered Caddyfile is byte-identical to the prior version — no env
-	// var is added, no diff for existing consumers.
-	if v := lo.FromPtr(caddy.CaddyConfig).HSTSValue; v != nil {
-		deploymentConfig.StackConfig.Env["HSTS_VALUE"] = *v
+	for k, v := range caddyHSTSEnv(caddy.CaddyConfig) {
+		deploymentConfig.StackConfig.Env[k] = v
 	}
 
 	// Prepare secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS for GCP)

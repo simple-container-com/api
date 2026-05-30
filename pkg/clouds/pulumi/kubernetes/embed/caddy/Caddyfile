@@ -3,13 +3,7 @@
 }
 
 (hsts) {
-  # HSTS value uses Caddy's env-var-with-default placeholder so operators
-  # can override the snippet's policy from CaddyConfig.HSTSValue without
-  # forking the snippet. Default preserves the prior literal value byte
-  # for byte — consumers that don't set HSTSValue see no change.
-  # Caddy 2.x evaluates {$VAR:default} at config parse time; the default
-  # token extends to the closing `}` of the placeholder, so spaces and
-  # semicolons in the default string are safe.
+  # Default preserved byte-for-byte; override via CaddyConfig.HSTSValue.
   header {
      Strict-Transport-Security "{$HSTS_VALUE:max-age=31536000; includeSubDomains; preload}"
   }
