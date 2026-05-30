@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -26,6 +28,42 @@ var sanitizeForFilenameRe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 // failure this helper exists to avoid.
 const maxSafeNameLen = 64
 const stagedScriptPrefix = "sc-security-report-"
+
+// stagedScriptMaxAge is the lifetime ceiling for staged scripts in TMPDIR.
+// On a long-lived CI runner with hundreds of deploys per day, the staged
+// files would accumulate indefinitely otherwise. 24h is long enough that
+// a Pulumi resource's Delete (which inspects Create text) can still find
+// the file during normal teardown windows.
+const stagedScriptMaxAge = 24 * time.Hour
+
+// sweepOnce coalesces the TTL sweep so multiple stages in a single
+// process (e.g., a stack with several images) don't each scan TMPDIR.
+var sweepOnce sync.Once
+
+// sweepStaleStagedScripts removes stagedScriptPrefix-named files in TMPDIR
+// older than `maxAge`. Best-effort — any error is silently ignored, since
+// failure here would be cleanup of prior runs, not the critical path.
+func sweepStaleStagedScripts(maxAge time.Duration) {
+	dir := os.TempDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, stagedScriptPrefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
 
 // stageSecurityReportScript writes the dynamically-built report script to a
 // deterministic tempfile under $TMPDIR and returns the path.
@@ -66,13 +104,35 @@ const stagedScriptPrefix = "sc-security-report-"
 // short reports where ARG_MAX is not a concern) AND log the staging error
 // so operators can investigate — silent fallback would re-introduce the
 // exact failure mode this helper exists to fix.
+//
+// ## Idempotence
+//
+// Pulumi's ApplyT callback re-fires on every `up` / `preview`, even when
+// the script content hasn't changed. The hash-derived path is stable, so
+// we `Stat` first and skip the write if a file already exists at that
+// path — both cheaper (no rewrite, no mtime churn) and a no-op for
+// readers concurrent with our re-entry.
 func stageSecurityReportScript(resourceName, script string) (string, error) {
+	// First call per process: clear out stale stages from prior deploys.
+	sweepOnce.Do(func() { sweepStaleStagedScripts(stagedScriptMaxAge) })
+
 	sum := sha256.Sum256([]byte(resourceName + "\x00" + script))
 	safeName := sanitizeForFilenameRe.ReplaceAllString(resourceName, "_")
 	if len(safeName) > maxSafeNameLen {
 		safeName = safeName[:maxSafeNameLen]
 	}
 	finalPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s%s-%s.sh", stagedScriptPrefix, safeName, hex.EncodeToString(sum[:8])))
+
+	// Hash-derived path uniquely identifies the (resourceName, script)
+	// tuple. If the file already exists, it was written by an earlier
+	// stage of this process or a prior `pulumi up` — trust the hash and
+	// skip the rewrite. Refresh mtime so the TTL sweep doesn't garbage-
+	// collect the file while it's still actively referenced.
+	if _, err := os.Stat(finalPath); err == nil {
+		now := time.Now()
+		_ = os.Chtimes(finalPath, now, now)
+		return finalPath, nil
+	}
 
 	tmpFile, err := os.CreateTemp(os.TempDir(), stagedScriptPrefix+"stage-*.sh.tmp")
 	if err != nil {

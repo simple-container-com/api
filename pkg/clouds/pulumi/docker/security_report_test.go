@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 )
@@ -74,6 +75,62 @@ func TestStageSecurityReportScript_SanitizesResourceName(t *testing.T) {
 	// No raw `:` or `/` should leak into the basename.
 	base := path[strings.LastIndex(path, "/")+1:]
 	Expect(base).NotTo(ContainSubstring(":"))
+}
+
+// Pulumi's ApplyT callback re-fires on every preview/up. The helper must
+// short-circuit when the deterministic path already exists — no rewrite,
+// no mtime churn beyond the explicit refresh. Asserts:
+//   1. Second call returns identical path.
+//   2. mtime was refreshed by the second call (so TTL sweep won't garbage-
+//      collect actively-referenced files between preview and apply).
+//   3. File size unchanged (no rewrite happened — content was already correct).
+func TestStageSecurityReportScript_StatShortCircuit(t *testing.T) {
+	RegisterTestingT(t)
+
+	const script = "echo first\n"
+	first, err := stageSecurityReportScript("security-report-shortcircuit", script)
+	Expect(err).NotTo(HaveOccurred())
+	defer os.Remove(first)
+
+	firstInfo, err := os.Stat(first)
+	Expect(err).NotTo(HaveOccurred())
+	firstSize := firstInfo.Size()
+
+	// Backdate so we can detect whether the second call refreshed mtime.
+	old := time.Now().Add(-12 * time.Hour)
+	Expect(os.Chtimes(first, old, old)).To(Succeed())
+
+	second, err := stageSecurityReportScript("security-report-shortcircuit", script)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(second).To(Equal(first))
+
+	secondInfo, err := os.Stat(second)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(secondInfo.Size()).To(Equal(firstSize), "stat short-circuit should not rewrite file")
+	Expect(secondInfo.ModTime()).To(BeTemporally(">", old.Add(time.Hour)), "mtime should have been refreshed by stat short-circuit")
+}
+
+// The TTL sweep removes prefix-matching files older than the threshold.
+// Asserts a young file survives + an old file gets reaped.
+func TestSweepStaleStagedScripts(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir := os.TempDir()
+	young := filepath.Join(dir, stagedScriptPrefix+"sweep-young-"+strings.Repeat("a", 8)+".sh")
+	old := filepath.Join(dir, stagedScriptPrefix+"sweep-old-"+strings.Repeat("b", 8)+".sh")
+	Expect(os.WriteFile(young, []byte("echo young\n"), 0o600)).To(Succeed())
+	Expect(os.WriteFile(old, []byte("echo old\n"), 0o600)).To(Succeed())
+	defer os.Remove(young)
+	defer os.Remove(old)
+
+	// Backdate the old one well past the sweep threshold (1h).
+	pastCutoff := time.Now().Add(-2 * time.Hour)
+	Expect(os.Chtimes(old, pastCutoff, pastCutoff)).To(Succeed())
+
+	sweepStaleStagedScripts(1 * time.Hour)
+
+	Expect(young).To(BeAnExistingFile(), "young file should survive sweep")
+	Expect(old).NotTo(BeAnExistingFile(), "old file should be reaped by sweep")
 }
 
 // Long resource names (registry hostname + slash-separated path + tag
