@@ -680,6 +680,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		// updates both paths.
 		var caddyfileEntryTemplate string
 		if args.Domain != "" {
+			// Site-level layout: `${siteExtraHelpers}` lands at the same scope
+			// as `${imports}` so directives that aren't valid as reverse_proxy
+			// subdirectives (e.g. `rate_limit`, top-level matchers, `respond`
+			// on specific paths) can be wired through lbConfig.siteExtraHelpers.
+			// Placed AFTER reverse_proxy so the proxy block isn't shadowed by
+			// e.g. a catch-all `respond` directive emitted earlier.
 			caddyfileEntryTemplate = `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
@@ -687,7 +693,7 @@ ${proto}://${domain} {
     import handle_server_error
     ${extraHelpers}
   }
-  ${imports}
+  ${imports}${siteExtraHelpers}
 }
 `
 		} else if args.Prefix != "" {
@@ -697,7 +703,7 @@ ${proto}://${domain} {
       header_down Server nginx ${addHeaders}
       import handle_server_error
       ${extraHelpers}
-    }
+    }${siteExtraHelpers}
   }
 `
 		}
@@ -730,16 +736,26 @@ ${proto}://${domain} {
 			})
 			addHeadersStr = "\n    " + strings.Join(lines, "\n    ")
 		}
+		// Render `siteExtraHelpers` with a leading newline+indent when non-empty
+		// so the first entry doesn't end up tacked onto the preceding `${imports}`
+		// line (same shape as the addHeaders fix). When empty, substitutes the
+		// empty string so the Caddyfile shape is byte-identical to the
+		// pre-siteExtraHelpers rendering for stacks that don't set the field.
+		siteExtraHelpersStr := ""
+		if helpers := lo.FromPtr(args.LbConfig).SiteExtraHelpers; len(helpers) > 0 {
+			siteExtraHelpersStr = "\n  " + strings.Join(helpers, "\n  ")
+		}
 		placeholdersMap := placeholders.MapData{
-			"proto":        lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
-			"domain":       args.Domain,
-			"prefix":       args.Prefix,
-			"service":      sanitizedService,
-			"namespace":    sanitizedNamespace,
-			"port":         strconv.Itoa(lo.FromPtr(mainPort)),
-			"addHeaders":   addHeadersStr,
-			"extraHelpers": strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
-			"imports":      strings.Join(imports, "\n    "),
+			"proto":            lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
+			"domain":           args.Domain,
+			"prefix":           args.Prefix,
+			"service":          sanitizedService,
+			"namespace":        sanitizedNamespace,
+			"port":             strconv.Itoa(lo.FromPtr(mainPort)),
+			"addHeaders":       addHeadersStr,
+			"extraHelpers":     strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
+			"imports":          strings.Join(imports, "\n    "),
+			"siteExtraHelpers": siteExtraHelpersStr,
 		}
 		if args.ProxyKeepPrefix {
 			placeholdersMap["additionalProxyConfig"] = fmt.Sprintf("\n    rewrite * /%s{uri}", args.Prefix)
