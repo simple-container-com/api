@@ -17,6 +17,16 @@ import (
 // contain registry hostnames, `:`, `/`, etc.).
 var sanitizeForFilenameRe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
+// maxSafeNameLen caps the resource-name component of the staged-script
+// basename so the full filename stays under common NAME_MAX limits (255
+// bytes on Linux, 255 chars on macOS). A long ECR-derived image name +
+// stack + service can easily push the unsanitised resource name past 200
+// chars — at which point os.WriteFile returns ENAMETOOLONG and the caller
+// falls back to inlining the full script, reintroducing the ARG_MAX
+// failure this helper exists to avoid.
+const maxSafeNameLen = 64
+const stagedScriptPrefix = "sc-security-report-"
+
 // stageSecurityReportScript writes the dynamically-built report script to a
 // deterministic tempfile under $TMPDIR and returns the path.
 //
@@ -31,25 +41,64 @@ var sanitizeForFilenameRe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 //	error: fork/exec /bin/sh: argument list too long
 //	error: update failed
 //
-// Staging the script to a tempfile and returning a short `bash <path>`
+// Staging the script to a tempfile and returning a short `sh <path>`
 // invocation keeps the Create argv well under ARG_MAX regardless of how many
 // vulnerabilities the report enumerates.
+//
+// ## Atomicity
+//
+// Writes through `os.CreateTemp + os.Rename` so concurrent deploys with
+// different script content but colliding final paths (extremely unlikely
+// given the 64-bit hash, but possible) can't observe a half-written file
+// from another writer. `os.Rename` is atomic on the same filesystem; both
+// the unique stage file and the final path live in `$TMPDIR`.
+//
+// ## Path stability
 //
 // Path is deterministic on (resourceName, script-content) — same inputs
 // produce the same path, so Pulumi doesn't see spurious "drift" between
 // runs that would otherwise re-trigger the resource on no-op refreshes.
 //
+// ## Fallback contract
+//
 // On any filesystem error, returns the empty string and the error; callers
 // should fall back to inlining the script (preserves prior behaviour for
-// short reports where ARG_MAX is not a concern).
+// short reports where ARG_MAX is not a concern) AND log the staging error
+// so operators can investigate — silent fallback would re-introduce the
+// exact failure mode this helper exists to fix.
 func stageSecurityReportScript(resourceName, script string) (string, error) {
 	sum := sha256.Sum256([]byte(resourceName + "\x00" + script))
 	safeName := sanitizeForFilenameRe.ReplaceAllString(resourceName, "_")
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("sc-security-report-%s-%s.sh", safeName, hex.EncodeToString(sum[:8])))
-	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
-		return "", err
+	if len(safeName) > maxSafeNameLen {
+		safeName = safeName[:maxSafeNameLen]
 	}
-	return path, nil
+	finalPath := filepath.Join(os.TempDir(), fmt.Sprintf("%s%s-%s.sh", stagedScriptPrefix, safeName, hex.EncodeToString(sum[:8])))
+
+	tmpFile, err := os.CreateTemp(os.TempDir(), stagedScriptPrefix+"stage-*.sh.tmp")
+	if err != nil {
+		return "", fmt.Errorf("create stage tempfile: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if _, err := tmpFile.Write([]byte(script)); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return "", fmt.Errorf("write stage tempfile: %w", err)
+	}
+	if err := tmpFile.Chmod(0o600); err != nil {
+		_ = tmpFile.Close()
+		cleanup()
+		return "", fmt.Errorf("chmod stage tempfile: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		cleanup()
+		return "", fmt.Errorf("close stage tempfile: %w", err)
+	}
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		cleanup()
+		return "", fmt.Errorf("rename stage tempfile to %s: %w", finalPath, err)
+	}
+	return finalPath, nil
 }
 
 // buildSecurityReportScript generates a shell script that reads scan results and

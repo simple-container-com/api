@@ -2,7 +2,9 @@ package docker
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -74,8 +76,64 @@ func TestStageSecurityReportScript_SanitizesResourceName(t *testing.T) {
 	Expect(base).NotTo(ContainSubstring(":"))
 }
 
+// Long resource names (registry hostname + slash-separated path + tag
+// produced by SC's naming convention) can push the unsanitised resource
+// name well past NAME_MAX (255 bytes on Linux). The helper must cap the
+// resource-name component so the final basename stays under the limit —
+// otherwise ENAMETOOLONG would trip the fallback path and reintroduce
+// the ARG_MAX failure for the large reports this helper exists to fix.
+func TestStageSecurityReportScript_CapsLongResourceName(t *testing.T) {
+	RegisterTestingT(t)
+
+	long := strings.Repeat("very-long-resource-name-segment.", 20) // ~640 chars
+	path, err := stageSecurityReportScript(long, "echo ok\n")
+	Expect(err).NotTo(HaveOccurred())
+	defer os.Remove(path)
+
+	base := filepath.Base(path)
+	Expect(len(base)).To(BeNumerically("<", 255))
+}
+
+// `os.Rename` is atomic on the same filesystem. Concurrent writers
+// targeting the same final path (same resource name + same script
+// content => same path) must not produce a partially-written file
+// observable by a reader. We can't directly assert atomicity, but we
+// can run many writers in parallel and assert every observed final
+// file is complete + correct.
+func TestStageSecurityReportScript_ConcurrentWriters(t *testing.T) {
+	RegisterTestingT(t)
+
+	const script = "REPORT=\"value\"\nprintf '%s\\n' \"$REPORT\"\n"
+	const n = 24
+
+	var wg sync.WaitGroup
+	wg.Add(n)
+	paths := make([]string, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			paths[i], errs[i] = stageSecurityReportScript("security-report-concurrent", script)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, p := range paths {
+		Expect(errs[i]).NotTo(HaveOccurred())
+		Expect(p).NotTo(BeEmpty())
+		got, err := os.ReadFile(p)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(got)).To(Equal(script), "writer %d observed truncated/interleaved content", i)
+	}
+	// All paths identical (deterministic).
+	for i := 1; i < n; i++ {
+		Expect(paths[i]).To(Equal(paths[0]))
+	}
+	defer os.Remove(paths[0])
+}
+
 // Reality check: the original ARG_MAX failure was a ~150 KB inlined script.
-// A staged invocation `bash <path>` is well under the kernel limit
+// A staged invocation `sh <path>` is well under the kernel limit
 // (typically 128 KB on Linux). This test asserts the contract — that the
 // helper produces a short path that the caller can compose into a short
 // Create command, regardless of the script body size.
