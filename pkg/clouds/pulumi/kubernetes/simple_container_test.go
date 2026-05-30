@@ -593,6 +593,62 @@ func TestCaddyfileEntry_HeaderValueWithEmbeddedDoubleQuote(t *testing.T) {
 		"value containing embedded \" must be %%q-escaped (\\\") in the rendered Caddyfile, got:\n%s", entry)
 }
 
+func TestCaddyfileEntry_SiteExtraHelpersRendersAtSiteLevel(t *testing.T) {
+	RegisterTestingT(t)
+
+	// `rate_limit` (and other site-level HTTP handlers) MUST NOT land inside
+	// the `reverse_proxy { ... }` block — Caddy's grammar rejects them there.
+	// This test locks in: SiteExtraHelpers entries appear AFTER the closing
+	// `}` of reverse_proxy and BEFORE the closing `}` of the site block, so
+	// `lbConfig.siteExtraHelpers` is a valid insertion point for rate_limit,
+	// top-level matchers, `respond` directives, etc.
+	args := createBasicTestArgs()
+	args.LbConfig = &api.SimpleContainerLBConfig{
+		Https: true,
+		SiteExtraHelpers: []string{
+			`rate_limit { distributed; zone login { key {remote_host}; events 5; window 1m } }`,
+		},
+	}
+	entry := caddyfileEntryFor(t, args)
+
+	// Find the close-brace of the reverse_proxy block and the close-brace of
+	// the site block. SiteExtraHelpers must appear strictly between them.
+	rpOpenIdx := strings.Index(entry, "reverse_proxy ")
+	Expect(rpOpenIdx).To(BeNumerically(">", 0), "expected reverse_proxy open, got:\n%s", entry)
+	rpCloseIdx := strings.Index(entry[rpOpenIdx:], "\n  }")
+	Expect(rpCloseIdx).To(BeNumerically(">", 0),
+		"expected reverse_proxy close brace (2-space indent), got:\n%s", entry)
+	rpCloseIdx += rpOpenIdx
+
+	rlIdx := strings.Index(entry, "rate_limit")
+	Expect(rlIdx).To(BeNumerically(">", rpCloseIdx),
+		"rate_limit must appear AFTER the reverse_proxy block closes, got:\n%s", entry)
+
+	// And it must NOT appear INSIDE the reverse_proxy block.
+	rpBody := entry[rpOpenIdx:rpCloseIdx]
+	Expect(rpBody).ToNot(ContainSubstring("rate_limit"),
+		"rate_limit must NOT appear inside the reverse_proxy block body, got:\n%s", rpBody)
+}
+
+func TestCaddyfileEntry_EmptySiteExtraHelpersIsByteIdentical(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Compatibility contract: stacks that don't set lbConfig.siteExtraHelpers
+	// must produce output structurally identical to the pre-feature rendering,
+	// so the parent Caddy aggregator's change-hash doesn't flap on the SC
+	// upgrade for any of the ~hundreds of existing consumer stacks.
+	args := createBasicTestArgs()
+	args.LbConfig = &api.SimpleContainerLBConfig{Https: true}
+	// SiteExtraHelpers intentionally unset.
+
+	entry := caddyfileEntryFor(t, args)
+
+	// The placeholder must have substituted as an empty string: no stray
+	// blank-indent line should be emitted between imports and the site close.
+	Expect(entry).ToNot(MatchRegexp(`import handle_static\n  \n}`),
+		"empty siteExtraHelpers must not produce a blank line before the site close, got:\n%s", entry)
+}
+
 func TestCaddyfileEntry_HeadersOnPrefixTemplate(t *testing.T) {
 	RegisterTestingT(t)
 
