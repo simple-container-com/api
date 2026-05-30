@@ -223,10 +223,34 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	if scanGate != nil {
 		reportDeps = append(reportDeps, scanGate)
 	}
-	_, err = local.NewCommand(ctx, fmt.Sprintf("security-report-%s", imageName), &local.CommandArgs{
+	reportResourceName := fmt.Sprintf("security-report-%s", imageName)
+	_, err = local.NewCommand(ctx, reportResourceName, &local.CommandArgs{
+		// Stage the report script to a tempfile and invoke it by path —
+		// keeps the Create argv under ARG_MAX regardless of how many
+		// vulnerabilities the merged scan-results.json enumerates. Invoked
+		// via `sh` (not `bash`) because the generated script only uses
+		// POSIX constructs (`printf`, `jq`, parameter expansion) and SC
+		// can land on Alpine-based runners where `bash` is absent.
+		//
+		// On any filesystem error the helper returns "" and we fall back
+		// to inlining the script (preserves prior behaviour for short
+		// reports). The staging error is logged via ctx.Log.Warn so
+		// operators can investigate — silent fallback would re-introduce
+		// the exact ARG_MAX failure this helper exists to fix.
 		Create: securityImageRef.ApplyT(func(img string) string {
 			commentOutput := resolveCommentOutputPath(security, imageName)
-			return buildSecurityReportScript(img, imageName, security, commentOutput)
+			script := buildSecurityReportScript(img, imageName, security, commentOutput)
+			path, stageErr := stageSecurityReportScript(reportResourceName, script)
+			if stageErr != nil || path == "" {
+				if stageErr != nil {
+					_ = ctx.Log.Warn(
+						fmt.Sprintf("security-report: failed to stage script for %q (falling back to inline, large reports may hit ARG_MAX): %v", imageName, stageErr),
+						&sdk.LogArgs{},
+					)
+				}
+				return script
+			}
+			return fmt.Sprintf("sh %s", shellQuote(path))
 		}).(sdk.StringOutput),
 	}, sdk.DependsOn(reportDeps))
 	if err != nil {
