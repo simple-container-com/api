@@ -63,7 +63,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
     xcaddy build "v2.11.3" \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
-        --with github.com/mholt/caddy-ratelimit@16aecbb24beddc9095da2716fa8d3a30fa2dc8ea \
+        --with github.com/mholt/caddy-ratelimit@16aecbbcb8ca07dc1c671e263379606ff9493c55 \
     && caddy version \
     && caddy list-modules | grep -qE '^http\.handlers\.rate_limit$'
 # ^ Final grep is a sanity check that the ratelimit module actually registered
