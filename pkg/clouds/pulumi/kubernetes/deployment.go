@@ -220,43 +220,41 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
-		KubeProvider:           args.KubeProvider,
-		ComputeContext:         args.ComputeContext,
-		ServiceType:            args.ServiceType,
-		ExternalTrafficPolicy:  args.ExternalTrafficPolicy,
-		UseSSL:                 args.UseSSL,
-		ProvisionIngress:       args.ProvisionIngress,
-		Namespace:              namespace,
-		Service:                deploymentName,
-		Deployment:             deploymentName,
-		ScEnv:                  stackEnv,
-		IngressContainer:       args.Deployment.IngressContainer,
-		Domain:                 lo.FromPtr(args.Deployment.StackConfig).Domain,
-		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
-		ProxyKeepPrefix:        lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
-		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
-		ParentEnv:              lo.If(parentEnv != "", lo.ToPtr(parentEnv)).Else(nil),
-		Replicas:               replicas,
-		Headers:                args.Deployment.Headers,
-		SecretEnvs:             mergedSecretEnvs,
-		LbConfig:               args.Deployment.StackConfig.LBConfig,
-		Volumes:                args.Deployment.TextVolumes,
-		PersistentVolumes:      pvs,
-		EphemeralVolumes:       args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
-		PriorityClassName:      args.Deployment.PriorityClassName,
-		Containers:             containers,
-		ServiceAccountName:     args.ServiceAccountName,
-		InitContainers:         args.InitContainers,
-		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
-		Annotations:            args.Annotations,
-		NodeSelector:           args.NodeSelector,
-		Affinity:               args.Affinity,
-		Sidecars:               args.Sidecars,
-		VPA:                    args.VPA,              // Pass VPA configuration to SimpleContainer
-		Scale:                  args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
-		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
-			MinAvailable: lo.ToPtr(1),
-		}),
+		KubeProvider:                  args.KubeProvider,
+		ComputeContext:                args.ComputeContext,
+		ServiceType:                   args.ServiceType,
+		ExternalTrafficPolicy:         args.ExternalTrafficPolicy,
+		UseSSL:                        args.UseSSL,
+		ProvisionIngress:              args.ProvisionIngress,
+		Namespace:                     namespace,
+		Service:                       deploymentName,
+		Deployment:                    deploymentName,
+		ScEnv:                         stackEnv,
+		IngressContainer:              args.Deployment.IngressContainer,
+		Domain:                        lo.FromPtr(args.Deployment.StackConfig).Domain,
+		Prefix:                        lo.FromPtr(args.Deployment.StackConfig).Prefix,
+		ProxyKeepPrefix:               lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
+		ParentStack:                   lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
+		ParentEnv:                     lo.If(parentEnv != "", lo.ToPtr(parentEnv)).Else(nil),
+		Replicas:                      replicas,
+		Headers:                       args.Deployment.Headers,
+		SecretEnvs:                    mergedSecretEnvs,
+		LbConfig:                      args.Deployment.StackConfig.LBConfig,
+		Volumes:                       args.Deployment.TextVolumes,
+		PersistentVolumes:             pvs,
+		EphemeralVolumes:              args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
+		PriorityClassName:             args.Deployment.PriorityClassName,
+		Containers:                    containers,
+		ServiceAccountName:            args.ServiceAccountName,
+		InitContainers:                args.InitContainers,
+		GenerateCaddyfileEntry:        args.GenerateCaddyfileEntry,
+		Annotations:                   args.Annotations,
+		NodeSelector:                  args.NodeSelector,
+		Affinity:                      args.Affinity,
+		Sidecars:                      args.Sidecars,
+		VPA:                           args.VPA,              // Pass VPA configuration to SimpleContainer
+		Scale:                         args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
+		PodDisruption:                 defaultDisruptionBudget(args.Deployment.DisruptionBudget),
 		RollingUpdate:                 lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
 		SecurityContext:               nil, // TODO
 		Log:                           args.Params.Log,
@@ -302,6 +300,23 @@ func buildPreStopLifecycle(preStopSleepSeconds *int) *corev1.LifecycleArgs {
 			},
 		},
 	}
+}
+
+// defaultDisruptionBudget returns the PodDisruptionBudget to apply to a deployment.
+// An explicitly configured budget is used as-is; otherwise we default to
+// maxUnavailable:1 instead of minAvailable:1.
+//
+// minAvailable:1 on a single-replica deployment resolves to disruptionsAllowed:0,
+// which forbids the eviction API and so blocks the cluster autoscaler from ever
+// draining the pod's node. On GKE Autopilot that means the node can never be
+// consolidated and stays pinned regardless of utilization. maxUnavailable:1 yields
+// disruptionsAllowed:1 (the single pod can be evicted and rescheduled), while still
+// bounding voluntary disruptions to one pod at a time for multi-replica deployments.
+func defaultDisruptionBudget(db *k8s.DisruptionBudget) *k8s.DisruptionBudget {
+	if db != nil {
+		return db
+	}
+	return &k8s.DisruptionBudget{MaxUnavailable: lo.ToPtr(1)}
 }
 
 func toRollingUpdateArgs(update *k8s.RollingUpdate) *v1.RollingUpdateDeploymentArgs {
