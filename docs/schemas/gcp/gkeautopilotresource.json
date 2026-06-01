@@ -49,6 +49,9 @@
           "enable": {
             "type": "boolean"
           },
+          "hstsValue": {
+            "type": "string"
+          },
           "image": {
             "type": "string"
           },

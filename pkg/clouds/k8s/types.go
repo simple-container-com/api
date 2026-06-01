@@ -61,6 +61,11 @@ type CaddyConfig struct {
 	// "Local" preserves the client source IP (required for correct X-Forwarded-For from Cloudflare).
 	// "Cluster" (default) SNATs source IP to a node IP, losing the direct client IP.
 	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
+	// HSTSValue overrides the Strict-Transport-Security value emitted by
+	// the embedded `(hsts)` snippet. Applies to every site this Caddy
+	// aggregator serves; there is no per-stack override. Unset or empty
+	// uses the snippet's default (`max-age=31536000; includeSubDomains; preload`).
+	HSTSValue *string `json:"hstsValue,omitempty" yaml:"hstsValue,omitempty"`
 }
 
 type DisruptionBudget struct {
