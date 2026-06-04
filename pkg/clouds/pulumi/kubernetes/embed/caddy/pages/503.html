@@ -5,13 +5,18 @@
     h1 { font-size: 50px; }
     body { font: 20px Helvetica, sans-serif; color: #333; }
     article { display: block; text-align: left; width: 650px; margin: 0 auto; }
-    code { background: #eee; padding: 2px 6px; border-radius: 3px; font-size: 16px; }
 </style>
 
+<!--
+  Public-facing body only. Do NOT add operator runbooks, stack
+  identifiers (simple-container.com / Caddy / k8s annotations), or
+  remediation hints here: this catch-all answers every unknown Host for
+  unauthenticated clients and cannot distinguish an operator from an
+  attacker. The runbook for "no backend route for this Host" lives in
+  pkg/clouds/pulumi/kubernetes/caddy.go (default 503 block rationale)
+  and in the generate-caddyfile init-container logs.
+-->
 <article>
     <h1>503 Service Unavailable</h1>
-    <p>No backend route is configured for this host.</p>
-    <p>If you are an operator, verify the Service has the
-       <code>simple-container.com/caddyfile-entry</code> annotation and that
-       Caddy has been rolled.</p>
+    <p>This service is temporarily unavailable. Please try again in a few moments.</p>
 </article>
