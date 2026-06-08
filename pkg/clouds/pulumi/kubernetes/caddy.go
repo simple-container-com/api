@@ -123,6 +123,14 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	// - Operators can override the 503 body by mounting a different ConfigMap
 	//   at /etc/caddy/pages/503.html without touching SC api code.
 	//
+	// Keep pages/503.html generic — it answers every unknown Host for
+	// unauthenticated clients, which cannot be distinguished from operators.
+	// No stack identifiers, internal paths, or remediation runbooks in the
+	// body OR in HTML comments (comments ship in the response too — that was
+	// the bug behind this very page once leaking the caddyfile-entry runbook).
+	// The operator runbook for "no backend route for this Host" is this
+	// comment block plus the generate-caddyfile init-container logs.
+	//
 	// Wrapped in `handle { ... }` so the directives below apply only to the
 	// 503 path and nothing else can short-circuit (e.g. `import hsts` redir
 	// firing before the response). We also intentionally do NOT `import hsts`

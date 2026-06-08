@@ -7,15 +7,7 @@
     article { display: block; text-align: left; width: 650px; margin: 0 auto; }
 </style>
 
-<!--
-  Public-facing body only. Do NOT add operator runbooks, stack
-  identifiers (simple-container.com / Caddy / k8s annotations), or
-  remediation hints here: this catch-all answers every unknown Host for
-  unauthenticated clients and cannot distinguish an operator from an
-  attacker. The runbook for "no backend route for this Host" lives in
-  pkg/clouds/pulumi/kubernetes/caddy.go (default 503 block rationale)
-  and in the generate-caddyfile init-container logs.
--->
+<!-- Served to unauthenticated clients on any unknown host. Keep generic: no internal, infrastructure, or diagnostic detail (this comment ships in the response). -->
 <article>
     <h1>503 Service Unavailable</h1>
     <p>This service is temporarily unavailable. Please try again in a few moments.</p>
