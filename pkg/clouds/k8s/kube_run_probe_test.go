@@ -8,10 +8,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
-// TestStartupProbeExtraction is the regression test for cloudExtras.startupProbe
-// being silently dropped: CloudExtras had no StartupProbe field, so user-supplied
-// startup budgets never reached the cluster and pods fell back to the readiness
-// probe's (short) window during cold starts.
+// Regression: cloudExtras.startupProbe was silently dropped (no struct field).
 func TestStartupProbeExtraction(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -42,9 +39,7 @@ func TestStartupProbeExtraction(t *testing.T) {
 	Expect(*result.StartupProbe.SuccessThreshold).To(Equal(1))
 }
 
-// TestProbePeriodSecondsExtraction covers the k8s-native periodSeconds spelling on
-// the readiness probe. Previously only the duration-typed `interval` key existed,
-// so configs written with periodSeconds silently fell back to the kubelet default.
+// Regression: periodSeconds was an unknown key and fell back to kubelet defaults.
 func TestProbePeriodSecondsExtraction(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -67,7 +62,6 @@ func TestProbePeriodSecondsExtraction(t *testing.T) {
 	Expect(*result.ReadinessProbe.FailureThreshold).To(Equal(3))
 }
 
-// TestStartupProbeAbsent ensures the zero-value path stays nil.
 func TestStartupProbeAbsent(t *testing.T) {
 	RegisterTestingT(t)
 

@@ -11,31 +11,24 @@ import (
 	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
-// execFn matches tools.ExecCommand; signers carry it as a field so tests can
-// inject a fake without racing on package state.
+// execFn matches tools.ExecCommand; injectable for tests.
 type execFn func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error)
 
 // maxSignAttempts bounds the Rekor-conflict retry loop in runCosignSign.
 const maxSignAttempts = 3
 
-// isRekorConflict reports whether a cosign failure was caused by Rekor's
-// createLogEntryConflict (HTTP 409 on POST /api/v1/log/entries). This happens
-// when an identical entry is already in the transparency log — typically
-// cosign re-uploading an entry whose first attempt timed out client-side but
-// succeeded server-side (seen under parallel CI runners signing concurrently).
+// isRekorConflict reports a Rekor createLogEntryConflict (HTTP 409) — an
+// identical entry already in the tlog, typically a cosign upload retry after
+// a client-side timeout whose first attempt succeeded server-side.
 func isRekorConflict(output string) bool {
 	return strings.Contains(output, "createLogEntryConflict") ||
 		(strings.Contains(output, "409") && strings.Contains(output, "/api/v1/log/entries"))
 }
 
-// runCosignSign executes `cosign sign`, retrying the full invocation when the
-// only failure is a Rekor entry conflict. Keyless (ephemeral key) and
-// randomized-ECDSA key-based invocations mint a fresh signature each run, so
-// their retries cannot conflict with themselves. Deterministic keys (e.g.
-// ed25519) reproduce the same signature — for them the bounded loop exhausts
-// and surfaces the conflict, which is correct: the tlog entry existing does
-// NOT prove the signature was attached to the registry, so success must not
-// be assumed. Any non-conflict error is returned immediately.
+// runCosignSign retries the full `cosign sign` on Rekor entry conflicts (a
+// fresh invocation can't conflict with itself). Deterministic keys reproduce
+// the same signature and exhaust the loop — correct, since a tlog entry does
+// not prove the signature reached the registry. Other errors fail fast.
 func runCosignSign(ctx context.Context, exec execFn, args, env []string, timeout time.Duration) (string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxSignAttempts; attempt++ {

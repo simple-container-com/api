@@ -179,18 +179,14 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 		var startupProbe *corev1.ProbeArgs
 		cStartupProbe := c.Container.StartupProbe
-		// Use global startup probe if container doesn't have one AND it's the ingress container,
-		// mirroring the readiness/liveness fallback above. Without this, a slow-booting service
-		// is stuck with the readiness probe's (short) window as its startup budget.
+		// Global fallback for the ingress container only, mirroring readiness/liveness above
 		if cStartupProbe == nil && args.StartupProbe != nil && isIngressContainer {
 			cStartupProbe = args.StartupProbe
 		}
 		if cStartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
 		} else if cStartupProbe != nil {
-			// An explicit probe carries its own port resolution (httpGet.port /
-			// mainPort / first port) — mirror the readiness behavior instead of
-			// dropping it on multi-port containers.
+			// Explicit probes resolve their own port — apply even on multi-port containers
 			startupProbe = toProbeArgs(c, cStartupProbe)
 		}
 
@@ -336,8 +332,7 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 		probePort = c.Container.Ports[0]
 	}
 
-	// periodSeconds (k8s-native spelling) wins over the legacy duration-typed interval;
-	// duration values only survive YAML conversion when given as Go duration strings.
+	// periodSeconds (k8s-native) wins over the legacy duration-typed interval
 	periodSeconds := probe.PeriodSeconds
 	if periodSeconds == nil && probe.Interval != nil {
 		periodSeconds = lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))

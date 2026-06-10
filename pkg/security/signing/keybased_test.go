@@ -105,10 +105,8 @@ func TestKeyBasedSignerPasswordHandling(t *testing.T) {
 func TestKeyBasedSigner_Sign_GivesUpOnPersistentRekorConflict(t *testing.T) {
 	RegisterTestingT(t)
 
-	// A deterministic key (e.g. ed25519) reproduces the same signature on
-	// retry, so a persistent conflict must exhaust the bounded loop and
-	// surface the error — never be treated as success: a tlog entry existing
-	// does not prove the signature was attached to the registry.
+	// Deterministic keys reproduce the same signature: a persistent conflict
+	// must exhaust the loop and fail, never be treated as success.
 	calls := 0
 	signer := NewKeyBasedSigner("test-key-content", "", time.Second)
 	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
