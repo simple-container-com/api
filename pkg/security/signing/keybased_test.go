@@ -2,6 +2,7 @@ package signing
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,4 +100,45 @@ func TestKeyBasedSignerPasswordHandling(t *testing.T) {
 
 	withPassword := NewKeyBasedSigner("/tmp/cosign.key", "secret123", 5*time.Minute)
 	Expect(strings.Contains("COSIGN_PASSWORD="+withPassword.Password, "COSIGN_PASSWORD=secret123")).To(BeTrue())
+}
+
+func TestKeyBasedSigner_Sign_GivesUpOnPersistentRekorConflict(t *testing.T) {
+	RegisterTestingT(t)
+
+	// A deterministic key (e.g. ed25519) reproduces the same signature on
+	// retry, so a persistent conflict must exhaust the bounded loop and
+	// surface the error — never be treated as success: a tlog entry existing
+	// does not prove the signature was attached to the registry.
+	calls := 0
+	signer := NewKeyBasedSigner("test-key-content", "", time.Second)
+	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+		calls++
+		return "", "[POST /api/v1/log/entries][409] createLogEntryConflict", fmt.Errorf("exit status 1")
+	}
+
+	_, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
+
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
+	Expect(calls).To(Equal(maxSignAttempts))
+}
+
+func TestKeyBasedSigner_Sign_RetriesOnceOnTransientConflict(t *testing.T) {
+	RegisterTestingT(t)
+
+	calls := 0
+	signer := NewKeyBasedSigner("test-key-content", "", time.Second)
+	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+		calls++
+		if calls == 1 {
+			return "", "createLogEntryConflict", fmt.Errorf("exit status 1")
+		}
+		return "", "", nil
+	}
+
+	result, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
+
+	Expect(err).ToNot(HaveOccurred())
+	Expect(result).ToNot(BeNil())
+	Expect(calls).To(Equal(2))
 }

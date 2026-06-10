@@ -187,7 +187,10 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		}
 		if cStartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
-		} else if cStartupProbe != nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
+		} else if cStartupProbe != nil {
+			// An explicit probe carries its own port resolution (httpGet.port /
+			// mainPort / first port) — mirror the readiness behavior instead of
+			// dropping it on multi-port containers.
 			startupProbe = toProbeArgs(c, cStartupProbe)
 		}
 

@@ -198,13 +198,11 @@ func TestIsRekorConflict(t *testing.T) {
 func TestKeylessSigner_Sign_RetriesOnRekorConflict(t *testing.T) {
 	RegisterTestingT(t)
 
-	origExec := execCommand
-	defer func() { execCommand = origExec }()
-
 	conflictStderr := `signing bundle: error signing bundle: [POST /api/v1/log/entries][409] createLogEntryConflict {"code":409,"message":"an equivalent entry already exists in the transparency log"}`
 
 	calls := 0
-	execCommand = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer := NewKeylessSigner("a.b.c", time.Second)
+	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		Expect(name).To(Equal("cosign"))
 		Expect(args[0]).To(Equal("sign"))
@@ -213,8 +211,6 @@ func TestKeylessSigner_Sign_RetriesOnRekorConflict(t *testing.T) {
 		}
 		return "tlog entry created with index: 123456", "", nil
 	}
-
-	signer := NewKeylessSigner("a.b.c", time.Second)
 	result, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 
 	Expect(err).ToNot(HaveOccurred())
@@ -225,16 +221,12 @@ func TestKeylessSigner_Sign_RetriesOnRekorConflict(t *testing.T) {
 func TestKeylessSigner_Sign_NoRetryOnOtherErrors(t *testing.T) {
 	RegisterTestingT(t)
 
-	origExec := execCommand
-	defer func() { execCommand = origExec }()
-
 	calls := 0
-	execCommand = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer := NewKeylessSigner("a.b.c", time.Second)
+	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		return "", "error signing: getting signer: oidc: token expired", fmt.Errorf("exit status 1")
 	}
-
-	signer := NewKeylessSigner("a.b.c", time.Second)
 	_, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 
 	Expect(err).To(HaveOccurred())
@@ -245,16 +237,12 @@ func TestKeylessSigner_Sign_NoRetryOnOtherErrors(t *testing.T) {
 func TestKeylessSigner_Sign_GivesUpAfterMaxConflictAttempts(t *testing.T) {
 	RegisterTestingT(t)
 
-	origExec := execCommand
-	defer func() { execCommand = origExec }()
-
 	calls := 0
-	execCommand = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer := NewKeylessSigner("a.b.c", time.Second)
+	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		return "", "[POST /api/v1/log/entries][409] createLogEntryConflict", fmt.Errorf("exit status 1")
 	}
-
-	signer := NewKeylessSigner("a.b.c", time.Second)
 	_, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 
 	Expect(err).To(HaveOccurred())

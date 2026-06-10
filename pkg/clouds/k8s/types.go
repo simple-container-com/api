@@ -134,8 +134,8 @@ type CloudRunProbe struct {
 	HttpGet             ProbeHttpGet   `json:"httpGet" yaml:"httpGet"`
 	Interval            *time.Duration `json:"interval" yaml:"interval"`
 	InitialDelaySeconds *int           `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
-	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"`
-	PeriodSeconds       *int           `json:"periodSeconds" yaml:"periodSeconds"` // k8s-native spelling; takes precedence over Interval
+	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"` // Deprecated: misspelled and never consumed; use periodSeconds
+	PeriodSeconds       *int           `json:"periodSeconds" yaml:"periodSeconds"`   // k8s-native spelling; takes precedence over Interval
 	FailureThreshold    *int           `json:"failureThreshold" yaml:"failureThreshold"`
 	SuccessThreshold    *int           `json:"successThreshold" yaml:"successThreshold"`
 	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`

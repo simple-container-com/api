@@ -3,6 +3,7 @@ package signing
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -10,8 +11,9 @@ import (
 	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
-// execCommand is a seam for tests; production code always uses tools.ExecCommand.
-var execCommand = tools.ExecCommand
+// execFn matches tools.ExecCommand; signers carry it as a field so tests can
+// inject a fake without racing on package state.
+type execFn func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error)
 
 // maxSignAttempts bounds the Rekor-conflict retry loop in runCosignSign.
 const maxSignAttempts = 3
@@ -27,13 +29,17 @@ func isRekorConflict(output string) bool {
 }
 
 // runCosignSign executes `cosign sign`, retrying the full invocation when the
-// only failure is a Rekor entry conflict. A fresh invocation mints a fresh
-// (ephemeral or randomized-ECDSA) signature, so a retry cannot conflict with
-// itself; any other error is returned immediately.
-func runCosignSign(ctx context.Context, args, env []string, timeout time.Duration) (string, error) {
+// only failure is a Rekor entry conflict. Keyless (ephemeral key) and
+// randomized-ECDSA key-based invocations mint a fresh signature each run, so
+// their retries cannot conflict with themselves. Deterministic keys (e.g.
+// ed25519) reproduce the same signature — for them the bounded loop exhausts
+// and surfaces the conflict, which is correct: the tlog entry existing does
+// NOT prove the signature was attached to the registry, so success must not
+// be assumed. Any non-conflict error is returned immediately.
+func runCosignSign(ctx context.Context, exec execFn, args, env []string, timeout time.Duration) (string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxSignAttempts; attempt++ {
-		stdout, stderr, err := execCommand(ctx, "cosign", args, env, timeout)
+		stdout, stderr, err := exec(ctx, "cosign", args, env, timeout)
 		if err == nil {
 			return stdout, nil
 		}
@@ -41,7 +47,7 @@ func runCosignSign(ctx context.Context, args, env []string, timeout time.Duratio
 		if !isRekorConflict(stderr) && !isRekorConflict(stdout) {
 			return "", lastErr
 		}
-		fmt.Printf("Warning: Rekor transparency-log conflict on sign attempt %d/%d, retrying with a fresh signature\n", attempt, maxSignAttempts)
+		fmt.Fprintf(os.Stderr, "Warning: Rekor transparency-log conflict on sign attempt %d/%d, retrying\n", attempt, maxSignAttempts)
 	}
 	return "", lastErr
 }
@@ -50,6 +56,9 @@ func runCosignSign(ctx context.Context, args, env []string, timeout time.Duratio
 type KeylessSigner struct {
 	OIDCToken string
 	Timeout   time.Duration
+
+	// exec overrides command execution in tests; nil means tools.ExecCommand.
+	exec execFn
 }
 
 // NewKeylessSigner creates a new keyless signer
@@ -77,7 +86,11 @@ func (s *KeylessSigner) Sign(ctx context.Context, imageRef string) (*SignResult,
 
 	// Execute cosign sign command
 	args := []string{"sign", "--yes", imageRef}
-	stdout, err := runCosignSign(ctx, args, env, s.Timeout)
+	exec := s.exec
+	if exec == nil {
+		exec = tools.ExecCommand
+	}
+	stdout, err := runCosignSign(ctx, exec, args, env, s.Timeout)
 	if err != nil {
 		return nil, err
 	}

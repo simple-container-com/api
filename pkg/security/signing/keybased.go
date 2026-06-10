@@ -15,6 +15,9 @@ type KeyBasedSigner struct {
 	PrivateKey string // Path to private key file or key content
 	Password   string // Optional password for encrypted keys
 	Timeout    time.Duration
+
+	// exec overrides command execution in tests; nil means tools.ExecCommand.
+	exec execFn
 }
 
 // NewKeyBasedSigner creates a new key-based signer
@@ -73,7 +76,11 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 
 	// Execute cosign sign command
 	args := []string{"sign", "--key", keyPath, imageRef}
-	if _, err := runCosignSign(ctx, args, env, s.Timeout); err != nil {
+	exec := s.exec
+	if exec == nil {
+		exec = tools.ExecCommand
+	}
+	if _, err := runCosignSign(ctx, exec, args, env, s.Timeout); err != nil {
 		return nil, err
 	}
 
