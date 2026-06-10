@@ -10,6 +10,42 @@ import (
 	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
+// execCommand is a seam for tests; production code always uses tools.ExecCommand.
+var execCommand = tools.ExecCommand
+
+// maxSignAttempts bounds the Rekor-conflict retry loop in runCosignSign.
+const maxSignAttempts = 3
+
+// isRekorConflict reports whether a cosign failure was caused by Rekor's
+// createLogEntryConflict (HTTP 409 on POST /api/v1/log/entries). This happens
+// when an identical entry is already in the transparency log — typically
+// cosign re-uploading an entry whose first attempt timed out client-side but
+// succeeded server-side (seen under parallel CI runners signing concurrently).
+func isRekorConflict(output string) bool {
+	return strings.Contains(output, "createLogEntryConflict") ||
+		(strings.Contains(output, "409") && strings.Contains(output, "/api/v1/log/entries"))
+}
+
+// runCosignSign executes `cosign sign`, retrying the full invocation when the
+// only failure is a Rekor entry conflict. A fresh invocation mints a fresh
+// (ephemeral or randomized-ECDSA) signature, so a retry cannot conflict with
+// itself; any other error is returned immediately.
+func runCosignSign(ctx context.Context, args, env []string, timeout time.Duration) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= maxSignAttempts; attempt++ {
+		stdout, stderr, err := execCommand(ctx, "cosign", args, env, timeout)
+		if err == nil {
+			return stdout, nil
+		}
+		lastErr = fmt.Errorf("cosign sign failed: %w\nStderr: %s\nStdout: %s", err, stderr, stdout)
+		if !isRekorConflict(stderr) && !isRekorConflict(stdout) {
+			return "", lastErr
+		}
+		fmt.Printf("Warning: Rekor transparency-log conflict on sign attempt %d/%d, retrying with a fresh signature\n", attempt, maxSignAttempts)
+	}
+	return "", lastErr
+}
+
 // KeylessSigner implements keyless signing using OIDC tokens
 type KeylessSigner struct {
 	OIDCToken string
@@ -41,9 +77,9 @@ func (s *KeylessSigner) Sign(ctx context.Context, imageRef string) (*SignResult,
 
 	// Execute cosign sign command
 	args := []string{"sign", "--yes", imageRef}
-	stdout, stderr, err := tools.ExecCommand(ctx, "cosign", args, env, s.Timeout)
+	stdout, err := runCosignSign(ctx, args, env, s.Timeout)
 	if err != nil {
-		return nil, fmt.Errorf("cosign sign failed: %w\nStderr: %s\nStdout: %s", err, stderr, stdout)
+		return nil, err
 	}
 
 	// Parse output for Rekor entry URL
