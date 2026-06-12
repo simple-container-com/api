@@ -1,0 +1,1 @@
+Good — only three files in the ciphers package, no CLAUDE.md at root (404). I have the complete picture. Now I'll produce the architect handoff.
