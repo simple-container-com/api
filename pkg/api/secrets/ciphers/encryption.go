@@ -82,7 +82,10 @@ func PublicKeyToBytes(pub *rsa.PublicKey) ([]byte, error) {
 	return pubBytes, nil
 }
 
-// EncryptWithPublicRSAKey encrypts data with public key
+// EncryptWithPublicRSAKey encrypts data with public key.
+// TODO: This uses SHA-512 (max plaintext 126 B for 2048-bit keys) while
+// EncryptLargeString uses SHA-256 (max 190 B). Standardize these in a future PR;
+// changing the hash here would break decryption of existing payloads.
 func EncryptWithPublicRSAKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
 	hash := sha512.New()
 	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, pub, msg, nil)
@@ -147,14 +150,26 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 	var res []string
 	if rsaKey, ok := key.(*rsa.PublicKey); ok {
-		chunks := lo.ChunkString(s, rsaKey.Size()/2)
-		res = make([]string, len(chunks))
-		for idx, chunk := range chunks {
-			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), nil)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to encrypt secret")
+		// RSA-OAEP with SHA-256: max plaintext = k − 2·hLen − 2 bytes.
+		// For a 2048-bit key: 256 − 64 − 2 = 190 bytes.
+		// Chunking by rune count (old behaviour) is unsafe for multi-byte UTF-8:
+		// a 128-rune chunk can be up to 512 bytes, exceeding the 190-byte OAEP limit.
+		maxPlain := rsaKey.Size() - 2*sha256.Size - 2
+		if maxPlain <= 0 {
+			return nil, errors.Errorf("RSA key too small (%d bits) for OAEP-SHA256", rsaKey.Size()*8)
+		}
+		data := []byte(s)
+		res = make([]string, 0, (len(data)+maxPlain-1)/maxPlain)
+		for i := 0; i < len(data); i += maxPlain {
+			end := i + maxPlain
+			if end > len(data) {
+				end = len(data)
 			}
-			res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
+			enc, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, data[i:end], nil)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to encrypt secret")
+			}
+			res = append(res, base64.StdEncoding.EncodeToString(enc))
 		}
 	} else if ed25519Key, ok := key.(ed25519.PublicKey); ok {
 		// For ed25519, use hybrid encryption with Curve25519 + ChaCha20-Poly1305

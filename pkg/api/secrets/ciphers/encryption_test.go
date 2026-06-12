@@ -102,6 +102,49 @@ func TestRSAEncryptionDecryption(t *testing.T) {
 		Expect(err).To(BeNil())
 		Expect(string(decrypted)).To(Equal(largeData))
 	})
+
+	t.Run("RSA encrypt/decrypt UTF-8 multi-byte string (box-drawing)", func(t *testing.T) {
+		// U+2500 BOX DRAWINGS LIGHT HORIZONTAL = 3 bytes UTF-8.
+		// 120 runes × 3 bytes = 360 bytes.
+		// Old rune-based chunking (128 runes/chunk) produced one 360-byte chunk > 190 B → FAIL.
+		utf8Heavy := strings.Repeat("─", 120)
+
+		encryptedChunks, err := EncryptLargeString(pubKey, utf8Heavy)
+		Expect(err).To(BeNil())
+		Expect(encryptedChunks).NotTo(BeEmpty())
+
+		decrypted, err := DecryptLargeString(privKey, encryptedChunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(utf8Heavy))
+	})
+
+	t.Run("RSA encrypt/decrypt emoji-dense string", func(t *testing.T) {
+		// U+1F600 GRINNING FACE = 4 bytes UTF-8. 100 runes = 400 bytes.
+		emojiHeavy := strings.Repeat("😀", 100)
+
+		encryptedChunks, err := EncryptLargeString(pubKey, emojiHeavy)
+		Expect(err).To(BeNil())
+		Expect(encryptedChunks).NotTo(BeEmpty())
+
+		decrypted, err := DecryptLargeString(privKey, encryptedChunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(emojiHeavy))
+	})
+
+	t.Run("RSA chunk boundaries do not corrupt multi-byte sequences", func(t *testing.T) {
+		// 64 × 3 bytes (U+2500) = 192 bytes → exactly 2 chunks (190 + 2).
+		// Byte boundary at 190 falls mid-rune (U+2500 is bytes E2 94 80).
+		// Correct round-trip proves byte-boundary splitting and join are safe.
+		crossBoundary := strings.Repeat("─", 64)
+
+		encryptedChunks, err := EncryptLargeString(pubKey, crossBoundary)
+		Expect(err).To(BeNil())
+		Expect(len(encryptedChunks)).To(Equal(2))
+
+		decrypted, err := DecryptLargeString(privKey, encryptedChunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(crossBoundary))
+	})
 }
 
 func TestEd25519EncryptionDecryption(t *testing.T) {
