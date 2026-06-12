@@ -147,14 +147,24 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 	var res []string
 	if rsaKey, ok := key.(*rsa.PublicKey); ok {
-		chunks := lo.ChunkString(s, rsaKey.Size()/2)
-		res = make([]string, len(chunks))
-		for idx, chunk := range chunks {
-			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), nil)
+		// RSA-OAEP max plaintext = k − 2·hLen − 2.
+		// SHA-256: hLen=32 (sha256.Size). For a 2048-bit key (k=256): 256 − 64 − 2 = 190 bytes.
+		maxPlain := rsaKey.Size() - 2*sha256.Size - 2
+		if maxPlain <= 0 {
+			return nil, errors.Errorf("RSA key too small (%d bits) for OAEP-SHA256", rsaKey.Size()*8)
+		}
+		data := []byte(s)
+		res = make([]string, 0, (len(data)+maxPlain-1)/maxPlain)
+		for i := 0; i < len(data); i += maxPlain {
+			end := i + maxPlain
+			if end > len(data) {
+				end = len(data)
+			}
+			enc, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, data[i:end], nil)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to encrypt secret")
 			}
-			res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
+			res = append(res, base64.StdEncoding.EncodeToString(enc))
 		}
 	} else if ed25519Key, ok := key.(ed25519.PublicKey); ok {
 		// For ed25519, use hybrid encryption with Curve25519 + ChaCha20-Poly1305

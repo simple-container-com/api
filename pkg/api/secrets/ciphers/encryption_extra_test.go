@@ -2,6 +2,7 @@ package ciphers
 
 import (
 	"crypto/rsa"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -243,4 +244,76 @@ func TestEd25519EncryptDecrypt_RoundTrip(t *testing.T) {
 	// are accessed by other tests; this test pins key shape + size.
 	_ = priv
 	_ = pub
+}
+
+func TestEncryptLargeString_UTF8_BoxDrawing(t *testing.T) {
+	RegisterTestingT(t)
+	privKey, pubKey, err := GenerateKeyPair(2048)
+	Expect(err).ToNot(HaveOccurred())
+	// ─ is U+2500, 3 bytes each; 256 runes = 768 bytes — well over old 128-rune chunk limit
+	input := strings.Repeat("─", 256)
+	chunks, err := EncryptLargeString(pubKey, input)
+	Expect(err).ToNot(HaveOccurred())
+	dec, err := DecryptLargeString(privKey, chunks)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(string(dec)).To(Equal(input))
+}
+
+func TestEncryptLargeString_UTF8_Emoji(t *testing.T) {
+	RegisterTestingT(t)
+	privKey, pubKey, err := GenerateKeyPair(2048)
+	Expect(err).ToNot(HaveOccurred())
+	// 🔑 is U+1F511, 4 bytes each; 100 runes = 400 bytes
+	input := strings.Repeat("🔑", 100)
+	chunks, err := EncryptLargeString(pubKey, input)
+	Expect(err).ToNot(HaveOccurred())
+	dec, err := DecryptLargeString(privKey, chunks)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(string(dec)).To(Equal(input))
+}
+
+func TestEncryptLargeString_UTF8_Mixed(t *testing.T) {
+	RegisterTestingT(t)
+	privKey, pubKey, err := GenerateKeyPair(2048)
+	Expect(err).ToNot(HaveOccurred())
+	// Real-world-style header with box-drawing, arrows, em-dash, Cyrillic
+	input := "─────────────────────────\n" +
+		"→ ↔ — Привет мир\n" +
+		strings.Repeat("─", 80) + "\n" +
+		"value: тест\n"
+	chunks, err := EncryptLargeString(pubKey, input)
+	Expect(err).ToNot(HaveOccurred())
+	dec, err := DecryptLargeString(privKey, chunks)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(string(dec)).To(Equal(input))
+}
+
+func TestEncryptLargeString_UTF8_ChunkBoundaryMidRune(t *testing.T) {
+	RegisterTestingT(t)
+	privKey, pubKey, err := GenerateKeyPair(2048)
+	Expect(err).ToNot(HaveOccurred())
+	// 64 × "─" = 192 bytes. With maxPlain=190, chunk 1 = bytes [0:190] (splits
+	// mid-rune at position 63), chunk 2 = bytes [190:192]. Verifies byte-split
+	// is safe: DecryptLargeString rejoins raw bytes, restoring the full string.
+	input := strings.Repeat("─", 64)
+	chunks, err := EncryptLargeString(pubKey, input)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(len(chunks)).To(Equal(2))
+	dec, err := DecryptLargeString(privKey, chunks)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(string(dec)).To(Equal(input))
+}
+
+func TestEncryptLargeString_SmallKey_TooSmall(t *testing.T) {
+	RegisterTestingT(t)
+	// Construct a synthetic RSA public key whose modulus is only 64 bytes (512 bits).
+	// k=64, maxPlain = 64 − 64 − 2 = −2 → the "RSA key too small" guard fires.
+	// We bypass rsa.GenerateKey (which now rejects sub-1024 keys) by building the
+	// key struct directly with a 64-byte big.Int modulus.
+	n := new(big.Int).SetBytes(make([]byte, 64)) // 512-bit zero — Size() returns 64
+	n.SetBit(n, 511, 1)                          // ensure bit-length = 512 so Size()=64
+	tinyKey := &rsa.PublicKey{N: n, E: 65537}
+	_, err := EncryptLargeString(tinyKey, "any input")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("RSA key too small"))
 }
