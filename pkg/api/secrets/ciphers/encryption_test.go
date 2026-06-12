@@ -254,6 +254,86 @@ func TestEd25519DecryptionEdgeCases(t *testing.T) {
 	})
 }
 
+// TestEncryptLargeStringUTF8 guards against the rune-vs-byte chunking bug where
+// multi-byte UTF-8 characters could push a chunk over the OAEP-SHA256 byte limit
+// (190 bytes for a 2048-bit key), causing "crypto/rsa: message too long".
+func TestEncryptLargeStringUTF8(t *testing.T) {
+	RegisterTestingT(t)
+
+	privKey, pubKey, err := GenerateKeyPair(2048)
+	Expect(err).To(BeNil())
+
+	t.Run("box-drawing flood: 120 runes × 3 bytes = 360 bytes", func(t *testing.T) {
+		// U+2500 BOX DRAWINGS LIGHT HORIZONTAL encodes as 3 UTF-8 bytes.
+		// 120 runes × 3 bytes = 360 bytes — far above the 190-byte OAEP limit.
+		// Old rune-based chunking (128 runes/chunk) would pass 360 bytes to EncryptOAEP.
+		s := strings.Repeat("─", 120)
+		chunks, err := EncryptLargeString(pubKey, s)
+		Expect(err).To(BeNil(), "encrypt must not fail for multi-byte UTF-8 input")
+
+		decrypted, err := DecryptLargeString(privKey, chunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(s))
+	})
+
+	t.Run("mixed multi-byte characters > 190 bytes", func(t *testing.T) {
+		// Mix of arrow (3 B), em-dash (3 B), Cyrillic (2 B), emoji (4 B)
+		s := strings.Repeat("→—яя🔑", 20) // each repeat ~14 bytes; 20× = ~280 bytes
+		chunks, err := EncryptLargeString(pubKey, s)
+		Expect(err).To(BeNil())
+
+		decrypted, err := DecryptLargeString(privKey, chunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(s))
+	})
+
+	t.Run("exactly 190 ASCII bytes produces 1 chunk", func(t *testing.T) {
+		s := strings.Repeat("a", 190)
+		chunks, err := EncryptLargeString(pubKey, s)
+		Expect(err).To(BeNil())
+		Expect(chunks).To(HaveLen(1))
+
+		decrypted, err := DecryptLargeString(privKey, chunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(s))
+	})
+
+	t.Run("191 ASCII bytes splits into 2 chunks", func(t *testing.T) {
+		s := strings.Repeat("a", 191)
+		chunks, err := EncryptLargeString(pubKey, s)
+		Expect(err).To(BeNil())
+		Expect(chunks).To(HaveLen(2))
+
+		decrypted, err := DecryptLargeString(privKey, chunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(s))
+	})
+
+	t.Run("empty string round-trip", func(t *testing.T) {
+		chunks, err := EncryptLargeString(pubKey, "")
+		Expect(err).To(BeNil())
+		Expect(chunks).To(BeEmpty())
+
+		decrypted, err := DecryptLargeString(privKey, chunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(""))
+	})
+
+	t.Run("4096-bit key round-trip with large UTF-8 payload", func(t *testing.T) {
+		priv4096, pub4096, err := GenerateKeyPair(4096)
+		Expect(err).To(BeNil())
+
+		// maxPlain for 4096-bit key = 512 - 64 - 2 = 446 bytes
+		s := strings.Repeat("─", 300) // 300 × 3 bytes = 900 bytes → 3 chunks
+		chunks, err := EncryptLargeString(pub4096, s)
+		Expect(err).To(BeNil())
+
+		decrypted, err := DecryptLargeString(priv4096, chunks)
+		Expect(err).To(BeNil())
+		Expect(string(decrypted)).To(Equal(s))
+	})
+}
+
 func TestKeyFormatting(t *testing.T) {
 	RegisterTestingT(t)
 
