@@ -1,0 +1,1 @@
+The workflow branch has the same unpatched `encryption.go` as `main`. I have a complete picture. Now I produce my PM handoff document.
