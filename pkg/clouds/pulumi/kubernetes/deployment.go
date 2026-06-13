@@ -46,6 +46,7 @@ type Args struct {
 	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
+	StartupProbe           *k8s.CloudRunProbe // Global startup probe configuration
 	EphemeralSize          string
 	// TerminationGracePeriodSeconds overrides pod-level terminationGracePeriodSeconds.
 	TerminationGracePeriodSeconds *int
@@ -177,10 +178,16 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		}
 
 		var startupProbe *corev1.ProbeArgs
-		if c.Container.StartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
+		cStartupProbe := c.Container.StartupProbe
+		// Global fallback for the ingress container only, mirroring readiness/liveness above
+		if cStartupProbe == nil && args.StartupProbe != nil && isIngressContainer {
+			cStartupProbe = args.StartupProbe
+		}
+		if cStartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
-		} else if c.Container.StartupProbe != nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
-			startupProbe = toProbeArgs(c, c.Container.StartupProbe)
+		} else if cStartupProbe != nil {
+			// Explicit probes resolve their own port — apply even on multi-port containers
+			startupProbe = toProbeArgs(c, cStartupProbe)
 		}
 
 		var resources corev1.ResourceRequirementsArgs
@@ -325,8 +332,13 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 		probePort = c.Container.Ports[0]
 	}
 
+	// periodSeconds (k8s-native) wins over the legacy duration-typed interval
+	periodSeconds := probe.PeriodSeconds
+	if periodSeconds == nil && probe.Interval != nil {
+		periodSeconds = lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))
+	}
 	probeArgs := &corev1.ProbeArgs{
-		PeriodSeconds:       sdk.IntPtrFromPtr(lo.If(probe.Interval != nil, lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))).Else(nil)),
+		PeriodSeconds:       sdk.IntPtrFromPtr(periodSeconds),
 		InitialDelaySeconds: sdk.IntPtrFromPtr(probe.InitialDelaySeconds),
 		FailureThreshold:    sdk.IntPtrFromPtr(probe.FailureThreshold),
 		SuccessThreshold:    sdk.IntPtrFromPtr(probe.SuccessThreshold),

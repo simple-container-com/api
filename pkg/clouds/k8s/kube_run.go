@@ -25,6 +25,7 @@ type CloudExtras struct {
 	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`
 	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`
 	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`
+	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 }

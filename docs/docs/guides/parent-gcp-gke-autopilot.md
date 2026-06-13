@@ -683,6 +683,22 @@ stacks:
           timeoutSeconds: 10
           periodSeconds: 30
           failureThreshold: 3
+
+        # Global startup probe configuration — the cold-start budget.
+        # Readiness/liveness checks are suspended until this probe succeeds,
+        # so a slow first boot (image pull, migrations, JIT warmup) is not
+        # killed mid-start. Total budget here: 10s + 16 × 15s = 250s.
+        # Without it, the startup window defaults to the readiness probe,
+        # whose short thresholds are tuned for steady-state, not first boot.
+        startupProbe:
+          httpGet:
+            path: "/health"
+            port: 8080
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+          periodSeconds: 15
+          failureThreshold: 16
+          successThreshold: 1
 ```
 
 ## **CloudExtras Field Reference**
@@ -697,6 +713,7 @@ stacks:
 | `vpa`                | `object`            | Vertical Pod Autoscaler                      | Native GKE support             |
 | `readinessProbe`     | `object`            | Global readiness probe                       | Full support                   |
 | `livenessProbe`      | `object`            | Global liveness probe                        | Full support                   |
+| `startupProbe`       | `object`            | Global startup probe (cold-start budget)     | Full support                   |
 | `priorityClassName`  | `string`            | Kubernetes PriorityClass for pod scheduling  | Full support                   |
 | `ephemeralVolumes`   | `[]object`          | Generic ephemeral volumes (>10GB storage)    | Full support                   |
 

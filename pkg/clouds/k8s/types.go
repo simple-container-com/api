@@ -30,6 +30,7 @@ type DeploymentConfig struct {
 	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                             // Vertical Pod Autoscaler configuration
 	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`       // Global readiness probe configuration
 	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`         // Global liveness probe configuration
+	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`           // Global startup probe configuration
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 }
@@ -133,7 +134,8 @@ type CloudRunProbe struct {
 	HttpGet             ProbeHttpGet   `json:"httpGet" yaml:"httpGet"`
 	Interval            *time.Duration `json:"interval" yaml:"interval"`
 	InitialDelaySeconds *int           `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
-	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"`
+	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"` // Deprecated: misspelled and never consumed; use periodSeconds
+	PeriodSeconds       *int           `json:"periodSeconds" yaml:"periodSeconds"`   // k8s-native spelling; takes precedence over Interval
 	FailureThreshold    *int           `json:"failureThreshold" yaml:"failureThreshold"`
 	SuccessThreshold    *int           `json:"successThreshold" yaml:"successThreshold"`
 	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`
