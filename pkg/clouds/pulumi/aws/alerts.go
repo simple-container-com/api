@@ -58,6 +58,23 @@ type helperCfg struct {
 	deployParams    api.StackParams
 }
 
+// helpersBuildDir returns a DETERMINISTIC build-context directory for the
+// generated helpers Dockerfile, keyed on imageName.
+//
+// pulumi-docker's Image Diff is a structural diff of the build inputs, and it
+// stores build.context / build.dockerfile as the literal path strings. Using
+// os.MkdirTemp (random suffix every run) made both differ from the stored state
+// on every provision, so the image reported a permanent `build: update` phantom
+// diff on every PR preview. A stable path makes those fields byte-identical
+// across runs; the Dockerfile content is constant and imageName already encodes
+// the stack+env, so reusing/overwriting one dir per image is safe and never
+// collides across stacks. Separators are replaced so imageName stays a single
+// path segment (no traversal out of TempDir).
+func helpersBuildDir(imageName string) string {
+	safe := strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(imageName)
+	return filepath.Join(os.TempDir(), "sc-helpers-"+safe)
+}
+
 func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, error) {
 	ecrRepoName := cfg.ecrRepoName
 	if ecrRepoName == "" {
@@ -80,16 +97,7 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 	cfg.provisionParams.Log.Info(ctx.Context(), "creating temporary Dockerfile for cloud-helpers...")
 
 	// hack taken from here https://github.com/pulumi/pulumi-docker/issues/54#issuecomment-772250411
-	//
-	// Use a DETERMINISTIC dir (not os.MkdirTemp, which appends a random suffix)
-	// keyed on imageName. pulumi-docker's Diff is a structural diff of the build
-	// inputs, and it stores build.context / build.dockerfile as the literal path
-	// strings — a fresh random path every provision makes both differ from state
-	// and the image reports a permanent `build: update` phantom diff on every
-	// PR preview. The Dockerfile content is constant and imageName already encodes
-	// the stack+env, so reusing/overwriting a stable per-image dir is safe and
-	// never collides across stacks.
-	depDir := filepath.Join(os.TempDir(), "sc-helpers-"+strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(cfg.imageName))
+	depDir := helpersBuildDir(cfg.imageName)
 	if err := os.MkdirAll(depDir, 0o700); err != nil {
 		return nil, errors.Wrapf(err, "failed to create helpers build dir")
 	}
