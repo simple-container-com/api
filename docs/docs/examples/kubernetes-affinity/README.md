@@ -76,6 +76,34 @@ stacks:
                 topologyKey: "topology.kubernetes.io/zone"
 ```
 
+### **Spread Replicas Across Nodes (Topology Spread)**
+
+To keep a multi-replica service available across node failures, spread its replicas
+across nodes. On **GKE Autopilot** prefer `topologySpreadConstraints` over
+`podAntiAffinity`: pod anti-affinity forces a 0.5 vCPU minimum request per pod (and is
+*rejected* outright below it), whereas topology spread is not subject to that minimum.
+
+```yaml
+stacks:
+  my-service:
+    type: cloud-compose
+    config:
+      scale:
+        min: 2
+        max: 4
+      cloudExtras:
+        topologySpreadConstraints:
+          - topologyKey: "kubernetes.io/hostname"
+            maxSkew: 1
+            whenUnsatisfiable: "DoNotSchedule"
+            minDomains: 2
+```
+
+`labelSelector` defaults to the deployment's own pods when omitted. On GKE Autopilot,
+`whenUnsatisfiable: DoNotSchedule` together with `minDomains: 2` is required to actually
+force a second node — `ScheduleAnyway` only expresses a preference and lets the scheduler
+bin-pack both replicas onto one node.
+
 ## **Supported Affinity Properties**
 
 ### **Simple Container Properties**
@@ -87,6 +115,13 @@ stacks:
 - **`nodeAffinity`**: Node selection rules and preferences
 - **`podAffinity`**: Pod co-location rules
 - **`podAntiAffinity`**: Pod separation and distribution rules
+
+### **Topology Spread Properties (`cloudExtras.topologySpreadConstraints`)**
+- **`topologyKey`** (required): Node label defining a domain (e.g. `kubernetes.io/hostname`)
+- **`maxSkew`**: Max allowed pod-count difference between domains (default `1`)
+- **`whenUnsatisfiable`**: `DoNotSchedule` (default) or `ScheduleAnyway`
+- **`minDomains`**: Minimum eligible domains (only valid with `DoNotSchedule`)
+- **`labelSelector`**: Pods to count; defaults to this deployment's pods when omitted
 
 ## **Implementation Details**
 

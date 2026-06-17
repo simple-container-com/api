@@ -106,24 +106,25 @@ type SimpleContainerArgs struct {
 	KubeProvider           sdk.ProviderResource
 
 	// optional properties
-	PodDisruption         *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
-	LbConfig              *api.SimpleContainerLBConfig `json:"lbConfig" yaml:"lbConfig"`
-	SecretEnvs            map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
-	Annotations           map[string]string            `json:"annotations" yaml:"annotations"`
-	NodeSelector          map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity              *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
-	PriorityClassName     *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
-	IngressContainer      *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
-	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
-	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
-	ProvisionIngress      bool                         `json:"provisionIngress" yaml:"provisionIngress"`
-	Headers               *k8s.Headers                 `json:"headers" yaml:"headers"`
-	Volumes               []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
-	SecretVolumes         []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
-	PersistentVolumes     []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
-	EphemeralVolumes      []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
-	VPA                   *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
-	Scale                 *k8s.Scale                   `json:"scale" yaml:"scale"`
+	PodDisruption             *k8s.DisruptionBudget          `json:"podDisruption" yaml:"podDisruption"`
+	LbConfig                  *api.SimpleContainerLBConfig   `json:"lbConfig" yaml:"lbConfig"`
+	SecretEnvs                map[string]string              `json:"secretEnvs" yaml:"secretEnvs"`
+	Annotations               map[string]string              `json:"annotations" yaml:"annotations"`
+	NodeSelector              map[string]string              `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity                  *k8s.AffinityRules             `json:"affinity" yaml:"affinity"`
+	TopologySpreadConstraints []k8s.TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
+	PriorityClassName         *string                        `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+	IngressContainer          *k8s.CloudRunContainer         `json:"ingressContainer" yaml:"ingressContainer"`
+	ServiceType               *string                        `json:"serviceType" yaml:"serviceType"`
+	ExternalTrafficPolicy     *string                        `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
+	ProvisionIngress          bool                           `json:"provisionIngress" yaml:"provisionIngress"`
+	Headers                   *k8s.Headers                   `json:"headers" yaml:"headers"`
+	Volumes                   []k8s.SimpleTextVolume         `json:"volumes" yaml:"volumes"`
+	SecretVolumes             []k8s.SimpleTextVolume         `json:"secretVolumes" yaml:"secretVolumes"`
+	PersistentVolumes         []k8s.PersistentVolume         `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes          []k8s.GenericEphemeralVolume   `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
+	VPA                       *k8s.VPAConfig                 `json:"vpa" yaml:"vpa"`
+	Scale                     *k8s.Scale                     `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
@@ -594,6 +595,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	convertedAffinity := convertAffinityRulesToKubernetes(args.Affinity)
 	args.Log.Info(ctx.Context(), "🔍 DEBUG: Converted affinity result: %+v", convertedAffinity)
 
+	normalizedTSC, tscErr := normalizeTopologySpreadConstraints(args.TopologySpreadConstraints, appLabels)
+	if tscErr != nil {
+		return nil, tscErr
+	}
+	topologySpread := convertTopologySpreadConstraints(normalizedTSC)
+
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
 		Affinity:     convertedAffinity,
@@ -628,6 +635,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Set optional fields if provided
 	if args.PriorityClassName != nil {
 		podSpecArgs.PriorityClassName = sdk.String(*args.PriorityClassName)
+	}
+	if topologySpread != nil {
+		podSpecArgs.TopologySpreadConstraints = topologySpread
 	}
 	if imagePullSecret != nil {
 		podSpecArgs.ImagePullSecrets = corev1.LocalObjectReferenceArray{
@@ -1426,4 +1436,65 @@ func convertLabelSelector(labelSelector *k8s.LabelSelector) *metav1.LabelSelecto
 	}
 
 	return kubeLabelSelector
+}
+
+func normalizeTopologySpreadConstraints(constraints []k8s.TopologySpreadConstraint, appLabels map[string]string) ([]k8s.TopologySpreadConstraint, error) {
+	if len(constraints) == 0 {
+		return nil, nil
+	}
+
+	out := make([]k8s.TopologySpreadConstraint, 0, len(constraints))
+	for i, c := range constraints {
+		if c.TopologyKey == "" {
+			return nil, errors.Errorf("topologySpreadConstraints[%d]: topologyKey is required", i)
+		}
+
+		n := c
+		if n.WhenUnsatisfiable == "" {
+			n.WhenUnsatisfiable = "DoNotSchedule"
+		}
+		if n.WhenUnsatisfiable != "DoNotSchedule" && n.WhenUnsatisfiable != "ScheduleAnyway" {
+			return nil, errors.Errorf("topologySpreadConstraints[%d]: whenUnsatisfiable must be DoNotSchedule or ScheduleAnyway, got %q", i, n.WhenUnsatisfiable)
+		}
+		if n.MaxSkew == nil {
+			n.MaxSkew = lo.ToPtr(1)
+		} else if *n.MaxSkew < 1 {
+			return nil, errors.Errorf("topologySpreadConstraints[%d]: maxSkew must be >= 1, got %d", i, *n.MaxSkew)
+		}
+		if n.MinDomains != nil {
+			if *n.MinDomains < 1 {
+				return nil, errors.Errorf("topologySpreadConstraints[%d]: minDomains must be >= 1, got %d", i, *n.MinDomains)
+			}
+			if n.WhenUnsatisfiable != "DoNotSchedule" {
+				return nil, errors.Errorf("topologySpreadConstraints[%d]: minDomains requires whenUnsatisfiable=DoNotSchedule", i)
+			}
+		}
+		if n.LabelSelector == nil {
+			n.LabelSelector = &k8s.LabelSelector{MatchLabels: appLabels}
+		}
+
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func convertTopologySpreadConstraints(constraints []k8s.TopologySpreadConstraint) corev1.TopologySpreadConstraintArray {
+	if len(constraints) == 0 {
+		return nil
+	}
+
+	result := make(corev1.TopologySpreadConstraintArray, 0, len(constraints))
+	for _, c := range constraints {
+		constraint := corev1.TopologySpreadConstraintArgs{
+			MaxSkew:           sdk.Int(lo.FromPtr(c.MaxSkew)),
+			TopologyKey:       sdk.String(c.TopologyKey),
+			WhenUnsatisfiable: sdk.String(c.WhenUnsatisfiable),
+			LabelSelector:     convertLabelSelector(c.LabelSelector),
+		}
+		if c.MinDomains != nil {
+			constraint.MinDomains = sdk.Int(*c.MinDomains)
+		}
+		result = append(result, constraint)
+	}
+	return result
 }
