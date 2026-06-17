@@ -28,6 +28,17 @@ type CloudExtras struct {
 	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+
+	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
+}
+
+// TopologySpreadConstraint spreads pods across nodes without the GKE Autopilot 0.5 vCPU minimum that pod anti-affinity requires.
+type TopologySpreadConstraint struct {
+	MaxSkew           *int           `json:"maxSkew" yaml:"maxSkew"`
+	TopologyKey       string         `json:"topologyKey" yaml:"topologyKey"`
+	WhenUnsatisfiable string         `json:"whenUnsatisfiable" yaml:"whenUnsatisfiable"`
+	LabelSelector     *LabelSelector `json:"labelSelector" yaml:"labelSelector"`
+	MinDomains        *int           `json:"minDomains" yaml:"minDomains"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation
@@ -176,6 +187,7 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe         // Extract global liveness probe configuration
 		deployCfg.EphemeralVolumes = k8sCloudExtras.EphemeralVolumes   // Extract generic ephemeral volumes configuration
 		deployCfg.PriorityClassName = k8sCloudExtras.PriorityClassName // Extract PriorityClass for pod scheduling and preemption
+		deployCfg.TopologySpreadConstraints = k8sCloudExtras.TopologySpreadConstraints
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {
