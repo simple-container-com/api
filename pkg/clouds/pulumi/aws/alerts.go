@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -79,13 +80,22 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 	cfg.provisionParams.Log.Info(ctx.Context(), "creating temporary Dockerfile for cloud-helpers...")
 
 	// hack taken from here https://github.com/pulumi/pulumi-docker/issues/54#issuecomment-772250411
-	var dockerFilePath string
-	if depDir, err := os.MkdirTemp(os.TempDir(), cfg.imageName); err != nil {
-		return nil, errors.Wrapf(err, "failed to create tempDir")
-	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=${VERSION}"), os.ModePerm); err != nil {
+	//
+	// Use a DETERMINISTIC dir (not os.MkdirTemp, which appends a random suffix)
+	// keyed on imageName. pulumi-docker's Diff is a structural diff of the build
+	// inputs, and it stores build.context / build.dockerfile as the literal path
+	// strings — a fresh random path every provision makes both differ from state
+	// and the image reports a permanent `build: update` phantom diff on every
+	// PR preview. The Dockerfile content is constant and imageName already encodes
+	// the stack+env, so reusing/overwriting a stable per-image dir is safe and
+	// never collides across stacks.
+	depDir := filepath.Join(os.TempDir(), "sc-helpers-"+strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(cfg.imageName))
+	if err := os.MkdirAll(depDir, 0o700); err != nil {
+		return nil, errors.Wrapf(err, "failed to create helpers build dir")
+	}
+	dockerFilePath := filepath.Join(depDir, "Dockerfile")
+	if err := os.WriteFile(dockerFilePath, []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=${VERSION}"), 0o600); err != nil {
 		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
-	} else {
-		dockerFilePath = filepath.Join(depDir, "Dockerfile")
 	}
 
 	version := lo.If(cfg.deployParams.Version == "", "latest").Else(cfg.deployParams.Version)
