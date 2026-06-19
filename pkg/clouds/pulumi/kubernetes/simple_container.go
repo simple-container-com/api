@@ -169,6 +169,9 @@ type SimpleContainer struct {
 	Deployment      *v1.Deployment      `pulumi:"deployment"`
 }
 
+// NewSimpleContainer provisions a stack's Deployment, Service, VPA/HPA and related resources.
+// Callers MUST pass args.Service/args.Deployment already parentEnv-suffixed (see generateDeploymentName);
+// child resource names are derived from them as-is, so re-suffixing here would double-suffix custom stacks.
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	sc := &SimpleContainer{}
 
@@ -325,8 +328,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		secretVolumeToData[secretVolume.Name] = secretVolume.Content
 	}
 
+	// args.Deployment is already parentEnv-suffixed by the caller; use it directly so custom-stack VPA/HPA names aren't double-suffixed.
+	baseResourceName := sanitizedDeployment
 	// Generate resource names with parentEnv-aware logic
-	baseResourceName := generateDeploymentName(sanitizedService, args.ScEnv, parentEnv)
 	volumesCfgName := generateConfigVolumesName(sanitizedService, args.ScEnv, parentEnv)
 	envSecretName := generateSecretName(sanitizedService, args.ScEnv, parentEnv)
 	volumesSecretName := generateSecretVolumesName(sanitizedService, args.ScEnv, parentEnv)
@@ -986,7 +990,7 @@ ${proto}://${domain} {
 	// Create HPA if enabled (validation already done in deployment.go)
 	if args.Scale != nil && args.Scale.EnableHPA {
 		hpaArgs := &HPAArgs{
-			Name:         baseResourceName, // Uses parentEnv-aware name
+			Name:         baseResourceName,
 			Deployment:   deployment,
 			MinReplicas:  args.Scale.MinReplicas,
 			MaxReplicas:  args.Scale.MaxReplicas,
