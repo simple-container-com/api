@@ -119,10 +119,14 @@ tasks:
       - sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
   build-cloud-helpers:
     runOn: host
+    env:
+      CGO_ENABLED: "0" # static, host-libc-independent build for reproducibility
     script:
       - go build -trimpath -ldflags "${arg:ld-flags}" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
   build-github-actions:
     runOn: host
+    env:
+      CGO_ENABLED: "0" # static, host-libc-independent build for reproducibility
     script:
       - echo "Building GitHub Actions binary..."
       - go build -trimpath -ldflags "${arg:ld-flags}" -o ${project:root}/dist/github-actions ./cmd/github-actions
@@ -256,7 +260,7 @@ tasks:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
       - go build -trimpath -ldflags "${arg:ld-flags}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
-      - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
+      - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf - sc${EXT} | gzip -9 -n > sc-${GOOS}-${GOARCH}.tar.gz
       - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
       - cp ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz
   deploy:

@@ -1,55 +1,61 @@
 # Reproducible builds
 
-The release binaries (`sc`, `cloud-helpers`, `github-actions`) are built
-deterministically: building the **same source at the same version** on a
-clean machine yields a **bit-for-bit identical** binary. This lets anyone
-independently rebuild a release and confirm the published artifact was
-built from the published source.
+The release binaries (`sc`, `cloud-helpers`, `github-actions`) and the
+published `sc-<os>-<arch>.tar.gz` archives are built deterministically:
+rebuilding the **same source at the same version** on a clean machine
+yields a **bit-for-bit identical** binary and archive. This lets anyone
+independently rebuild a release and confirm the published artifact (and
+its `cosign` / SLSA digest) was built from the published source.
 
 ## What makes the build reproducible
 
 | Input | How it is pinned | Where |
 |---|---|---|
 | **Go toolchain** | exact patch version pinned by the `go` directive; `GOTOOLCHAIN` resolves it deterministically | [`go.mod`](../go.mod) |
-| **Filesystem paths** | `-trimpath` strips the build machine's `$GOPATH`/module paths from the binary | [`welder.yaml`](../welder.yaml) `build`, `build-cloud-helpers`, `build-github-actions`, `build-github-actions-staging` |
-| **C toolchain variance** | `CGO_ENABLED=0` — pure-Go static build, no host libc/linker | [`welder.yaml`](../welder.yaml) `build`, `build-github-actions-staging` |
-| **Embedded version string** | `-ldflags "-s -w -X .../internal/build.Version=$VERSION"` — symbol table stripped, version supplied explicitly (not derived from wall-clock) | [`welder.yaml`](../welder.yaml) `default.build.args.ld-flags` |
+| **Filesystem paths** | `-trimpath` strips the build machine's `$GOPATH`/module paths from the binary | release jobs in [`.github/workflows/push.yaml`](../.github/workflows/push.yaml) (`build sc`, `build <target>`) and the [`welder.yaml`](../welder.yaml) `build` / `build-cloud-helpers` / `build-github-actions` / `build-github-actions-staging` tasks |
+| **C toolchain variance** | `CGO_ENABLED=0` — pure-Go static build, no host libc/linker dependency | every release build: `push.yaml` `build sc` + `build <target>`; `welder.yaml` `build`, `build-cloud-helpers`, `build-github-actions`, `build-github-actions-staging` |
+| **Embedded version string** | `-ldflags "-s -w -X .../internal/build.Version=$VERSION"` — symbol table stripped, version supplied explicitly (not derived from the wall-clock) | `push.yaml` + `welder.yaml` `default.build.args.ld-flags` |
+| **Archive metadata** | `tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \| gzip -n` — fixed entry order, zeroed timestamps/ownership, no gzip timestamp | `push.yaml` `build sc`, `welder.yaml` `build` |
 | **AI-assistant embeddings** | committed to the repo (`pkg/assistant/embeddings/vectors/`) and consumed via `go:embed`; the build never calls an external LLM | repo tree |
 | **Dependencies** | module graph pinned by `go.sum`; Docker base images + GitHub Actions are SHA-pinned | `go.sum`, Dockerfiles, `.github/` |
 
-The only intentional build input is `VERSION` (the CalVer tag). Two
-builds of the same commit with the same `VERSION` are identical; the
-version is passed in explicitly rather than read from the clock or the
-build host, so it does not introduce nondeterminism.
+The only intentional build input is `VERSION` — the **bare** CalVer
+value (e.g. `2026.6.20`, no `v` prefix) that the release embeds into
+`internal/build.Version`. Two builds of the same commit with the same
+`VERSION` are identical; the version is passed in explicitly rather than
+read from the clock or the build host, so it introduces no nondeterminism.
 
 ## Verifying reproducibility
 
-Build the `sc` binary twice from a clean checkout and compare digests:
+Use the **bare** CalVer the release embedded (the `v` prefix only ever
+appears in the `-v<version>` copy of the tarball filename, never in
+`build.Version`). Build twice from a clean checkout and compare:
 
 ```sh
-git checkout <released-tag>            # e.g. v2026.6.20
-VERSION=<released-tag> welder run build -a os=linux -a arch=amd64
-sha256sum dist/linux-amd64/sc
+git checkout <released-tag>
+VERSION=2026.6.20 welder run build -a os=linux -a arch=amd64   # bare version
+sha256sum .sc/stacks/dist/bundle/sc-linux-amd64.tar.gz
 
-# rebuild from a fresh clone and compare
-git clean -fdx && \
-VERSION=<released-tag> welder run build -a os=linux -a arch=amd64
-sha256sum dist/linux-amd64/sc        # identical to the first
+git clean -fdx
+VERSION=2026.6.20 welder run build -a os=linux -a arch=amd64
+sha256sum .sc/stacks/dist/bundle/sc-linux-amd64.tar.gz         # identical digest
 ```
 
-Or directly with the Go toolchain (no welder):
+Or just the binary, directly with the Go toolchain (matches the flags the
+release uses):
 
 ```sh
 CGO_ENABLED=0 go build -trimpath \
-  -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=<tag>" \
+  -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=2026.6.20" \
   -o sc ./cmd/sc
 sha256sum sc
 ```
 
-To confirm a **published** release matches the source, rebuild the tag
-as above and compare the digest against the release's
-`cosign verify-blob` / SLSA provenance subject digest (see
-[`SECURITY.md`](SECURITY.md) → "Verifying tarballs").
+To confirm a **published** release matches the source, rebuild the tag as
+above and compare the rebuilt `sc-<os>-<arch>.tar.gz` digest (or the inner
+binary's digest) against the release's `cosign verify-blob --bundle` /
+SLSA provenance subject digest — see [`SECURITY.md`](SECURITY.md) →
+"Verifying tarballs".
 
 ## Known boundaries
 
@@ -57,5 +63,5 @@ as above and compare the digest against the release's
   reproducibility additionally depends on the SHA-pinned base images and
   the deterministic `welder docker build` context.
 - Reproducibility is asserted for the release toolchain (Linux/macOS,
-  amd64/arm64) targeted by the `build` task; cross-builds use the same
-  flags per `GOOS`/`GOARCH`.
+  amd64/arm64); each cross-build target uses the same flags per
+  `GOOS`/`GOARCH`.
