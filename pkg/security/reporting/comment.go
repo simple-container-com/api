@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package reporting
 
 import (
@@ -50,7 +53,8 @@ func BuildScanResultsComment(imageRef string, result *scan.ScanResult, uploads [
 			if fixedIn == "" {
 				fixedIn = "-"
 			}
-			b.WriteString(fmt.Sprintf("| %s | `%s` | `%s` | `%s` | `%s` |\n",
+			b.WriteString(fmt.Sprintf(
+				"| %s | `%s` | `%s` | `%s` | `%s` |\n",
 				strings.ToUpper(string(vuln.Severity)),
 				vuln.ID,
 				vuln.Package,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package api
 
 import (
@@ -220,7 +223,7 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to read resource %q for stack %q", resourceName, stackName)
 			}
-			if withDepProviders, ok := (resource.Config.Config).(WithDependencyProviders); ok {
+			if withDepProviders, ok := resource.Config.Config.(WithDependencyProviders); ok {
 				depProviders := withDepProviders.DependencyProviders()
 				for name, authCfg := range depProviders {
 					procAuthCfg, err := DetectAuthProvider(&authCfg)

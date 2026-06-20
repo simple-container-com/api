@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package aws
 
 import (
@@ -377,7 +380,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 					return lo.Contains(
 						lo.Map(crInput.Containers, func(c aws.EcsFargateContainer, _ int) string {
 							return c.Name
-						}), d.Container)
+						}), d.Container,
+					)
 				}),
 				func(dep aws.EcsFargateDependsOn, _ int) {
 					dependsOn = append(dependsOn, ecs.TaskDefinitionContainerDependencyArgs{
@@ -429,7 +433,8 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 				}
 			}
 			return cDef
-		}),
+		},
+	),
 		func(container EcsContainerDef) string {
 			return container.Name
 		}),

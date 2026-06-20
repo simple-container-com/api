@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package aws
 
 import (
@@ -92,7 +95,8 @@ func TestConsoleLoginWithoutMfa_RestrictedToIAMUser(t *testing.T) {
 	// this well-known false positive.
 	RegisterTestingT(t)
 	Expect(securityAlerts["consoleLoginWithoutMfa"].filterPattern).To(
-		ContainSubstring(`$.userIdentity.type = "IAMUser"`))
+		ContainSubstring(`$.userIdentity.type = "IAMUser"`),
+	)
 }
 
 func TestAnonymousProbes_DefaultThreshold(t *testing.T) {
@@ -335,6 +339,7 @@ func TestApplyOverride_EmptyOverrideIsNoop(t *testing.T) {
 //   - leading/trailing whitespace inside the braces (idiomatic indentation),
 //   - internal parentheses from existing OR-groups,
 //   - mixed AND/OR/&& at the top level.
+//
 // If a future contributor writes a pattern with leading whitespace or extra braces,
 // the wrap output should still be syntactically valid CloudWatch.
 func TestApplyOverride_WorstCaseBasePattern(t *testing.T) {

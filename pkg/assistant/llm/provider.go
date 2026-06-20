@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package llm
 
 import (
@@ -284,13 +287,13 @@ func (b *BaseProvider) FallbackToNonStreaming(ctx context.Context, messages []Me
 		// Create streaming chunk
 		chunk := StreamChunk{
 			Content: currentContent.String(),
-			Delta: word + (func() string {
+			Delta: word + func() string {
 				if i < len(words)-1 {
 					return " "
 				} else {
 					return ""
 				}
-			})(),
+			}(),
 			IsComplete: i == len(words)-1,
 			Usage:      nil, // Usage only in final chunk
 			Metadata: map[string]string{

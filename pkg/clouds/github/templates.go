@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package github
 
 // Embedded workflow templates for GitHub Actions generation

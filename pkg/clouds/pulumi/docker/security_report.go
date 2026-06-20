@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package docker
 
 import (
@@ -26,8 +29,10 @@ var sanitizeForFilenameRe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 // chars — at which point os.WriteFile returns ENAMETOOLONG and the caller
 // falls back to inlining the full script, reintroducing the ARG_MAX
 // failure this helper exists to avoid.
-const maxSafeNameLen = 64
-const stagedScriptPrefix = "sc-security-report-"
+const (
+	maxSafeNameLen     = 64
+	stagedScriptPrefix = "sc-security-report-"
+)
 
 // stagedScriptMaxAge is the lifetime ceiling for staged scripts in TMPDIR.
 // On a long-lived CI runner with hundreds of deploys per day, the staged

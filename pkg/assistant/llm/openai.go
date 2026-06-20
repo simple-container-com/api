@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package llm
 
 import (
@@ -70,7 +73,8 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 
 	// Call OpenAI
 	startTime := time.Now()
-	response, err := p.client.GenerateContent(ctx, llmMessages,
+	response, err := p.client.GenerateContent(
+		ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(getModelTemperature(p.model, p.config.Temperature)),
 	)
@@ -186,7 +190,8 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, cal
 	var completionTokens int
 
 	// Use direct streaming generation (not tool-enabled path)
-	_, err := p.client.GenerateContent(ctx, llmMessages,
+	_, err := p.client.GenerateContent(
+		ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {

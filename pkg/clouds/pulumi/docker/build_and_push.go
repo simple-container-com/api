@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package docker
 
 import (
@@ -473,7 +476,8 @@ func createProvenanceCommands(ctx *sdk.Context, security *api.SecurityDescriptor
 				args = append(args, "--builder-id", security.Provenance.Builder.ID)
 			}
 			if security.Provenance.Metadata != nil {
-				args = append(args,
+				args = append(
+					args,
 					fmt.Sprintf("--include-env=%t", security.Provenance.Metadata.IncludeEnv),
 					fmt.Sprintf("--include-materials=%t", security.Provenance.Metadata.IncludeMaterials),
 				)

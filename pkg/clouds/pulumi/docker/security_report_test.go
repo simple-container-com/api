@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package docker
 
 import (
@@ -80,10 +83,10 @@ func TestStageSecurityReportScript_SanitizesResourceName(t *testing.T) {
 // Pulumi's ApplyT callback re-fires on every preview/up. The helper must
 // short-circuit when the deterministic path already exists — no rewrite,
 // no mtime churn beyond the explicit refresh. Asserts:
-//   1. Second call returns identical path.
-//   2. mtime was refreshed by the second call (so TTL sweep won't garbage-
-//      collect actively-referenced files between preview and apply).
-//   3. File size unchanged (no rewrite happened — content was already correct).
+//  1. Second call returns identical path.
+//  2. mtime was refreshed by the second call (so TTL sweep won't garbage-
+//     collect actively-referenced files between preview and apply).
+//  3. File size unchanged (no rewrite happened — content was already correct).
 func TestStageSecurityReportScript_StatShortCircuit(t *testing.T) {
 	RegisterTestingT(t)
 

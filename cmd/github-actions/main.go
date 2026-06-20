@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package main
 
 import (
@@ -339,7 +342,8 @@ func runGitCommandWithAuth(ctx context.Context, log logger.Logger, dir string, a
 
 	// Set up environment with authentication for submodule URLs
 	// This converts https://github.com/ URLs to use the token
-	env := append(os.Environ(),
+	env := append(
+		os.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no",
 		"GIT_ASKPASS=echo",
@@ -412,7 +416,8 @@ func runGitCommand(ctx context.Context, log logger.Logger, dir string, args []st
 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(
+		os.Environ(),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no",
 		"GIT_ASKPASS=echo", // Prevent any password prompts

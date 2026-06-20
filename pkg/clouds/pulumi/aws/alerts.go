@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package aws
 
 import (
@@ -260,7 +263,8 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	if cfg.discordConfig != nil {
-		if s, err := createSecret(ctx,
+		if s, err := createSecret(
+			ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.DiscordWebhookUrl, cfg.secretSuffix),
 			api.ComputeEnv.DiscordWebhookUrl, cfg.discordConfig.WebhookUrl, cfg.tags, cfg.opts...,
 		); err != nil {
@@ -271,7 +275,8 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	if cfg.slackConfig != nil {
-		if s, err := createSecret(ctx,
+		if s, err := createSecret(
+			ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.SlackWebhookUrl, cfg.secretSuffix),
 			api.ComputeEnv.SlackWebhookUrl, cfg.slackConfig.WebhookUrl, cfg.tags, cfg.opts...,
 		); err != nil {
@@ -282,7 +287,8 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	if cfg.telegramConfig != nil {
-		if s, err := createSecret(ctx,
+		if s, err := createSecret(
+			ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.TelegramToken, cfg.secretSuffix),
 			api.ComputeEnv.TelegramToken, cfg.telegramConfig.Token, cfg.tags, cfg.opts...,
 		); err != nil {

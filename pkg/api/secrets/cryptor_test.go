@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Simple Container
+
 package secrets
 
 import (
@@ -362,7 +365,8 @@ func cloneWorkdir(c Cryptor, wd, pubKey, privKey string, m *mocks) (Cryptor, fun
 	anotherGitRepo, err := git.New(git.WithRootDir(anotherDir))
 	Expect(err).To(BeNil())
 	Expect(anotherGitRepo.Open(anotherDir, git.WithGitDir(c.GitRepo().Gitdir()))).To(BeNil())
-	anotherC, err := NewCryptor(anotherDir,
+	anotherC, err := NewCryptor(
+		anotherDir,
 		WithPublicKey(pubKey),
 		WithPrivateKey(privKey),
 		WithGitRepo(anotherGitRepo),
