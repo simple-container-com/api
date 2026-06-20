@@ -21,7 +21,10 @@ permissions:
 jobs:
   coverage:
     name: Measure statement coverage
-    runs-on: ubuntu-latest
+    # Same runner class the repo uses for `go test ./...` (branch.yaml): this
+    # dependency graph (Pulumi SDK is linked transitively even by pkg/api) is
+    # too heavy to compile on the 2-core GitHub-hosted ubuntu-latest.
+    runs-on: blacksmith-8vcpu-ubuntu-2204
     permissions:
       contents: read
       pull-requests: write   # post/update the sticky PR comment
@@ -38,24 +41,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Compile gate: `-run=^$` builds every package + test binary but runs no
-      # tests, so broken test code fails the job while the known pre-existing
-      # runtime failure (pkg/provisioner Test_Init) does not reach this step.
-      - name: Verify test code compiles
-        run: go test -run='^$' ./...
-
       - name: Measure coverage
         id: cov
         run: |
           set -uo pipefail
           mkdir -p dist
-          # Generate the raw profile. Runtime test failures (e.g. the known
-          # pre-existing pkg/provisioner flake) are tolerated here — this is an
-          # observe-only measurement, the test-pass gate lives in branch.yaml.
+          # Single full-suite compile + run. Runtime test failures (e.g. the
+          # known pre-existing pkg/provisioner flake) are tolerated — this is an
+          # observe-only measurement and the test-pass gate lives in branch.yaml.
+          # A *compilation* failure (broken test code) IS fatal, detected via the
+          # "[build failed]" marker go test prints for un-buildable packages.
           set +e
           go test -coverprofile=dist/cover.raw.out -covermode=atomic ./... 2>&1 | tee dist/test.log
           rc=${PIPESTATUS[0]}
           set -e
+          if grep -qE '\[build failed\]|\[setup failed\]' dist/test.log; then
+            echo "::error::test code failed to compile"
+            exit 1
+          fi
           if [ ! -s dist/cover.raw.out ]; then
             echo "::error::no coverage profile was produced"
             exit 1
