@@ -407,8 +407,7 @@ func (_m *GitRepoMock) Workdir() string {
 func NewGitRepoMock(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *GitRepoMock {
+}) *GitRepoMock {
 	mock := &GitRepoMock{}
 	mock.Mock.Test(t)
 

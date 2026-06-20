@@ -210,8 +210,7 @@ func (_m *PulumiMock) SetPublicKey(pubKey string) {
 func NewPulumiMock(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *PulumiMock {
+}) *PulumiMock {
 	mock := &PulumiMock{}
 	mock.Mock.Test(t)
 
