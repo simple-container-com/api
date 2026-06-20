@@ -29,12 +29,8 @@ type captureWriter struct {
 }
 
 func (w *captureWriter) Print(args ...interface{}) {
-	for i, a := range args {
-		if i > 0 {
-			// mimic fmt.Print's behaviour of only inserting spaces between
-			// operands when neither is a string — but for assertion purposes
-			// a plain concatenation is sufficient and deterministic.
-		}
+	// Plain concatenation is sufficient and deterministic for assertions.
+	for _, a := range args {
 		_, _ = w.buf.WriteString(toStr(a))
 	}
 }

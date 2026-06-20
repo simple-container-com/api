@@ -20,6 +20,7 @@ import (
 //   - POST /api/v2/import-scan/       -> 201 with test + findings populated
 //     (a fully-populated body short-circuits enrichImportScanResponse so no
 //     follow-up GETs are needed).
+//
 // It records the test_title multipart field for assertion.
 func mockDefectDojoServer(t *testing.T, gotTestTitle *string) *httptest.Server {
 	t.Helper()

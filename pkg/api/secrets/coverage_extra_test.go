@@ -32,7 +32,8 @@ func newTestCryptor(t *testing.T) (Cryptor, string, func()) {
 	workDir, cleanup, err := testutil.CopyTempProject("testdata/repo")
 	Expect(err).ToNot(HaveOccurred())
 
-	got, err := NewCryptor(workDir,
+	got, err := NewCryptor(
+		workDir,
 		withGitDir("gitdir"),
 		WithKeysFromScConfig("local-key-files"),
 		WithConsoleReader(m.consoleReaderMock),
@@ -136,7 +137,8 @@ func TestReadProfileConfig(t *testing.T) {
 		defer cleanup()
 		Expect(err).ToNot(HaveOccurred())
 
-		c, err := NewCryptor(workDir,
+		c, err := NewCryptor(
+			workDir,
 			withGitDir("gitdir"),
 			WithProfile("local-key-files"),
 		)
@@ -185,7 +187,8 @@ func TestWithConsoleWriterOption(t *testing.T) {
 	confirm := &test.ConsoleReaderMock{}
 	confirm.On("ReadLine").Return("Y", nil)
 
-	c, err := NewCryptor(workDir,
+	c, err := NewCryptor(
+		workDir,
 		withGitDir("gitdir"),
 		WithKeysFromScConfig("local-key-files"),
 		WithConsoleWriter(writerMock),
@@ -636,7 +639,8 @@ func TestEnsureDiffAcceptable(t *testing.T) {
 		confirm := &test.ConsoleReaderMock{}
 		confirm.On("ReadLine").Return("N", nil)
 
-		c, err := NewCryptor(workDir,
+		c, err := NewCryptor(
+			workDir,
 			withGitDir("gitdir"),
 			WithKeysFromScConfig("local-key-files"),
 			WithConsoleWriter(writer),
@@ -664,7 +668,8 @@ func TestEnsureDiffAcceptable(t *testing.T) {
 		confirm := &test.ConsoleReaderMock{}
 		confirm.On("ReadLine").Return("maybe", nil)
 
-		c, err := NewCryptor(workDir,
+		c, err := NewCryptor(
+			workDir,
 			withGitDir("gitdir"),
 			WithKeysFromScConfig("local-key-files"),
 			WithConsoleWriter(writer),
@@ -697,7 +702,8 @@ func TestEncryptChanged_DiffRejectedPropagates(t *testing.T) {
 	confirm := &test.ConsoleReaderMock{}
 	confirm.On("ReadLine").Return("N", nil)
 
-	c, err := NewCryptor(workDir,
+	c, err := NewCryptor(
+		workDir,
 		withGitDir("gitdir"),
 		WithKeysFromScConfig("local-key-files"),
 		WithConsoleWriter(writer),
@@ -749,7 +755,8 @@ func TestDecryptAll_DiffRejectedOnExistingFile(t *testing.T) {
 	confirm.On("ReadLine").Return("Y", nil).Once()
 	confirm.On("ReadLine").Return("N", nil)
 
-	c, err := NewCryptor(workDir,
+	c, err := NewCryptor(
+		workDir,
 		withGitDir("gitdir"),
 		WithKeysFromScConfig("local-key-files"),
 		WithConsoleWriter(writer),

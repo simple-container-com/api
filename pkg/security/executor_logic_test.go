@@ -102,10 +102,10 @@ func TestIsScanToolRequired(t *testing.T) {
 	RegisterTestingT(t)
 
 	tests := []struct {
-		name        string
-		scanReq     bool
-		toolReq     bool
-		wantReq     bool
+		name    string
+		scanReq bool
+		toolReq bool
+		wantReq bool
 	}{
 		{"neither required", false, false, false},
 		{"scan-level required", true, false, true},

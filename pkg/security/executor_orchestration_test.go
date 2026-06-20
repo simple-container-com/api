@@ -94,9 +94,9 @@ func TestExecuteScanningNoEnabledTools(t *testing.T) {
 	e := newExecutorT(t, &SecurityConfig{
 		Enabled: true,
 		Scan: &ScanConfig{
-			Enabled: true,
+			Enabled:  true,
 			Required: false,
-			Tools:   []ScanToolConfig{{Name: "grype", Enabled: boolPtr(false)}},
+			Tools:    []ScanToolConfig{{Name: "grype", Enabled: boolPtr(false)}},
 		},
 	})
 	res, err := e.ExecuteScanning(ctx, "registry.example.com/demo:tag")

@@ -413,10 +413,10 @@ func TestHasExpectedDependency(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		uri       string
-		commit    string
-		want      bool
+		name   string
+		uri    string
+		commit string
+		want   bool
 	}{
 		{name: "uri match, no commit required", uri: "git://a", commit: "", want: true},
 		{name: "uri + sha1 commit match", uri: "git://a", commit: "commitA", want: true},

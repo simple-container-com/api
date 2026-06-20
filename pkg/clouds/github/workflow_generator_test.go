@@ -156,8 +156,8 @@ func TestWorkflowGenerator_RenderedContent(t *testing.T) {
 			contains: []string{
 				"name: Deploy acme payments",
 				`STACK_NAME: "payments"`,
-				"cancel-in-progress: true",  // from Execution.Concurrency
-				"timeout-minutes: 45",       // 45m -> 45
+				"cancel-in-progress: true",                         // from Execution.Concurrency
+				"timeout-minutes: 45",                              // 45m -> 45
 				"environment: ${{ github.event.inputs.environment", // protected env present
 			},
 		},
@@ -189,9 +189,9 @@ func TestWorkflowGenerator_RenderedContent(t *testing.T) {
 			template: "pr-preview",
 			contains: []string{
 				"name: PR Preview - acme payments",
-				"deploy-it",            // LabelTrigger from preview env
-				"preview.acme.io",      // DomainBase from preview env
-				"make smoke",           // ValidationCmd indented in
+				"deploy-it",       // LabelTrigger from preview env
+				"preview.acme.io", // DomainBase from preview env
+				"make smoke",      // ValidationCmd indented in
 			},
 		},
 	}

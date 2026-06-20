@@ -12,9 +12,9 @@ func TestSBOMValidateDigest(t *testing.T) {
 	RegisterTestingT(t)
 
 	tests := []struct {
-		name    string
-		mutate  func(s *SBOM)
-		want    bool
+		name   string
+		mutate func(s *SBOM)
+		want   bool
 	}{
 		{
 			name:   "Untampered content matches digest",

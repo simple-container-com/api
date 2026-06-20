@@ -197,9 +197,9 @@ func TestSecurityConfigValidateSubConfigErrors(t *testing.T) {
 	RegisterTestingT(t)
 
 	tests := []struct {
-		name    string
-		cfg     *SecurityConfig
-		substr  string
+		name   string
+		cfg    *SecurityConfig
+		substr string
 	}{
 		{
 			name:   "invalid provenance bubbles up",
@@ -417,8 +417,8 @@ func TestDefaultOIDCRetryPolicy(t *testing.T) {
 
 	t.Run("invalid env values are ignored", func(t *testing.T) {
 		RegisterTestingT(t)
-		t.Setenv("SC_OIDC_TOKEN_REQUEST_ATTEMPTS", "-2")     // n>0 required
-		t.Setenv("SC_OIDC_TOKEN_REQUEST_TIMEOUT", "notdur")  // ParseDuration fails
+		t.Setenv("SC_OIDC_TOKEN_REQUEST_ATTEMPTS", "-2")    // n>0 required
+		t.Setenv("SC_OIDC_TOKEN_REQUEST_TIMEOUT", "notdur") // ParseDuration fails
 		p := defaultOIDCRetryPolicy()
 		Expect(p.Attempts).To(Equal(4))
 		Expect(p.PerAttemptTimeout).To(Equal(20 * time.Second))
