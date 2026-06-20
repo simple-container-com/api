@@ -33,6 +33,8 @@ type DeploymentConfig struct {
 	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`           // Global startup probe configuration
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+
+	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
 }
 
 type CaddyConfig struct {
