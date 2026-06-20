@@ -120,12 +120,12 @@ tasks:
   build-cloud-helpers:
     runOn: host
     script:
-      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
+      - go build -trimpath -ldflags "${arg:ld-flags}" -o ${project:root}/dist/cloud-helpers ./cmd/cloud-helpers
   build-github-actions:
     runOn: host
     script:
       - echo "Building GitHub Actions binary..."
-      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/github-actions ./cmd/github-actions
+      - go build -trimpath -ldflags "${arg:ld-flags}" -o ${project:root}/dist/github-actions ./cmd/github-actions
       - echo "✅ GitHub Actions binary built successfully"
   test:
     runOn: host
@@ -255,7 +255,7 @@ tasks:
     script:
       - echo "Building for ${GOOS}/${GOARCH}..."
       - if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-      - go build -ldflags "${arg:ld-flags}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+      - go build -trimpath -ldflags "${arg:ld-flags}" -o ${project:root}/dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
       - cd ${project:root}/dist/${GOOS}-${GOARCH} && tar -czf sc-${GOOS}-${GOARCH}.tar.gz sc${EXT}
       - mv ${project:root}/dist/${GOOS}-${GOARCH}/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
       - cp ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz ${project:root}/.sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${project:version}.tar.gz
@@ -300,7 +300,7 @@ tasks:
     script:
       - echo "Building static github-actions binary for staging (Alpine compatible)..."
       - mkdir -p ${project:root}/bin
-      - go build -ldflags "${arg:ld-flags}" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
+      - go build -trimpath -ldflags "${arg:ld-flags}" -a -installsuffix cgo -o ${project:root}/bin/github-actions ./cmd/github-actions
   build-github-actions-staging-push:
     runOn: host
     script:
