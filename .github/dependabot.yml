@@ -1,99 +1,122 @@
+# Dependabot — simple-container-com/api
+#
+# Two independent PR streams (matches the PAY-SPACE org rollout):
+#
+#   SECURITY-FIRST  (languages: gomod, pip) — `open-pull-requests-limit: 0`
+#     disables routine version bumps, leaving ONLY security-advisory PRs.
+#     These are merge-first vuln fixes, labelled `priority: high`.
+#
+#   VERSION         (docker, github-actions) — minor+patch grouped into one
+#     PR per ecosystem; every MAJOR falls outside the group and opens its
+#     own PR for isolated review/testing.
+#
+#   github-actions additionally tracks security advisories in its own group
+#   (a compromised action SHA is a supply-chain risk worth a dedicated PR).
+#
+# Both language modules are single-rooted (one go.mod at /, one
+# requirements.txt at /docs), so `directory:` is used rather than the
+# multi-module `directories:` form.
+
 version: 2
-
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - github-actions
-    commit-message:
-      prefix: deps
-      include: scope
-    groups:
-      # Batch ALL bumps from our own shared-actions repo into ONE PR per
-      # actions-repo release. Dependabot resolves `patterns:` before
-      # `update-types:`, so simple-container-com/actions/* bumps land
-      # here regardless of major/minor/patch; everything else falls
-      # through to `actions-minor-and-patch` below. This is the
-      # ergonomic fix for the 21+ `uses:` refs to this single upstream:
-      # one bot PR per release, not one per ref.
-      simple-container-com-actions:
-        applies-to: version-updates
-        patterns:
-          - "simple-container-com/actions"
-          - "simple-container-com/actions/*"
-      actions-minor-and-patch:
-        applies-to: version-updates
-        update-types:
-          - minor
-          - patch
-
+  # ── Languages: SECURITY-ONLY ────────────────────────────────────────────
+  # Go modules — single root module (github.com/simple-container-com/api).
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 0          # 0 ⇒ no version PRs; security-only
+    commit-message:
+      prefix: "fix(deps)"
     labels:
       - dependencies
-      - go
-    commit-message:
-      prefix: deps
-      include: scope
+      - security
+      - "priority: high"
     groups:
-      gomod-minor-and-patch:
-        applies-to: version-updates
-        update-types:
-          - minor
-          - patch
+      gomod-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
-  # Container images we publish from this repo. The 5 *.Dockerfile files
-  # at the repo root (caddy, cloud-helpers.aws, github-actions,
-  # github-actions-staging, kubectl) build production images. The
-  # Dockerfiles under docs/docs/examples/ are user-facing samples, not
-  # production artifacts — Dependabot will only pick up the ones at the
-  # configured directory level (`/`), so example Dockerfiles are
-  # implicitly out of scope.
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - docker
-    commit-message:
-      prefix: deps
-      include: scope
-    groups:
-      docker-minor-and-patch:
-        applies-to: version-updates
-        update-types:
-          - minor
-          - patch
-
-  # Python tooling for the docs site (MkDocs + Material + plugins).
-  # Public site, so CVEs in the build chain still matter.
+  # Python — docs site build chain (MkDocs + Material + plugins). Public
+  # site, so CVEs in the build chain still warrant a merge-first fix.
   - package-ecosystem: pip
     directory: /docs
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "fix(deps)"
     labels:
       - dependencies
-      - python
-      - docs
-    commit-message:
-      prefix: deps
-      include: scope
+      - security
+      - "priority: high"
     groups:
-      pip-minor-and-patch:
+      pip-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # ── Docker: VERSION only ────────────────────────────────────────────────
+  # Production images built from the 5 root *.Dockerfile files (caddy,
+  # cloud-helpers.aws, github-actions, github-actions-staging, kubectl).
+  # Dependabot only scans the configured directory level, so the example
+  # Dockerfiles under docs/ are implicitly out of scope.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    labels:
+      - dependencies
+      - docker
+    groups:
+      docker:                            # majors fall outside ⇒ own PR each
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  # ── GitHub Actions: SECURITY + VERSION ──────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      github-actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      # Batch ALL version bumps of our OWN shared-actions repo into ONE PR
+      # per actions release — there are 21+ `uses:` refs to it, and they
+      # all move together each release. Defined before the generic version
+      # group so these bumps (incl. majors) land here, not as 21 PRs.
+      simple-container-com-actions:
+        applies-to: version-updates
+        patterns:
+          - "simple-container-com/actions"
+          - "simple-container-com/actions/*"
+      github-actions:                    # third-party majors ⇒ own PR each
         applies-to: version-updates
         update-types:
           - minor

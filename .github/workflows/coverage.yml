@@ -1,0 +1,166 @@
+name: Coverage
+
+# Observe-only statement-coverage measurement for the documented included set
+# (see docs/TESTING.md "Coverage scope" + the `coverage` task in welder.yaml).
+# On PRs it posts a sticky comment with the included-set + full-set aggregates
+# and the delta vs the latest main baseline. On push to main it stores the
+# aggregates as an artifact for the next PR to diff against. No regression gate
+# is enforced yet — this lands observe-only until the baseline stabilises.
+#
+# Explicit branch lists (no wildcards) per the push.yaml / branch.yaml history
+# (PR #272): wildcard push/PR triggers fan out runs on every branch.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Measure statement coverage
+    # Same runner class the repo uses for `go test ./...` (branch.yaml): this
+    # dependency graph (Pulumi SDK is linked transitively even by pkg/api) is
+    # too heavy to compile on the 2-core GitHub-hosted ubuntu-latest.
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    permissions:
+      contents: read
+      pull-requests: write   # post/update the sticky PR comment
+      actions: read          # list + download the main baseline artifact
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (matching go.mod)
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Measure coverage
+        id: cov
+        run: |
+          set -uo pipefail
+          mkdir -p dist
+          # Single full-suite compile + run. Runtime test failures (e.g. the
+          # known pre-existing pkg/provisioner flake) are tolerated — this is an
+          # observe-only measurement and the test-pass gate lives in branch.yaml.
+          # A *compilation* failure (broken test code) IS fatal, detected via the
+          # "[build failed]" marker go test prints for un-buildable packages.
+          set +e
+          go test -coverprofile=dist/cover.raw.out -covermode=atomic ./... 2>&1 | tee dist/test.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if grep -qE '\[build failed\]|\[setup failed\]' dist/test.log; then
+            echo "::error::test code failed to compile"
+            exit 1
+          fi
+          if [ ! -s dist/cover.raw.out ]; then
+            echo "::error::no coverage profile was produced"
+            exit 1
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "::warning::go test exited $rc (pre-existing runtime failures tolerated; coverage still computed)"
+          fi
+
+          # Full-set = unfiltered whole repo. Included-set = documented core.
+          # The exclusion globs MUST stay in sync with welder.yaml + docs/TESTING.md.
+          cp dist/cover.raw.out dist/cover.full.out
+          grep -vE '/cmd/[^/]+/main\.go|/mocks/|/pkg/util/test/|/pkg/api/tests/|/pkg/clouds/pulumi/|/pkg/assistant/|/pkg/cmd/|/pkg/githubactions/|/pkg/clouds/aws/helpers/|/pkg/provisioner/' \
+            dist/cover.raw.out > dist/cover.out
+
+          incl=$(go tool cover -func=dist/cover.out | awk '/^total:/ {gsub(/%/,"",$NF); print $NF}')
+          full=$(go tool cover -func=dist/cover.full.out | awk '/^total:/ {gsub(/%/,"",$NF); print $NF}')
+          echo "included=${incl}" >> "$GITHUB_OUTPUT"
+          echo "full=${full}" >> "$GITHUB_OUTPUT"
+          echo "Included-set statement coverage: ${incl}%"
+          echo "Full-set statement coverage: ${full}%"
+
+      # ---- main: publish the baseline for future PRs to diff against ----
+      - name: Write baseline file
+        if: github.event_name == 'push'
+        run: |
+          {
+            echo "included=${{ steps.cov.outputs.included }}"
+            echo "full=${{ steps.cov.outputs.full }}"
+            echo "sha=${{ github.sha }}"
+          } > dist/coverage-baseline.txt
+          cat dist/coverage-baseline.txt
+
+      - name: Upload baseline artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage-baseline
+          path: dist/coverage-baseline.txt
+          retention-days: 90
+
+      # ---- PR: resolve the main baseline + post/update a sticky comment ----
+      - name: Post coverage comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          INCL: ${{ steps.cov.outputs.included }}
+          FULL: ${{ steps.cov.outputs.full }}
+        run: |
+          set -uo pipefail
+          marker='<!-- coverage-bot:api -->'
+
+          # Best-effort fetch of the latest successful main baseline.
+          base_incl="n/a"; base_full="n/a"; base_sha=""
+          run_id=$(gh run list --workflow=coverage.yml --branch=main --event=push \
+                     --status=success --limit=1 --json databaseId \
+                     -q '.[0].databaseId' 2>/dev/null || true)
+          if [ -n "${run_id:-}" ]; then
+            if gh run download "$run_id" -n coverage-baseline -D _baseline 2>/dev/null; then
+              base_incl=$(awk -F= '/^included=/{print $2}' _baseline/coverage-baseline.txt 2>/dev/null || echo n/a)
+              base_full=$(awk -F= '/^full=/{print $2}' _baseline/coverage-baseline.txt 2>/dev/null || echo n/a)
+              base_sha=$(awk -F= '/^sha=/{print $2}' _baseline/coverage-baseline.txt 2>/dev/null || echo "")
+            fi
+          fi
+
+          delta() { # current, baseline
+            if [ "$2" = "n/a" ] || [ -z "$2" ]; then echo "—"; return; fi
+            awk -v c="$1" -v b="$2" 'BEGIN{d=c-b; printf "%+.1f pp", d}'
+          }
+          d_incl=$(delta "$INCL" "$base_incl")
+          d_full=$(delta "$FULL" "$base_full")
+
+          base_note=""
+          if [ "$base_incl" = "n/a" ]; then
+            base_note="> No \`main\` baseline artifact found yet — deltas appear once this workflow has run on \`main\`."
+          elif [ -n "$base_sha" ]; then
+            base_note="_Baseline: \`main\` @ \`${base_sha:0:7}\`_"
+          fi
+
+          # Build the comment body with printf so every line stays inside the
+          # YAML block scalar (no column-1 markdown lines breaking the parse).
+          body="$(printf '%s\n' \
+            "${marker}" \
+            "## 📊 Statement coverage" \
+            "" \
+            "Measured on the documented **included set** (see [\`docs/TESTING.md\` → Coverage scope](https://github.com/${REPO}/blob/main/docs/TESTING.md#coverage-scope)). Observe-only — no regression gate is enforced yet." \
+            "" \
+            "| Scope | This PR | main baseline | Δ |" \
+            "|---|---|---|---|" \
+            "| **Included set** (Gold-tier denominator) | \`${INCL}%\` | \`${base_incl}%\` | ${d_incl} |" \
+            "| Full set (whole repo, transparency) | \`${FULL}%\` | \`${base_full}%\` | ${d_full} |" \
+            "" \
+            "${base_note}")"
+
+          # Find an existing sticky comment by marker and update it, else create.
+          cid=$(gh api "repos/${REPO}/issues/${PR}/comments" --paginate \
+                  -q ".[] | select(.body | startswith(\"${marker}\")) | .id" 2>/dev/null | head -n1 || true)
+          if [ -n "${cid:-}" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${cid}" -f body="$body" >/dev/null
+            echo "Updated sticky comment ${cid}"
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR}/comments" -f body="$body" >/dev/null
+            echo "Created sticky comment"
+          fi
