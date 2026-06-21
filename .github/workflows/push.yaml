@@ -167,8 +167,11 @@ jobs:
         run: |
           echo "Building for ${GOOS}/${GOARCH}..."
           if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
-          tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
+          go build -trimpath -buildvcs=false -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+          # Deterministic tarball: fixed entry order, zeroed mtime/owner, a
+          # forced mode (independent of the builder umask) and gzip -9 -n
+          # (no embedded timestamp) so a rebuild reproduces it bit-for-bit.
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --mode='u=rwx,go=rx' -cf - -C dist/${GOOS}-${GOARCH} sc${EXT} | gzip -9 -n > .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
       # Phase 2: per-tarball SHA-256, CycloneDX SBOM, cosign keyless signature
       # (self-contained bundle), SLSA provenance. Soft-fail per step — the tarball
@@ -314,7 +317,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           CGO_ENABLED: "0"
         run: |
-          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
+          go build -trimpath -buildvcs=false -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 // Package cmd_sbom provides CLI commands for SBOM operations
 package cmd_sbom
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package util
 
 import (
@@ -7,8 +10,8 @@ import (
 )
 
 type sampleTarget struct {
-	Name  string `json:"name"`
-	Count int    `json:"count"`
+	Name  string   `json:"name"`
+	Count int      `json:"count"`
 	Tags  []string `json:"tags"`
 }
 
