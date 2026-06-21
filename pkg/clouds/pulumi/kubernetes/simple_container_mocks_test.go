@@ -68,7 +68,8 @@ func (m *simpleContainerMocks) NewResource(args pulumi.MockResourceArgs) (string
 		return m.mockPDB(args, outputs)
 	case "kubernetes:autoscaling/v2:HorizontalPodAutoscaler":
 		return m.mockHPA(args, outputs)
-	case "kubernetes:apiextensions.k8s.io/v1:CustomResource":
+	case "kubernetes:apiextensions.k8s.io/v1:CustomResource",
+		"kubernetes:autoscaling.k8s.io/v1:VerticalPodAutoscaler":
 		return m.mockCustomResource(args, outputs)
 	default:
 		return resourceID, resource.NewPropertyMapFromMap(outputs), nil
