@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025 Simple Container
+// Copyright (c) Simple Container
 
 package validation
 
