@@ -12,10 +12,11 @@ its `cosign` / SLSA digest) was built from the published source.
 | Input | How it is pinned | Where |
 |---|---|---|
 | **Go toolchain** | exact patch version pinned by the `go` directive; `GOTOOLCHAIN` resolves it deterministically | [`go.mod`](../go.mod) |
-| **Filesystem paths** | `-trimpath` strips the build machine's `$GOPATH`/module paths from the binary | release jobs in [`.github/workflows/push.yaml`](../.github/workflows/push.yaml) (`build sc`, `build <target>`) and the [`welder.yaml`](../welder.yaml) `build` / `build-cloud-helpers` / `build-github-actions` / `build-github-actions-staging` tasks |
-| **C toolchain variance** | `CGO_ENABLED=0` — pure-Go static build, no host libc/linker dependency | every release build: `push.yaml` `build sc` + `build <target>`; `welder.yaml` `build`, `build-cloud-helpers`, `build-github-actions`, `build-github-actions-staging` |
+| **Filesystem paths** | `-trimpath` strips the build machine's `$GOPATH`/module paths from the binary | release jobs in [`.github/workflows/push.yaml`](../.github/workflows/push.yaml) (`build sc`, `build <target>`) and the [`welder.yaml`](../welder.yaml) `build` / `build-cloud-helpers` / `build-github-actions` tasks |
+| **VCS stamping** | `-buildvcs=false` — Go would otherwise embed `vcs.revision`/`vcs.time`/`vcs.modified` into the binary (which `-trimpath` does **not** strip), so a rebuild from a source tarball without `.git`, or from a tree with any local modification, would diverge | every release build (same `go build` invocations as above) |
+| **C toolchain variance** | `CGO_ENABLED=0` — pure-Go static build, no host libc/linker dependency | every release build: `push.yaml` `build sc` + `build <target>`; `welder.yaml` `build`, `build-cloud-helpers`, `build-github-actions` |
 | **Embedded version string** | `-ldflags "-s -w -X .../internal/build.Version=$VERSION"` — symbol table stripped, version supplied explicitly (not derived from the wall-clock) | `push.yaml` + `welder.yaml` `default.build.args.ld-flags` |
-| **Archive metadata** | `tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \| gzip -n` — fixed entry order, zeroed timestamps/ownership, no gzip timestamp | `push.yaml` `build sc`, `welder.yaml` `build` |
+| **Archive metadata** | `tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --mode='u=rwx,go=rx' \| gzip -9 -n` — fixed entry order, zeroed timestamps/ownership, a forced `0755` mode (independent of the builder's umask), no gzip timestamp | `push.yaml` `build sc`, `welder.yaml` `build` |
 | **AI-assistant embeddings** | committed to the repo (`pkg/assistant/embeddings/vectors/`) and consumed via `go:embed`; the build never calls an external LLM | repo tree |
 | **Dependencies** | module graph pinned by `go.sum`; Docker base images + GitHub Actions are SHA-pinned | `go.sum`, Dockerfiles, `.github/` |
 
@@ -45,11 +46,15 @@ Or just the binary, directly with the Go toolchain (matches the flags the
 release uses):
 
 ```sh
-CGO_ENABLED=0 go build -trimpath \
+CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=2026.6.20" \
   -o sc ./cmd/sc
 sha256sum sc
 ```
+
+`-buildvcs=false` is required: without it `go build` either embeds the
+local VCS state (diverging across checkouts) or, when run from a source
+tarball with no `.git`, fails with `error obtaining VCS status`.
 
 To confirm a **published** release matches the source, rebuild the tag as
 above and compare the rebuilt `sc-<os>-<arch>.tar.gz` digest (or the inner
@@ -65,3 +70,8 @@ SLSA provenance subject digest — see [`SECURITY.md`](SECURITY.md) →
 - Reproducibility is asserted for the release toolchain (Linux/macOS,
   amd64/arm64); each cross-build target uses the same flags per
   `GOOS`/`GOARCH`.
+- The deterministic archive step relies on GNU `tar` options
+  (`--sort`, `--mtime`, `--owner`/`--group`, `--mode`). Release archives
+  are produced on the Linux CI runners (GNU tar); to reproduce the
+  archive byte-for-byte on macOS use GNU tar (`gtar`) rather than the
+  bundled BSD `tar`. The binary itself reproduces with either.
