@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 // Package cmd provides the SC CLI command tree for embedding in other binaries.
 // Used by the github-actions binary to serve security subcommands (image sign/scan,
 // sbom generate/attach, provenance generate/attach) when invoked via the "sc" symlink.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 //go:build tools
 
 //go:generate go build -o ./bin/mockery github.com/vektra/mockery/v2

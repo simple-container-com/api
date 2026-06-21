@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package modes
 
 import (
@@ -1333,12 +1336,14 @@ func (d *DeveloperMode) enrichContextWithDocumentation(configType string, analys
 
 		// Add language-specific queries
 		if analysis != nil && analysis.PrimaryStack != nil {
-			searchQueries = append(searchQueries,
+			searchQueries = append(
+				searchQueries,
 				fmt.Sprintf("%s client.yaml example", analysis.PrimaryStack.Language),
 				fmt.Sprintf("%s Simple Container configuration", analysis.PrimaryStack.Language),
 			)
 			if analysis.PrimaryStack.Framework != "" {
-				searchQueries = append(searchQueries,
+				searchQueries = append(
+					searchQueries,
 					fmt.Sprintf("%s %s Simple Container example", analysis.PrimaryStack.Language, analysis.PrimaryStack.Framework),
 				)
 			}
@@ -1352,7 +1357,8 @@ func (d *DeveloperMode) enrichContextWithDocumentation(configType string, analys
 		}
 
 		if analysis != nil && analysis.PrimaryStack != nil {
-			searchQueries = append(searchQueries,
+			searchQueries = append(
+				searchQueries,
 				fmt.Sprintf("%s docker-compose example", analysis.PrimaryStack.Language),
 				fmt.Sprintf("%s containerization", analysis.PrimaryStack.Language),
 			)
@@ -1366,7 +1372,8 @@ func (d *DeveloperMode) enrichContextWithDocumentation(configType string, analys
 		}
 
 		if analysis != nil && analysis.PrimaryStack != nil {
-			searchQueries = append(searchQueries,
+			searchQueries = append(
+				searchQueries,
 				fmt.Sprintf("%s Dockerfile example", analysis.PrimaryStack.Language),
 				fmt.Sprintf("%s container image", analysis.PrimaryStack.Language),
 			)

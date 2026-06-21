@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package secrets
 
 import (
@@ -29,7 +32,8 @@ func TestAddPublicKeyAliasDeduplication(t *testing.T) {
 	repo, err := git.Open(workDir, git.WithGitDir("gitdir"))
 	Expect(err).To(BeNil())
 
-	cryptor, err := NewCryptor(workDir,
+	cryptor, err := NewCryptor(
+		workDir,
 		WithKeysFromScConfig("local-key-files"),
 		WithGitRepo(repo),
 		WithConsoleReader(mocks.consoleReaderMock),

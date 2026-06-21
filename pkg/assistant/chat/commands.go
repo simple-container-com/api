@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package chat
 
 // registerCommands registers all available chat commands by delegating to specialized registration functions
