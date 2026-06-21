@@ -72,7 +72,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:latest'
+  image: 'docker://simplecontainer/github-actions:2026.6.9-pre.c4ddd61-preview.c4ddd61'
   env:
     GITHUB_ACTION_TYPE: 'destroy'
     STACK_NAME: ${{ inputs.stack-name }}
