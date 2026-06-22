@@ -117,6 +117,11 @@ plugins:
   - mermaid2:
       version: 10.6.1
       arguments:
+        # startOnLoad MUST be set: supplying a custom `arguments` block
+        # overrides the plugin's defaults (which include it), and Mermaid v10's
+        # ESM build only auto-renders <div class="mermaid"> when startOnLoad is
+        # true. Without it the library loads but no diagram is drawn.
+        startOnLoad: true
         theme: base
         themeVariables:
           # Aligned with simple-container.com palette (dark scheme).
