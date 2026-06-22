@@ -85,7 +85,10 @@ func PublicKeyToBytes(pub *rsa.PublicKey) ([]byte, error) {
 	return pubBytes, nil
 }
 
-// EncryptWithPublicRSAKey encrypts data with public key
+// EncryptWithPublicRSAKey encrypts data with public key using RSA-OAEP + SHA-512.
+// TODO: this uses SHA-512 (max plaintext 126 B for a 2048-bit key) while
+// EncryptLargeString uses SHA-256 (max 190 B). Standardise in a future PR.
+// Do NOT route payloads > 126 B through this function.
 func EncryptWithPublicRSAKey(msg []byte, pub *rsa.PublicKey) ([]byte, error) {
 	hash := sha512.New()
 	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, pub, msg, nil)
@@ -150,14 +153,26 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 	var res []string
 	if rsaKey, ok := key.(*rsa.PublicKey); ok {
-		chunks := lo.ChunkString(s, rsaKey.Size()/2)
-		res = make([]string, len(chunks))
-		for idx, chunk := range chunks {
-			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), nil)
+		// RSA-OAEP with SHA-256: max plaintext per chunk = k - 2*hLen - 2
+		// (RFC 8017 §7.1.1), where k = modulus bytes, hLen = sha256.Size = 32.
+		// For a 2048-bit key: 256 - 64 - 2 = 190 bytes.
+		// Chunk by BYTES (not runes) so multi-byte UTF-8 cannot overflow the limit.
+		maxPlain := rsaKey.Size() - 2*sha256.Size - 2
+		if maxPlain <= 0 {
+			return nil, errors.Errorf("RSA key too small (%d bits) for OAEP-SHA256", rsaKey.Size()*8)
+		}
+		data := []byte(s)
+		res = make([]string, 0, (len(data)+maxPlain-1)/maxPlain)
+		for i := 0; i < len(data); i += maxPlain {
+			end := i + maxPlain
+			if end > len(data) {
+				end = len(data)
+			}
+			enc, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, data[i:end], nil)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to encrypt secret")
 			}
-			res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
+			res = append(res, base64.StdEncoding.EncodeToString(enc))
 		}
 	} else if ed25519Key, ok := key.(ed25519.PublicKey); ok {
 		// For ed25519, use hybrid encryption with Curve25519 + ChaCha20-Poly1305
