@@ -143,6 +143,15 @@ type VPAConfig struct {
 	// proportionally with a lowered request — the proportional shrink causes
 	// CPU-throttle-induced startup probe failures.
 	ControlledValues *string `json:"controlledValues" yaml:"controlledValues"`
+	// ContainerPolicies specifies per-container VPA overrides. The top-level
+	// MinAllowed/MaxAllowed/ControlledResources/ControlledValues render the
+	// catch-all "*" policy; each entry here adds a policy for a specific
+	// container that takes precedence over "*" (the VPA admission controller
+	// matches an exact containerName before the wildcard). The common use is
+	// excluding an injected sidecar (e.g. cloudsql-proxy) with mode "Off" so it
+	// keeps its small template request instead of being floored at the app
+	// container's minAllowed.
+	ContainerPolicies []VPAContainerPolicy `json:"containerPolicies,omitempty" yaml:"containerPolicies,omitempty"`
 }
 
 // VPAResourceRequirements defines resource requirements for VPA
@@ -150,6 +159,19 @@ type VPAResourceRequirements struct {
 	CPU              *string `json:"cpu" yaml:"cpu"`
 	Memory           *string `json:"memory" yaml:"memory"`
 	EphemeralStorage *string `json:"ephemeral-storage" yaml:"ephemeral-storage"`
+}
+
+// VPAContainerPolicy is a per-container VPA resource policy. ContainerName is
+// the exact container name (e.g. "cloudsql-proxy"); the remaining fields mirror
+// the VPA CRD's containerPolicies entry. Mode "Off" disables VPA for that
+// container so its requests are left at the deployment template values.
+type VPAContainerPolicy struct {
+	ContainerName       string                   `json:"containerName" yaml:"containerName"`
+	Mode                *string                  `json:"mode,omitempty" yaml:"mode,omitempty"`
+	MinAllowed          *VPAResourceRequirements `json:"minAllowed,omitempty" yaml:"minAllowed,omitempty"`
+	MaxAllowed          *VPAResourceRequirements `json:"maxAllowed,omitempty" yaml:"maxAllowed,omitempty"`
+	ControlledResources []string                 `json:"controlledResources,omitempty" yaml:"controlledResources,omitempty"`
+	ControlledValues    *string                  `json:"controlledValues,omitempty" yaml:"controlledValues,omitempty"`
 }
 
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {

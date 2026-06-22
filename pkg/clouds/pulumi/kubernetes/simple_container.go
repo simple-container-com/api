@@ -1048,61 +1048,80 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName strin
 		}
 	}
 
-	// Add resource policy if specified
-	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 || args.VPA.ControlledValues != nil {
-		resourcePolicy := map[string]interface{}{}
-
-		// Build the container policy. Per the VPA CRD, controlledResources and
-		// controlledValues are per-container fields and live inside the
-		// containerPolicy entry — not at the resourcePolicy level. Placing them
-		// at resourcePolicy level (the previous behavior) caused k8s to silently
-		// drop them.
-		containerPolicy := map[string]interface{}{
-			"containerName": "*",
+	// Add resource policy if specified. The top-level fields render the
+	// catch-all "*" containerPolicy; VPA.ContainerPolicies append per-container
+	// entries. The VPA admission controller matches an exact containerName
+	// before the "*" wildcard, so per-container entries take precedence
+	// regardless of order (e.g. a sidecar set to mode "Off" is skipped while
+	// "*" still floors the app container).
+	hasTopLevel := args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 || args.VPA.ControlledValues != nil
+	if hasTopLevel || len(args.VPA.ContainerPolicies) > 0 {
+		// resMap renders a VPAResourceRequirements into the VPA CRD resource map,
+		// or nil when empty. controlledResources/controlledValues are per-container
+		// fields in the CRD, so they live inside each containerPolicy entry — not
+		// at resourcePolicy level (which k8s silently drops).
+		resMap := func(r *k8s.VPAResourceRequirements) map[string]interface{} {
+			if r == nil {
+				return nil
+			}
+			m := map[string]interface{}{}
+			if r.CPU != nil {
+				m["cpu"] = lo.FromPtr(r.CPU)
+			}
+			if r.Memory != nil {
+				m["memory"] = lo.FromPtr(r.Memory)
+			}
+			if r.EphemeralStorage != nil {
+				m["ephemeral-storage"] = lo.FromPtr(r.EphemeralStorage)
+			}
+			if len(m) == 0 {
+				return nil
+			}
+			return m
 		}
 
-		if len(args.VPA.ControlledResources) > 0 {
-			containerPolicy["controlledResources"] = args.VPA.ControlledResources
+		containerPolicies := make([]interface{}, 0, 1+len(args.VPA.ContainerPolicies))
+
+		if hasTopLevel {
+			star := map[string]interface{}{"containerName": "*"}
+			if len(args.VPA.ControlledResources) > 0 {
+				star["controlledResources"] = args.VPA.ControlledResources
+			}
+			if args.VPA.ControlledValues != nil {
+				star["controlledValues"] = lo.FromPtr(args.VPA.ControlledValues)
+			}
+			if m := resMap(args.VPA.MinAllowed); m != nil {
+				star["minAllowed"] = m
+			}
+			if m := resMap(args.VPA.MaxAllowed); m != nil {
+				star["maxAllowed"] = m
+			}
+			containerPolicies = append(containerPolicies, star)
 		}
 
-		if args.VPA.ControlledValues != nil {
-			containerPolicy["controlledValues"] = lo.FromPtr(args.VPA.ControlledValues)
+		for _, cp := range args.VPA.ContainerPolicies {
+			policy := map[string]interface{}{"containerName": cp.ContainerName}
+			if cp.Mode != nil {
+				policy["mode"] = lo.FromPtr(cp.Mode)
+			}
+			if len(cp.ControlledResources) > 0 {
+				policy["controlledResources"] = cp.ControlledResources
+			}
+			if cp.ControlledValues != nil {
+				policy["controlledValues"] = lo.FromPtr(cp.ControlledValues)
+			}
+			if m := resMap(cp.MinAllowed); m != nil {
+				policy["minAllowed"] = m
+			}
+			if m := resMap(cp.MaxAllowed); m != nil {
+				policy["maxAllowed"] = m
+			}
+			containerPolicies = append(containerPolicies, policy)
 		}
 
-		if args.VPA.MinAllowed != nil {
-			minAllowed := map[string]interface{}{}
-			if args.VPA.MinAllowed.CPU != nil {
-				minAllowed["cpu"] = lo.FromPtr(args.VPA.MinAllowed.CPU)
-			}
-			if args.VPA.MinAllowed.Memory != nil {
-				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
-			}
-			if args.VPA.MinAllowed.EphemeralStorage != nil {
-				minAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MinAllowed.EphemeralStorage)
-			}
-			if len(minAllowed) > 0 {
-				containerPolicy["minAllowed"] = minAllowed
-			}
+		vpaSpec["resourcePolicy"] = map[string]interface{}{
+			"containerPolicies": containerPolicies,
 		}
-
-		if args.VPA.MaxAllowed != nil {
-			maxAllowed := map[string]interface{}{}
-			if args.VPA.MaxAllowed.CPU != nil {
-				maxAllowed["cpu"] = lo.FromPtr(args.VPA.MaxAllowed.CPU)
-			}
-			if args.VPA.MaxAllowed.Memory != nil {
-				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
-			}
-			if args.VPA.MaxAllowed.EphemeralStorage != nil {
-				maxAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MaxAllowed.EphemeralStorage)
-			}
-			if len(maxAllowed) > 0 {
-				containerPolicy["maxAllowed"] = maxAllowed
-			}
-		}
-
-		resourcePolicy["containerPolicies"] = []interface{}{containerPolicy}
-		vpaSpec["resourcePolicy"] = resourcePolicy
 	}
 
 	// Build the complete VPA resource with proper spec nesting
