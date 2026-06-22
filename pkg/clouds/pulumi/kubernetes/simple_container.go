@@ -1029,8 +1029,45 @@ ${proto}://${domain} {
 	return sc, nil
 }
 
+// ValidateVPAConfiguration checks per-container policy invariants that the VPA
+// CRD enforces at apply time, so a malformed stack config fails at plan time
+// rather than mid-`pulumi up` (where a failed replace could leave a stack with
+// no VPA). Returns nil when VPA is absent or disabled.
+func ValidateVPAConfiguration(vpa *k8s.VPAConfig) error {
+	if vpa == nil || !vpa.Enabled {
+		return nil
+	}
+	seen := make(map[string]bool, len(vpa.ContainerPolicies))
+	for i, cp := range vpa.ContainerPolicies {
+		switch {
+		case cp.ContainerName == "":
+			return errors.Errorf("containerPolicies[%d]: containerName must not be empty", i)
+		case cp.ContainerName == "*":
+			return errors.Errorf("containerPolicies[%d]: containerName %q is reserved — set the catch-all via the top-level minAllowed/maxAllowed/controlledResources/controlledValues", i, "*")
+		case seen[cp.ContainerName]:
+			return errors.Errorf("containerPolicies: duplicate containerName %q", cp.ContainerName)
+		}
+		seen[cp.ContainerName] = true
+		if cp.Mode != nil && *cp.Mode != "Off" && *cp.Mode != "Auto" {
+			return errors.Errorf("containerPolicies[%q]: mode must be \"Off\" or \"Auto\", got %q", cp.ContainerName, *cp.Mode)
+		}
+	}
+	return nil
+}
+
 func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName string, namespace sdk.StringInput, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
+
+	if err := ValidateVPAConfiguration(args.VPA); err != nil {
+		return errors.Wrapf(err, "invalid VPA configuration for %q", deploymentName)
+	}
+	// Per-container policies with no top-level floor omit the "*" catch-all, so
+	// any container not named (including the app) autoscales without a minAllowed
+	// floor — warn rather than silently degrade a floored workload.
+	if len(args.VPA.ContainerPolicies) > 0 && args.VPA.MinAllowed == nil && args.VPA.MaxAllowed == nil &&
+		len(args.VPA.ControlledResources) == 0 && args.VPA.ControlledValues == nil {
+		args.Log.Warn(ctx.Context(), "VPA for %q sets containerPolicies but no top-level minAllowed/maxAllowed; the \"*\" catch-all is omitted and unlisted containers autoscale without a floor", deploymentName)
+	}
 
 	// Build VPA spec content
 	vpaSpec := map[string]interface{}{

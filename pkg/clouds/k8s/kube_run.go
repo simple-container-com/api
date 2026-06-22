@@ -133,8 +133,8 @@ type VPAConfig struct {
 	// MaxAllowed specifies maximum allowed resources
 	MaxAllowed *VPAResourceRequirements `json:"maxAllowed" yaml:"maxAllowed"`
 	// ControlledResources specifies which resources VPA should control.
-	// Per the VPA CRD this is a per-container field; SC places it inside each
-	// containerPolicy entry, not at resourcePolicy level.
+	// Per the VPA CRD this is a per-container field; SC places it inside the
+	// catch-all "*" containerPolicy entry, not at resourcePolicy level.
 	ControlledResources []string `json:"controlledResources" yaml:"controlledResources"`
 	// ControlledValues specifies which resource values VPA should control.
 	// One of "RequestsAndLimits" (default) or "RequestsOnly". Use "RequestsOnly"
@@ -151,7 +151,7 @@ type VPAConfig struct {
 	// excluding an injected sidecar (e.g. cloudsql-proxy) with mode "Off" so it
 	// keeps its small template request instead of being floored at the app
 	// container's minAllowed.
-	ContainerPolicies []VPAContainerPolicy `json:"containerPolicies,omitempty" yaml:"containerPolicies,omitempty"`
+	ContainerPolicies []VPAContainerPolicy `json:"containerPolicies" yaml:"containerPolicies"`
 }
 
 // VPAResourceRequirements defines resource requirements for VPA
@@ -167,11 +167,11 @@ type VPAResourceRequirements struct {
 // container so its requests are left at the deployment template values.
 type VPAContainerPolicy struct {
 	ContainerName       string                   `json:"containerName" yaml:"containerName"`
-	Mode                *string                  `json:"mode,omitempty" yaml:"mode,omitempty"`
-	MinAllowed          *VPAResourceRequirements `json:"minAllowed,omitempty" yaml:"minAllowed,omitempty"`
-	MaxAllowed          *VPAResourceRequirements `json:"maxAllowed,omitempty" yaml:"maxAllowed,omitempty"`
-	ControlledResources []string                 `json:"controlledResources,omitempty" yaml:"controlledResources,omitempty"`
-	ControlledValues    *string                  `json:"controlledValues,omitempty" yaml:"controlledValues,omitempty"`
+	Mode                *string                  `json:"mode" yaml:"mode"`
+	MinAllowed          *VPAResourceRequirements `json:"minAllowed" yaml:"minAllowed"`
+	MaxAllowed          *VPAResourceRequirements `json:"maxAllowed" yaml:"maxAllowed"`
+	ControlledResources []string                 `json:"controlledResources" yaml:"controlledResources"`
+	ControlledValues    *string                  `json:"controlledValues" yaml:"controlledValues"`
 }
 
 func (i *KubeRunInput) DependsOnResources() []api.StackConfigDependencyResource {
