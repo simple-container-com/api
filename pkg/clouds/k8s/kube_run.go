@@ -143,14 +143,8 @@ type VPAConfig struct {
 	// proportionally with a lowered request — the proportional shrink causes
 	// CPU-throttle-induced startup probe failures.
 	ControlledValues *string `json:"controlledValues" yaml:"controlledValues"`
-	// ContainerPolicies specifies per-container VPA overrides. The top-level
-	// MinAllowed/MaxAllowed/ControlledResources/ControlledValues render the
-	// catch-all "*" policy; each entry here adds a policy for a specific
-	// container that takes precedence over "*" (the VPA admission controller
-	// matches an exact containerName before the wildcard). The common use is
-	// excluding an injected sidecar (e.g. cloudsql-proxy) with mode "Off" so it
-	// keeps its small template request instead of being floored at the app
-	// container's minAllowed.
+	// ContainerPolicies are per-container overrides; the top-level fields render
+	// the catch-all "*". Common use: a sidecar with mode "Off" to exclude it.
 	ContainerPolicies []VPAContainerPolicy `json:"containerPolicies" yaml:"containerPolicies"`
 }
 
@@ -161,10 +155,8 @@ type VPAResourceRequirements struct {
 	EphemeralStorage *string `json:"ephemeral-storage" yaml:"ephemeral-storage"`
 }
 
-// VPAContainerPolicy is a per-container VPA resource policy. ContainerName is
-// the exact container name (e.g. "cloudsql-proxy"); the remaining fields mirror
-// the VPA CRD's containerPolicies entry. Mode "Off" disables VPA for that
-// container so its requests are left at the deployment template values.
+// VPAContainerPolicy mirrors a VPA CRD containerPolicies entry; mode "Off"
+// excludes the container from VPA.
 type VPAContainerPolicy struct {
 	ContainerName       string                   `json:"containerName" yaml:"containerName"`
 	Mode                *string                  `json:"mode" yaml:"mode"`
