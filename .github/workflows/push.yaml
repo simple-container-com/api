@@ -634,7 +634,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cp sc.sh .sc/stacks/dist/bundle/sc.sh
-          sed -i -e 's/VERSION="0\.0\.0"/VERSION="${VERSION}"/g' .sc/stacks/dist/bundle/sc.sh
+          sed -i -e "s/VERSION=\"0\\.0\\.0\"/VERSION=\"${VERSION}\"/" .sc/stacks/dist/bundle/sc.sh
           echo "${VERSION}" > .sc/stacks/dist/bundle/version
       - name: Run tag-release task after images are built
         env:
