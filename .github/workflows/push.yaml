@@ -641,7 +641,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cp sc.sh .sc/stacks/dist/bundle/sc.sh
-          sed -i -e 's/VERSION="0\.0\.0"/VERSION="${VERSION}"/g' .sc/stacks/dist/bundle/sc.sh
+          sed -i -e "s/VERSION=\"0\\.0\\.0\"/VERSION=\"${VERSION}\"/" .sc/stacks/dist/bundle/sc.sh
           echo "${VERSION}" > .sc/stacks/dist/bundle/version
       # Sign the post-template sc.sh that will land on dist.simple-container.com.
       # Signing the *post-sed* artifact is intentional: consumers verify the

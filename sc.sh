@@ -62,6 +62,16 @@ compareNumber() {
     printf "%s" "0"
     return
   fi
+  # Guard: empty first arg means second is "greater" (newer)
+  if [ -z "$1" ]; then
+    printf "%s" "-1"
+    return
+  fi
+  # Guard: empty second arg means first is "greater"
+  if [ -z "$2" ]; then
+    printf "%s" "1"
+    return
+  fi
 
   [ $(($2 - $1)) -gt 0 ] && printf "%s" "-1"
   [ $(($2 - $1)) -lt 0 ] && printf "1"
@@ -708,7 +718,7 @@ FORCE_UPDATE="true"
 fi
 
 VERSION_COMPARE="1"
-if [[ "$CURRENT" != "null" ]]; then
+if [[ "$CURRENT" != "null" && -n "$VERSION" ]]; then
   VERSION_COMPARE="$(semver_compare "$VERSION" "$CURRENT" || echo "1")"
 fi
 
