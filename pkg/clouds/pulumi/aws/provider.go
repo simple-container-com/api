@@ -38,6 +38,19 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	if err := os.Setenv("AWS_DEFAULT_REGION", pcfg.Region); err != nil {
 		fmt.Println("Failed to set AWS_DEFAULT_REGION env variable: ", err.Error())
 	}
+	// aws-sdk-go-v2 changed its defaults in 2025: RequestChecksumCalculation and
+	// ResponseChecksumValidation now default to "when_supported", so the SDK tries to
+	// validate a checksum on every S3 GET. Pulumi state objects stored without a checksum
+	// (all pre-existing state) make the DIY backend's in-process s3blob client emit a noisy
+	// "Response has no supported checksum. Not validating response payload" WARN per object.
+	// Force "when_required" — matching the GCS bucket compatibility settings in gcp/bucket.go —
+	// to silence the noise without changing behavior (state reads/writes don't require checksums).
+	if err := os.Setenv("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required"); err != nil {
+		fmt.Println("Failed to set AWS_REQUEST_CHECKSUM_CALCULATION env variable: ", err.Error())
+	}
+	if err := os.Setenv("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required"); err != nil {
+		fmt.Println("Failed to set AWS_RESPONSE_CHECKSUM_VALIDATION env variable: ", err.Error())
+	}
 	return nil
 }
 
