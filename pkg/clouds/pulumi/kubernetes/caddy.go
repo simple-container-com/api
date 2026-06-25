@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package kubernetes
 
 import (
@@ -34,6 +37,18 @@ type CaddyDeployment struct {
 func isPulumiOutputSet(output sdk.StringOutput) bool {
 	// Check if the output's element type is set (indicates it was initialized)
 	return output.ElementType() != nil
+}
+
+// caddyHSTSEnv returns env-var additions overriding the `(hsts)` snippet's
+// header. Empty string is treated as unset — Caddy's `os.LookupEnv` would
+// otherwise treat a present-but-empty var as "found" and ship a broken
+// `Strict-Transport-Security ""`.
+func caddyHSTSEnv(cfg *k8s.CaddyConfig) map[string]string {
+	v := lo.FromPtr(cfg).HSTSValue
+	if v == nil || *v == "" {
+		return nil
+	}
+	return map[string]string{"HSTS_VALUE": *v}
 }
 
 func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -309,6 +324,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			Replicas: lo.If(caddy.Replicas != nil, lo.FromPtr(caddy.Replicas)).Else(1),
 		},
 		TextVolumes: caddyVolumes,
+	}
+
+	for k, v := range caddyHSTSEnv(caddy.CaddyConfig) {
+		deploymentConfig.StackConfig.Env[k] = v
 	}
 
 	// Prepare secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS for GCP)

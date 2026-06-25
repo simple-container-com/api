@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package security
 
 import (
@@ -5,8 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -89,43 +95,152 @@ func (e *ExecutionContext) GetOIDCToken(ctx context.Context) error {
 		e.OIDCTokenURL = requestURL
 		e.RequestToken = requestToken
 
-		req, err := http.NewRequestWithContext(ctx, "GET", requestURL+"&audience=sigstore", nil)
+		token, err := requestOIDCTokenWithRetry(ctx, requestURL, requestToken, defaultOIDCRetryPolicy(), sleepContext)
 		if err != nil {
-			return fmt.Errorf("creating token request: %w", err)
+			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+requestToken)
-
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			return fmt.Errorf("requesting OIDC token: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("OIDC token request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("reading token response: %w", err)
-		}
-
-		var tokenResp struct {
-			Value string `json:"value"`
-		}
-		if err := json.Unmarshal(body, &tokenResp); err != nil {
-			return fmt.Errorf("parsing OIDC token response: %w", err)
-		}
-		if tokenResp.Value == "" {
-			return fmt.Errorf("OIDC token response has empty value field")
-		}
-		e.OIDCToken = tokenResp.Value
+		e.OIDCToken = token
 		return nil
 	}
 
 	return fmt.Errorf("OIDC token not available")
+}
+
+type oidcRetryPolicy struct {
+	Attempts          int
+	PerAttemptTimeout time.Duration
+	BaseBackoff       time.Duration
+	MaxBackoff        time.Duration
+}
+
+func defaultOIDCRetryPolicy() oidcRetryPolicy {
+	p := oidcRetryPolicy{
+		Attempts:          4,
+		PerAttemptTimeout: 20 * time.Second,
+		BaseBackoff:       1 * time.Second,
+		MaxBackoff:        8 * time.Second,
+	}
+	if v := os.Getenv("SC_OIDC_TOKEN_REQUEST_ATTEMPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			p.Attempts = n
+		}
+	}
+	if v := os.Getenv("SC_OIDC_TOKEN_REQUEST_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			p.PerAttemptTimeout = d
+		}
+	}
+	return p
+}
+
+func requestOIDCTokenWithRetry(ctx context.Context, requestURL, requestToken string, policy oidcRetryPolicy, sleep func(context.Context, time.Duration) error) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < policy.Attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if attempt > 0 {
+			if err := sleep(ctx, oidcBackoff(policy, attempt)); err != nil {
+				return "", err
+			}
+		}
+		token, retryable, err := doOIDCTokenRequest(ctx, requestURL, requestToken, policy.PerAttemptTimeout)
+		if err == nil {
+			return token, nil
+		}
+		lastErr = err
+		if !retryable {
+			return "", err
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("requesting OIDC token failed after %d attempts: %w", policy.Attempts, lastErr)
+}
+
+func doOIDCTokenRequest(ctx context.Context, requestURL, requestToken string, timeout time.Duration) (string, bool, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	reqURL, err := oidcTokenURL(requestURL)
+	if err != nil {
+		return "", false, err
+	}
+	req, err := http.NewRequestWithContext(attemptCtx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("creating token request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+requestToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", true, fmt.Errorf("requesting OIDC token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", retryableOIDCStatus(resp.StatusCode), fmt.Errorf("OIDC token request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", true, fmt.Errorf("reading token response: %w", err)
+	}
+	var tokenResp struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", false, fmt.Errorf("parsing OIDC token response: %w", err)
+	}
+	if tokenResp.Value == "" {
+		return "", false, fmt.Errorf("OIDC token response has empty value field")
+	}
+	return tokenResp.Value, false, nil
+}
+
+func retryableOIDCStatus(status int) bool {
+	if status == http.StatusRequestTimeout || status == http.StatusTooManyRequests {
+		return true
+	}
+	return status >= 500 && status <= 599
+}
+
+func oidcTokenURL(requestURL string) (string, error) {
+	u, err := url.Parse(requestURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid OIDC request URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("audience", "sigstore")
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func oidcBackoff(policy oidcRetryPolicy, attempt int) time.Duration {
+	maxBackoff := policy.BaseBackoff << (attempt - 1)
+	if maxBackoff <= 0 || maxBackoff > policy.MaxBackoff {
+		maxBackoff = policy.MaxBackoff
+	}
+	if maxBackoff <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int63n(int64(maxBackoff)))
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // PopulateGitMetadata populates git-related metadata from environment

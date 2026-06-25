@@ -113,6 +113,30 @@ signing:
    ```
 3. Re-sign image if signature corrupted
 
+### Error: "createLogEntryConflict" (Rekor HTTP 409)
+
+**Problem:** `sc image sign` fails with:
+
+```
+signing bundle: error signing bundle: [POST /api/v1/log/entries][409] createLogEntryConflict
+{"code":409,"message":"an equivalent entry already exists in the transparency log with UUID ..."}
+```
+
+An identical entry is already in the transparency log — typically cosign
+re-uploading an entry whose first attempt timed out client-side but succeeded
+server-side. Common under parallel CI deploys of stacks that share one image.
+The image *is* effectively signed; only the duplicate upload was rejected.
+
+**Solution:**
+
+- `sc` retries the sign automatically with a fresh signature (a fresh
+  invocation cannot conflict with itself), so transient conflicts self-heal.
+- If the error persists after the automatic retries, verify the existing
+  signature instead of re-signing: `cosign tree IMAGE` and `sc image verify`.
+- Persistent conflicts with key-based signing can indicate a deterministic
+  re-sign of an unchanged digest — skip signing when the digest is already
+  signed by the same identity.
+
 ### Warning: "Rekor entry not found"
 
 **Problem:** Keyless signature not in transparency log.

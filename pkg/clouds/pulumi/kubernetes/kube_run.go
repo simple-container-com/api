@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package kubernetes
 
 import (
@@ -145,6 +148,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		VPA:            kubeRunInput.Deployment.VPA,            // Pass VPA configuration from DeploymentConfig
 		ReadinessProbe: kubeRunInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  kubeRunInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
+		StartupProbe:   kubeRunInput.Deployment.StartupProbe,   // Pass global startup probe configuration
 		EphemeralSize:  lo.FromPtr(kubeRunInput.Deployment.StackConfig).Size.Ephemeral,
 	}
 

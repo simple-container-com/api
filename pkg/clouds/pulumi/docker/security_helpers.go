@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package docker
 
 import (
@@ -94,7 +97,8 @@ func writeDockerConfigScript(server, auth string) string {
 			`if [ "$HOME" != "/root" ]; then `+
 			`mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true; `+
 			`fi`,
-		server, auth)
+		server, auth,
+	)
 }
 
 // writeRegistryLogin builds the registry-login shell command from resolved credentials.
@@ -317,7 +321,8 @@ func needsMergedScanArtifacts(security *api.SecurityDescriptor, imageName string
 }
 
 func appendDefectDojoFlags(args []string, config *api.DefectDojoDescriptor) []string {
-	args = append(args,
+	args = append(
+		args,
 		"--upload-defectdojo",
 		"--defectdojo-url", config.URL,
 		"--defectdojo-auto-create="+fmt.Sprintf("%t", config.AutoCreate),

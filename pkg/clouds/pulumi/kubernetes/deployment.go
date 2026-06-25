@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package kubernetes
 
 import (
@@ -46,6 +49,7 @@ type Args struct {
 	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
 	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
 	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
+	StartupProbe           *k8s.CloudRunProbe // Global startup probe configuration
 	EphemeralSize          string
 	// TerminationGracePeriodSeconds overrides pod-level terminationGracePeriodSeconds.
 	TerminationGracePeriodSeconds *int
@@ -177,10 +181,16 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		}
 
 		var startupProbe *corev1.ProbeArgs
-		if c.Container.StartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
+		cStartupProbe := c.Container.StartupProbe
+		// Global fallback for the ingress container only, mirroring readiness/liveness above
+		if cStartupProbe == nil && args.StartupProbe != nil && isIngressContainer {
+			cStartupProbe = args.StartupProbe
+		}
+		if cStartupProbe == nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
 			startupProbe = readinessProbe
-		} else if c.Container.StartupProbe != nil && (len(c.Container.Ports) == 1 || c.Container.MainPort != nil) {
-			startupProbe = toProbeArgs(c, c.Container.StartupProbe)
+		} else if cStartupProbe != nil {
+			// Explicit probes resolve their own port — apply even on multi-port containers
+			startupProbe = toProbeArgs(c, cStartupProbe)
 		}
 
 		var resources corev1.ResourceRequirementsArgs
@@ -220,40 +230,41 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
-		KubeProvider:           args.KubeProvider,
-		ComputeContext:         args.ComputeContext,
-		ServiceType:            args.ServiceType,
-		ExternalTrafficPolicy:  args.ExternalTrafficPolicy,
-		UseSSL:                 args.UseSSL,
-		ProvisionIngress:       args.ProvisionIngress,
-		Namespace:              namespace,
-		Service:                deploymentName,
-		Deployment:             deploymentName,
-		ScEnv:                  stackEnv,
-		IngressContainer:       args.Deployment.IngressContainer,
-		Domain:                 lo.FromPtr(args.Deployment.StackConfig).Domain,
-		Prefix:                 lo.FromPtr(args.Deployment.StackConfig).Prefix,
-		ProxyKeepPrefix:        lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
-		ParentStack:            lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
-		ParentEnv:              lo.If(parentEnv != "", lo.ToPtr(parentEnv)).Else(nil),
-		Replicas:               replicas,
-		Headers:                args.Deployment.Headers,
-		SecretEnvs:             mergedSecretEnvs,
-		LbConfig:               args.Deployment.StackConfig.LBConfig,
-		Volumes:                args.Deployment.TextVolumes,
-		PersistentVolumes:      pvs,
-		EphemeralVolumes:       args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
-		PriorityClassName:      args.Deployment.PriorityClassName,
-		Containers:             containers,
-		ServiceAccountName:     args.ServiceAccountName,
-		InitContainers:         args.InitContainers,
-		GenerateCaddyfileEntry: args.GenerateCaddyfileEntry,
-		Annotations:            args.Annotations,
-		NodeSelector:           args.NodeSelector,
-		Affinity:               args.Affinity,
-		Sidecars:               args.Sidecars,
-		VPA:                    args.VPA,              // Pass VPA configuration to SimpleContainer
-		Scale:                  args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
+		KubeProvider:              args.KubeProvider,
+		ComputeContext:            args.ComputeContext,
+		ServiceType:               args.ServiceType,
+		ExternalTrafficPolicy:     args.ExternalTrafficPolicy,
+		UseSSL:                    args.UseSSL,
+		ProvisionIngress:          args.ProvisionIngress,
+		Namespace:                 namespace,
+		Service:                   deploymentName,
+		Deployment:                deploymentName,
+		ScEnv:                     stackEnv,
+		IngressContainer:          args.Deployment.IngressContainer,
+		Domain:                    lo.FromPtr(args.Deployment.StackConfig).Domain,
+		Prefix:                    lo.FromPtr(args.Deployment.StackConfig).Prefix,
+		ProxyKeepPrefix:           lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
+		ParentStack:               lo.If(args.Params.ParentStack != nil, lo.ToPtr(lo.FromPtr(args.Params.ParentStack).FullReference)).Else(nil),
+		ParentEnv:                 lo.If(parentEnv != "", lo.ToPtr(parentEnv)).Else(nil),
+		Replicas:                  replicas,
+		Headers:                   args.Deployment.Headers,
+		SecretEnvs:                mergedSecretEnvs,
+		LbConfig:                  args.Deployment.StackConfig.LBConfig,
+		Volumes:                   args.Deployment.TextVolumes,
+		PersistentVolumes:         pvs,
+		EphemeralVolumes:          args.Deployment.EphemeralVolumes, // Pass generic ephemeral volumes configuration
+		PriorityClassName:         args.Deployment.PriorityClassName,
+		Containers:                containers,
+		ServiceAccountName:        args.ServiceAccountName,
+		InitContainers:            args.InitContainers,
+		GenerateCaddyfileEntry:    args.GenerateCaddyfileEntry,
+		Annotations:               args.Annotations,
+		NodeSelector:              args.NodeSelector,
+		Affinity:                  args.Affinity,
+		TopologySpreadConstraints: args.Deployment.TopologySpreadConstraints,
+		Sidecars:                  args.Sidecars,
+		VPA:                       args.VPA,              // Pass VPA configuration to SimpleContainer
+		Scale:                     args.Deployment.Scale, // Pass Scale configuration to SimpleContainer
 		PodDisruption: lo.If(args.Deployment.DisruptionBudget != nil, args.Deployment.DisruptionBudget).Else(&k8s.DisruptionBudget{
 			MinAvailable: lo.ToPtr(1),
 		}),
@@ -325,8 +336,13 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 		probePort = c.Container.Ports[0]
 	}
 
+	// periodSeconds (k8s-native) wins over the legacy duration-typed interval
+	periodSeconds := probe.PeriodSeconds
+	if periodSeconds == nil && probe.Interval != nil {
+		periodSeconds = lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))
+	}
 	probeArgs := &corev1.ProbeArgs{
-		PeriodSeconds:       sdk.IntPtrFromPtr(lo.If(probe.Interval != nil, lo.ToPtr(int(lo.FromPtr(probe.Interval).Seconds()))).Else(nil)),
+		PeriodSeconds:       sdk.IntPtrFromPtr(periodSeconds),
 		InitialDelaySeconds: sdk.IntPtrFromPtr(probe.InitialDelaySeconds),
 		FailureThreshold:    sdk.IntPtrFromPtr(probe.FailureThreshold),
 		SuccessThreshold:    sdk.IntPtrFromPtr(probe.SuccessThreshold),

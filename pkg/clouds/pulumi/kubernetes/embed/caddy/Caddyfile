@@ -3,8 +3,9 @@
 }
 
 (hsts) {
+  # Default preserved byte-for-byte; override via CaddyConfig.HSTSValue.
   header {
-     Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+     Strict-Transport-Security "{$HSTS_VALUE:max-age=31536000; includeSubDomains; preload}"
   }
   @httpReq {
     header X-Forwarded-Proto http

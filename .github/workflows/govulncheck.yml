@@ -23,9 +23,19 @@ name: govulncheck
 # VEX consult.
 #
 # CI behaviour:
-#   - PR: fails if govulncheck reports any reachable vulnerability.
-#   - main push: same gate; an unfixable transitive that suddenly
-#     becomes reachable would block the next release.
+#   - PR: fails if govulncheck reports any reachable vulnerability —
+#     but only when the PR actually touches Go (*.go / go.mod / go.sum).
+#     A PR that changes no Go input cannot alter reachability, and it
+#     cannot change the stdlib version govulncheck reads from the `go`
+#     directive in go.mod — so re-scanning a Docker- or Actions-only PR
+#     only re-flags whatever already sits on its (possibly stale) base
+#     branch. That is exactly how a `go 1.26.3`-based digest/action bump
+#     ends up "failing" a stdlib advisory that main already fixed by
+#     bumping to 1.26.4. The gate step below skips the scan (and reports
+#     success) for those PRs; main-push + the weekly cron still scan
+#     unconditionally, so nothing escapes the gate before release.
+#   - main push: same gate, always scans; an unfixable transitive that
+#     suddenly becomes reachable would block the next release.
 #   - Weekly cron: catches newly-published advisories landing against
 #     existing reachable code paths.
 
@@ -44,6 +54,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read  # gate step lists PR files to decide whether to scan
 
 jobs:
   govulncheck:
@@ -70,17 +81,47 @@ jobs:
       GOGC: "25"
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
 
+      - name: Decide whether to scan
+        id: gate
+        # Always scan on push/schedule/dispatch. On a PR, scan only when a
+        # Go input changed — see the "CI behaviour" note above. The job
+        # always runs and always reports, so a required status check named
+        # "govulncheck (reachability-aware)" is never left pending; it just
+        # reports success without burning ~13 min + 13 GB on a non-Go diff.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            echo "Event '$EVENT_NAME' → full scan."
+            exit 0
+          fi
+          changed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+          if printf '%s\n' "$changed" | grep -qE '(\.go$|^go\.mod$|^go\.sum$)'; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            echo "PR touches Go inputs → full scan."
+          else
+            echo "scan=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No .go/go.mod/go.sum changes in this PR — govulncheck scan skipped (reachability and stdlib version are unchanged by a non-Go diff)."
+          fi
+
       - name: Set up Go
+        if: steps.gate.outputs.scan == 'true'
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Install govulncheck
+        if: steps.gate.outputs.scan == 'true'
         # SHA-pin govulncheck to satisfy Scorecard's Pinned-Dependencies
         # check (was the sole `goCommand not pinned by hash` warning).
         # v1.3.0 → 0782b76014f15f24e22a438f30f308df42899ba1
@@ -90,6 +131,7 @@ jobs:
           govulncheck -version
 
       - name: Run govulncheck on source
+        if: steps.gate.outputs.scan == 'true'
         run: |
           set -euo pipefail
           # -mode=source: scan the call graph from this module's main

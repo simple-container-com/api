@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package api
 
 // SecurityDescriptor defines security configuration for container images

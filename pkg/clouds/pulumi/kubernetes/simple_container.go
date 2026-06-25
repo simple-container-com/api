@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package kubernetes
 
 import (
@@ -106,24 +109,25 @@ type SimpleContainerArgs struct {
 	KubeProvider           sdk.ProviderResource
 
 	// optional properties
-	PodDisruption         *k8s.DisruptionBudget        `json:"podDisruption" yaml:"podDisruption"`
-	LbConfig              *api.SimpleContainerLBConfig `json:"lbConfig" yaml:"lbConfig"`
-	SecretEnvs            map[string]string            `json:"secretEnvs" yaml:"secretEnvs"`
-	Annotations           map[string]string            `json:"annotations" yaml:"annotations"`
-	NodeSelector          map[string]string            `json:"nodeSelector" yaml:"nodeSelector"`
-	Affinity              *k8s.AffinityRules           `json:"affinity" yaml:"affinity"`
-	PriorityClassName     *string                      `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
-	IngressContainer      *k8s.CloudRunContainer       `json:"ingressContainer" yaml:"ingressContainer"`
-	ServiceType           *string                      `json:"serviceType" yaml:"serviceType"`
-	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
-	ProvisionIngress      bool                         `json:"provisionIngress" yaml:"provisionIngress"`
-	Headers               *k8s.Headers                 `json:"headers" yaml:"headers"`
-	Volumes               []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
-	SecretVolumes         []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
-	PersistentVolumes     []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
-	EphemeralVolumes      []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
-	VPA                   *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
-	Scale                 *k8s.Scale                   `json:"scale" yaml:"scale"`
+	PodDisruption             *k8s.DisruptionBudget          `json:"podDisruption" yaml:"podDisruption"`
+	LbConfig                  *api.SimpleContainerLBConfig   `json:"lbConfig" yaml:"lbConfig"`
+	SecretEnvs                map[string]string              `json:"secretEnvs" yaml:"secretEnvs"`
+	Annotations               map[string]string              `json:"annotations" yaml:"annotations"`
+	NodeSelector              map[string]string              `json:"nodeSelector" yaml:"nodeSelector"`
+	Affinity                  *k8s.AffinityRules             `json:"affinity" yaml:"affinity"`
+	TopologySpreadConstraints []k8s.TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
+	PriorityClassName         *string                        `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+	IngressContainer          *k8s.CloudRunContainer         `json:"ingressContainer" yaml:"ingressContainer"`
+	ServiceType               *string                        `json:"serviceType" yaml:"serviceType"`
+	ExternalTrafficPolicy     *string                        `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
+	ProvisionIngress          bool                           `json:"provisionIngress" yaml:"provisionIngress"`
+	Headers                   *k8s.Headers                   `json:"headers" yaml:"headers"`
+	Volumes                   []k8s.SimpleTextVolume         `json:"volumes" yaml:"volumes"`
+	SecretVolumes             []k8s.SimpleTextVolume         `json:"secretVolumes" yaml:"secretVolumes"`
+	PersistentVolumes         []k8s.PersistentVolume         `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes          []k8s.GenericEphemeralVolume   `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
+	VPA                       *k8s.VPAConfig                 `json:"vpa" yaml:"vpa"`
+	Scale                     *k8s.Scale                     `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
@@ -168,6 +172,9 @@ type SimpleContainer struct {
 	Deployment      *v1.Deployment      `pulumi:"deployment"`
 }
 
+// NewSimpleContainer provisions a stack's Deployment, Service, VPA/HPA and related resources.
+// Callers MUST pass args.Service/args.Deployment already parentEnv-suffixed (see generateDeploymentName);
+// child resource names are derived from them as-is, so re-suffixing here would double-suffix custom stacks.
 func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	sc := &SimpleContainer{}
 
@@ -324,8 +331,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 		secretVolumeToData[secretVolume.Name] = secretVolume.Content
 	}
 
+	// args.Deployment is already parentEnv-suffixed by the caller; use it directly so custom-stack VPA/HPA names aren't double-suffixed.
+	baseResourceName := sanitizedDeployment
 	// Generate resource names with parentEnv-aware logic
-	baseResourceName := generateDeploymentName(sanitizedService, args.ScEnv, parentEnv)
 	volumesCfgName := generateConfigVolumesName(sanitizedService, args.ScEnv, parentEnv)
 	envSecretName := generateSecretName(sanitizedService, args.ScEnv, parentEnv)
 	volumesSecretName := generateSecretVolumesName(sanitizedService, args.ScEnv, parentEnv)
@@ -594,6 +602,12 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	convertedAffinity := convertAffinityRulesToKubernetes(args.Affinity)
 	args.Log.Info(ctx.Context(), "🔍 DEBUG: Converted affinity result: %+v", convertedAffinity)
 
+	normalizedTSC, tscErr := normalizeTopologySpreadConstraints(args.TopologySpreadConstraints, appLabels)
+	if tscErr != nil {
+		return nil, tscErr
+	}
+	topologySpread := convertTopologySpreadConstraints(normalizedTSC)
+
 	podSpecArgs := &corev1.PodSpecArgs{
 		NodeSelector: sdk.ToStringMap(args.NodeSelector),
 		Affinity:     convertedAffinity,
@@ -628,6 +642,9 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	// Set optional fields if provided
 	if args.PriorityClassName != nil {
 		podSpecArgs.PriorityClassName = sdk.String(*args.PriorityClassName)
+	}
+	if topologySpread != nil {
+		podSpecArgs.TopologySpreadConstraints = topologySpread
 	}
 	if imagePullSecret != nil {
 		podSpecArgs.ImagePullSecrets = corev1.LocalObjectReferenceArray{
@@ -976,7 +993,7 @@ ${proto}://${domain} {
 	// Create HPA if enabled (validation already done in deployment.go)
 	if args.Scale != nil && args.Scale.EnableHPA {
 		hpaArgs := &HPAArgs{
-			Name:         baseResourceName, // Uses parentEnv-aware name
+			Name:         baseResourceName,
 			Deployment:   deployment,
 			MinReplicas:  args.Scale.MinReplicas,
 			MaxReplicas:  args.Scale.MaxReplicas,
@@ -1012,8 +1029,40 @@ ${proto}://${domain} {
 	return sc, nil
 }
 
+// ValidateVPAConfiguration rejects per-container policies the VPA CRD would
+// reject at apply time, so a bad config fails at plan time instead.
+func ValidateVPAConfiguration(vpa *k8s.VPAConfig) error {
+	if vpa == nil || !vpa.Enabled {
+		return nil
+	}
+	seen := make(map[string]bool, len(vpa.ContainerPolicies))
+	for i, cp := range vpa.ContainerPolicies {
+		switch {
+		case cp.ContainerName == "":
+			return errors.Errorf("containerPolicies[%d]: containerName must not be empty", i)
+		case cp.ContainerName == "*":
+			return errors.Errorf("containerPolicies[%d]: %q is reserved; set the catch-all via the top-level fields", i, "*")
+		case seen[cp.ContainerName]:
+			return errors.Errorf("containerPolicies: duplicate containerName %q", cp.ContainerName)
+		}
+		seen[cp.ContainerName] = true
+		if cp.Mode != nil && *cp.Mode != "Off" && *cp.Mode != "Auto" {
+			return errors.Errorf("containerPolicies[%q]: mode must be \"Off\" or \"Auto\", got %q", cp.ContainerName, *cp.Mode)
+		}
+	}
+	return nil
+}
+
 func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName string, namespace sdk.StringInput, labels, annotations map[string]string, opts ...sdk.ResourceOption) error {
 	vpaName := fmt.Sprintf("%s-vpa", deploymentName)
+
+	if err := ValidateVPAConfiguration(args.VPA); err != nil {
+		return errors.Wrapf(err, "invalid VPA configuration for %q", deploymentName)
+	}
+	if len(args.VPA.ContainerPolicies) > 0 && args.VPA.MinAllowed == nil && args.VPA.MaxAllowed == nil &&
+		len(args.VPA.ControlledResources) == 0 && args.VPA.ControlledValues == nil {
+		args.Log.Warn(ctx.Context(), "VPA for %q has containerPolicies but no top-level floor; unlisted containers autoscale without a minAllowed", deploymentName)
+	}
 
 	// Build VPA spec content
 	vpaSpec := map[string]interface{}{
@@ -1031,61 +1080,72 @@ func createVPA(ctx *sdk.Context, args *SimpleContainerArgs, deploymentName strin
 		}
 	}
 
-	// Add resource policy if specified
-	if args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 || args.VPA.ControlledValues != nil {
-		resourcePolicy := map[string]interface{}{}
-
-		// Build the container policy. Per the VPA CRD, controlledResources and
-		// controlledValues are per-container fields and live inside the
-		// containerPolicy entry — not at the resourcePolicy level. Placing them
-		// at resourcePolicy level (the previous behavior) caused k8s to silently
-		// drop them.
-		containerPolicy := map[string]interface{}{
-			"containerName": "*",
+	// Top-level fields render the catch-all "*"; ContainerPolicies append
+	// per-container entries (an exact containerName wins over "*").
+	hasTopLevel := args.VPA.MinAllowed != nil || args.VPA.MaxAllowed != nil || len(args.VPA.ControlledResources) > 0 || args.VPA.ControlledValues != nil
+	if hasTopLevel || len(args.VPA.ContainerPolicies) > 0 {
+		resMap := func(r *k8s.VPAResourceRequirements) map[string]interface{} {
+			if r == nil {
+				return nil
+			}
+			m := map[string]interface{}{}
+			if r.CPU != nil {
+				m["cpu"] = lo.FromPtr(r.CPU)
+			}
+			if r.Memory != nil {
+				m["memory"] = lo.FromPtr(r.Memory)
+			}
+			if r.EphemeralStorage != nil {
+				m["ephemeral-storage"] = lo.FromPtr(r.EphemeralStorage)
+			}
+			if len(m) == 0 {
+				return nil
+			}
+			return m
 		}
 
-		if len(args.VPA.ControlledResources) > 0 {
-			containerPolicy["controlledResources"] = args.VPA.ControlledResources
+		containerPolicies := make([]interface{}, 0, 1+len(args.VPA.ContainerPolicies))
+
+		if hasTopLevel {
+			star := map[string]interface{}{"containerName": "*"}
+			if len(args.VPA.ControlledResources) > 0 {
+				star["controlledResources"] = args.VPA.ControlledResources
+			}
+			if args.VPA.ControlledValues != nil {
+				star["controlledValues"] = lo.FromPtr(args.VPA.ControlledValues)
+			}
+			if m := resMap(args.VPA.MinAllowed); m != nil {
+				star["minAllowed"] = m
+			}
+			if m := resMap(args.VPA.MaxAllowed); m != nil {
+				star["maxAllowed"] = m
+			}
+			containerPolicies = append(containerPolicies, star)
 		}
 
-		if args.VPA.ControlledValues != nil {
-			containerPolicy["controlledValues"] = lo.FromPtr(args.VPA.ControlledValues)
+		for _, cp := range args.VPA.ContainerPolicies {
+			policy := map[string]interface{}{"containerName": cp.ContainerName}
+			if cp.Mode != nil {
+				policy["mode"] = lo.FromPtr(cp.Mode)
+			}
+			if len(cp.ControlledResources) > 0 {
+				policy["controlledResources"] = cp.ControlledResources
+			}
+			if cp.ControlledValues != nil {
+				policy["controlledValues"] = lo.FromPtr(cp.ControlledValues)
+			}
+			if m := resMap(cp.MinAllowed); m != nil {
+				policy["minAllowed"] = m
+			}
+			if m := resMap(cp.MaxAllowed); m != nil {
+				policy["maxAllowed"] = m
+			}
+			containerPolicies = append(containerPolicies, policy)
 		}
 
-		if args.VPA.MinAllowed != nil {
-			minAllowed := map[string]interface{}{}
-			if args.VPA.MinAllowed.CPU != nil {
-				minAllowed["cpu"] = lo.FromPtr(args.VPA.MinAllowed.CPU)
-			}
-			if args.VPA.MinAllowed.Memory != nil {
-				minAllowed["memory"] = lo.FromPtr(args.VPA.MinAllowed.Memory)
-			}
-			if args.VPA.MinAllowed.EphemeralStorage != nil {
-				minAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MinAllowed.EphemeralStorage)
-			}
-			if len(minAllowed) > 0 {
-				containerPolicy["minAllowed"] = minAllowed
-			}
+		vpaSpec["resourcePolicy"] = map[string]interface{}{
+			"containerPolicies": containerPolicies,
 		}
-
-		if args.VPA.MaxAllowed != nil {
-			maxAllowed := map[string]interface{}{}
-			if args.VPA.MaxAllowed.CPU != nil {
-				maxAllowed["cpu"] = lo.FromPtr(args.VPA.MaxAllowed.CPU)
-			}
-			if args.VPA.MaxAllowed.Memory != nil {
-				maxAllowed["memory"] = lo.FromPtr(args.VPA.MaxAllowed.Memory)
-			}
-			if args.VPA.MaxAllowed.EphemeralStorage != nil {
-				maxAllowed["ephemeral-storage"] = lo.FromPtr(args.VPA.MaxAllowed.EphemeralStorage)
-			}
-			if len(maxAllowed) > 0 {
-				containerPolicy["maxAllowed"] = maxAllowed
-			}
-		}
-
-		resourcePolicy["containerPolicies"] = []interface{}{containerPolicy}
-		vpaSpec["resourcePolicy"] = resourcePolicy
 	}
 
 	// Build the complete VPA resource with proper spec nesting
@@ -1426,4 +1486,65 @@ func convertLabelSelector(labelSelector *k8s.LabelSelector) *metav1.LabelSelecto
 	}
 
 	return kubeLabelSelector
+}
+
+func normalizeTopologySpreadConstraints(constraints []k8s.TopologySpreadConstraint, appLabels map[string]string) ([]k8s.TopologySpreadConstraint, error) {
+	if len(constraints) == 0 {
+		return nil, nil
+	}
+
+	out := make([]k8s.TopologySpreadConstraint, 0, len(constraints))
+	for i, c := range constraints {
+		if c.TopologyKey == "" {
+			return nil, errors.Errorf("topologySpreadConstraints[%d]: topologyKey is required", i)
+		}
+
+		n := c
+		if n.WhenUnsatisfiable == "" {
+			n.WhenUnsatisfiable = "DoNotSchedule"
+		}
+		if n.WhenUnsatisfiable != "DoNotSchedule" && n.WhenUnsatisfiable != "ScheduleAnyway" {
+			return nil, errors.Errorf("topologySpreadConstraints[%d]: whenUnsatisfiable must be DoNotSchedule or ScheduleAnyway, got %q", i, n.WhenUnsatisfiable)
+		}
+		if n.MaxSkew == nil {
+			n.MaxSkew = lo.ToPtr(1)
+		} else if *n.MaxSkew < 1 {
+			return nil, errors.Errorf("topologySpreadConstraints[%d]: maxSkew must be >= 1, got %d", i, *n.MaxSkew)
+		}
+		if n.MinDomains != nil {
+			if *n.MinDomains < 1 {
+				return nil, errors.Errorf("topologySpreadConstraints[%d]: minDomains must be >= 1, got %d", i, *n.MinDomains)
+			}
+			if n.WhenUnsatisfiable != "DoNotSchedule" {
+				return nil, errors.Errorf("topologySpreadConstraints[%d]: minDomains requires whenUnsatisfiable=DoNotSchedule", i)
+			}
+		}
+		if n.LabelSelector == nil {
+			n.LabelSelector = &k8s.LabelSelector{MatchLabels: appLabels}
+		}
+
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+func convertTopologySpreadConstraints(constraints []k8s.TopologySpreadConstraint) corev1.TopologySpreadConstraintArray {
+	if len(constraints) == 0 {
+		return nil
+	}
+
+	result := make(corev1.TopologySpreadConstraintArray, 0, len(constraints))
+	for _, c := range constraints {
+		constraint := corev1.TopologySpreadConstraintArgs{
+			MaxSkew:           sdk.Int(lo.FromPtr(c.MaxSkew)),
+			TopologyKey:       sdk.String(c.TopologyKey),
+			WhenUnsatisfiable: sdk.String(c.WhenUnsatisfiable),
+			LabelSelector:     convertLabelSelector(c.LabelSelector),
+		}
+		if c.MinDomains != nil {
+			constraint.MinDomains = sdk.Int(*c.MinDomains)
+		}
+		result = append(result, constraint)
+	}
+	return result
 }

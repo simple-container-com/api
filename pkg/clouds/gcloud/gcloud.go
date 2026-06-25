@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package gcloud
 
 import "github.com/simple-container-com/api/pkg/api"

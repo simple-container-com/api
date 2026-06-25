@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package aws
 
 import (
@@ -5,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -57,6 +61,23 @@ type helperCfg struct {
 	deployParams    api.StackParams
 }
 
+// helpersBuildDir returns a DETERMINISTIC build-context directory for the
+// generated helpers Dockerfile, keyed on imageName.
+//
+// pulumi-docker's Image Diff is a structural diff of the build inputs, and it
+// stores build.context / build.dockerfile as the literal path strings. Using
+// os.MkdirTemp (random suffix every run) made both differ from the stored state
+// on every provision, so the image reported a permanent `build: update` phantom
+// diff on every PR preview. A stable path makes those fields byte-identical
+// across runs; the Dockerfile content is constant and imageName already encodes
+// the stack+env, so reusing/overwriting one dir per image is safe and never
+// collides across stacks. Separators are replaced so imageName stays a single
+// path segment (no traversal out of TempDir).
+func helpersBuildDir(imageName string) string {
+	safe := strings.NewReplacer("/", "-", "\\", "-", ":", "-").Replace(imageName)
+	return filepath.Join(os.TempDir(), "sc-helpers-"+safe)
+}
+
 func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, error) {
 	ecrRepoName := cfg.ecrRepoName
 	if ecrRepoName == "" {
@@ -79,13 +100,13 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 	cfg.provisionParams.Log.Info(ctx.Context(), "creating temporary Dockerfile for cloud-helpers...")
 
 	// hack taken from here https://github.com/pulumi/pulumi-docker/issues/54#issuecomment-772250411
-	var dockerFilePath string
-	if depDir, err := os.MkdirTemp(os.TempDir(), cfg.imageName); err != nil {
-		return nil, errors.Wrapf(err, "failed to create tempDir")
-	} else if err = os.WriteFile(filepath.Join(depDir, "Dockerfile"), []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=${VERSION}"), os.ModePerm); err != nil {
+	depDir := helpersBuildDir(cfg.imageName)
+	if err := os.MkdirAll(depDir, 0o700); err != nil {
+		return nil, errors.Wrapf(err, "failed to create helpers build dir")
+	}
+	dockerFilePath := filepath.Join(depDir, "Dockerfile")
+	if err := os.WriteFile(dockerFilePath, []byte("ARG SOURCE_IMAGE\n\nFROM ${SOURCE_IMAGE}\nARG VERSION\nLABEL VERSION=${VERSION}"), 0o600); err != nil {
 		return nil, errors.Wrapf(err, "failed to write temporary Dockerfile")
-	} else {
-		dockerFilePath = filepath.Join(depDir, "Dockerfile")
 	}
 
 	version := lo.If(cfg.deployParams.Version == "", "latest").Else(cfg.deployParams.Version)
@@ -242,7 +263,8 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	if cfg.discordConfig != nil {
-		if s, err := createSecret(ctx,
+		if s, err := createSecret(
+			ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.DiscordWebhookUrl, cfg.secretSuffix),
 			api.ComputeEnv.DiscordWebhookUrl, cfg.discordConfig.WebhookUrl, cfg.tags, cfg.opts...,
 		); err != nil {
@@ -253,7 +275,8 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	if cfg.slackConfig != nil {
-		if s, err := createSecret(ctx,
+		if s, err := createSecret(
+			ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.SlackWebhookUrl, cfg.secretSuffix),
 			api.ComputeEnv.SlackWebhookUrl, cfg.slackConfig.WebhookUrl, cfg.tags, cfg.opts...,
 		); err != nil {
@@ -264,7 +287,8 @@ func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	}
 
 	if cfg.telegramConfig != nil {
-		if s, err := createSecret(ctx,
+		if s, err := createSecret(
+			ctx,
 			toSecretName(cfg.deployParams, "alert", cfg.name, api.ComputeEnv.TelegramToken, cfg.secretSuffix),
 			api.ComputeEnv.TelegramToken, cfg.telegramConfig.Token, cfg.tags, cfg.opts...,
 		); err != nil {

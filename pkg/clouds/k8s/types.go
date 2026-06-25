@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package k8s
 
 import (
@@ -30,8 +33,11 @@ type DeploymentConfig struct {
 	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                             // Vertical Pod Autoscaler configuration
 	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`       // Global readiness probe configuration
 	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`         // Global liveness probe configuration
+	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`           // Global startup probe configuration
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+
+	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
 }
 
 type CaddyConfig struct {
@@ -61,6 +67,11 @@ type CaddyConfig struct {
 	// "Local" preserves the client source IP (required for correct X-Forwarded-For from Cloudflare).
 	// "Cluster" (default) SNATs source IP to a node IP, losing the direct client IP.
 	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
+	// HSTSValue overrides the Strict-Transport-Security value emitted by
+	// the embedded `(hsts)` snippet. Applies to every site this Caddy
+	// aggregator serves; there is no per-stack override. Unset or empty
+	// uses the snippet's default (`max-age=31536000; includeSubDomains; preload`).
+	HSTSValue *string `json:"hstsValue,omitempty" yaml:"hstsValue,omitempty"`
 }
 
 type DisruptionBudget struct {
@@ -128,7 +139,8 @@ type CloudRunProbe struct {
 	HttpGet             ProbeHttpGet   `json:"httpGet" yaml:"httpGet"`
 	Interval            *time.Duration `json:"interval" yaml:"interval"`
 	InitialDelaySeconds *int           `json:"initialDelaySeconds" yaml:"initialDelaySeconds"`
-	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"`
+	IntervaSeconds      *int           `json:"intervaSeconds" yaml:"intervaSeconds"` // Deprecated: misspelled and never consumed; use periodSeconds
+	PeriodSeconds       *int           `json:"periodSeconds" yaml:"periodSeconds"`   // k8s-native spelling; takes precedence over Interval
 	FailureThreshold    *int           `json:"failureThreshold" yaml:"failureThreshold"`
 	SuccessThreshold    *int           `json:"successThreshold" yaml:"successThreshold"`
 	TimeoutSeconds      *int           `json:"timeoutSeconds" yaml:"timeoutSeconds"`

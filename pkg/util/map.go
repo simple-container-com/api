@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package util
 
 import (
@@ -71,7 +74,10 @@ func getValPart(key string, value interface{}, overallKey string) (res interface
 	case []interface{}:
 		if i, err = strconv.ParseInt(key, 10, 64); err == nil {
 			array := value
-			if int(i) < len(array) {
+			// Bounds-check in int64 (no narrowing int(i) conversion) and reject
+			// negative indices before indexing — guards the signed-conversion /
+			// out-of-range class (CWE-190/681) and a negative-index panic.
+			if i >= 0 && i < int64(len(array)) {
 				res = array[i]
 			} else {
 				err = fmt.Errorf("index out of bounds. [index:%d] [array:%v] of [path:%s]", i, array, overallKey)

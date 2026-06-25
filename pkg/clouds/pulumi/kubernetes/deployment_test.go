@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package kubernetes
 
 import (
@@ -5,6 +8,7 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
@@ -325,4 +329,65 @@ func TestToProbeArgs_HeaderPreservation(t *testing.T) {
 
 	Expect(result).ToNot(BeNil(), "ProbeArgs should not be nil")
 	Expect(result.HttpGet).ToNot(BeNil(), "Should have HTTP GET configured")
+}
+
+// TestToProbeArgs_PeriodSeconds verifies the precedence between the k8s-native
+// periodSeconds field and the legacy duration-typed interval field.
+func TestToProbeArgs_PeriodSeconds(t *testing.T) {
+	container := &ContainerImage{
+		Container: k8s.CloudRunContainer{
+			Name:     "test-container",
+			Ports:    []int{8080},
+			MainPort: lo.ToPtr(8080),
+		},
+	}
+
+	testCases := []struct {
+		name     string
+		probe    *k8s.CloudRunProbe
+		expected sdk.IntPtrInput
+	}{
+		{
+			name: "periodSeconds used directly",
+			probe: &k8s.CloudRunProbe{
+				PeriodSeconds: lo.ToPtr(15),
+			},
+			expected: sdk.IntPtr(15),
+		},
+		{
+			name: "interval converted to seconds when periodSeconds absent",
+			probe: &k8s.CloudRunProbe{
+				Interval: lo.ToPtr(20 * time.Second),
+			},
+			expected: sdk.IntPtr(20),
+		},
+		{
+			name: "periodSeconds wins over interval",
+			probe: &k8s.CloudRunProbe{
+				PeriodSeconds: lo.ToPtr(15),
+				Interval:      lo.ToPtr(99 * time.Second),
+			},
+			expected: sdk.IntPtr(15),
+		},
+		{
+			name:     "neither set leaves kubelet default",
+			probe:    &k8s.CloudRunProbe{},
+			expected: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			result := toProbeArgs(container, tc.probe)
+
+			Expect(result).ToNot(BeNil())
+			if tc.expected == nil {
+				Expect(result.PeriodSeconds).To(BeNil())
+			} else {
+				Expect(result.PeriodSeconds).To(Equal(tc.expected))
+			}
+		})
+	}
 }

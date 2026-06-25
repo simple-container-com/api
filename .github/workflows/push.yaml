@@ -34,7 +34,7 @@ jobs:
         run: |
           echo "::error title=push.yaml restricted to main::Got github.ref=$GITHUB_REF; this workflow signs artifacts under the production trust root (refs/heads/main only). Re-dispatch from main or remove workflow_dispatch from the trigger."
           exit 1
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Get next version
@@ -53,7 +53,7 @@ jobs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
@@ -147,7 +147,7 @@ jobs:
           - os: darwin
             arch: amd64
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -167,8 +167,11 @@ jobs:
         run: |
           echo "Building for ${GOOS}/${GOARCH}..."
           if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
-          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
-          tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
+          go build -trimpath -buildvcs=false -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
+          # Deterministic tarball: fixed entry order, zeroed mtime/owner, a
+          # forced mode (independent of the builder umask) and gzip -9 -n
+          # (no embedded timestamp) so a rebuild reproduces it bit-for-bit.
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --mode='u=rwx,go=rx' -cf - -C dist/${GOOS}-${GOARCH} sc${EXT} | gzip -9 -n > .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
       # Phase 2: per-tarball SHA-256, CycloneDX SBOM, cosign keyless signature
       # (self-contained bundle), SLSA provenance. Soft-fail per step — the tarball
@@ -299,7 +302,7 @@ jobs:
             cmd: cloud-helpers
             output: dist/cloud-helpers
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -314,7 +317,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           CGO_ENABLED: "0"
         run: |
-          go build -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
+          go build -trimpath -buildvcs=false -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -332,7 +335,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -348,7 +351,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare, build-setup]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: restore cached schemas
@@ -421,7 +424,7 @@ jobs:
               simplecontainer/cloud-helpers:aws-latest
               simplecontainer/cloud-helpers:aws-${{ needs.prepare.outputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - name: download github-actions binary
@@ -541,7 +544,7 @@ jobs:
       id-token: write    # OIDC for keyless cosign sign-blob of sc.sh
       attestations: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
@@ -709,7 +712,7 @@ jobs:
       - build-setup
       - docker-finalize
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         if: ${{ always() }}
         with:
           persist-credentials: false

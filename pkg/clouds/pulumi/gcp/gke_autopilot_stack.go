@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package gcp
 
 import (
@@ -189,6 +192,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		VPA:            gkeAutopilotInput.Deployment.VPA,            // Pass VPA configuration to Kubernetes deployment
 		ReadinessProbe: gkeAutopilotInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  gkeAutopilotInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
+		StartupProbe:   gkeAutopilotInput.Deployment.StartupProbe,   // Pass global startup probe configuration
 		EphemeralSize:  ephemeralSize,
 	}
 

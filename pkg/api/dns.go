@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package api
 
 import sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"

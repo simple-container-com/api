@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package aws
 
 import (
@@ -349,7 +352,8 @@ func toDependsOn(on types.DependsOnConfig) []EcsFargateDependsOn {
 		return EcsFargateDependsOn{
 			Container: key,
 			Condition: lo.If(value.Condition == "service_healthy", "HEALTHY").Else(
-				lo.If(value.Condition == "service_started", "START").Else("HEALTHY")),
+				lo.If(value.Condition == "service_started", "START").Else("HEALTHY"),
+			),
 		}
 	})
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package llm
 
 import (
@@ -137,7 +140,8 @@ func (p *OllamaProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 
 	// Call Ollama
 	startTime := time.Now()
-	response, err := p.client.GenerateContent(ctx, llmMessages,
+	response, err := p.client.GenerateContent(
+		ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 	)
@@ -182,7 +186,8 @@ func (p *OllamaProvider) StreamChat(ctx context.Context, messages []Message, cal
 	var completionTokens int
 
 	// Use streaming generation
-	_, err := p.client.GenerateContent(ctx, llmMessages,
+	_, err := p.client.GenerateContent(
+		ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {

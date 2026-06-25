@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package llm
 
 import (
@@ -87,7 +90,8 @@ func (p *YandexProvider) Chat(ctx context.Context, messages []Message) (*ChatRes
 
 	// Call Yandex
 	startTime := time.Now()
-	response, err := p.client.GenerateContent(ctx, llmMessages,
+	response, err := p.client.GenerateContent(
+		ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 	)
@@ -132,7 +136,8 @@ func (p *YandexProvider) StreamChat(ctx context.Context, messages []Message, cal
 	var completionTokens int
 
 	// Use streaming generation
-	_, err := p.client.GenerateContent(ctx, llmMessages,
+	_, err := p.client.GenerateContent(
+		ctx, llmMessages,
 		llms.WithMaxTokens(p.config.MaxTokens),
 		llms.WithTemperature(float64(p.config.Temperature)),
 		llms.WithStreamingFunc(func(ctx context.Context, chunk []byte) error {

@@ -1,0 +1,21 @@
+# OSV-Scanner ignore list. Mirrors the `not_affected` statements in
+# `vex/openvex.json` for the benefit of OpenSSF Scorecard's Vulnerabilities
+# check, which queries osv.dev directly and doesn't read VEX. The VEX file
+# remains the source-of-truth justification; this file is a re-statement
+# in a format the scanner understands.
+#
+# Add an entry here ONLY after the corresponding `not_affected` statement
+# lands in vex/openvex.json (review by code owners under the default
+# `*` CODEOWNERS rule). Suppressing a real vulnerability here without VEX
+# is a regression — track upstream-fix availability in the VEX
+# impact_statement, and remove from BOTH files when fixable.
+#
+# Reference: https://google.github.io/osv-scanner/configuration/
+
+[[IgnoredVulns]]
+id = "GO-2022-0635"
+reason = "VEX not_affected: github.com/aws/aws-sdk-go is required transitively by github.com/pulumi/pulumi/pkg/v3/operations; the s3crypto subpackage is never imported by this codebase nor any reachable code path. govulncheck -mode=source confirms 0 reachable vulnerabilities. Full justification in vex/openvex.json."
+
+[[IgnoredVulns]]
+id = "GO-2022-0646"
+reason = "VEX not_affected: same s3crypto unreachability as GO-2022-0635 — different advisory ID against the same subpackage. govulncheck confirms zero reachable calls to the affected symbols. Full justification in vex/openvex.json."
