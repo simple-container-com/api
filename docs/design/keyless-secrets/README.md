@@ -21,6 +21,63 @@ default; migration is additive, per-repo, and reversible).
 The crypto primitives are not reinvented; the change is the **key-custody model** plus
 a **v2 envelope format** required to support per-recipient key wrapping cleanly.
 
+## Decision (2026-06-27): inline values + per-scope keys, via SOPS, file-per-scope
+
+After a multi-model design review, the concrete shape for the convenience-and-isolation
+feature ("encrypt individual values inline, decryptable per scope, like ansible-vault")
+is settled:
+
+- **Adopt SOPS (`getsops/sops`) as the inline-value crypto + format layer** — do **not**
+  hand-roll inline encryption, a file MAC, and per-backend KMS clients. SOPS already
+  provides inline value encryption (structure stays readable, only leaves opaque), a
+  whole-file MAC, partial decryption, and age / AWS-KMS / GCP-KMS / Azure-KV / Vault
+  recipients. (A just-fixed in-house ed25519 scheme that had zero confidentiality is the
+  decisive reason not to grow more bespoke crypto here.)
+- **One readable file per scope** (`.sc/secrets.<scope>.yaml`), **not** one multiplexed
+  file holding every scope. A single multi-scope file forces a "partial-MAC paradox" — a
+  holder of only the preview key cannot recompute a whole-file MAC over prod values it
+  cannot read — and would require hand-rolled per-value crypto. File-per-scope delivers
+  per-scope isolation with SOPS's standard whole-file MAC, in weeks rather than months.
+- **A key decrypts only the scope file(s) it is a recipient of.** This replaces the
+  single all-powerful master key with per-scope, isolated, revocable keys (an age key, an
+  OIDC→KMS grant, or an isolated secret), so a preview deploy gets only the preview key
+  and cannot read prod.
+- SC owns the thin layer SOPS does not: the scope→recipient config, deploy-time decrypt
+  with **hard-fail on a missing required secret**, a plaintext-leak lint, and provider
+  key delivery.
+
+A multiplexed single-file format and native (non-SOPS) crypto were considered and
+rejected (months of work + crypto risk + the partial-MAC paradox).
+
+### Non-negotiables (must hold before merge)
+
+1. **Hard-fail on a missing required secret** at deploy — never substitute empty /
+   placeholder / ciphertext, never deploy partially.
+2. **Mandatory MAC + AAD** binding path/scope/version; encrypt-then-MAC; always-random nonce.
+3. **Scope→recipient mapping is CODEOWNERS-gated**, out of PR control — a MAC does not
+   stop re-encryption to an attacker-added recipient.
+4. **Plaintext-leak lint** (`encrypted_regex` + CI gate), shipped *with* the feature.
+5. **Rotation ≠ removing a recipient**: git history retains old ciphertext, so removing a
+   recipient requires rotating the underlying secret values.
+6. **Provider keys via OIDC→KMS unwrap**, not handing a private key to CI (otherwise it is
+   just a smaller master key); a provider failure is a hard-fail; the OIDC trust policy is
+   the real perimeter (IaC + CODEOWNERS).
+
+### Strict backward compatibility (maintainer requirement)
+
+The existing whole-file `.sc/secrets.yaml` keeps working unchanged; the feature is
+**additive and lives in separate files** old binaries never open. A **fail-closed version
+reader must ship and bake fleet-wide first** — old binaries silently drop unknown YAML
+fields on rewrite, so the new format must never live in `secrets.yaml`. A given path is
+either whole-file (mode A) or inline (mode B), never both.
+
+### Minimal v1
+
+SOPS, **file-per-scope**, age recipients, `sc secrets set` / `edit` + transparent decrypt
+at `sc deploy` + the plaintext lint + hard-fail-on-missing. **No KMS/OIDC and no
+multi-scope multiplex file in v1** — those are v2 (providers + governance) and a possible
+later multiplex format only if practice demands it.
+
 ## Motivation
 
 The SC envelope is already **multi-recipient** (`AddPublicKey`/`RemovePublicKey`,
@@ -227,6 +284,8 @@ itself; supply-chain compromise of the CLI or CI actions (mitigated by signed re
 
 ## Open questions
 
+- **Resolved:** multiplex-single-file vs file-per-scope → **file-per-scope** (see Decision);
+  native crypto vs SOPS → **SOPS** for the inline-value layer.
 - Per-file-set vs per-environment DEK granularity (audit/scoping vs rewrap cost).
 - How aggressively to enforce a minimum recipient-strength / forbidden-type policy.
 - Whether `require-kms` is per-store, per-environment, or both.
