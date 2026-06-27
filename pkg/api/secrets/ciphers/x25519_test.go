@@ -2,6 +2,7 @@ package ciphers
 
 import (
 	"crypto/ecdh"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -206,4 +207,56 @@ func TestX25519_EmptyPlaintextRoundTrip(t *testing.T) {
 	got, err := decryptWithX25519(priv, blob)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(got).To(BeEmpty())
+}
+
+func TestX25519_BadRecipientPublicKey(t *testing.T) {
+	RegisterTestingT(t)
+	// Wrong-length ed25519 public key.
+	_, err := encryptWithX25519(ed25519.PublicKey(make([]byte, 10)), []byte("x"))
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("invalid ed25519 public key size"))
+
+	// 32 bytes that are not a valid Edwards point (roughly half of all strings
+	// have no curve point); find one and confirm conversion errors.
+	found := false
+	b := make([]byte, ed25519.PublicKeySize)
+	for i := 0; i < 64 && !found; i++ {
+		_, _ = rand.Read(b)
+		if _, e := ed25519PublicKeyToX25519(ed25519.PublicKey(append([]byte{}, b...))); e != nil {
+			found = true
+		}
+	}
+	Expect(found).To(BeTrue(), "expected to find a non-point encoding that fails conversion")
+}
+
+func TestX25519_DecryptRejectsMalformedBlobs(t *testing.T) {
+	RegisterTestingT(t)
+	priv, _, err := GenerateEd25519KeyPair()
+	Expect(err).ToNot(HaveOccurred())
+
+	// Too short for the header.
+	_, err = decryptWithX25519(priv, []byte("short"))
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("too short"))
+
+	// Long enough, but no x25519 magic prefix.
+	_, err = decryptWithX25519(priv, make([]byte, 80))
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("not an x25519 blob"))
+}
+
+func TestX25519_DecryptRejectsLowOrderEphemeralKey(t *testing.T) {
+	RegisterTestingT(t)
+	priv, _, err := GenerateEd25519KeyPair()
+	Expect(err).ToNot(HaveOccurred())
+
+	// Well-formed header with an all-zero (low-order) ephemeral public key: the
+	// ECDH must reject it rather than derive an attacker-usable shared secret.
+	blob := append([]byte{}, x25519Magic...)
+	blob = append(blob, x25519Version)
+	blob = append(blob, make([]byte, 32)...)
+	blob = append(blob, make([]byte, chacha20poly1305.NonceSize)...)
+	blob = append(blob, make([]byte, 16)...)
+	_, err = decryptWithX25519(priv, blob)
+	Expect(err).To(HaveOccurred())
 }
