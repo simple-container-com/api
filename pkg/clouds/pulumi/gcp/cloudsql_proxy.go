@@ -239,5 +239,19 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 		TimeoutSeconds:   sdk.IntPtr(3),
 		FailureThreshold: sdk.IntPtr(3),
 	}
+	// On a native sidecar a failing readiness probe neither restarts the container nor
+	// gates pod readiness — only liveness recovers a proxy that passed startup and then
+	// hung (deadlock / pool exhaustion / partial-OOM), where the process stays alive but
+	// app DB calls to localhost:5432 fail. /liveness is already served by --health-check.
+	// kubelet defers liveness until the startup probe succeeds, so no InitialDelay is needed.
+	container.LivenessProbe = &v1.ProbeArgs{
+		HttpGet: v1.HTTPGetActionArgs{
+			Path: sdk.String("/liveness"),
+			Port: sdk.String("csql-hc"),
+		},
+		PeriodSeconds:    sdk.IntPtr(10),
+		TimeoutSeconds:   sdk.IntPtr(3),
+		FailureThreshold: sdk.IntPtr(3),
+	}
 	return container
 }

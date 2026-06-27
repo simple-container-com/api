@@ -232,24 +232,34 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 		if err != nil {
 			return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
 		}
-		// Attach the proxy as a native sidecar (an init container carrying
-		// RestartPolicy: Always, set in cloudsqlProxyContainer) rather than a parallel
-		// sidecar. Its startup probe then gates the app containers so they never start
-		// before the proxy is listening on localhost:5432 -- removing the connection-refused
-		// race on pod (re)start. The init-Job proxy keeps its own terminating variant.
-		kubeArgs.InitContainerOutputs = append(kubeArgs.InitContainerOutputs, cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) corev1.ContainerArgs {
+		proxyContainer := cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) corev1.ContainerArgs {
 			return arg.(corev1.ContainerArgs)
-		}).(corev1.ContainerOutput))
-		kubeArgs.VolumeOutputs = append(kubeArgs.VolumeOutputs, cloudsqlProxy.SqlProxySecret.Metadata.Name().ApplyT(func(arg any) corev1.VolumeArgs {
+		}).(corev1.ContainerOutput)
+		credsVolume := cloudsqlProxy.SqlProxySecret.Metadata.Name().ApplyT(func(arg any) corev1.VolumeArgs {
 			return corev1.VolumeArgs{
 				Name: sdk.String(lo.FromPtr(arg.(*string))),
 				Secret: &corev1.SecretVolumeSourceArgs{
 					SecretName: sdk.StringPtrFromPtr(arg.(*string)),
 				},
 			}
-		}).(corev1.VolumeOutput))
+		}).(corev1.VolumeOutput)
+		attachCloudsqlProxyAsNativeSidecar(kubeArgs, proxyContainer, credsVolume)
 		return nil
 	})
+}
+
+// attachCloudsqlProxyAsNativeSidecar wires the runtime proxy into kubeArgs as a native
+// sidecar: its container goes in InitContainerOutputs (NOT SidecarOutputs) and its
+// credential Secret volume rides along in VolumeOutputs. The init-container target is
+// load-bearing — the container carries RestartPolicy: Always (set in cloudsqlProxyContainer),
+// which the API server rejects on a regular container, and only the init-container placement
+// gives the startup-probe ordering that stops the app from dialing localhost:5432 before the
+// proxy is up. Kept as a tiny pure helper so that contract is unit-testable without the GCP
+// provisioning path. The init-Job proxy (timeout>0) is attached elsewhere as a plain
+// terminating container.
+func attachCloudsqlProxyAsNativeSidecar(kubeArgs *kubernetes.SimpleContainerArgs, proxyContainer corev1.ContainerOutput, credsVolume corev1.VolumeOutput) {
+	kubeArgs.InitContainerOutputs = append(kubeArgs.InitContainerOutputs, proxyContainer)
+	kubeArgs.VolumeOutputs = append(kubeArgs.VolumeOutputs, credsVolume)
 }
 
 func createCloudsqlProxy(ctx *sdk.Context, params appendParams, namespaceOutput sdk.StringInput) (*CloudSQLProxy, error) {
