@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	cloud.google.com/go/storage v1.62.3
+	filippo.io/edwards25519 v1.2.0
 	github.com/MShekow/directory-checksum v1.4.18
 	github.com/anthonycorbacho/slack-webhook v1.0.1
 	github.com/antonmedv/expr v1.12.6
@@ -19,6 +20,7 @@ require (
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/containerd/platforms v0.2.1
 	github.com/disgoorg/disgo v0.19.6
+	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/fatih/color v1.19.0
 	github.com/go-delve/delve v1.26.3
 	github.com/go-git/go-billy/v5 v5.9.0
@@ -182,7 +184,6 @@ require (
 	github.com/derekparker/trie/v3 v3.2.0 // indirect
 	github.com/disgoorg/json/v2 v2.0.0 // indirect
 	github.com/disgoorg/omit v1.0.0 // indirect
-	github.com/disgoorg/snowflake/v2 v2.0.3 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/djherbis/times v1.5.0 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
