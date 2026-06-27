@@ -164,6 +164,14 @@ func (c *cryptor) unmarshalSecretsFile() error {
 	}
 	if res, err := api.UnmarshalDescriptor[EncryptedSecretFiles](secretsFileData); err != nil || res == nil {
 		return errors.Wrapf(err, "failed to unmarshal secrets file: %q", secretsFilePath)
+	} else if res.Version > CurrentSecretsFileVersion {
+		// Fail closed: a newer schema this build doesn't understand. Reading and
+		// then writing would silently drop the fields we can't model and corrupt
+		// the store, so refuse outright.
+		return errors.Errorf(
+			"secrets file %q is version %d, but this sc build supports up to version %d; upgrade sc (refusing to read to avoid data loss)",
+			secretsFilePath, res.Version, CurrentSecretsFileVersion,
+		)
 	} else {
 		c.secrets = *res
 		// Normalize all public keys to ensure consistency (remove aliases/comments)
