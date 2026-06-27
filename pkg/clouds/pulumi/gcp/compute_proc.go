@@ -232,7 +232,12 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 		if err != nil {
 			return errors.Wrapf(err, "failed to create cloudsql proxy for %q in stack %q", params.postgresName, params.stack.Name)
 		}
-		kubeArgs.SidecarOutputs = append(kubeArgs.SidecarOutputs, cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) corev1.ContainerArgs {
+		// Attach the proxy as a native sidecar (an init container carrying
+		// RestartPolicy: Always, set in cloudsqlProxyContainer) rather than a parallel
+		// sidecar. Its startup probe then gates the app containers so they never start
+		// before the proxy is listening on localhost:5432 -- removing the connection-refused
+		// race on pod (re)start. The init-Job proxy keeps its own terminating variant.
+		kubeArgs.InitContainerOutputs = append(kubeArgs.InitContainerOutputs, cloudsqlProxy.ProxyContainer.ApplyT(func(arg any) corev1.ContainerArgs {
 			return arg.(corev1.ContainerArgs)
 		}).(corev1.ContainerOutput))
 		kubeArgs.VolumeOutputs = append(kubeArgs.VolumeOutputs, cloudsqlProxy.SqlProxySecret.Metadata.Name().ApplyT(func(arg any) corev1.VolumeArgs {
