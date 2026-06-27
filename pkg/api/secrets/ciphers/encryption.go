@@ -160,10 +160,13 @@ func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 			res[idx] = base64.StdEncoding.EncodeToString(encryptedData)
 		}
 	} else if ed25519Key, ok := key.(ed25519.PublicKey); ok {
-		// For ed25519, use hybrid encryption with Curve25519 + ChaCha20-Poly1305
-		encryptedData, err := encryptWithEd25519(ed25519Key, []byte(s))
+		// ed25519 recipients are sealed via ephemeral-static X25519 ECDH
+		// (see x25519.go): the AEAD key is derived from the ECDH shared secret,
+		// so only the holder of the private key can decrypt. The previous scheme
+		// derived the key from the public key alone and is no longer produced.
+		encryptedData, err := encryptWithX25519(ed25519Key, []byte(s))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to encrypt secret with ed25519")
+			return nil, errors.Wrapf(err, "failed to encrypt secret for ed25519 recipient")
 		}
 		res = []string{base64.StdEncoding.EncodeToString(encryptedData)}
 	} else {
@@ -199,49 +202,24 @@ func DecryptLargeStringWithEd25519(key ed25519.PrivateKey, chunks []string) ([]b
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to decode base64 string")
 	}
+	// New blobs use the X25519 sealed box (see x25519.go). Legacy blobs predate
+	// it and are read-only here solely to support migration/re-encryption — they
+	// are NOT confidential (the key was derived from public data); rotate any
+	// secret ever stored in one.
+	if isX25519Blob(chunkBytes) {
+		return decryptWithX25519(key, chunkBytes)
+	}
 	return decryptWithEd25519(key, chunkBytes)
 }
 
-// encryptWithEd25519 performs hybrid encryption using HKDF key derivation and ChaCha20-Poly1305
-func encryptWithEd25519(publicKey ed25519.PublicKey, plaintext []byte) ([]byte, error) {
-	// Generate a random salt for HKDF
-	salt := make([]byte, 32)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, errors.Wrap(err, "failed to generate salt")
-	}
+// NOTE: the former encryptWithEd25519 was removed. It derived the AEAD key from
+// the recipient's PUBLIC key (HKDF(publicKey, salt)) with no key agreement, so
+// the ciphertext was decryptable by anyone holding the public key — i.e. zero
+// confidentiality. ed25519 recipients are now sealed via X25519 ECDH (x25519.go).
 
-	// Use HKDF to derive encryption key from ed25519 public key and salt
-	hkdfReader := hkdf.New(sha256.New, publicKey, salt, []byte("ed25519-chacha20poly1305"))
-	encryptionKey := make([]byte, 32)
-	if _, err := hkdfReader.Read(encryptionKey); err != nil {
-		return nil, errors.Wrap(err, "failed to derive encryption key")
-	}
-
-	// Create ChaCha20-Poly1305 cipher
-	cipher, err := chacha20poly1305.New(encryptionKey)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create cipher")
-	}
-
-	// Generate nonce
-	nonce := make([]byte, chacha20poly1305.NonceSize)
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, errors.Wrap(err, "failed to generate nonce")
-	}
-
-	// Encrypt the plaintext
-	ciphertext := cipher.Seal(nil, nonce, plaintext, nil)
-
-	// Combine salt + nonce + ciphertext
-	result := make([]byte, 32+len(nonce)+len(ciphertext))
-	copy(result[0:32], salt)
-	copy(result[32:32+len(nonce)], nonce)
-	copy(result[32+len(nonce):], ciphertext)
-
-	return result, nil
-}
-
-// decryptWithEd25519 performs hybrid decryption using HKDF key derivation and ChaCha20-Poly1305
+// decryptWithEd25519 reads a LEGACY (pre-X25519) ed25519 blob. Kept only so old
+// stores can be decrypted for migration/re-encryption. Such blobs are NOT
+// confidential — rotate any secret ever stored in one. New blobs use X25519.
 func decryptWithEd25519(privateKey ed25519.PrivateKey, ciphertext []byte) ([]byte, error) {
 	if len(ciphertext) < 32+chacha20poly1305.NonceSize {
 		return nil, errors.New("ciphertext too short")

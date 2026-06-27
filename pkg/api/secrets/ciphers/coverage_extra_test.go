@@ -127,9 +127,10 @@ func TestDecryptLargeStringWithEd25519_TruncatedAfterHeader(t *testing.T) {
 	raw, err := base64.StdEncoding.DecodeString(enc[0])
 	Expect(err).ToNot(HaveOccurred())
 
-	// Keep salt(32)+nonce(12) and a single body byte: passes the length guard
-	// (>= 44) but cannot hold a 16-byte AEAD tag, so Open fails.
-	truncated := base64.StdEncoding.EncodeToString(raw[:45])
+	// Keep the X25519 header + a truncated ciphertext: longer than the 69-byte
+	// minimum (magic+ver+ephPub+nonce+tag) so it passes the length guard, but
+	// corrupted, so Open fails.
+	truncated := base64.StdEncoding.EncodeToString(raw[:70])
 	_, err = DecryptLargeStringWithEd25519(priv, []string{truncated})
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("failed to decrypt data"))
