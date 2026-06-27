@@ -1,12 +1,12 @@
 # Secrets Management with Simple Container
 
-This comprehensive guide covers how to manage secrets and confidential files using Simple Container's built-in secrets management system. Simple Container uses SSH-RSA encryption to securely store and share secrets within your team while maintaining them in your Git repository.
+This comprehensive guide covers how to manage secrets and confidential files using Simple Container's built-in secrets management system. Simple Container encrypts secrets to your team's SSH public keys (RSA and ed25519) so they can be stored and shared safely in your Git repository.
 
 ## Overview
 
 Simple Container's secrets management provides:
 
-- **SSH-RSA encryption** for secure secret storage
+- **Public-key encryption** to SSH recipients (RSA and ed25519) for secure secret storage
 - **Team-based access control** with public key management
 - **Git-native workflow** for secret versioning and collaboration
 - **Built-in commands** for easy secret lifecycle management
@@ -24,12 +24,19 @@ Simple Container uses a multi-key encryption approach:
 
 This means that when you run `sc secrets reveal`, the system uses your private key to decrypt secrets that were encrypted with your corresponding public key (along with all other team members' public keys).
 
+### Cipher per recipient type
+
+Each recipient public key gets its own encryption of the secret, using a scheme appropriate to the key type:
+
+- **`ssh-rsa` recipients** — RSA-OAEP (SHA-256).
+- **`ssh-ed25519` recipients** — an ephemeral-static **X25519 ECDH** sealed box (HKDF-SHA256 + ChaCha20-Poly1305): the content key is derived from the ECDH shared secret, so only the holder of the ed25519 private key can decrypt.
+
 ## Prerequisites
 
 Before working with secrets, ensure you have:
 
 - Simple Container CLI installed
-- SSH RSA key pair (2048-bit supported)
+- An SSH key pair — RSA (2048-bit) or ed25519
 - Access to the project repository
 
 ## Configuration Override
