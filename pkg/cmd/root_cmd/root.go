@@ -5,6 +5,7 @@ package root_cmd
 
 import (
 	"context"
+	stderrors "errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/git"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/provisioner"
 )
 
@@ -108,8 +110,17 @@ func (c *RootCmd) Init(opts InitOpts) error {
 	if err := c.Provisioner.Cryptor().ReadProfileConfig(); err != nil && !opts.IgnoreConfigDirError {
 		return errors.Wrapf(err, "failed to read profile config, did you run `init`?")
 	}
-	if err := c.Provisioner.Cryptor().ReadSecretFiles(); err != nil && !opts.IgnoreConfigDirError {
-		return errors.Wrapf(err, "failed to read secrets file, did you run `init`?")
+	if err := c.Provisioner.Cryptor().ReadSecretFiles(); err != nil {
+		// A store newer than this build understands is ALWAYS fatal — even when
+		// config-dir errors are ignored (e.g. IgnoreAllErrors from the root
+		// PersistentPreRunE). Otherwise the store reads as empty and the next
+		// write clobbers the newer file, which is exactly what the guard prevents.
+		if stderrors.Is(err, secrets.ErrSecretsStoreVersionUnsupported) {
+			return err
+		}
+		if !opts.IgnoreConfigDirError {
+			return errors.Wrapf(err, "failed to read secrets file, did you run `init`?")
+		}
 	}
 
 	return nil

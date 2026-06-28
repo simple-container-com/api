@@ -4,6 +4,7 @@
 package secrets
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/samber/lo"
@@ -22,6 +23,13 @@ const EncryptedSecretFilesDataFileName = "secrets.yaml"
 // the next write. This reader must therefore ship and roll out fleet-wide BEFORE
 // any higher-versioned store is ever written.
 const CurrentSecretsFileVersion = 0
+
+// ErrSecretsStoreVersionUnsupported is returned when the on-disk store declares a
+// schema version newer than CurrentSecretsFileVersion. It MUST stay fatal on every
+// read path — including ones that otherwise tolerate a missing/uninitialized store
+// (root_cmd's IgnoreConfigDirError) — because reading a too-new store as empty and
+// then writing would clobber it. Detect it with errors.Is.
+var ErrSecretsStoreVersionUnsupported = errors.New("unsupported secrets store version")
 
 type Cryptor interface {
 	GenerateKeyPairWithProfile(projectName, profile string) error

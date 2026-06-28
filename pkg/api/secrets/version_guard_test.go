@@ -4,6 +4,7 @@
 package secrets
 
 import (
+	"errors"
 	"os"
 	"path"
 	"testing"
@@ -28,6 +29,10 @@ func TestUnmarshalSecretsFile_RejectsNewerVersion(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("version 99"))
 	Expect(err.Error()).To(ContainSubstring("refusing to read"))
+	// Must be detectable as the sentinel: root_cmd relies on errors.Is to keep
+	// this fatal even on the IgnoreConfigDirError CLI path (else a too-new store
+	// reads as empty and the next write clobbers it).
+	Expect(errors.Is(err, ErrSecretsStoreVersionUnsupported)).To(BeTrue())
 }
 
 // TestUnmarshalSecretsFile_AcceptsCurrentVersion confirms back-compat: a store
