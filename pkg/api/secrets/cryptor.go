@@ -15,17 +15,17 @@ import (
 
 const EncryptedSecretFilesDataFileName = "secrets.yaml"
 
-// CurrentSecretsFileVersion is the highest secrets.yaml schema version this build
-// understands. A store with no `version` field is treated as version 0 (the
+// CurrentSecretsSchemaVersion is the highest secrets.yaml schema version this build
+// understands. A store with no `schemaVersion` field is treated as version 0 (the
 // original, current format). When a future format bumps this, OLDER binaries
-// (which carry a lower CurrentSecretsFileVersion) refuse to read it — see the
+// (which carry a lower CurrentSecretsSchemaVersion) refuse to read it — see the
 // guard in unmarshalSecretsFile — instead of silently dropping the new fields on
 // the next write. This reader must therefore ship and roll out fleet-wide BEFORE
 // any higher-versioned store is ever written.
-const CurrentSecretsFileVersion = 0
+const CurrentSecretsSchemaVersion = 0
 
 // ErrSecretsStoreVersionUnsupported is returned when the on-disk store declares a
-// schema version newer than CurrentSecretsFileVersion. It MUST stay fatal on every
+// schema version newer than CurrentSecretsSchemaVersion. It MUST stay fatal on every
 // read path — including ones that otherwise tolerate a missing/uninitialized store
 // (root_cmd's IgnoreConfigDirError) — because reading a too-new store as empty and
 // then writing would clobber it. Detect it with errors.Is.
@@ -103,11 +103,11 @@ func (c *cryptor) PrivateKey() string {
 }
 
 type EncryptedSecretFiles struct {
-	// Version is the secrets.yaml schema version. Absent/0 = the original format.
-	// A reader refuses any version above CurrentSecretsFileVersion (fail-closed).
-	Version  int                         `json:"version,omitempty" yaml:"version,omitempty"`
-	Registry Registry                    `json:"registry" yaml:"registry"`
-	Secrets  map[string]EncryptedSecrets `json:"secrets" yaml:"secrets"`
+	// SchemaVersion is the secrets.yaml schema version. Absent/0 = the original
+	// format. A reader refuses any value above CurrentSecretsSchemaVersion (fail-closed).
+	SchemaVersion int                         `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	Registry      Registry                    `json:"registry" yaml:"registry"`
+	Secrets       map[string]EncryptedSecrets `json:"secrets" yaml:"secrets"`
 }
 
 type EncryptedSecrets struct {

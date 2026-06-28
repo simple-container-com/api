@@ -23,7 +23,7 @@ func TestUnmarshalSecretsFile_RejectsNewerVersion(t *testing.T) {
 	defer cleanup()
 
 	secretsPath := path.Join(wd, api.ScConfigDirectory, EncryptedSecretFilesDataFileName)
-	Expect(os.WriteFile(secretsPath, []byte("version: 99\nregistry:\n  files: []\nsecrets: {}\n"), 0o600)).To(Succeed())
+	Expect(os.WriteFile(secretsPath, []byte("schemaVersion: 99\nregistry:\n  files: []\nsecrets: {}\n"), 0o600)).To(Succeed())
 
 	err := c.ReadSecretFiles()
 	Expect(err).To(HaveOccurred())
@@ -58,7 +58,7 @@ func TestIsUnsupportedStoreVersion(t *testing.T) {
 	defer cleanup()
 
 	secretsPath := path.Join(wd, api.ScConfigDirectory, EncryptedSecretFilesDataFileName)
-	Expect(os.WriteFile(secretsPath, []byte("version: 99\nregistry:\n  files: []\nsecrets: {}\n"), 0o600)).To(Succeed())
+	Expect(os.WriteFile(secretsPath, []byte("schemaVersion: 99\nregistry:\n  files: []\nsecrets: {}\n"), 0o600)).To(Succeed())
 
 	Expect(IsUnsupportedStoreVersion(c.ReadSecretFiles())).To(BeTrue())
 	Expect(IsUnsupportedStoreVersion(nil)).To(BeFalse())

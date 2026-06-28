@@ -165,15 +165,15 @@ func (c *cryptor) unmarshalSecretsFile() error {
 	}
 	if res, err := api.UnmarshalDescriptor[EncryptedSecretFiles](secretsFileData); err != nil || res == nil {
 		return errors.Wrapf(err, "failed to unmarshal secrets file: %q", secretsFilePath)
-	} else if res.Version > CurrentSecretsFileVersion {
+	} else if res.SchemaVersion > CurrentSecretsSchemaVersion {
 		// Fail closed: a newer schema this build doesn't understand. Reading and
 		// then writing would silently drop the fields we can't model and corrupt
 		// the store, so refuse outright. Wrap the sentinel so callers that
 		// otherwise tolerate read errors (root_cmd's IgnoreConfigDirError) can
 		// still detect this one with errors.Is and keep it fatal.
 		return fmt.Errorf(
-			"secrets file %q is version %d, but this sc build supports up to version %d; upgrade sc (refusing to read to avoid data loss): %w",
-			secretsFilePath, res.Version, CurrentSecretsFileVersion, ErrSecretsStoreVersionUnsupported,
+			"secrets file %q is schema version %d, but this sc build supports up to schema version %d; upgrade sc (refusing to read to avoid data loss): %w",
+			secretsFilePath, res.SchemaVersion, CurrentSecretsSchemaVersion, ErrSecretsStoreVersionUnsupported,
 		)
 	} else {
 		c.secrets = *res

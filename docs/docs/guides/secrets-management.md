@@ -33,17 +33,17 @@ Each recipient public key gets its own encryption of the secret, using a scheme 
 
 ### Store format & version compatibility
 
-The encrypted store `.sc/secrets.yaml` carries an optional `version` field that
-identifies its schema. The current format is **version 0** — written without an
-explicit `version:` field, so existing stores are unchanged.
+The encrypted store `.sc/secrets.yaml` carries an optional `schemaVersion` field
+that identifies its schema. The current format is **schema version 0** — written
+without an explicit `schemaVersion:` field, so existing stores are unchanged.
 
-`sc` is **fail-closed** on this version: a build refuses to read a store whose
-`version` is newer than it understands, rather than silently dropping fields it
-cannot model and corrupting the store on the next write. The error looks like:
+`sc` is **fail-closed** on this: a build refuses to read a store whose
+`schemaVersion` is newer than it understands, rather than silently dropping fields
+it cannot model and corrupting the store on the next write. The error looks like:
 
 ```
-secrets file ".sc/secrets.yaml" is version N, but this sc build supports up to
-version M; upgrade sc (refusing to read to avoid data loss)
+secrets file ".sc/secrets.yaml" is schema version N, but this sc build supports up
+to schema version M; upgrade sc (refusing to read to avoid data loss)
 ```
 
 This guarantee holds on **every** path — the local CLI and the GitHub Actions
