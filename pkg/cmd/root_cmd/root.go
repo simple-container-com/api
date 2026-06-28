@@ -5,7 +5,6 @@ package root_cmd
 
 import (
 	"context"
-	stderrors "errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -115,7 +114,7 @@ func (c *RootCmd) Init(opts InitOpts) error {
 		// config-dir errors are ignored (e.g. IgnoreAllErrors from the root
 		// PersistentPreRunE). Otherwise the store reads as empty and the next
 		// write clobbers the newer file, which is exactly what the guard prevents.
-		if stderrors.Is(err, secrets.ErrSecretsStoreVersionUnsupported) {
+		if secrets.IsUnsupportedStoreVersion(err) {
 			return err
 		}
 		if !opts.IgnoreConfigDirError {

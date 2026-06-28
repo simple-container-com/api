@@ -31,6 +31,27 @@ Each recipient public key gets its own encryption of the secret, using a scheme 
 - **`ssh-rsa` recipients** — RSA-OAEP (SHA-256).
 - **`ssh-ed25519` recipients** — an ephemeral-static **X25519 ECDH** sealed box (HKDF-SHA256 + ChaCha20-Poly1305): the content key is derived from the ECDH shared secret, so only the holder of the ed25519 private key can decrypt.
 
+### Store format & version compatibility
+
+The encrypted store `.sc/secrets.yaml` carries an optional `version` field that
+identifies its schema. The current format is **version 0** — written without an
+explicit `version:` field, so existing stores are unchanged.
+
+`sc` is **fail-closed** on this version: a build refuses to read a store whose
+`version` is newer than it understands, rather than silently dropping fields it
+cannot model and corrupting the store on the next write. The error looks like:
+
+```
+secrets file ".sc/secrets.yaml" is version N, but this sc build supports up to
+version M; upgrade sc (refusing to read to avoid data loss)
+```
+
+This guarantee holds on **every** path — the local CLI and the GitHub Actions
+deploy/reveal flows (a too-new store halts the run instead of falling back to
+"no secrets"). The practical implication: **keep `sc` up to date across your team
+and CI** before any newer store format is adopted, so that no older binary is
+left unable to read — or, worse, able to overwrite — the new on-disk schema.
+
 ## Prerequisites
 
 Before working with secrets, ensure you have:

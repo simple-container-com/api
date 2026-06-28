@@ -47,3 +47,20 @@ func TestUnmarshalSecretsFile_AcceptsCurrentVersion(t *testing.T) {
 
 	Expect(c.ReadSecretFiles()).To(Succeed())
 }
+
+// TestIsUnsupportedStoreVersion guards the contract every tolerant read-path
+// caller relies on (root_cmd.Init + the GitHub Actions reveal fallbacks): the
+// too-new-store error must be detectable via the helper so those callers keep it
+// fatal instead of swallowing it as "no secrets".
+func TestIsUnsupportedStoreVersion(t *testing.T) {
+	RegisterTestingT(t)
+	c, wd, cleanup := newTestCryptor(t)
+	defer cleanup()
+
+	secretsPath := path.Join(wd, api.ScConfigDirectory, EncryptedSecretFilesDataFileName)
+	Expect(os.WriteFile(secretsPath, []byte("version: 99\nregistry:\n  files: []\nsecrets: {}\n"), 0o600)).To(Succeed())
+
+	Expect(IsUnsupportedStoreVersion(c.ReadSecretFiles())).To(BeTrue())
+	Expect(IsUnsupportedStoreVersion(nil)).To(BeFalse())
+	Expect(IsUnsupportedStoreVersion(errors.New("some other read error"))).To(BeFalse())
+}
