@@ -353,13 +353,6 @@ func TestFileOperations(t *testing.T) {
 		Expect(string(b)).To(Equal("relative"))
 	})
 
-	// QUIRK (repo.go:74-75): for an absolute path OpenFile delegates to
-	// osfs.New("").OpenFile(...). Under go-billy v5.9.0 the default ChrootOS has
-	// root "" (a *relative* path), and its symlink-follow boundary check runs
-	// filepath.Rel(".", <absolute path>) which always errors, so it returns
-	// "chroot boundary crossed". The absolute-path branch therefore cannot
-	// actually open any absolute file with this billy version; we assert that
-	// observed behaviour (the branch is still exercised for coverage).
 	t.Run("OpenFile wraps a tilde-expansion error for an unknown user", func(t *testing.T) {
 		RegisterTestingT(t)
 		wd := t.TempDir()
@@ -372,7 +365,11 @@ func TestFileOperations(t *testing.T) {
 		Expect(err.Error()).To(ContainSubstring("failed to replace path"))
 	})
 
-	t.Run("OpenFile with an absolute path hits the chroot boundary error", func(t *testing.T) {
+	// For an absolute path OpenFile delegates to osfs.New("/").OpenFile(...).
+	// Rooting the OS filesystem at "/" (rather than "") keeps go-billy's ChrootOS
+	// symlink-follow boundary check well-defined for absolute paths — see repo.go.
+	// This is the path that loads keys referenced by ~/.ssh-style profile config.
+	t.Run("OpenFile opens a file by absolute path", func(t *testing.T) {
 		RegisterTestingT(t)
 		wd := t.TempDir()
 		r := newRepoIn(wd)
@@ -380,9 +377,12 @@ func TestFileOperations(t *testing.T) {
 		absPath := filepath.Join(t.TempDir(), "abs.txt")
 		Expect(os.WriteFile(absPath, []byte("absolute"), 0o644)).To(Succeed())
 
-		_, err := r.OpenFile(absPath, os.O_RDONLY, 0)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("boundary"))
+		f, err := r.OpenFile(absPath, os.O_RDONLY, 0)
+		Expect(err).ToNot(HaveOccurred())
+		defer func() { _ = f.Close() }()
+		b, err := io.ReadAll(f)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(string(b)).To(Equal("absolute"))
 	})
 }
 
