@@ -281,6 +281,9 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 	if !isParentOperation && scConfig.ParentRepository != "" {
 		e.logger.Info(ctx, "🔑 Client stack with parent repository - revealing secrets in current workspace...")
 		if err := e.revealCurrentRepositorySecrets(ctx, scConfig); err != nil {
+			if secrets.IsUnsupportedStoreVersion(err) {
+				return err // fail closed: a too-new store must halt, not fall back to parent
+			}
 			e.logger.Warn(ctx, "Failed to reveal client secrets (may use parent secrets): %v", err)
 			// Don't fail the entire deployment - parent secrets might be sufficient
 		} else {
@@ -391,6 +394,9 @@ func (e *Executor) setupParentRepositorySecrets(ctx context.Context, scConfig *a
 
 	e.logger.Info(ctx, "🔧 Loading secrets.yaml file into cryptor...")
 	if err := parentCryptor.ReadSecretFiles(); err != nil {
+		if secrets.IsUnsupportedStoreVersion(err) {
+			return false, err // fail closed: never treat a too-new store as "no secrets"
+		}
 		e.logger.Warn(ctx, "Failed to read secrets file: %v", err)
 		e.logger.Info(ctx, "🔍 This is expected if parent repository has no secrets")
 		return false, nil // No secrets loaded, but not an error
