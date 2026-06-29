@@ -58,6 +58,12 @@ values:
   MONGODB_ATLAS_PRIVATE_KEY: "private-key-456"
 ```
 
+> **Ambient credentials (OIDC / instance profile):** `accessKey` and `secretAccessKey`
+> are optional. Omit them (keep `region`) and `sc` falls back to the standard AWS
+> credential chain — GitHub Actions OIDC web-identity, an EC2/ECS instance profile,
+> or the `AWS_*` environment — so CI can assume a short-lived federated role instead
+> of storing long-lived keys in `secrets.yaml`.
+
 ### **What This Does**
 
 Stores **AWS credentials** for programmatic access.
