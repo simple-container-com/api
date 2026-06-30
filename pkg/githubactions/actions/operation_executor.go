@@ -319,8 +319,8 @@ func (e *Executor) executeProvision(ctx context.Context, config OperationConfig,
 		StacksDir:    ".sc/stacks",
 		Profile:      profile,
 		Stacks:       []string{config.StackName},
-		SkipRefresh:  previewMode,
-		DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
+		SkipRefresh:  config.SkipRefresh || previewMode, // Use configured skip-refresh or preview mode
+		DetailedDiff: true,                              // Enable detailed diff for better visibility in GitHub Actions
 	}
 
 	if previewMode {

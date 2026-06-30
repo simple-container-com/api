@@ -78,9 +78,10 @@ func (e *Executor) ProvisionParentStack(ctx context.Context) error {
 	// Wrap the provision with signal handling and panic recovery
 	return e.signalHandler.WithSignalHandling(ctx, opTypeProvision, provisionParams, func(opCtx context.Context) error {
 		return e.executeOperation(opCtx, OperationConfig{
-			Type:      OperationProvision,
-			Scope:     ScopeParent,
-			StackName: stackName,
+			Type:        OperationProvision,
+			Scope:       ScopeParent,
+			StackName:   stackName,
+			SkipRefresh: os.Getenv("SKIP_REFRESH") == "true", // Skip Pulumi refresh if requested
 		})
 	})
 }
