@@ -272,6 +272,12 @@ tasks:
   tag-release:
     runOn: host
     script:
+      # Pin the github-actions runtime image to this exact release version in
+      # every composite action, so consumers pinning the action git ref get a
+      # reproducible image instead of floating :staging. Mirrors branch-preview.yaml.
+      - find .github/actions -name action.yml -exec sed -i "s|docker://simplecontainer/github-actions:staging|docker://simplecontainer/github-actions:${project:version}|g" {} +
+      - git add .github/actions/*/action.yml
+      - git commit -m "chore(release): pin github-actions image to ${project:version}" || echo "github-actions image tags already pinned"
       - git tag ${project:version} || echo "Already set tag ${project:version}"
       - git push -f origin ${project:version} || echo "Tag ${project:version} already exists in origin"
   build-docs:
