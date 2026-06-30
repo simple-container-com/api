@@ -64,17 +64,40 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	providerArgs := &sdkAws.ProviderArgs{
 		Region: sdk.String(pcfg.Region),
 	}
-	// Pin static creds only when configured; otherwise fall back to the AWS default
-	// credential chain (OIDC web-identity / instance profile / env). Mirrors the
-	// guarded handling already in cloudtrail_security_alerts.go.
-	if pcfg.AccessKey != "" {
-		providerArgs.AccessKey = sdk.String(pcfg.AccessKey)
-	}
-	if pcfg.SecretAccessKey != "" {
-		providerArgs.SecretKey = sdk.String(pcfg.SecretAccessKey)
-	}
+	applyAWSProviderCreds(providerArgs, pcfg.AccessKey, pcfg.SecretAccessKey)
 	provider, err := sdkAws.NewProvider(ctx, input.ToResName(input.Descriptor.Name), providerArgs)
 	return &api.ResourceOutput{
 		Ref: provider,
 	}, err
+}
+
+// applyAWSProviderCreds configures credentials on an explicitly-instantiated
+// pulumi-aws provider.
+//
+//   - Static keys present (from SC auth config): pin them, and keep the
+//     provider's STS pre-validation on (it catches bad static keys early).
+//   - Otherwise — ambient mode (GitHub OIDC web-identity / instance profile /
+//     env): leave the provider credential-less so the AWS default credential
+//     chain resolves creds at call time from the runner environment (incl.
+//     AWS_SESSION_TOKEN, which DOES reach the plugin process), and skip the
+//     provider's eager STS pre-validation.
+//
+// The pre-validation is skipped, not worked around: when a stack that was
+// previously deployed with static keys is re-deployed under ambient creds, the
+// provider's credential-validation step resolves an incomplete credential set
+// (it sees the old static access/secret without a session token) and fails with
+// "Invalid credentials configured" — even though the ambient env credentials are
+// complete and authorize the real API calls. Skipping validation lets the
+// transition proceed; authorization is still enforced by AWS on every call.
+//
+// We deliberately do NOT copy the ambient env creds (incl. the rotating session
+// token) onto the provider inputs: that persists ephemeral credentials in the
+// Pulumi checkpoint and produces a provider diff on every run.
+func applyAWSProviderCreds(args *sdkAws.ProviderArgs, accessKey, secretAccessKey string) {
+	if accessKey != "" {
+		args.AccessKey = sdk.String(accessKey)
+		args.SecretKey = sdk.String(secretAccessKey)
+		return
+	}
+	args.SkipCredentialsValidation = sdk.Bool(true)
 }

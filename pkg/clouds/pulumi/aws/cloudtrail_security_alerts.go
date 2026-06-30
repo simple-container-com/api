@@ -613,12 +613,7 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 		providerArgs := &sdkAws.ProviderArgs{
 			Region: sdk.String(cfg.LogGroupRegion),
 		}
-		if cfg.AccessKey != "" {
-			providerArgs.AccessKey = sdk.String(cfg.AccessKey)
-		}
-		if cfg.SecretAccessKey != "" {
-			providerArgs.SecretKey = sdk.String(cfg.SecretAccessKey)
-		}
+		applyAWSProviderCreds(providerArgs, cfg.AccessKey, cfg.SecretAccessKey)
 		regionProvider, err := sdkAws.NewProvider(ctx, fmt.Sprintf("%s-region-provider", resPrefix), providerArgs)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to create region-specific provider for %q", cfg.LogGroupRegion)
