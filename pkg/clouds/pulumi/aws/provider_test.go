@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	sdkAws "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -54,4 +56,43 @@ func TestInitStateStore_StaticCredsExported(t *testing.T) {
 	Expect(os.Getenv("AWS_ACCESS_KEY")).To(Equal("AKIASTATIC"))
 	Expect(os.Getenv("AWS_SECRET_ACCESS_KEY")).To(Equal("static-secret"))
 	Expect(os.Getenv("AWS_DEFAULT_REGION")).To(Equal("us-east-1"))
+}
+
+// TestApplyAWSProviderCreds_Ambient is the regression guard for the testtmp
+// failure: in ambient mode (empty static keys) the explicit provider must be
+// left credential-less — so the AWS default chain resolves the runner's env
+// creds at call time — with STS pre-validation skipped, so re-deploying a stack
+// that previously baked static keys doesn't fail with "Invalid credentials
+// configured". Crucially it must NOT bake the (rotating) env creds into inputs.
+func TestApplyAWSProviderCreds_Ambient(t *testing.T) {
+	RegisterTestingT(t)
+	// Even with ambient creds in the env, they must not be copied onto the args.
+	t.Setenv("AWS_ACCESS_KEY_ID", "ASIAAMBIENT")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "ambient-secret")
+	t.Setenv("AWS_SESSION_TOKEN", "ambient-session")
+
+	args := &sdkAws.ProviderArgs{Region: sdk.String("eu-central-1")}
+	applyAWSProviderCreds(args, "", "")
+
+	Expect(args.AccessKey).To(BeNil(), "must not bake ambient creds into provider inputs")
+	Expect(args.SecretKey).To(BeNil())
+	Expect(args.Token).To(BeNil(), "must not persist the rotating session token in state")
+	skip, ok := args.SkipCredentialsValidation.(sdk.Bool)
+	Expect(ok).To(BeTrue(), "ambient mode must skip the eager STS pre-validation")
+	Expect(bool(skip)).To(BeTrue())
+}
+
+// TestApplyAWSProviderCreds_Static confirms static keys are pinned and the
+// pre-validation stays ON (it catches bad static keys early).
+func TestApplyAWSProviderCreds_Static(t *testing.T) {
+	RegisterTestingT(t)
+	args := &sdkAws.ProviderArgs{Region: sdk.String("us-east-1")}
+	applyAWSProviderCreds(args, "AKIASTATIC", "static-secret")
+
+	ak, _ := args.AccessKey.(sdk.String)
+	Expect(string(ak)).To(Equal("AKIASTATIC"))
+	sk, _ := args.SecretKey.(sdk.String)
+	Expect(string(sk)).To(Equal("static-secret"))
+	Expect(args.Token).To(BeNil())
+	Expect(args.SkipCredentialsValidation).To(BeNil(), "static keys keep validation on")
 }
