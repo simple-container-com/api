@@ -174,15 +174,21 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		checksum = time.Now().String()
 
 		// fixme: implement own s3 uploader instead of aws s3 sync
+		// Pass static creds only when configured; otherwise inherit the ambient AWS
+		// default chain (OIDC web-identity / instance profile) for the s3 sync.
+		syncEnv := map[string]string{}
+		if input.Account.Region != "" {
+			syncEnv["AWS_DEFAULT_REGION"] = input.Account.Region
+		}
+		if input.Account.AccessKey != "" {
+			syncEnv["AWS_ACCESS_KEY_ID"] = input.Account.AccessKey
+			syncEnv["AWS_SECRET_ACCESS_KEY"] = input.Account.SecretAccessKey
+		}
 		_, err = local.NewCommand(ctx, fmt.Sprintf("%s-sync", input.ServiceName), &local.CommandArgs{
-			Create:   sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
-			Update:   sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
-			Triggers: sdk.ArrayInput(sdk.Array{sdk.String(checksum)}),
-			Environment: sdk.ToStringMap(map[string]string{
-				"AWS_ACCESS_KEY_ID":     input.Account.AccessKey,
-				"AWS_SECRET_ACCESS_KEY": input.Account.SecretAccessKey,
-				"AWS_DEFAULT_REGION":    input.Account.Region,
-			}),
+			Create:      sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
+			Update:      sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
+			Triggers:    sdk.ArrayInput(sdk.Array{sdk.String(checksum)}),
+			Environment: sdk.ToStringMap(syncEnv),
 		}, sdk.DependsOn([]sdk.Resource{mainBucket, publicAccessBlock, ownershipControls, mainBucketPolicy}))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to invoke aws s3 sync")
