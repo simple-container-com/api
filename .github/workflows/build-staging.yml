@@ -61,7 +61,7 @@ jobs:
           echo "🏷️ Set VERSION: $VERSION"
 
       - name: Cache CLI tools (SC + Welder)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v4.3.0 (Automatically uses Blacksmith cache on Blacksmith runners)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v4.3.0 (Automatically uses Blacksmith cache on Blacksmith runners)
         with:
           path: |
             ~/.local/bin/sc
