@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/secrets"
 )
 
 // OperationType defines the type of operation
@@ -178,6 +179,9 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 		// First, load the secrets.yaml file into the cryptor
 		e.logger.Debug(ctx, "🔧 Loading secrets.yaml file into cryptor...")
 		if err := e.provisioner.Cryptor().ReadSecretFiles(); err != nil {
+			if secrets.IsUnsupportedStoreVersion(err) {
+				return err // fail closed: never treat a too-new store as "no secrets"
+			}
 			e.logger.Info(ctx, "ℹ️  No client secrets found - using parent repository secrets")
 			return nil // No secrets to reveal, will use parent secrets
 		}
@@ -203,6 +207,9 @@ func (e *Executor) revealSecrets(ctx context.Context, config OperationConfig) er
 		// First, load the secrets.yaml file into the cryptor
 		e.logger.Debug(ctx, "🔧 Loading secrets.yaml file into cryptor...")
 		if err := e.provisioner.Cryptor().ReadSecretFiles(); err != nil {
+			if secrets.IsUnsupportedStoreVersion(err) {
+				return err // fail closed: never treat a too-new store as "no secrets"
+			}
 			e.logger.Warn(ctx, "Failed to read secrets file: %v", err)
 			e.logger.Info(ctx, "🔍 This is expected if parent repository has no secrets")
 			return nil // No secrets to reveal
@@ -312,8 +319,8 @@ func (e *Executor) executeProvision(ctx context.Context, config OperationConfig,
 		StacksDir:    ".sc/stacks",
 		Profile:      profile,
 		Stacks:       []string{config.StackName},
-		SkipRefresh:  previewMode,
-		DetailedDiff: true, // Enable detailed diff for better visibility in GitHub Actions
+		SkipRefresh:  config.SkipRefresh || previewMode, // Use configured skip-refresh or preview mode
+		DetailedDiff: true,                              // Enable detailed diff for better visibility in GitHub Actions
 	}
 
 	if previewMode {

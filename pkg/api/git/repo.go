@@ -75,7 +75,12 @@ func (r *repo) OpenFile(filePath string, flag int, perm os.FileMode) (billy.File
 		return nil, errors.Wrapf(err, "failed to replace path %q with home", filePath)
 	}
 	if path.IsAbs(rPath) {
-		return osfs.New("").OpenFile(rPath, flag, perm)
+		// Root the OS filesystem at "/" (not "") for absolute paths. go-billy's
+		// chroot helper (osfs default) resolves symlinks relative to its root via
+		// filepath.Rel; with an empty root that cleans to ".", and Rel(".", "/abs/path")
+		// fails, so every absolute open returns "chroot boundary crossed". Rooting at
+		// "/" makes Rel("/", "/abs/path") well-defined. Regressed with go-billy v5.9.0.
+		return osfs.New("/").OpenFile(rPath, flag, perm)
 	}
 	return r.wdFs.OpenFile(rPath, flag, perm)
 }

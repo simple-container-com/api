@@ -52,4 +52,16 @@ jobs:
       #   secure_file_reader.go). The SC team explicitly dropped its
       #   own equivalent rule in round-6 triage for the same reason
       #   (see go-canon.yml comment in actions repo).
-      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface'
+      #
+      #   `gha-curl-pipe-shell` — this p/ci rule re-parses each workflow
+      #   `run:` block as Bash via a metavariable-pattern. GHA `${{ }}`
+      #   expressions are not valid Bash, so the sub-parser emits
+      #   nondeterministic PartialParsing / "Internal matching error"
+      #   engine errors (24 on our workflows), which scan.sh counts as
+      #   `.errors` and fails the build — flaky red CI, not real findings
+      #   (the same commit passed and then failed on consecutive runs).
+      #   Replacement coverage: the SC `shell-curl-pipe-to-shell` rule
+      #   (shell.yml) flags curl/wget output piped into a shell across
+      #   `**/*.yml`/`**/*.yaml` by regex, with no Bash sub-parse — so no
+      #   coverage is lost by suppressing the registry rule.
+      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell'
