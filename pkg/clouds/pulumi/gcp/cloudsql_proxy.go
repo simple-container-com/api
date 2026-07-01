@@ -122,68 +122,136 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 	}, nil
 }
 
+// cloudSQLProxyHealthPort is the port the proxy's built-in health-check HTTP server
+// listens on when running as a native sidecar (--health-check). Its /startup endpoint
+// backs the startup probe that gates the app containers.
+const cloudSQLProxyHealthPort = 9090
+
 func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, timeout int) sdk.Output {
 	return sdk.All(credsSecret.Metadata.Name(), dbInstance.Project, dbInstance.Region, dbInstance.InstanceName).ApplyT(func(all []interface{}) v1.ContainerArgs {
 		secretName := all[0].(*string)
 		project := all[1].(string)
 		region := all[2].(string)
 		instanceName := all[3].(string)
+		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, timeout)
+	}).(v1.ContainerOutput)
+}
 
-		command := "/cloud-sql-proxy"
-		args := []string{
-			"--address",
-			"0.0.0.0",
-			"--structured-logs",
-			"--credentials-file=/var/run/secrets/cloudsql/credentials.json",
-			fmt.Sprintf("%s:%s:%s", project, region, instanceName),
-		}
+// cloudsqlProxyCommandArgs returns the proxy entrypoint. timeout == 0 is the long-lived
+// runtime proxy (with its health server enabled); timeout > 0 is the init-Job proxy,
+// shell-wrapped to self-kill after `timeout`s so a RestartPolicy: Never Job can complete.
+func cloudsqlProxyCommandArgs(project, region, instanceName string, timeout int) (string, []string) {
+	command := "/cloud-sql-proxy"
+	args := []string{
+		"--address",
+		"0.0.0.0",
+		"--structured-logs",
+		"--credentials-file=/var/run/secrets/cloudsql/credentials.json",
+		fmt.Sprintf("%s:%s:%s", project, region, instanceName),
+	}
 
-		if timeout > 0 {
-			args = []string{
-				"-c",
-				fmt.Sprintf(`
+	if timeout > 0 {
+		return "sh", []string{
+			"-c",
+			fmt.Sprintf(`
                     echo "Starting proxy with timeout %ds..."
                     %s %s &
                     PROXY_PID=$!
-                    
+
                     echo "Waiting %ds until killing proxy..."
                     sleep %d;
-                    
+
                     echo "Killing proxy after %ds"
                     kill -9 $PROXY_PID;
                     exit 0;
                 `, timeout, command, strings.Join(args, " "), timeout, timeout, timeout),
-			}
-			command = "sh"
 		}
+	}
 
-		return v1.ContainerArgs{
-			Name:  sdk.String("cloudsql-proxy"),
-			Image: sdk.String("gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.1-alpine"),
-			Command: sdk.StringArray{
-				sdk.String(command),
+	args = append(args,
+		"--http-address=0.0.0.0",
+		fmt.Sprintf("--http-port=%d", cloudSQLProxyHealthPort),
+		"--health-check",
+	)
+	return command, args
+}
+
+// cloudsqlProxyContainerArgs builds the proxy container from already-resolved values.
+// timeout == 0 yields a native sidecar (RestartPolicy: Always + startup probe) so the app
+// containers don't start before the proxy is listening. timeout > 0 (init-Job) stays an
+// ordinary terminating container -- it must NOT be a native sidecar or the Job would hang.
+func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, timeout int) v1.ContainerArgs {
+	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, timeout)
+
+	container := v1.ContainerArgs{
+		Name:    sdk.String("cloudsql-proxy"),
+		Image:   sdk.String("gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.1-alpine"),
+		Command: sdk.StringArray{sdk.String(command)},
+		Args:    sdk.ToStringArray(args),
+		SecurityContext: &v1.SecurityContextArgs{
+			RunAsNonRoot: sdk.Bool(true),
+		},
+		Resources: &v1.ResourceRequirementsArgs{
+			Limits: sdk.StringMap{
+				"memory": sdk.String("300Mi"),
+				"cpu":    sdk.String("300m"),
 			},
-			Args: sdk.ToStringArray(args),
-			SecurityContext: &v1.SecurityContextArgs{
-				RunAsNonRoot: sdk.Bool(true),
+			Requests: sdk.StringMap{
+				"memory": sdk.String("200Mi"),
+				"cpu":    sdk.String("50m"),
 			},
-			Resources: &v1.ResourceRequirementsArgs{
-				Limits: sdk.StringMap{
-					"memory": sdk.String("300Mi"),
-					"cpu":    sdk.String("300m"),
-				},
-				Requests: sdk.StringMap{
-					"memory": sdk.String("200Mi"),
-					"cpu":    sdk.String("50m"),
-				},
+		},
+		VolumeMounts: v1.VolumeMountArray{
+			&v1.VolumeMountArgs{
+				Name:      sdk.String(secretName),
+				MountPath: sdk.String("/var/run/secrets/cloudsql"),
+				ReadOnly:  sdk.Bool(true),
 			},
-			VolumeMounts: v1.VolumeMountArray{
-				&v1.VolumeMountArgs{
-					Name:      sdk.String(lo.FromPtr(secretName)),
-					MountPath: sdk.String("/var/run/secrets/cloudsql"),
-					ReadOnly:  sdk.Bool(true),
-				},
-			},
-		}
-	}).(v1.ContainerOutput)
+		},
+	}
+
+	if timeout > 0 {
+		return container
+	}
+
+	container.RestartPolicy = sdk.String("Always")
+	container.Ports = v1.ContainerPortArray{
+		&v1.ContainerPortArgs{
+			Name:          sdk.String("csql-hc"),
+			ContainerPort: sdk.Int(cloudSQLProxyHealthPort),
+		},
+	}
+	container.StartupProbe = &v1.ProbeArgs{
+		HttpGet: v1.HTTPGetActionArgs{
+			Path: sdk.String("/startup"),
+			Port: sdk.String("csql-hc"),
+		},
+		PeriodSeconds:    sdk.IntPtr(2),
+		TimeoutSeconds:   sdk.IntPtr(3),
+		FailureThreshold: sdk.IntPtr(30),
+	}
+	container.ReadinessProbe = &v1.ProbeArgs{
+		HttpGet: v1.HTTPGetActionArgs{
+			Path: sdk.String("/readiness"),
+			Port: sdk.String("csql-hc"),
+		},
+		PeriodSeconds:    sdk.IntPtr(10),
+		TimeoutSeconds:   sdk.IntPtr(3),
+		FailureThreshold: sdk.IntPtr(3),
+	}
+	// On a native sidecar a failing readiness probe neither restarts the container nor
+	// gates pod readiness — only liveness recovers a proxy that passed startup and then
+	// hung (deadlock / pool exhaustion / partial-OOM), where the process stays alive but
+	// app DB calls to localhost:5432 fail. /liveness is already served by --health-check.
+	// kubelet defers liveness until the startup probe succeeds, so no InitialDelay is needed.
+	container.LivenessProbe = &v1.ProbeArgs{
+		HttpGet: v1.HTTPGetActionArgs{
+			Path: sdk.String("/liveness"),
+			Port: sdk.String("csql-hc"),
+		},
+		PeriodSeconds:    sdk.IntPtr(10),
+		TimeoutSeconds:   sdk.IntPtr(3),
+		FailureThreshold: sdk.IntPtr(3),
+	}
+	return container
 }
