@@ -95,46 +95,25 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	// The instance resource ID in GCP is: projects/{project}/instances/{instance}
 	instanceResourceId := fmt.Sprintf("projects/%s/instances/%s", pgCfg.ProjectId, pgCfg.InstanceName)
 
-	// Use standardized adoption protection options
-	adoptionOpts := pApi.AdoptionProtectionOptions([]string{
-		// Instance configuration that might drift
-		"settings.insightsConfig", "settings.databaseFlags", "settings.maintenanceWindow",
-		"settings.backupConfiguration", "settings.ipConfiguration",
-		// Version and upgrade settings
-		"masterInstanceName", "replicaConfiguration", "restoreBackupContext",
-		// Advanced settings that might be managed outside of Pulumi
-		"settings.userLabels", "settings.availabilityType", "settings.diskAutoresize",
-	})
+	// Preserve existing database flags, overridden by any flags set in config
+	// (MaxConnections and the generic DatabaseFlags map).
+	configuredFlags := configuredDatabaseFlags(pgCfg)
+	databaseFlags := mergeDatabaseFlags(existingSettings.DatabaseFlags, configuredFlags)
+	if len(pgCfg.DatabaseFlags) > 0 {
+		// Names only — flag values could carry substituted secrets.
+		params.Log.Warn(ctx.Context(),
+			"applying database flags %v to adopted instance %q: static flags restart the instance; "+
+				"on first-time adoption values must match the live instance or the import fails",
+			sortedFlagNames(configuredFlags), pgCfg.InstanceName)
+	}
+
+	adoptionOpts := pApi.AdoptionProtectionOptions(adoptIgnoreChanges(pgCfg.DatabaseFlags))
 
 	opts := append([]sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		// Import the existing instance without creating or modifying it
 		sdk.Import(sdk.ID(instanceResourceId)),
 	}, adoptionOpts...)
-
-	// Preserve existing database flags and optionally override max_connections
-	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray
-
-	// First, copy all existing database flags
-	for _, flag := range existingSettings.DatabaseFlags {
-		// Skip max_connections if we're overriding it from config
-		if flag.Name == "max_connections" && pgCfg.MaxConnections != nil {
-			continue
-		}
-		databaseFlags = append(databaseFlags, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
-			Name:  sdk.String(flag.Name),
-			Value: sdk.String(flag.Value),
-		})
-	}
-
-	// Add max_connections override if specified in config
-	if pgCfg.MaxConnections != nil {
-		databaseFlags = append(databaseFlags, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
-			Name:  sdk.String("max_connections"),
-			Value: sdk.String(fmt.Sprintf("%d", *pgCfg.MaxConnections)),
-		})
-		params.Log.Info(ctx.Context(), "overriding max_connections with config value: %d", *pgCfg.MaxConnections)
-	}
 
 	pgInstance, err := sql.NewDatabaseInstance(ctx, postgresName, &sql.DatabaseInstanceArgs{
 		Name:            sdk.String(pgCfg.InstanceName),
@@ -291,4 +270,38 @@ func buildSettingsFromExisting(ctx *sdk.Context, existingSettings *sql.GetDataba
 		// Note: Version is automatically managed by GCP and cannot be explicitly set
 		// Other auto-managed fields are excluded to prevent configuration errors
 	}
+}
+
+// mergeDatabaseFlags overlays configured flags onto an adopted instance's
+// existing flags and renders the union fully sorted — a mixed
+// existing-order/sorted-tail array would churn on every update.
+func mergeDatabaseFlags(existing []sql.GetDatabaseInstanceSettingDatabaseFlag, configured map[string]string) sql.DatabaseInstanceSettingsDatabaseFlagArray {
+	merged := map[string]string{}
+	for _, flag := range existing {
+		merged[flag.Name] = flag.Value
+	}
+	for name, value := range configured {
+		merged[name] = value
+	}
+	return toDatabaseFlagArray(merged)
+}
+
+// adoptIgnoreChanges returns the adoption protection ignore list.
+// settings.databaseFlags stays ignored unless the DatabaseFlags field is
+// explicitly set: legacy adopted stacks carrying only maxConnections keep the
+// historical no-op instead of suddenly applying a restart-requiring flag.
+func adoptIgnoreChanges(databaseFlags map[string]string) []string {
+	ignoreChanges := []string{
+		// Instance configuration that might drift
+		"settings.insightsConfig", "settings.maintenanceWindow",
+		"settings.backupConfiguration", "settings.ipConfiguration",
+		// Version and upgrade settings
+		"masterInstanceName", "replicaConfiguration", "restoreBackupContext",
+		// Advanced settings that might be managed outside of Pulumi
+		"settings.userLabels", "settings.availabilityType", "settings.diskAutoresize",
+	}
+	if len(databaseFlags) == 0 {
+		ignoreChanges = append(ignoreChanges, "settings.databaseFlags")
+	}
+	return ignoreChanges
 }

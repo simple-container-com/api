@@ -67,6 +67,9 @@
       "password": {
         "type": "string"
       },
+      "storageEncrypted": {
+        "type": "boolean"
+      },
       "username": {
         "type": "string"
       }

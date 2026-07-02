@@ -196,6 +196,12 @@ func TestPostgresqlGcpCloudsqlReadConfig(t *testing.T) {
 			"deletionProtection": true,
 			"availabilityType":   "REGIONAL",
 			"requireSsl":         true,
+			"databaseFlags": map[string]any{
+				"cloudsql.iam_authentication": "on",
+				// Unquoted YAML int — users write flag values bare;
+				// yaml.v3 coerces scalars into the string map.
+				"log_min_duration_statement": 500,
+			},
 			"usersProvisionRuntime": map[string]any{
 				"type":         "kube-job",
 				"resourceName": "gke-cluster",
@@ -213,6 +219,10 @@ func TestPostgresqlGcpCloudsqlReadConfig(t *testing.T) {
 		Expect(*pg.Region).To(Equal("europe-west1"))
 		Expect(pg.MaxConnections).ToNot(BeNil())
 		Expect(*pg.MaxConnections).To(Equal(200))
+		Expect(pg.DatabaseFlags).To(Equal(map[string]string{
+			"cloudsql.iam_authentication": "on",
+			"log_min_duration_statement":  "500",
+		}))
 		Expect(pg.DeletionProtection).ToNot(BeNil())
 		Expect(*pg.DeletionProtection).To(BeTrue())
 		Expect(pg.AvailabilityType).ToNot(BeNil())
@@ -235,6 +245,7 @@ func TestPostgresqlGcpCloudsqlReadConfig(t *testing.T) {
 		Expect(pg.Tier).To(BeNil())
 		Expect(pg.Region).To(BeNil())
 		Expect(pg.MaxConnections).To(BeNil())
+		Expect(pg.DatabaseFlags).To(BeNil())
 		Expect(pg.UsersProvisionRuntime).To(BeNil())
 	})
 

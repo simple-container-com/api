@@ -34,8 +34,23 @@
       "adopt": {
         "type": "boolean"
       },
+      "availabilityType": {
+        "type": "string"
+      },
+      "backupEnabled": {
+        "type": "boolean"
+      },
+      "backupStartTime": {
+        "type": "string"
+      },
       "connectionName": {
         "type": "string"
+      },
+      "databaseFlags": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
       },
       "deletionProtection": {
         "type": "boolean"
@@ -45,6 +60,9 @@
       },
       "maxConnections": {
         "type": "integer"
+      },
+      "pointInTimeRecoveryEnabled": {
+        "type": "boolean"
       },
       "project": {
         "type": "string"
@@ -58,11 +76,20 @@
       "region": {
         "type": "string"
       },
+      "requireSsl": {
+        "type": "boolean"
+      },
+      "retainedBackups": {
+        "type": "integer"
+      },
       "rootPassword": {
         "type": "string"
       },
       "tier": {
         "type": "string"
+      },
+      "transactionLogRetentionDays": {
+        "type": "integer"
       },
       "usersProvisionRuntime": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

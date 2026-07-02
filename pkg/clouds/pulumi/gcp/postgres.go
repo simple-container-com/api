@@ -5,6 +5,7 @@ package gcp
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -56,14 +57,7 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}
 	ctx.Export(rootPasswordExport, rootPassword.Result)
 
-	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray
-
-	if pgCfg.MaxConnections != nil {
-		databaseFlags = append(databaseFlags, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
-			Name:  sdk.String("max_connections"),
-			Value: sdk.String(fmt.Sprintf("%d", *pgCfg.MaxConnections)),
-		})
-	}
+	databaseFlags := toDatabaseFlagArray(configuredDatabaseFlags(pgCfg))
 
 	pgInstance, err := sql.NewDatabaseInstance(ctx, postgresName, &sql.DatabaseInstanceArgs{
 		Name:            sdk.String(postgresName),
@@ -141,4 +135,39 @@ func toPostgresRootPasswordExport(resName string) string {
 
 func toPostgresName(input api.ResourceInput, resName string) string {
 	return input.ToResName(resName)
+}
+
+// configuredDatabaseFlags merges the legacy MaxConnections field with the
+// generic DatabaseFlags map. An explicit max_connections entry in
+// DatabaseFlags takes precedence over MaxConnections.
+func configuredDatabaseFlags(pgCfg *gcloud.PostgresGcpCloudsqlConfig) map[string]string {
+	flags := map[string]string{}
+	//nolint:staticcheck // the compat shim is the one legitimate reader of the deprecated field
+	if pgCfg.MaxConnections != nil {
+		flags["max_connections"] = fmt.Sprintf("%d", *pgCfg.MaxConnections)
+	}
+	for name, value := range pgCfg.DatabaseFlags {
+		flags[name] = value
+	}
+	return flags
+}
+
+// sortedFlagNames returns flag names in stable order for rendering and logs.
+func sortedFlagNames(flags map[string]string) []string {
+	names := lo.Keys(flags)
+	sort.Strings(names)
+	return names
+}
+
+// toDatabaseFlagArray renders flags sorted by name — map iteration order is
+// random and would produce phantom diffs on every update.
+func toDatabaseFlagArray(flags map[string]string) sql.DatabaseInstanceSettingsDatabaseFlagArray {
+	var res sql.DatabaseInstanceSettingsDatabaseFlagArray
+	for _, name := range sortedFlagNames(flags) {
+		res = append(res, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
+			Name:  sdk.String(name),
+			Value: sdk.String(flags[name]),
+		})
+	}
+	return res
 }
