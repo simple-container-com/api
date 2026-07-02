@@ -481,8 +481,9 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version: "14.5",
-							Project: "refapp",
+							Version:       "14.5",
+							Project:       "refapp",
+							DatabaseFlags: map[string]string{},
 							Credentials: gcloud.Credentials{
 								Credentials: api.Credentials{
 									Credentials: "<gcloud-service-account-email>",
@@ -502,8 +503,9 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version: "14.5",
-							Project: "refapp",
+							Version:       "14.5",
+							Project:       "refapp",
+							DatabaseFlags: map[string]string{},
 							Credentials: gcloud.Credentials{
 								Credentials: api.Credentials{
 									Credentials: "<gcloud-service-account-email>",
