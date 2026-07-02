@@ -15,6 +15,15 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
+func renderedFlags(arr sql.DatabaseInstanceSettingsDatabaseFlagArray) []string {
+	var got []string
+	for _, f := range arr {
+		args := f.(sql.DatabaseInstanceSettingsDatabaseFlagArgs)
+		got = append(got, string(args.Name.(sdk.String))+"="+string(args.Value.(sdk.String)))
+	}
+	return got
+}
+
 func TestConfiguredDatabaseFlags(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -55,48 +64,60 @@ func TestConfiguredDatabaseFlags(t *testing.T) {
 		})
 		Expect(flags).To(Equal(map[string]string{"max_connections": "500"}))
 	})
+}
 
-	t.Run("adopt merge preserves unmanaged flags, overrides configured, sorts all", func(t *testing.T) {
+func TestToDatabaseFlagArray(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("sorted by flag name for deterministic diffs", func(t *testing.T) {
+		RegisterTestingT(t)
+		got := renderedFlags(toDatabaseFlagArray(map[string]string{
+			"max_connections":             "200",
+			"cloudsql.iam_authentication": "on",
+			"log_min_duration_statement":  "500",
+		}))
+		Expect(got).To(Equal([]string{
+			"cloudsql.iam_authentication=on",
+			"log_min_duration_statement=500",
+			"max_connections=200",
+		}))
+	})
+}
+
+func TestMergeDatabaseFlags(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("preserves unmanaged flags, overrides configured, sorts all", func(t *testing.T) {
 		RegisterTestingT(t)
 		existing := []sql.GetDatabaseInstanceSettingDatabaseFlag{
 			{Name: "max_connections", Value: "100"},
 			{Name: "log_connections", Value: "on"},
 		}
-		arr := mergeDatabaseFlags(existing, map[string]string{
+		got := renderedFlags(mergeDatabaseFlags(existing, map[string]string{
 			"max_connections":             "200",
 			"cloudsql.iam_authentication": "on",
-		})
-		var got []string
-		for _, f := range arr {
-			args, ok := f.(sql.DatabaseInstanceSettingsDatabaseFlagArgs)
-			Expect(ok).To(BeTrue())
-			got = append(got, string(args.Name.(sdk.String))+"="+string(args.Value.(sdk.String)))
-		}
+		}))
 		Expect(got).To(Equal([]string{
 			"cloudsql.iam_authentication=on",
 			"log_connections=on",
 			"max_connections=200",
 		}))
 	})
+}
 
-	t.Run("array is sorted by flag name for deterministic diffs", func(t *testing.T) {
+func TestAdoptIgnoreChanges(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("no databaseFlags keeps the legacy no-op on settings.databaseFlags", func(t *testing.T) {
 		RegisterTestingT(t)
-		arr := toDatabaseFlagArray(map[string]string{
-			"max_connections":             "200",
-			"cloudsql.iam_authentication": "on",
-			"log_min_duration_statement":  "500",
-		})
-		Expect(arr).To(HaveLen(3))
-		var names []string
-		for _, f := range arr {
-			args, ok := f.(sql.DatabaseInstanceSettingsDatabaseFlagArgs)
-			Expect(ok).To(BeTrue())
-			names = append(names, string(args.Name.(sdk.String)))
-		}
-		Expect(names).To(Equal([]string{
-			"cloudsql.iam_authentication",
-			"log_min_duration_statement",
-			"max_connections",
-		}))
+		Expect(adoptIgnoreChanges(nil)).To(ContainElement("settings.databaseFlags"))
+	})
+
+	t.Run("explicit databaseFlags un-ignores settings.databaseFlags", func(t *testing.T) {
+		RegisterTestingT(t)
+		got := adoptIgnoreChanges(map[string]string{"cloudsql.iam_authentication": "on"})
+		Expect(got).ToNot(ContainElement("settings.databaseFlags"))
+		// The rest of the protection list must stay intact.
+		Expect(got).To(ContainElement("settings.backupConfiguration"))
 	})
 }

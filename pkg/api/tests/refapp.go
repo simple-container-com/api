@@ -481,8 +481,11 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version:       "14.5",
-							Project:       "refapp",
+							Version: "14.5",
+							Project: "refapp",
+							// Resolved fixtures carry {} not nil: placeholder
+							// resolution rebuilds maps via reflect.MakeMap
+							// (placeholders.go).
 							DatabaseFlags: map[string]string{},
 							Credentials: gcloud.Credentials{
 								Credentials: api.Credentials{

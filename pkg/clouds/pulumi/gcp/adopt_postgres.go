@@ -5,10 +5,8 @@ package gcp
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/sql"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -101,29 +99,15 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	// (MaxConnections and the generic DatabaseFlags map).
 	configuredFlags := configuredDatabaseFlags(pgCfg)
 	databaseFlags := mergeDatabaseFlags(existingSettings.DatabaseFlags, configuredFlags)
-	if len(configuredFlags) > 0 {
-		names := lo.Keys(configuredFlags)
-		sort.Strings(names)
+	if len(pgCfg.DatabaseFlags) > 0 {
 		// Names only — flag values could carry substituted secrets.
-		params.Log.Info(ctx.Context(), "overriding database flags from config: %v", names)
+		params.Log.Warn(ctx.Context(),
+			"applying database flags %v to adopted instance %q: static flags restart the instance; "+
+				"on first-time adoption values must match the live instance or the import fails",
+			sortedFlagNames(configuredFlags), pgCfg.InstanceName)
 	}
 
-	// Use standardized adoption protection options. settings.databaseFlags is
-	// ignored only while no flags are configured — otherwise Pulumi would
-	// silently skip the configured overrides.
-	ignoreChanges := []string{
-		// Instance configuration that might drift
-		"settings.insightsConfig", "settings.maintenanceWindow",
-		"settings.backupConfiguration", "settings.ipConfiguration",
-		// Version and upgrade settings
-		"masterInstanceName", "replicaConfiguration", "restoreBackupContext",
-		// Advanced settings that might be managed outside of Pulumi
-		"settings.userLabels", "settings.availabilityType", "settings.diskAutoresize",
-	}
-	if len(configuredFlags) == 0 {
-		ignoreChanges = append(ignoreChanges, "settings.databaseFlags")
-	}
-	adoptionOpts := pApi.AdoptionProtectionOptions(ignoreChanges)
+	adoptionOpts := pApi.AdoptionProtectionOptions(adoptIgnoreChanges(pgCfg.DatabaseFlags))
 
 	opts := append([]sdk.ResourceOption{
 		sdk.Provider(params.Provider),
@@ -286,4 +270,38 @@ func buildSettingsFromExisting(ctx *sdk.Context, existingSettings *sql.GetDataba
 		// Note: Version is automatically managed by GCP and cannot be explicitly set
 		// Other auto-managed fields are excluded to prevent configuration errors
 	}
+}
+
+// mergeDatabaseFlags overlays configured flags onto an adopted instance's
+// existing flags and renders the union fully sorted — a mixed
+// existing-order/sorted-tail array would churn on every update.
+func mergeDatabaseFlags(existing []sql.GetDatabaseInstanceSettingDatabaseFlag, configured map[string]string) sql.DatabaseInstanceSettingsDatabaseFlagArray {
+	merged := map[string]string{}
+	for _, flag := range existing {
+		merged[flag.Name] = flag.Value
+	}
+	for name, value := range configured {
+		merged[name] = value
+	}
+	return toDatabaseFlagArray(merged)
+}
+
+// adoptIgnoreChanges returns the adoption protection ignore list.
+// settings.databaseFlags stays ignored unless the DatabaseFlags field is
+// explicitly set: legacy adopted stacks carrying only maxConnections keep the
+// historical no-op instead of suddenly applying a restart-requiring flag.
+func adoptIgnoreChanges(databaseFlags map[string]string) []string {
+	ignoreChanges := []string{
+		// Instance configuration that might drift
+		"settings.insightsConfig", "settings.maintenanceWindow",
+		"settings.backupConfiguration", "settings.ipConfiguration",
+		// Version and upgrade settings
+		"masterInstanceName", "replicaConfiguration", "restoreBackupContext",
+		// Advanced settings that might be managed outside of Pulumi
+		"settings.userLabels", "settings.availabilityType", "settings.diskAutoresize",
+	}
+	if len(databaseFlags) == 0 {
+		ignoreChanges = append(ignoreChanges, "settings.databaseFlags")
+	}
+	return ignoreChanges
 }

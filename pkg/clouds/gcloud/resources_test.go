@@ -198,7 +198,9 @@ func TestPostgresqlGcpCloudsqlReadConfig(t *testing.T) {
 			"requireSsl":         true,
 			"databaseFlags": map[string]any{
 				"cloudsql.iam_authentication": "on",
-				"log_min_duration_statement":  "500",
+				// Unquoted YAML int — users write flag values bare;
+				// yaml.v3 coerces scalars into the string map.
+				"log_min_duration_statement": 500,
 			},
 			"usersProvisionRuntime": map[string]any{
 				"type":         "kube-job",
