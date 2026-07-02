@@ -112,13 +112,13 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		sdk.Import(sdk.ID(instanceResourceId)),
 	}, adoptionOpts...)
 
-	// Preserve existing database flags and optionally override max_connections
-	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray
+	// Preserve existing database flags, overridden by any flags set in config
+	// (MaxConnections and the generic DatabaseFlags map).
+	configuredFlags := configuredDatabaseFlags(pgCfg)
 
-	// First, copy all existing database flags
+	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray
 	for _, flag := range existingSettings.DatabaseFlags {
-		// Skip max_connections if we're overriding it from config
-		if flag.Name == "max_connections" && pgCfg.MaxConnections != nil {
+		if _, overridden := configuredFlags[flag.Name]; overridden {
 			continue
 		}
 		databaseFlags = append(databaseFlags, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
@@ -126,14 +126,9 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 			Value: sdk.String(flag.Value),
 		})
 	}
-
-	// Add max_connections override if specified in config
-	if pgCfg.MaxConnections != nil {
-		databaseFlags = append(databaseFlags, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
-			Name:  sdk.String("max_connections"),
-			Value: sdk.String(fmt.Sprintf("%d", *pgCfg.MaxConnections)),
-		})
-		params.Log.Info(ctx.Context(), "overriding max_connections with config value: %d", *pgCfg.MaxConnections)
+	databaseFlags = append(databaseFlags, toDatabaseFlagArray(configuredFlags)...)
+	if len(configuredFlags) > 0 {
+		params.Log.Info(ctx.Context(), "overriding database flags with config values: %v", configuredFlags)
 	}
 
 	pgInstance, err := sql.NewDatabaseInstance(ctx, postgresName, &sql.DatabaseInstanceArgs{
