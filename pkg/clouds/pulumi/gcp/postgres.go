@@ -142,6 +142,7 @@ func toPostgresName(input api.ResourceInput, resName string) string {
 // DatabaseFlags takes precedence over MaxConnections.
 func configuredDatabaseFlags(pgCfg *gcloud.PostgresGcpCloudsqlConfig) map[string]string {
 	flags := map[string]string{}
+	//nolint:staticcheck // the compat shim is the one legitimate reader of the deprecated field
 	if pgCfg.MaxConnections != nil {
 		flags["max_connections"] = fmt.Sprintf("%d", *pgCfg.MaxConnections)
 	}
