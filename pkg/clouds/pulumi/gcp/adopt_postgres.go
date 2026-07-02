@@ -5,8 +5,10 @@ package gcp
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/sql"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -95,41 +97,39 @@ func AdoptPostgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	// The instance resource ID in GCP is: projects/{project}/instances/{instance}
 	instanceResourceId := fmt.Sprintf("projects/%s/instances/%s", pgCfg.ProjectId, pgCfg.InstanceName)
 
-	// Use standardized adoption protection options
-	adoptionOpts := pApi.AdoptionProtectionOptions([]string{
+	// Preserve existing database flags, overridden by any flags set in config
+	// (MaxConnections and the generic DatabaseFlags map).
+	configuredFlags := configuredDatabaseFlags(pgCfg)
+	databaseFlags := mergeDatabaseFlags(existingSettings.DatabaseFlags, configuredFlags)
+	if len(configuredFlags) > 0 {
+		names := lo.Keys(configuredFlags)
+		sort.Strings(names)
+		// Names only — flag values could carry substituted secrets.
+		params.Log.Info(ctx.Context(), "overriding database flags from config: %v", names)
+	}
+
+	// Use standardized adoption protection options. settings.databaseFlags is
+	// ignored only while no flags are configured — otherwise Pulumi would
+	// silently skip the configured overrides.
+	ignoreChanges := []string{
 		// Instance configuration that might drift
-		"settings.insightsConfig", "settings.databaseFlags", "settings.maintenanceWindow",
+		"settings.insightsConfig", "settings.maintenanceWindow",
 		"settings.backupConfiguration", "settings.ipConfiguration",
 		// Version and upgrade settings
 		"masterInstanceName", "replicaConfiguration", "restoreBackupContext",
 		// Advanced settings that might be managed outside of Pulumi
 		"settings.userLabels", "settings.availabilityType", "settings.diskAutoresize",
-	})
+	}
+	if len(configuredFlags) == 0 {
+		ignoreChanges = append(ignoreChanges, "settings.databaseFlags")
+	}
+	adoptionOpts := pApi.AdoptionProtectionOptions(ignoreChanges)
 
 	opts := append([]sdk.ResourceOption{
 		sdk.Provider(params.Provider),
 		// Import the existing instance without creating or modifying it
 		sdk.Import(sdk.ID(instanceResourceId)),
 	}, adoptionOpts...)
-
-	// Preserve existing database flags, overridden by any flags set in config
-	// (MaxConnections and the generic DatabaseFlags map).
-	configuredFlags := configuredDatabaseFlags(pgCfg)
-
-	var databaseFlags sql.DatabaseInstanceSettingsDatabaseFlagArray
-	for _, flag := range existingSettings.DatabaseFlags {
-		if _, overridden := configuredFlags[flag.Name]; overridden {
-			continue
-		}
-		databaseFlags = append(databaseFlags, sql.DatabaseInstanceSettingsDatabaseFlagArgs{
-			Name:  sdk.String(flag.Name),
-			Value: sdk.String(flag.Value),
-		})
-	}
-	databaseFlags = append(databaseFlags, toDatabaseFlagArray(configuredFlags)...)
-	if len(configuredFlags) > 0 {
-		params.Log.Info(ctx.Context(), "overriding database flags with config values: %v", configuredFlags)
-	}
 
 	pgInstance, err := sql.NewDatabaseInstance(ctx, postgresName, &sql.DatabaseInstanceArgs{
 		Name:            sdk.String(pgCfg.InstanceName),

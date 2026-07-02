@@ -56,6 +56,29 @@ func TestConfiguredDatabaseFlags(t *testing.T) {
 		Expect(flags).To(Equal(map[string]string{"max_connections": "500"}))
 	})
 
+	t.Run("adopt merge preserves unmanaged flags, overrides configured, sorts all", func(t *testing.T) {
+		RegisterTestingT(t)
+		existing := []sql.GetDatabaseInstanceSettingDatabaseFlag{
+			{Name: "max_connections", Value: "100"},
+			{Name: "log_connections", Value: "on"},
+		}
+		arr := mergeDatabaseFlags(existing, map[string]string{
+			"max_connections":             "200",
+			"cloudsql.iam_authentication": "on",
+		})
+		var got []string
+		for _, f := range arr {
+			args, ok := f.(sql.DatabaseInstanceSettingsDatabaseFlagArgs)
+			Expect(ok).To(BeTrue())
+			got = append(got, string(args.Name.(sdk.String))+"="+string(args.Value.(sdk.String)))
+		}
+		Expect(got).To(Equal([]string{
+			"cloudsql.iam_authentication=on",
+			"log_connections=on",
+			"max_connections=200",
+		}))
+	})
+
 	t.Run("array is sorted by flag name for deterministic diffs", func(t *testing.T) {
 		RegisterTestingT(t)
 		arr := toDatabaseFlagArray(map[string]string{

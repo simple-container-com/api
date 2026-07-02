@@ -151,6 +151,20 @@ func configuredDatabaseFlags(pgCfg *gcloud.PostgresGcpCloudsqlConfig) map[string
 	return flags
 }
 
+// mergeDatabaseFlags overlays configured flags onto an adopted instance's
+// existing flags and renders the union fully sorted — a mixed
+// existing-order/sorted-tail array would churn on every update.
+func mergeDatabaseFlags(existing []sql.GetDatabaseInstanceSettingDatabaseFlag, configured map[string]string) sql.DatabaseInstanceSettingsDatabaseFlagArray {
+	merged := map[string]string{}
+	for _, flag := range existing {
+		merged[flag.Name] = flag.Value
+	}
+	for name, value := range configured {
+		merged[name] = value
+	}
+	return toDatabaseFlagArray(merged)
+}
+
 // toDatabaseFlagArray renders flags sorted by name — map iteration order is
 // random and would produce phantom diffs on every update.
 func toDatabaseFlagArray(flags map[string]string) sql.DatabaseInstanceSettingsDatabaseFlagArray {

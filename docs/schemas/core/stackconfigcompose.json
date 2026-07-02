@@ -349,11 +349,18 @@
           },
           "https": {
             "type": "boolean"
+          },
+          "siteExtraHelpers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "extraHelpers",
-          "https"
+          "https",
+          "siteExtraHelpers"
         ],
         "type": "object"
       },
@@ -655,6 +662,9 @@
               "required": {
                 "type": "boolean"
               },
+              "softFail": {
+                "type": "boolean"
+              },
               "tools": {
                 "items": {
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -695,9 +705,6 @@
               },
               "keyless": {
                 "type": "boolean"
-              },
-              "password": {
-                "type": "string"
               },
               "privateKey": {
                 "type": "string"

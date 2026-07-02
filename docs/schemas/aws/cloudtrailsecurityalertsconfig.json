@@ -49,6 +49,12 @@
       "alerts": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "accessKeyCreation": {
+            "type": "boolean"
+          },
+          "anonymousProbes": {
+            "type": "boolean"
+          },
           "cloudTrailTampering": {
             "type": "boolean"
           },
@@ -61,10 +67,22 @@
           "failedConsoleLogins": {
             "type": "boolean"
           },
+          "guardDutyDisabled": {
+            "type": "boolean"
+          },
           "iamPolicyChanges": {
             "type": "boolean"
           },
           "kmsKeyDeletion": {
+            "type": "boolean"
+          },
+          "kmsKeyGrants": {
+            "type": "boolean"
+          },
+          "kmsKeyPolicy": {
+            "type": "boolean"
+          },
+          "lambdaUrlPublic": {
             "type": "boolean"
           },
           "naclChanges": {
@@ -72,6 +90,64 @@
           },
           "networkGatewayChanges": {
             "type": "boolean"
+          },
+          "organizationsChanges": {
+            "type": "boolean"
+          },
+          "overrides": {
+            "additionalProperties": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "evaluationPeriods": {
+                  "type": "integer"
+                },
+                "excludeInvokedBy": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "excludePrincipalIds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "excludeUserArnGlobs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "excludeUserArns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "excludeUserNames": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "excludeUserTypes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "period": {
+                  "type": "integer"
+                },
+                "threshold": {
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "type": "object"
           },
           "rootAccountUsage": {
             "type": "boolean"
@@ -82,7 +158,13 @@
           "s3BucketPolicyChanges": {
             "type": "boolean"
           },
+          "s3PublicAccessChanges": {
+            "type": "boolean"
+          },
           "securityGroupChanges": {
+            "type": "boolean"
+          },
+          "securityHubDisabled": {
             "type": "boolean"
           },
           "unauthorizedApiCalls": {
