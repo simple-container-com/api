@@ -47,6 +47,9 @@
       "required": {
         "type": "boolean"
       },
+      "softFail": {
+        "type": "boolean"
+      },
       "tools": {
         "items": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",

@@ -886,7 +886,10 @@ resources:
             version: "POSTGRES_14"                       # PostgreSQL version
             tier: "db-f1-micro"                         # Instance tier
             region: "us-central1"                       # GCP region
-            maxConnections: 100                          # Maximum connections (optional)
+            maxConnections: 100                          # Maximum connections (optional, deprecated: prefer databaseFlags)
+            databaseFlags:                               # Arbitrary Cloud SQL database flags (optional)
+              cloudsql.iam_authentication: "on"          # e.g. enable IAM database authentication
+              log_min_duration_statement: "500"          # max_connections here overrides maxConnections
             deletionProtection: true                     # Enable deletion protection (optional)
             queryInsightsEnabled: false                  # Enable query insights (optional)
             queryStringLength: 1024                      # Query string length limit (optional)
@@ -894,6 +897,8 @@ resources:
               type: "kubernetes"
               resourceName: "postgres-job-runner"
 ```
+
+**Database flag removal semantics:** on freshly provisioned instances, deleting an entry from `databaseFlags` reverts that flag to its engine default on the next update (static flags restart the instance). On **adopted** instances (`adopt: true`), flags are only managed while `databaseFlags` is set — deleting the whole block re-enters drift protection and leaves the last-applied flags in place; to disable a flag, set it to its off value (e.g. `"off"`) instead of removing the line.
 
 **Client Access:**
 
