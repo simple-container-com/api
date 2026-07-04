@@ -89,7 +89,7 @@ func TestScopeFile_MultiRecipient_And_WrongKey(t *testing.T) {
 	Expect(gotB).To(Equal("v"))
 
 	// value sealed exactly twice (once per recipient)
-	Expect(f.Values["k"]).To(HaveLen(2))
+	Expect(f.Values["k"].Wraps).To(HaveLen(2))
 
 	// a non-recipient key is rejected distinctly
 	_, err = f.Get("k", privC)
@@ -184,7 +184,7 @@ func TestVerifyConsistency_DetectsUnknownRecipient(t *testing.T) {
 	Expect(f.VerifyConsistency()).To(Succeed())
 
 	// Inject a value sealed to a recipient not in the declared list.
-	f.Values["k"]["SHA256:bogusfingerprint"] = []string{"deadbeef"}
+	f.Values["k"].Wraps["SHA256:bogusfingerprint"] = []string{"deadbeef"}
 	Expect(f.VerifyConsistency()).NotTo(Succeed())
 }
 
@@ -198,11 +198,11 @@ func TestVerifyConsistency_RejectsPlaintextChunk(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 
 	// Hand-edit: replace the sealed chunk with a non-base64 plaintext value.
-	f.Values["k"][fp] = []string{"plaintext-secret"}
+	f.Values["k"].Wraps[fp] = []string{"plaintext-secret"}
 	Expect(f.VerifyConsistency()).NotTo(Succeed())
 
 	// A valid-base64-but-implausibly-short chunk is also rejected.
-	f.Values["k"][fp] = []string{"YWJj"} // "abc"
+	f.Values["k"].Wraps[fp] = []string{"YWJj"} // "abc"
 	Expect(f.VerifyConsistency()).NotTo(Succeed())
 }
 
@@ -308,11 +308,11 @@ func TestReencrypt_AddAndRemoveRecipient(t *testing.T) {
 	gotB, err := f.Get("k", privB)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(gotB).To(Equal("v"))
-	Expect(f.Values["k"]).To(HaveLen(2))
+	Expect(f.Values["k"].Wraps).To(HaveLen(2))
 
 	// Remove B by resealing to A only.
 	Expect(f.Reencrypt([]string{authA}, privA)).To(Succeed())
-	Expect(f.Values["k"]).To(HaveLen(1))
+	Expect(f.Values["k"].Wraps).To(HaveLen(1))
 	_, err = f.Get("k", privB)
 	Expect(errors.Is(err, ErrRecipientNotAllowed)).To(BeTrue())
 }
@@ -451,6 +451,35 @@ func TestResolveScopedValues_MultipleCandidateKeys(t *testing.T) {
 	got, err := ResolveScopedValues(stackDir, []string{privA, privB, "", "not-a-key"})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(Equal(map[string]string{"defectdojo-api-key": "dd", "staging-token": "stg"}))
+}
+
+func TestEnvelope_NoPerRecipientDivergence(t *testing.T) {
+	RegisterTestingT(t)
+	// The envelope's shared value ciphertext makes it impossible to show two
+	// recipients DIFFERENT valid plaintexts for the same key: tampering one
+	// recipient's wrap yields a decrypt failure, never an attacker-chosen value.
+	authA, privA := genEd25519Recipient(t)
+	authB, privB := genEd25519Recipient(t)
+	f, err := NewScopeFile("teststack", "pr", []string{authA, authB})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("k", "real")).To(Succeed())
+	fpB, err := Fingerprint(authB)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Attacker (holds B's public key, can edit the file) crafts a separate envelope
+	// of "evil" and splices B's wrap in, leaving the shared value ciphertext intact.
+	evil, err := encryptForRecipients([]string{authB}, "teststack", "pr", "k", "evil")
+	Expect(err).NotTo(HaveOccurred())
+	f.Values["k"].Wraps[fpB] = evil.Wraps[fpB]
+
+	// B now unwraps a data key that does not open the shared ciphertext → error,
+	// NOT the value "evil".
+	_, err = f.Get("k", privB)
+	Expect(err).To(HaveOccurred())
+	// A is unaffected and still reads the real value.
+	got, err := f.Get("k", privA)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(Equal("real"))
 }
 
 func TestScopeFile_TransplantResistance_RSA(t *testing.T) {

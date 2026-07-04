@@ -61,16 +61,25 @@ it is a recipient of".
   them would be a large new supply-chain surface for no capability sc lacks: the ciphers
   package already does per-recipient sealing (RSA-OAEP for `ssh-rsa`, ephemeral-static
   X25519 + ChaCha20-Poly1305 for `ssh-ed25519`) with authenticated encryption. The scoped
-  store reuses it, adding only backward-compatible associated-data variants
+  store reuses it, adding backward-compatible associated-data variants
   (`EncryptLargeStringWithAAD` etc.) — a nil AAD reproduces the legacy wire format
-  byte-for-byte, so the whole-file store is untouched.
+  byte-for-byte, so the whole-file store is untouched — plus symmetric envelope helpers
+  (`SealAEAD`/`OpenAEAD`, ChaCha20-Poly1305).
+- **Envelope encryption per value.** Each value is encrypted ONCE under a fresh random
+  32-byte data key (DEK) with the value's `(stack, scope, key)` bound as AEAD associated
+  data; the DEK is then wrapped per recipient. This was chosen over direct-per-recipient
+  value sealing after review, because it (a) makes the value ciphertext identical for every
+  recipient — so a tampered per-recipient slot yields a *decrypt failure, never a different
+  plaintext* (no targeted per-recipient divergence), (b) gives one whole-value MAC (no chunk
+  splicing), and (c) makes the DEK a single 32-byte block — no RSA chunking at all.
 - **Recipients are SSH public keys** (`ssh-ed25519` / `ssh-rsa`), the same key material the
   whole-file store and `sc secrets allow` already use — not native age recipients. The `pr`
   scope's CI key (`SC_KEY_PR`) is therefore an unencrypted SSH ed25519 private key.
 - One committed-encrypted file per scope: `.sc/stacks/<stack>/secrets.<scope>.yaml` — its
-  structure (schemaVersion, scope, recipients, value KEYS) is readable/diffable; each value
-  is sealed once per recipient, keyed by the recipient's SHA256 SSH fingerprint, values
-  opaque. Confidentiality + integrity come from the AEAD/OAEP layer, not a separate MAC.
+  structure (schemaVersion, stack, scope, recipients, value KEYS) is readable/diffable; each
+  value is `{ciphertext: <AEAD value under the DEK>, wraps: {<recipient-fingerprint>: <DEK
+  sealed to that recipient>}}`, values opaque. Confidentiality + integrity come from the
+  AEAD layer, not a separate MAC.
 - v1 recipients are static SSH keys; KMS/OIDC recipients are v2 (a `KeyProvider` that seals
   the same value map to a KMS-wrapped key decrypted via OIDC — a recipient swap, no format
   change).
@@ -104,7 +113,8 @@ consequences the spec must honor:
 ```
 
 `secrets.<scope>.yaml` files are **committed encrypted**: keys/structure (schemaVersion,
-scope, recipients, value names) stay diffable, values are opaque per-recipient blobs. They
+scope, recipients, value names) stay diffable, each value is an opaque `{ciphertext, wraps}`
+envelope. They
 are NOT listed in the legacy registry and NOT touched by `sc secrets hide/reveal` legacy
 paths. Consumer-repo scope files
 (`<consumer>/.sc/stacks/<stack>/secrets.<scope>.yaml`) are a supported location the
@@ -241,12 +251,14 @@ result transparently:
 ## Plaintext-leak lint (ships with the feature, RFC non-negotiable 4)
 
 `sc secrets lint` (and a CI gate in the central security scan):
-- every `secrets.<scope>.yaml` parses, every value is a non-empty per-recipient ciphertext
-  map (no plaintext value leaf) — `ScopeFile.VerifyConsistency`;
-- each value is sealed to exactly the declared `recipients` set (no missing/extra recipient
-  fingerprint), and those recipients == `scopes.yaml` recipients for the scope
+- every `secrets.<scope>.yaml` parses; every value's `ciphertext` is a plausibly-shaped
+  envelope AEAD blob and its `wraps` are non-empty per-recipient DEK wraps of the exact
+  shape for each recipient's key type — no plaintext value leaf — `ScopeFile.VerifyConsistency`;
+- each value's DEK is wrapped to exactly the declared `recipients` set (no missing/extra
+  recipient fingerprint), and those recipients == `scopes.yaml` recipients for the scope
   (drift = fail) (P0-4);
-- in-file scope name == filename `<scope>` (P0-3); value binding (`scope\0key` AAD) is
+- in-file scope name == filename `<scope>` and in-file stack == parent dir (P0-3); value
+  binding (`stack\0scope\0key` AAD) is
   enforced structurally at decrypt, not lintable offline;
 - no `secrets.<scope>.yaml` is gitignored (must be committed encrypted);
 - legacy plaintext files (`stacks/*/secrets.yaml`) remain gitignored (unchanged rule).

@@ -26,10 +26,16 @@ const (
 	scopeFileSuffix = ".yaml"
 )
 
-// EncryptedValue holds one secret value sealed once per recipient, keyed by the
-// recipient's SHA256 SSH fingerprint. Committed as-is (opaque), so the file diffs
-// show which keys/recipients changed without revealing values.
-type EncryptedValue map[string][]string
+// EncryptedValue is one secret in envelope form: the value is AEAD-encrypted ONCE
+// under a random data key (Ciphertext), and that data key is wrapped per recipient
+// (Wraps, keyed by SHA256 SSH fingerprint). All recipients therefore decrypt the
+// SAME value — a tampered slot yields a decrypt failure, never a different plaintext
+// — and the value carries a single whole-message MAC (no chunk splicing). Committed
+// as-is (opaque values, diffable structure).
+type EncryptedValue struct {
+	Ciphertext string              `yaml:"ciphertext"`
+	Wraps      map[string][]string `yaml:"wraps"`
+}
 
 // ScopeFile is a committed, encrypted secrets.<scope>.yaml. Structure (keys,
 // recipients) is readable; values are opaque. It is self-contained: the recipient
@@ -251,32 +257,39 @@ func (f *ScopeFile) VerifyConsistency() error {
 		}
 		fpToPub[fp] = pub
 	}
-	for key, enc := range f.Values {
+	for key, ev := range f.Values {
 		if err := ValidateSecretKey(key); err != nil {
 			return err
 		}
-		if len(enc) != len(fpToPub) {
-			return errors.Errorf("scope %q key %q sealed to %d recipients, expected %d", f.Scope, key, len(enc), len(fpToPub))
+		// The value blob: base64, and a plausibly-shaped envelope AEAD (nonce+tag),
+		// so a hand-edited plaintext value is rejected offline without a key.
+		blob, err := base64.StdEncoding.DecodeString(ev.Ciphertext)
+		if err != nil {
+			return errors.Wrapf(err, "scope %q key %q value ciphertext is not base64 (plaintext leak?)", f.Scope, key)
 		}
-		for fp, chunks := range enc {
+		if err := ciphers.ValidEnvelopeBlob(blob); err != nil {
+			return errors.Wrapf(err, "scope %q key %q value ciphertext", f.Scope, key)
+		}
+		if len(ev.Wraps) != len(fpToPub) {
+			return errors.Errorf("scope %q key %q data key wrapped for %d recipients, expected %d", f.Scope, key, len(ev.Wraps), len(fpToPub))
+		}
+		for fp, chunks := range ev.Wraps {
 			pub, ok := fpToPub[fp]
 			if !ok {
-				return errors.Errorf("scope %q key %q sealed to unknown recipient %s (not in recipients list)", f.Scope, key, fp)
+				return errors.Errorf("scope %q key %q wrapped for unknown recipient %s (not in recipients list)", f.Scope, key, fp)
 			}
 			if len(chunks) == 0 {
-				return errors.Errorf("scope %q key %q has empty ciphertext for recipient %s", f.Scope, key, fp)
+				return errors.Errorf("scope %q key %q has an empty data-key wrap for recipient %s", f.Scope, key, fp)
 			}
-			// Offline plaintext-leak/tamper gate: every chunk must be base64 and have
-			// the exact ciphertext shape for the recipient's key type (RSA modulus
-			// size, or an X25519 sealed box), so a hand-edited plaintext value is
-			// rejected by lint without needing a private key.
+			// Each wrap is the 32-byte DEK sealed to the recipient — a single block of
+			// the recipient's key type (RSA modulus size, or an X25519 sealed box).
 			for i, chunk := range chunks {
 				raw, err := base64.StdEncoding.DecodeString(chunk)
 				if err != nil {
-					return errors.Wrapf(err, "scope %q key %q recipient %s chunk %d is not base64 (plaintext leak?)", f.Scope, key, fp, i)
+					return errors.Wrapf(err, "scope %q key %q recipient %s wrap %d is not base64", f.Scope, key, fp, i)
 				}
 				if err := ciphers.ValidateCiphertextShape(pub, raw); err != nil {
-					return errors.Wrapf(err, "scope %q key %q recipient %s chunk %d", f.Scope, key, fp, i)
+					return errors.Wrapf(err, "scope %q key %q recipient %s wrap %d", f.Scope, key, fp, i)
 				}
 			}
 		}

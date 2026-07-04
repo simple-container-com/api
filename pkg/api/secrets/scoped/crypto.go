@@ -6,6 +6,7 @@ package scoped
 import (
 	"crypto/ed25519"
 	"crypto/rsa"
+	"encoding/base64"
 
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
@@ -66,62 +67,84 @@ func parseAuthorizedKey(authorizedKey string) (ssh.PublicKey, error) {
 	return pub, nil
 }
 
-// encryptForRecipients seals value once per recipient, keyed by fingerprint, with
-// (scope,key) associated-data binding. Every recipient must encrypt successfully —
-// a partial result is never returned, so a scope file never silently drops a
-// recipient's copy.
+// encryptForRecipients builds the envelope for value: it is AEAD-encrypted ONCE
+// under a fresh random data key (bound to stack/scope/key), and that data key is
+// wrapped per recipient (keyed by fingerprint). Because the value ciphertext is
+// shared, every recipient decrypts the SAME plaintext — a tampered per-recipient
+// slot yields a decrypt failure, never a different value — and the whole value is
+// one AEAD blob (no chunk splicing). Every recipient must wrap successfully — a
+// partial result is never returned.
 func encryptForRecipients(recipients []string, stack, scope, key, value string) (EncryptedValue, error) {
 	aad := valueAAD(stack, scope, key)
-	out := make(EncryptedValue, len(recipients))
+	dek, err := ciphers.GenerateDEK()
+	if err != nil {
+		return EncryptedValue{}, err
+	}
+	blob, err := ciphers.SealAEAD(dek, []byte(value), aad)
+	if err != nil {
+		return EncryptedValue{}, errors.Wrapf(err, "failed to seal value %q in scope %q", key, scope)
+	}
+	wraps := make(map[string][]string, len(recipients))
 	for _, rk := range recipients {
 		fp, err := recipientFingerprint(rk)
 		if err != nil {
-			return nil, err
+			return EncryptedValue{}, err
 		}
-		if _, dup := out[fp]; dup {
-			return nil, errors.Errorf("duplicate recipient %s in scope %q", fp, scope)
+		if _, dup := wraps[fp]; dup {
+			return EncryptedValue{}, errors.Errorf("duplicate recipient %s in scope %q", fp, scope)
 		}
 		cryptoPub, err := ciphers.ParsePublicKey(secrets.TrimPubKey(rk))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to parse recipient %s", fp)
+			return EncryptedValue{}, errors.Wrapf(err, "failed to parse recipient %s", fp)
 		}
-		chunks, err := ciphers.EncryptLargeStringWithAAD(cryptoPub, value, aad)
+		// The DEK is 32 bytes → always a single RSA-OAEP block / X25519 box, so the
+		// wrap is never chunked. The wrap is AAD-bound too, so a wrap cannot be moved
+		// to another (stack,scope,key).
+		wrapped, err := ciphers.EncryptLargeStringWithAAD(cryptoPub, string(dek), aad)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to encrypt value for recipient %s", fp)
+			return EncryptedValue{}, errors.Wrapf(err, "failed to wrap data key for recipient %s", fp)
 		}
-		out[fp] = chunks
+		wraps[fp] = wrapped
 	}
-	if len(out) == 0 {
-		return nil, errors.Errorf("scope %q has no recipients to encrypt %q for", scope, key)
+	if len(wraps) == 0 {
+		return EncryptedValue{}, errors.Errorf("scope %q has no recipients to encrypt %q for", scope, key)
 	}
-	return out, nil
+	return EncryptedValue{Ciphertext: base64.StdEncoding.EncodeToString(blob), Wraps: wraps}, nil
 }
 
-// decryptWithPrivateKey finds the slot for privateKey's own public fingerprint in
-// enc and decrypts it, verifying the (scope,key) binding. It returns a wrapped
-// ErrRecipientNotAllowed when the key holder is not a recipient of this value so
-// callers can distinguish "wrong key" from "corrupt data".
-func decryptWithPrivateKey(privateKey, stack, scope, key string, enc EncryptedValue) (string, error) {
+// decryptWithPrivateKey unwraps the data key for privateKey's own fingerprint and
+// opens the value, verifying the (stack,scope,key) binding on both. It returns a
+// wrapped ErrRecipientNotAllowed when the key holder is not a recipient so callers
+// can distinguish "wrong key" from "corrupt data".
+func decryptWithPrivateKey(privateKey, stack, scope, key string, ev EncryptedValue) (string, error) {
 	fp, signer, err := privateKeyFingerprint(privateKey)
 	if err != nil {
 		return "", err
 	}
-	chunks, ok := enc[fp]
+	wrapped, ok := ev.Wraps[fp]
 	if !ok {
 		return "", errors.Wrapf(ErrRecipientNotAllowed, "key %s is not a recipient of %q in scope %q", fp, key, scope)
 	}
 	aad := valueAAD(stack, scope, key)
-	var plain []byte
+	var dek []byte
 	switch k := signer.(type) {
 	case *rsa.PrivateKey:
-		plain, err = ciphers.DecryptLargeStringWithAAD(k, chunks, aad)
+		dek, err = ciphers.DecryptLargeStringWithAAD(k, wrapped, aad)
 	case ed25519.PrivateKey:
-		plain, err = ciphers.DecryptLargeStringWithEd25519AAD(k, chunks, aad)
+		dek, err = ciphers.DecryptLargeStringWithEd25519AAD(k, wrapped, aad)
 	case *ed25519.PrivateKey:
-		plain, err = ciphers.DecryptLargeStringWithEd25519AAD(*k, chunks, aad)
+		dek, err = ciphers.DecryptLargeStringWithEd25519AAD(*k, wrapped, aad)
 	default:
 		return "", errors.Errorf("unsupported private key type %T", signer)
 	}
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to unwrap data key for %q in scope %q", key, scope)
+	}
+	blob, err := base64.StdEncoding.DecodeString(ev.Ciphertext)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to decode value ciphertext for %q in scope %q", key, scope)
+	}
+	plain, err := ciphers.OpenAEAD(dek, blob, aad)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to decrypt %q in scope %q", key, scope)
 	}
