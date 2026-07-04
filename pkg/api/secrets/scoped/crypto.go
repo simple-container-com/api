@@ -39,6 +39,23 @@ func recipientFingerprint(authorizedKey string) (string, error) {
 	return ssh.FingerprintSHA256(pub), nil
 }
 
+// validateEncryptableRecipient rejects authorized keys that fingerprint fine but
+// cannot actually receive a scoped secret — only ssh-rsa and ssh-ed25519 are
+// supported by the cipher layer, so ECDSA keys, SSH certificates, etc. must be
+// caught at governance time (allow) rather than failing later on the first set.
+func validateEncryptableRecipient(authorizedKey string) error {
+	pub, err := ciphers.ParsePublicKey(secrets.TrimPubKey(authorizedKey))
+	if err != nil {
+		return errors.Wrap(err, "unusable recipient key")
+	}
+	switch pub.(type) {
+	case *rsa.PublicKey, ed25519.PublicKey:
+		return nil
+	default:
+		return errors.Errorf("unsupported recipient key type %T (only ssh-rsa and ssh-ed25519 can receive scoped secrets)", pub)
+	}
+}
+
 // parseAuthorizedKey parses one "<type> <data> [comment]" authorized-key line into
 // an ssh.PublicKey.
 func parseAuthorizedKey(authorizedKey string) (ssh.PublicKey, error) {

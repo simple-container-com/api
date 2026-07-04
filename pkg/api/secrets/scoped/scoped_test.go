@@ -4,6 +4,9 @@
 package scoped
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -182,6 +185,39 @@ func TestVerifyConsistency_DetectsUnknownRecipient(t *testing.T) {
 	// Inject a value sealed to a recipient not in the declared list.
 	f.Values["k"]["SHA256:bogusfingerprint"] = []string{"deadbeef"}
 	Expect(f.VerifyConsistency()).NotTo(Succeed())
+}
+
+func TestVerifyConsistency_RejectsPlaintextChunk(t *testing.T) {
+	RegisterTestingT(t)
+	authA, _ := genEd25519Recipient(t)
+	f, err := NewScopeFile("pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("k", "v")).To(Succeed())
+	fp, err := Fingerprint(authA)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Hand-edit: replace the sealed chunk with a non-base64 plaintext value.
+	f.Values["k"][fp] = []string{"plaintext-secret"}
+	Expect(f.VerifyConsistency()).NotTo(Succeed())
+
+	// A valid-base64-but-implausibly-short chunk is also rejected.
+	f.Values["k"][fp] = []string{"YWJj"} // "abc"
+	Expect(f.VerifyConsistency()).NotTo(Succeed())
+}
+
+func TestAllow_RejectsUnsupportedKeyType(t *testing.T) {
+	RegisterTestingT(t)
+	// ECDSA key: parses + fingerprints as SSH, but the cipher layer can't seal to it.
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	Expect(err).NotTo(HaveOccurred())
+	sshPub, err := ssh.NewPublicKey(&priv.PublicKey)
+	Expect(err).NotTo(HaveOccurred())
+	ecdsaAuthorized := string(ssh.MarshalAuthorizedKey(sshPub))
+
+	s := &Scopes{SchemaVersion: CurrentScopesSchemaVersion, Scopes: map[string]Scope{}}
+	_, err = s.Allow("pr", ecdsaAuthorized)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("unsupported recipient key type"))
 }
 
 func TestScopes_AllowDisallowRecipients(t *testing.T) {

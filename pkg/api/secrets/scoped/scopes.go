@@ -184,6 +184,9 @@ func (s *Scopes) Allow(scope, recipient string) (bool, error) {
 	if _, err := recipientFingerprint(recipient); err != nil {
 		return false, err
 	}
+	if err := validateEncryptableRecipient(recipient); err != nil {
+		return false, err
+	}
 	if s.Scopes == nil {
 		s.Scopes = map[string]Scope{}
 	}

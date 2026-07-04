@@ -4,6 +4,7 @@
 package scoped
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,11 @@ import (
 const (
 	scopeFilePrefix = "secrets."
 	scopeFileSuffix = ".yaml"
+	// minCiphertextBytes is the smallest plausible sealed blob (the AEAD tag alone
+	// is 16 bytes; a real X25519 blob is ≥69 and an RSA chunk ≥256). Used by
+	// VerifyConsistency to reject a plaintext value smuggled under a valid
+	// recipient fingerprint.
+	minCiphertextBytes = 16
 )
 
 // EncryptedValue holds one secret value sealed once per recipient, keyed by the
@@ -241,6 +247,18 @@ func (f *ScopeFile) VerifyConsistency() error {
 			}
 			if len(chunks) == 0 {
 				return errors.Errorf("scope %q key %q has empty ciphertext for recipient %s", f.Scope, key, fp)
+			}
+			// Offline plaintext-leak gate: every chunk must be base64 and decode to
+			// at least the AEAD tag size, so a hand-edited file with a plaintext or
+			// otherwise malformed value is rejected by lint without needing a key.
+			for i, chunk := range chunks {
+				raw, err := base64.StdEncoding.DecodeString(chunk)
+				if err != nil {
+					return errors.Wrapf(err, "scope %q key %q recipient %s chunk %d is not base64 (plaintext leak?)", f.Scope, key, fp, i)
+				}
+				if len(raw) < minCiphertextBytes {
+					return errors.Errorf("scope %q key %q recipient %s chunk %d is implausibly short (%d bytes) for ciphertext", f.Scope, key, fp, i, len(raw))
+				}
 			}
 		}
 	}

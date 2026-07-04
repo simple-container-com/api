@@ -23,8 +23,9 @@ import (
 // only its scope, not the whole-file store.
 type scopeCmd struct {
 	*secretsCmd
-	scope string
-	stack string
+	scope   string
+	stack   string
+	keyFile string
 }
 
 // scDir returns the .sc config directory for the current repo.
@@ -32,13 +33,34 @@ func (s *scopeCmd) scDir() string {
 	return filepath.Join(s.Root.Provisioner.Cryptor().Workdir(), api.ScConfigDirectory)
 }
 
-// privateKey returns the ambient private key (from SIMPLE_CONTAINER_CONFIG /
-// profile) used to decrypt scoped values. In a pr-scope CI job this is the scope
-// key (e.g. SC_KEY_PR); locally it is the developer's key.
+// privateKey resolves the private key used to decrypt scoped values, in order:
+//  1. --key-file (an explicit PEM file);
+//  2. env SC_KEY_<SCOPE> (e.g. SC_KEY_PR) — the per-scope CI key described by the
+//     rollout — then the generic SC_SCOPE_KEY;
+//  3. the ambient cryptor key (SIMPLE_CONTAINER_CONFIG / profile) for local use.
+//
+// This lets a pull_request scan job hold ONLY the scope key without also carrying
+// a full SIMPLE_CONTAINER_CONFIG.
 func (s *scopeCmd) privateKey() (string, error) {
+	if s.keyFile != "" {
+		b, err := os.ReadFile(s.keyFile)
+		if err != nil {
+			return "", errors.Wrapf(err, "failed to read --key-file %s", s.keyFile)
+		}
+		return string(b), nil
+	}
+	if s.scope != "" {
+		envName := "SC_KEY_" + strings.ToUpper(strings.ReplaceAll(s.scope, "-", "_"))
+		if v := os.Getenv(envName); strings.TrimSpace(v) != "" {
+			return v, nil
+		}
+	}
+	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" {
+		return v, nil
+	}
 	pk := s.Root.Provisioner.Cryptor().PrivateKey()
 	if strings.TrimSpace(pk) == "" {
-		return "", errors.New("no private key configured (set SIMPLE_CONTAINER_CONFIG to a scope-recipient key)")
+		return "", errors.New("no private key available: set --key-file, SC_KEY_<SCOPE> / SC_SCOPE_KEY, or SIMPLE_CONTAINER_CONFIG")
 	}
 	return pk, nil
 }
@@ -166,6 +188,7 @@ func newScopeGetCmd(sCmd *secretsCmd) *cobra.Command {
 		},
 	}
 	s.addScopeStackFlags(cmd)
+	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to decrypt with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config)")
 	return cmd
 }
 
@@ -278,17 +301,21 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 	if err != nil {
 		return err
 	}
-	pk, err := s.privateKey()
-	if err != nil {
-		return err
-	}
-	// Reseal every existing scope file of this scope BEFORE persisting scopes.yaml,
-	// so a decrypt failure aborts without leaving scopes.yaml ahead of the files.
+	// Phase 1: load + reseal every scope file of this scope IN MEMORY. The private
+	// key is fetched lazily — only files that actually hold values need decrypting,
+	// so declaring the first recipient of an empty scope needs no key. Nothing is
+	// written until every reseal succeeds, so a mid-way decrypt/parse failure can
+	// never leave some files resealed and scopes.yaml/other files behind (drift).
 	files, err := scoped.ListScopeFiles(s.scDir())
 	if err != nil {
 		return err
 	}
-	resealed := 0
+	type pendingSave struct {
+		f    *scoped.ScopeFile
+		path string
+	}
+	var pending []pendingSave
+	var pk string
 	for _, path := range files {
 		if scoped.ScopeNameFromFile(path) != s.scope {
 			continue
@@ -298,21 +325,31 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 			return lErr
 		}
 		if len(f.Values) > 0 {
+			if pk == "" {
+				if pk, err = s.privateKey(); err != nil {
+					return err
+				}
+			}
 			if err := f.Reencrypt(recipients, pk); err != nil {
 				return err
 			}
 		} else {
 			f.Recipients = recipients
 		}
-		if err := f.Save(path); err != nil {
+		pending = append(pending, pendingSave{f: f, path: path})
+	}
+	// Phase 2: persist. Write the resealed files first, then scopes.yaml last, so a
+	// reader never sees scopes.yaml advertise a recipient a file hasn't been
+	// resealed for.
+	for _, p := range pending {
+		if err := p.f.Save(p.path); err != nil {
 			return err
 		}
-		resealed++
 	}
 	if err := sc.Save(scopesPath); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "scope %q now has %d recipient(s); resealed %d file(s)\n", s.scope, len(recipients), resealed)
+	fmt.Fprintf(cmd.OutOrStdout(), "scope %q now has %d recipient(s); resealed %d file(s)\n", s.scope, len(recipients), len(pending))
 	if !allow {
 		fmt.Fprintf(cmd.OutOrStderr(), "WARNING: removing a recipient does NOT revoke access to values already committed in git history. Rotate every value in scope %q now.\n", s.scope)
 	}
@@ -399,6 +436,7 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to test with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config)")
 	return cmd
 }
 
