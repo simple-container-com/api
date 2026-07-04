@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +45,7 @@ func genRSARecipient(t *testing.T) (authorized, privatePEM string) {
 func TestScopeFile_RoundTrip_Ed25519(t *testing.T) {
 	RegisterTestingT(t)
 	authorized, priv := genEd25519Recipient(t)
-	f, err := NewScopeFile("pr", []string{authorized})
+	f, err := NewScopeFile("teststack", "pr", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("defectdojo-api-key", "s3cr3t-value")).To(Succeed())
 
@@ -56,7 +57,7 @@ func TestScopeFile_RoundTrip_Ed25519(t *testing.T) {
 func TestScopeFile_RoundTrip_RSA(t *testing.T) {
 	RegisterTestingT(t)
 	authorized, priv := genRSARecipient(t)
-	f, err := NewScopeFile("pr", []string{authorized})
+	f, err := NewScopeFile("teststack", "pr", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	// value longer than one RSA-OAEP chunk to exercise chunking + AAD
 	long := ""
@@ -75,7 +76,7 @@ func TestScopeFile_MultiRecipient_And_WrongKey(t *testing.T) {
 	authB, privB := genRSARecipient(t)
 	_, privC := genEd25519Recipient(t) // not a recipient
 
-	f, err := NewScopeFile("pr", []string{authA, authB})
+	f, err := NewScopeFile("teststack", "pr", []string{authA, authB})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 
@@ -101,14 +102,14 @@ func TestScopeFile_TransplantResistance_ScopeAndKey(t *testing.T) {
 	authorized, priv := genEd25519Recipient(t)
 
 	// Seal a value in scope "prod".
-	prod, err := NewScopeFile("prod", []string{authorized})
+	prod, err := NewScopeFile("teststack", "prod", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(prod.Set("api-key", "prod-secret")).To(Succeed())
 	blob := prod.Values["api-key"]
 
 	// Attacker copies the ciphertext into a "pr"-scoped file (same recipient).
 	// AAD binds to scope, so decrypt under scope "pr" must fail.
-	pr, err := NewScopeFile("pr", []string{authorized})
+	pr, err := NewScopeFile("teststack", "pr", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	pr.Values["api-key"] = blob
 	_, err = pr.Get("api-key", priv)
@@ -125,7 +126,7 @@ func TestScopeFile_TransplantResistance_ScopeAndKey(t *testing.T) {
 func TestLoadScopeFile_RejectsRenamedFile(t *testing.T) {
 	RegisterTestingT(t)
 	authorized, _ := genEd25519Recipient(t)
-	f, err := NewScopeFile("prod", []string{authorized})
+	f, err := NewScopeFile("teststack", "prod", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 
@@ -142,17 +143,17 @@ func TestLoadScopeFile_RejectsRenamedFile(t *testing.T) {
 func TestLoadScopeFile_SaveLoadRoundTrip(t *testing.T) {
 	RegisterTestingT(t)
 	authorized, priv := genEd25519Recipient(t)
-	f, err := NewScopeFile("pr", []string{authorized})
+	f, err := NewScopeFile("teststack", "pr", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, ScopeFileName("pr"))
+	path := ScopeFilePath(t.TempDir(), "teststack", "pr")
 	Expect(f.Save(path)).To(Succeed())
 
 	loaded, err := LoadScopeFile(path)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(loaded.Scope).To(Equal("pr"))
+	Expect(loaded.Stack).To(Equal("teststack"))
 	got, err := loaded.Get("k", priv)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(Equal("v"))
@@ -161,7 +162,7 @@ func TestLoadScopeFile_SaveLoadRoundTrip(t *testing.T) {
 func TestLoadScopeFile_VersionGuardFailsClosed(t *testing.T) {
 	RegisterTestingT(t)
 	authorized, _ := genEd25519Recipient(t)
-	f, err := NewScopeFile("pr", []string{authorized})
+	f, err := NewScopeFile("teststack", "pr", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	f.SchemaVersion = CurrentScopesSchemaVersion + 1
 
@@ -177,7 +178,7 @@ func TestLoadScopeFile_VersionGuardFailsClosed(t *testing.T) {
 func TestVerifyConsistency_DetectsUnknownRecipient(t *testing.T) {
 	RegisterTestingT(t)
 	authA, _ := genEd25519Recipient(t)
-	f, err := NewScopeFile("pr", []string{authA})
+	f, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 	Expect(f.VerifyConsistency()).To(Succeed())
@@ -190,7 +191,7 @@ func TestVerifyConsistency_DetectsUnknownRecipient(t *testing.T) {
 func TestVerifyConsistency_RejectsPlaintextChunk(t *testing.T) {
 	RegisterTestingT(t)
 	authA, _ := genEd25519Recipient(t)
-	f, err := NewScopeFile("pr", []string{authA})
+	f, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 	fp, err := Fingerprint(authA)
@@ -295,7 +296,7 @@ func TestReencrypt_AddAndRemoveRecipient(t *testing.T) {
 	authA, privA := genEd25519Recipient(t)
 	authB, privB := genRSARecipient(t)
 
-	f, err := NewScopeFile("pr", []string{authA})
+	f, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 
@@ -322,7 +323,7 @@ func TestReencrypt_NonRecipientKeyFailsAndLeavesFileIntact(t *testing.T) {
 	authB, _ := genRSARecipient(t)
 	_, privC := genEd25519Recipient(t) // not a recipient
 
-	f, err := NewScopeFile("pr", []string{authA})
+	f, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("k", "v")).To(Succeed())
 	before := f.Values["k"]
@@ -346,7 +347,7 @@ func TestListScopeFiles_ExcludesLegacyPlaintext(t *testing.T) {
 			Expect(os.WriteFile(filepath.Join(dir, base), []byte("values:\n  k: v\n"), 0o644)).To(Succeed())
 			return
 		}
-		f, err := NewScopeFile(scope, []string{authA})
+		f, err := NewScopeFile(stack, scope, []string{authA})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(f.Save(filepath.Join(dir, base))).To(Succeed())
 	}
@@ -368,17 +369,17 @@ func TestResolveScopedValues_KeyDeterminesScope(t *testing.T) {
 	authB, privB := genRSARecipient(t)
 	_, privC := genEd25519Recipient(t) // recipient of nothing
 	scDir := t.TempDir()
-	stackDir := StackDir(scDir, "integrail")
+	stackDir := StackDir(scDir, "teststack")
 
-	pr, err := NewScopeFile("pr", []string{authA})
+	pr, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pr.Set("defectdojo-api-key", "dd")).To(Succeed())
-	Expect(pr.Save(ScopeFilePath(scDir, "integrail", "pr"))).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(scDir, "teststack", "pr"))).To(Succeed())
 
-	prod, err := NewScopeFile("prod", []string{authB})
+	prod, err := NewScopeFile("teststack", "prod", []string{authB})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(prod.Set("prod-mongo-uri", "mongo")).To(Succeed())
-	Expect(prod.Save(ScopeFilePath(scDir, "integrail", "prod"))).To(Succeed())
+	Expect(prod.Save(ScopeFilePath(scDir, "teststack", "prod"))).To(Succeed())
 
 	// A's key opens pr only — the prod value is invisible (cryptographic clamp).
 	got, err := ResolveScopedValues(stackDir, []string{privA})
@@ -410,17 +411,17 @@ func TestResolveScopedValues_CrossScopeDuplicateFails(t *testing.T) {
 	RegisterTestingT(t)
 	authA, privA := genEd25519Recipient(t)
 	scDir := t.TempDir()
-	stackDir := StackDir(scDir, "s")
+	stackDir := StackDir(scDir, "teststack")
 
-	pr, err := NewScopeFile("pr", []string{authA})
+	pr, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pr.Set("shared", "1")).To(Succeed())
-	Expect(pr.Save(ScopeFilePath(scDir, "s", "pr"))).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(scDir, "teststack", "pr"))).To(Succeed())
 
-	staging, err := NewScopeFile("staging", []string{authA})
+	staging, err := NewScopeFile("teststack", "staging", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(staging.Set("shared", "2")).To(Succeed())
-	Expect(staging.Save(ScopeFilePath(scDir, "s", "staging"))).To(Succeed())
+	Expect(staging.Save(ScopeFilePath(scDir, "teststack", "staging"))).To(Succeed())
 
 	_, err = ResolveScopedValues(stackDir, []string{privA})
 	Expect(err).To(HaveOccurred())
@@ -435,21 +436,107 @@ func TestResolveScopedValues_MultipleCandidateKeys(t *testing.T) {
 	authA, privA := genEd25519Recipient(t)
 	authB, privB := genRSARecipient(t)
 	scDir := t.TempDir()
-	stackDir := StackDir(scDir, "integrail")
+	stackDir := StackDir(scDir, "teststack")
 
-	pr, err := NewScopeFile("pr", []string{authA})
+	pr, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pr.Set("defectdojo-api-key", "dd")).To(Succeed())
-	Expect(pr.Save(ScopeFilePath(scDir, "integrail", "pr"))).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(scDir, "teststack", "pr"))).To(Succeed())
 
-	stg, err := NewScopeFile("staging", []string{authB})
+	stg, err := NewScopeFile("teststack", "staging", []string{authB})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(stg.Set("staging-token", "stg")).To(Succeed())
-	Expect(stg.Save(ScopeFilePath(scDir, "integrail", "staging"))).To(Succeed())
+	Expect(stg.Save(ScopeFilePath(scDir, "teststack", "staging"))).To(Succeed())
 
 	got, err := ResolveScopedValues(stackDir, []string{privA, privB, "", "not-a-key"})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(Equal(map[string]string{"defectdojo-api-key": "dd", "staging-token": "stg"}))
+}
+
+func TestScopeFile_TransplantResistance_RSA(t *testing.T) {
+	RegisterTestingT(t)
+	authorized, priv := genRSARecipient(t)
+
+	prod, err := NewScopeFile("teststack", "prod", []string{authorized})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(prod.Set("api-key", "prod-secret")).To(Succeed())
+	blob := prod.Values["api-key"]
+
+	// scope transplant (OAEP label binds scope)
+	pr, err := NewScopeFile("teststack", "pr", []string{authorized})
+	Expect(err).NotTo(HaveOccurred())
+	pr.Values["api-key"] = blob
+	_, err = pr.Get("api-key", priv)
+	Expect(err).To(HaveOccurred())
+
+	// key transplant (OAEP label binds key)
+	prod.Values["other-key"] = blob
+	_, err = prod.Get("other-key", priv)
+	Expect(err).To(HaveOccurred())
+}
+
+func TestScopeFile_TransplantResistance_CrossStack(t *testing.T) {
+	RegisterTestingT(t)
+	// ed25519 + RSA both: a value sealed for (stackA, prod, k) must not decrypt as
+	// (stackB, prod, k) — the AAD binds the stack.
+	for _, gen := range []func(*testing.T) (string, string){genEd25519Recipient, genRSARecipient} {
+		authorized, priv := gen(t)
+		a, err := NewScopeFile("stackA", "prod", []string{authorized})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(a.Set("k", "v")).To(Succeed())
+
+		b, err := NewScopeFile("stackB", "prod", []string{authorized})
+		Expect(err).NotTo(HaveOccurred())
+		b.Values["k"] = a.Values["k"] // attacker copies ciphertext into another stack
+		_, err = b.Get("k", priv)
+		Expect(err).To(HaveOccurred(), "cross-stack transplant must fail")
+	}
+}
+
+func TestSameRecipients(t *testing.T) {
+	RegisterTestingT(t)
+	a, _ := genEd25519Recipient(t)
+	b, _ := genRSARecipient(t)
+	Expect(SameRecipients([]string{a, b}, []string{b, a + " comment"})).To(Succeed()) // order/comment-independent
+	err := SameRecipients([]string{a, b}, []string{a})
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("count differs"))
+	err = SameRecipients([]string{a}, []string{b})
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("not present in both"))
+	Expect(SameRecipients([]string{"not-a-key"}, []string{a})).To(HaveOccurred())
+}
+
+func TestScopeFile_Delete(t *testing.T) {
+	RegisterTestingT(t)
+	authA, priv := genEd25519Recipient(t)
+	f, err := NewScopeFile("teststack", "pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("k", "v")).To(Succeed())
+	Expect(f.Delete("k")).To(BeTrue())
+	_, err = f.Get("k", priv)
+	Expect(err).To(HaveOccurred())
+	Expect(f.Delete("absent")).To(BeFalse())
+}
+
+func TestGet_RejectsPassphraseProtectedKey(t *testing.T) {
+	RegisterTestingT(t)
+	priv, pub, err := ciphers.GenerateEd25519KeyPair()
+	Expect(err).NotTo(HaveOccurred())
+	sshPub, err := ssh.NewPublicKey(pub)
+	Expect(err).NotTo(HaveOccurred())
+	authorized := string(ssh.MarshalAuthorizedKey(sshPub))
+
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "", []byte("s3cret"))
+	Expect(err).NotTo(HaveOccurred())
+	encryptedPEM := string(pem.EncodeToMemory(block))
+
+	f, err := NewScopeFile("teststack", "pr", []string{authorized})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("k", "v")).To(Succeed())
+	_, err = f.Get("k", encryptedPEM)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("passphrase-protected"))
 }
 
 func TestScopeNameFromFile(t *testing.T) {

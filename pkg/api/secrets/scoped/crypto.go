@@ -18,13 +18,13 @@ import (
 // the underlying cipher. Bumping it is a breaking format change.
 const aadDomain = "sc-scope-v1"
 
-// valueAAD binds a sealed value to its (scope, key) so a ciphertext blob cannot be
-// transplanted into another scope file or moved onto another key without failing
-// AEAD/OAEP verification on decrypt. The NUL separators cannot appear in a scope
-// name or key (both are validated to a restricted charset), so the concatenation
-// is unambiguous.
-func valueAAD(scope, key string) []byte {
-	return []byte(aadDomain + "\x00" + scope + "\x00" + key)
+// valueAAD binds a sealed value to its (stack, scope, key) so a ciphertext blob
+// cannot be transplanted into another scope file, another stack's file, or moved
+// onto another key without failing AEAD/OAEP verification on decrypt. The NUL
+// separators cannot appear in a stack/scope name or key (all validated to a
+// restricted charset), so the concatenation is unambiguous.
+func valueAAD(stack, scope, key string) []byte {
+	return []byte(aadDomain + "\x00" + stack + "\x00" + scope + "\x00" + key)
 }
 
 // recipientFingerprint returns the stable SHA256 SSH fingerprint of an authorized
@@ -70,8 +70,8 @@ func parseAuthorizedKey(authorizedKey string) (ssh.PublicKey, error) {
 // (scope,key) associated-data binding. Every recipient must encrypt successfully —
 // a partial result is never returned, so a scope file never silently drops a
 // recipient's copy.
-func encryptForRecipients(recipients []string, scope, key, value string) (EncryptedValue, error) {
-	aad := valueAAD(scope, key)
+func encryptForRecipients(recipients []string, stack, scope, key, value string) (EncryptedValue, error) {
+	aad := valueAAD(stack, scope, key)
 	out := make(EncryptedValue, len(recipients))
 	for _, rk := range recipients {
 		fp, err := recipientFingerprint(rk)
@@ -101,7 +101,7 @@ func encryptForRecipients(recipients []string, scope, key, value string) (Encryp
 // enc and decrypts it, verifying the (scope,key) binding. It returns a wrapped
 // ErrRecipientNotAllowed when the key holder is not a recipient of this value so
 // callers can distinguish "wrong key" from "corrupt data".
-func decryptWithPrivateKey(privateKey, scope, key string, enc EncryptedValue) (string, error) {
+func decryptWithPrivateKey(privateKey, stack, scope, key string, enc EncryptedValue) (string, error) {
 	fp, signer, err := privateKeyFingerprint(privateKey)
 	if err != nil {
 		return "", err
@@ -110,7 +110,7 @@ func decryptWithPrivateKey(privateKey, scope, key string, enc EncryptedValue) (s
 	if !ok {
 		return "", errors.Wrapf(ErrRecipientNotAllowed, "key %s is not a recipient of %q in scope %q", fp, key, scope)
 	}
-	aad := valueAAD(scope, key)
+	aad := valueAAD(stack, scope, key)
 	var plain []byte
 	switch k := signer.(type) {
 	case *rsa.PrivateKey:

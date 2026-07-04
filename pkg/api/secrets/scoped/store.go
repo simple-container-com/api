@@ -4,14 +4,19 @@
 package scoped
 
 import (
+	"crypto"
 	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
+
+	"github.com/simple-container-com/api/pkg/api/secrets"
+	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 )
 
 // scopeFilePrefix / scopeFileSuffix bracket the scope name in a scope file's base
@@ -19,11 +24,6 @@ import (
 const (
 	scopeFilePrefix = "secrets."
 	scopeFileSuffix = ".yaml"
-	// minCiphertextBytes is the smallest plausible sealed blob (the AEAD tag alone
-	// is 16 bytes; a real X25519 blob is ≥69 and an RSA chunk ≥256). Used by
-	// VerifyConsistency to reject a plaintext value smuggled under a valid
-	// recipient fingerprint.
-	minCiphertextBytes = 16
 )
 
 // EncryptedValue holds one secret value sealed once per recipient, keyed by the
@@ -36,6 +36,7 @@ type EncryptedValue map[string][]string
 // list lets `sc secrets lint` verify the value fingerprints without a private key.
 type ScopeFile struct {
 	SchemaVersion int                       `yaml:"schemaVersion"`
+	Stack         string                    `yaml:"stack"`
 	Scope         string                    `yaml:"scope"`
 	Recipients    []string                  `yaml:"recipients"`
 	Values        map[string]EncryptedValue `yaml:"values"`
@@ -59,16 +60,29 @@ func ScopeNameFromFile(path string) string {
 	return base[len(scopeFilePrefix) : len(base)-len(scopeFileSuffix)]
 }
 
-// NewScopeFile creates an empty scope file bound to a scope and its recipient set.
-func NewScopeFile(scope string, recipients []string) (*ScopeFile, error) {
+// StackNameFromFile returns the stack a scope file belongs to — the name of its
+// parent directory (.sc/stacks/<stack>/secrets.<scope>.yaml). Used to verify the
+// file's self-declared stack against its actual location.
+func StackNameFromFile(path string) string {
+	return filepath.Base(filepath.Dir(path))
+}
+
+// NewScopeFile creates an empty scope file bound to a stack, a scope, and its
+// recipient set. The stack + scope are bound into every value's AAD, so a value
+// cannot be transplanted to another stack or scope.
+func NewScopeFile(stack, scope string, recipients []string) (*ScopeFile, error) {
 	if err := ValidateScopeName(scope); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(stack) == "" {
+		return nil, errors.New("cannot create a scope file with no stack")
 	}
 	if len(recipients) == 0 {
 		return nil, errors.Errorf("cannot create scope %q with no recipients", scope)
 	}
 	return &ScopeFile{
 		SchemaVersion: CurrentScopesSchemaVersion,
+		Stack:         stack,
 		Scope:         scope,
 		Recipients:    append([]string(nil), recipients...),
 		Values:        map[string]EncryptedValue{},
@@ -76,9 +90,10 @@ func NewScopeFile(scope string, recipients []string) (*ScopeFile, error) {
 }
 
 // LoadScopeFile reads a scope file, fails closed on a too-new version, and verifies
-// the in-file scope name matches the filename — so renaming secrets.prod.yaml to
-// secrets.pr.yaml (to trick a pr key into opening it) is rejected here even before
-// the per-value AAD binding would fail on decrypt.
+// the in-file scope name matches the filename AND the in-file stack matches the
+// parent directory — so copying secrets.prod.yaml into another stack's dir, or
+// renaming it to another scope, is rejected here even before the per-value AAD
+// binding would fail on decrypt.
 func LoadScopeFile(path string) (*ScopeFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -96,6 +111,12 @@ func LoadScopeFile(path string) (*ScopeFile, error) {
 	}
 	if fromName := ScopeNameFromFile(path); fromName != "" && fromName != f.Scope {
 		return nil, errors.Errorf("scope file %s declares scope %q but its filename says %q (renamed file?)", path, f.Scope, fromName)
+	}
+	if f.Stack == "" {
+		return nil, errors.Errorf("scope file %s has no stack field", path)
+	}
+	if fromDir := StackNameFromFile(path); fromDir != f.Stack {
+		return nil, errors.Errorf("scope file %s declares stack %q but lives under stack dir %q (moved file?)", path, f.Stack, fromDir)
 	}
 	if f.Values == nil {
 		f.Values = map[string]EncryptedValue{}
@@ -129,7 +150,7 @@ func (f *ScopeFile) Set(key, value string) error {
 	if len(f.Recipients) == 0 {
 		return errors.Errorf("scope file %q has no recipients", f.Scope)
 	}
-	enc, err := encryptForRecipients(f.Recipients, f.Scope, key, value)
+	enc, err := encryptForRecipients(f.Recipients, f.Stack, f.Scope, key, value)
 	if err != nil {
 		return err
 	}
@@ -148,7 +169,7 @@ func (f *ScopeFile) Get(key, privateKey string) (string, error) {
 	if !ok {
 		return "", errors.Errorf("secret %q not found in scope %q", key, f.Scope)
 	}
-	return decryptWithPrivateKey(privateKey, f.Scope, key, enc)
+	return decryptWithPrivateKey(privateKey, f.Stack, f.Scope, key, enc)
 }
 
 // Delete removes a key. Returns whether it was present.
@@ -191,7 +212,7 @@ func (f *ScopeFile) Reencrypt(newRecipients []string, privateKey string) error {
 		plain[key] = v
 	}
 	// Build the new sealed set in a scratch file so a mid-way error can't corrupt f.
-	next := &ScopeFile{SchemaVersion: f.SchemaVersion, Scope: f.Scope, Recipients: append([]string(nil), newRecipients...), Values: map[string]EncryptedValue{}}
+	next := &ScopeFile{SchemaVersion: f.SchemaVersion, Stack: f.Stack, Scope: f.Scope, Recipients: append([]string(nil), newRecipients...), Values: map[string]EncryptedValue{}}
 	for key, val := range plain {
 		if err := next.Set(key, val); err != nil {
 			return errors.Wrapf(err, "cannot reseal scope %q: failed to re-encrypt %q", f.Scope, key)
@@ -202,20 +223,6 @@ func (f *ScopeFile) Reencrypt(newRecipients []string, privateKey string) error {
 	return nil
 }
 
-// recipientFingerprints returns the fingerprint set of the file's declared
-// recipients.
-func (f *ScopeFile) recipientFingerprints() (map[string]struct{}, error) {
-	set := make(map[string]struct{}, len(f.Recipients))
-	for _, r := range f.Recipients {
-		fp, err := recipientFingerprint(r)
-		if err != nil {
-			return nil, err
-		}
-		set[fp] = struct{}{}
-	}
-	return set, nil
-}
-
 // VerifyConsistency is the offline (no private key) integrity check `sc secrets
 // lint` runs: every value must be sealed to exactly the declared recipient set,
 // keys/scope must be well-formed. It does NOT verify recipients against
@@ -224,37 +231,52 @@ func (f *ScopeFile) VerifyConsistency() error {
 	if err := ValidateScopeName(f.Scope); err != nil {
 		return err
 	}
+	if strings.TrimSpace(f.Stack) == "" {
+		return errors.Errorf("scope %q has no stack", f.Scope)
+	}
 	if len(f.Recipients) == 0 {
 		return errors.Errorf("scope %q has no recipients", f.Scope)
 	}
-	want, err := f.recipientFingerprints()
-	if err != nil {
-		return err
+	// Map each recipient fingerprint to its public key so ciphertext shape can be
+	// checked against the recipient's key type.
+	fpToPub := make(map[string]crypto.PublicKey, len(f.Recipients))
+	for _, r := range f.Recipients {
+		fp, err := recipientFingerprint(r)
+		if err != nil {
+			return err
+		}
+		pub, err := ciphers.ParsePublicKey(secrets.TrimPubKey(r))
+		if err != nil {
+			return errors.Wrapf(err, "scope %q recipient %s", f.Scope, fp)
+		}
+		fpToPub[fp] = pub
 	}
 	for key, enc := range f.Values {
 		if err := ValidateSecretKey(key); err != nil {
 			return err
 		}
-		if len(enc) != len(want) {
-			return errors.Errorf("scope %q key %q sealed to %d recipients, expected %d", f.Scope, key, len(enc), len(want))
+		if len(enc) != len(fpToPub) {
+			return errors.Errorf("scope %q key %q sealed to %d recipients, expected %d", f.Scope, key, len(enc), len(fpToPub))
 		}
 		for fp, chunks := range enc {
-			if _, ok := want[fp]; !ok {
+			pub, ok := fpToPub[fp]
+			if !ok {
 				return errors.Errorf("scope %q key %q sealed to unknown recipient %s (not in recipients list)", f.Scope, key, fp)
 			}
 			if len(chunks) == 0 {
 				return errors.Errorf("scope %q key %q has empty ciphertext for recipient %s", f.Scope, key, fp)
 			}
-			// Offline plaintext-leak gate: every chunk must be base64 and decode to
-			// at least the AEAD tag size, so a hand-edited file with a plaintext or
-			// otherwise malformed value is rejected by lint without needing a key.
+			// Offline plaintext-leak/tamper gate: every chunk must be base64 and have
+			// the exact ciphertext shape for the recipient's key type (RSA modulus
+			// size, or an X25519 sealed box), so a hand-edited plaintext value is
+			// rejected by lint without needing a private key.
 			for i, chunk := range chunks {
 				raw, err := base64.StdEncoding.DecodeString(chunk)
 				if err != nil {
 					return errors.Wrapf(err, "scope %q key %q recipient %s chunk %d is not base64 (plaintext leak?)", f.Scope, key, fp, i)
 				}
-				if len(raw) < minCiphertextBytes {
-					return errors.Errorf("scope %q key %q recipient %s chunk %d is implausibly short (%d bytes) for ciphertext", f.Scope, key, fp, i, len(raw))
+				if err := ciphers.ValidateCiphertextShape(pub, raw); err != nil {
+					return errors.Wrapf(err, "scope %q key %q recipient %s chunk %d", f.Scope, key, fp, i)
 				}
 			}
 		}

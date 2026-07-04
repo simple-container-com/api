@@ -36,7 +36,7 @@ func Test_readSecretsDescriptor_Scoped(t *testing.T) {
 	stackDir := filepath.Join(stacksDir, "teststack")
 	Expect(os.MkdirAll(stackDir, 0o755)).To(Succeed())
 
-	f, err := scoped.NewScopeFile("pr", []string{authorized})
+	f, err := scoped.NewScopeFile("teststack", "pr", []string{authorized})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(f.Set("defectdojo-api-key", "dd-secret")).To(Succeed())
 	scopePath := filepath.Join(stackDir, scoped.ScopeFileName("pr"))

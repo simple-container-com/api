@@ -148,6 +148,32 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 	}
 }
 
+// ValidateCiphertextShape checks that a single decoded ciphertext chunk has the
+// shape expected for a recipient's key type, WITHOUT a private key. It is the
+// offline plaintext-leak / tamper gate used by scoped-secret lint: an RSA chunk
+// must be exactly the modulus size (OAEP output is fixed-width); an ed25519
+// recipient's chunk must be an X25519 sealed box (magic prefix + minimum length).
+// A plaintext value smuggled under a recipient fingerprint fails this.
+func ValidateCiphertextShape(pub crypto.PublicKey, raw []byte) error {
+	switch k := pub.(type) {
+	case *rsa.PublicKey:
+		if len(raw) != k.Size() {
+			return errors.Errorf("RSA ciphertext chunk is %d bytes, expected the modulus size %d", len(raw), k.Size())
+		}
+	case ed25519.PublicKey:
+		minLen := len(x25519Magic) + 1 + 32 + chacha20poly1305.NonceSize + chacha20poly1305.Overhead
+		if !isX25519Blob(raw) {
+			return errors.New("ed25519 recipient ciphertext is not an X25519 sealed box (plaintext or legacy blob?)")
+		}
+		if len(raw) < minLen {
+			return errors.Errorf("X25519 sealed box is %d bytes, below the %d-byte minimum", len(raw), minLen)
+		}
+	default:
+		return errors.Errorf("unsupported recipient key type %T", pub)
+	}
+	return nil
+}
+
 func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 	return EncryptLargeStringWithAAD(key, s, nil)
 }

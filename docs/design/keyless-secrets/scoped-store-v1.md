@@ -122,7 +122,7 @@ scopes:
       - ssh-ed25519 AAAA...ci-pr    # ci-pr key (GitHub secret SC_KEY_PR)  [v1 interim]
       - ssh-ed25519 AAAA...admin    # break-glass admin key
       # v2: a KMS-wrapped recipient decrypted via ci-oidc-<pr-scan> — sc re-seals the
-      #     same value map to it (updatekeys), then SC_KEY_PR is deleted from GitHub.
+      #     same value map to it (via allow), then SC_KEY_PR is deleted from GitHub.
 ```
 
 - **CODEOWNERS-gated** (`/.sc/scopes.yaml @<org>/devops`): recipient changes cannot ride
@@ -131,44 +131,63 @@ scopes:
   verifies each scope file's recipient set == `scopes.yaml` recipients and FAILS on
   drift, so a recipient added by editing a scope file directly (bypassing `scopes.yaml`) is
   caught even if CODEOWNERS review is skipped.
-- `sc` regenerates each scope file's recipient set from `scopes.yaml` on
-  `allow`/`disallow`/`updatekeys`.
+- `sc` regenerates each scope file's recipient set from `scopes.yaml` and reseals its
+  values on `allow`/`disallow` (there is no separate `updatekeys` verb).
 - Removing a recipient re-encrypts the file but does NOT protect history:
   `sc secrets disallow --scope` prints a mandatory rotate-values warning
   (RFC non-negotiable 5).
 
 ## CLI UX
 
+The scoped verbs are namespaced under `sc secrets scope` so they never collide with the
+whole-file store's existing `secrets add/allow/disallow/reveal/hide` (which have different
+semantics):
+
 ```
-sc secrets set    --scope pr  -s <stack> KEY [VALUE|-]   # seal/update one value to the scope
-sc secrets edit   --scope pr  -s <stack>                 # decrypt-edit-reseal one scope file
-sc secrets get    --scope pr  -s <stack> KEY             # decrypt one value
-sc secrets reveal                                        # legacy mode A, unchanged
-sc secrets allow  --scope pr  <ssh-pubkey>               # update scopes.yaml + reseal (updatekeys)
-sc secrets disallow --scope pr <ssh-pubkey>              # ditto + rotate-values warning
-sc secrets lint                                          # plaintext-leak + recipient drift + scope/key binding gate
-sc secrets doctor                                        # which scopes the ambient key can open
+sc secrets scope set      --scope pr -s <stack> KEY [VALUE|-]  # seal/update one value (VALUE arg or stdin)
+sc secrets scope get      --scope pr -s <stack> KEY            # decrypt one value with the ambient/scope key
+sc secrets scope list     --scope pr -s <stack>               # list value names (never prints values)
+sc secrets scope delete   --scope pr -s <stack> KEY           # remove a value
+sc secrets scope allow    --scope pr <ssh-pubkey>             # add recipient to scopes.yaml + reseal its files
+sc secrets scope disallow --scope pr <ssh-pubkey>            # remove recipient + reseal + rotate-values warning
+sc secrets scope lint                                        # plaintext-leak + recipient-drift + scope/stack binding + duplicate-key gate
+sc secrets scope doctor                                      # which scopes the ambient key can open
+sc secrets reveal                                            # legacy mode-A whole-file store, unchanged
 ```
 
-Key discovery order for decrypt: `SC_KEY_PR`-style scope key via the ambient
-`SIMPLE_CONTAINER_CONFIG`/`SC_CONFIG` private key (CI), or an explicit `--key`. The scope
-key is an ordinary SSH private key; being a scope recipient is opt-in per value.
+Key discovery order for decrypt (`get`/`doctor`): an explicit `--key-file`, then the
+per-scope CI env `SC_KEY_<SCOPE>` (e.g. `SC_KEY_PR`) or the generic `SC_SCOPE_KEY`, then the
+ambient `SIMPLE_CONTAINER_CONFIG`/`SC_CONFIG` private key. A `pull_request` scan job can
+therefore hold ONLY its scope key. The scope key is an ordinary SSH private key; being a
+scope recipient is opt-in per value. There is no `edit` verb in v1 (use `get`/`set`); reseal
+is folded into `allow`/`disallow` (no separate `updatekeys`).
 
 ## Scope integrity — binding beyond confidentiality (P0-3)
 
 Per-recipient AEAD/OAEP gives confidentiality + tamper-evidence of each value, but not, by
-itself, binding to *where* the value lives. Two attacks are closed by explicit binding
+itself, binding to *where* the value lives. These attacks are closed by explicit binding
 (implemented in `pkg/api/secrets/scoped`):
 
-- **File rename / move:** a PR renames `secrets.prod.yaml` → `secrets.pr.yaml`. Mitigation:
-  the scope name is a first-class field inside the file, and `LoadScopeFile` +
-  deploy-time resolution FAIL if the in-file scope name does not match the filename's
-  `<scope>` (`sc secrets lint` enforces this too).
+- **File rename / move across scope or stack:** a PR renames `secrets.prod.yaml` →
+  `secrets.pr.yaml`, or copies one stack's `secrets.prod.yaml` into another stack's dir.
+  Mitigation: the scope name AND the stack name are first-class fields inside the file, and
+  `LoadScopeFile` + deploy-time resolution FAIL if the in-file scope doesn't match the
+  filename's `<scope>` or the in-file stack doesn't match the parent directory
+  (`sc secrets scope lint` enforces both).
 - **Ciphertext transplant / PR write-poisoning:** a PR copies a `prod`-scoped encrypted
-  value blob into `secrets.pr.yaml` to get it decrypted by the PR key. Mitigation: each
-  encrypted value's AEAD/OAEP associated data is the domain-separated `scope\0key`, so a
-  value blob only decrypts under the exact `(file path, scope, key)` it was written for;
-  a transplanted blob fails its AAD check.
+  value blob into `secrets.pr.yaml` (or another stack's file) to get it decrypted by a key
+  it holds. Mitigation: each encrypted value's AEAD/OAEP associated data is the
+  domain-separated `stack\0scope\0key`, and for multi-chunk RSA values the OAEP label also
+  binds each chunk's index + count — so a value blob only decrypts under the exact
+  `(stack, scope, key)` it was written for, in its original chunk order, and a
+  transplanted/reordered/truncated blob fails its AAD/OAEP check.
+- **Legacy-blob downgrade:** the pre-X25519 ed25519 scheme derived its key from public data
+  and ignored associated data. A decrypt under a scoped AAD refuses any non-X25519
+  (legacy-shaped) blob, so a forged legacy blob cannot bypass the binding.
+- **Offline shape gate:** `lint` decodes every value chunk and checks it has the exact
+  ciphertext shape for its recipient's key type (RSA modulus size, or an X25519 sealed box
+  with the magic prefix), rejecting a plaintext value smuggled under a recipient fingerprint
+  without needing a private key.
 
 ## Deploy-time resolution (`${secret:...}`)
 

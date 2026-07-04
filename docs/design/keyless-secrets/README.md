@@ -4,6 +4,15 @@
 **Area:** `pkg/api/secrets` (encryption envelope, recipients, CLI `secrets` commands)
 **Relates to:** [`docs/SECRETS-POLICY.md`](../../SECRETS-POLICY.md), [`docs/SECURITY.md`](../../SECURITY.md)
 
+> **v1 implementation note (supersedes parts of this RFC):** the shipped "Minimal v1" is
+> [`scoped-store-v1.md`](./scoped-store-v1.md). It deliberately diverges from the RFC's
+> tooling decision: it reuses **sc's own ciphers** (RSA-OAEP + X25519 sealed box), NOT SOPS
+> (adding SOPS would be a large new dependency for no capability sc lacks), and recipients are
+> **SSH keys**, not native age. Scope selection is **key-driven** (a job decrypts exactly the
+> scopes its key is a recipient of), which replaces the RFC's `secretScope:` config field with
+> a cryptographic clamp. The KMS-wrapped / OIDC-federated recipient in this RFC remains the
+> **v2** target and slots in as an additional recipient type on the same file format.
+
 ## Summary
 
 Today, decrypting an SC secret store in CI requires materializing the store's

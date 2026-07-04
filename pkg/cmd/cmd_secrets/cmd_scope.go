@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -121,7 +122,7 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 			return nil, nil, "", errors.Wrapf(err, "%s recipients drifted from %s — reconcile with `sc secrets scope allow/disallow`", filepath.Base(path), scoped.ScopesFileName)
 		}
 	} else if os.IsNotExist(statErr) {
-		if f, err = scoped.NewScopeFile(s.scope, recipients); err != nil {
+		if f, err = scoped.NewScopeFile(s.stack, s.scope, recipients); err != nil {
 			return nil, nil, "", err
 		}
 	} else {
@@ -379,6 +380,10 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 				return err
 			}
 			var problems []string
+			// keyScopes[stack][key] = scopes that define it, to catch cross-scope
+			// duplicates (the resolver hard-fails on these at deploy; lint catches
+			// them first).
+			keyScopes := map[string]map[string][]string{}
 			for _, path := range files {
 				f, lErr := scoped.LoadScopeFile(path)
 				if lErr != nil {
@@ -391,10 +396,35 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 				want, rErr := sc.Recipients(f.Scope)
 				if rErr != nil {
 					problems = append(problems, fmt.Sprintf("%s: %s", filepath.Base(path), rErr.Error()))
-					continue
-				}
-				if dErr := scoped.SameRecipients(f.Recipients, want); dErr != nil {
+				} else if dErr := scoped.SameRecipients(f.Recipients, want); dErr != nil {
 					problems = append(problems, fmt.Sprintf("%s: recipients drift vs %s: %s", filepath.Base(path), scoped.ScopesFileName, dErr.Error()))
+				}
+				if keyScopes[f.Stack] == nil {
+					keyScopes[f.Stack] = map[string][]string{}
+				}
+				for _, k := range f.Keys() {
+					keyScopes[f.Stack][k] = append(keyScopes[f.Stack][k], f.Scope)
+				}
+			}
+			// A key must live in exactly one mode/scope so deploy-time resolution is
+			// deterministic: flag a key present in >1 scope, or in both a scope and
+			// the stack's legacy secrets.yaml (mode A, which wins silently at deploy).
+			for stack, keys := range keyScopes {
+				var legacy map[string]string
+				legacyPath := filepath.Join(scoped.StackDir(scDir, stack), api.SecretsDescriptorFileName)
+				if _, statErr := os.Stat(legacyPath); statErr == nil {
+					if d, rErr := api.ReadDescriptor(legacyPath, &api.SecretsDescriptor{}); rErr == nil {
+						legacy = d.Values
+					}
+				}
+				for k, scopes := range keys {
+					if len(scopes) > 1 {
+						sort.Strings(scopes)
+						problems = append(problems, fmt.Sprintf("stack %q: key %q is defined in multiple scopes %v (ambiguous at deploy)", stack, k, scopes))
+					}
+					if _, inLegacy := legacy[k]; inLegacy {
+						problems = append(problems, fmt.Sprintf("stack %q: key %q is in both scope %q and the legacy secrets.yaml (mode A wins silently)", stack, k, scopes[0]))
+					}
 				}
 			}
 			if len(problems) > 0 {

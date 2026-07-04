@@ -707,6 +707,75 @@ sc secrets allowed-keys --verbose
 sc secrets allowed-keys --profile github --verbose
 ```
 
+## Per-scope secrets (`secrets.<scope>.yaml`)
+
+The whole-file store (`.sc/secrets.yaml`) is decrypted by a single master key
+(`SIMPLE_CONTAINER_CONFIG`) — every CI context that needs *any* secret can read *all* of
+them. **Per-scope secrets** let you carve out a named subset (a "scope") sealed to its own
+recipient set, so a narrow, attacker-reachable context — typically a `pull_request`-triggered
+scan job — can hold a key that decrypts only that scope.
+
+Scoped values live in committed, encrypted files alongside a stack's config:
+
+```
+.sc/
+  scopes.yaml                    # scope -> recipient keys (governance; CODEOWNERS-gate this)
+  stacks/<stack>/
+    secrets.yaml                 # legacy whole-file store (unchanged)
+    secrets.pr.yaml              # scope "pr": committed encrypted, structure diffable, values opaque
+```
+
+Recipients are ordinary **SSH public keys** (`ssh-ed25519` / `ssh-rsa`). Each value is sealed
+once per recipient and bound to its `(stack, scope, key)`, so a ciphertext cannot be moved to
+another stack, scope, or key. Old `sc` binaries never read these files (they fail closed on
+the newer schema).
+
+### Commands
+
+```bash
+# Declare a scope and its recipients (edit .sc/scopes.yaml behind a CODEOWNERS gate).
+sc secrets scope allow    --scope pr <ssh-pubkey>    # add a recipient + reseal the scope's files
+sc secrets scope disallow --scope pr <ssh-pubkey>    # remove a recipient + reseal (then rotate values!)
+
+# Manage values in a scope.
+sc secrets scope set    --scope pr -s <stack> KEY <value>   # or omit value / pass '-' to read stdin
+sc secrets scope get    --scope pr -s <stack> KEY
+sc secrets scope list   --scope pr -s <stack>
+sc secrets scope delete --scope pr -s <stack> KEY
+
+# Guardrails.
+sc secrets scope lint     # CI gate: encryption shape, recipient drift, scope/stack binding, duplicate keys
+sc secrets scope doctor   # which scopes the current key can open
+```
+
+Commit only the encrypted `secrets.<scope>.yaml` and `scopes.yaml`; never the legacy
+plaintext `stacks/*/secrets.yaml`.
+
+### Using a scope key in CI
+
+Give the job the scope's private key and it decrypts only that scope — no
+`SIMPLE_CONTAINER_CONFIG` required. `get` (and deploy-time `${secret:}` resolution) look up
+the decryption key in order: `--key-file`, then env `SC_KEY_<SCOPE>` (e.g. `SC_KEY_PR`) or the
+generic `SC_SCOPE_KEY`, then the ambient `SIMPLE_CONTAINER_CONFIG`.
+
+```yaml
+# a pull_request scan job — holds ONLY the pr-scope key
+env:
+  SC_KEY_PR: ${{ secrets.SC_KEY_PR }}   # ssh-ed25519 private key, recipient of the "pr" scope only
+steps:
+  - run: DD_KEY=$(sc secrets scope get --scope pr -s integrail defectdojo-api-key)
+```
+
+At deploy time, `${secret:KEY}` and `sc stack secret-get` transparently include every scope
+the job's key can open, merged over the whole-file store (the legacy store wins on conflict;
+`sc secrets scope lint` rejects a key that appears in two scopes or in both a scope and the
+legacy store). A key that is **not** a recipient of a scope cannot decrypt it — the
+`pull_request` clamp is cryptographic, not a config flag.
+
+> **Rotation:** `disallow` re-encrypts current files but does NOT rewrite git history — that
+> recipient can still read previously committed versions. Always rotate the scope's values
+> after removing a recipient.
+
 ## Summary
 
 Simple Container's secrets management provides a secure, Git-native way to handle sensitive data in your projects. Key benefits:
@@ -715,5 +784,6 @@ Simple Container's secrets management provides a secure, Git-native way to handl
 - **Simple**: Easy-to-use commands for all secret operations
 - **Collaborative**: Git-based workflow for team secret sharing
 - **Integrated**: Seamless integration with Simple Container deployments
+- **Scoped**: Per-scope keys so a narrow CI context decrypts only what it needs
 
 Use the commands outlined in this guide to implement robust secrets management in your Simple Container projects.
