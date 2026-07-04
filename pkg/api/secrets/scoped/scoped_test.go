@@ -381,27 +381,27 @@ func TestResolveScopedValues_KeyDeterminesScope(t *testing.T) {
 	Expect(prod.Save(ScopeFilePath(scDir, "integrail", "prod"))).To(Succeed())
 
 	// A's key opens pr only — the prod value is invisible (cryptographic clamp).
-	got, err := ResolveScopedValues(stackDir, privA)
+	got, err := ResolveScopedValues(stackDir, []string{privA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(Equal(map[string]string{"defectdojo-api-key": "dd"}))
 
 	// B's key opens prod only.
-	got, err = ResolveScopedValues(stackDir, privB)
+	got, err = ResolveScopedValues(stackDir, []string{privB})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(Equal(map[string]string{"prod-mongo-uri": "mongo"}))
 
 	// A non-recipient key sees nothing.
-	got, err = ResolveScopedValues(stackDir, privC)
+	got, err = ResolveScopedValues(stackDir, []string{privC})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(BeEmpty())
 
 	// Empty key → nothing (no error).
-	got, err = ResolveScopedValues(stackDir, "")
+	got, err = ResolveScopedValues(stackDir, nil)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(BeEmpty())
 
 	// A stack dir with no scope files → nothing (no error) — backward compat.
-	got, err = ResolveScopedValues(StackDir(scDir, "nostack"), privA)
+	got, err = ResolveScopedValues(StackDir(scDir, "nostack"), []string{privA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(BeEmpty())
 }
@@ -422,9 +422,34 @@ func TestResolveScopedValues_CrossScopeDuplicateFails(t *testing.T) {
 	Expect(staging.Set("shared", "2")).To(Succeed())
 	Expect(staging.Save(ScopeFilePath(scDir, "s", "staging"))).To(Succeed())
 
-	_, err = ResolveScopedValues(stackDir, privA)
+	_, err = ResolveScopedValues(stackDir, []string{privA})
 	Expect(err).To(HaveOccurred())
+	Expect(errors.Is(err, ErrScopedIntegrity)).To(BeTrue())
 	Expect(err.Error()).To(ContainSubstring("two openable scopes"))
+}
+
+func TestResolveScopedValues_MultipleCandidateKeys(t *testing.T) {
+	RegisterTestingT(t)
+	// Simulates a caller passing several candidate keys (ambient + CI scope keys):
+	// each opens a different scope, and the union is resolved.
+	authA, privA := genEd25519Recipient(t)
+	authB, privB := genRSARecipient(t)
+	scDir := t.TempDir()
+	stackDir := StackDir(scDir, "integrail")
+
+	pr, err := NewScopeFile("pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(pr.Set("defectdojo-api-key", "dd")).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(scDir, "integrail", "pr"))).To(Succeed())
+
+	stg, err := NewScopeFile("staging", []string{authB})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(stg.Set("staging-token", "stg")).To(Succeed())
+	Expect(stg.Save(ScopeFilePath(scDir, "integrail", "staging"))).To(Succeed())
+
+	got, err := ResolveScopedValues(stackDir, []string{privA, privB, "", "not-a-key"})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(Equal(map[string]string{"defectdojo-api-key": "dd", "staging-token": "stg"}))
 }
 
 func TestScopeNameFromFile(t *testing.T) {
