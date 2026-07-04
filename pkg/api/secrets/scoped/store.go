@@ -107,6 +107,9 @@ func (f *ScopeFile) Save(path string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal scope file")
 	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return errors.Wrapf(err, "failed to create directory for %s", path)
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return errors.Wrapf(err, "failed to write scope file %s", path)
 	}
@@ -162,6 +165,38 @@ func (f *ScopeFile) Keys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// Reencrypt re-seals every value to newRecipients, using privateKey (which must
+// be a CURRENT recipient) to decrypt each value first. Used by allow/disallow to
+// roll the recipient set. It is all-or-nothing: if any value cannot be decrypted
+// or re-sealed the file is left untouched, so a partial reseal never drops a
+// recipient's access silently. Note: this does NOT rewrite git history — a
+// removed recipient can still read prior committed versions, so callers must warn
+// to rotate values on removal.
+func (f *ScopeFile) Reencrypt(newRecipients []string, privateKey string) error {
+	if len(newRecipients) == 0 {
+		return errors.Errorf("refusing to reseal scope %q to an empty recipient set", f.Scope)
+	}
+	// Decrypt everything first against the current recipient set.
+	plain := make(map[string]string, len(f.Values))
+	for key := range f.Values {
+		v, err := f.Get(key, privateKey)
+		if err != nil {
+			return errors.Wrapf(err, "cannot reseal scope %q: failed to decrypt %q with the provided key (is it a current recipient?)", f.Scope, key)
+		}
+		plain[key] = v
+	}
+	// Build the new sealed set in a scratch file so a mid-way error can't corrupt f.
+	next := &ScopeFile{SchemaVersion: f.SchemaVersion, Scope: f.Scope, Recipients: append([]string(nil), newRecipients...), Values: map[string]EncryptedValue{}}
+	for key, val := range plain {
+		if err := next.Set(key, val); err != nil {
+			return errors.Wrapf(err, "cannot reseal scope %q: failed to re-encrypt %q", f.Scope, key)
+		}
+	}
+	f.Recipients = next.Recipients
+	f.Values = next.Values
+	return nil
 }
 
 // recipientFingerprints returns the fingerprint set of the file's declared

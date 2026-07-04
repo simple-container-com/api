@@ -4,6 +4,7 @@
 package scoped
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -251,6 +252,78 @@ func TestValidation_RejectsUnsafeNames(t *testing.T) {
 	Expect(ValidateSecretKey("CLOUDFLARE_API_TOKEN")).To(Succeed())
 	Expect(ValidateSecretKey("bad key")).NotTo(Succeed())    // space
 	Expect(ValidateSecretKey("bad\x00key")).NotTo(Succeed()) // NUL
+}
+
+func TestReencrypt_AddAndRemoveRecipient(t *testing.T) {
+	RegisterTestingT(t)
+	authA, privA := genEd25519Recipient(t)
+	authB, privB := genRSARecipient(t)
+
+	f, err := NewScopeFile("pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("k", "v")).To(Succeed())
+
+	// Add B by resealing with A's key.
+	Expect(f.Reencrypt([]string{authA, authB}, privA)).To(Succeed())
+	gotA, err := f.Get("k", privA)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(gotA).To(Equal("v"))
+	gotB, err := f.Get("k", privB)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(gotB).To(Equal("v"))
+	Expect(f.Values["k"]).To(HaveLen(2))
+
+	// Remove B by resealing to A only.
+	Expect(f.Reencrypt([]string{authA}, privA)).To(Succeed())
+	Expect(f.Values["k"]).To(HaveLen(1))
+	_, err = f.Get("k", privB)
+	Expect(errors.Is(err, ErrRecipientNotAllowed)).To(BeTrue())
+}
+
+func TestReencrypt_NonRecipientKeyFailsAndLeavesFileIntact(t *testing.T) {
+	RegisterTestingT(t)
+	authA, _ := genEd25519Recipient(t)
+	authB, _ := genRSARecipient(t)
+	_, privC := genEd25519Recipient(t) // not a recipient
+
+	f, err := NewScopeFile("pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("k", "v")).To(Succeed())
+	before := f.Values["k"]
+
+	err = f.Reencrypt([]string{authA, authB}, privC)
+	Expect(err).To(HaveOccurred())
+	// file untouched
+	Expect(f.Recipients).To(Equal([]string{authA}))
+	Expect(f.Values["k"]).To(Equal(before))
+}
+
+func TestListScopeFiles_ExcludesLegacyPlaintext(t *testing.T) {
+	RegisterTestingT(t)
+	authA, _ := genEd25519Recipient(t)
+	scDir := t.TempDir()
+
+	mk := func(stack, base, scope string) {
+		dir := StackDir(scDir, stack)
+		Expect(os.MkdirAll(dir, 0o755)).To(Succeed())
+		if scope == "" {
+			Expect(os.WriteFile(filepath.Join(dir, base), []byte("values:\n  k: v\n"), 0o644)).To(Succeed())
+			return
+		}
+		f, err := NewScopeFile(scope, []string{authA})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(f.Save(filepath.Join(dir, base))).To(Succeed())
+	}
+	mk("s1", ScopeFileName("pr"), "pr")
+	mk("s1", "secrets.yaml", "") // legacy plaintext — must be excluded
+	mk("s2", ScopeFileName("prod"), "prod")
+
+	files, err := ListScopeFiles(scDir)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(files).To(HaveLen(2))
+	for _, p := range files {
+		Expect(ScopeNameFromFile(p)).NotTo(Equal(""))
+	}
 }
 
 func TestScopeNameFromFile(t *testing.T) {

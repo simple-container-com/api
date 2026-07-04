@@ -13,6 +13,7 @@ package scoped
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 
@@ -42,6 +43,46 @@ var (
 	scopeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	secretKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 )
+
+// Fingerprint returns the stable SHA256 SSH fingerprint of an authorized public
+// key ("SHA256:…"), the identifier used to key recipients inside a scope file.
+func Fingerprint(authorizedKey string) (string, error) {
+	return recipientFingerprint(authorizedKey)
+}
+
+// SameRecipients reports, as an error, whether two recipient lists denote the same
+// set of keys — compared by fingerprint so ordering and comments do not matter.
+// Used to detect drift between a scope file and scopes.yaml.
+func SameRecipients(a, b []string) error {
+	fps := func(list []string) (map[string]struct{}, error) {
+		m := make(map[string]struct{}, len(list))
+		for _, r := range list {
+			fp, err := recipientFingerprint(r)
+			if err != nil {
+				return nil, err
+			}
+			m[fp] = struct{}{}
+		}
+		return m, nil
+	}
+	am, err := fps(a)
+	if err != nil {
+		return err
+	}
+	bm, err := fps(b)
+	if err != nil {
+		return err
+	}
+	if len(am) != len(bm) {
+		return errors.Errorf("recipient count differs (%d vs %d)", len(am), len(bm))
+	}
+	for fp := range am {
+		if _, ok := bm[fp]; !ok {
+			return errors.Errorf("recipient %s not present in both sets", fp)
+		}
+	}
+	return nil
+}
 
 // ValidateScopeName rejects scope names that are unsafe as a filename component or
 // AAD field.
@@ -111,6 +152,9 @@ func (s *Scopes) Save(path string) error {
 	data, err := yaml.Marshal(s)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal scopes")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return errors.Wrapf(err, "failed to create directory for %s", path)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return errors.Wrapf(err, "failed to write %s", path)
