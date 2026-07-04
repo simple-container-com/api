@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
+package scoped
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+
+	"github.com/pkg/errors"
+	"gopkg.in/yaml.v3"
+)
+
+// scopeFilePrefix / scopeFileSuffix bracket the scope name in a scope file's base
+// name: secrets.<scope>.yaml.
+const (
+	scopeFilePrefix = "secrets."
+	scopeFileSuffix = ".yaml"
+)
+
+// EncryptedValue holds one secret value sealed once per recipient, keyed by the
+// recipient's SHA256 SSH fingerprint. Committed as-is (opaque), so the file diffs
+// show which keys/recipients changed without revealing values.
+type EncryptedValue map[string][]string
+
+// ScopeFile is a committed, encrypted secrets.<scope>.yaml. Structure (keys,
+// recipients) is readable; values are opaque. It is self-contained: the recipient
+// list lets `sc secrets lint` verify the value fingerprints without a private key.
+type ScopeFile struct {
+	SchemaVersion int                       `yaml:"schemaVersion"`
+	Scope         string                    `yaml:"scope"`
+	Recipients    []string                  `yaml:"recipients"`
+	Values        map[string]EncryptedValue `yaml:"values"`
+}
+
+// ScopeFileName returns the base name for a scope: secrets.<scope>.yaml.
+func ScopeFileName(scope string) string {
+	return scopeFilePrefix + scope + scopeFileSuffix
+}
+
+// ScopeNameFromFile extracts the scope from a scope file's path, or "" if the base
+// name is not secrets.<scope>.yaml.
+func ScopeNameFromFile(path string) string {
+	base := filepath.Base(path)
+	if len(base) <= len(scopeFilePrefix)+len(scopeFileSuffix) {
+		return ""
+	}
+	if base[:len(scopeFilePrefix)] != scopeFilePrefix || base[len(base)-len(scopeFileSuffix):] != scopeFileSuffix {
+		return ""
+	}
+	return base[len(scopeFilePrefix) : len(base)-len(scopeFileSuffix)]
+}
+
+// NewScopeFile creates an empty scope file bound to a scope and its recipient set.
+func NewScopeFile(scope string, recipients []string) (*ScopeFile, error) {
+	if err := ValidateScopeName(scope); err != nil {
+		return nil, err
+	}
+	if len(recipients) == 0 {
+		return nil, errors.Errorf("cannot create scope %q with no recipients", scope)
+	}
+	return &ScopeFile{
+		SchemaVersion: CurrentScopesSchemaVersion,
+		Scope:         scope,
+		Recipients:    append([]string(nil), recipients...),
+		Values:        map[string]EncryptedValue{},
+	}, nil
+}
+
+// LoadScopeFile reads a scope file, fails closed on a too-new version, and verifies
+// the in-file scope name matches the filename — so renaming secrets.prod.yaml to
+// secrets.pr.yaml (to trick a pr key into opening it) is rejected here even before
+// the per-value AAD binding would fail on decrypt.
+func LoadScopeFile(path string) (*ScopeFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read scope file %s", path)
+	}
+	var f ScopeFile
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		return nil, errors.Wrapf(err, "failed to parse scope file %s", path)
+	}
+	if f.SchemaVersion > CurrentScopesSchemaVersion {
+		return nil, errors.Wrapf(ErrScopesVersionUnsupported, "%s declares version %d, this build supports up to %d", path, f.SchemaVersion, CurrentScopesSchemaVersion)
+	}
+	if err := ValidateScopeName(f.Scope); err != nil {
+		return nil, errors.Wrapf(err, "in %s", path)
+	}
+	if fromName := ScopeNameFromFile(path); fromName != "" && fromName != f.Scope {
+		return nil, errors.Errorf("scope file %s declares scope %q but its filename says %q (renamed file?)", path, f.Scope, fromName)
+	}
+	if f.Values == nil {
+		f.Values = map[string]EncryptedValue{}
+	}
+	return &f, nil
+}
+
+// Save writes the scope file with a stable key/recipient order for clean diffs.
+func (f *ScopeFile) Save(path string) error {
+	if f.SchemaVersion == 0 {
+		f.SchemaVersion = CurrentScopesSchemaVersion
+	}
+	sort.Strings(f.Recipients)
+	data, err := yaml.Marshal(f)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal scope file")
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return errors.Wrapf(err, "failed to write scope file %s", path)
+	}
+	return nil
+}
+
+// Set encrypts value under key to every recipient of this scope file. It fails if
+// the file has no recipients, so a value is never written unencrypted or to an
+// empty audience.
+func (f *ScopeFile) Set(key, value string) error {
+	if err := ValidateSecretKey(key); err != nil {
+		return err
+	}
+	if len(f.Recipients) == 0 {
+		return errors.Errorf("scope file %q has no recipients", f.Scope)
+	}
+	enc, err := encryptForRecipients(f.Recipients, f.Scope, key, value)
+	if err != nil {
+		return err
+	}
+	if f.Values == nil {
+		f.Values = map[string]EncryptedValue{}
+	}
+	f.Values[key] = enc
+	return nil
+}
+
+// Get decrypts key with privateKey (an unencrypted PEM SSH private key), verifying
+// the (scope,key) binding. Returns ErrRecipientNotAllowed (wrapped) if the key is
+// not a recipient, and a distinct not-found error if the key is absent.
+func (f *ScopeFile) Get(key, privateKey string) (string, error) {
+	enc, ok := f.Values[key]
+	if !ok {
+		return "", errors.Errorf("secret %q not found in scope %q", key, f.Scope)
+	}
+	return decryptWithPrivateKey(privateKey, f.Scope, key, enc)
+}
+
+// Delete removes a key. Returns whether it was present.
+func (f *ScopeFile) Delete(key string) bool {
+	if _, ok := f.Values[key]; !ok {
+		return false
+	}
+	delete(f.Values, key)
+	return true
+}
+
+// Keys returns the secret names in sorted order.
+func (f *ScopeFile) Keys() []string {
+	keys := make([]string, 0, len(f.Values))
+	for k := range f.Values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// recipientFingerprints returns the fingerprint set of the file's declared
+// recipients.
+func (f *ScopeFile) recipientFingerprints() (map[string]struct{}, error) {
+	set := make(map[string]struct{}, len(f.Recipients))
+	for _, r := range f.Recipients {
+		fp, err := recipientFingerprint(r)
+		if err != nil {
+			return nil, err
+		}
+		set[fp] = struct{}{}
+	}
+	return set, nil
+}
+
+// VerifyConsistency is the offline (no private key) integrity check `sc secrets
+// lint` runs: every value must be sealed to exactly the declared recipient set,
+// keys/scope must be well-formed. It does NOT verify recipients against
+// scopes.yaml — the caller does that so the drift error can name scopes.yaml.
+func (f *ScopeFile) VerifyConsistency() error {
+	if err := ValidateScopeName(f.Scope); err != nil {
+		return err
+	}
+	if len(f.Recipients) == 0 {
+		return errors.Errorf("scope %q has no recipients", f.Scope)
+	}
+	want, err := f.recipientFingerprints()
+	if err != nil {
+		return err
+	}
+	for key, enc := range f.Values {
+		if err := ValidateSecretKey(key); err != nil {
+			return err
+		}
+		if len(enc) != len(want) {
+			return errors.Errorf("scope %q key %q sealed to %d recipients, expected %d", f.Scope, key, len(enc), len(want))
+		}
+		for fp, chunks := range enc {
+			if _, ok := want[fp]; !ok {
+				return errors.Errorf("scope %q key %q sealed to unknown recipient %s (not in recipients list)", f.Scope, key, fp)
+			}
+			if len(chunks) == 0 {
+				return errors.Errorf("scope %q key %q has empty ciphertext for recipient %s", f.Scope, key, fp)
+			}
+		}
+	}
+	return nil
+}
+
+// String renders a short human summary (scope + counts), never values.
+func (f *ScopeFile) String() string {
+	return fmt.Sprintf("scope %q: %d value(s), %d recipient(s)", f.Scope, len(f.Values), len(f.Recipients))
+}

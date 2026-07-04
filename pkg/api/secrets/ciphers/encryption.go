@@ -148,12 +148,22 @@ func ParsePublicKey(s string) (crypto.PublicKey, error) {
 }
 
 func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
+	return EncryptLargeStringWithAAD(key, s, nil)
+}
+
+// EncryptLargeStringWithAAD is EncryptLargeString with an associated-data binding.
+// aad (may be nil) is bound into the ciphertext so a blob only decrypts under the
+// exact same aad: for RSA it is the OAEP label, for ed25519/X25519 it is folded
+// into the AEAD associated data. Scoped secrets pass a domain-separated
+// "scope\x00key" context so a value cannot be transplanted to another scope/key.
+// A nil aad reproduces the exact wire format of the legacy whole-file store.
+func EncryptLargeStringWithAAD(key crypto.PublicKey, s string, aad []byte) ([]string, error) {
 	var res []string
 	if rsaKey, ok := key.(*rsa.PublicKey); ok {
 		chunks := lo.ChunkString(s, rsaKey.Size()/2)
 		res = make([]string, len(chunks))
 		for idx, chunk := range chunks {
-			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), nil)
+			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), aad)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to encrypt secret")
 			}
@@ -164,7 +174,7 @@ func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 		// (see x25519.go): the AEAD key is derived from the ECDH shared secret,
 		// so only the holder of the private key can decrypt. The previous scheme
 		// derived the key from the public key alone and is no longer produced.
-		encryptedData, err := encryptWithX25519(ed25519Key, []byte(s))
+		encryptedData, err := encryptWithX25519AAD(ed25519Key, []byte(s), aad)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to encrypt secret for ed25519 recipient")
 		}
@@ -176,13 +186,19 @@ func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 }
 
 func DecryptLargeString(key *rsa.PrivateKey, chunks []string) ([]byte, error) {
+	return DecryptLargeStringWithAAD(key, chunks, nil)
+}
+
+// DecryptLargeStringWithAAD is DecryptLargeString with an OAEP-label binding that
+// must match what EncryptLargeStringWithAAD used (nil for legacy blobs).
+func DecryptLargeStringWithAAD(key *rsa.PrivateKey, chunks []string, aad []byte) ([]byte, error) {
 	decrChunks := make([][]byte, len(chunks))
 	for idx, chunk := range chunks {
 		chunkBytes, err := base64.StdEncoding.DecodeString(chunk)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to decode base64 string")
 		}
-		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunkBytes, nil)
+		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunkBytes, aad)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to decrypt secret")
 		}
@@ -195,6 +211,14 @@ func DecryptLargeString(key *rsa.PrivateKey, chunks []string) ([]byte, error) {
 
 // DecryptLargeStringWithEd25519 decrypts data encrypted with ed25519 hybrid encryption
 func DecryptLargeStringWithEd25519(key ed25519.PrivateKey, chunks []string) ([]byte, error) {
+	return DecryptLargeStringWithEd25519AAD(key, chunks, nil)
+}
+
+// DecryptLargeStringWithEd25519AAD is DecryptLargeStringWithEd25519 with an
+// associated-data binding that must match encrypt time (nil for legacy blobs).
+// Legacy (pre-X25519) blobs do not carry AAD and are decrypted unbound; they are
+// deprecated and non-confidential regardless (see decryptWithEd25519).
+func DecryptLargeStringWithEd25519AAD(key ed25519.PrivateKey, chunks []string, aad []byte) ([]byte, error) {
 	if len(chunks) != 1 {
 		return nil, errors.New("ed25519 decryption expects exactly one chunk")
 	}
@@ -207,7 +231,7 @@ func DecryptLargeStringWithEd25519(key ed25519.PrivateKey, chunks []string) ([]b
 	// are NOT confidential (the key was derived from public data); rotate any
 	// secret ever stored in one.
 	if isX25519Blob(chunkBytes) {
-		return decryptWithX25519(key, chunkBytes)
+		return decryptWithX25519AAD(key, chunkBytes, aad)
 	}
 	return decryptWithEd25519(key, chunkBytes)
 }
