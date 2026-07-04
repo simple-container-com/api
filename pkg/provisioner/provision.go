@@ -14,6 +14,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
@@ -200,11 +201,32 @@ func (p *provisioner) readSecretsDescriptor(rootDir string, stackName string) (*
 }
 
 func (p *provisioner) readSecretsDescriptorFromFile(descFilePath string) (*api.SecretsDescriptor, error) {
-	if desc, err := api.ReadSecretsDescriptor(descFilePath); err != nil {
+	desc, err := api.ReadSecretsDescriptor(descFilePath)
+	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read secrets descriptor from %q", descFilePath)
-	} else {
-		return desc, nil
 	}
+	// Additively merge any per-scope secrets (secrets.<scope>.yaml) that the ambient
+	// key is a recipient of. Repos that have not adopted scopes are unaffected
+	// (ResolveScopedValues returns empty). Whole-file values win on conflict, so a
+	// scoped value can never change an existing ${secret:} resolution; only new keys
+	// are added. The pull_request clamp is cryptographic — a scope key that is not a
+	// recipient of secrets.prod.yaml simply cannot open it.
+	if p.cryptor != nil {
+		scopedVals, sErr := scoped.ResolveScopedValues(path.Dir(descFilePath), p.cryptor.PrivateKey())
+		if sErr != nil {
+			return nil, errors.Wrapf(sErr, "failed to resolve scoped secrets for %q", descFilePath)
+		}
+		for k, v := range scopedVals {
+			if _, exists := desc.Values[k]; exists {
+				continue // legacy whole-file store wins; `sc secrets scope lint` forbids duplicates
+			}
+			if desc.Values == nil {
+				desc.Values = map[string]string{}
+			}
+			desc.Values[k] = v
+		}
+	}
+	return desc, nil
 }
 
 func (p *provisioner) readClientDescriptor(rootDir string, stackName string) (*api.ClientDescriptor, error) {

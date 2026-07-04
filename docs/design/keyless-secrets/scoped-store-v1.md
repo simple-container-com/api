@@ -1,10 +1,13 @@
 # Scoped secret store v1 — implementation spec (`secrets.<scope>.yaml`)
 
-Status: IN PROGRESS — the crypto core + scope model landed in `pkg/api/secrets/scoped`
-(scopes.yaml, secrets.<scope>.yaml sealing on sc's own ciphers with scope/key AAD binding,
-fail-closed version guard, consistency checks + tests). CLI verbs and deploy-time
-resolution wiring follow in this same PR. Implements "Minimal v1" of the keyless-secrets
-RFC in this directory.
+Status: IMPLEMENTED (pending final review) — landed in this PR: the crypto core + scope
+model (`pkg/api/secrets/scoped`: scopes.yaml, secrets.<scope>.yaml sealing on sc's own
+ciphers with scope/key AAD binding, fail-closed version guard, consistency checks); the
+`sc secrets scope {set,get,list,delete,allow,disallow,lint,doctor}` CLI; and key-driven
+deploy-time resolution wired into the provisioner. Multi-model review (Codex + Gemini) of
+the crypto/CLI surface passed with no P0s; findings fixed. Consumer rollout (the Integrail
+`secrets.pr.yaml` sweep + workflow cutover) is the remaining out-of-repo step. Implements
+"Minimal v1" of the keyless-secrets RFC in this directory.
 Prerequisite already shipped: the fail-closed `schemaVersion` store guard is released
 and baked fleet-wide, so old binaries hard-fail on formats they do not understand
 instead of silently rewriting them.
@@ -169,30 +172,39 @@ itself, binding to *where* the value lives. Two attacks are closed by explicit b
 
 ## Deploy-time resolution (`${secret:...}`)
 
-For a deploy of environment E of stack S:
+Resolution is **key-driven, not config-driven** — this is stronger than the RFC's
+`secretScope:` field and drops P0-6 entirely. Implemented in
+`scoped.ResolveScopedValues`, called from the provisioner's secrets-read
+(`readSecretsDescriptorFromFile`) so both `${secret:}` and `sc stack secret-get` see the
+result transparently:
 
-1. Resolve E's scope: explicit `secretScope:` in the client stack config, else the
-   env name if a scope with that name exists, else stack default, else none.
-2. **`secretScope` cannot be raised by a PR (P0-6):** the effective scope for a
-   `pull_request`-triggered run is clamped to `pr` (or lower) regardless of what the PR's
-   client.yaml says. A PR that sets `secretScope: prod` resolves as `pr` and hard-fails on
-   any prod-only `${secret:}` — it can never widen its own scope.
-3. Lookup order for `${secret:KEY}`: `secrets.<scope>.yaml` (if the ambient key can
-   open it) → legacy mode-A store.
-4. **Hard-fail — a real error, not a swallowed warn (P0-2)** if: KEY resolves to nothing;
-   or the scope file exists but cannot be decrypted with the ambient key while KEY is not
-   in mode A. The resolver returns a non-nil error that aborts the deploy (no
-   `logger.Warn(...); continue`); the error names the scope and the missing recipient, and
-   the deploy never proceeds partially.
-5. A KEY must live in exactly one mode; `sc secrets lint` rejects duplicates
-   (mode A vs mode B) to keep resolution deterministic.
+1. For the stack's `.sc/stacks/<stack>/` directory, every `secrets.<scope>.yaml` the
+   **ambient key is a recipient of** contributes its values; scope files the key cannot
+   open are skipped. There is no scope config field to set or subvert.
+2. **The `pull_request` clamp is therefore cryptographic (supersedes P0-6):** a job holding
+   only `SC_KEY_PR` is a recipient of the `pr` scope alone, so it *cannot* decrypt
+   `secrets.prod.yaml` — not because a config says so, but because it is not a recipient.
+   Nothing in a PR's `client.yaml` can widen this.
+3. Merge order: the legacy whole-file store (mode A) wins on conflict; scoped values only
+   **add** keys not already present, so a scoped file can never change an existing
+   `${secret:}` resolution. Repos with no scope files are entirely unaffected (the resolver
+   returns empty without even parsing the key).
+4. **Hard-fail — a real error, not a swallowed warn (P0-2):** a value the key IS a recipient
+   of but cannot decrypt (tampered ciphertext / broken binding), a corrupt or renamed scope
+   file, or the same key present in two openable scopes (ambiguous) all abort the read with
+   a non-nil error naming the scope. A `${secret:KEY}` that resolves to nothing still
+   hard-fails in the placeholder resolver (existing behavior). Not being a recipient of a
+   scope is NOT an error — you simply don't see it (least privilege).
+5. A KEY must live in exactly one mode; `sc secrets scope lint` rejects duplicates
+   (mode A vs mode B, and cross-scope) to keep resolution deterministic.
 
 ## CI wiring (consumer side, Integrail) — v1 = scan/lint only (D1)
 
-- New GitHub secret `SC_KEY_PR` (age private key, recipient of the `pr` scope only).
-  The four scan/lint workflows triggered by `pull_request` get `SC_KEY_PR` and **stop
+- New GitHub secret `SC_KEY_PR` (an SSH ed25519 private key, recipient of the `pr` scope
+  only). The four scan/lint workflows triggered by `pull_request` get `SC_KEY_PR` and **stop
   receiving `SC_CONFIG`**: `pr-security-scan`, `dast-zap`, `dast-nuclei-ddp`,
-  `defectdojo-cleanup`.
+  `defectdojo-cleanup`. They read values via `sc secrets scope get --scope pr -s integrail
+  <key>` (which picks up `SC_KEY_PR` from the env), replacing `sc stack secret-get`.
 - One-time `sc secrets set --scope pr` sweep in the parent for the exact keys those jobs
   read: `defectdojo-api-key`, `cf-access-client-id`, `cf-access-client-secret`,
   `security-triage-slack-webhook-url`, `pr-integrail-superadmin-password` — values rotated
@@ -241,7 +253,7 @@ For a deploy of environment E of stack S:
 | Deploy-grade creds reachable from a PR scope | n/a | explicitly excluded (D1); crossguard creds → OIDC |
 | Malicious PR adds itself as recipient | n/a (single key) | blocked: CODEOWNERS on `scopes.yaml` + `sc` recipient-verify lint (P0-4) |
 | PR renames/transplants a scope file | undetected by MAC | scope-name + `path:scope:key` AAD binding (P0-3) |
-| PR raises its own `secretScope` | n/a | clamped to `pr`, hard-fail on wider `${secret:}` (P0-6) |
+| PR reaches a wider scope's secrets | n/a | impossible: resolution is key-driven, a `pr` key is not a recipient of `prod` (P0-6 dropped — no config to subvert) |
 | Missing/undecryptable secret silently empty | possible | real error, deploy aborts (P0-2) |
 | Old binary corrupts new format | guarded (schemaVersion) | scoped files never opened by old binaries |
 | Recipient removed ≠ revoked | same | explicit rotate-values warning; runbook |
@@ -251,11 +263,12 @@ For a deploy of environment E of stack S:
 
 - Unit: scope resolution order, hard-fail matrix (missing key / undecryptable scope /
   duplicate KEY), scopes.yaml↔scope-file recipient drift, scope-name/AAD binding rejection,
-  `secretScope` PR-clamp, allow/disallow re-encrypt.
+  key-driven scope resolution (recipient sees only its scopes), cross-scope duplicate
+  rejection, allow/disallow re-encrypt.
 - e2e (preview build, real binary): PR-key can `get --scope pr` but not `--scope prod`;
   a `pull_request` run resolves the four scan jobs' keys from `secrets.pr.yaml` with
   `SC_KEY_PR` and NO `SC_CONFIG`; a PR that renames/transplants a scope file fails lint;
-  a PR that sets `secretScope: prod` hard-fails; old released binary against a repo with
+  a key that is a recipient of only `pr` resolves pr values but not prod's; old released binary against a repo with
   scoped files deploys mode-A-only stacks untouched and hard-fails on a scoped-value stack.
 - Panel review (Codex + Gemini + Claude lenses) on the crypto-adjacent surface before
   merge, same as P1.
@@ -263,7 +276,7 @@ For a deploy of environment E of stack S:
 ## Delivery plan (single consolidated PR, after design sign-off)
 
 1. `pkg/api/secrets/scoped/`: scopes.yaml model + scope-file sealing (sc ciphers) + resolution +
-   scope-name/AAD binding + `secretScope` PR-clamp + real hard-fail resolver.
+   scope-name/AAD binding + key-driven resolver (ResolveScopedValues) + real hard-fail.
 2. CLI verbs (`set/edit/get/allow/disallow/lint/doctor` scope forms), with `lint`
    enforcing recipient-verify, path/scope binding, and plaintext-leak gates.
 3. Placeholder resolution hook (`${secret:}` order above) wired through parent/child merge.

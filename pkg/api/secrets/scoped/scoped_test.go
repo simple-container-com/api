@@ -362,6 +362,71 @@ func TestListScopeFiles_ExcludesLegacyPlaintext(t *testing.T) {
 	}
 }
 
+func TestResolveScopedValues_KeyDeterminesScope(t *testing.T) {
+	RegisterTestingT(t)
+	authA, privA := genEd25519Recipient(t)
+	authB, privB := genRSARecipient(t)
+	_, privC := genEd25519Recipient(t) // recipient of nothing
+	scDir := t.TempDir()
+	stackDir := StackDir(scDir, "integrail")
+
+	pr, err := NewScopeFile("pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(pr.Set("defectdojo-api-key", "dd")).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(scDir, "integrail", "pr"))).To(Succeed())
+
+	prod, err := NewScopeFile("prod", []string{authB})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(prod.Set("prod-mongo-uri", "mongo")).To(Succeed())
+	Expect(prod.Save(ScopeFilePath(scDir, "integrail", "prod"))).To(Succeed())
+
+	// A's key opens pr only — the prod value is invisible (cryptographic clamp).
+	got, err := ResolveScopedValues(stackDir, privA)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(Equal(map[string]string{"defectdojo-api-key": "dd"}))
+
+	// B's key opens prod only.
+	got, err = ResolveScopedValues(stackDir, privB)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(Equal(map[string]string{"prod-mongo-uri": "mongo"}))
+
+	// A non-recipient key sees nothing.
+	got, err = ResolveScopedValues(stackDir, privC)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(BeEmpty())
+
+	// Empty key → nothing (no error).
+	got, err = ResolveScopedValues(stackDir, "")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(BeEmpty())
+
+	// A stack dir with no scope files → nothing (no error) — backward compat.
+	got, err = ResolveScopedValues(StackDir(scDir, "nostack"), privA)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(BeEmpty())
+}
+
+func TestResolveScopedValues_CrossScopeDuplicateFails(t *testing.T) {
+	RegisterTestingT(t)
+	authA, privA := genEd25519Recipient(t)
+	scDir := t.TempDir()
+	stackDir := StackDir(scDir, "s")
+
+	pr, err := NewScopeFile("pr", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(pr.Set("shared", "1")).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(scDir, "s", "pr"))).To(Succeed())
+
+	staging, err := NewScopeFile("staging", []string{authA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(staging.Set("shared", "2")).To(Succeed())
+	Expect(staging.Save(ScopeFilePath(scDir, "s", "staging"))).To(Succeed())
+
+	_, err = ResolveScopedValues(stackDir, privA)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("two openable scopes"))
+}
+
 func TestScopeNameFromFile(t *testing.T) {
 	RegisterTestingT(t)
 	Expect(ScopeNameFromFile("/x/.sc/stacks/s/secrets.pr.yaml")).To(Equal("pr"))
