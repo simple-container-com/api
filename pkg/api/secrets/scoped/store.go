@@ -113,10 +113,7 @@ func (f *ScopeFile) Save(path string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal scope file")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return errors.Wrapf(err, "failed to create directory for %s", path)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeFileAtomic(path, data, 0o644); err != nil {
 		return errors.Wrapf(err, "failed to write scope file %s", path)
 	}
 	return nil

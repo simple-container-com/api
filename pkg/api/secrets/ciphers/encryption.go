@@ -11,6 +11,7 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/pem"
 	"strings"
 
@@ -162,8 +163,9 @@ func EncryptLargeStringWithAAD(key crypto.PublicKey, s string, aad []byte) ([]st
 	if rsaKey, ok := key.(*rsa.PublicKey); ok {
 		chunks := lo.ChunkString(s, rsaKey.Size()/2)
 		res = make([]string, len(chunks))
+		n := len(chunks)
 		for idx, chunk := range chunks {
-			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), aad)
+			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), chunkLabel(aad, idx, n))
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to encrypt secret")
 			}
@@ -190,15 +192,25 @@ func DecryptLargeString(key *rsa.PrivateKey, chunks []string) ([]byte, error) {
 }
 
 // DecryptLargeStringWithAAD is DecryptLargeString with an OAEP-label binding that
-// must match what EncryptLargeStringWithAAD used (nil for legacy blobs).
+// must match what EncryptLargeStringWithAAD used (nil for legacy blobs). When aad
+// is non-nil the label also binds each chunk's index and the total chunk count, so
+// a reordered, dropped, or spliced chunk fails OAEP instead of silently yielding a
+// permuted/truncated plaintext.
 func DecryptLargeStringWithAAD(key *rsa.PrivateKey, chunks []string, aad []byte) ([]byte, error) {
+	// An empty chunk list under an AAD binding is a tamper signal (an attacker
+	// blanking a value), not a legitimately-empty secret; refuse it. The legacy
+	// path (nil aad) keeps the historical behavior of returning "" for no chunks.
+	if len(aad) > 0 && len(chunks) == 0 {
+		return nil, errors.New("scoped RSA value has no ciphertext chunks (blanked?)")
+	}
+	n := len(chunks)
 	decrChunks := make([][]byte, len(chunks))
 	for idx, chunk := range chunks {
 		chunkBytes, err := base64.StdEncoding.DecodeString(chunk)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to decode base64 string")
 		}
-		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunkBytes, aad)
+		decrypted, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, key, chunkBytes, chunkLabel(aad, idx, n))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to decrypt secret")
 		}
@@ -207,6 +219,25 @@ func DecryptLargeStringWithAAD(key *rsa.PrivateKey, chunks []string, aad []byte)
 	return []byte(strings.Join(lo.Map(decrChunks, func(chunk []byte, _ int) string {
 		return string(chunk)
 	}), "")), nil
+}
+
+// chunkLabel binds an OAEP label to a chunk's position and the total chunk count.
+// A nil/empty aad returns the aad unchanged so the legacy whole-file store's wire
+// format (label = nil) is byte-for-byte identical; a non-empty aad yields
+// aad || 0x00 || uint32(idx) || uint32(count), so single-chunk scoped values still
+// carry (idx=0,count=1) and multi-chunk values become order/count-bound.
+func chunkLabel(aad []byte, idx, count int) []byte {
+	if len(aad) == 0 {
+		return aad
+	}
+	out := make([]byte, 0, len(aad)+1+8)
+	out = append(out, aad...)
+	out = append(out, 0x00)
+	var framing [8]byte
+	binary.BigEndian.PutUint32(framing[0:4], uint32(idx))
+	binary.BigEndian.PutUint32(framing[4:8], uint32(count))
+	out = append(out, framing[:]...)
+	return out
 }
 
 // DecryptLargeStringWithEd25519 decrypts data encrypted with ed25519 hybrid encryption
@@ -232,6 +263,15 @@ func DecryptLargeStringWithEd25519AAD(key ed25519.PrivateKey, chunks []string, a
 	// secret ever stored in one.
 	if isX25519Blob(chunkBytes) {
 		return decryptWithX25519AAD(key, chunkBytes, aad)
+	}
+	// Downgrade guard: the legacy scheme derives its key from public data and
+	// ignores associated data, so a legacy blob is forgeable and cannot satisfy an
+	// AAD binding. Any caller that supplies an aad (e.g. the scoped store binding a
+	// value to scope+key) must therefore refuse legacy blobs — otherwise an
+	// attacker could inject a forged legacy blob to bypass the binding. The
+	// aad-less legacy/whole-file path still reads legacy blobs for migration.
+	if len(aad) > 0 {
+		return nil, errors.New("refusing to decrypt a legacy (non-X25519) ed25519 blob under an AAD binding: legacy blobs predate authenticated binding and are forgeable — re-seal the value")
 	}
 	return decryptWithEd25519(key, chunkBytes)
 }

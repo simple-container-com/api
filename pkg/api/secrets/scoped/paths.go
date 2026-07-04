@@ -21,6 +21,24 @@ func ScopesPath(scDir string) string {
 	return filepath.Join(scDir, ScopesFileName)
 }
 
+// writeFileAtomic writes data to a sibling temp file then renames it over path, so
+// a crash mid-write can never leave a truncated/corrupt scope or scopes file (which
+// would then hard-fail deploys). Rename is atomic on the same filesystem.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return errors.Wrapf(err, "failed to create directory for %s", path)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return errors.Wrapf(err, "failed to write %s", tmp)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return errors.Wrapf(err, "failed to rename %s -> %s", tmp, path)
+	}
+	return nil
+}
+
 // StackDir returns <scDir>/stacks/<stack>.
 func StackDir(scDir, stack string) string {
 	return filepath.Join(scDir, stacksDirName, stack)

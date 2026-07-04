@@ -296,6 +296,12 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 			fmt.Fprintf(cmd.OutOrStdout(), "recipient not present in scope %q; nothing to do\n", s.scope)
 			return nil
 		}
+		// Refuse to strand a scope with no recipients — the resulting store would be
+		// undecryptable and every value orphaned. Deleting the scope is the explicit
+		// path for that.
+		if left := sc.Scopes[s.scope].Recipients; len(left) == 0 {
+			return errors.Errorf("refusing to remove the last recipient of scope %q; delete the scope's files and its %s entry instead", s.scope, scoped.ScopesFileName)
+		}
 	}
 	recipients, err := sc.Recipients(s.scope)
 	if err != nil {

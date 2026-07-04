@@ -257,15 +257,19 @@ func (p *provisioner) scopeCandidateKeys() []string {
 	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" {
 		keys = append(keys, v)
 	}
+	// Accept only SC_KEY_<SCOPE> where <SCOPE> maps back to a valid scope name
+	// (uppercase, '-'→'_'), so an unrelated SC_KEY_* env var is not blindly tried as
+	// a decryption key. A job with several scope keys resolves the union of its scopes.
 	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e, "SC_KEY_") {
+		name, val, ok := strings.Cut(e, "=")
+		if !ok || strings.TrimSpace(val) == "" || !strings.HasPrefix(name, "SC_KEY_") {
 			continue
 		}
-		if idx := strings.IndexByte(e, '='); idx > 0 {
-			if v := e[idx+1:]; strings.TrimSpace(v) != "" {
-				keys = append(keys, v)
-			}
+		scopeName := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(name, "SC_KEY_"), "_", "-"))
+		if scoped.ValidateScopeName(scopeName) != nil {
+			continue
 		}
+		keys = append(keys, val)
 	}
 	return keys
 }

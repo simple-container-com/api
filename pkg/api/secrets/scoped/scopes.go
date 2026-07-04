@@ -13,7 +13,6 @@ package scoped
 
 import (
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 
@@ -153,10 +152,7 @@ func (s *Scopes) Save(path string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal scopes")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return errors.Wrapf(err, "failed to create directory for %s", path)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeFileAtomic(path, data, 0o644); err != nil {
 		return errors.Wrapf(err, "failed to write %s", path)
 	}
 	return nil
@@ -215,7 +211,9 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	kept := sc.Recipients[:0]
+	// Fresh slice — never filter in place: sc is a struct copy but shares the map
+	// value's backing array, so sc.Recipients[:0] would corrupt any retained slice.
+	kept := make([]string, 0, len(sc.Recipients))
 	removed := false
 	for _, existing := range sc.Recipients {
 		if efp, _ := recipientFingerprint(existing); efp == fp {
