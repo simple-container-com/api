@@ -1,6 +1,10 @@
 # Scoped secret store v1 — implementation spec (`secrets.<scope>.yaml`)
 
-Status: DRAFT (implements "Minimal v1" of the keyless-secrets RFC in this directory).
+Status: IN PROGRESS — the crypto core + scope model landed in `pkg/api/secrets/scoped`
+(scopes.yaml, secrets.<scope>.yaml sealing on sc's own ciphers with scope/key AAD binding,
+fail-closed version guard, consistency checks + tests). CLI verbs and deploy-time
+resolution wiring follow in this same PR. Implements "Minimal v1" of the keyless-secrets
+RFC in this directory.
 Prerequisite already shipped: the fail-closed `schemaVersion` store guard is released
 and baked fleet-wide, so old binaries hard-fail on formats they do not understand
 instead of silently rewriting them.
@@ -47,13 +51,26 @@ most attacker-reachable contexts in the pipeline. Per-scope files with per-scope
 recipients replace "one key opens everything" with "a key opens exactly the scope files
 it is a recipient of".
 
-## Design summary (from the RFC decision, unchanged)
+## Design summary
 
-- SOPS (`getsops/sops`) is the crypto + format layer: inline value encryption
-  (structure readable, leaves opaque), whole-file MAC, partial decrypt, age + KMS
-  recipients. No bespoke crypto.
-- One readable file per scope: `.sc/stacks/<stack>/secrets.<scope>.yaml`.
-- v1 recipients are **age** keys; KMS/OIDC recipients are v2 (`KeyProvider`).
+- **Crypto/format layer: sc's existing `pkg/api/secrets/ciphers`, NOT SOPS.** The RFC
+  named SOPS, but sc depends on neither `getsops/sops` nor `filippo.io/age`, and adding
+  them would be a large new supply-chain surface for no capability sc lacks: the ciphers
+  package already does per-recipient sealing (RSA-OAEP for `ssh-rsa`, ephemeral-static
+  X25519 + ChaCha20-Poly1305 for `ssh-ed25519`) with authenticated encryption. The scoped
+  store reuses it, adding only backward-compatible associated-data variants
+  (`EncryptLargeStringWithAAD` etc.) — a nil AAD reproduces the legacy wire format
+  byte-for-byte, so the whole-file store is untouched.
+- **Recipients are SSH public keys** (`ssh-ed25519` / `ssh-rsa`), the same key material the
+  whole-file store and `sc secrets allow` already use — not native age recipients. The `pr`
+  scope's CI key (`SC_KEY_PR`) is therefore an unencrypted SSH ed25519 private key.
+- One committed-encrypted file per scope: `.sc/stacks/<stack>/secrets.<scope>.yaml` — its
+  structure (schemaVersion, scope, recipients, value KEYS) is readable/diffable; each value
+  is sealed once per recipient, keyed by the recipient's SHA256 SSH fingerprint, values
+  opaque. Confidentiality + integrity come from the AEAD/OAEP layer, not a separate MAC.
+- v1 recipients are static SSH keys; KMS/OIDC recipients are v2 (a `KeyProvider` that seals
+  the same value map to a KMS-wrapped key decrypted via OIDC — a recipient swap, no format
+  change).
 - The legacy whole-file store keeps working unchanged (mode A). Scoped files are
   additive (mode B); old binaries never open them.
 
@@ -80,12 +97,13 @@ consequences the spec must honor:
   secrets.yaml                         # legacy whole-file registry (mode A, unchanged)
   stacks/integrail/
     secrets.yaml                       # legacy plaintext (gitignored), mode A
-    secrets.pr.yaml                    # SOPS-encrypted, committed, scope "pr"  <-- v1
+    secrets.pr.yaml                    # sc-cipher encrypted, committed, scope "pr"  <-- v1
 ```
 
-`secrets.<scope>.yaml` files are **committed encrypted** (SOPS inline): keys/structure
-stay diffable, values are opaque. They are NOT listed in the legacy registry and NOT
-touched by `sc secrets hide/reveal` legacy paths. Consumer-repo scope files
+`secrets.<scope>.yaml` files are **committed encrypted**: keys/structure (schemaVersion,
+scope, recipients, value names) stay diffable, values are opaque per-recipient blobs. They
+are NOT listed in the legacy registry and NOT touched by `sc secrets hide/reveal` legacy
+paths. Consumer-repo scope files
 (`<consumer>/.sc/stacks/<stack>/secrets.<scope>.yaml`) are a supported location the
 resolver merges on top of the parent, reserved for the later deploy sweep — v1 ships only
 the parent `secrets.pr.yaml`.
@@ -93,24 +111,24 @@ the parent `secrets.pr.yaml`.
 ## `scopes.yaml` (the governance surface)
 
 ```yaml
-schemaVersion: 1.0
+schemaVersion: 1
 scopes:
   pr:
     description: values safe to expose to pull_request-triggered scan/lint CI
     recipients:
-      - age1qq...   # ci-pr key (GitHub secret SC_KEY_PR)  [v1 interim]
-      - age1zz...   # break-glass admin key
-      # v2: awskms://<key-id> decrypted via ci-oidc-<pr-scan> — swaps out age1qq without
-      #     touching any value; SC_KEY_PR is deleted from GitHub when this lands.
+      - ssh-ed25519 AAAA...ci-pr    # ci-pr key (GitHub secret SC_KEY_PR)  [v1 interim]
+      - ssh-ed25519 AAAA...admin    # break-glass admin key
+      # v2: a KMS-wrapped recipient decrypted via ci-oidc-<pr-scan> — sc re-seals the
+      #     same value map to it (updatekeys), then SC_KEY_PR is deleted from GitHub.
 ```
 
 - **CODEOWNERS-gated** (`/.sc/scopes.yaml @<org>/devops`): recipient changes cannot ride
   an ordinary PR (RFC non-negotiable 3).
 - **CODEOWNERS is necessary but not self-enforcing (P0-4):** `sc secrets lint` independently
-  verifies each scope file's SOPS recipient set == `scopes.yaml` recipients and FAILS on
+  verifies each scope file's recipient set == `scopes.yaml` recipients and FAILS on
   drift, so a recipient added by editing a scope file directly (bypassing `scopes.yaml`) is
   caught even if CODEOWNERS review is skipped.
-- `sc` regenerates each scope file's SOPS recipient set from `scopes.yaml` on
+- `sc` regenerates each scope file's recipient set from `scopes.yaml` on
   `allow`/`disallow`/`updatekeys`.
 - Removing a recipient re-encrypts the file but does NOT protect history:
   `sc secrets disallow --scope` prints a mandatory rotate-values warning
@@ -119,32 +137,33 @@ scopes:
 ## CLI UX
 
 ```
-sc secrets set    --scope pr  -s <stack> KEY [VALUE|-]   # add/update one value (SOPS edit)
-sc secrets edit   --scope pr  -s <stack>                 # $EDITOR via sops
+sc secrets set    --scope pr  -s <stack> KEY [VALUE|-]   # seal/update one value to the scope
+sc secrets edit   --scope pr  -s <stack>                 # decrypt-edit-reseal one scope file
 sc secrets get    --scope pr  -s <stack> KEY             # decrypt one value
 sc secrets reveal                                        # legacy mode A, unchanged
-sc secrets allow  --scope pr  age1...                    # update scopes.yaml + updatekeys
-sc secrets disallow --scope pr age1...                   # ditto + rotate-values warning
-sc secrets lint                                          # plaintext-leak + metadata drift + path/scope binding gate
+sc secrets allow  --scope pr  <ssh-pubkey>               # update scopes.yaml + reseal (updatekeys)
+sc secrets disallow --scope pr <ssh-pubkey>              # ditto + rotate-values warning
+sc secrets lint                                          # plaintext-leak + recipient drift + scope/key binding gate
 sc secrets doctor                                        # which scopes the ambient key can open
 ```
 
-Key discovery order for decrypt: `SC_AGE_KEY` env (CI) → `SOPS_AGE_KEY_FILE` →
-`~/.config/sops/age/keys.txt`. The legacy `SIMPLE_CONTAINER_CONFIG` key is NOT a scope
-recipient — scopes are opt-in per value.
+Key discovery order for decrypt: `SC_KEY_PR`-style scope key via the ambient
+`SIMPLE_CONTAINER_CONFIG`/`SC_CONFIG` private key (CI), or an explicit `--key`. The scope
+key is an ordinary SSH private key; being a scope recipient is opt-in per value.
 
-## Scope integrity — MAC alone is insufficient (P0-3)
+## Scope integrity — binding beyond confidentiality (P0-3)
 
-SOPS's whole-file MAC binds the ciphertext to the file *contents*, but NOT to the file's
-path or its scope name. Two attacks it does not stop, both fixed here:
+Per-recipient AEAD/OAEP gives confidentiality + tamper-evidence of each value, but not, by
+itself, binding to *where* the value lives. Two attacks are closed by explicit binding
+(implemented in `pkg/api/secrets/scoped`):
 
-- **File rename / move:** a PR renames `secrets.prod.yaml` → `secrets.pr.yaml`. MAC still
-  verifies. Mitigation: `sc` writes the scope name into the SOPS `unencrypted` metadata as
-  a signed field, and `lint` + deploy-time resolution FAIL if the in-file scope name does
-  not match the filename's `<scope>`.
+- **File rename / move:** a PR renames `secrets.prod.yaml` → `secrets.pr.yaml`. Mitigation:
+  the scope name is a first-class field inside the file, and `LoadScopeFile` +
+  deploy-time resolution FAIL if the in-file scope name does not match the filename's
+  `<scope>` (`sc secrets lint` enforces this too).
 - **Ciphertext transplant / PR write-poisoning:** a PR copies a `prod`-scoped encrypted
   value blob into `secrets.pr.yaml` to get it decrypted by the PR key. Mitigation: each
-  encrypted value's SOPS additional-authenticated-data includes `path:scope:key`, so a
+  encrypted value's AEAD/OAEP associated data is the domain-separated `scope\0key`, so a
   value blob only decrypts under the exact `(file path, scope, key)` it was written for;
   a transplanted blob fails its AAD check.
 
@@ -191,10 +210,13 @@ For a deploy of environment E of stack S:
 ## Plaintext-leak lint (ships with the feature, RFC non-negotiable 4)
 
 `sc secrets lint` (and a CI gate in the central security scan):
-- every `secrets.<scope>.yaml` parses as SOPS with `sops.mac` present and every value
-  leaf `ENC[...]`-armored (`encrypted_regex: '.*'` — whole-leaf encryption by default);
-- SOPS metadata recipients == `scopes.yaml` recipients (drift = fail) (P0-4);
-- in-file scope name == filename `<scope>`, and value AAD == `path:scope:key` (P0-3);
+- every `secrets.<scope>.yaml` parses, every value is a non-empty per-recipient ciphertext
+  map (no plaintext value leaf) — `ScopeFile.VerifyConsistency`;
+- each value is sealed to exactly the declared `recipients` set (no missing/extra recipient
+  fingerprint), and those recipients == `scopes.yaml` recipients for the scope
+  (drift = fail) (P0-4);
+- in-file scope name == filename `<scope>` (P0-3); value binding (`scope\0key` AAD) is
+  enforced structurally at decrypt, not lintable offline;
 - no `secrets.<scope>.yaml` is gitignored (must be committed encrypted);
 - legacy plaintext files (`stacks/*/secrets.yaml`) remain gitignored (unchanged rule).
 
@@ -206,8 +228,10 @@ For a deploy of environment E of stack S:
   and an old binary deploys that stack, resolution fails **closed** (missing secret
   hard-fail), never silently empty. `scopes.yaml` carries its own `schemaVersion`,
   covered by the shipped fail-closed guard pattern.
-- SOPS dependency: vendored Go module (`github.com/getsops/sops/v3`), age-only code
-  path in v1 (KMS imports build-tagged off until v2).
+- No new crypto dependency: the scoped store reuses `pkg/api/secrets/ciphers`
+  (`golang.org/x/crypto`, already vendored). v1 seals to static SSH recipients; the v2
+  KMS/OIDC recipient is an additive `KeyProvider`, not a format or dependency change to the
+  file layout.
 
 ## Threat-model deltas
 
@@ -226,7 +250,7 @@ For a deploy of environment E of stack S:
 ## Testing
 
 - Unit: scope resolution order, hard-fail matrix (missing key / undecryptable scope /
-  duplicate KEY), scopes.yaml↔SOPS metadata drift, scope-name/AAD binding rejection,
+  duplicate KEY), scopes.yaml↔scope-file recipient drift, scope-name/AAD binding rejection,
   `secretScope` PR-clamp, allow/disallow re-encrypt.
 - e2e (preview build, real binary): PR-key can `get --scope pr` but not `--scope prod`;
   a `pull_request` run resolves the four scan jobs' keys from `secrets.pr.yaml` with
@@ -238,7 +262,7 @@ For a deploy of environment E of stack S:
 
 ## Delivery plan (single consolidated PR, after design sign-off)
 
-1. `pkg/api/secrets/scoped/`: scopes.yaml model + SOPS wrapper (age only) + resolution +
+1. `pkg/api/secrets/scoped/`: scopes.yaml model + scope-file sealing (sc ciphers) + resolution +
    scope-name/AAD binding + `secretScope` PR-clamp + real hard-fail resolver.
 2. CLI verbs (`set/edit/get/allow/disallow/lint/doctor` scope forms), with `lint`
    enforcing recipient-verify, path/scope binding, and plaintext-leak gates.
