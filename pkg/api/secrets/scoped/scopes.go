@@ -50,13 +50,14 @@ func Fingerprint(authorizedKey string) (string, error) {
 }
 
 // SameRecipients reports, as an error, whether two recipient lists denote the same
-// set of keys — compared by fingerprint so ordering and comments do not matter.
-// Used to detect drift between a scope file and scopes.yaml.
+// set of recipients — compared by recipient ID (SSH fingerprint or normalized
+// awskms:// URL) so ordering and comments do not matter. Used to detect drift
+// between a scope file and scopes.yaml.
 func SameRecipients(a, b []string) error {
 	fps := func(list []string) (map[string]struct{}, error) {
 		m := make(map[string]struct{}, len(list))
 		for _, r := range list {
-			fp, err := recipientFingerprint(r)
+			fp, err := recipientID(r)
 			if err != nil {
 				return nil, err
 			}
@@ -177,7 +178,7 @@ func (s *Scopes) Allow(scope, recipient string) (bool, error) {
 	if err := ValidateScopeName(scope); err != nil {
 		return false, err
 	}
-	if _, err := recipientFingerprint(recipient); err != nil {
+	if _, err := recipientID(recipient); err != nil {
 		return false, err
 	}
 	if err := validateEncryptableRecipient(recipient); err != nil {
@@ -187,9 +188,9 @@ func (s *Scopes) Allow(scope, recipient string) (bool, error) {
 		s.Scopes = map[string]Scope{}
 	}
 	sc := s.Scopes[scope]
-	fp, _ := recipientFingerprint(recipient)
+	fp, _ := recipientID(recipient)
 	for _, existing := range sc.Recipients {
-		if efp, _ := recipientFingerprint(existing); efp == fp {
+		if efp, _ := recipientID(existing); efp == fp {
 			return false, nil
 		}
 	}
@@ -207,7 +208,7 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	if !ok {
 		return false, errors.Errorf("scope %q is not declared", scope)
 	}
-	fp, err := recipientFingerprint(recipient)
+	fp, err := recipientID(recipient)
 	if err != nil {
 		return false, err
 	}
@@ -216,7 +217,7 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	kept := make([]string, 0, len(sc.Recipients))
 	removed := false
 	for _, existing := range sc.Recipients {
-		if efp, _ := recipientFingerprint(existing); efp == fp {
+		if efp, _ := recipientID(existing); efp == fp {
 			removed = true
 			continue
 		}

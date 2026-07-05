@@ -15,7 +15,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.56.4
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.75.2
+	github.com/aws/aws-sdk-go-v2/service/kms v1.50.3
 	github.com/aws/aws-secretsmanager-caching-go/v2 v2.2.0
+	github.com/aws/smithy-go v1.27.1
 	github.com/cloudflare/cloudflare-go v0.117.0
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/containerd/platforms v0.2.1
@@ -129,14 +131,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.18 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.29 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.25 // indirect
-	github.com/aws/aws-sdk-go-v2/service/kms v1.50.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.102.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.2.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.31.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.3 // indirect
-	github.com/aws/smithy-go v1.27.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bazelbuild/buildtools v0.0.0-20260211083412-859bfffeef82 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

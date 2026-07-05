@@ -21,20 +21,37 @@ func ScopesPath(scDir string) string {
 	return filepath.Join(scDir, ScopesFileName)
 }
 
-// writeFileAtomic writes data to a sibling temp file then renames it over path, so
-// a crash mid-write can never leave a truncated/corrupt scope or scopes file (which
-// would then hard-fail deploys). Rename is atomic on the same filesystem.
+// writeFileAtomic writes data to a UNIQUELY-named sibling temp file then renames it
+// over path, so a crash mid-write can never leave a truncated/corrupt scope or scopes
+// file (which would then hard-fail deploys). Rename is atomic on the same filesystem.
+// A random temp suffix (os.CreateTemp) means two concurrent writers to the same file
+// never collide on the temp path.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return errors.Wrapf(err, "failed to create directory for %s", path)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
-		return errors.Wrapf(err, "failed to write %s", tmp)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return errors.Wrapf(err, "failed to create temp file for %s", path)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return errors.Wrapf(err, "failed to rename %s -> %s", tmp, path)
+	tmpName := tmp.Name()
+	// Clean up the temp file on any early return; the successful path renames it away
+	// first, so the Remove then harmlessly no-ops.
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return errors.Wrapf(err, "failed to write %s", tmpName)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return errors.Wrapf(err, "failed to chmod %s", tmpName)
+	}
+	if err := tmp.Close(); err != nil {
+		return errors.Wrapf(err, "failed to close %s", tmpName)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return errors.Wrapf(err, "failed to rename %s -> %s", tmpName, path)
 	}
 	return nil
 }

@@ -5,6 +5,8 @@ package cmd_secrets
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -149,4 +151,41 @@ func TestScopeCmd_SetRefusesUndeclaredScope(t *testing.T) {
 	out, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "integrail", "k", "v")
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error() + out).To(ContainSubstring("scope"))
+}
+
+// TestScopeCmd_KMSRecipientGovernance covers the v2 KMS-recipient additions at the
+// CLI layer without any AWS call: allow accepts an awskms:// URL and persists it,
+// a malformed KMS URL is rejected at governance time, and disallow removes it. The
+// KMS crypto itself (wrap/unwrap, EncryptionContext binding) is covered by the
+// scoped package's unit tests with a fake KMS client.
+func TestScopeCmd_KMSRecipientGovernance(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	sshAuth, _ := testRecipient(t)
+	kmsRec := "awskms://alias/sc-ci-pr?region=us-east-1"
+
+	// SSH break-glass recipient + KMS recipient in the same scope.
+	out, err := execScope(t, workdir, "", "allow", "--scope", "pr", sshAuth)
+	Expect(err).NotTo(HaveOccurred(), out)
+	out, err = execScope(t, workdir, "", "allow", "--scope", "pr", kmsRec)
+	Expect(err).NotTo(HaveOccurred(), out)
+
+	// The KMS recipient landed in scopes.yaml.
+	scopesYAML, rErr := os.ReadFile(filepath.Join(workdir, ".sc", "scopes.yaml"))
+	Expect(rErr).NotTo(HaveOccurred())
+	Expect(string(scopesYAML)).To(ContainSubstring(kmsRec))
+
+	// A malformed KMS URL (no region, not an ARN) is rejected at allow time.
+	_, err = execScope(t, workdir, "", "allow", "--scope", "pr", "awskms://alias/no-region")
+	Expect(err).To(HaveOccurred())
+
+	// lint passes (recipients declared; no scope files with values yet).
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+
+	// disallow removes the KMS recipient (no scope files → no reseal / no KMS call).
+	out, err = execScope(t, workdir, "", "disallow", "--scope", "pr", kmsRec)
+	Expect(err).NotTo(HaveOccurred(), out)
+	scopesYAML, _ = os.ReadFile(filepath.Join(workdir, ".sc", "scopes.yaml"))
+	Expect(string(scopesYAML)).NotTo(ContainSubstring(kmsRec))
 }

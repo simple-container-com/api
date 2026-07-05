@@ -122,9 +122,10 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
-		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && (errors.Is(err, scoped.ErrScopedIntegrity) || !readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
-			// A scoped integrity failure (tamper / corrupt / ambiguous) is fatal even
-			// under IgnoreSecretsMissing — it is never "secrets simply absent".
+		if secretsDesc, err := p.readSecretsDescriptor(ctx, stacksDir, stackName); err != nil && (errors.Is(err, scoped.ErrScopedIntegrity) || errors.Is(err, scoped.ErrScopedUnavailable) || !readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
+			// A scoped integrity failure (tamper / corrupt / ambiguous) OR a transient
+			// backend outage (KMS throttle) is fatal even under IgnoreSecretsMissing — a
+			// secret we could not resolve is never treated as "simply absent".
 			return err
 		} else if secretsDesc != nil {
 			// SECURITY: Never log actual secrets descriptor content - contains credential values
@@ -194,16 +195,16 @@ func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*a
 	}
 }
 
-func (p *provisioner) readSecretsDescriptor(rootDir string, stackName string) (*api.SecretsDescriptor, error) {
+func (p *provisioner) readSecretsDescriptor(ctx context.Context, rootDir string, stackName string) (*api.SecretsDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.SecretsDescriptorFileName)
 	legacyExists := true
 	if _, err := os.Stat(descFilePath); errors.Is(err, os.ErrNotExist) {
 		legacyExists = false
 	}
-	return p.readSecretsDescriptorFromFile(descFilePath, legacyExists)
+	return p.readSecretsDescriptorFromFile(ctx, descFilePath, legacyExists)
 }
 
-func (p *provisioner) readSecretsDescriptorFromFile(descFilePath string, legacyExists bool) (*api.SecretsDescriptor, error) {
+func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFilePath string, legacyExists bool) (*api.SecretsDescriptor, error) {
 	desc := &api.SecretsDescriptor{}
 	if legacyExists {
 		d, err := api.ReadSecretsDescriptor(descFilePath)
@@ -226,7 +227,14 @@ func (p *provisioner) readSecretsDescriptorFromFile(descFilePath string, legacyE
 	}
 	for k, v := range scopedVals {
 		if _, exists := desc.Values[k]; exists {
-			continue // legacy whole-file store wins; `sc secrets scope lint` forbids duplicates
+			// The legacy whole-file store wins on conflict (an actor who can only write a
+			// scope file cannot override a legacy secret). `sc secrets scope lint` flags
+			// this collision, but lint is not always a required check — so warn at deploy
+			// too, or an operator who set a scoped value silently gets the legacy one.
+			if p.log != nil {
+				p.log.Warn(ctx, "scoped secret %q is shadowed by the legacy secrets.yaml for this stack; the legacy value is used. Remove one (see `sc secrets scope lint`).", k)
+			}
+			continue
 		}
 		if desc.Values == nil {
 			desc.Values = map[string]string{}

@@ -3,11 +3,18 @@
 Status: IMPLEMENTED (pending final review) — landed in this PR: the crypto core + scope
 model (`pkg/api/secrets/scoped`: scopes.yaml, secrets.<scope>.yaml sealing on sc's own
 ciphers with scope/key AAD binding, fail-closed version guard, consistency checks); the
-`sc secrets scope {set,get,list,delete,allow,disallow,lint,doctor}` CLI; and key-driven
-deploy-time resolution wired into the provisioner. Multi-model review (Codex + Gemini) of
-the crypto/CLI surface passed with no P0s; findings fixed. Consumer rollout (the Integrail
-`secrets.pr.yaml` sweep + workflow cutover) is the remaining out-of-repo step. Implements
-"Minimal v1" of the keyless-secrets RFC in this directory.
+`sc secrets scope {set,get,list,delete,allow,disallow,lint,doctor}` CLI; key-driven
+deploy-time resolution wired into the provisioner; **and the v2 KMS-recipient KeyProvider
+(RFC phase 2): a scope may list `awskms://<key>?region=<r>` recipients whose data-key wrap is
+performed with `kms:Encrypt` and opened with `kms:Decrypt` using the ambient (OIDC-federated)
+AWS credential chain — no stored private key.** Both recipient kinds coexist in one scope
+(the KMS path binds `(stack,scope,key)` via a KMS EncryptionContext, exactly parallel to the
+SSH path's byte-AAD). It is purely additive: a scope with no KMS recipient never constructs an
+AWS client. Multi-model review (Codex + Gemini) of the crypto/CLI surface passed with no P0s;
+findings fixed. The remaining out-of-repo step is the consumer rollout (the Integrail
+`secrets.pr.yaml` sweep, then adding the `awskms://` recipient + `ci-oidc-pr-scan` role and
+deleting `SC_KEY_PR`). Implements "Minimal v1" **and** the v2 KeyProvider of the
+keyless-secrets RFC in this directory.
 Prerequisite already shipped: the fail-closed `schemaVersion` store guard is released
 and baked fleet-wide, so old binaries hard-fail on formats they do not understand
 instead of silently rewriting them.
@@ -29,16 +36,18 @@ workflows and `pkg/githubactions/actions/parent_repo.go`:
   token) MUST move to a GitHub-OIDC role (`ci-oidc-pulumi-preview`), **never** into the
   `pr` scope. A scope file that contains deploy-grade credentials is the failure state
   this feature exists to prevent.
-- **D2 — `SC_KEY_PR` (age private key in a GitHub Actions secret) ships as the v1 interim,
-  with a committed v2.** It is strictly smaller blast radius than today (`SC_CONFIG` opens
-  the whole store) and, for a same-org non-fork PR, an OIDC-fetched key would not stop a
-  poisoned job from printing what it decrypted — so blocking v1 on v2 buys ~zero
-  incremental safety while leaving the whole-store exposure in place. **v2 is not
-  optional:** because `sc` already encrypts Pulumi state with AWS KMS and CI already
-  federates via OIDC (see `secrets_providers.type=cloud` / `awskms://` in live state),
-  the v2 KMS-recipient-via-OIDC path reuses existing infra and is a recipient-list swap on
-  the *same* scope files — no v1 work is thrown away. The stored key is retired the moment
-  v2 lands.
+- **D2 — `SC_KEY_PR` (SSH ed25519 private key in a GitHub Actions secret) is the transition
+  interim; the v2 KMS-via-OIDC KeyProvider is now IMPLEMENTED in this PR.** The stored SSH key
+  is strictly smaller blast radius than today (`SC_CONFIG` opens the whole store) and, for a
+  same-org non-fork PR, an OIDC-fetched key would not stop a poisoned job from printing what it
+  decrypted — so it was never worth *blocking* the feature on the keyless path. But because
+  `sc` already encrypts Pulumi state with AWS KMS and CI already federates via OIDC (see
+  `secrets_providers.type=cloud` / `awskms://` in live state), the KMS-recipient-via-OIDC path
+  reuses existing infra and is a recipient-list swap on the *same* scope files — so it is now
+  shipped in-code as an additive recipient kind rather than deferred. Operationally: a scope
+  can carry both `SC_KEY_PR` (SSH) and an `awskms://` recipient during the transition; once the
+  `ci-oidc-pr-scan` role is wired in the consumer repo, `sc secrets scope disallow` the SSH key
+  and delete the `SC_KEY_PR` GitHub secret. No v1 work is thrown away.
 - **D3 — scope files live in the devops PARENT repo (`integrail` stack store) for v1.**
   Every PR consumer fetches `-s integrail`, and resolution merges parent+child (below), so
   one CODEOWNERS-guarded `secrets.pr.yaml` in the parent serves all consumers. The resolver
@@ -72,17 +81,32 @@ it is a recipient of".
   recipient — so a tampered per-recipient slot yields a *decrypt failure, never a different
   plaintext* (no targeted per-recipient divergence), (b) gives one whole-value MAC (no chunk
   splicing), and (c) makes the DEK a single 32-byte block — no RSA chunking at all.
-- **Recipients are SSH public keys** (`ssh-ed25519` / `ssh-rsa`), the same key material the
-  whole-file store and `sc secrets allow` already use — not native age recipients. The `pr`
-  scope's CI key (`SC_KEY_PR`) is therefore an unencrypted SSH ed25519 private key.
+- **Recipients are SSH public keys OR AWS KMS keys.** SSH recipients (`ssh-ed25519` /
+  `ssh-rsa`) are the same key material the whole-file store and `sc secrets allow` already use
+  — not native age recipients; the transitional `SC_KEY_PR` is an unencrypted SSH ed25519
+  private key. A KMS recipient is an `awskms://<key>?region=<r>` URL (sc's canonical KMS-key
+  form): its data-key wrap is a `kms:Encrypt`/`kms:Decrypt` pair run under the ambient AWS
+  credential chain, so in CI it is opened by an OIDC-federated role with no stored key. The two
+  kinds are interchangeable per-recipient and can coexist in one scope. A KMS recipient's
+  identity is its normalized URL, compared as a string (resolving an alias→key needs a KMS
+  call, so it cannot be done offline); recipients must therefore be spelled consistently —
+  **prefer the key ARN over an alias** (an alias can be repointed, and the same key written as
+  alias vs ARN counts as two different recipients for drift/dedup). `sc` pins the `KeyId` on
+  every decrypt, so a wrap made under a different key than the recipient names is rejected.
+- KMS Decrypt failures are classified three ways: `InvalidCiphertext`/`IncorrectKey` →
+  integrity (tamper, hard-fail); `AccessDenied`/disabled/no-credentials → not-a-recipient
+  (least-privilege skip); anything else (throttle after SDK retries, `KMSInternal`, timeout) →
+  `ErrScopedUnavailable` (fatal retry, never mislabeled as tamper and never a silent skip —
+  position-independent regardless of which value hit it).
 - One committed-encrypted file per scope: `.sc/stacks/<stack>/secrets.<scope>.yaml` — its
   structure (schemaVersion, stack, scope, recipients, value KEYS) is readable/diffable; each
   value is `{ciphertext: <AEAD value under the DEK>, wraps: {<recipient-fingerprint>: <DEK
   sealed to that recipient>}}`, values opaque. Confidentiality + integrity come from the
   AEAD layer, not a separate MAC.
-- v1 recipients are static SSH keys; KMS/OIDC recipients are v2 (a `KeyProvider` that seals
-  the same value map to a KMS-wrapped key decrypted via OIDC — a recipient swap, no format
-  change).
+- Both static SSH recipients and KMS/OIDC recipients are implemented (the KMS `KeyProvider`
+  wraps the same per-value data key to a KMS-wrapped key decrypted via OIDC — a recipient kind,
+  no value-format change). The KMS wrap's `(stack,scope,key)` binding is a KMS EncryptionContext
+  (server-enforced), so a KMS-wrapped value is as transplant-resistant as an SSH-wrapped one.
 - The legacy whole-file store keeps working unchanged (mode A). Scoped files are
   additive (mode B); old binaries never open them.
 
@@ -129,10 +153,11 @@ scopes:
   pr:
     description: values safe to expose to pull_request-triggered scan/lint CI
     recipients:
-      - ssh-ed25519 AAAA...ci-pr    # ci-pr key (GitHub secret SC_KEY_PR)  [v1 interim]
-      - ssh-ed25519 AAAA...admin    # break-glass admin key
-      # v2: a KMS-wrapped recipient decrypted via ci-oidc-<pr-scan> — sc re-seals the
-      #     same value map to it (via allow), then SC_KEY_PR is deleted from GitHub.
+      - ssh-ed25519 AAAA...admin                         # break-glass admin key (keep ≥1 SSH for reseal)
+      - awskms://arn:aws:kms:us-east-1:123:key/abcd     # keyless CI (prefer ARN): opened by ci-oidc-pr-scan role
+      # transition-only: the SSH ci-pr key below is a recipient until ci-oidc-pr-scan is wired,
+      # then `sc secrets scope disallow` it and delete the SC_KEY_PR GitHub secret.
+      - ssh-ed25519 AAAA...ci-pr                          # GitHub secret SC_KEY_PR  [interim]
 ```
 
 - **CODEOWNERS-gated** (`/.sc/scopes.yaml @<org>/devops`): recipient changes cannot ride
@@ -165,12 +190,16 @@ sc secrets scope doctor                                      # which scopes the 
 sc secrets reveal                                            # legacy mode-A whole-file store, unchanged
 ```
 
-Key discovery order for decrypt (`get`/`doctor`): an explicit `--key-file`, then the
+Key discovery order for decrypt (`get`/`doctor`/deploy): an explicit `--key-file`, then the
 per-scope CI env `SC_KEY_<SCOPE>` (e.g. `SC_KEY_PR`) or the generic `SC_SCOPE_KEY`, then the
-ambient `SIMPLE_CONTAINER_CONFIG`/`SC_CONFIG` private key. A `pull_request` scan job can
-therefore hold ONLY its scope key. The scope key is an ordinary SSH private key; being a
-scope recipient is opt-in per value. There is no `edit` verb in v1 (use `get`/`set`); reseal
-is folded into `allow`/`disallow` (no separate `updatekeys`).
+ambient `SIMPLE_CONTAINER_CONFIG`/`SC_CONFIG` SSH key, and finally — for any value that carries
+an `awskms://` wrap — a KMS `Decrypt` using the ambient AWS credential chain (an OIDC role in
+CI). A `pull_request` scan job can therefore hold ONLY its scope key, or NO key at all when the
+scope's recipient is a KMS key and the job federates to AWS via OIDC. Being a scope recipient is
+opt-in per value; a value with no KMS recipient never triggers an AWS call. There is no `edit`
+verb (use `get`/`set`); reseal is folded into `allow`/`disallow` (no separate `updatekeys`).
+`allow`/`disallow` reseal by decrypting with an SSH recipient key, so a scope should keep at
+least one SSH break-glass recipient even after adding a KMS one.
 
 ## Scope integrity — binding beyond confidentiality (P0-3)
 
@@ -271,10 +300,12 @@ result transparently:
   and an old binary deploys that stack, resolution fails **closed** (missing secret
   hard-fail), never silently empty. `scopes.yaml` carries its own `schemaVersion`,
   covered by the shipped fail-closed guard pattern.
-- No new crypto dependency: the scoped store reuses `pkg/api/secrets/ciphers`
-  (`golang.org/x/crypto`, already vendored). v1 seals to static SSH recipients; the v2
-  KMS/OIDC recipient is an additive `KeyProvider`, not a format or dependency change to the
-  file layout.
+- No new module dependency: the SSH path reuses `pkg/api/secrets/ciphers`
+  (`golang.org/x/crypto`, already present). The KMS `KeyProvider` uses
+  `aws-sdk-go-v2/service/kms` + `config` + `smithy-go`, all of which were already in the
+  dependency graph (transitively via the existing AWS integrations) — this PR only promotes
+  `service/kms` and `smithy-go` from indirect to direct in `go.mod`. The KMS recipient is an
+  additive recipient kind, not a change to the value format or the file layout.
 
 ## Threat-model deltas
 
@@ -288,7 +319,8 @@ result transparently:
 | Missing/undecryptable secret silently empty | possible | real error, deploy aborts (P0-2) |
 | Old binary corrupts new format | guarded (schemaVersion) | scoped files never opened by old binaries |
 | Recipient removed ≠ revoked | same | explicit rotate-values warning; runbook |
-| Stored `SC_KEY_PR` is a smaller master key | — | true, but scoped to low/med scan creds only; retired at v2 (D2, P0-7) |
+| Stored `SC_KEY_PR` is a smaller master key | — | true, but scoped to low/med scan creds only; eliminated by using a KMS recipient (no stored key — CI decrypts via an OIDC role), now implemented (D2) |
+| CI private key stolen from a GitHub secret | whole store via `SC_CONFIG` | none for a KMS-recipient scope: there is no stored key — decryption requires assuming the OIDC role, gated by branch/environment protections + IAM |
 
 ## Testing
 
@@ -296,6 +328,13 @@ result transparently:
   duplicate KEY), scopes.yaml↔scope-file recipient drift, scope-name/AAD binding rejection,
   key-driven scope resolution (recipient sees only its scopes), cross-scope duplicate
   rejection, allow/disallow re-encrypt.
+- KMS unit (with a fake KMS client — no AWS call): `awskms://` parse/normalize (ARN region
+  derivation, missing-region rejection), envelope roundtrip via KMS, EncryptionContext (AAD)
+  mismatch → integrity error, AccessDenied → least-privilege skip (not integrity), a mixed
+  SSH+KMS scope opened by EITHER an SSH key or the KMS role to the SAME value, recipient-drift
+  with KMS URLs, KMS short-blob lint rejection, resolver via a KMS role, and CLI allow/disallow
+  governance of a KMS recipient. The live-KMS + real-OIDC path is validated at consumer-rollout
+  canary (RFC phase 3), not in unit tests.
 - e2e (preview build, real binary): PR-key can `get --scope pr` but not `--scope prod`;
   a `pull_request` run resolves the four scan jobs' keys from `secrets.pr.yaml` with
   `SC_KEY_PR` and NO `SC_CONFIG`; a PR that renames/transplants a scope file fails lint;
@@ -315,8 +354,11 @@ result transparently:
 5. Consumer rollout PR (Integrail parent): `secrets.pr.yaml` sweep of the four scan jobs'
    keys (rotated on move) + `SC_KEY_PR` + drop `SC_CONFIG` from the four `pull_request`
    scan workflows. Deploy-shaped jobs and crossguard are NOT touched here.
-6. **v2 fast-follow (committed, not optional):** `KeyProvider` KMS recipient decrypted via
-   `ci-oidc-<pr-scan>`; `sc secrets allow --scope pr awskms://…`; delete `SC_KEY_PR`.
+6. **v2 KeyProvider — DONE in this PR:** `awskms://` KMS recipient whose data-key wrap is
+   `kms:Encrypt`/`kms:Decrypt` under the ambient (OIDC) AWS credentials, bound via a KMS
+   EncryptionContext; `sc secrets scope allow --scope pr awskms://…` and `get`/`doctor`/deploy
+   open it keylessly. Consumer-side follow-up (out-of-repo): add the `awskms://` recipient +
+   `ci-oidc-pr-scan` role, then `disallow` the SSH key and delete `SC_KEY_PR`.
 
 Open question for review: scope-name↔environment conventions (free-form names vs
 enforcing env names), and whether `doctor` should print recipient fingerprints for

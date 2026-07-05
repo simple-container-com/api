@@ -301,7 +301,7 @@ func TestReencrypt_AddAndRemoveRecipient(t *testing.T) {
 	Expect(f.Set("k", "v")).To(Succeed())
 
 	// Add B by resealing with A's key.
-	Expect(f.Reencrypt([]string{authA, authB}, privA)).To(Succeed())
+	Expect(f.Reencrypt([]string{authA, authB}, NewOpener([]string{privA}, false))).To(Succeed())
 	gotA, err := f.Get("k", privA)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(gotA).To(Equal("v"))
@@ -311,7 +311,7 @@ func TestReencrypt_AddAndRemoveRecipient(t *testing.T) {
 	Expect(f.Values["k"].Wraps).To(HaveLen(2))
 
 	// Remove B by resealing to A only.
-	Expect(f.Reencrypt([]string{authA}, privA)).To(Succeed())
+	Expect(f.Reencrypt([]string{authA}, NewOpener([]string{privA}, false))).To(Succeed())
 	Expect(f.Values["k"].Wraps).To(HaveLen(1))
 	_, err = f.Get("k", privB)
 	Expect(errors.Is(err, ErrRecipientNotAllowed)).To(BeTrue())
@@ -328,7 +328,7 @@ func TestReencrypt_NonRecipientKeyFailsAndLeavesFileIntact(t *testing.T) {
 	Expect(f.Set("k", "v")).To(Succeed())
 	before := f.Values["k"]
 
-	err = f.Reencrypt([]string{authA, authB}, privC)
+	err = f.Reencrypt([]string{authA, authB}, NewOpener([]string{privC}, false))
 	Expect(err).To(HaveOccurred())
 	// file untouched
 	Expect(f.Recipients).To(Equal([]string{authA}))

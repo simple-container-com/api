@@ -28,10 +28,11 @@ const (
 
 // EncryptedValue is one secret in envelope form: the value is AEAD-encrypted ONCE
 // under a random data key (Ciphertext), and that data key is wrapped per recipient
-// (Wraps, keyed by SHA256 SSH fingerprint). All recipients therefore decrypt the
-// SAME value — a tampered slot yields a decrypt failure, never a different plaintext
-// — and the value carries a single whole-message MAC (no chunk splicing). Committed
-// as-is (opaque values, diffable structure).
+// (Wraps, keyed by recipient ID — a SHA256 SSH fingerprint for an ssh key, or a
+// normalized awskms:// URL for a KMS recipient). All recipients therefore decrypt
+// the SAME value — a tampered slot yields a decrypt failure, never a different
+// plaintext — and the value carries a single whole-message MAC (no chunk splicing).
+// Committed as-is (opaque values, diffable structure).
 type EncryptedValue struct {
 	Ciphertext string              `yaml:"ciphertext"`
 	Wraps      map[string][]string `yaml:"wraps"`
@@ -168,14 +169,41 @@ func (f *ScopeFile) Set(key, value string) error {
 }
 
 // Get decrypts key with privateKey (an unencrypted PEM SSH private key), verifying
-// the (scope,key) binding. Returns ErrRecipientNotAllowed (wrapped) if the key is
-// not a recipient, and a distinct not-found error if the key is absent.
+// the (stack,scope,key) binding. Returns ErrRecipientNotAllowed (wrapped) if the
+// key is not a recipient, and a distinct not-found error if the key is absent. This
+// is the SSH-only path used for resealing (allow/disallow); the CLI `get`/`doctor`
+// and deploy-time resolution use Open, which also tries KMS.
 func (f *ScopeFile) Get(key, privateKey string) (string, error) {
 	enc, ok := f.Values[key]
 	if !ok {
 		return "", errors.Errorf("secret %q not found in scope %q", key, f.Scope)
 	}
-	return decryptWithPrivateKey(privateKey, f.Stack, f.Scope, key, enc)
+	// Surface clear parse errors (e.g. passphrase-protected) rather than a bare
+	// "not a recipient".
+	if _, _, err := privateKeyFingerprint(privateKey); err != nil {
+		return "", err
+	}
+	val, owned, err := NewOpener([]string{privateKey}, false).OpenValue(f.Stack, f.Scope, key, enc)
+	if err != nil {
+		return "", err
+	}
+	if !owned {
+		return "", errors.Wrapf(ErrRecipientNotAllowed, "key is not a recipient of %q in scope %q", key, f.Scope)
+	}
+	return val, nil
+}
+
+// Open decrypts key using an Opener, which may hold several SSH keys and/or permit
+// KMS Decrypt via the ambient AWS credentials. It returns (value, true, nil) on
+// success, ("", false, nil) if the opener is not a usable recipient (least-privilege
+// skip), and ("", true, err) on an integrity failure. It is the path used by the
+// CLI and by deploy-time resolution.
+func (f *ScopeFile) Open(key string, o *Opener) (string, bool, error) {
+	enc, ok := f.Values[key]
+	if !ok {
+		return "", false, errors.Errorf("secret %q not found in scope %q", key, f.Scope)
+	}
+	return o.OpenValue(f.Stack, f.Scope, key, enc)
 }
 
 // Delete removes a key. Returns whether it was present.
@@ -197,23 +225,27 @@ func (f *ScopeFile) Keys() []string {
 	return keys
 }
 
-// Reencrypt re-seals every value to newRecipients, using privateKey (which must
-// be a CURRENT recipient) to decrypt each value first. Used by allow/disallow to
-// roll the recipient set. It is all-or-nothing: if any value cannot be decrypted
-// or re-sealed the file is left untouched, so a partial reseal never drops a
-// recipient's access silently. Note: this does NOT rewrite git history — a
-// removed recipient can still read prior committed versions, so callers must warn
-// to rotate values on removal.
-func (f *ScopeFile) Reencrypt(newRecipients []string, privateKey string) error {
+// Reencrypt re-seals every value to newRecipients, using opener (which must hold a
+// CURRENT recipient — an SSH key or KMS access) to decrypt each value first. Used by
+// allow/disallow to roll the recipient set. Because it takes an Opener, a scope whose
+// only current recipient is a KMS key can still be resealed by an operator with
+// kms:Decrypt. It is all-or-nothing: if any value cannot be decrypted or re-sealed the
+// file is left untouched, so a partial reseal never drops a recipient's access
+// silently. Note: this does NOT rewrite git history — a removed recipient can still
+// read prior committed versions, so callers must warn to rotate values on removal.
+func (f *ScopeFile) Reencrypt(newRecipients []string, opener *Opener) error {
 	if len(newRecipients) == 0 {
 		return errors.Errorf("refusing to reseal scope %q to an empty recipient set", f.Scope)
 	}
 	// Decrypt everything first against the current recipient set.
 	plain := make(map[string]string, len(f.Values))
 	for key := range f.Values {
-		v, err := f.Get(key, privateKey)
+		v, owned, err := f.Open(key, opener)
 		if err != nil {
-			return errors.Wrapf(err, "cannot reseal scope %q: failed to decrypt %q with the provided key (is it a current recipient?)", f.Scope, key)
+			return errors.Wrapf(err, "cannot reseal scope %q: failed to decrypt %q", f.Scope, key)
+		}
+		if !owned {
+			return errors.Errorf("cannot reseal scope %q: the provided key/credentials are not a current recipient of %q", f.Scope, key)
 		}
 		plain[key] = v
 	}
@@ -243,20 +275,31 @@ func (f *ScopeFile) VerifyConsistency() error {
 	if len(f.Recipients) == 0 {
 		return errors.Errorf("scope %q has no recipients", f.Scope)
 	}
-	// Map each recipient fingerprint to its public key so ciphertext shape can be
-	// checked against the recipient's key type.
-	fpToPub := make(map[string]crypto.PublicKey, len(f.Recipients))
+	// Map each recipient ID to how its wrap must be shaped: an SSH recipient's wrap
+	// is a block of its key type (checkable via its public key); a KMS recipient's
+	// wrap is an opaque KMS ciphertext blob (checkable only for base64 + a minimum
+	// length that excludes a plaintext data key).
+	sshPub := make(map[string]crypto.PublicKey, len(f.Recipients))
+	kmsIDs := make(map[string]struct{}, len(f.Recipients))
 	for _, r := range f.Recipients {
-		fp, err := recipientFingerprint(r)
+		id, err := recipientID(r)
 		if err != nil {
 			return err
 		}
+		if isKMSRecipient(r) {
+			if err := validateKMSRecipient(r); err != nil {
+				return errors.Wrapf(err, "scope %q recipient %s", f.Scope, id)
+			}
+			kmsIDs[id] = struct{}{}
+			continue
+		}
 		pub, err := ciphers.ParsePublicKey(secrets.TrimPubKey(r))
 		if err != nil {
-			return errors.Wrapf(err, "scope %q recipient %s", f.Scope, fp)
+			return errors.Wrapf(err, "scope %q recipient %s", f.Scope, id)
 		}
-		fpToPub[fp] = pub
+		sshPub[id] = pub
 	}
+	nRecipients := len(sshPub) + len(kmsIDs)
 	for key, ev := range f.Values {
 		if err := ValidateSecretKey(key); err != nil {
 			return err
@@ -270,26 +313,42 @@ func (f *ScopeFile) VerifyConsistency() error {
 		if err := ciphers.ValidEnvelopeBlob(blob); err != nil {
 			return errors.Wrapf(err, "scope %q key %q value ciphertext", f.Scope, key)
 		}
-		if len(ev.Wraps) != len(fpToPub) {
-			return errors.Errorf("scope %q key %q data key wrapped for %d recipients, expected %d", f.Scope, key, len(ev.Wraps), len(fpToPub))
+		if len(ev.Wraps) != nRecipients {
+			return errors.Errorf("scope %q key %q data key wrapped for %d recipients, expected %d", f.Scope, key, len(ev.Wraps), nRecipients)
 		}
-		for fp, chunks := range ev.Wraps {
-			pub, ok := fpToPub[fp]
-			if !ok {
-				return errors.Errorf("scope %q key %q wrapped for unknown recipient %s (not in recipients list)", f.Scope, key, fp)
-			}
+		for id, chunks := range ev.Wraps {
 			if len(chunks) == 0 {
-				return errors.Errorf("scope %q key %q has an empty data-key wrap for recipient %s", f.Scope, key, fp)
+				return errors.Errorf("scope %q key %q has an empty data-key wrap for recipient %s", f.Scope, key, id)
 			}
-			// Each wrap is the 32-byte DEK sealed to the recipient — a single block of
-			// the recipient's key type (RSA modulus size, or an X25519 sealed box).
+			if _, isKMS := kmsIDs[id]; isKMS {
+				// A KMS wrap is a single opaque ciphertext blob; verify base64 + a
+				// minimum length so a plaintext data key smuggled into a KMS slot fails
+				// offline (its EncryptionContext binding is enforced by KMS at decrypt).
+				if len(chunks) != 1 {
+					return errors.Errorf("scope %q key %q KMS wrap for %s must be exactly one blob, got %d", f.Scope, key, id, len(chunks))
+				}
+				raw, err := base64.StdEncoding.DecodeString(chunks[0])
+				if err != nil {
+					return errors.Wrapf(err, "scope %q key %q KMS wrap for %s is not base64", f.Scope, key, id)
+				}
+				if len(raw) < kmsMinCiphertextLen {
+					return errors.Errorf("scope %q key %q KMS wrap for %s is %d bytes, below the %d-byte minimum (plaintext?)", f.Scope, key, id, len(raw), kmsMinCiphertextLen)
+				}
+				continue
+			}
+			pub, ok := sshPub[id]
+			if !ok {
+				return errors.Errorf("scope %q key %q wrapped for unknown recipient %s (not in recipients list)", f.Scope, key, id)
+			}
+			// Each SSH wrap is the 32-byte DEK sealed to the recipient — a single block
+			// of the recipient's key type (RSA modulus size, or an X25519 sealed box).
 			for i, chunk := range chunks {
 				raw, err := base64.StdEncoding.DecodeString(chunk)
 				if err != nil {
-					return errors.Wrapf(err, "scope %q key %q recipient %s wrap %d is not base64", f.Scope, key, fp, i)
+					return errors.Wrapf(err, "scope %q key %q recipient %s wrap %d is not base64", f.Scope, key, id, i)
 				}
 				if err := ciphers.ValidateCiphertextShape(pub, raw); err != nil {
-					return errors.Wrapf(err, "scope %q key %q recipient %s wrap %d", f.Scope, key, fp, i)
+					return errors.Wrapf(err, "scope %q key %q recipient %s wrap %d", f.Scope, key, id, i)
 				}
 			}
 		}

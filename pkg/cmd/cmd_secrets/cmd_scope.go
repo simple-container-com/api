@@ -136,7 +136,11 @@ func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set KEY [VALUE]",
 		Short: "Seal a value into a scope (VALUE from arg, or '-'/omitted reads stdin)",
-		Args:  cobra.RangeArgs(1, 2),
+		Long: "Seal a value into a scope. The value is taken from the VALUE argument, or " +
+			"read from stdin when VALUE is omitted or '-'. When read from stdin, a single " +
+			"trailing newline is stripped (the usual echo/heredoc artifact); pipe binary or " +
+			"exact-match data via the VALUE argument if that matters.",
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			value, err := readValueArg(cmd, args)
@@ -165,31 +169,40 @@ func newScopeGetCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
 		Use:   "get KEY",
-		Short: "Decrypt one scoped value with the ambient key",
+		Short: "Decrypt one scoped value with a scope key or ambient AWS (KMS) credentials",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := scoped.ValidateScopeName(s.scope); err != nil {
 				return err
 			}
-			pk, err := s.privateKey()
-			if err != nil {
-				return err
+			// An SSH key is optional: a KMS-recipient scope is opened via the ambient
+			// AWS credential chain (e.g. an OIDC role) with no private key at all.
+			pk, pkErr := s.privateKey()
+			var keys []string
+			if pkErr == nil && strings.TrimSpace(pk) != "" {
+				keys = append(keys, pk)
 			}
 			path := scoped.ScopeFilePath(s.scDir(), s.stack, s.scope)
 			f, err := scoped.LoadScopeFile(path)
 			if err != nil {
 				return err
 			}
-			val, err := f.Get(args[0], pk)
+			val, owned, err := f.Open(args[0], scoped.NewOpener(keys, true))
 			if err != nil {
 				return err
+			}
+			if !owned {
+				if pkErr != nil {
+					return errors.Wrapf(pkErr, "no SSH key and no KMS recipient could open %q in scope %q", args[0], s.scope)
+				}
+				return errors.Errorf("key is not a recipient of %q in scope %q (and no KMS recipient was openable)", args[0], s.scope)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), val)
 			return nil
 		},
 	}
 	s.addScopeStackFlags(cmd)
-	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to decrypt with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config)")
+	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to decrypt with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config / ambient AWS for KMS recipients)")
 	return cmd
 }
 
@@ -240,8 +253,8 @@ func newScopeDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 func newScopeAllowCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
-		Use:   "allow PUBKEY",
-		Short: "Add an SSH recipient to a scope (updates scopes.yaml and reseals its files)",
+		Use:   "allow RECIPIENT",
+		Short: "Add a recipient — SSH pubkey or awskms://<key>?region=<r> — to a scope (updates scopes.yaml and reseals its files)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return s.reconcileRecipients(cmd, args[0], true)
@@ -255,8 +268,8 @@ func newScopeAllowCmd(sCmd *secretsCmd) *cobra.Command {
 func newScopeDisallowCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
-		Use:   "disallow PUBKEY",
-		Short: "Remove an SSH recipient from a scope (reseals; prints rotate-values warning)",
+		Use:   "disallow RECIPIENT",
+		Short: "Remove a recipient — SSH pubkey or awskms:// URL — from a scope (reseals; prints rotate-values warning)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return s.reconcileRecipients(cmd, args[0], false)
@@ -322,7 +335,7 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 		path string
 	}
 	var pending []pendingSave
-	var pk string
+	var opener *scoped.Opener
 	for _, path := range files {
 		if scoped.ScopeNameFromFile(path) != s.scope {
 			continue
@@ -332,12 +345,18 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 			return lErr
 		}
 		if len(f.Values) > 0 {
-			if pk == "" {
-				if pk, err = s.privateKey(); err != nil {
-					return err
+			if opener == nil {
+				// Reseal decrypts current values first: build an Opener from any SSH key
+				// we have PLUS KMS (so a scope whose current recipient is a KMS key can
+				// still be resealed by an operator with kms:Decrypt). A missing SSH key is
+				// not fatal here — KMS may open it; Reencrypt fails closed if neither can.
+				var keys []string
+				if pk, kErr := s.privateKey(); kErr == nil && strings.TrimSpace(pk) != "" {
+					keys = append(keys, pk)
 				}
+				opener = scoped.NewOpener(keys, true)
 			}
-			if err := f.Reencrypt(recipients, pk); err != nil {
+			if err := f.Reencrypt(recipients, opener); err != nil {
 				return err
 			}
 		} else {
@@ -444,13 +463,16 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Report which scopes the ambient key can open",
+		Short: "Report which scopes the current key or AWS (KMS) credentials can open",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			pk, err := s.privateKey()
-			if err != nil {
-				return err
+			// SSH key is optional — a KMS recipient is opened via ambient AWS creds.
+			pk, pkErr := s.privateKey()
+			var keys []string
+			if pkErr == nil && strings.TrimSpace(pk) != "" {
+				keys = append(keys, pk)
 			}
+			opener := scoped.NewOpener(keys, true)
 			files, err := scoped.ListScopeFiles(s.scDir())
 			if err != nil {
 				return err
@@ -458,13 +480,15 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			for _, path := range files {
 				f, lErr := scoped.LoadScopeFile(path)
 				if lErr != nil {
-					fmt.Fprintf(cmd.OutOrStdout(), "?  %s (unreadable: %v)\n", filepath.Base(path), lErr)
+					fmt.Fprintf(cmd.OutOrStdout(), "?     scope=?  file=%s (unreadable: %v)\n", filepath.Base(path), lErr)
 					continue
 				}
 				status := "no"
 				if len(f.Keys()) == 0 {
 					status = "empty"
-				} else if _, gErr := f.Get(f.Keys()[0], pk); gErr == nil {
+				} else if _, owned, gErr := f.Open(f.Keys()[0], opener); gErr != nil {
+					status = "ERR"
+				} else if owned {
 					status = "YES"
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%-5s scope=%s  file=%s\n", status, f.Scope, filepath.Base(path))
@@ -472,7 +496,7 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to test with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config)")
+	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to test with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config / ambient AWS for KMS)")
 	return cmd
 }
 
@@ -486,5 +510,9 @@ func readValueArg(cmd *cobra.Command, args []string) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "failed to read value from stdin")
 	}
-	return strings.TrimRight(string(data), "\n"), nil
+	// Strip a SINGLE trailing newline — the usual `echo`/heredoc artifact — rather than
+	// all trailing newlines, so a value with intentional trailing newlines (e.g. a PEM
+	// key piped via `set KEY - < key.pem`) keeps all but the last. Also drop a trailing
+	// CR so a CRLF line ending (Windows / some editors) does not leave a stray \r.
+	return strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"), nil
 }

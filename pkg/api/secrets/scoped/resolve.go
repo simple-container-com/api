@@ -6,7 +6,6 @@ package scoped
 import (
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -17,6 +16,14 @@ import (
 // openable scopes (ambiguous). Callers that otherwise tolerate a missing legacy
 // secrets.yaml (IgnoreSecretsMissing) MUST still fail on errors.Is(err, this).
 var ErrScopedIntegrity = errors.New("scoped secret integrity error")
+
+// ErrScopedUnavailable tags a scoped-resolution failure caused by a transient
+// backend fault the caller IS entitled to but could not complete right now — e.g. a
+// KMS throttle/outage after SDK retries. It is fatal (a deploy must not proceed with
+// a secret it could not resolve) but distinct from ErrScopedIntegrity: it means
+// "retry", not "tamper". Like ErrScopedIntegrity it must survive IgnoreSecretsMissing
+// (see ReadStacks) — a transient outage is never "secrets simply absent".
+var ErrScopedUnavailable = errors.New("scoped secret temporarily unavailable")
 
 // ResolveScopedValues returns every scoped secret in stackDir (a
 // .sc/stacks/<stack> directory) that ANY of privateKeys is a recipient of. This is
@@ -66,21 +73,13 @@ func ResolveScopedValues(stackDir string, privateKeys []string) (map[string]stri
 		return out, nil // no scopes → do not even parse keys
 	}
 
-	// Map every usable candidate key's fingerprint to the key itself. Unparseable
-	// or empty candidates are skipped (a caller may pass several).
-	fpToKey := map[string]string{}
-	for _, pk := range privateKeys {
-		if strings.TrimSpace(pk) == "" {
-			continue
-		}
-		fp, _, ferr := privateKeyFingerprint(pk)
-		if ferr != nil {
-			continue
-		}
-		fpToKey[fp] = pk
-	}
-	if len(fpToKey) == 0 {
-		return out, nil // no usable key → nothing is openable
+	// The opener holds every usable candidate SSH key and permits KMS Decrypt via
+	// the ambient AWS credentials. KMS is only ever attempted for a value that has a
+	// KMS wrap slot AND that no held SSH key opened, so an SSH-only store never calls
+	// AWS. Unparseable/empty candidate keys are skipped (a caller may pass several).
+	op := NewOpener(privateKeys, true)
+	if !op.hasMaterial() {
+		return out, nil // nothing usable to open with
 	}
 
 	origin := map[string]string{} // key -> scope, to detect cross-scope duplicates
@@ -89,28 +88,51 @@ func ResolveScopedValues(stackDir string, privateKeys []string) (map[string]stri
 		if err != nil {
 			return nil, errors.Wrapf(ErrScopedIntegrity, "%v", err)
 		}
-		// Which candidate key (if any) is a recipient of this scope?
-		var openKey string
-		for _, r := range f.Recipients {
-			rfp, ferr := recipientFingerprint(r)
-			if ferr != nil {
+		keys := f.Keys()
+		// All values in a scope file share the same recipient set, so ownership is
+		// file-uniform. We are a recipient of this file if EITHER a held SSH key is a
+		// declared recipient (offline proof) OR some value opens (establishes KMS
+		// recipiency, which cannot be proven offline). Once we know we are a recipient,
+		// ANY value that fails to open is tampering (a stripped wrap) — including the
+		// FIRST value, so first-value tamper is never swallowed as "not my scope".
+		sshDeclared := op.IsDeclaredSSHRecipient(f.Recipients)
+		fileOwned := false
+		vals := make(map[string]string, len(keys))
+		for _, key := range keys {
+			val, owned, oerr := f.Open(key, op)
+			if oerr != nil {
+				if owned {
+					// We ARE a recipient of this value but it failed to open: tampered
+					// ciphertext, a broken (stack,scope,key) binding, or a wrong-key wrap.
+					return nil, errors.Wrapf(ErrScopedIntegrity, "scope %q: failed to open %q that this key/role is a recipient of (tampered ciphertext or broken binding?): %v", f.Scope, key, oerr)
+				}
+				// A transient/unavailable backend fault (e.g. a KMS throttle/outage) —
+				// fatal, but a retry, not tamper. Position-independent: it never masquerades
+				// as a stripped wrap regardless of which value hit it.
+				return nil, errors.Wrapf(ErrScopedUnavailable, "scope %q: could not open %q: %v", f.Scope, key, oerr)
+			}
+			if !owned {
+				if fileOwned || sshDeclared {
+					// We are provably a recipient (an earlier value opened, or a held SSH key
+					// is in the declared recipient set) yet this value has no wrap for us —
+					// its slot was stripped. Tamper, not least-privilege.
+					return nil, errors.Wrapf(ErrScopedIntegrity, "scope %q: value %q is missing this recipient's wrap (tampered?)", f.Scope, key)
+				}
+				break // not our scope
+			}
+			fileOwned = true
+			vals[key] = val
+		}
+		if !fileOwned {
+			continue
+		}
+		for _, key := range keys {
+			val, ok := vals[key]
+			if !ok {
 				continue
 			}
-			if k, ok := fpToKey[rfp]; ok {
-				openKey = k
-				break
-			}
-		}
-		if openKey == "" {
-			continue // not our scope
-		}
-		for _, key := range f.Keys() {
 			if prev, dup := origin[key]; dup {
 				return nil, errors.Wrapf(ErrScopedIntegrity, "secret %q is present in two openable scopes (%q and %q); resolution is ambiguous — run `sc secrets scope lint`", key, prev, f.Scope)
-			}
-			val, derr := f.Get(key, openKey)
-			if derr != nil {
-				return nil, errors.Wrapf(ErrScopedIntegrity, "scope %q: failed to decrypt %q that this key is a recipient of (tampered ciphertext?): %v", f.Scope, key, derr)
 			}
 			out[key] = val
 			origin[key] = f.Scope
