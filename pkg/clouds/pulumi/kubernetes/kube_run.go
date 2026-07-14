@@ -149,6 +149,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		ReadinessProbe: kubeRunInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  kubeRunInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
 		StartupProbe:   kubeRunInput.Deployment.StartupProbe,   // Pass global startup probe configuration
+		ServiceType:    kubeRunInput.Deployment.ServiceType,    // Pass Service type override (e.g. LoadBalancer for UDP)
 		EphemeralSize:  lo.FromPtr(kubeRunInput.Deployment.StackConfig).Size.Ephemeral,
 	}
 

@@ -67,7 +67,7 @@ func TestConvertComposeToContainers_FullMapping(t *testing.T) {
 	Expect(c.Command).To(Equal([]string{"/bin/entry"}))
 	Expect(c.Args).To(Equal([]string{"serve", "--port", "8080"}))
 	Expect(c.Env).To(HaveKeyWithValue("ENV", "prod"))
-	Expect(c.Ports).To(Equal([]int{8080}))
+	Expect(c.Ports).To(Equal(ContainerPorts(8080)))
 	Expect(c.ComposeDir).To(Equal("/work"))
 	Expect(c.Image.Context).To(Equal("./api"))
 	// Context set, dockerfile empty => defaults to "Dockerfile".
@@ -176,7 +176,7 @@ func TestFindIngressContainer(t *testing.T) {
 			},
 		}}
 		containers := []CloudRunContainer{
-			{Name: "web", Ports: []int{3000}},
+			{Name: "web", Ports: ContainerPorts(3000)},
 			{Name: "worker"},
 		}
 
@@ -199,7 +199,7 @@ func TestFindIngressContainer(t *testing.T) {
 				}},
 			},
 		}}
-		containers := []CloudRunContainer{{Name: "web", Ports: []int{3000}}}
+		containers := []CloudRunContainer{{Name: "web", Ports: ContainerPorts(3000)}}
 
 		ic, err := FindIngressContainer(composeCfg, containers)
 		Expect(err).ToNot(HaveOccurred())
@@ -218,7 +218,7 @@ func TestFindIngressContainer(t *testing.T) {
 				}},
 			},
 		}}
-		containers := []CloudRunContainer{{Name: "web", Ports: []int{3000}}}
+		containers := []CloudRunContainer{{Name: "web", Ports: ContainerPorts(3000)}}
 
 		ic, err := FindIngressContainer(composeCfg, containers)
 		Expect(err).ToNot(HaveOccurred())
@@ -251,7 +251,7 @@ func TestFindIngressContainer(t *testing.T) {
 		composeCfg := compose.Config{Project: &types.Project{
 			Services: []types.ServiceConfig{{Name: "solo"}},
 		}}
-		containers := []CloudRunContainer{{Name: "solo", Ports: []int{5000}}}
+		containers := []CloudRunContainer{{Name: "solo", Ports: ContainerPorts(5000)}}
 
 		ic, err := FindIngressContainer(composeCfg, containers)
 		Expect(err).ToNot(HaveOccurred())
@@ -267,8 +267,8 @@ func TestFindIngressContainer(t *testing.T) {
 			Services: []types.ServiceConfig{{Name: "a"}, {Name: "b"}},
 		}}
 		containers := []CloudRunContainer{
-			{Name: "a", Ports: []int{1000}},
-			{Name: "b", Ports: []int{2000}},
+			{Name: "a", Ports: ContainerPorts(1000)},
+			{Name: "b", Ports: ContainerPorts(2000)},
 		}
 
 		ic, err := FindIngressContainer(composeCfg, containers)
@@ -281,7 +281,7 @@ func TestFindIngressContainer(t *testing.T) {
 		composeCfg := compose.Config{Project: &types.Project{
 			Services: []types.ServiceConfig{{Name: "solo"}},
 		}}
-		containers := []CloudRunContainer{{Name: "solo", Ports: []int{5000, 6000}}}
+		containers := []CloudRunContainer{{Name: "solo", Ports: ContainerPorts(5000, 6000)}}
 
 		ic, err := FindIngressContainer(composeCfg, containers)
 		Expect(err).ToNot(HaveOccurred())

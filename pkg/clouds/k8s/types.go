@@ -30,12 +30,13 @@ type DeploymentConfig struct {
 	NodeSelector      map[string]string        `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity          *AffinityRules           `json:"affinity" yaml:"affinity"`
 	Tolerations       []Toleration             `json:"tolerations" yaml:"tolerations"`
-	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                             // Vertical Pod Autoscaler configuration
-	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`       // Global readiness probe configuration
-	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`         // Global liveness probe configuration
-	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`           // Global startup probe configuration
-	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
-	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+	VPA               *VPAConfig               `json:"vpa" yaml:"vpa"`                                     // Vertical Pod Autoscaler configuration
+	ReadinessProbe    *CloudRunProbe           `json:"readinessProbe" yaml:"readinessProbe"`               // Global readiness probe configuration
+	LivenessProbe     *CloudRunProbe           `json:"livenessProbe" yaml:"livenessProbe"`                 // Global liveness probe configuration
+	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`                   // Global startup probe configuration
+	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`           // Generic ephemeral volumes for large temp storage
+	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"`         // Kubernetes PriorityClass for pod scheduling and preemption
+	ServiceType       *string                  `json:"serviceType,omitempty" yaml:"serviceType,omitempty"` // Kubernetes Service type for the service (default: ClusterIP; LoadBalancer to expose UDP/non-HTTP ports directly)
 
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
 }
@@ -170,6 +171,23 @@ type ProbeHttpGet struct {
 	HTTPHeaders []HTTPHeader `json:"httpHeaders,omitempty" yaml:"httpHeaders,omitempty"`
 }
 
+// ContainerPort is a single exposed container port together with its L4
+// protocol. Protocol is the Kubernetes protocol name ("TCP" or "UDP"); an empty
+// value means the Kubernetes default (TCP) and is emitted as no protocol at all,
+// so ports without an explicit protocol stay byte-for-byte identical to before
+// protocol support was added.
+type ContainerPort struct {
+	Port     int    `json:"port" yaml:"port"`
+	Protocol string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
+}
+
+// ContainerPorts builds ContainerPort entries with the default (TCP) protocol.
+func ContainerPorts(ports ...int) []ContainerPort {
+	return lo.Map(ports, func(p int, _ int) ContainerPort {
+		return ContainerPort{Port: p}
+	})
+}
+
 type CloudRunContainer struct {
 	Name            string             `json:"name" yaml:"name"`
 	Command         []string           `json:"command" yaml:"command"`
@@ -177,7 +195,7 @@ type CloudRunContainer struct {
 	Image           api.ContainerImage `json:"image" yaml:"image"`
 	Env             map[string]string  `json:"env" yaml:"env"`
 	Secrets         map[string]string  `json:"secrets" yaml:"secrets"`
-	Ports           []int              `json:"ports" yaml:"ports"`
+	Ports           []ContainerPort    `json:"ports" yaml:"ports"`
 	MainPort        *int               `json:"mainPort" yaml:"mainPort"`
 	ReadinessProbe  *CloudRunProbe     `json:"readinessProbe" yaml:"readinessProbe"`
 	LivenessProbe   *CloudRunProbe     `json:"livenessProbe" yaml:"livenessProbe"`
@@ -490,7 +508,7 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 		if container.MainPort == nil && len(container.Ports) > 1 {
 			container.Warnings = append(container.Warnings, fmt.Sprintf("container %q has multiple ports and no main port specified", container.Name))
 		} else if len(container.Ports) > 0 {
-			container.MainPort = lo.ToPtr(container.Ports[0])
+			container.MainPort = lo.ToPtr(container.Ports[0].Port)
 		}
 		containers = append(containers, container)
 	}
@@ -514,7 +532,7 @@ func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContai
 	})
 	if !found && len(contaniers) == 1 && len(contaniers[0].Ports) == 1 {
 		iContainer = contaniers[0]
-		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0])
+		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0].Port)
 		found = true
 	}
 	if !found {
@@ -530,15 +548,29 @@ func FindIngressContainer(composeCfg compose.Config, contaniers []CloudRunContai
 		}
 	}
 	if iContainer.MainPort == nil && len(iContainer.Ports) == 1 {
-		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0])
+		iContainer.MainPort = lo.ToPtr(iContainer.Ports[0].Port)
 	}
 	return &iContainer, nil
 }
 
-func toRunPorts(ports []types.ServicePortConfig) []int {
-	return lo.Map(ports, func(p types.ServicePortConfig, _ int) int {
-		return int(p.Target)
+func toRunPorts(ports []types.ServicePortConfig) []ContainerPort {
+	return lo.Map(ports, func(p types.ServicePortConfig, _ int) ContainerPort {
+		return ContainerPort{
+			Port:     int(p.Target),
+			Protocol: normalizeComposeProtocol(p.Protocol),
+		}
 	})
+}
+
+// normalizeComposeProtocol maps a docker-compose port protocol ("tcp"/"udp"/"")
+// to the Kubernetes protocol stored on ContainerPort. TCP (the default) is
+// stored as an empty string so downstream resources omit the protocol field and
+// remain byte-for-byte identical to specs generated before UDP support.
+func normalizeComposeProtocol(proto string) string {
+	if strings.EqualFold(proto, "udp") {
+		return "UDP"
+	}
+	return ""
 }
 
 func toStartupProbe(check *types.HealthCheckConfig) *CloudRunProbe {

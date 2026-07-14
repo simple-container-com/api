@@ -128,15 +128,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				Value: sdk.String(containerEnvVars[k]),
 			})
 		}
-		var ports corev1.ContainerPortArray
-		var readinessProbe *corev1.ProbeArgs
-		for _, p := range c.Container.Ports {
-			portName := toPortName(p) // TODO: support non-http ports
-			ports = append(ports, corev1.ContainerPortArgs{
-				Name:          sdk.String(portName),
-				ContainerPort: sdk.Int(p),
-			})
-		}
+		ports := toContainerPorts(c.Container.Ports)
+
 		cReadyProbe := c.Container.ReadinessProbe
 		// Use global readiness probe if container doesn't have one AND it's the ingress container
 		// This prevents applying HTTP/TCP probes to worker containers that don't expose ports
@@ -145,26 +138,15 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			cReadyProbe = args.ReadinessProbe
 		}
 
-		if cReadyProbe == nil && len(c.Container.Ports) == 1 {
-			readinessProbe = &corev1.ProbeArgs{
-				TcpSocket: corev1.TCPSocketActionArgs{
-					Port: sdk.String(toPortName(c.Container.Ports[0])),
-				},
-				PeriodSeconds:       sdk.IntPtr(10),
-				InitialDelaySeconds: sdk.IntPtr(5),
-			}
-		} else if cReadyProbe == nil && c.Container.MainPort != nil {
-			readinessProbe = &corev1.ProbeArgs{
-				TcpSocket: corev1.TCPSocketActionArgs{
-					Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
-				},
-				PeriodSeconds:       sdk.IntPtr(10),
-				InitialDelaySeconds: sdk.IntPtr(5),
-			}
-		} else if cReadyProbe != nil {
+		var readinessProbe *corev1.ProbeArgs
+		if cReadyProbe != nil {
 			readinessProbe = toProbeArgs(c, cReadyProbe)
-		} else if len(c.Container.Ports) > 1 {
-			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
+		} else {
+			probe, probeErr := autoTCPReadinessProbe(c.Container)
+			if probeErr != nil {
+				return corev1.ContainerArgs{}, probeErr
+			}
+			readinessProbe = probe
 		}
 
 		// Handle liveness probe
@@ -333,7 +315,7 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 	} else if c.Container.MainPort != nil && *c.Container.MainPort > 0 {
 		probePort = *c.Container.MainPort
 	} else if len(c.Container.Ports) > 0 {
-		probePort = c.Container.Ports[0]
+		probePort = c.Container.Ports[0].Port
 	}
 
 	// periodSeconds (k8s-native) wins over the legacy duration-typed interval
@@ -380,4 +362,36 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 
 func toPortName(p int) string {
 	return fmt.Sprintf("http-%d", p)
+}
+
+func tcpSocketProbe(portName string) *corev1.ProbeArgs {
+	return &corev1.ProbeArgs{
+		TcpSocket: corev1.TCPSocketActionArgs{
+			Port: sdk.String(portName),
+		},
+		PeriodSeconds:       sdk.IntPtr(10),
+		InitialDelaySeconds: sdk.IntPtr(5),
+	}
+}
+
+// autoTCPReadinessProbe derives the default TCP readiness probe for a container
+// that has no explicit (or global ingress) probe configured. UDP-only ports
+// have no HTTP/TCP health surface, so no probe is attached to them.
+func autoTCPReadinessProbe(container k8s.CloudRunContainer) (*corev1.ProbeArgs, error) {
+	switch {
+	case len(container.Ports) == 1:
+		if isUDP(container.Ports[0].Protocol) {
+			return nil, nil
+		}
+		return tcpSocketProbe(toPortName(container.Ports[0].Port)), nil
+	case container.MainPort != nil:
+		if isUDP(portProtocol(container, *container.MainPort)) {
+			return nil, nil
+		}
+		return tcpSocketProbe(toPortName(*container.MainPort)), nil
+	case len(container.Ports) > 1:
+		return nil, errors.Errorf("container %q has multiple ports and no readiness probe specified", container.Name)
+	default:
+		return nil, nil
+	}
 }

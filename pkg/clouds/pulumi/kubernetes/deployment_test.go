@@ -27,7 +27,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -49,7 +49,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -73,7 +73,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -92,7 +92,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -112,7 +112,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -129,7 +129,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -150,7 +150,7 @@ func TestToProbeArgs_WithHeaders(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080},
+					Ports:    k8s.ContainerPorts(8080),
 					MainPort: lo.ToPtr(8080),
 				},
 			},
@@ -208,7 +208,7 @@ func TestToProbeArgs_PortResolution(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:  "test-container",
-					Ports: []int{8080, 9090},
+					Ports: k8s.ContainerPorts(8080, 9090),
 				},
 			},
 			probe: &k8s.CloudRunProbe{
@@ -224,7 +224,7 @@ func TestToProbeArgs_PortResolution(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:     "test-container",
-					Ports:    []int{8080, 9090},
+					Ports:    k8s.ContainerPorts(8080, 9090),
 					MainPort: lo.ToPtr(9090),
 				},
 			},
@@ -241,7 +241,7 @@ func TestToProbeArgs_PortResolution(t *testing.T) {
 			container: &ContainerImage{
 				Container: k8s.CloudRunContainer{
 					Name:  "test-container",
-					Ports: []int{8080, 9090},
+					Ports: k8s.ContainerPorts(8080, 9090),
 					// No MainPort set
 				},
 			},
@@ -277,7 +277,7 @@ func TestToProbeArgs_BackwardCompatibility(t *testing.T) {
 	container := &ContainerImage{
 		Container: k8s.CloudRunContainer{
 			Name:     "test-container",
-			Ports:    []int{8080},
+			Ports:    k8s.ContainerPorts(8080),
 			MainPort: lo.ToPtr(8080),
 		},
 	}
@@ -308,7 +308,7 @@ func TestToProbeArgs_HeaderPreservation(t *testing.T) {
 	container := &ContainerImage{
 		Container: k8s.CloudRunContainer{
 			Name:     "test-container",
-			Ports:    []int{8080},
+			Ports:    k8s.ContainerPorts(8080),
 			MainPort: lo.ToPtr(8080),
 		},
 	}
@@ -337,7 +337,7 @@ func TestToProbeArgs_PeriodSeconds(t *testing.T) {
 	container := &ContainerImage{
 		Container: k8s.CloudRunContainer{
 			Name:     "test-container",
-			Ports:    []int{8080},
+			Ports:    k8s.ContainerPorts(8080),
 			MainPort: lo.ToPtr(8080),
 		},
 	}

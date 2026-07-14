@@ -75,7 +75,7 @@ func TestSimpleContainer_ExtremelyLongNames(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -157,7 +157,7 @@ func TestSimpleContainer_SpecialCharactersInNames(t *testing.T) {
 
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "test-container",
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 						MainPort: lo.ToPtr(8080),
 					},
 					ServiceType: lo.ToPtr("ClusterIP"),
@@ -286,7 +286,7 @@ func TestSimpleContainer_ExtremeResourceValues(t *testing.T) {
 
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "resource-container",
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 						MainPort: lo.ToPtr(8080),
 					},
 					ServiceType: lo.ToPtr("ClusterIP"),
@@ -384,7 +384,7 @@ func TestSimpleContainer_ExtremeScalingValues(t *testing.T) {
 
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "test-container",
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 						MainPort: lo.ToPtr(8080),
 					},
 					ServiceType: lo.ToPtr("ClusterIP"),
@@ -485,7 +485,7 @@ func TestSimpleContainer_LargeVolumeConfiguration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "volume-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -544,7 +544,7 @@ func TestSimpleContainer_EmptyStringFields(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
