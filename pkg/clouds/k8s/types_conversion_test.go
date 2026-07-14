@@ -474,8 +474,15 @@ func TestToRunPorts(t *testing.T) {
 	RegisterTestingT(t)
 
 	ports := []types.ServicePortConfig{{Target: 8080}, {Target: 9090}}
-	Expect(toRunPorts(ports)).To(Equal([]int{8080, 9090}))
+	Expect(toRunPorts(ports)).To(Equal(ContainerPorts(8080, 9090)))
 	Expect(toRunPorts(nil)).To(BeEmpty())
+
+	// A UDP port keeps its protocol; TCP/unspecified ports normalise to "".
+	udpPorts := []types.ServicePortConfig{{Target: 7880}, {Target: 7882, Protocol: "udp"}}
+	Expect(toRunPorts(udpPorts)).To(Equal([]ContainerPort{
+		{Port: 7880},
+		{Port: 7882, Protocol: "UDP"},
+	}))
 }
 
 func TestToRunEnv(t *testing.T) {

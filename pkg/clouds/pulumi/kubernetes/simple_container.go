@@ -219,7 +219,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	if args.IngressContainer != nil && args.IngressContainer.MainPort != nil {
 		mainPort = args.IngressContainer.MainPort
 	} else if len(lo.FromPtr(args.IngressContainer).Ports) == 1 {
-		mainPort = lo.ToPtr(lo.FromPtr(args.IngressContainer).Ports[0])
+		mainPort = lo.ToPtr(lo.FromPtr(args.IngressContainer).Ports[0].Port)
 	}
 	if mainPort != nil {
 		appAnnotations[AnnotationPort] = strconv.Itoa(*mainPort)
@@ -829,12 +829,7 @@ ${proto}://${domain} {
 
 	servicePorts := corev1.ServicePortArray{}
 	if args.IngressContainer != nil {
-		for _, p := range lo.FromPtr(args.IngressContainer).Ports {
-			servicePorts = append(servicePorts, corev1.ServicePortArgs{
-				Name: sdk.String(toPortName(p)),
-				Port: sdk.Int(p),
-			})
-		}
+		servicePorts = toServicePorts(lo.FromPtr(args.IngressContainer).Ports)
 	}
 	// Build the Pulumi-input annotation map. The caddyfile-entry value, if
 	// any, is an Output that resolves the namespace placeholder against the

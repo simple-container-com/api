@@ -112,6 +112,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe         // Extract global liveness probe configuration
 		deployCfg.StartupProbe = k8sCloudExtras.StartupProbe           // Extract global startup probe configuration
 		deployCfg.PriorityClassName = k8sCloudExtras.PriorityClassName // Extract PriorityClass for pod scheduling and preemption
+		deployCfg.ServiceType = k8sCloudExtras.ServiceType             // Extract Service type override (e.g. LoadBalancer for UDP)
 		deployCfg.TopologySpreadConstraints = k8sCloudExtras.TopologySpreadConstraints
 
 		// Process affinity rules and merge with existing NodeSelector if needed

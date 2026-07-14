@@ -31,6 +31,10 @@ type CloudExtras struct {
 	StartupProbe      *CloudRunProbe           `json:"startupProbe" yaml:"startupProbe"`
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`   // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
+	// ServiceType overrides the Kubernetes Service type for the service itself (default: ClusterIP,
+	// fronted by the shared Caddy ingress). Set to "LoadBalancer" to expose the service's ports
+	// directly, which is required for non-HTTP protocols such as UDP that Caddy cannot proxy.
+	ServiceType *string `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`
 
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
 }
@@ -204,6 +208,7 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe         // Extract global liveness probe configuration
 		deployCfg.EphemeralVolumes = k8sCloudExtras.EphemeralVolumes   // Extract generic ephemeral volumes configuration
 		deployCfg.PriorityClassName = k8sCloudExtras.PriorityClassName // Extract PriorityClass for pod scheduling and preemption
+		deployCfg.ServiceType = k8sCloudExtras.ServiceType             // Extract Service type override (e.g. LoadBalancer for UDP)
 		deployCfg.TopologySpreadConstraints = k8sCloudExtras.TopologySpreadConstraints
 
 		// Process affinity rules and merge with existing NodeSelector if needed
