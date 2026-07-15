@@ -17,6 +17,36 @@ func isUDP(proto string) bool {
 	return strings.EqualFold(proto, "UDP")
 }
 
+// dedupePorts removes duplicate ports by port number, keeping the first
+// occurrence (callers pass ingress ports first so they win over ports
+// contributed by sibling containers).
+func dedupePorts(ports []k8s.ContainerPort) []k8s.ContainerPort {
+	seen := make(map[int]bool, len(ports))
+	result := make([]k8s.ContainerPort, 0, len(ports))
+	for _, p := range ports {
+		if seen[p.Port] {
+			continue
+		}
+		seen[p.Port] = true
+		result = append(result, p)
+	}
+	return result
+}
+
+// hasMixedProtocols reports whether the port set contains both a TCP (default)
+// and a UDP port, i.e. it would produce a mixed-protocol Service.
+func hasMixedProtocols(ports []k8s.ContainerPort) bool {
+	var tcp, udp bool
+	for _, p := range ports {
+		if isUDP(p.Protocol) {
+			udp = true
+		} else {
+			tcp = true
+		}
+	}
+	return tcp && udp
+}
+
 // portProtocol returns the protocol declared for the given port number on the
 // container, or "" (TCP) when the port is not declared.
 func portProtocol(container k8s.CloudRunContainer, port int) string {

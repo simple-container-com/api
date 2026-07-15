@@ -210,6 +210,21 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	// Merge secret environment variables from Args with those from Deployment config
 	mergedSecretEnvs := lo.Assign(secretEnvs, args.SecretEnvs)
 
+	// Ports declared by non-ingress run containers, so the Service can publish
+	// them too (they share the pod's network namespace). Lets serviceType:
+	// LoadBalancer expose e.g. a self-hosted SFU sidecar's UDP media port.
+	ingressContainerName := ""
+	if args.Deployment.IngressContainer != nil {
+		ingressContainerName = args.Deployment.IngressContainer.Name
+	}
+	var extraServicePorts []k8s.ContainerPort
+	for _, c := range args.Images {
+		if c.Container.Name == ingressContainerName {
+			continue
+		}
+		extraServicePorts = append(extraServicePorts, c.Container.Ports...)
+	}
+
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
 		KubeProvider:              args.KubeProvider,
@@ -223,6 +238,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Deployment:                deploymentName,
 		ScEnv:                     stackEnv,
 		IngressContainer:          args.Deployment.IngressContainer,
+		ExtraServicePorts:         extraServicePorts,
 		Domain:                    lo.FromPtr(args.Deployment.StackConfig).Domain,
 		Prefix:                    lo.FromPtr(args.Deployment.StackConfig).Prefix,
 		ProxyKeepPrefix:           lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
