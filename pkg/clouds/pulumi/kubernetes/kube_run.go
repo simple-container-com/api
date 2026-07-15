@@ -143,14 +143,15 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
-		NodeSelector:   nodeSelector,
-		Affinity:       kubeRunInput.Deployment.Affinity,
-		VPA:            kubeRunInput.Deployment.VPA,            // Pass VPA configuration from DeploymentConfig
-		ReadinessProbe: kubeRunInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
-		LivenessProbe:  kubeRunInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
-		StartupProbe:   kubeRunInput.Deployment.StartupProbe,   // Pass global startup probe configuration
-		ServiceType:    kubeRunInput.Deployment.ServiceType,    // Pass Service type override (e.g. LoadBalancer for UDP)
-		EphemeralSize:  lo.FromPtr(kubeRunInput.Deployment.StackConfig).Size.Ephemeral,
+		NodeSelector:          nodeSelector,
+		Affinity:              kubeRunInput.Deployment.Affinity,
+		VPA:                   kubeRunInput.Deployment.VPA,                   // Pass VPA configuration from DeploymentConfig
+		ReadinessProbe:        kubeRunInput.Deployment.ReadinessProbe,        // Pass global readiness probe configuration
+		LivenessProbe:         kubeRunInput.Deployment.LivenessProbe,         // Pass global liveness probe configuration
+		StartupProbe:          kubeRunInput.Deployment.StartupProbe,          // Pass global startup probe configuration
+		ServiceType:           kubeRunInput.Deployment.ServiceType,           // Pass Service type override (e.g. LoadBalancer for UDP)
+		ExternalTrafficPolicy: kubeRunInput.Deployment.ExternalTrafficPolicy, // e.g. Local, required for WebRTC return media
+		EphemeralSize:         lo.FromPtr(kubeRunInput.Deployment.StackConfig).Size.Ephemeral,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)

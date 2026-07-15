@@ -37,6 +37,10 @@ type DeploymentConfig struct {
 	EphemeralVolumes  []GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"`           // Generic ephemeral volumes for large temp storage
 	PriorityClassName *string                  `json:"priorityClassName" yaml:"priorityClassName"`         // Kubernetes PriorityClass for pod scheduling and preemption
 	ServiceType       *string                  `json:"serviceType,omitempty" yaml:"serviceType,omitempty"` // Kubernetes Service type for the service (default: ClusterIP; LoadBalancer to expose UDP/non-HTTP ports directly)
+	// ExternalTrafficPolicy for the service's LoadBalancer (default: Cluster). "Local" preserves
+	// the LB IP and client source IP on the return path — required for WebRTC media behind the LB
+	// (Cluster SNATs to a node IP, which clients reject: dtls timeout).
+	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
 }
