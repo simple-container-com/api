@@ -47,7 +47,7 @@ func createBasicTestArgs() *SimpleContainerArgs {
 		NodeSelector: map[string]string{},
 		IngressContainer: &k8s.CloudRunContainer{
 			Name:     "test-container",
-			Ports:    []int{8080},
+			Ports:    k8s.ContainerPorts(8080),
 			MainPort: lo.ToPtr(8080),
 		},
 		ServiceType:       lo.ToPtr("ClusterIP"),

@@ -193,6 +193,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		ReadinessProbe: gkeAutopilotInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
 		LivenessProbe:  gkeAutopilotInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
 		StartupProbe:   gkeAutopilotInput.Deployment.StartupProbe,   // Pass global startup probe configuration
+		ServiceType:    gkeAutopilotInput.Deployment.ServiceType,    // Pass Service type override (e.g. LoadBalancer for UDP)
 		EphemeralSize:  ephemeralSize,
 	}
 

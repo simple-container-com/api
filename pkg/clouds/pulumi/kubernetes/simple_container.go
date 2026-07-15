@@ -44,6 +44,9 @@ const (
 	AnnotationPrefix         = "simple-container.com/prefix"
 	AnnotationPort           = "simple-container.com/port"
 	AnnotationEnv            = "simple-container.com/env"
+	// AnnotationGCPL4RBS opts a Service into GKE's RBS/NEG-based external NetLB,
+	// which (unlike the default target-pool NetLB) supports mixed TCP+UDP ports.
+	AnnotationGCPL4RBS = "cloud.google.com/l4-rbs"
 
 	// Standard Kubernetes labels - using hyphens instead of dots for GCP compatibility
 	// Kubernetes allows dots in label prefixes, but GCP labels do not
@@ -119,15 +122,20 @@ type SimpleContainerArgs struct {
 	PriorityClassName         *string                        `json:"priorityClassName" yaml:"priorityClassName"` // Kubernetes PriorityClass for pod scheduling and preemption
 	IngressContainer          *k8s.CloudRunContainer         `json:"ingressContainer" yaml:"ingressContainer"`
 	ServiceType               *string                        `json:"serviceType" yaml:"serviceType"`
-	ExternalTrafficPolicy     *string                        `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
-	ProvisionIngress          bool                           `json:"provisionIngress" yaml:"provisionIngress"`
-	Headers                   *k8s.Headers                   `json:"headers" yaml:"headers"`
-	Volumes                   []k8s.SimpleTextVolume         `json:"volumes" yaml:"volumes"`
-	SecretVolumes             []k8s.SimpleTextVolume         `json:"secretVolumes" yaml:"secretVolumes"`
-	PersistentVolumes         []k8s.PersistentVolume         `json:"persistentVolumes" yaml:"persistentVolumes"`
-	EphemeralVolumes          []k8s.GenericEphemeralVolume   `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
-	VPA                       *k8s.VPAConfig                 `json:"vpa" yaml:"vpa"`
-	Scale                     *k8s.Scale                     `json:"scale" yaml:"scale"`
+	// ExtraServicePorts are ports declared by non-ingress run containers. They
+	// share the pod's network namespace, so publishing them on the Service (which
+	// selects the pod) exposes them too — e.g. a self-hosted SFU's UDP media port
+	// in a sidecar alongside the HTTP ingress container.
+	ExtraServicePorts     []k8s.ContainerPort          `json:"extraServicePorts" yaml:"extraServicePorts"`
+	ExternalTrafficPolicy *string                      `json:"externalTrafficPolicy" yaml:"externalTrafficPolicy"`
+	ProvisionIngress      bool                         `json:"provisionIngress" yaml:"provisionIngress"`
+	Headers               *k8s.Headers                 `json:"headers" yaml:"headers"`
+	Volumes               []k8s.SimpleTextVolume       `json:"volumes" yaml:"volumes"`
+	SecretVolumes         []k8s.SimpleTextVolume       `json:"secretVolumes" yaml:"secretVolumes"`
+	PersistentVolumes     []k8s.PersistentVolume       `json:"persistentVolumes" yaml:"persistentVolumes"`
+	EphemeralVolumes      []k8s.GenericEphemeralVolume `json:"ephemeralVolumes" yaml:"ephemeralVolumes"` // Generic ephemeral volumes for large temp storage
+	VPA                   *k8s.VPAConfig               `json:"vpa" yaml:"vpa"`
+	Scale                 *k8s.Scale                   `json:"scale" yaml:"scale"`
 
 	Log logger.Logger
 	// ...
@@ -219,7 +227,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 	if args.IngressContainer != nil && args.IngressContainer.MainPort != nil {
 		mainPort = args.IngressContainer.MainPort
 	} else if len(lo.FromPtr(args.IngressContainer).Ports) == 1 {
-		mainPort = lo.ToPtr(lo.FromPtr(args.IngressContainer).Ports[0])
+		mainPort = lo.ToPtr(lo.FromPtr(args.IngressContainer).Ports[0].Port)
 	}
 	if mainPort != nil {
 		appAnnotations[AnnotationPort] = strconv.Itoa(*mainPort)
@@ -827,14 +835,21 @@ ${proto}://${domain} {
 		serviceAnnotations[AnnotationCaddyfileEntry] = caddyfileEntry
 	}
 
-	servicePorts := corev1.ServicePortArray{}
-	if args.IngressContainer != nil {
-		for _, p := range lo.FromPtr(args.IngressContainer).Ports {
-			servicePorts = append(servicePorts, corev1.ServicePortArgs{
-				Name: sdk.String(toPortName(p)),
-				Port: sdk.Int(p),
-			})
-		}
+	// Publish the ingress container's ports plus any extra ports declared by
+	// sibling run containers (same pod / shared network namespace), so a
+	// non-ingress service (e.g. a self-hosted SFU) can be exposed on the same
+	// Service. Ingress ports come first so they win on a port-number clash.
+	svcPortSpecs := append([]k8s.ContainerPort{}, lo.FromPtr(args.IngressContainer).Ports...)
+	svcPortSpecs = append(svcPortSpecs, args.ExtraServicePorts...)
+	svcPortSpecs = dedupePorts(svcPortSpecs)
+	servicePorts := toServicePorts(svcPortSpecs)
+
+	// GKE's default target-pool NetLB rejects a Service mixing TCP and UDP
+	// (LoadBalancerMixedProtocolNotSupported); its RBS/NEG-based NetLB supports
+	// it. Opt in only when we actually emit a mixed-protocol LoadBalancer, so one
+	// external IP fronts both TCP signaling and UDP media.
+	if lo.FromPtr(args.ServiceType) == "LoadBalancer" && hasMixedProtocols(svcPortSpecs) {
+		serviceAnnotations[AnnotationGCPL4RBS] = "enabled"
 	}
 	// Build the Pulumi-input annotation map. The caddyfile-entry value, if
 	// any, is an Output that resolves the namespace placeholder against the
@@ -849,7 +864,7 @@ ${proto}://${domain} {
 		serviceAnnotationsInput[AnnotationCaddyfileEntry] = caddyfileEntryAnnotation
 	}
 	var service *corev1.Service
-	if len(lo.FromPtr(args.IngressContainer).Ports) > 0 {
+	if len(svcPortSpecs) > 0 {
 		service, err = corev1.NewService(ctx, sanitizedService, &corev1.ServiceArgs{
 			Metadata: &metav1.ObjectMetaArgs{
 				Name:        sdk.String(sanitizedService),
