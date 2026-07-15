@@ -35,6 +35,11 @@ type CloudExtras struct {
 	// fronted by the shared Caddy ingress). Set to "LoadBalancer" to expose the service's ports
 	// directly, which is required for non-HTTP protocols such as UDP that Caddy cannot proxy.
 	ServiceType *string `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`
+	// ExternalTrafficPolicy sets the LoadBalancer Service's externalTrafficPolicy. "Local" is
+	// required for WebRTC media behind the LB: it preserves the LB IP (and the client source IP)
+	// on the return path, so clients accept the SFU's downlink. The default ("Cluster") SNATs to
+	// a node IP, which WebRTC rejects (dtls timeout, call drops).
+	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
 }
@@ -203,12 +208,13 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.RollingUpdate = k8sCloudExtras.RollingUpdate
 		deployCfg.DisruptionBudget = k8sCloudExtras.DisruptionBudget
 		deployCfg.NodeSelector = k8sCloudExtras.NodeSelector
-		deployCfg.VPA = k8sCloudExtras.VPA                             // Extract VPA configuration from CloudExtras
-		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe       // Extract global readiness probe configuration
-		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe         // Extract global liveness probe configuration
-		deployCfg.EphemeralVolumes = k8sCloudExtras.EphemeralVolumes   // Extract generic ephemeral volumes configuration
-		deployCfg.PriorityClassName = k8sCloudExtras.PriorityClassName // Extract PriorityClass for pod scheduling and preemption
-		deployCfg.ServiceType = k8sCloudExtras.ServiceType             // Extract Service type override (e.g. LoadBalancer for UDP)
+		deployCfg.VPA = k8sCloudExtras.VPA                                     // Extract VPA configuration from CloudExtras
+		deployCfg.ReadinessProbe = k8sCloudExtras.ReadinessProbe               // Extract global readiness probe configuration
+		deployCfg.LivenessProbe = k8sCloudExtras.LivenessProbe                 // Extract global liveness probe configuration
+		deployCfg.EphemeralVolumes = k8sCloudExtras.EphemeralVolumes           // Extract generic ephemeral volumes configuration
+		deployCfg.PriorityClassName = k8sCloudExtras.PriorityClassName         // Extract PriorityClass for pod scheduling and preemption
+		deployCfg.ServiceType = k8sCloudExtras.ServiceType                     // Extract Service type override (e.g. LoadBalancer for UDP)
+		deployCfg.ExternalTrafficPolicy = k8sCloudExtras.ExternalTrafficPolicy // e.g. Local, required for WebRTC return media
 		deployCfg.TopologySpreadConstraints = k8sCloudExtras.TopologySpreadConstraints
 
 		// Process affinity rules and merge with existing NodeSelector if needed
