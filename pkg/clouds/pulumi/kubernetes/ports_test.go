@@ -48,6 +48,32 @@ func livekitPorts() []k8s.ContainerPort {
 	}
 }
 
+func TestDedupePorts(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Duplicate port numbers are dropped; the first occurrence wins.
+	out := dedupePorts([]k8s.ContainerPort{
+		{Port: 3000},
+		{Port: 7880},
+		{Port: 7880, Protocol: "UDP"}, // dup port number -> dropped
+		{Port: 7882, Protocol: "UDP"},
+	})
+	Expect(out).To(HaveLen(3))
+	Expect(out[0].Port).To(Equal(3000))
+	Expect(out[1].Port).To(Equal(7880))
+	Expect(out[1].Protocol).To(Equal("")) // first (TCP) kept over the later UDP dup
+	Expect(out[2].Port).To(Equal(7882))
+}
+
+func TestHasMixedProtocols(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(hasMixedProtocols(nil)).To(BeFalse())
+	Expect(hasMixedProtocols([]k8s.ContainerPort{{Port: 80}, {Port: 443}})).To(BeFalse())
+	Expect(hasMixedProtocols([]k8s.ContainerPort{{Port: 7882, Protocol: "UDP"}})).To(BeFalse())
+	Expect(hasMixedProtocols([]k8s.ContainerPort{{Port: 7880}, {Port: 7882, Protocol: "UDP"}})).To(BeTrue())
+}
+
 func TestToContainerPorts_ThreadsProtocol(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -177,6 +203,55 @@ func TestSimpleContainer_UDPLoadBalancer(t *testing.T) {
 		Expect(err).ToNot(HaveOccurred(), "mixed-protocol LoadBalancer container should be created successfully")
 		Expect(sc).ToNot(BeNil())
 		Expect(sc.Service).ToNot(BeNil(), "a Service must be provisioned for the exposed ports")
+		return nil
+	}, pulumi.WithMocks("project", "stack", mocks))
+
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func TestSimpleContainer_ExtraServicePorts_NonIngressUDP(t *testing.T) {
+	RegisterTestingT(t)
+
+	mocks := NewSimpleContainerMocks()
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		args := &SimpleContainerArgs{
+			Namespace:  "voice-test",
+			Service:    "voice",
+			ScEnv:      "test",
+			Deployment: "voice-deployment",
+			Replicas:   1,
+			Log:        logger.New(),
+
+			// The HTTP backend is the ingress container (TCP only).
+			IngressContainer: &k8s.CloudRunContainer{
+				Name:     "backend",
+				Ports:    []k8s.ContainerPort{{Port: 3000}},
+				MainPort: lo.ToPtr(3000),
+			},
+			ServiceType: lo.ToPtr("LoadBalancer"),
+			// The SFU sidecar's ports (incl. UDP media) come from a non-ingress
+			// container and must still land on the Service.
+			ExtraServicePorts: livekitPorts(),
+
+			Containers: []corev1.ContainerArgs{
+				{
+					Name:  sdk.String("backend"),
+					Image: sdk.String("backend:latest"),
+					Ports: toContainerPorts([]k8s.ContainerPort{{Port: 3000}}),
+				},
+				{
+					Name:  sdk.String("livekit"),
+					Image: sdk.String("livekit/livekit-server:latest"),
+					Ports: toContainerPorts(livekitPorts()),
+				},
+			},
+		}
+
+		sc, err := NewSimpleContainer(ctx, args)
+		Expect(err).ToNot(HaveOccurred(), "a Service mixing the ingress TCP port and a sidecar's UDP port should be created")
+		Expect(sc).ToNot(BeNil())
+		Expect(sc.Service).ToNot(BeNil(), "the non-ingress UDP port must still produce a Service")
 		return nil
 	}, pulumi.WithMocks("project", "stack", mocks))
 
