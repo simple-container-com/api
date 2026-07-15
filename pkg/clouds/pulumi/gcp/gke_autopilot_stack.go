@@ -186,15 +186,16 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		Annotations: map[string]string{
 			"pulumi.com/patchForce": "true",
 		},
-		NodeSelector:   gkeAutopilotInput.Deployment.NodeSelector,
-		Affinity:       gkeAutopilotInput.Deployment.Affinity,
-		Tolerations:    gkeAutopilotInput.Deployment.Tolerations,
-		VPA:            gkeAutopilotInput.Deployment.VPA,            // Pass VPA configuration to Kubernetes deployment
-		ReadinessProbe: gkeAutopilotInput.Deployment.ReadinessProbe, // Pass global readiness probe configuration
-		LivenessProbe:  gkeAutopilotInput.Deployment.LivenessProbe,  // Pass global liveness probe configuration
-		StartupProbe:   gkeAutopilotInput.Deployment.StartupProbe,   // Pass global startup probe configuration
-		ServiceType:    gkeAutopilotInput.Deployment.ServiceType,    // Pass Service type override (e.g. LoadBalancer for UDP)
-		EphemeralSize:  ephemeralSize,
+		NodeSelector:          gkeAutopilotInput.Deployment.NodeSelector,
+		Affinity:              gkeAutopilotInput.Deployment.Affinity,
+		Tolerations:           gkeAutopilotInput.Deployment.Tolerations,
+		VPA:                   gkeAutopilotInput.Deployment.VPA,                   // Pass VPA configuration to Kubernetes deployment
+		ReadinessProbe:        gkeAutopilotInput.Deployment.ReadinessProbe,        // Pass global readiness probe configuration
+		LivenessProbe:         gkeAutopilotInput.Deployment.LivenessProbe,         // Pass global liveness probe configuration
+		StartupProbe:          gkeAutopilotInput.Deployment.StartupProbe,          // Pass global startup probe configuration
+		ServiceType:           gkeAutopilotInput.Deployment.ServiceType,           // Pass Service type override (e.g. LoadBalancer for UDP)
+		ExternalTrafficPolicy: gkeAutopilotInput.Deployment.ExternalTrafficPolicy, // e.g. Local, required for WebRTC return media on Autopilot
+		EphemeralSize:         ephemeralSize,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
