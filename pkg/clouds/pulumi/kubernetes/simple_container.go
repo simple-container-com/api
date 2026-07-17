@@ -706,6 +706,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			caddyfileEntryTemplate = `
 ${proto}://${domain} {
   reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
+    request_buffers ${requestBuffers}
     header_down Server nginx ${addHeaders}
     import handle_server_error
     ${extraHelpers}
@@ -717,6 +718,7 @@ ${proto}://${domain} {
 			caddyfileEntryTemplate = `
   handle_path /${prefix}* {${additionalProxyConfig}
     reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
+      request_buffers ${requestBuffers}
       header_down Server nginx ${addHeaders}
       import handle_server_error
       ${extraHelpers}
@@ -762,6 +764,15 @@ ${proto}://${domain} {
 		if helpers := lo.FromPtr(args.LbConfig).SiteExtraHelpers; len(helpers) > 0 {
 			siteExtraHelpersStr = "\n  " + strings.Join(helpers, "\n  ")
 		}
+		// Buffer request bodies so upstreams receive Content-Length instead of
+		// Transfer-Encoding: chunked — WSGI apps (Django #28668) read an empty
+		// body on chunked requests: webhook 500s, HMAC signature failures over
+		// the empty body, lost CSRF tokens. 1MiB covers webhook/API/form bodies;
+		// larger bodies keep streaming exactly as before.
+		requestBuffersStr := "1MiB"
+		if v := lo.FromPtr(lo.FromPtr(args.LbConfig).RequestBufferSize); v != "" {
+			requestBuffersStr = v
+		}
 		placeholdersMap := placeholders.MapData{
 			"proto":            lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
 			"domain":           args.Domain,
@@ -773,6 +784,7 @@ ${proto}://${domain} {
 			"extraHelpers":     strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
 			"imports":          strings.Join(imports, "\n    "),
 			"siteExtraHelpers": siteExtraHelpersStr,
+			"requestBuffers":   requestBuffersStr,
 		}
 		if args.ProxyKeepPrefix {
 			placeholdersMap["additionalProxyConfig"] = fmt.Sprintf("\n    rewrite * /%s{uri}", args.Prefix)

@@ -760,3 +760,47 @@ func TestNewSimpleContainer_MinimalConfiguration(t *testing.T) {
 
 	Expect(err).ToNot(HaveOccurred(), "Test should complete without errors")
 }
+
+// request_buffers Rendering Tests
+//
+// Regression coverage: without request buffering
+// Caddy forwards chunked request bodies as-is, and WSGI upstreams (Django,
+// django ticket #28668) read an empty request.body — webhook 500s, HMAC
+// signature failures over the empty body, "lost" CSRF tokens. The rendered
+// reverse_proxy block must always carry request_buffers so bodies up to the
+// buffer size reach upstreams with Content-Length.
+
+func TestCaddyfileEntry_RequestBuffersDefault(t *testing.T) {
+	RegisterTestingT(t)
+
+	entry := caddyfileEntryFor(t, createBasicTestArgs())
+
+	Expect(entry).To(ContainSubstring("request_buffers 1MiB"))
+}
+
+func TestCaddyfileEntry_RequestBuffersOverride(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.LbConfig = &api.SimpleContainerLBConfig{
+		RequestBufferSize: lo.ToPtr("4MiB"),
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	Expect(entry).To(ContainSubstring("request_buffers 4MiB"))
+	Expect(entry).ToNot(ContainSubstring("request_buffers 1MiB"))
+}
+
+func TestCaddyfileEntry_RequestBuffersDisabled(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.LbConfig = &api.SimpleContainerLBConfig{
+		RequestBufferSize: lo.ToPtr("0"),
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	Expect(entry).To(ContainSubstring("request_buffers 0"))
+}

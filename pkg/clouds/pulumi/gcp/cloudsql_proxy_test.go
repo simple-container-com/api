@@ -139,3 +139,20 @@ func TestAttachCloudsqlProxyAsNativeSidecar_LandsInInitContainers(t *testing.T) 
 	assert.Empty(t, kubeArgs.SidecarOutputs, "proxy must NOT land in regular containers")
 	assert.Len(t, kubeArgs.VolumeOutputs, 1, "credential secret volume must ride along")
 }
+
+// 3s readiness timeouts on a 50m-CPU sidecar can flap pods out of Service
+// endpoints during Autopilot node consolidation (sidecar readiness
+// gates pod readiness, KEP-753). Generous timeout + bigger CPU request keep
+// transient starvation from dropping the whole pod out of rotation.
+func TestCloudsqlProxyContainerArgs_ReadinessTolerantToStarvation(t *testing.T) {
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", 0)
+
+	rp := c.ReadinessProbe.(*v1.ProbeArgs)
+	assert.Equal(t, sdk.IntPtr(10), rp.TimeoutSeconds)
+	assert.Equal(t, sdk.IntPtr(10), rp.PeriodSeconds)
+	assert.Equal(t, sdk.IntPtr(3), rp.FailureThreshold)
+
+	res := c.Resources.(*v1.ResourceRequirementsArgs)
+	req := res.Requests.(sdk.StringMap)
+	assert.Equal(t, sdk.String("100m"), req["cpu"])
+}

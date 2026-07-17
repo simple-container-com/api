@@ -168,6 +168,12 @@ type SimpleContainerLBConfig struct {
 	// what's accepted at each scope; mis-placing a directive yields a
 	// Caddyfile parse error at reload time.
 	SiteExtraHelpers []string `json:"siteExtraHelpers" yaml:"siteExtraHelpers"`
+	// RequestBufferSize sets `request_buffers` on the generated reverse_proxy
+	// block. Bodies up to this size are buffered so the upstream receives
+	// Content-Length instead of Transfer-Encoding: chunked — WSGI frameworks
+	// (Django #28668) read an empty body on chunked requests. Bodies larger
+	// than the buffer keep streaming as before. Default "1MiB"; "0" disables.
+	RequestBufferSize *string `json:"requestBufferSize" yaml:"requestBufferSize"`
 }
 
 type StackConfigCompose struct {
