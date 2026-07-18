@@ -228,6 +228,8 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 			Path: sdk.String("/startup"),
 			Port: sdk.String("csql-hc"),
 		},
+		// Startup keeps the tight 3s timeout deliberately: nothing is connected
+		// yet, and the 30-failure budget already absorbs slow cold starts.
 		PeriodSeconds:    sdk.IntPtr(2),
 		TimeoutSeconds:   sdk.IntPtr(3),
 		FailureThreshold: sdk.IntPtr(30),
@@ -235,7 +237,8 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 	// Sidecar readiness GATES POD READINESS (KEP-753): three consecutive
 	// failures drop the whole pod from Service endpoints. timeout 10s (was 3s):
 	// with a 50m-CPU-request sidecar the health server starves under node
-	// pressure and 3s timeouts flap pods out of rotation; combined with
+	// pressure (observed at the previous 50m request) and 3s timeouts flap
+	// pods out of rotation; combined with
 	// Autopilot node consolidation this can leave a Service with zero ready
 	// pods.
 	// /readiness stays (unlike /liveness it verifies instance connectivity
@@ -259,8 +262,13 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 			Path: sdk.String("/liveness"),
 			Port: sdk.String("csql-hc"),
 		},
-		PeriodSeconds:    sdk.IntPtr(10),
-		TimeoutSeconds:   sdk.IntPtr(3),
+		PeriodSeconds: sdk.IntPtr(10),
+		// Same 10s budget as readiness: /liveness is served by the same health
+		// server, and under the exact starvation the readiness change tolerates,
+		// a 3s liveness timeout would RESTART the sidecar (dropping every live
+		// DB connection) — strictly worse than an endpoint drop. A genuinely
+		// hung process still fails a 10s timeout, so deadlock recovery holds.
+		TimeoutSeconds:   sdk.IntPtr(10),
 		FailureThreshold: sdk.IntPtr(3),
 	}
 	return container

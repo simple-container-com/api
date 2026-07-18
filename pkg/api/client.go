@@ -168,12 +168,20 @@ type SimpleContainerLBConfig struct {
 	// what's accepted at each scope; mis-placing a directive yields a
 	// Caddyfile parse error at reload time.
 	SiteExtraHelpers []string `json:"siteExtraHelpers" yaml:"siteExtraHelpers"`
-	// RequestBufferSize sets `request_buffers` on the generated reverse_proxy
-	// block. Bodies up to this size are buffered so the upstream receives
-	// Content-Length instead of Transfer-Encoding: chunked — WSGI frameworks
-	// (Django #28668) read an empty body on chunked requests. Bodies larger
-	// than the buffer keep streaming as before. Default "1MiB"; "0" disables.
-	RequestBufferSize *string `json:"requestBufferSize" yaml:"requestBufferSize"`
+	// RequestBufferSize controls the `request_buffers` directive on the
+	// generated reverse_proxy block. Bodies up to this size are buffered so
+	// the upstream receives Content-Length instead of Transfer-Encoding:
+	// chunked — WSGI frameworks (Django #28668) read an empty body on chunked
+	// requests. The value is parsed as a byte size (humanize: "512KB",
+	// "4MiB"), validated (max 16MiB — the buffer is held in edge-proxy memory
+	// per in-flight request), and rendered as a plain byte count, so no
+	// user-controlled text reaches the shared Caddyfile. "0" omits the
+	// directive entirely (also the escape hatch for edges running Caddy
+	// < 2.6.0, which predates request_buffers). Unset/empty = default 1MiB.
+	// Chunked bodies LARGER than the buffer still reach the upstream chunked
+	// and remain subject to Django #28668 — raise the size for endpoints
+	// receiving large chunked uploads.
+	RequestBufferSize string `json:"requestBufferSize,omitempty" yaml:"requestBufferSize,omitempty"`
 }
 
 type StackConfigCompose struct {

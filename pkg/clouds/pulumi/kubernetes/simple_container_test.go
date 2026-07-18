@@ -763,44 +763,107 @@ func TestNewSimpleContainer_MinimalConfiguration(t *testing.T) {
 
 // request_buffers Rendering Tests
 //
-// Regression coverage: without request buffering
-// Caddy forwards chunked request bodies as-is, and WSGI upstreams (Django,
-// django ticket #28668) read an empty request.body — webhook 500s, HMAC
-// signature failures over the empty body, "lost" CSRF tokens. The rendered
-// reverse_proxy block must always carry request_buffers so bodies up to the
-// buffer size reach upstreams with Content-Length.
+// Regression coverage: without request buffering Caddy forwards chunked
+// request bodies as-is and WSGI upstreams (Django #28668) read an empty
+// request.body. The rendered reverse_proxy block must carry request_buffers
+// (as a pure byte count — user input must never reach the shared Caddyfile
+// verbatim), and "0" must omit the directive entirely.
 
 func TestCaddyfileEntry_RequestBuffersDefault(t *testing.T) {
 	RegisterTestingT(t)
 
 	entry := caddyfileEntryFor(t, createBasicTestArgs())
 
-	Expect(entry).To(ContainSubstring("request_buffers 1MiB"))
+	Expect(entry).To(MatchRegexp(`(?m)reverse_proxy [^{]+\{\n\s+request_buffers 1048576$`),
+		"default 1MiB must render as a byte count on the first line inside reverse_proxy, got:\n%s", entry)
 }
 
-func TestCaddyfileEntry_RequestBuffersOverride(t *testing.T) {
+func TestCaddyfileEntry_RequestBuffersDefaultWithLbConfigSet(t *testing.T) {
 	RegisterTestingT(t)
 
+	// The dominant consumer shape: lbConfig present (extraHelpers), size unset.
 	args := createBasicTestArgs()
 	args.LbConfig = &api.SimpleContainerLBConfig{
-		RequestBufferSize: lo.ToPtr("4MiB"),
+		ExtraHelpers: []string{"lb_retries 2"},
 	}
 
 	entry := caddyfileEntryFor(t, args)
 
-	Expect(entry).To(ContainSubstring("request_buffers 4MiB"))
-	Expect(entry).ToNot(ContainSubstring("request_buffers 1MiB"))
+	Expect(entry).To(MatchRegexp(`(?m)^\s+request_buffers 1048576$`))
 }
 
-func TestCaddyfileEntry_RequestBuffersDisabled(t *testing.T) {
+func TestCaddyfileEntry_RequestBuffersOnPrefixTemplate(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.Domain = ""
+	args.Prefix = "api"
+
+	entry := caddyfileEntryFor(t, args)
+
+	Expect(entry).To(MatchRegexp(`(?m)reverse_proxy [^{]+\{\n\s+request_buffers 1048576$`),
+		"the handle_path template variant must buffer too, got:\n%s", entry)
+}
+
+func TestCaddyfileEntry_RequestBuffersOverrideNormalized(t *testing.T) {
 	RegisterTestingT(t)
 
 	args := createBasicTestArgs()
 	args.LbConfig = &api.SimpleContainerLBConfig{
-		RequestBufferSize: lo.ToPtr("0"),
+		RequestBufferSize: "4MiB",
 	}
 
 	entry := caddyfileEntryFor(t, args)
 
-	Expect(entry).To(ContainSubstring("request_buffers 0"))
+	Expect(entry).To(MatchRegexp(`(?m)^\s+request_buffers 4194304$`))
+	Expect(entry).ToNot(ContainSubstring("request_buffers 1048576"))
+	Expect(entry).ToNot(ContainSubstring("4MiB"), "user text must not reach the Caddyfile")
+}
+
+func TestCaddyfileEntry_RequestBuffersZeroOmitsDirective(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.LbConfig = &api.SimpleContainerLBConfig{
+		RequestBufferSize: "0",
+	}
+
+	entry := caddyfileEntryFor(t, args)
+
+	Expect(entry).ToNot(ContainSubstring("request_buffers"),
+		"\"0\" is the escape hatch for pre-2.6.0 Caddy: the directive must be absent, got:\n%s", entry)
+}
+
+// caddyfileEntryErrFor mirrors caddyfileEntryFor for the error path.
+func caddyfileEntryErrFor(t *testing.T, args *SimpleContainerArgs) error {
+	t.Helper()
+	mocks := NewSimpleContainerMocks()
+	return pulumi.RunErr(func(ctx *pulumi.Context) error {
+		_, err := NewSimpleContainer(ctx, args)
+		return err
+	}, pulumi.WithMocks("project", "stack", mocks))
+}
+
+func TestCaddyfileEntry_RequestBuffersInvalidValueFailsDeploy(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, bad := range []string{"10potatoes", "1MiB\nrespond 403", "-1"} {
+		args := createBasicTestArgs()
+		args.LbConfig = &api.SimpleContainerLBConfig{RequestBufferSize: bad}
+		err := caddyfileEntryErrFor(t, args)
+		Expect(err).To(HaveOccurred(), "value %q must fail the offending stack's deploy, not reach the shared Caddyfile", bad)
+		Expect(err.Error()).To(ContainSubstring("requestBufferSize"))
+	}
+}
+
+func TestCaddyfileEntry_RequestBuffersCapEnforced(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := createBasicTestArgs()
+	args.LbConfig = &api.SimpleContainerLBConfig{RequestBufferSize: "32MiB"}
+
+	err := caddyfileEntryErrFor(t, args)
+
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("cap"))
 }

@@ -144,13 +144,23 @@ func TestAttachCloudsqlProxyAsNativeSidecar_LandsInInitContainers(t *testing.T) 
 // endpoints during Autopilot node consolidation (sidecar readiness
 // gates pod readiness, KEP-753). Generous timeout + bigger CPU request keep
 // transient starvation from dropping the whole pod out of rotation.
-func TestCloudsqlProxyContainerArgs_ReadinessTolerantToStarvation(t *testing.T) {
+func TestCloudsqlProxyContainerArgs_ProbesTolerantToStarvation(t *testing.T) {
 	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", 0)
 
 	rp := c.ReadinessProbe.(*v1.ProbeArgs)
 	assert.Equal(t, sdk.IntPtr(10), rp.TimeoutSeconds)
 	assert.Equal(t, sdk.IntPtr(10), rp.PeriodSeconds)
 	assert.Equal(t, sdk.IntPtr(3), rp.FailureThreshold)
+
+	lp := c.LivenessProbe.(*v1.ProbeArgs)
+	assert.Equal(t, sdk.IntPtr(10), lp.TimeoutSeconds, "liveness shares the starved health server; 3s would restart the sidecar under the exact pressure readiness now tolerates")
+	assert.Equal(t, sdk.IntPtr(10), lp.PeriodSeconds)
+	assert.Equal(t, sdk.IntPtr(3), lp.FailureThreshold)
+
+	sp := c.StartupProbe.(*v1.ProbeArgs)
+	assert.Equal(t, sdk.IntPtr(2), sp.PeriodSeconds)
+	assert.Equal(t, sdk.IntPtr(3), sp.TimeoutSeconds, "startup stays tight deliberately: nothing is connected yet")
+	assert.Equal(t, sdk.IntPtr(30), sp.FailureThreshold)
 
 	res := c.Resources.(*v1.ResourceRequirementsArgs)
 	req := res.Requests.(sdk.StringMap)
