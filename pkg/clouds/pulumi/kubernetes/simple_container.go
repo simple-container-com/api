@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -37,6 +38,13 @@ var Caddyconfig embed.FS
 
 const (
 	AppTypeSimpleContainer = "simple-container"
+
+	// defaultRequestBufferBytes is the default reverse_proxy request_buffers
+	// size (see api.SimpleContainerLBConfig.RequestBufferSize for the contract);
+	// maxRequestBufferBytes caps per-stack overrides because the buffer is held
+	// in shared-edge memory per in-flight request.
+	defaultRequestBufferBytes = 1 << 20  // 1MiB
+	maxRequestBufferBytes     = 16 << 20 // 16MiB
 
 	AnnotationCaddyfileEntry = "simple-container.com/caddyfile-entry"
 	AnnotationParentStack    = "simple-container.com/parent-stack"
@@ -705,7 +713,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			// e.g. a catch-all `respond` directive emitted earlier.
 			caddyfileEntryTemplate = `
 ${proto}://${domain} {
-  reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
+  reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {${requestBuffers}
     header_down Server nginx ${addHeaders}
     import handle_server_error
     ${extraHelpers}
@@ -716,7 +724,7 @@ ${proto}://${domain} {
 		} else if args.Prefix != "" {
 			caddyfileEntryTemplate = `
   handle_path /${prefix}* {${additionalProxyConfig}
-    reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {
+    reverse_proxy http://${service}.${namespace}.svc.cluster.local:${port} {${requestBuffers}
       header_down Server nginx ${addHeaders}
       import handle_server_error
       ${extraHelpers}
@@ -762,17 +770,46 @@ ${proto}://${domain} {
 		if helpers := lo.FromPtr(args.LbConfig).SiteExtraHelpers; len(helpers) > 0 {
 			siteExtraHelpersStr = "\n  " + strings.Join(helpers, "\n  ")
 		}
+		// Buffer request bodies so upstreams receive Content-Length instead of
+		// Transfer-Encoding: chunked — WSGI apps (Django #28668) read an empty
+		// body on chunked requests (see api.SimpleContainerLBConfig.RequestBufferSize
+		// for the full contract). The placeholder carries the WHOLE directive
+		// line: user input is parsed and re-rendered as a byte count so nothing
+		// user-controlled reaches the shared Caddyfile, and a parsed 0 omits
+		// the line entirely (escape hatch for pre-2.6.0 Caddy images).
+		lbc := lo.FromPtr(args.LbConfig)
+		requestBufferBytes := uint64(defaultRequestBufferBytes)
+		if v := lbc.RequestBufferSize; v != "" {
+			n, err := humanize.ParseBytes(v)
+			if err != nil {
+				return nil, errors.Wrapf(err, "invalid lbConfig.requestBufferSize %q", v)
+			}
+			if n > maxRequestBufferBytes {
+				return nil, errors.Errorf("lbConfig.requestBufferSize %q exceeds the %s cap (buffered in shared edge memory per in-flight request)", v, humanize.IBytes(maxRequestBufferBytes))
+			}
+			requestBufferBytes = n
+		}
+		requestBuffersStr := ""
+		if requestBufferBytes > 0 {
+			requestBuffersStr = fmt.Sprintf("\n    request_buffers %d", requestBufferBytes)
+		}
+		for _, h := range lbc.ExtraHelpers {
+			if strings.Contains(h, "request_buffers") {
+				args.Log.Warn(ctx.Context(), "lbConfig.extraHelpers contains a request_buffers directive; it overrides requestBufferSize (Caddy last-wins) — drop the workaround and use lbConfig.requestBufferSize")
+			}
+		}
 		placeholdersMap := placeholders.MapData{
-			"proto":            lo.If(lo.FromPtr(args.LbConfig).Https, "https").Else("http"),
+			"proto":            lo.If(lbc.Https, "https").Else("http"),
 			"domain":           args.Domain,
 			"prefix":           args.Prefix,
 			"service":          sanitizedService,
 			"namespace":        sanitizedNamespace,
 			"port":             strconv.Itoa(lo.FromPtr(mainPort)),
 			"addHeaders":       addHeadersStr,
-			"extraHelpers":     strings.Join(lo.FromPtr(args.LbConfig).ExtraHelpers, "\n    "),
+			"extraHelpers":     strings.Join(lbc.ExtraHelpers, "\n    "),
 			"imports":          strings.Join(imports, "\n    "),
 			"siteExtraHelpers": siteExtraHelpersStr,
+			"requestBuffers":   requestBuffersStr,
 		}
 		if args.ProxyKeepPrefix {
 			placeholdersMap["additionalProxyConfig"] = fmt.Sprintf("\n    rewrite * /%s{uri}", args.Prefix)
