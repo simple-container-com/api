@@ -95,7 +95,7 @@ func TestNewSimpleContainer_WithParentEnv(t *testing.T) {
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     tt.serviceName,
 						MainPort: lo.ToPtr(8080),
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 					},
 					GenerateCaddyfileEntry: false,
 					KubeProvider:           nil,
@@ -155,7 +155,7 @@ func TestNewSimpleContainer_WithHPAAndParentEnv(t *testing.T) {
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "api",
 				MainPort: lo.ToPtr(8080),
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				Resources: &k8s.Resources{
 					Requests: map[string]string{
 						"cpu":    "100m",
@@ -216,7 +216,7 @@ func TestNewSimpleContainer_WithVPAAndParentEnv(t *testing.T) {
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "web",
 				MainPort: lo.ToPtr(8080),
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 			},
 			VPA: &k8s.VPAConfig{
 				Enabled:    true,
@@ -280,7 +280,7 @@ func TestNewSimpleContainer_MultipleCustomStacks(t *testing.T) {
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "api",
 						MainPort: lo.ToPtr(8080),
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 					},
 					GenerateCaddyfileEntry: false,
 					KubeProvider:           nil,
