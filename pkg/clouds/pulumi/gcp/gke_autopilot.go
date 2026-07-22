@@ -558,8 +558,8 @@ type natPortSettings struct {
 // so an unset or nil config reproduces the prior behaviour exactly.
 func resolveNatPortSettings(cfg *gcloud.ExternalEgressIpConfig) natPortSettings {
 	s := natPortSettings{
-		minPortsPerVm:              64,
-		maxPortsPerVm:              65536,
+		minPortsPerVm:              gcloud.DefaultMinPortsPerVm,
+		maxPortsPerVm:              gcloud.DefaultMaxPortsPerVm,
 		endpointIndependentMapping: true,
 		dynamicPortAllocation:      false,
 	}
@@ -577,6 +577,11 @@ func resolveNatPortSettings(cfg *gcloud.ExternalEgressIpConfig) natPortSettings 
 	}
 	if cfg.DynamicPortAllocation != nil {
 		s.dynamicPortAllocation = *cfg.DynamicPortAllocation
+	}
+	// GCP rejects dynamic port allocation with endpoint-independent mapping on;
+	// keep the resolved settings self-consistent regardless of validation order.
+	if s.dynamicPortAllocation {
+		s.endpointIndependentMapping = false
 	}
 	return s
 }
@@ -613,9 +618,8 @@ func createCloudNat(
 		NatIps:              natIps,                    // Our static IP address
 
 		// Port allocation - defaults preserve prior behaviour; tunable via egress config
-		MinPortsPerVm:               sdk.Int(ports.minPortsPerVm),
-		MaxPortsPerVm:               sdk.Int(ports.maxPortsPerVm),
-		EnableDynamicPortAllocation: sdk.Bool(ports.dynamicPortAllocation),
+		MinPortsPerVm: sdk.Int(ports.minPortsPerVm),
+		MaxPortsPerVm: sdk.Int(ports.maxPortsPerVm),
 
 		// Logging configuration - errors only for cost optimization
 		LogConfig: &compute.RouterNatLogConfigArgs{
@@ -624,6 +628,13 @@ func createCloudNat(
 		},
 
 		EnableEndpointIndependentMapping: sdk.Bool(ports.endpointIndependentMapping),
+	}
+
+	// Only send EnableDynamicPortAllocation when enabling it: the historical
+	// default path left the field unset, so keep it absent to avoid a spurious
+	// resource update on existing NATs.
+	if ports.dynamicPortAllocation {
+		natArgs.EnableDynamicPortAllocation = sdk.Bool(true)
 	}
 
 	// Configure NAT to target ALL IP ranges (primary + secondary) for GKE pods

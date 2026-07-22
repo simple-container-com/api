@@ -29,16 +29,8 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
 
-	if pgCfg.AvailabilityType != nil {
-		if *pgCfg.AvailabilityType != "ZONAL" && *pgCfg.AvailabilityType != "REGIONAL" {
-			return nil, errors.Errorf("availabilityType must be ZONAL or REGIONAL, got %q", *pgCfg.AvailabilityType)
-		}
-	}
-
-	// Disabling the public IP without a private network would leave the instance
-	// unreachable by the cloud-sql-proxy.
-	if pgCfg.PublicIpEnabled != nil && !*pgCfg.PublicIpEnabled && pgCfg.PrivateNetwork == nil {
-		return nil, errors.New("publicIpEnabled: false requires privateNetwork to be set")
+	if err := pgCfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	// Handle resource adoption - exit early if adopting
@@ -88,6 +80,9 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
+		if pgCfg.HasPrivateNetwork() {
+			return nil, errors.Wrapf(err, "failed to provision postgres instance %q (privateNetwork requires a Private Services Access range and servicenetworking connection on the VPC)", postgresName)
+		}
 		return nil, errors.Wrapf(err, "failed to provision postgres instance %q", postgresName)
 	}
 
@@ -117,17 +112,19 @@ func backupConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseI
 	return args
 }
 
-// ipConfiguration returns IP settings only when one of requireSsl, privateNetwork
-// or publicIpEnabled is explicitly set. When all are nil it returns nil so Pulumi
-// leaves existing IP configuration unchanged. Uses SslMode (Pulumi GCP SDK v8)
-// instead of deprecated RequireSsl. Ipv4Enabled defaults to true to avoid wiping
-// existing authorized networks unless publicIpEnabled is explicitly false.
+// ipConfiguration returns IP settings only when they must actually be managed:
+// requireSsl set, a private network set, or the public IP explicitly disabled.
+// When none apply it returns nil so Pulumi leaves existing IP configuration
+// (and any out-of-band authorized networks) untouched — in particular
+// publicIpEnabled:true stays a no-op since public IPv4 is already the default.
+// Uses SslMode (Pulumi GCP SDK v8) instead of deprecated RequireSsl.
 func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsIpConfigurationArgs {
-	if pgCfg.RequireSsl == nil && pgCfg.PrivateNetwork == nil && pgCfg.PublicIpEnabled == nil {
+	publicEnabled := pgCfg.PublicIpEnabled == nil || *pgCfg.PublicIpEnabled
+	if pgCfg.RequireSsl == nil && !pgCfg.HasPrivateNetwork() && publicEnabled {
 		return nil
 	}
 	args := &sql.DatabaseInstanceSettingsIpConfigurationArgs{
-		Ipv4Enabled: sdk.Bool(pgCfg.PublicIpEnabled == nil || *pgCfg.PublicIpEnabled),
+		Ipv4Enabled: sdk.Bool(publicEnabled),
 	}
 	if pgCfg.RequireSsl != nil {
 		sslMode := "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
@@ -136,7 +133,7 @@ func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInsta
 		}
 		args.SslMode = sdk.String(sslMode)
 	}
-	if pgCfg.PrivateNetwork != nil {
+	if pgCfg.HasPrivateNetwork() {
 		args.PrivateNetwork = sdk.String(*pgCfg.PrivateNetwork)
 	}
 	return args

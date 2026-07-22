@@ -53,6 +53,20 @@ func TestCloudsqlProxyCommandArgs_PrivateIp(t *testing.T) {
 	assert.Contains(t, initArgs[1], "--private-ip", "init-Job proxy must also dial the private IP")
 }
 
+// The container-args builder must thread privateIp into the rendered Args — a bug
+// dropping it in the delegation to cloudsqlProxyCommandArgs would pass the
+// command-args test above but ship a public-dialing sidecar.
+func TestCloudsqlProxyContainerArgs_PrivateIpThreaded(t *testing.T) {
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", true, 0)
+	args, ok := c.Args.(sdk.StringArray)
+	require.True(t, ok, "Args should be a pulumi.StringArray")
+	assert.Contains(t, args, sdk.StringInput(sdk.String("--private-ip")), "container args must carry --private-ip when privateIp=true")
+
+	cNoPriv := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 0)
+	argsNoPriv := cNoPriv.Args.(sdk.StringArray)
+	assert.NotContains(t, argsNoPriv, sdk.StringInput(sdk.String("--private-ip")))
+}
+
 // The init-Job proxy runs in a RestartPolicy: Never pod; it must self-terminate or the
 // Job never completes. It must stay shell-wrapped and must NOT enable the health server.
 func TestCloudsqlProxyCommandArgs_InitJobSelfKills(t *testing.T) {
