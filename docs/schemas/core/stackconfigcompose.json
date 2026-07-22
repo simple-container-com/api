@@ -350,6 +350,9 @@
           "https": {
             "type": "boolean"
           },
+          "requestBufferSize": {
+            "type": "string"
+          },
           "siteExtraHelpers": {
             "items": {
               "type": "string"
