@@ -284,6 +284,7 @@ func createCloudsqlProxy(ctx *sdk.Context, params appendParams, namespaceOutput 
 		GcpProvider:  params.gcpProvider,
 		KubeProvider: params.kubeProvider,
 		Metadata:     cloudsqlProxyMetaFromOutput(namespaceOutput, cloudsqlProxyName, params),
+		PrivateIp:    params.config.PrivateNetwork != nil,
 	})
 	if err != nil {
 		return nil, err
@@ -379,6 +380,7 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			KubeProvider: params.kubeProvider,
 			TimeoutSec:   MaxInitSQLTimeSec,
 			Metadata:     cloudsqlProxyMetaFromOutput(namespaceOutput, cloudsqlProxyName, params),
+			PrivateIp:    params.config.PrivateNetwork != nil,
 		}, sdk.DependsOn([]sdk.Resource{sc}))
 		if err != nil {
 			return errors.Wrapf(err, "failed to init cloudsql proxy")

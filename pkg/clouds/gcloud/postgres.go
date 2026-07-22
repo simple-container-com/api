@@ -34,6 +34,16 @@ type PostgresGcpCloudsqlConfig struct {
 	AvailabilityType *string `json:"availabilityType,omitempty" yaml:"availabilityType,omitempty"` // ZONAL or REGIONAL
 	// SSL
 	RequireSsl *bool `json:"requireSsl,omitempty" yaml:"requireSsl,omitempty"`
+	// Private IP: when set to a VPC network resource path
+	// (projects/{project}/global/networks/{vpc}) the instance is given a
+	// private IP on that network and the in-cluster cloud-sql-proxy dials it
+	// via --private-ip instead of the public endpoint. Requires Private
+	// Services Access (a servicenetworking peering range) on the VPC.
+	PrivateNetwork *string `json:"privateNetwork,omitempty" yaml:"privateNetwork,omitempty"`
+	// PublicIpEnabled toggles the instance's public IPv4 address (default true
+	// to preserve existing authorized networks). Set false only once every
+	// consumer reaches the instance over private IP.
+	PublicIpEnabled *bool `json:"publicIpEnabled,omitempty" yaml:"publicIpEnabled,omitempty"`
 	// Resource adoption fields
 	Adopt          bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
 	InstanceName   string `json:"instanceName,omitempty" yaml:"instanceName,omitempty"`

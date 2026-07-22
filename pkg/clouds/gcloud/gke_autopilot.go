@@ -48,6 +48,23 @@ type Timeouts struct {
 type ExternalEgressIpConfig struct {
 	Enabled  bool   `json:"enabled" yaml:"enabled"`
 	Existing string `json:"existing,omitempty" yaml:"existing,omitempty"`
+
+	// Cloud NAT port/mapping tuning. All optional; when unset the previous
+	// defaults are preserved (64 min ports, endpoint-independent mapping on,
+	// dynamic port allocation off), so existing clusters are unaffected until
+	// they opt in. Raising the port budget and enabling dynamic port
+	// allocation avoids source-port exhaustion for pods that open many
+	// concurrent outbound connections (dropped SYNs surface downstream as
+	// dial i/o timeouts).
+	MinPortsPerVm *int `json:"minPortsPerVm,omitempty" yaml:"minPortsPerVm,omitempty"`
+	MaxPortsPerVm *int `json:"maxPortsPerVm,omitempty" yaml:"maxPortsPerVm,omitempty"`
+	// DynamicPortAllocation lets a VM scale its NAT ports between min and max
+	// on demand. GCP requires endpoint-independent mapping to be off when it is
+	// enabled, and both port bounds to be powers of two.
+	DynamicPortAllocation *bool `json:"dynamicPortAllocation,omitempty" yaml:"dynamicPortAllocation,omitempty"`
+	// EndpointIndependentMapping toggles NAT EIM (default true). Must be false
+	// to use dynamic port allocation.
+	EndpointIndependentMapping *bool `json:"endpointIndependentMapping,omitempty" yaml:"endpointIndependentMapping,omitempty"`
 }
 
 type GkeAutopilotTemplate struct {
@@ -194,5 +211,33 @@ func (c *ExternalEgressIpConfig) Validate() error {
 		}
 	}
 
+	if c.MinPortsPerVm != nil && (*c.MinPortsPerVm < 2 || *c.MinPortsPerVm > 65536) {
+		return errors.Errorf("minPortsPerVm must be between 2 and 65536, got %d", *c.MinPortsPerVm)
+	}
+	if c.MaxPortsPerVm != nil && (*c.MaxPortsPerVm < 2 || *c.MaxPortsPerVm > 65536) {
+		return errors.Errorf("maxPortsPerVm must be between 2 and 65536, got %d", *c.MaxPortsPerVm)
+	}
+	if c.MinPortsPerVm != nil && c.MaxPortsPerVm != nil && *c.MaxPortsPerVm < *c.MinPortsPerVm {
+		return errors.Errorf("maxPortsPerVm (%d) must be >= minPortsPerVm (%d)", *c.MaxPortsPerVm, *c.MinPortsPerVm)
+	}
+
+	if c.DynamicPortAllocation != nil && *c.DynamicPortAllocation {
+		// GCP rejects dynamic port allocation together with endpoint-independent
+		// mapping, and requires both port bounds to be powers of two.
+		if c.EndpointIndependentMapping == nil || *c.EndpointIndependentMapping {
+			return errors.New("dynamicPortAllocation requires endpointIndependentMapping: false")
+		}
+		if c.MinPortsPerVm != nil && !isPowerOfTwo(*c.MinPortsPerVm) {
+			return errors.Errorf("minPortsPerVm must be a power of two when dynamicPortAllocation is enabled, got %d", *c.MinPortsPerVm)
+		}
+		if c.MaxPortsPerVm != nil && !isPowerOfTwo(*c.MaxPortsPerVm) {
+			return errors.Errorf("maxPortsPerVm must be a power of two when dynamicPortAllocation is enabled, got %d", *c.MaxPortsPerVm)
+		}
+	}
+
 	return nil
+}
+
+func isPowerOfTwo(n int) bool {
+	return n > 0 && n&(n-1) == 0
 }
