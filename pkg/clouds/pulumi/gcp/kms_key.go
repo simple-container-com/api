@@ -12,7 +12,6 @@ import (
 	"google.golang.org/api/serviceusage/v1"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/kms"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -54,7 +53,10 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 
 	// Create a new CryptoKey associated with the KeyRing.
-	rotationPeriod := lo.If(kmsInput.KeyRotationPeriod == "", "100000s").Else(kmsInput.KeyRotationPeriod)
+	if err := kmsInput.ValidateKeyRotationPeriod(); err != nil {
+		return nil, err
+	}
+	rotationPeriod := kmsInput.EffectiveKeyRotationPeriod()
 
 	key, err := kms.NewCryptoKey(ctx, input.ToResName(input.Descriptor.Name), &kms.CryptoKeyArgs{
 		Name:           sdk.String(input.Descriptor.Name),
