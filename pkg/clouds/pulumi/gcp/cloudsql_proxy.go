@@ -81,6 +81,9 @@ type CloudSQLProxyArgs struct {
 	KubeProvider *sdkK8s.Provider
 	Metadata     *metav1.ObjectMetaArgs
 	TimeoutSec   int
+	// PrivateIp makes the proxy dial the instance's private IP (--private-ip)
+	// instead of the public endpoint.
+	PrivateIp bool
 }
 
 type CloudSQLProxy struct {
@@ -112,7 +115,7 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 		return nil, err
 	}
 
-	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.TimeoutSec)
+	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.PrivateIp, args.TimeoutSec)
 
 	return &CloudSQLProxy{
 		ProxyContainer: proxyContainer,
@@ -127,28 +130,33 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 // backs the startup probe that gates the app containers.
 const cloudSQLProxyHealthPort = 9090
 
-func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, timeout int) sdk.Output {
+func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, privateIp bool, timeout int) sdk.Output {
 	return sdk.All(credsSecret.Metadata.Name(), dbInstance.Project, dbInstance.Region, dbInstance.InstanceName).ApplyT(func(all []interface{}) v1.ContainerArgs {
 		secretName := all[0].(*string)
 		project := all[1].(string)
 		region := all[2].(string)
 		instanceName := all[3].(string)
-		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, timeout)
+		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, privateIp, timeout)
 	}).(v1.ContainerOutput)
 }
 
 // cloudsqlProxyCommandArgs returns the proxy entrypoint. timeout == 0 is the long-lived
 // runtime proxy (with its health server enabled); timeout > 0 is the init-Job proxy,
 // shell-wrapped to self-kill after `timeout`s so a RestartPolicy: Never Job can complete.
-func cloudsqlProxyCommandArgs(project, region, instanceName string, timeout int) (string, []string) {
+func cloudsqlProxyCommandArgs(project, region, instanceName string, privateIp bool, timeout int) (string, []string) {
 	command := "/cloud-sql-proxy"
 	args := []string{
 		"--address",
 		"0.0.0.0",
 		"--structured-logs",
+	}
+	if privateIp {
+		args = append(args, "--private-ip")
+	}
+	args = append(args,
 		"--credentials-file=/var/run/secrets/cloudsql/credentials.json",
 		fmt.Sprintf("%s:%s:%s", project, region, instanceName),
-	}
+	)
 
 	if timeout > 0 {
 		return "sh", []string{
@@ -180,8 +188,8 @@ func cloudsqlProxyCommandArgs(project, region, instanceName string, timeout int)
 // timeout == 0 yields a native sidecar (RestartPolicy: Always + startup probe) so the app
 // containers don't start before the proxy is listening. timeout > 0 (init-Job) stays an
 // ordinary terminating container -- it must NOT be a native sidecar or the Job would hang.
-func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, timeout int) v1.ContainerArgs {
-	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, timeout)
+func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, privateIp bool, timeout int) v1.ContainerArgs {
+	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, privateIp, timeout)
 
 	container := v1.ContainerArgs{
 		Name:    sdk.String("cloudsql-proxy"),

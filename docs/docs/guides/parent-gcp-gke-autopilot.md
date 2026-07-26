@@ -207,6 +207,12 @@ resources:
             externalEgressIp:
               enabled: true               # Enables CloudNAT with static IP
               # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Optional: use existing IP
+              # Cloud NAT port tuning (all optional; defaults: 64 min ports, EIM on, DPA off).
+              # Raise these when pods open many concurrent outbound connections and you see
+              # source-port exhaustion (dropped SYNs / dial i/o timeouts):
+              # minPortsPerVm: 1024
+              # dynamicPortAllocation: true      # requires endpointIndependentMapping: false
+              # endpointIndependentMapping: false
 ```
 
 ### **What Private VPC Does**
