@@ -29,10 +29,8 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
 
-	if pgCfg.AvailabilityType != nil {
-		if *pgCfg.AvailabilityType != "ZONAL" && *pgCfg.AvailabilityType != "REGIONAL" {
-			return nil, errors.Errorf("availabilityType must be ZONAL or REGIONAL, got %q", *pgCfg.AvailabilityType)
-		}
+	if err := pgCfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	// Handle resource adoption - exit early if adopting
@@ -82,6 +80,9 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
 	}, sdk.Provider(params.Provider))
 	if err != nil {
+		if pgCfg.HasPrivateNetwork() {
+			return nil, errors.Wrapf(err, "failed to provision postgres instance %q (privateNetwork requires a Private Services Access range and servicenetworking connection on the VPC)", postgresName)
+		}
 		return nil, errors.Wrapf(err, "failed to provision postgres instance %q", postgresName)
 	}
 
@@ -111,22 +112,31 @@ func backupConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseI
 	return args
 }
 
-// ipConfiguration returns IP settings only when requireSsl is explicitly set.
-// When nil, returns nil so Pulumi leaves existing IP configuration unchanged.
+// ipConfiguration returns IP settings only when they must actually be managed:
+// requireSsl set, a private network set, or the public IP explicitly disabled.
+// When none apply it returns nil so Pulumi leaves existing IP configuration
+// (and any out-of-band authorized networks) untouched — in particular
+// publicIpEnabled:true stays a no-op since public IPv4 is already the default.
 // Uses SslMode (Pulumi GCP SDK v8) instead of deprecated RequireSsl.
-// Preserves Ipv4Enabled=true to avoid wiping existing authorized networks.
 func ipConfiguration(pgCfg *gcloud.PostgresGcpCloudsqlConfig) *sql.DatabaseInstanceSettingsIpConfigurationArgs {
-	if pgCfg.RequireSsl == nil {
+	publicEnabled := pgCfg.PublicIpEnabled == nil || *pgCfg.PublicIpEnabled
+	if pgCfg.RequireSsl == nil && !pgCfg.HasPrivateNetwork() && publicEnabled {
 		return nil
 	}
-	sslMode := "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
-	if *pgCfg.RequireSsl {
-		sslMode = "ENCRYPTED_ONLY"
+	args := &sql.DatabaseInstanceSettingsIpConfigurationArgs{
+		Ipv4Enabled: sdk.Bool(publicEnabled),
 	}
-	return &sql.DatabaseInstanceSettingsIpConfigurationArgs{
-		Ipv4Enabled: sdk.Bool(true),
-		SslMode:     sdk.String(sslMode),
+	if pgCfg.RequireSsl != nil {
+		sslMode := "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+		if *pgCfg.RequireSsl {
+			sslMode = "ENCRYPTED_ONLY"
+		}
+		args.SslMode = sdk.String(sslMode)
 	}
+	if pgCfg.HasPrivateNetwork() {
+		args.PrivateNetwork = sdk.String(*pgCfg.PrivateNetwork)
+	}
+	return args
 }
 
 func toPostgresRootPasswordExport(resName string) string {

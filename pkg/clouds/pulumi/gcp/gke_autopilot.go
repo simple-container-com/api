@@ -471,7 +471,7 @@ func setupCloudNAT(
 	out.Router = router
 
 	// Step 3: Create Cloud NAT (configured for cluster's specific subnet)
-	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, subnetwork, opts, params)
+	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, subnetwork, gkeInput.ExternalEgressIp, opts, params)
 	if err != nil {
 		return errors.Wrap(err, "failed to create Cloud NAT")
 	}
@@ -545,6 +545,47 @@ func createCloudRouter(
 	}, opts...)
 }
 
+// natPortSettings holds the resolved Cloud NAT port/mapping configuration.
+type natPortSettings struct {
+	minPortsPerVm              int
+	maxPortsPerVm              int
+	endpointIndependentMapping bool
+	dynamicPortAllocation      bool
+}
+
+// resolveNatPortSettings applies the egress config over the historical defaults
+// (64 min ports, endpoint-independent mapping on, dynamic port allocation off),
+// so an unset or nil config reproduces the prior behaviour exactly.
+func resolveNatPortSettings(cfg *gcloud.ExternalEgressIpConfig) natPortSettings {
+	s := natPortSettings{
+		minPortsPerVm:              gcloud.DefaultMinPortsPerVm,
+		maxPortsPerVm:              gcloud.DefaultMaxPortsPerVm,
+		endpointIndependentMapping: true,
+		dynamicPortAllocation:      false,
+	}
+	if cfg == nil {
+		return s
+	}
+	if cfg.MinPortsPerVm != nil {
+		s.minPortsPerVm = *cfg.MinPortsPerVm
+	}
+	if cfg.MaxPortsPerVm != nil {
+		s.maxPortsPerVm = *cfg.MaxPortsPerVm
+	}
+	if cfg.EndpointIndependentMapping != nil {
+		s.endpointIndependentMapping = *cfg.EndpointIndependentMapping
+	}
+	if cfg.DynamicPortAllocation != nil {
+		s.dynamicPortAllocation = *cfg.DynamicPortAllocation
+	}
+	// GCP rejects dynamic port allocation with endpoint-independent mapping on;
+	// keep the resolved settings self-consistent regardless of validation order.
+	if s.dynamicPortAllocation {
+		s.endpointIndependentMapping = false
+	}
+	return s
+}
+
 // createCloudNat creates a Cloud NAT gateway
 func createCloudNat(
 	ctx *sdk.Context,
@@ -554,6 +595,7 @@ func createCloudNat(
 	region string,
 	cluster *container.Cluster,
 	subnetwork sdk.StringInput, // Optional: specific subnet for private VPC
+	egressCfg *gcloud.ExternalEgressIpConfig,
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
 ) (*compute.RouterNat, error) {
@@ -562,6 +604,8 @@ func createCloudNat(
 
 	// Create array of static IP references for NAT
 	natIps := sdk.StringArray{staticIp.SelfLink}
+
+	ports := resolveNatPortSettings(egressCfg)
 
 	// Configure NAT for specific GKE cluster subnet instead of all subnets
 	natArgs := &compute.RouterNatArgs{
@@ -573,9 +617,9 @@ func createCloudNat(
 		NatIpAllocateOption: sdk.String("MANUAL_ONLY"), // Use only the IPs we specify in NatIps
 		NatIps:              natIps,                    // Our static IP address
 
-		// Port allocation - production-ready defaults
-		MinPortsPerVm: sdk.Int(64),
-		MaxPortsPerVm: sdk.Int(65536),
+		// Port allocation - defaults preserve prior behaviour; tunable via egress config
+		MinPortsPerVm: sdk.Int(ports.minPortsPerVm),
+		MaxPortsPerVm: sdk.Int(ports.maxPortsPerVm),
 
 		// Logging configuration - errors only for cost optimization
 		LogConfig: &compute.RouterNatLogConfigArgs{
@@ -583,8 +627,14 @@ func createCloudNat(
 			Filter: sdk.String("ERRORS_ONLY"),
 		},
 
-		// Enable endpoint independent mapping for better performance
-		EnableEndpointIndependentMapping: sdk.Bool(true),
+		EnableEndpointIndependentMapping: sdk.Bool(ports.endpointIndependentMapping),
+	}
+
+	// Only send EnableDynamicPortAllocation when enabling it: the historical
+	// default path left the field unset, so keep it absent to avoid a spurious
+	// resource update on existing NATs.
+	if ports.dynamicPortAllocation {
+		natArgs.EnableDynamicPortAllocation = sdk.Bool(true)
 	}
 
 	// Configure NAT to target ALL IP ranges (primary + secondary) for GKE pods
@@ -631,7 +681,7 @@ func createCloudNat(
 	params.Log.Info(ctx.Context(), "   - IP Allocation: MANUAL_ONLY (using static IP %v)", staticIp.Name.ToStringOutput())
 	params.Log.Info(ctx.Context(), "   - Source Ranges: LIST_OF_SUBNETWORKS with ALL_IP_RANGES")
 	params.Log.Info(ctx.Context(), "   - Subnet: default (includes primary + secondary ranges)")
-	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM", 64, 65536)
+	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM (dynamic=%t, endpointIndependentMapping=%t)", ports.minPortsPerVm, ports.maxPortsPerVm, ports.dynamicPortAllocation, ports.endpointIndependentMapping)
 	params.Log.Info(ctx.Context(), "")
 	params.Log.Info(ctx.Context(), "🔍 Troubleshooting Steps if egress IP is still wrong:")
 	params.Log.Info(ctx.Context(), "   1. Check GCP Console → VPC Network → Cloud NAT")
