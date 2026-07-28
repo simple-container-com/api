@@ -28,6 +28,14 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 		return nil, errors.Errorf("failed to convert KmsKeyInput for %q", input.Descriptor.Type)
 	}
 
+	// Validate before any side effect. Enabling service APIs mutates the
+	// project, and a KeyRing can never be deleted in GCP (destroying the Pulumi
+	// resource only drops it from state), so failing later would leave a
+	// permanent, un-recreatable-by-name KeyRing behind for a mere typo.
+	if err := kmsInput.ValidateKeyRotationPeriod(); err != nil {
+		return nil, err
+	}
+
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config,
 		fmt.Sprintf("projects/%s/services/serviceusage.googleapis.com", kmsInput.ProjectId)); err != nil {
 		_, _ = os.Stderr.WriteString(color.RedFmt("service usage API seems to be disabled on project %q, "+
@@ -53,9 +61,6 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 
 	// Create a new CryptoKey associated with the KeyRing.
-	if err := kmsInput.ValidateKeyRotationPeriod(); err != nil {
-		return nil, err
-	}
 	rotationPeriod := kmsInput.EffectiveKeyRotationPeriod()
 
 	key, err := kms.NewCryptoKey(ctx, input.ToResName(input.Descriptor.Name), &kms.CryptoKeyArgs{

@@ -84,6 +84,12 @@ type SecretsProviderConfig struct {
 	KeyLocation string `json:"keyLocation" yaml:"keyLocation"`
 	// only applicable when provision=true
 	KeyRotationPeriod string `json:"keyRotationPeriod" yaml:"keyRotationPeriod"`
+	// AllowShortKeyRotation opts out of the MinKeyRotationPeriodSeconds floor.
+	// Rotating faster than 30 days is a legitimate compliance choice; it is
+	// gated only because every rotation mints a permanently billed key version,
+	// so the common case of a mistyped period should fail loudly. Setting this
+	// makes the short period a deliberate, reviewable decision.
+	AllowShortKeyRotation bool `json:"allowShortKeyRotation" yaml:"allowShortKeyRotation"`
 
 	// whether to provision key
 	Provision bool `json:"provision" yaml:"provision"`
@@ -129,8 +135,8 @@ func (r *SecretsProviderConfig) ValidateKeyRotationPeriod() error {
 	if err != nil {
 		return errors.Errorf("keyRotationPeriod %q must be a whole number of seconds with an 's' suffix, e.g. %q", raw, DefaultKeyRotationPeriod)
 	}
-	if secs < MinKeyRotationPeriodSeconds {
-		return errors.Errorf("keyRotationPeriod %q is %d seconds, below the minimum of %d (30 days): every rotation mints a key version that Cloud KMS bills for the lifetime of the key, so short periods accrue cost indefinitely",
+	if secs < MinKeyRotationPeriodSeconds && !r.AllowShortKeyRotation {
+		return errors.Errorf("keyRotationPeriod %q is %d seconds, below the minimum of %d (30 days): every rotation mints a key version that Cloud KMS bills for the lifetime of the key, so short periods accrue cost indefinitely. Set allowShortKeyRotation: true if the faster rotation is deliberate",
 			raw, secs, MinKeyRotationPeriodSeconds)
 	}
 	return nil

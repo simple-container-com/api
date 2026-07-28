@@ -54,7 +54,13 @@ func TestSecretsProviderConfig_ValidateKeyRotationPeriod(t *testing.T) {
 		{name: "below floor: GCP minimum of one day", period: "86400s", errSubstr: "below the minimum"},
 		{name: "below floor: one second under", period: "2591999s", errSubstr: "below the minimum"},
 		{name: "missing seconds suffix", period: "7776000", errSubstr: "'s' suffix"},
-		{name: "not a number", period: "ninetydays", errSubstr: "'s' suffix"},
+		// "ninetydays" ends in 's', so it reaches the numeric branch, not the
+		// suffix branch. Asserting the numeric message keeps the two branches
+		// distinguishable — otherwise a regression that collapsed them would
+		// still pass.
+		{name: "not a number but ends in s", period: "ninetydays", errSubstr: "whole number of seconds"},
+		{name: "suffix only", period: "s", errSubstr: "whole number of seconds"},
+		{name: "negative", period: "-100s", errSubstr: "below the minimum"},
 		{name: "fractional seconds", period: "2592000.5s", errSubstr: "whole number of seconds"},
 		{name: "duration shorthand is not accepted", period: "90d", errSubstr: "'s' suffix"},
 	}
@@ -71,4 +77,27 @@ func TestSecretsProviderConfig_ValidateKeyRotationPeriod(t *testing.T) {
 			Expect(err.Error()).To(ContainSubstring(tt.errSubstr))
 		})
 	}
+}
+
+// A deliberate sub-30-day rotation must remain expressible: this is a shared
+// library, and a compliance requirement for faster rotation is legitimate. The
+// opt-out is what keeps the floor a typo-catcher rather than a policy imposed on
+// every consumer.
+func TestSecretsProviderConfig_AllowShortKeyRotationOptsOutOfTheFloor(t *testing.T) {
+	RegisterTestingT(t)
+
+	short := &SecretsProviderConfig{Provision: true, KeyRotationPeriod: "604800s"} // 7 days
+	Expect(short.ValidateKeyRotationPeriod()).NotTo(BeNil(),
+		"a short period must fail by default so typos surface")
+	Expect(short.ValidateKeyRotationPeriod().Error()).To(ContainSubstring("allowShortKeyRotation"),
+		"the error must name the escape hatch")
+
+	deliberate := &SecretsProviderConfig{Provision: true, KeyRotationPeriod: "604800s", AllowShortKeyRotation: true}
+	Expect(deliberate.ValidateKeyRotationPeriod()).To(BeNil(),
+		"an explicit opt-out must be honoured")
+
+	// The opt-out must not disable the malformed-value checks: it is about the
+	// floor, not about accepting garbage.
+	malformed := &SecretsProviderConfig{Provision: true, KeyRotationPeriod: "90d", AllowShortKeyRotation: true}
+	Expect(malformed.ValidateKeyRotationPeriod()).NotTo(BeNil())
 }
