@@ -1,0 +1,134 @@
+openapi: "3.0.3"
+info:
+  title: Activity Watcher API
+  version: "1.0.0-phase1"
+  description: Ingest and query user activity events. Phase 1 backend MVP.
+
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /events:
+    post:
+      summary: Ingest an activity event
+      operationId: createEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      responses:
+        "201":
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventCreated'
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{user_id}/events:
+    get:
+      summary: Retrieve events for a user, newest first
+      operationId: listUserEvents
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of events (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    EventInput:
+      type: object
+      required: [user_id, event_type, occurred_at, metadata]
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: user-abc123
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: page_view
+        occurred_at:
+          type: string
+          format: date-time
+          description: Client-supplied event timestamp (RFC 3339). Must not be in the future or more than 30 days old.
+          example: "2026-06-12T10:00:00Z"
+        metadata:
+          type: object
+          description: Free-form JSON object with event-specific data.
+          example:
+            page: /home
+
+    EventCreated:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+          description: Server-stamped ingestion timestamp.
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "user_id is required"
