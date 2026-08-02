@@ -76,6 +76,16 @@
 /tools.go                               @Cre-eD @smecsia @universe-ops @Laboratory
 
 # ---------------------------------------------------------------------
+# Vulnerability-suppression surface. A `not_affected` VEX statement and
+# its osv-scanner.toml mirror hide a real advisory from the scanners and
+# from OpenSSF Scorecard. That deserves the same review discipline as a
+# workflow change, so name the paths explicitly rather than leaning on
+# the `*` default.
+# ---------------------------------------------------------------------
+/vex/                                   @Cre-eD @smecsia @universe-ops @Laboratory
+/osv-scanner.toml                       @Cre-eD @smecsia @universe-ops @Laboratory
+
+# ---------------------------------------------------------------------
 # This policy + ownership file itself.
 # ---------------------------------------------------------------------
 /docs/SECURITY.md                       @Cre-eD @smecsia @universe-ops @Laboratory

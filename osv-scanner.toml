@@ -5,17 +5,24 @@
 # in a format the scanner understands.
 #
 # Add an entry here ONLY after the corresponding `not_affected` statement
-# lands in vex/openvex.json (review by code owners under the default
-# `*` CODEOWNERS rule). Suppressing a real vulnerability here without VEX
+# lands in vex/openvex.json (both this file and /vex/ are named
+# explicitly in CODEOWNERS). Suppressing a real vulnerability here without VEX
 # is a regression — track upstream-fix availability in the VEX
 # impact_statement, and remove from BOTH files when fixable.
 #
 # Reference: https://google.github.io/osv-scanner/configuration/
+#
+# GO-2022-0635 / GO-2022-0646 (aws-sdk-go v1 s3crypto) were dropped from
+# this file on 2026-08-02: the module left go.mod entirely through Go
+# module pruning after the Pulumi upgrades, osv-scanner reported both
+# entries as unused ignores, and their VEX statements are now
+# `status: fixed`. Entries here are re-triaged on every SCA pass — an
+# ignore that outlives its justification is a suppression, not triage.
+#
+# NOTE: `reason` must stay a single-line TOML basic string. A newline in
+# it makes osv-scanner discard the WHOLE config ("strings cannot contain
+# newlines") and silently re-report every ignored advisory.
 
 [[IgnoredVulns]]
-id = "GO-2022-0635"
-reason = "VEX not_affected: github.com/aws/aws-sdk-go is required transitively by github.com/pulumi/pulumi/pkg/v3/operations; the s3crypto subpackage is never imported by this codebase nor any reachable code path. govulncheck -mode=source confirms 0 reachable vulnerabilities. Full justification in vex/openvex.json."
-
-[[IgnoredVulns]]
-id = "GO-2022-0646"
-reason = "VEX not_affected: same s3crypto unreachability as GO-2022-0635 — different advisory ID against the same subpackage. govulncheck confirms zero reachable calls to the affected symbols. Full justification in vex/openvex.json."
+id = "GO-2026-5932"
+reason = "VEX not_affected (vulnerable_code_not_present): golang.org/x/crypto is required for chacha20poly1305 (pkg/api/secrets/ciphers); nothing in the build graph imports golang.org/x/crypto/openpgp or its subpackages, so the linker never emits that code. OpenPGP handling uses github.com/ProtonMail/go-crypto/openpgp — the maintained fork this very advisory recommends. govulncheck -mode=source confirms 0 reachable vulnerabilities. Unfixable by bumping: the advisory has introduced=0 and no fix event; it is a permanent 'unmaintained package' notice. Full justification in vex/openvex.json."

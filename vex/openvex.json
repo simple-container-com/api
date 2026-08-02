@@ -2,8 +2,8 @@
   "@context": "https://openvex.dev/ns/v0.2.0",
   "@id": "https://simple-container.com/.well-known/openvex/api.json",
   "author": "Simple Container maintainers <security@simple-container.com>",
-  "timestamp": "2026-05-18T19:00:00Z",
-  "version": 1,
+  "timestamp": "2026-08-02T12:00:00Z",
+  "version": 2,
   "tooling": "Hand-authored. Reachability evidence from `govulncheck -mode=source ./...`.",
   "statements": [
     {
@@ -21,9 +21,8 @@
           ]
         }
       ],
-      "status": "not_affected",
-      "justification": "vulnerable_code_not_in_execute_path",
-      "impact_statement": "github.com/aws/aws-sdk-go is required transitively by github.com/pulumi/pulumi/pkg/v3/operations. Neither this codebase nor Pulumi's operations package imports github.com/aws/aws-sdk-go/service/s3/s3crypto. govulncheck -mode=source ./... reports 0 reachable vulnerabilities (and explicitly identifies these two advisories as 'vulnerabilities in modules you require, but your code doesn't appear to call these vulnerabilities')."
+      "status": "fixed",
+      "impact_statement": "Re-triaged 2026-08-02: github.com/aws/aws-sdk-go (v1) no longer appears in go.mod at all — the Pulumi upgrades since PR #310 dropped the last build-graph edge that pulled it in, so Go 1.17+ module pruning removed it from the module requirements. osv-scanner no longer reports this advisory against the repo and flags the corresponding osv-scanner.toml entry as an unused ignore; that entry has been removed. Statement kept one release as an audit trail."
     },
     {
       "vulnerability": {
@@ -40,9 +39,26 @@
           ]
         }
       ],
+      "status": "fixed",
+      "impact_statement": "Same as GO-2022-0635 — the aws-sdk-go v1 module is no longer part of the build graph. Re-triaged 2026-08-02."
+    },
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2026-5932",
+        "name": "GO-2026-5932",
+        "description": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues. Affected packages: golang.org/x/crypto/openpgp and its subpackages (armor, clearsign, elgamal, errors, packet, s2k)."
+      },
+      "products": [
+        {
+          "@id": "pkg:golang/github.com/simple-container-com/api",
+          "subcomponents": [
+            { "@id": "pkg:golang/golang.org/x/crypto" }
+          ]
+        }
+      ],
       "status": "not_affected",
-      "justification": "vulnerable_code_not_in_execute_path",
-      "impact_statement": "Same as GO-2022-0635 — s3crypto subpackage is not imported by this codebase or by any code path Pulumi's operations package reaches. govulncheck reachability scan confirms zero reachable calls to the affected symbols."
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "golang.org/x/crypto is a direct dependency for chacha20poly1305 only (pkg/api/secrets/ciphers). No package in the build graph imports golang.org/x/crypto/openpgp or any of its subpackages — `go list -deps ./... | grep x/crypto/openpgp` returns nothing, so the Go linker never includes that code in any produced binary. OpenPGP operations in this codebase go through github.com/ProtonMail/go-crypto/openpgp, which is the maintained fork the advisory itself recommends. govulncheck -mode=source ./... reports 0 reachable vulnerabilities. This advisory can never be closed by a version bump: it is a permanent 'package is unmaintained' notice with `introduced: 0` and no fix event in OSV. x/crypto is kept current regardless (v0.54.0)."
     }
   ]
 }
