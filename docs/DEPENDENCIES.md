@@ -94,7 +94,10 @@ A subset of findings is intentionally accepted as documented false
 positives — those live in PR descriptions and as OpenVEX
 `not_affected` statements in [`vex/openvex.json`](../vex/openvex.json),
 never in a scanner-suppression file (no `.trivyignore`, no
-`# nosemgrep`, no `// nolint:` for vuln findings).
+`# nosemgrep`, no `// nolint:` for vuln findings). The single exception
+is [`osv-scanner.toml`](../osv-scanner.toml), a derivative mirror of the
+VEX statements for OpenSSF Scorecard, which cannot read VEX — see
+[Suppressing a finding](#suppressing-a-finding-non-exploitable--false-positive).
 
 ## Out-of-tree dependency surface
 
@@ -176,6 +179,22 @@ The only sanctioned suppression channel is **VEX**: edit
   `inline_mitigations_already_exist`, etc.)
 - `impact_statement` — free-form explanation citing evidence
   (e.g., govulncheck output, code-path analysis, mitigation in place)
+
+OpenSSF Scorecard's Vulnerabilities check calls `osv-scanner` directly
+and has no VEX input, so a VEX-only `not_affected` still shows up as a
+score deduction. For that one consumer the statement is mirrored into
+[`osv-scanner.toml`](../osv-scanner.toml) — same advisory ID, the
+`reason` field restating the VEX justification. That mirror is the only
+scanner-config suppression the project sanctions, and it is derivative:
+an entry may exist there **only** when the VEX statement exists first.
+`/vex/` and `/osv-scanner.toml` are both code-owned paths so neither
+lands without security review.
+
+Every SCA pass re-triages the existing entries in both files. A
+`not_affected` whose upstream fix has since shipped gets bumped, flipped
+to `status: fixed`, and dropped from the mirror — a suppression that
+outlives its justification is not triage. `osv-scanner` reports stale
+entries as `unused ignores`, which is the signal to remove them.
 
 `.trivyignore`, `# nosemgrep`, `// nolint:`, `# noqa` are NOT
 sanctioned suppression channels. Any of these in a PR must point at
