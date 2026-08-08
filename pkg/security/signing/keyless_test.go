@@ -193,7 +193,7 @@ func TestIsRekorConflict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			RegisterTestingT(t)
-			Expect(isRekorConflict(tt.output)).To(Equal(tt.want))
+			Expect(IsRekorConflict(tt.output)).To(Equal(tt.want))
 		})
 	}
 }
@@ -250,5 +250,5 @@ func TestKeylessSigner_Sign_GivesUpAfterMaxConflictAttempts(t *testing.T) {
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
-	Expect(calls).To(Equal(maxSignAttempts))
+	Expect(calls).To(Equal(MaxCosignAttempts))
 }

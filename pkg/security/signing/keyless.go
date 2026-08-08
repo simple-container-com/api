@@ -17,35 +17,65 @@ import (
 // execFn matches tools.ExecCommand; injectable for tests.
 type execFn func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error)
 
-// maxSignAttempts bounds the Rekor-conflict retry loop in runCosignSign.
-const maxSignAttempts = 3
+// MaxCosignAttempts bounds every Rekor-conflict retry loop: `cosign sign` here
+// and `cosign attest` in the sbom and provenance packages.
+const MaxCosignAttempts = 3
 
-// isRekorConflict reports a Rekor createLogEntryConflict (HTTP 409) — an
+// IsRekorConflict reports a Rekor createLogEntryConflict (HTTP 409) — an
 // identical entry already in the tlog, typically a cosign upload retry after
 // a client-side timeout whose first attempt succeeded server-side.
-func isRekorConflict(output string) bool {
+func IsRekorConflict(output string) bool {
 	return strings.Contains(output, "createLogEntryConflict") ||
 		(strings.Contains(output, "409") && strings.Contains(output, "/api/v1/log/entries"))
 }
 
-// runCosignSign retries the full `cosign sign` on Rekor entry conflicts (a
-// fresh invocation can't conflict with itself). Deterministic keys reproduce
-// the same signature and exhaust the loop — correct, since a tlog entry does
-// not prove the signature reached the registry. Other errors fail fast.
-func runCosignSign(ctx context.Context, exec execFn, args, env []string, timeout time.Duration) (string, error) {
+// RetryOnRekorConflict runs attempt until it succeeds, fails for a reason other
+// than a Rekor entry conflict, or exhausts MaxCosignAttempts.
+//
+// attempt must perform one complete cosign invocation and return the output to
+// classify (stderr and stdout concatenated is fine) alongside its error. Each
+// call has to be a fresh invocation: under keyless signing that mints a new
+// ephemeral certificate, so the replayed Rekor body differs and the conflict
+// clears. Deterministic keys reproduce the same signature and exhaust the loop,
+// which is the correct outcome — a tlog entry does not prove the signature or
+// attestation reached the registry, and cosign uploads to Rekor before it
+// pushes to the registry.
+//
+// operation names the cosign subcommand for the retry warning, e.g. "attest".
+func RetryOnRekorConflict(operation string, attempt func() (string, error)) error {
 	var lastErr error
-	for attempt := 1; attempt <= maxSignAttempts; attempt++ {
+	for i := 1; i <= MaxCosignAttempts; i++ {
+		output, err := attempt()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !IsRekorConflict(output) {
+			return lastErr
+		}
+		fmt.Fprintf(os.Stderr, "Warning: Rekor transparency-log conflict on %s attempt %d/%d, retrying\n",
+			operation, i, MaxCosignAttempts)
+	}
+	return lastErr
+}
+
+// runCosignSign retries the full `cosign sign` on Rekor entry conflicts.
+// See RetryOnRekorConflict for why a retry — not a success — is the right
+// response to a conflict.
+func runCosignSign(ctx context.Context, exec execFn, args, env []string, timeout time.Duration) (string, error) {
+	var signed string
+	err := RetryOnRekorConflict("sign", func() (string, error) {
 		stdout, stderr, err := exec(ctx, "cosign", args, env, timeout)
 		if err == nil {
-			return stdout, nil
+			signed = stdout
+			return "", nil
 		}
-		lastErr = fmt.Errorf("cosign sign failed: %w\nStderr: %s\nStdout: %s", err, stderr, stdout)
-		if !isRekorConflict(stderr) && !isRekorConflict(stdout) {
-			return "", lastErr
-		}
-		fmt.Fprintf(os.Stderr, "Warning: Rekor transparency-log conflict on sign attempt %d/%d, retrying\n", attempt, maxSignAttempts)
+		return stderr + stdout, fmt.Errorf("cosign sign failed: %w\nStderr: %s\nStdout: %s", err, stderr, stdout)
+	})
+	if err != nil {
+		return "", err
 	}
-	return "", lastErr
+	return signed, nil
 }
 
 // KeylessSigner implements keyless signing using OIDC tokens

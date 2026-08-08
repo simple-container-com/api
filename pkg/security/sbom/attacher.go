@@ -60,21 +60,25 @@ func (a *Attacher) Attach(ctx context.Context, sbom *SBOM, image string) error {
 	// Add image
 	args = append(args, image)
 
-	cmd := exec.CommandContext(timeoutCtx, "cosign", args...)
+	// Execute cosign attest, retrying a Rekor entry conflict on a fresh
+	// invocation. Building the command inside the closure keeps each attempt
+	// independent — an exec.Cmd cannot be run twice.
+	return signing.RetryOnRekorConflict("attest", func() (string, error) {
+		cmd := exec.CommandContext(timeoutCtx, "cosign", args...)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	// Set environment variables for signing
-	cmd.Env = append(os.Environ(), a.buildSigningEnv()...)
+		// Set environment variables for signing
+		cmd.Env = append(os.Environ(), a.buildSigningEnv()...)
 
-	// Execute cosign attest
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cosign attest failed: %w (stderr: %s)", err, stderr.String())
-	}
-
-	return nil
+		if err := cmd.Run(); err != nil {
+			return stderr.String() + stdout.String(),
+				fmt.Errorf("cosign attest failed: %w (stderr: %s)", err, stderr.String())
+		}
+		return "", nil
+	})
 }
 
 // Verify verifies an SBOM attestation

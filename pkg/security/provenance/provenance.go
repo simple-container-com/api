@@ -212,16 +212,21 @@ func (a *Attacher) Attach(ctx context.Context, statement *Statement, imageRef st
 	args = append(args, a.buildSigningArgs()...)
 	args = append(args, imageRef)
 
-	cmd := exec.CommandContext(timeoutCtx, "cosign", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	cmd.Env = append(os.Environ(), a.buildSigningEnv()...)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cosign attest failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
-	}
-
-	return nil
+	// Retry a Rekor entry conflict on a fresh invocation; see
+	// signing.RetryOnRekorConflict. The command is rebuilt per attempt because an
+	// exec.Cmd cannot be run twice.
+	return signing.RetryOnRekorConflict("attest", func() (string, error) {
+		cmd := exec.CommandContext(timeoutCtx, "cosign", args...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		cmd.Env = append(os.Environ(), a.buildSigningEnv()...)
+		if err := cmd.Run(); err != nil {
+			return stderr.String() + stdout.String(),
+				fmt.Errorf("cosign attest failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+		}
+		return "", nil
+	})
 }
 
 // Verify verifies the provenance attestation and returns the decoded predicate.
