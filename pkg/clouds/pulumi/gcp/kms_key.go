@@ -32,7 +32,7 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	// project, and a KeyRing can never be deleted in GCP (destroying the Pulumi
 	// resource only drops it from state), so failing later would leave a
 	// permanent, un-recreatable-by-name KeyRing behind for a mere typo.
-	if err := kmsInput.ValidateKeyRotationPeriod(); err != nil {
+	if err := kmsInput.Validate(); err != nil {
 		return nil, err
 	}
 

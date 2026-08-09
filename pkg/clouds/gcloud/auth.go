@@ -41,6 +41,14 @@ const (
 	// Rejecting anything under 30 days turns that class of typo into a
 	// config-parse error instead of an unattributed bill months later.
 	MinKeyRotationPeriodSeconds = 2592000 // 30 days
+
+	// GCP's own documented bounds for rotationPeriod: at least 24h, at most
+	// 876,000h. These are NOT waivable by AllowShortKeyRotation — a value
+	// outside them is rejected by the KMS API, and by then the KeyRing has
+	// already been created and can never be deleted. Failing here keeps that
+	// class of error away from any side effect.
+	GcpMinKeyRotationPeriodSeconds = 86400      // 24h
+	GcpMaxKeyRotationPeriodSeconds = 3153600000 // 876,000h
 )
 
 type ServiceAccountConfig struct {
@@ -83,13 +91,13 @@ type SecretsProviderConfig struct {
 	// only applicable when provision=true
 	KeyLocation string `json:"keyLocation" yaml:"keyLocation"`
 	// only applicable when provision=true
-	KeyRotationPeriod string `json:"keyRotationPeriod" yaml:"keyRotationPeriod"`
+	KeyRotationPeriod string `json:"keyRotationPeriod,omitempty" yaml:"keyRotationPeriod,omitempty"`
 	// AllowShortKeyRotation opts out of the MinKeyRotationPeriodSeconds floor.
 	// Rotating faster than 30 days is a legitimate compliance choice; it is
 	// gated only because every rotation mints a permanently billed key version,
 	// so the common case of a mistyped period should fail loudly. Setting this
 	// makes the short period a deliberate, reviewable decision.
-	AllowShortKeyRotation bool `json:"allowShortKeyRotation" yaml:"allowShortKeyRotation"`
+	AllowShortKeyRotation bool `json:"allowShortKeyRotation,omitempty" yaml:"allowShortKeyRotation,omitempty"`
 
 	// whether to provision key
 	Provision bool `json:"provision" yaml:"provision"`
@@ -120,11 +128,15 @@ func (r *SecretsProviderConfig) EffectiveKeyRotationPeriod() string {
 	return r.KeyRotationPeriod
 }
 
-// ValidateKeyRotationPeriod checks an explicitly configured rotation period.
-// Only applicable when provision=true; an empty value is valid and means the
-// default applies.
-func (r *SecretsProviderConfig) ValidateKeyRotationPeriod() error {
-	if r.KeyRotationPeriod == "" {
+// Validate checks the secrets-provider config. Follows the same shape as the
+// other GCP configs in this package (PostgresGcpCloudsqlConfig.Validate,
+// ExternalEgressIpConfig.Validate) so there is one convention to learn.
+//
+// keyRotationPeriod only applies when the key is provisioned here; a BYO key
+// referenced by keyName ignores it, so a stale value must not block those
+// consumers. An empty value is valid and means DefaultKeyRotationPeriod.
+func (r *SecretsProviderConfig) Validate() error {
+	if !r.Provision || r.KeyRotationPeriod == "" {
 		return nil
 	}
 	raw := r.KeyRotationPeriod
@@ -135,8 +147,18 @@ func (r *SecretsProviderConfig) ValidateKeyRotationPeriod() error {
 	if err != nil {
 		return errors.Errorf("keyRotationPeriod %q must be a whole number of seconds with an 's' suffix, e.g. %q", raw, DefaultKeyRotationPeriod)
 	}
+	// GCP's own bounds first, and never waivable: outside them the KMS API
+	// rejects the key AFTER the KeyRing exists.
+	if secs < GcpMinKeyRotationPeriodSeconds {
+		return errors.Errorf("keyRotationPeriod %q is %d seconds; GCP requires at least %d (24h)",
+			raw, secs, GcpMinKeyRotationPeriodSeconds)
+	}
+	if secs > GcpMaxKeyRotationPeriodSeconds {
+		return errors.Errorf("keyRotationPeriod %q is %d seconds; GCP allows at most %d (876,000h)",
+			raw, secs, GcpMaxKeyRotationPeriodSeconds)
+	}
 	if secs < MinKeyRotationPeriodSeconds && !r.AllowShortKeyRotation {
-		return errors.Errorf("keyRotationPeriod %q is %d seconds, below the minimum of %d (30 days): every rotation mints a key version that Cloud KMS bills for the lifetime of the key, so short periods accrue cost indefinitely. Set allowShortKeyRotation: true if the faster rotation is deliberate",
+		return errors.Errorf("keyRotationPeriod %q (%ds) is below the %ds (30 day) minimum; set allowShortKeyRotation: true to override",
 			raw, secs, MinKeyRotationPeriodSeconds)
 	}
 	return nil
@@ -171,5 +193,18 @@ func ReadStateStorageConfig(config *api.Config) (api.Config, error) {
 }
 
 func ReadSecretsProviderConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &SecretsProviderConfig{})
+	out, err := api.ConvertConfig(config, &SecretsProviderConfig{})
+	if err != nil {
+		return out, err
+	}
+	// Validate here rather than only in the provisioner: the secrets-provider
+	// stack is Up'd only when its URL export is absent, so a provisioner-only
+	// check never runs for an already-provisioned stack and a bad value would
+	// sit unnoticed until a DR rebuild.
+	if sp, ok := out.Config.(*SecretsProviderConfig); ok {
+		if err := sp.Validate(); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
