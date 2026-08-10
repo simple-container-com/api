@@ -51,9 +51,12 @@ func ToAwsLambdaConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, erro
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
-	// ConvertAuth carries only credential fields; preserve the non-credential
-	// permissions boundary from the template so it reaches the execution role.
-	accountConfig.PermissionsBoundary = templateCfg.AccountConfig.PermissionsBoundary
+	// ConvertAuth carries only credential fields. Preserve the non-credential
+	// permissions boundary so it reaches the execution role: a template-level
+	// value wins; if unset, keep whatever ConvertAuth loaded (an auth-level one).
+	if templateCfg.AccountConfig.PermissionsBoundary != "" {
+		accountConfig.PermissionsBoundary = templateCfg.AccountConfig.PermissionsBoundary
+	}
 	if stackCfg == nil {
 		return nil, errors.Errorf("stack config cannot be nil")
 	}

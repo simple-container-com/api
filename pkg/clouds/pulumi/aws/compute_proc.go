@@ -48,9 +48,12 @@ func RdsPostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Re
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
-	// ConvertAuth carries only credential fields; preserve the non-credential
-	// permissions boundary so it reaches the pg-init exec task's role.
-	accountConfig.PermissionsBoundary = postgresCfg.AccountConfig.PermissionsBoundary
+	// ConvertAuth carries only credential fields. Preserve the non-credential
+	// permissions boundary so it reaches the pg-init exec task's role: a
+	// template-level value wins; if unset, keep the auth-level one ConvertAuth loaded.
+	if postgresCfg.AccountConfig.PermissionsBoundary != "" {
+		accountConfig.PermissionsBoundary = postgresCfg.AccountConfig.PermissionsBoundary
+	}
 
 	postgresCfg.AccountConfig = *accountConfig
 	postgresResName := lo.If(postgresCfg.Name == "", input.Descriptor.Name).Else(postgresCfg.Name)
@@ -197,9 +200,12 @@ func RdsMysqlComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
-	// ConvertAuth carries only credential fields; preserve the non-credential
-	// permissions boundary so it reaches the mysql-init exec task's role.
-	accountConfig.PermissionsBoundary = mysqlCfg.AccountConfig.PermissionsBoundary
+	// ConvertAuth carries only credential fields. Preserve the non-credential
+	// permissions boundary so it reaches the mysql-init exec task's role: a
+	// template-level value wins; if unset, keep the auth-level one ConvertAuth loaded.
+	if mysqlCfg.AccountConfig.PermissionsBoundary != "" {
+		accountConfig.PermissionsBoundary = mysqlCfg.AccountConfig.PermissionsBoundary
+	}
 
 	mysqlCfg.AccountConfig = *accountConfig
 	dbCfg := mysqlCfg
