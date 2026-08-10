@@ -253,8 +253,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	// Create an ECS task execution IAM role
 	roleName := fmt.Sprintf("%s-exec-role", ecsSimpleClusterName)
 	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
-		Name: sdk.String(ecsSimpleClusterName),
-		Tags: tags,
+		Name:                sdk.String(ecsSimpleClusterName),
+		Tags:                tags,
+		PermissionsBoundary: permissionsBoundaryPtr(crInput.AccountConfig.PermissionsBoundary),
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -753,16 +754,17 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 
 	if alerts.MaxCPU != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:           fmt.Sprintf("%s--%s", alerts.MaxCPU.AlertName, deployParams.Environment),
-			description:    alerts.MaxCPU.Description,
-			telegramConfig: alerts.Telegram,
-			discordConfig:  alerts.Discord,
-			slackConfig:    alerts.Slack,
-			deployParams:   deployParams,
-			helpersImage:   helpersImage,
-			secretSuffix:   crInput.Config.Version,
-			opts:           opts,
-			tags:           tags,
+			permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+			name:                fmt.Sprintf("%s--%s", alerts.MaxCPU.AlertName, deployParams.Environment),
+			description:         alerts.MaxCPU.Description,
+			telegramConfig:      alerts.Telegram,
+			discordConfig:       alerts.Discord,
+			slackConfig:         alerts.Slack,
+			deployParams:        deployParams,
+			helpersImage:        helpersImage,
+			secretSuffix:        crInput.Config.Version,
+			opts:                opts,
+			tags:                tags,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -784,16 +786,17 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 	}
 	if alerts.MaxMemory != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:           fmt.Sprintf("%s--%s", alerts.MaxMemory.AlertName, deployParams.Environment),
-			description:    alerts.MaxMemory.Description,
-			telegramConfig: alerts.Telegram,
-			discordConfig:  alerts.Discord,
-			slackConfig:    alerts.Slack,
-			deployParams:   deployParams,
-			secretSuffix:   crInput.Config.Version,
-			helpersImage:   helpersImage,
-			opts:           opts,
-			tags:           tags,
+			permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+			name:                fmt.Sprintf("%s--%s", alerts.MaxMemory.AlertName, deployParams.Environment),
+			description:         alerts.MaxMemory.Description,
+			telegramConfig:      alerts.Telegram,
+			discordConfig:       alerts.Discord,
+			slackConfig:         alerts.Slack,
+			deployParams:        deployParams,
+			secretSuffix:        crInput.Config.Version,
+			helpersImage:        helpersImage,
+			opts:                opts,
+			tags:                tags,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -860,17 +863,18 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Server Errors (5XX) Alert
 		if alerts.ServerErrors != nil {
 			if err := createAlert(ctx, alertCfg{
-				name:           fmt.Sprintf("%s--%s", alerts.ServerErrors.AlertName, deployParams.Environment),
-				description:    alerts.ServerErrors.Description,
-				telegramConfig: alerts.Telegram,
-				discordConfig:  alerts.Discord,
-				slackConfig:    alerts.Slack,
-				deployParams:   deployParams,
-				secretSuffix:   crInput.Config.Version,
-				helpersImage:   helpersImage,
-				snsTopic:       snsTopic,
-				opts:           opts,
-				tags:           tags,
+				permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+				name:                fmt.Sprintf("%s--%s", alerts.ServerErrors.AlertName, deployParams.Environment),
+				description:         alerts.ServerErrors.Description,
+				telegramConfig:      alerts.Telegram,
+				discordConfig:       alerts.Discord,
+				slackConfig:         alerts.Slack,
+				deployParams:        deployParams,
+				secretSuffix:        crInput.Config.Version,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
@@ -893,17 +897,18 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Unhealthy Hosts Alert
 		if alerts.UnhealthyHosts != nil {
 			if err := createAlert(ctx, alertCfg{
-				name:           fmt.Sprintf("%s--%s", alerts.UnhealthyHosts.AlertName, deployParams.Environment),
-				description:    alerts.UnhealthyHosts.Description,
-				telegramConfig: alerts.Telegram,
-				discordConfig:  alerts.Discord,
-				slackConfig:    alerts.Slack,
-				deployParams:   deployParams,
-				secretSuffix:   crInput.Config.Version,
-				helpersImage:   helpersImage,
-				snsTopic:       snsTopic,
-				opts:           opts,
-				tags:           tags,
+				permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+				name:                fmt.Sprintf("%s--%s", alerts.UnhealthyHosts.AlertName, deployParams.Environment),
+				description:         alerts.UnhealthyHosts.Description,
+				telegramConfig:      alerts.Telegram,
+				discordConfig:       alerts.Discord,
+				slackConfig:         alerts.Slack,
+				deployParams:        deployParams,
+				secretSuffix:        crInput.Config.Version,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
@@ -927,17 +932,18 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Target Response Time Alert
 		if alerts.ResponseTime != nil {
 			if err := createAlert(ctx, alertCfg{
-				name:           fmt.Sprintf("%s--%s", alerts.ResponseTime.AlertName, deployParams.Environment),
-				description:    alerts.ResponseTime.Description,
-				telegramConfig: alerts.Telegram,
-				discordConfig:  alerts.Discord,
-				slackConfig:    alerts.Slack,
-				deployParams:   deployParams,
-				secretSuffix:   crInput.Config.Version,
-				helpersImage:   helpersImage,
-				snsTopic:       snsTopic,
-				opts:           opts,
-				tags:           tags,
+				permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+				name:                fmt.Sprintf("%s--%s", alerts.ResponseTime.AlertName, deployParams.Environment),
+				description:         alerts.ResponseTime.Description,
+				telegramConfig:      alerts.Telegram,
+				discordConfig:       alerts.Discord,
+				slackConfig:         alerts.Slack,
+				deployParams:        deployParams,
+				secretSuffix:        crInput.Config.Version,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(3),

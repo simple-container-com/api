@@ -96,7 +96,8 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	lambdaExecutionRoleName := fmt.Sprintf("%s-execution-role", stack.Name)
 	params.Log.Info(ctx.Context(), "configure lambda execution role %q for %q in %q...", lambdaExecutionRoleName, stack.Name, deployParams.Environment)
 	lambdaExecutionRole, err := iam.NewRole(ctx, lambdaExecutionRoleName, &iam.RoleArgs{
-		Tags: tags,
+		Tags:                tags,
+		PermissionsBoundary: permissionsBoundaryPtr(crInput.AccountConfig.PermissionsBoundary),
 		AssumeRolePolicy: sdk.String(`{
 			"Version": "2012-10-17",
 			"Statement": [{

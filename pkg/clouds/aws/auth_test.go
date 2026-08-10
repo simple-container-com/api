@@ -8,9 +8,30 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
+
+// TestAccountConfig_PermissionsBoundaryYAML verifies the permissionsBoundary
+// field parses from stack YAML (the load-bearing tag: parents set it per
+// template) and round-trips, and that it defaults to empty when absent.
+func TestAccountConfig_PermissionsBoundaryYAML(t *testing.T) {
+	RegisterTestingT(t)
+
+	const arn = "arn:aws:iam::123456789012:policy/my-workload-boundary"
+	var ac AccountConfig
+	Expect(yaml.Unmarshal([]byte("account: \"123456789012\"\npermissionsBoundary: \""+arn+"\"\n"), &ac)).To(Succeed())
+	Expect(ac.PermissionsBoundary).To(Equal(arn))
+
+	out, err := yaml.Marshal(&ac)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(string(out)).To(ContainSubstring("permissionsBoundary: " + arn))
+
+	var absent AccountConfig
+	Expect(yaml.Unmarshal([]byte("account: \"123456789012\"\n"), &absent)).To(Succeed())
+	Expect(absent.PermissionsBoundary).To(BeEmpty())
+}
 
 // ---- AccountConfig getters ----------------------------------------------
 

@@ -24,7 +24,14 @@ type AccountConfig struct {
 	AccessKey       string `json:"accessKey" yaml:"accessKey"`
 	SecretAccessKey string `json:"secretAccessKey" yaml:"secretAccessKey"`
 	Region          string `json:"region" yaml:"region"`
-	api.Credentials `json:",inline" yaml:",inline"`
+	// PermissionsBoundary, when set to an IAM policy ARN, is applied as the
+	// permissions boundary on every IAM role SC creates for workloads under
+	// this account (ECS task/execution roles, Lambda execution roles). Optional
+	// and empty by default, so it changes nothing unless a parent stack opts in
+	// per template. Lets an operator cap what a deployed workload role can ever
+	// do, independent of the role's own policy.
+	PermissionsBoundary string `json:"permissionsBoundary,omitempty" yaml:"permissionsBoundary,omitempty"`
+	api.Credentials     `json:",inline" yaml:",inline"`
 }
 
 type SecretsConfig struct {
