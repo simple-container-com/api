@@ -76,15 +76,72 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 		_ = client.Close()
 	}(client)
 	bucketRef := client.Bucket(gcpStateCfg.GetBucketName())
+	retentionDays := gcpStateCfg.EffectiveNoncurrentVersionRetentionDays()
 
-	_, err = bucketRef.Attrs(ctx)
+	attrs, err := bucketRef.Attrs(ctx)
 	if err != nil {
 		// does not exist
 		return bucketRef.Create(ctx, gcpStateCfg.ProjectId, &gcpStorage.BucketAttrs{
-			Location: lo.FromPtr(gcpStateCfg.Location),
+			Location:  lo.FromPtr(gcpStateCfg.Location),
+			Lifecycle: NoncurrentVersionLifecycle(retentionDays),
 		})
 	}
+
+	if ShouldApplyNoncurrentVersionLifecycle(attrs, retentionDays) {
+		log.Info(ctx, "state bucket %q has object versioning enabled and no lifecycle rule; "+
+			"bounding retained state generations to %d days",
+			gcpStateCfg.GetBucketName(), retentionDays)
+		if _, err := bucketRef.Update(ctx, gcpStorage.BucketAttrsToUpdate{
+			Lifecycle: lo.ToPtr(NoncurrentVersionLifecycle(retentionDays)),
+		}); err != nil {
+			return errors.Wrapf(err, "failed to bound state history on bucket %q", gcpStateCfg.GetBucketName())
+		}
+	}
 	return nil
+}
+
+// NoncurrentVersionLifecycle deletes state generations once they have been
+// superseded for retentionDays. It targets Archived objects only, so the live
+// state file is never a candidate. A non-positive retention yields no rules.
+func NoncurrentVersionLifecycle(retentionDays int) gcpStorage.Lifecycle {
+	if retentionDays <= 0 {
+		return gcpStorage.Lifecycle{}
+	}
+	return gcpStorage.Lifecycle{
+		Rules: []gcpStorage.LifecycleRule{
+			{
+				Action: gcpStorage.LifecycleAction{Type: gcpStorage.DeleteAction},
+				Condition: gcpStorage.LifecycleCondition{
+					Liveness:                gcpStorage.Archived,
+					DaysSinceNoncurrentTime: int64(retentionDays),
+				},
+			},
+		},
+	}
+}
+
+// ShouldApplyNoncurrentVersionLifecycle decides whether to modify a state
+// bucket that already exists. Adding a rule to somebody's existing bucket is
+// the kind of thing that should be narrow and predictable, so all three
+// conditions must hold:
+//
+//   - retention is enabled;
+//   - object versioning is on, so noncurrent generations actually accumulate
+//     and the rule is not merely inert;
+//   - the bucket has no lifecycle rules at all, so an operator's own policy is
+//     never edited, replaced or merged with.
+//
+// A bucket that already carries any rule is left alone even if that rule does
+// not bound noncurrent versions. Guessing at intent there would be worse than
+// leaving it to the operator.
+func ShouldApplyNoncurrentVersionLifecycle(attrs *gcpStorage.BucketAttrs, retentionDays int) bool {
+	if attrs == nil || retentionDays <= 0 {
+		return false
+	}
+	if !attrs.VersioningEnabled {
+		return false
+	}
+	return len(attrs.Lifecycle.Rules) == 0
 }
 
 func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
