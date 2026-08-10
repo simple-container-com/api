@@ -1,5 +1,5 @@
 # Refresh: docker buildx imagetools inspect public.ecr.aws/lambda/provided:al2023
-FROM public.ecr.aws/lambda/provided:al2023@sha256:777e461e02cd42bb0fdc692c0e8b056ed612f103910ecf8c5463d6fd7a92cde2
+FROM public.ecr.aws/lambda/provided:al2023@sha256:5f3ae3216e07bb3677cc4dfa0c7867973f7e536abb114d6b44a7b8c558824812
 
 # Pull post-tag distro fixes (e.g. glibc CVE-2026-4046 once published to AL2023 dnf).
 RUN dnf upgrade -y --setopt=tsflags=nodocs \

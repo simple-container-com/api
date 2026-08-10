@@ -275,7 +275,7 @@ tasks:
       - git tag ${project:version} || echo "Already set tag ${project:version}"
       - git push -f origin ${project:version} || echo "Tag ${project:version} already exists in origin"
   build-docs:
-    image: python:3.9.18
+    image: python:3.12-slim
     workDir: ${project:root}/docs
     script:
       - pip install -r requirements.txt

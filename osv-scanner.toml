@@ -12,12 +12,17 @@
 #
 # Reference: https://google.github.io/osv-scanner/configuration/
 #
-# GO-2022-0635 / GO-2022-0646 (aws-sdk-go v1 s3crypto) were dropped from
-# this file on 2026-08-02: the module left go.mod entirely through Go
-# module pruning after the Pulumi upgrades, osv-scanner reported both
-# entries as unused ignores, and their VEX statements are now
-# `status: fixed`. Entries here are re-triaged on every SCA pass — an
-# ignore that outlives its justification is a suppression, not triage.
+# GO-2022-0635 / GO-2022-0646 (aws-sdk-go v1 s3crypto) stay OUT of this
+# file. They were dropped on 2026-08-02 because osv-scanner flagged them as
+# unused ignores, and that still holds: osv-scanner reads go.mod's own
+# requirements, and aws-sdk-go v1 is not one of them. It does still show up
+# in the wider module graph (`go list -m all` → v1.55.8) via a transitive
+# go.mod, so the VEX statements are kept — but as `not_affected`
+# (component_not_present, zero packages linked), NOT `fixed`: both advisories
+# carry `introduced: 0` with no fix event, so `fixed` was never reachable.
+# Corrected 2026-08-10. Re-add here only if osv-scanner starts reporting them.
+# Entries here are re-triaged on every SCA pass — an ignore that outlives its
+# justification is a suppression, not triage.
 #
 # NOTE: `reason` must stay a single-line TOML basic string. A newline in
 # it makes osv-scanner discard the WHOLE config ("strings cannot contain

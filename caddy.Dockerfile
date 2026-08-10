@@ -1,7 +1,9 @@
-# Caddy 2.11.3: closes vendored-dep CVEs in 2.11.2's binary (go-jose v4,
-# otel, smallstep/certificates) plus Caddy core fastcgi + admin-socket
-# auth-bypass fixes — see https://github.com/caddyserver/caddy/releases/tag/v2.11.3.
+# Caddy 2.11.4: closes CVE-2026-52844 + CVE-2026-52845 on top of 2.11.3's
+# vendored-dep CVEs (go-jose v4, otel, smallstep/certificates) and core
+# fastcgi + admin-socket auth-bypass fixes.
 # Bumping requires editing all three "2.11.x" sites below (two FROMs + xcaddy).
+# The xcaddy site was left at 2.11.3 when the FROMs moved to 2.11.4, so the
+# shipped binary lagged the base image by a patch release; keep them in step.
 # Refresh: docker buildx imagetools inspect caddy:X.Y.Z[-builder]
 #
 # Plugins:
@@ -57,11 +59,11 @@
 #       Verify the LB is `externalTrafficPolicy: Local` + the parent
 #       Caddy's `trustedProxies` covers the LB CIDR range.
 
-FROM caddy:2.11.4-builder@sha256:f2b98918658f949a3c533f2c73bd0806e3f2576ccf8eb182c8b1690c977007ea AS builder
+FROM caddy:2.11.4-builder@sha256:198d47eaee306d4d0c38a9960c89ff2c959aa29ad51d3e2dafa3e93ac961782a AS builder
 
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
-    xcaddy build "v2.11.3" \
+    xcaddy build "v2.11.4" \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
         --with github.com/mholt/caddy-ratelimit@16aecbbcb8ca07dc1c671e263379606ff9493c55 \
     && caddy version \
@@ -71,7 +73,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 # when versions disagree). If this fails the RUN exits non-zero with the
 # failing command visible — no misleading prefixed echo.
 
-FROM caddy:2.11.4@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
+FROM caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 
