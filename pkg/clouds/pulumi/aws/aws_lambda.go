@@ -45,9 +45,17 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	if !ok {
 		return output, errors.Errorf("failed to convert aws-lambda config for %q in stack %q in %q", input.Descriptor.Type, stack.Name, deployParams.Environment)
 	}
+	// This in-place ConvertAuth re-reads the credentials blob over
+	// crInput.AccountConfig; capture the (template-level) boundary first and
+	// re-assert it after so "template wins" holds consistently with the other
+	// constructors, and so a future switch to the fresh-struct idiom can't
+	// silently drop it. json.Unmarshal already leaves absent fields untouched;
+	// this makes the intent explicit and survives a dual (template+auth) decl.
+	tplBoundary := crInput.AccountConfig.PermissionsBoundary
 	if err := api.ConvertAuth(crInput, &crInput.AccountConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
+	crInput.AccountConfig.KeepBoundary(tplBoundary)
 	stackConfig := crInput.StackConfig
 
 	awsCloudExtras := &aws.CloudExtras{}

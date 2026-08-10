@@ -12,7 +12,8 @@ import (
 // not opt in, so existing deployments are unaffected. Setting/adding a
 // boundary is an in-place role update (never a replacement).
 func permissionsBoundaryPtr(arn string) sdk.StringPtrInput {
-	if strings.TrimSpace(arn) == "" {
+	arn = strings.TrimSpace(arn)
+	if arn == "" {
 		return nil
 	}
 	return sdk.String(arn)

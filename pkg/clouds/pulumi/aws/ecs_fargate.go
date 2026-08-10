@@ -89,9 +89,15 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	if !ok {
 		return output, errors.Errorf("failed to convert ecs_fargate config for %q in stack %q in %q", input.Descriptor.Type, stack.Name, deployParams.Environment)
 	}
+	// This in-place ConvertAuth re-reads the credentials blob over
+	// crInput.AccountConfig (which createEcsFargateCluster reads for the role's
+	// boundary). Capture the template-level boundary first and re-assert it so
+	// "template wins" holds and a future refactor can't silently drop it.
+	tplBoundary := crInput.AccountConfig.PermissionsBoundary
 	if err := api.ConvertAuth(crInput, &crInput.AccountConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
+	crInput.AccountConfig.KeepBoundary(tplBoundary)
 
 	params.Log.Debug(ctx.Context(), "configure ECS Fargate for stack %q in %q: %+v...", stack.Name, deployParams.Environment, crInput)
 

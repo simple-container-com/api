@@ -556,12 +556,9 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if err := api.ConvertAuth(&cfg.AccountConfig, accountConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
-	// ConvertAuth carries only credential fields. Preserve the non-credential
-	// permissions boundary so it reaches the alert Lambda's execution role: a
-	// template-level value wins; if unset, keep the auth-level one ConvertAuth loaded.
-	if cfg.AccountConfig.PermissionsBoundary != "" {
-		accountConfig.PermissionsBoundary = cfg.AccountConfig.PermissionsBoundary
-	}
+	// Preserve the template-level boundary across ConvertAuth so it reaches the
+	// alert Lambda's execution role (see awsApi.AccountConfig.KeepBoundary).
+	accountConfig.KeepBoundary(cfg.AccountConfig.PermissionsBoundary)
 	cfg.AccountConfig = *accountConfig
 
 	if cfg.LogGroupName == "" {
