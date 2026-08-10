@@ -34,8 +34,8 @@ RUN --mount=type=cache,target=/tmp/pulumi-dl,sharing=locked \
     && tar -xzf "${TARBALL}" -C /tmp \
     && mv /tmp/pulumi/* /opt/pulumi/bin/ \
     && rm -rf /tmp/pulumi /tmp/go.mod \
-    && strip /opt/pulumi/bin/* 2>/dev/null || true \
-    && upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true
+    && { strip /opt/pulumi/bin/* 2>/dev/null || true; } \
+    && { upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true; }
 
 # gcloud: pinned version + SHA-256 (Google does not publish per-release sig).
 # Refresh: pull the tarball, sha256sum it, paste below.

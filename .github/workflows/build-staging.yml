@@ -115,8 +115,10 @@ jobs:
             simplecontainer/github-actions:staging
             simplecontainer/github-actions:${{ github.ref_name }}
           push: true
-          cache-from: type=gha,scope=github-actions-staging
-          cache-to: type=gha,mode=max,scope=github-actions-staging
+          cache-from: |
+            type=gha,scope=staging-github-actions
+            type=gha,scope=prod-github-actions
+          cache-to: type=gha,mode=max,scope=staging-github-actions
           provenance: false
 
       - name: Build and push caddy staging image
@@ -130,8 +132,10 @@ jobs:
             simplecontainer/caddy:staging
             simplecontainer/caddy:${{ steps.version.outputs.version }}
           push: true
-          cache-from: type=gha,scope=caddy-staging
-          cache-to: type=gha,mode=max,scope=caddy-staging
+          cache-from: |
+            type=gha,scope=staging-caddy
+            type=gha,scope=prod-caddy
+          cache-to: type=gha,mode=max,scope=staging-caddy
           provenance: false
 
       # Phase 2: sign + SBOM + SLSA provenance for staging images. Staging has

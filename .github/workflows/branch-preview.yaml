@@ -302,11 +302,16 @@ jobs:
       matrix:
         include:
           - target: github-actions
+            cache_scope: github-actions
             binary: github-actions
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tag_prefix: "simplecontainer/github-actions:"
           - target: cloud-helpers
+            # matches push.yaml's `image: cloud-helpers-aws` so the prod
+            # cache fallback above resolves; the artifact/tag names stay
+            # `cloud-helpers`.
+            cache_scope: cloud-helpers-aws
             binary: cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
@@ -349,8 +354,14 @@ jobs:
           platforms: linux/amd64
           tags: ${{ matrix.tag_prefix }}${{ needs.prepare.outputs.version }}
           push: true
-          cache-from: type=gha,scope=${{ matrix.target }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          # Writes its own preview tier; reads prod as a warm fallback.
+          # Reading a higher-trust scope is safe, writing one is not.
+          # matrix.cache_scope (not matrix.target) so the prod fallback
+          # actually matches push.yaml's image names.
+          cache-from: |
+            type=gha,scope=preview-${{ matrix.cache_scope }}
+            type=gha,scope=prod-${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.cache_scope }}
           provenance: false
       # Phase 2 attestation (mirrors push.yaml). Preview builds get the SAME
       # security guarantees as production releases so consumers pin-testing a

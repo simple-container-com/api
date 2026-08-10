@@ -27,8 +27,8 @@ RUN --mount=type=cache,target=/tmp/pulumi-dl,sharing=locked \
     && tar -xzf "${TARBALL}" -C /tmp \
     && mv /tmp/pulumi/* /opt/pulumi/bin/ \
     && rm -rf /tmp/pulumi /tmp/go.mod \
-    && strip /opt/pulumi/bin/* 2>/dev/null || true \
-    && upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true
+    && { strip /opt/pulumi/bin/* 2>/dev/null || true; } \
+    && { upx --best --lzma /opt/pulumi/bin/* 2>/dev/null || true; }
 
 ARG GCLOUD_VERSION="579.0.0"
 ARG GCLOUD_SHA256="a9a7fbe51cda37cf6142b1bbcff12227550e60a6c67e8cf84644fb301371c4de"

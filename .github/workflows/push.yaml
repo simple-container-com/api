@@ -373,7 +373,7 @@ jobs:
           # base would force keeping the vulnerable transitives.
           # Digest is multi-platform (OCI image index) — covers amd64
           # / arm64 / arm/v5 / arm/v7 / 386 / ppc64le / riscv64 / s390x.
-          docker run --rm -v $PWD/docs:/docs -w /docs python@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461 sh -c "pip install --require-hashes -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
+          docker run --rm -v $PWD/docs:/docs -w /docs python@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36 sh -c "pip install --require-hashes -r requirements.txt && PATH=\$PATH:~/.local/bin mkdocs build"
       - name: upload docs artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -467,8 +467,13 @@ jobs:
           platforms: linux/amd64
           tags: ${{ matrix.tags }}
           push: true
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # Cache scopes are prefixed by TRUST TIER, not just by image.
+          # A lower-trust build must never write a scope a release build
+          # reads: `mode=max` exports the builder stage, so a poisoned hit
+          # would skip the SHA-256-verified gcloud/Pulumi downloads entirely.
+          # Release builds read and write `prod-*` only.
+          cache-from: type=gha,scope=prod-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=prod-${{ matrix.image }}
           provenance: false
       # Phase 2 attestation: keyless cosign sign + CycloneDX SBOM + SLSA L3
       # provenance. The publish step above is the gating job. Sign/attest steps

@@ -8,6 +8,11 @@ RUN dnf upgrade -y --setopt=tsflags=nodocs \
 
 WORKDIR /
 COPY dist/cloud-helpers /cloud-helpers
+# actions/upload-artifact does not preserve the executable bit, and the release
+# path (push.yaml) downloads this binary without a chmod — unlike
+# branch-preview.yaml, which has one. Assert it here so the image is correct
+# regardless of which workflow built it.
+RUN chmod +x /cloud-helpers && test -x /cloud-helpers
 EXPOSE 8080
 
 LABEL org.opencontainers.image.source="https://github.com/simple-container-com/api" \

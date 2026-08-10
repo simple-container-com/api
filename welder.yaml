@@ -275,10 +275,14 @@ tasks:
       - git tag ${project:version} || echo "Already set tag ${project:version}"
       - git push -f origin ${project:version} || echo "Tag ${project:version} already exists in origin"
   build-docs:
-    image: python:3.12-slim
+    # Same digest + --require-hashes as the CI docs build in
+    # .github/workflows/push.yaml, so the two definitions cannot drift.
+    # python@sha256:401f6e1a = 3.12.13-slim-trixie; docs/requirements.txt is
+    # pip-compiled for 3.12.
+    image: python@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
     workDir: ${project:root}/docs
     script:
-      - pip install -r requirements.txt
+      - pip install --require-hashes -r requirements.txt
       - PATH=${PATH}:~/.local/bin mkdocs build
   debug-aws-cloud-helpers:
     runOn: host

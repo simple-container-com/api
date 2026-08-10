@@ -1,8 +1,13 @@
-# OSV-Scanner ignore list. Mirrors the `not_affected` statements in
-# `vex/openvex.json` for the benefit of OpenSSF Scorecard's Vulnerabilities
-# check, which queries osv.dev directly and doesn't read VEX. The VEX file
-# remains the source-of-truth justification; this file is a re-statement
-# in a format the scanner understands.
+# OSV-Scanner ignore list. Mirrors the SUBSET of `vex/openvex.json`
+# `not_affected` statements that osv-scanner actually reports, for the benefit
+# of OpenSSF Scorecard's Vulnerabilities check, which queries osv.dev directly
+# and doesn't read VEX. The VEX file remains the source-of-truth justification;
+# this file is a re-statement in a format the scanner understands.
+#
+# A VEX statement with no corresponding osv-scanner finding gets NO entry here
+# (currently 1 of 3 statements is mirrored) — osv-scanner reads go.mod's own
+# requirements, so an advisory against a module that only appears in the wider
+# module graph would be flagged as an `unused ignore`.
 #
 # Add an entry here ONLY after the corresponding `not_affected` statement
 # lands in vex/openvex.json (both this file and /vex/ are named
@@ -30,4 +35,4 @@
 
 [[IgnoredVulns]]
 id = "GO-2026-5932"
-reason = "VEX not_affected (vulnerable_code_not_present): golang.org/x/crypto is required for chacha20poly1305 (pkg/api/secrets/ciphers); nothing in the build graph imports golang.org/x/crypto/openpgp or its subpackages, so the linker never emits that code. OpenPGP handling uses github.com/ProtonMail/go-crypto/openpgp — the maintained fork this very advisory recommends. govulncheck -mode=source confirms 0 reachable vulnerabilities. Unfixable by bumping: the advisory has introduced=0 and no fix event; it is a permanent 'unmaintained package' notice. Full justification in vex/openvex.json."
+reason = "VEX not_affected (vulnerable_code_not_present): golang.org/x/crypto is a direct dependency for chacha20poly1305, ed25519, hkdf and ssh (pkg/api/secrets, pkg/api/secrets/ciphers), and 24 of its packages link into shipped binaries — but none of them is openpgp or an openpgp subpackage, so the linker never emits that code. Verify with `go list -buildvcs=false -deps ./... | grep -c '^golang.org/x/crypto/openpgp'` (expect 0; -buildvcs=false matters because a plain go list can exit non-zero and print nothing, which greps identically to a clean result). OpenPGP handling uses github.com/ProtonMail/go-crypto v1.1.6 — the maintained fork this very advisory recommends. govulncheck -mode=source confirms 0 reachable vulnerabilities. Unfixable by bumping: the advisory has introduced=0 and no fix event; it is a permanent 'unmaintained package' notice. Full justification in vex/openvex.json."
