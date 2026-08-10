@@ -2,7 +2,7 @@
 # difference is that it consumes ./bin/github-actions (built by welder) instead
 # of dist/github-actions (built by CI). Keep the two files in sync.
 
-FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 AS builder
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS builder
 
 RUN apk update && apk upgrade --no-cache \
     && apk add --no-cache curl bash binutils upx ca-certificates tar python3 \
@@ -73,7 +73,7 @@ RUN rm -rf \
     && rm -rf /tmp/* /var/tmp/*
 
 # ── runtime ─────────────────────────────────────────────────────────────────
-FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
 # static-website template at pkg/clouds/pulumi/aws/static_website.go).
