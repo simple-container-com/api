@@ -24,6 +24,10 @@ templates:
     config: &aws-eu-cfg
       credentials: "${auth:aws-eu}"        # Required: AWS authentication
       account: "${auth:aws-eu.projectId}"  # Required: AWS account/project ID
+      # Optional: cap every workload IAM role SC mints under this template with a
+      # permissions boundary (ECS task/exec, Lambda, DB-init roles). Uncomment and
+      # point at a real policy ARN; the boundary must exist or CreateRole fails.
+      # permissionsBoundary: "arn:aws:iam::123456789012:policy/sc-workload-boundary"
   stack-per-app-us:
     type: ecs-fargate
     config: &aws-us-cfg

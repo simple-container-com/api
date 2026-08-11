@@ -49,8 +49,9 @@ func execEcsTask(ctx *sdk.Context, config ecsTaskConfig) error {
 	params.Log.Info(ctx.Context(), "configure exec role for %q", name)
 	execRoleName := fmt.Sprintf("%s-exec-role", name)
 	taskExecRole, err := iam.NewRole(ctx, execRoleName, &iam.RoleArgs{
-		Name: sdk.String(execRoleName),
-		Tags: config.tags,
+		Name:                sdk.String(execRoleName),
+		Tags:                config.tags,
+		PermissionsBoundary: permissionsBoundaryPtr(config.account.PermissionsBoundary),
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
