@@ -27,7 +27,7 @@ selects, obtains, and tracks its dependencies."
 | **Go** | `go.mod` + `go.sum` | `go.sum` hashes every direct + transitive dep | `govulncheck` (reachability-aware), `osv-scanner` (via Scorecard), `trivy fs` |
 | **Python (docs)** | `docs/requirements.in` (sources) + `docs/requirements.txt` (compiled with `--generate-hashes`) | `pip install --require-hashes` in `push.yaml` docs-build step | `pip-audit`, Scorecard pinned-deps check |
 | **npm (docs examples)** | example `package*.json` files | Lockfile-aware install (`npm ci` when lockfile present, falls back to `npm install`) | Scorecard pinned-deps check |
-| **Docker base images** | `Dockerfile`s + `.Dockerfile`s at repo root + example dirs | SHA digest pin: `python@sha256:401f...`, `node:22-alpine@sha256:757e...` | `trivy image` per published image |
+| **Docker base images** | `Dockerfile`s + `.Dockerfile`s at repo root + example dirs | SHA digest pin (digests live in the files, not here — grep `@sha256:`) | `trivy image` per published image |
 | **GitHub Actions** | `.github/workflows/*` + `.github/actions/*` | Commit SHA pin with `# vX.Y.Z` comment for human-readability | Scorecard pinned-deps check; Semgrep custom rules |
 | **End-user installer tools** | `sc.sh` (Pulumi installer) | Tarball + SHA256 checksum verification before extract | n/a (sc.sh is shipped, not built against) |
 
@@ -95,8 +95,9 @@ positives — those live in PR descriptions and as OpenVEX
 `not_affected` statements in [`vex/openvex.json`](../vex/openvex.json),
 never in a scanner-suppression file (no `.trivyignore`, no
 `# nosemgrep`, no `// nolint:` for vuln findings). The single exception
-is [`osv-scanner.toml`](../osv-scanner.toml), a derivative mirror of the
-VEX statements for OpenSSF Scorecard, which cannot read VEX — see
+is [`osv-scanner.toml`](../osv-scanner.toml), a derivative partial
+mirror (only advisories osv-scanner actually reports) of the VEX
+statements for OpenSSF Scorecard, which cannot read VEX — see
 [Suppressing a finding](#suppressing-a-finding-non-exploitable--false-positive).
 
 ## Out-of-tree dependency surface
@@ -184,9 +185,14 @@ OpenSSF Scorecard's Vulnerabilities check calls `osv-scanner` directly
 and has no VEX input, so a VEX-only `not_affected` still shows up as a
 score deduction. For that one consumer the statement is mirrored into
 [`osv-scanner.toml`](../osv-scanner.toml) — same advisory ID, the
-`reason` field restating the VEX justification. That mirror is the only
-scanner-config suppression the project sanctions, and it is derivative:
-an entry may exist there **only** when the VEX statement exists first.
+`reason` field restating the VEX justification — but **only when
+osv-scanner actually reports the advisory**. osv-scanner reads go.mod's
+own requirements, so an advisory against a module that appears only in
+the wider module graph (`go list -m all`) needs no mirror entry; adding
+one anyway produces an `unused ignores` warning, which is itself a
+finding. That mirror is the only scanner-config suppression the project
+sanctions, and it is derivative: an entry may exist there **only** when
+the VEX statement exists first.
 `/vex/` and `/osv-scanner.toml` are both code-owned paths so neither
 lands without security review.
 
@@ -195,6 +201,15 @@ Every SCA pass re-triages the existing entries in both files. A
 to `status: fixed`, and dropped from the mirror — a suppression that
 outlives its justification is not triage. `osv-scanner` reports stale
 entries as `unused ignores`, which is the signal to remove them.
+
+The inverse also has to be checked: an advisory with `introduced: 0` and
+**no fix event** in OSV can never reach `status: fixed`, because no
+version of the dependency is patched (AWS's aws-sdk-go v1 `s3crypto`
+advisories and the `x/crypto/openpgp` unmaintained notice are both this
+shape). Writing `fixed` there produces a permanent suppression wearing a
+transitional label. Such an advisory stays `not_affected` with the
+narrowest true justification, and its closing condition is the
+dependency edge disappearing, not a version bump.
 
 `.trivyignore`, `# nosemgrep`, `// nolint:`, `# noqa` are NOT
 sanctioned suppression channels. Any of these in a PR must point at
