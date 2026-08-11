@@ -70,7 +70,7 @@ move to a newer Node 22 patch release.
 
 ```dockerfile
 # Multi-stage build for Meteor.js application
-FROM node:22-alpine@sha256:757ec364de4d37cedf30871be2988927660834e656e9aa52aad9ac194814c30c AS builder
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS builder
 
 # Install Meteor CLI at a pinned version. Bump as needed for your app;
 # do not leave unpinned.
@@ -98,7 +98,7 @@ RUN if [ -f package-lock.json ]; then meteor npm ci; else meteor npm install; fi
 RUN meteor build --directory /app/build --architecture os.linux.x86_64
 
 # Production stage
-FROM node:22-alpine@sha256:757ec364de4d37cedf30871be2988927660834e656e9aa52aad9ac194814c30c
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init

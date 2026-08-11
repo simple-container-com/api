@@ -1,5 +1,5 @@
 # Refresh: docker buildx imagetools inspect alpine/kubectl:latest
-FROM alpine/kubectl:latest@sha256:405e7130cb2cd07f85feafd11333f2f46e921f2f8937c375e396791f4776c948
+FROM alpine/kubectl:latest@sha256:5d380d18d2509483aef3df54d676c767d798d55ec9f3e02dabfa4c88fe6559bd
 
 # apk upgrade pulls post-tag distro fixes (e.g. nghttp2 CVE-2026-27135 at scan time).
 RUN apk update \

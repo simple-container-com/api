@@ -71,6 +71,34 @@ type StateStorageConfig struct {
 	Name        string  `json:"name,omitempty" yaml:"name,omitempty"`
 	Location    *string `json:"location" yaml:"location"`
 	Provision   bool    `json:"provision" yaml:"provision"`
+
+	// NoncurrentVersionRetentionDays bounds how long overwritten state
+	// generations are kept when the bucket has object versioning enabled.
+	//
+	// It matters beyond storage cost. Pulumi's cloud secrets manager re-wraps
+	// each stack's data key on every state write, and a KMS symmetric encrypt
+	// always uses the key's current primary version, so each retained
+	// generation depends on whichever key version was primary when it was
+	// written. With versioning on and no lifecycle rule, that set of
+	// load-bearing key versions grows without limit and no key version can
+	// ever be proven unreferenced.
+	//
+	// Zero disables the rule. Nil means DefaultNoncurrentVersionRetentionDays.
+	NoncurrentVersionRetentionDays *int `json:"noncurrentVersionRetentionDays,omitempty" yaml:"noncurrentVersionRetentionDays,omitempty"`
+}
+
+// DefaultNoncurrentVersionRetentionDays is the rollback horizon applied when
+// noncurrentVersionRetentionDays is unset. Long enough to recover from a bad
+// deployment, short enough that the dependency set stays bounded.
+const DefaultNoncurrentVersionRetentionDays = 30
+
+// EffectiveNoncurrentVersionRetentionDays resolves the configured retention,
+// falling back to the default when unset. A configured zero disables the rule.
+func (s *StateStorageConfig) EffectiveNoncurrentVersionRetentionDays() int {
+	if s.NoncurrentVersionRetentionDays == nil {
+		return DefaultNoncurrentVersionRetentionDays
+	}
+	return *s.NoncurrentVersionRetentionDays
 }
 
 // GetBucketName returns the bucket name, supporting both "name" and "bucketName" fields
