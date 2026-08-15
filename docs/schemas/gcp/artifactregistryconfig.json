@@ -47,6 +47,78 @@
         ],
         "type": "object"
       },
+      "cleanupPolicies": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "condition": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "newerThan": {
+                  "type": "string"
+                },
+                "olderThan": {
+                  "type": "string"
+                },
+                "packageNamePrefixes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "tagPrefixes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "tagState": {
+                  "type": "string"
+                },
+                "versionNamePrefixes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "mostRecentVersions": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "keepCount": {
+                  "type": "integer"
+                },
+                "packageNamePrefixes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "name"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "cleanupPolicyDryRun": {
+        "type": "boolean"
+      },
       "docker": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
