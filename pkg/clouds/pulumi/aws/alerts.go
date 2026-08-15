@@ -39,6 +39,9 @@ type alertCfg struct {
 	metricAlarmArgs cloudwatch.MetricAlarmArgs
 	helpersImage    *docker.Image
 	snsTopic        *sns.Topic
+	// permissionsBoundary, when set (AccountConfig.PermissionsBoundary), is
+	// applied to the alert Lambda's execution role. Empty = none.
+	permissionsBoundary string
 	// Optional — when all three are set, the Lambda will look up matching
 	// CloudTrail events in the alarm's time window and include a summary
 	// (event name, actor, source IP, timestamp) in the Slack/Discord/Telegram
@@ -153,7 +156,8 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 func createAlert(ctx *sdk.Context, cfg alertCfg) error {
 	// Create IAM Role for Lambda Function
 	lambdaExecutionRole, err := iam.NewRole(ctx, fmt.Sprintf("%s-execution-role", cfg.name), &iam.RoleArgs{
-		Tags: cfg.tags,
+		Tags:                cfg.tags,
+		PermissionsBoundary: permissionsBoundaryPtr(cfg.permissionsBoundary),
 		AssumeRolePolicy: pulumi.String(`{
 			"Version": "2012-10-17",
 			"Statement": [{

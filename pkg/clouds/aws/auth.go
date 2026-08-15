@@ -24,7 +24,31 @@ type AccountConfig struct {
 	AccessKey       string `json:"accessKey" yaml:"accessKey"`
 	SecretAccessKey string `json:"secretAccessKey" yaml:"secretAccessKey"`
 	Region          string `json:"region" yaml:"region"`
-	api.Credentials `json:",inline" yaml:",inline"`
+	// PermissionsBoundary, when set to an IAM policy ARN, is applied as the
+	// permissions boundary on every IAM role SC creates for workloads under this
+	// account: ECS task/execution roles, Lambda and alert-Lambda execution roles,
+	// and DB-init (pg-init/mysql-init) exec-task roles. Optional and empty by
+	// default, so it changes nothing unless a parent stack opts in per template.
+	// Lets an operator cap what a deployed workload role can ever do, independent
+	// of the role's own policy (effective perms become policy AND boundary).
+	// WARNING: one ARN caps ALL workload roles in the stack at once — a boundary
+	// too tight silently strips e.g. ECR pull / logs / SecretsManager from every
+	// service on the next deploy, so validate it in staging first.
+	PermissionsBoundary string `json:"permissionsBoundary,omitempty" yaml:"permissionsBoundary,omitempty"`
+	api.Credentials     `json:",inline" yaml:",inline"`
+}
+
+// KeepBoundary preserves a non-credential permissions-boundary value across an
+// api.ConvertAuth call, which rehydrates an AccountConfig from the resolved
+// ${auth:...} credentials blob and so carries only credential fields. Callers
+// pass the boundary declared at template level; a non-empty template value wins
+// (the documented precedence), while an empty one leaves whatever ConvertAuth
+// loaded (an auth-level boundary). Centralizes the precedence so every
+// ConvertAuth site that feeds a workload role behaves identically.
+func (r *AccountConfig) KeepBoundary(templateBoundary string) {
+	if templateBoundary != "" {
+		r.PermissionsBoundary = templateBoundary
+	}
 }
 
 type SecretsConfig struct {
