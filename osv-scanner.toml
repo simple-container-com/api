@@ -1,21 +1,38 @@
-# OSV-Scanner ignore list. Mirrors the `not_affected` statements in
-# `vex/openvex.json` for the benefit of OpenSSF Scorecard's Vulnerabilities
-# check, which queries osv.dev directly and doesn't read VEX. The VEX file
-# remains the source-of-truth justification; this file is a re-statement
-# in a format the scanner understands.
+# OSV-Scanner ignore list. Mirrors the SUBSET of `vex/openvex.json`
+# `not_affected` statements that osv-scanner actually reports, for the benefit
+# of OpenSSF Scorecard's Vulnerabilities check, which queries osv.dev directly
+# and doesn't read VEX. The VEX file remains the source-of-truth justification;
+# this file is a re-statement in a format the scanner understands.
+#
+# A VEX statement with no corresponding osv-scanner finding gets NO entry here
+# (currently 1 of 3 statements is mirrored) — osv-scanner reads go.mod's own
+# requirements, so an advisory against a module that only appears in the wider
+# module graph would be flagged as an `unused ignore`.
 #
 # Add an entry here ONLY after the corresponding `not_affected` statement
-# lands in vex/openvex.json (review by code owners under the default
-# `*` CODEOWNERS rule). Suppressing a real vulnerability here without VEX
+# lands in vex/openvex.json (both this file and /vex/ are named
+# explicitly in CODEOWNERS). Suppressing a real vulnerability here without VEX
 # is a regression — track upstream-fix availability in the VEX
 # impact_statement, and remove from BOTH files when fixable.
 #
 # Reference: https://google.github.io/osv-scanner/configuration/
+#
+# GO-2022-0635 / GO-2022-0646 (aws-sdk-go v1 s3crypto) stay OUT of this
+# file. They were dropped on 2026-08-02 because osv-scanner flagged them as
+# unused ignores, and that still holds: osv-scanner reads go.mod's own
+# requirements, and aws-sdk-go v1 is not one of them. It does still show up
+# in the wider module graph (`go list -m all` → v1.55.8) via a transitive
+# go.mod, so the VEX statements are kept — but as `not_affected`
+# (component_not_present, zero packages linked), NOT `fixed`: both advisories
+# carry `introduced: 0` with no fix event, so `fixed` was never reachable.
+# Corrected 2026-08-10. Re-add here only if osv-scanner starts reporting them.
+# Entries here are re-triaged on every SCA pass — an ignore that outlives its
+# justification is a suppression, not triage.
+#
+# NOTE: `reason` must stay a single-line TOML basic string. A newline in
+# it makes osv-scanner discard the WHOLE config ("strings cannot contain
+# newlines") and silently re-report every ignored advisory.
 
 [[IgnoredVulns]]
-id = "GO-2022-0635"
-reason = "VEX not_affected: github.com/aws/aws-sdk-go is required transitively by github.com/pulumi/pulumi/pkg/v3/operations; the s3crypto subpackage is never imported by this codebase nor any reachable code path. govulncheck -mode=source confirms 0 reachable vulnerabilities. Full justification in vex/openvex.json."
-
-[[IgnoredVulns]]
-id = "GO-2022-0646"
-reason = "VEX not_affected: same s3crypto unreachability as GO-2022-0635 — different advisory ID against the same subpackage. govulncheck confirms zero reachable calls to the affected symbols. Full justification in vex/openvex.json."
+id = "GO-2026-5932"
+reason = "VEX not_affected (vulnerable_code_not_present): golang.org/x/crypto is a direct dependency for chacha20poly1305, ed25519, hkdf and ssh (pkg/api/secrets, pkg/api/secrets/ciphers), and 24 of its packages link into shipped binaries — but none of them is openpgp or an openpgp subpackage, so the linker never emits that code. Verify with `go list -buildvcs=false -deps ./... | grep -c '^golang.org/x/crypto/openpgp'` (expect 0; -buildvcs=false matters because a plain go list can exit non-zero and print nothing, which greps identically to a clean result). OpenPGP handling uses github.com/ProtonMail/go-crypto v1.1.6 — the maintained fork this very advisory recommends. govulncheck -mode=source confirms 0 reachable vulnerabilities. Unfixable by bumping: the advisory has introduced=0 and no fix event; it is a permanent 'unmaintained package' notice. Full justification in vex/openvex.json."

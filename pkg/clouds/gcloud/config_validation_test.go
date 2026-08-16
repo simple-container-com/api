@@ -4,6 +4,8 @@
 package gcloud
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -87,4 +89,74 @@ func TestPostgresGcpCloudsqlConfig_ProxyAndNetworkHelpers(t *testing.T) {
 	Expect((&PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(true)}).UsesPrivateIpProxy()).To(BeFalse())
 	Expect((&PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc")}).UsesPrivateIpProxy()).To(BeFalse())
 	Expect((&PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false)}).UsesPrivateIpProxy()).To(BeTrue())
+}
+
+// Cloud KMS bills every ACTIVE key version (ENABLED, DISABLED and
+// DESTROY_SCHEDULED; only DESTROYED is free) and rotation never re-encrypts
+// existing ciphertext, so every version a key mints stays billed for the life
+// of the key. With one provisioned key per stack, the rotation period is a
+// compounding cost multiplier rather than a cosmetic setting.
+func TestSecretsProviderConfig_EffectiveKeyRotationPeriod(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect((&SecretsProviderConfig{}).EffectiveKeyRotationPeriod()).To(Equal(DefaultKeyRotationPeriod))
+	Expect((&SecretsProviderConfig{KeyRotationPeriod: "31536000s"}).EffectiveKeyRotationPeriod()).
+		To(Equal("31536000s"), "an explicit value must win over the default")
+}
+
+func TestDefaultKeyRotationPeriodIsSane(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Pin the value, not just its properties: asserting only "effective ==
+	// Default" passes for any constant, including the 100000s (27.8h) typo
+	// this default replaced.
+	Expect(DefaultKeyRotationPeriod).To(Equal("7776000s"), "90 days")
+
+	secs, err := strconv.Atoi(strings.TrimSuffix(DefaultKeyRotationPeriod, "s"))
+	Expect(err).To(BeNil())
+	Expect(secs).To(BeNumerically(">=", MinKeyRotationPeriodSeconds))
+	Expect(secs).To(BeNumerically(">", GcpMinKeyRotationPeriodSeconds),
+		"must be well clear of GCP's 24h minimum")
+	Expect(secs).To(BeNumerically("<=", GcpMaxKeyRotationPeriodSeconds))
+}
+
+func TestSecretsProviderConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       SecretsProviderConfig
+		errSubstr string
+	}{
+		{name: "unset means default", cfg: SecretsProviderConfig{Provision: true}},
+		{name: "90 days", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "7776000s"}},
+		{name: "exactly the 30-day floor", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "2592000s"}},
+		// keyRotationPeriod is meaningless for a BYO key referenced by keyName,
+		// so a stale value must not block those consumers.
+		{name: "provision disabled ignores the period", cfg: SecretsProviderConfig{Provision: false, KeyRotationPeriod: "100000s"}},
+		{name: "below policy floor", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "100000s"}, errSubstr: "30 day"},
+		{name: "one second under the floor", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "2591999s"}, errSubstr: "30 day"},
+		{name: "policy floor waivable", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "604800s", AllowShortKeyRotation: true}},
+		// The opt-out waives the POLICY floor only. GCP's own bounds stay hard:
+		// breaching them fails at the KMS API after the KeyRing already exists,
+		// and a KeyRing can never be deleted.
+		{name: "gcp floor NOT waivable", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "3600s", AllowShortKeyRotation: true}, errSubstr: "at least 86400"},
+		{name: "zero NOT waivable", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "0s", AllowShortKeyRotation: true}, errSubstr: "at least 86400"},
+		{name: "negative NOT waivable", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "-100s", AllowShortKeyRotation: true}, errSubstr: "at least 86400"},
+		{name: "above gcp maximum", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "3153600001s", AllowShortKeyRotation: true}, errSubstr: "at most"},
+		{name: "missing seconds suffix", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "7776000"}, errSubstr: "'s' suffix"},
+		{name: "not a number but ends in s", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "ninetydays"}, errSubstr: "whole number of seconds"},
+		{name: "duration shorthand", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "90d"}, errSubstr: "'s' suffix"},
+		{name: "malformed still fails under the opt-out", cfg: SecretsProviderConfig{Provision: true, KeyRotationPeriod: "90d", AllowShortKeyRotation: true}, errSubstr: "'s' suffix"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			err := tt.cfg.Validate()
+			if tt.errSubstr == "" {
+				Expect(err).To(BeNil())
+				return
+			}
+			Expect(err).NotTo(BeNil(), "expected %q to be rejected", tt.cfg.KeyRotationPeriod)
+			Expect(err.Error()).To(ContainSubstring(tt.errSubstr))
+		})
+	}
 }

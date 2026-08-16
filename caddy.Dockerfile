@@ -1,8 +1,20 @@
-# Caddy 2.11.3: closes vendored-dep CVEs in 2.11.2's binary (go-jose v4,
-# otel, smallstep/certificates) plus Caddy core fastcgi + admin-socket
-# auth-bypass fixes — see https://github.com/caddyserver/caddy/releases/tag/v2.11.3.
-# Bumping requires editing all three "2.11.x" sites below (two FROMs + xcaddy).
+# Caddy 2.11.4: closes CVE-2026-52844, CVE-2026-52845 and CVE-2026-52846 on
+# top of 2.11.3's vendored-dep CVEs (go-jose v4, otel, smallstep/certificates)
+# and core fastcgi + admin-socket auth-bypass fixes.
+#
+# The version lives in ONE place: the CADDY_VERSION ARG below. It feeds both
+# FROMs and `xcaddy build`, because `COPY --from=builder /usr/bin/caddy`
+# overwrites the runtime image's own binary — so a builder/runtime version skew
+# ships silently. Only the two digests are per-tag and must be refreshed with it.
 # Refresh: docker buildx imagetools inspect caddy:X.Y.Z[-builder]
+#
+# NOTE: 2.11.4 is a security release upstream flags as breaking if you relied on
+# the buggy behaviour — request header fields containing underscores are now
+# ignored, Windows backslashes are normalised in the path matcher, and `rewrite`
+# no longer re-expands placeholders in an injected query. SC's own generated
+# Caddyfiles use none of those, but consumers injecting headers via
+# lbConfig.extraHelpers / siteExtraHelpers should check for underscore-named
+# request headers.
 #
 # Plugins:
 # - github.com/grafana/certmagic-gcs — GCS-backed certmagic storage for GKE.
@@ -57,25 +69,40 @@
 #       Verify the LB is `externalTrafficPolicy: Local` + the parent
 #       Caddy's `trustedProxies` covers the LB CIDR range.
 
-FROM caddy:2.11.4-builder@sha256:f2b98918658f949a3c533f2c73bd0806e3f2576ccf8eb182c8b1690c977007ea AS builder
+FROM caddy:2.11.4-builder@sha256:198d47eaee306d4d0c38a9960c89ff2c959aa29ad51d3e2dafa3e93ac961782a AS builder
 
+# `$CADDY_VERSION` is set by the base image itself (v2.11.4 here), so xcaddy
+# builds exactly the version the builder ships and a skew is impossible by
+# construction — there is no second version literal to forget. The tag on the
+# FROM line is informational only; the digest is what resolves.
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
-    xcaddy build "v2.11.3" \
+    test -n "${CADDY_VERSION}" \
+    && xcaddy build "${CADDY_VERSION}" \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
         --with github.com/mholt/caddy-ratelimit@16aecbbcb8ca07dc1c671e263379606ff9493c55 \
-    && caddy version \
-    && caddy list-modules | grep -qE '^http\.handlers\.rate_limit$'
-# ^ Final grep is a sanity check that the ratelimit module actually registered
-# into the resulting binary (xcaddy has been known to silently drop plugins
-# when versions disagree). If this fails the RUN exits non-zero with the
-# failing command visible — no misleading prefixed echo.
+    && caddy version | grep -qF "${CADDY_VERSION} " \
+    && caddy list-modules | grep -qE '^http\.handlers\.rate_limit$' \
+    && caddy list-modules | grep -qE '^caddy\.storage\.gcs$'
+# ^ The greps are gates, not decoration:
+#   - `caddy version | grep` pins the built binary to the base image's own
+#     version. The previous line printed `caddy version` and never compared it,
+#     which is how a 2.11.3 binary shipped inside a 2.11.4 base unnoticed.
+#   - both module greps catch a silently dropped plugin (xcaddy does this when
+#     versions disagree). Dropping certmagic-gcs is the expensive one: Caddy
+#     falls back to local-filesystem cert storage, so a multi-replica parent
+#     stack gets per-pod ACME state and risks Let's Encrypt rate-limit lockout.
 
-FROM caddy:2.11.4@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
+FROM caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+# Re-assert against the RUNTIME base's own $CADDY_VERSION: this is what catches
+# builder/runtime digest skew, and stops a cache-hit builder stage slipping a
+# stale binary into a freshly-pulled runtime base.
+RUN test -n "${CADDY_VERSION}" && caddy version | grep -qF "${CADDY_VERSION} "
 
 LABEL org.opencontainers.image.source="https://github.com/simple-container-com/api" \
       org.opencontainers.image.licenses="Apache-2.0" \
