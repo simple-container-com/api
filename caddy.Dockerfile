@@ -69,7 +69,7 @@
 #       Verify the LB is `externalTrafficPolicy: Local` + the parent
 #       Caddy's `trustedProxies` covers the LB CIDR range.
 
-FROM caddy:2.11.4-builder@sha256:198d47eaee306d4d0c38a9960c89ff2c959aa29ad51d3e2dafa3e93ac961782a AS builder
+FROM caddy:2.11.4-builder@sha256:c7ae80243a530d532d20062d56d6198b3ab161eb6971d28716ef7ec55599fea4 AS builder
 
 # `$CADDY_VERSION` is set by the base image itself (v2.11.4 here), so xcaddy
 # builds exactly the version the builder ships and a skew is impossible by
@@ -93,7 +93,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 #     falls back to local-filesystem cert storage, so a multi-replica parent
 #     stack gets per-pod ACME state and risks Let's Encrypt rate-limit lockout.
 
-FROM caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+FROM caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 
