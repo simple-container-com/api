@@ -79,6 +79,21 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		return nil, errors.Errorf("registry format is not supported")
 	}
 
+	// cleanupPolicies is authoritative in the provider: a Repository resource
+	// that omits it sends an update clearing whatever is there. So either
+	// declare it, or tell the engine to leave it alone. Sending nothing is the
+	// one option that silently deletes another tool's retention policy.
+	if arCfg.ManagesCleanupPolicies() {
+		policies, err := cleanupPolicyArgs(arCfg.CleanupPolicies)
+		if err != nil {
+			return nil, err
+		}
+		repoArgs.CleanupPolicies = policies
+		repoArgs.CleanupPolicyDryRun = sdk.Bool(lo.FromPtr(arCfg.CleanupPolicyDryRun))
+	} else {
+		opts = append(opts, sdk.IgnoreChanges(cleanupPolicyFields))
+	}
+
 	params.Log.Info(ctx.Context(), "configure artifact registry repository %q", artifactRegistryName)
 	repo, err := artifactregistry.NewRepository(ctx, artifactRegistryName, &repoArgs, opts...)
 	if err != nil {
@@ -251,4 +266,86 @@ func toRegistryServiceAccountKeyExport(input api.ResourceInput, saType string, r
 
 func toRegistryServiceAccountEmailExport(input api.ResourceInput, saType string, registryName string) string {
 	return input.ToResName(fmt.Sprintf("%s-%s-sa", saType, registryName))
+}
+
+// cleanupPolicyFields are the property paths SC declines to manage when no
+// retention is configured. Both are needed: leaving cleanupPolicyDryRun out
+// would let a provision flip an out-of-band dry-run repository into enforcing.
+var cleanupPolicyFields = []string{"cleanupPolicies", "cleanupPolicyDryRun"}
+
+// cleanupPolicyArgs converts the declared retention into provider inputs.
+//
+// Validation is deliberate rather than passing strings through: the provider
+// rejects an unknown action or tagState at APPLY, and an Artifact Registry
+// misconfiguration is measured in deleted images.
+func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifactregistry.RepositoryCleanupPolicyArray, error) {
+	out := make(artifactregistry.RepositoryCleanupPolicyArray, 0, len(policies))
+	seen := make(map[string]bool, len(policies))
+	for _, p := range policies {
+		if p.Name == "" {
+			return nil, errors.Errorf("cleanup policy is missing a name")
+		}
+		if seen[p.Name] {
+			return nil, errors.Errorf("duplicate cleanup policy name %q", p.Name)
+		}
+		seen[p.Name] = true
+
+		action := strings.ToUpper(p.Action)
+		if action != "DELETE" && action != "KEEP" {
+			return nil, errors.Errorf("cleanup policy %q: action must be DELETE or KEEP, got %q", p.Name, p.Action)
+		}
+		if p.MostRecentVersions != nil && action != "KEEP" {
+			return nil, errors.Errorf("cleanup policy %q: mostRecentVersions is only valid with a KEEP action", p.Name)
+		}
+		if p.Condition == nil && p.MostRecentVersions == nil {
+			return nil, errors.Errorf("cleanup policy %q: needs a condition or mostRecentVersions", p.Name)
+		}
+
+		args := &artifactregistry.RepositoryCleanupPolicyArgs{
+			Id:     sdk.String(p.Name),
+			Action: sdk.String(action),
+		}
+		if c := p.Condition; c != nil {
+			tagState := strings.ToUpper(c.TagState)
+			switch tagState {
+			case "", "TAGGED", "UNTAGGED", "ANY":
+			default:
+				return nil, errors.Errorf("cleanup policy %q: tagState must be TAGGED, UNTAGGED or ANY, got %q", p.Name, c.TagState)
+			}
+			for field, v := range map[string]string{"olderThan": c.OlderThan, "newerThan": c.NewerThan} {
+				if v != "" && !strings.HasSuffix(v, "s") {
+					return nil, errors.Errorf("cleanup policy %q: %s must be a duration in seconds with an 's' suffix, e.g. \"2592000s\", got %q", p.Name, field, v)
+				}
+			}
+			cond := &artifactregistry.RepositoryCleanupPolicyConditionArgs{
+				TagPrefixes:         sdk.ToStringArray(c.TagPrefixes),
+				PackageNamePrefixes: sdk.ToStringArray(c.PackageNamePrefixes),
+				VersionNamePrefixes: sdk.ToStringArray(c.VersionNamePrefixes),
+			}
+			if tagState != "" {
+				cond.TagState = sdk.StringPtr(tagState)
+			}
+			if c.OlderThan != "" {
+				cond.OlderThan = sdk.StringPtr(c.OlderThan)
+			}
+			if c.NewerThan != "" {
+				cond.NewerThan = sdk.StringPtr(c.NewerThan)
+			}
+			args.Condition = cond
+		}
+		if m := p.MostRecentVersions; m != nil {
+			if lo.FromPtr(m.KeepCount) < 0 {
+				return nil, errors.Errorf("cleanup policy %q: keepCount cannot be negative", p.Name)
+			}
+			mrv := &artifactregistry.RepositoryCleanupPolicyMostRecentVersionsArgs{
+				PackageNamePrefixes: sdk.ToStringArray(m.PackageNamePrefixes),
+			}
+			if m.KeepCount != nil {
+				mrv.KeepCount = sdk.IntPtr(*m.KeepCount)
+			}
+			args.MostRecentVersions = mrv
+		}
+		out = append(out, args)
+	}
+	return out, nil
 }
