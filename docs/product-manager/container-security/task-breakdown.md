@@ -827,10 +827,10 @@ func (e *Executor) ExecuteAll(ctx context.Context, imageRef string) (*Summary, e
 ## Dependencies Summary
 
 ### External Dependencies
-- **Cosign:** v3.0.2+ (image signing)
-- **Syft:** v1.41.0+ (SBOM generation)
-- **Grype:** v0.106.0+ (vulnerability scanning)
-- **Trivy:** v0.68.2+ (optional secondary scanner)
+- **Cosign:** v3.1.3+ (image signing)
+- **Syft:** v1.51.0+ (SBOM generation)
+- **Grype:** v0.117.0+ (vulnerability scanning)
+- **Trivy:** v0.74.0+ (optional secondary scanner)
 
 ### Internal Dependencies
 - Existing secrets management system (for key storage)

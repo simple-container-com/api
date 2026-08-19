@@ -12,7 +12,7 @@ import (
 type ToolMetadata struct {
 	Name        string // Tool name (e.g., "cosign", "syft")
 	Command     string // Command to execute (usually same as name)
-	MinVersion  string // Minimum required version (e.g., "3.1.3")
+	MinVersion  string // Minimum required version; also the install target
 	InstallURL  string // URL with installation instructions
 	Description string // Brief description
 	VersionFlag string // Flag to get version (e.g., "version" or "--version")
@@ -42,7 +42,7 @@ func (r *ToolRegistry) registerDefaultTools() {
 	r.Register(ToolMetadata{
 		Name:        "cosign",
 		Command:     "cosign",
-		MinVersion:  "3.1.3",
+		MinVersion:  DefaultCosignVersion,
 		InstallURL:  "https://docs.sigstore.dev/cosign/installation/",
 		Description: "Container image signing and verification tool",
 		VersionFlag: "version",
@@ -52,7 +52,7 @@ func (r *ToolRegistry) registerDefaultTools() {
 	r.Register(ToolMetadata{
 		Name:        "syft",
 		Command:     "syft",
-		MinVersion:  "1.41.0",
+		MinVersion:  DefaultSyftVersion,
 		InstallURL:  "https://github.com/anchore/syft#installation",
 		Description: "SBOM generation tool for container images",
 		VersionFlag: "version",
@@ -62,7 +62,7 @@ func (r *ToolRegistry) registerDefaultTools() {
 	r.Register(ToolMetadata{
 		Name:        "grype",
 		Command:     "grype",
-		MinVersion:  "0.106.0",
+		MinVersion:  DefaultGrypeVersion,
 		InstallURL:  "https://github.com/anchore/grype#installation",
 		Description: "Vulnerability scanner for container images",
 		VersionFlag: "version",
@@ -72,7 +72,7 @@ func (r *ToolRegistry) registerDefaultTools() {
 	r.Register(ToolMetadata{
 		Name:        "trivy",
 		Command:     "trivy",
-		MinVersion:  "0.68.2",
+		MinVersion:  DefaultTrivyVersion,
 		InstallURL:  "https://aquasecurity.github.io/trivy/latest/getting-started/installation/",
 		Description: "Comprehensive security scanner for containers",
 		VersionFlag: "version",

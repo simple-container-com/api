@@ -13,11 +13,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
-// DefaultTrivyVersion is the pinned install version. Bump here to upgrade cluster-wide,
-// or override per-scan via SC config (ScanToolConfig.Version) or SC_TRIVY_VERSION env var.
-const DefaultTrivyVersion = "0.70.0"
+// DefaultTrivyVersion is the pinned install version, sourced from
+// tools.DefaultTrivyVersion so the installer floor and the scanner pin cannot
+// drift apart. Bump it there to upgrade cluster-wide, or override per-scan via
+// SC config (ScanToolConfig.Version) or the SC_TRIVY_VERSION env var.
+const DefaultTrivyVersion = tools.DefaultTrivyVersion
 
 // TrivyScanner implements Scanner interface using Trivy
 type TrivyScanner struct {

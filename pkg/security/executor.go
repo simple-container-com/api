@@ -596,8 +596,16 @@ func (e *SecurityExecutor) ExecuteSBOM(ctx context.Context, imageRef string) (*s
 			}
 			if e.Config.SBOM.ShouldAttach() {
 				if e.Config.Signing != nil && e.Config.Signing.Enabled {
+					// Honour Required exactly as the generated-SBOM path below
+					// does. Returning unconditionally here made a transparency-log
+					// outage fatal on a cache hit while the same outage was only a
+					// warning on a cache miss, and left sbom.required=false with no
+					// effect on the branch operators actually hit.
 					if err := e.attachSBOM(ctx, cachedSBOM, imageRef); err != nil {
-						return nil, fmt.Errorf("attaching cached SBOM: %w", err)
+						if e.Config.SBOM.Required {
+							return nil, fmt.Errorf("attaching cached SBOM: %w", err)
+						}
+						fmt.Printf("Warning: failed to attach cached SBOM, continuing: %v\n", err)
 					}
 				} else {
 					err := fmt.Errorf("sbom attachment requires signing.enabled")

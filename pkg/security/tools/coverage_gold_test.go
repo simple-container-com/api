@@ -182,7 +182,7 @@ func TestRegistryGetMinVersion(t *testing.T) {
 		RegisterTestingT(t)
 		v, err := registry.GetMinVersion("cosign")
 		Expect(err).ToNot(HaveOccurred())
-		Expect(v).To(Equal("3.1.3"))
+		Expect(v).To(Equal(DefaultCosignVersion))
 	})
 
 	t.Run("unknown tool returns error and empty string", func(t *testing.T) {
@@ -229,11 +229,11 @@ func TestValidateVersion(t *testing.T) {
 		wantErr   bool
 		errSubstr string
 	}{
-		{"installed equals min passes", "cosign", "3.1.3", false, ""},
+		{"installed equals min passes", "cosign", DefaultCosignVersion, false, ""},
 		{"installed above min passes", "cosign", "4.1.0", false, ""},
 		{"installed below min fails", "cosign", "2.9.9", true, "below minimum required"},
-		{"syft min boundary passes", "syft", "1.41.0", false, ""},
-		{"syft just below min fails", "syft", "1.40.9", true, "below minimum required"},
+		{"syft min boundary passes", "syft", DefaultSyftVersion, false, ""},
+		{"syft just below min fails", "syft", "1.0.0", true, "below minimum required"},
 		{"unknown tool errors", "nonexistent", "1.0.0", true, "not found in registry"},
 		{"unparseable installed version errors", "cosign", "not-a-version", true, "failed to parse installed version"},
 	}
@@ -426,7 +426,7 @@ func TestInstallScriptKnownToolsEmbedVersionAndDir(t *testing.T) {
 	Expect(script).To(ContainSubstring("/opt/bin/trivy"))
 
 	// cosign downloads a bare binary (no tarball extraction step).
-	cosignScript, err := installScript("cosign", "3.1.3", "/opt/bin")
+	cosignScript, err := installScript("cosign", DefaultCosignVersion, "/opt/bin")
 	Expect(err).ToNot(HaveOccurred())
 	Expect(cosignScript).To(ContainSubstring("cosign-linux-amd64"))
 	Expect(cosignScript).To(ContainSubstring("/opt/bin/cosign"))
