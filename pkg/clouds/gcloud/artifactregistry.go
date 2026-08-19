@@ -26,7 +26,14 @@ type ArtifactRegistryConfig struct {
 	// next provision. Leaving this empty therefore means "SC does not manage
 	// retention", and SC preserves whatever is configured out of band rather
 	// than deleting it. See ManagesCleanupPolicies.
-	CleanupPolicies []ArtifactRegistryCleanupPolicy `json:"cleanupPolicies,omitempty" yaml:"cleanupPolicies,omitempty"`
+	// A POINTER so that "absent" and "declared empty" stay distinguishable.
+	// The placeholder resolver deep-copies configs by reflection and calls
+	// reflect.MakeSlice for every slice kind, so a nil SLICE arrives as an empty
+	// one and the difference is destroyed; its pointer branch returns early on
+	// nil, so a nil POINTER survives. Without that, `cleanupPolicies: []` could
+	// not mean "managed, and I want none", and removing policies from config
+	// would silently leave the live ones in place forever.
+	CleanupPolicies *[]ArtifactRegistryCleanupPolicy `json:"cleanupPolicies,omitempty" yaml:"cleanupPolicies,omitempty"`
 
 	// CleanupPolicyDryRun evaluates the policies and reports what they would
 	// delete without deleting it. Only meaningful alongside CleanupPolicies.
@@ -37,7 +44,17 @@ type ArtifactRegistryConfig struct {
 // not, the caller must tell Pulumi to ignore the field rather than send an empty
 // value, which is the difference between "not managed" and "delete the policy".
 func (c *ArtifactRegistryConfig) ManagesCleanupPolicies() bool {
-	return len(c.CleanupPolicies) > 0
+	return c.CleanupPolicies != nil
+}
+
+// DeclaredCleanupPolicies returns the declared retention, or nil when SC does
+// not manage it. An explicitly empty list is "managed, and empty", which is how
+// retention is removed.
+func (c *ArtifactRegistryConfig) DeclaredCleanupPolicies() []ArtifactRegistryCleanupPolicy {
+	if c.CleanupPolicies == nil {
+		return nil
+	}
+	return *c.CleanupPolicies
 }
 
 // ArtifactRegistryCleanupPolicy mirrors a single Artifact Registry cleanup

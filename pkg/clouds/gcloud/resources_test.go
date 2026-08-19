@@ -476,3 +476,74 @@ func TestReadGkeAutopilotResourceConfig(t *testing.T) {
 		Expect(err).To(HaveOccurred())
 	})
 }
+
+// The cleanup-policy fields are only ever reachable from YAML, and every other
+// test for them constructs Go structs directly. A wrong struct tag would ship
+// green while the declared retention silently became "not managed" — which is
+// the failure this whole feature exists to prevent.
+func TestArtifactRegistryConfigReadsCleanupPoliciesFromYAML(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := &api.Config{Config: map[string]any{
+		"projectId": "p",
+		"location":  "europe-west3",
+		"cleanupPolicies": []any{
+			map[string]any{
+				"name":      "delete-untagged-older-30d",
+				"action":    "DELETE",
+				"condition": map[string]any{"tagState": "UNTAGGED", "olderThan": "2592000s"},
+			},
+			map[string]any{
+				"name":               "keep-most-recent-20",
+				"action":             "KEEP",
+				"mostRecentVersions": map[string]any{"keepCount": 20},
+			},
+		},
+		"cleanupPolicyDryRun": true,
+	}}
+	out, err := ArtifactRegistryConfigReadConfig(cfg)
+	Expect(err).To(BeNil())
+	ar, ok := out.Config.(*ArtifactRegistryConfig)
+	Expect(ok).To(BeTrue())
+
+	Expect(ar.ManagesCleanupPolicies()).To(BeTrue())
+	got := ar.DeclaredCleanupPolicies()
+	Expect(got).To(HaveLen(2))
+	Expect(got[0].Name).To(Equal("delete-untagged-older-30d"))
+	Expect(got[0].Action).To(Equal("DELETE"))
+	Expect(got[0].Condition).NotTo(BeNil())
+	Expect(got[0].Condition.TagState).To(Equal("UNTAGGED"))
+	Expect(got[0].Condition.OlderThan).To(Equal("2592000s"))
+	Expect(got[1].MostRecentVersions).NotTo(BeNil())
+	Expect(*got[1].MostRecentVersions.KeepCount).To(Equal(20))
+	Expect(ar.CleanupPolicyDryRun).NotTo(BeNil())
+	Expect(*ar.CleanupPolicyDryRun).To(BeTrue())
+}
+
+// Absent must stay absent through the decode: it is what makes SC preserve
+// out-of-band retention instead of deleting it.
+func TestArtifactRegistryConfigAbsentCleanupPoliciesStaysUnmanaged(t *testing.T) {
+	RegisterTestingT(t)
+
+	out, err := ArtifactRegistryConfigReadConfig(&api.Config{Config: map[string]any{
+		"projectId": "p", "location": "europe-west3",
+	}})
+	Expect(err).To(BeNil())
+	ar := out.Config.(*ArtifactRegistryConfig)
+	Expect(ar.CleanupPolicies).To(BeNil())
+	Expect(ar.ManagesCleanupPolicies()).To(BeFalse())
+}
+
+// An explicitly empty YAML list must survive as managed-and-empty.
+func TestArtifactRegistryConfigEmptyListIsManaged(t *testing.T) {
+	RegisterTestingT(t)
+
+	out, err := ArtifactRegistryConfigReadConfig(&api.Config{Config: map[string]any{
+		"projectId": "p", "location": "europe-west3", "cleanupPolicies": []any{},
+	}})
+	Expect(err).To(BeNil())
+	ar := out.Config.(*ArtifactRegistryConfig)
+	Expect(ar.CleanupPolicies).NotTo(BeNil(), "an explicit empty list is how retention is removed")
+	Expect(ar.ManagesCleanupPolicies()).To(BeTrue())
+	Expect(ar.DeclaredCleanupPolicies()).To(BeEmpty())
+}

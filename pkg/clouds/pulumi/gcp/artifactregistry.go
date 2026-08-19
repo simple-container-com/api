@@ -5,6 +5,8 @@ package gcp
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -83,19 +85,51 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 	// that omits it sends an update clearing whatever is there. So either
 	// declare it, or tell the engine to leave it alone. Sending nothing is the
 	// one option that silently deletes another tool's retention policy.
+	// Scoped to this resource only. opts is shared with the IAM policy, both
+	// service accounts and their keys, none of which has a cleanupPolicies
+	// property, so appending in place attaches a meaningless option to eight
+	// resources and persists it in their state.
+	repoOpts := opts
 	if arCfg.ManagesCleanupPolicies() {
-		policies, err := cleanupPolicyArgs(arCfg.CleanupPolicies)
+		declared := arCfg.DeclaredCleanupPolicies()
+		policies, err := cleanupPolicyArgs(declared)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "invalid cleanup policies for artifact registry %q in %q",
+				artifactRegistryName, input.StackParams.Environment)
+		}
+		// Unset means dry run. The failure modes are not symmetric: dry-run when
+		// you wanted enforcement costs storage and is undone by flipping one
+		// boolean, while enforcement when you wanted dry run destroys image
+		// layers that no provision can restore. Enforcing is therefore an
+		// explicit, reviewable act.
+		dryRun := true
+		if arCfg.CleanupPolicyDryRun != nil {
+			dryRun = *arCfg.CleanupPolicyDryRun
 		}
 		repoArgs.CleanupPolicies = policies
-		repoArgs.CleanupPolicyDryRun = sdk.Bool(lo.FromPtr(arCfg.CleanupPolicyDryRun))
+		repoArgs.CleanupPolicyDryRun = sdk.Bool(dryRun)
+		if dryRun {
+			params.Log.Info(ctx.Context(), "artifact registry %q: SC manages %d cleanup policies in DRY RUN; "+
+				"policies set outside SC will be replaced, nothing is deleted until cleanupPolicyDryRun is false",
+				artifactRegistryName, len(declared))
+		} else {
+			params.Log.Warn(ctx.Context(), "artifact registry %q: cleanup policies are ENFORCING (%d policies); "+
+				"versions matching a DELETE policy will be permanently removed",
+				artifactRegistryName, len(declared))
+		}
 	} else {
-		opts = append(opts, sdk.IgnoreChanges(cleanupPolicyFields))
+		if arCfg.CleanupPolicyDryRun != nil {
+			return nil, errors.Errorf("artifact registry %q in %q: cleanupPolicyDryRun is set but cleanupPolicies is not declared, "+
+				"so it would have no effect; declare cleanupPolicies or remove cleanupPolicyDryRun",
+				artifactRegistryName, input.StackParams.Environment)
+		}
+		params.Log.Info(ctx.Context(), "artifact registry %q: cleanup policies not declared, leaving any out-of-band retention untouched",
+			artifactRegistryName)
+		repoOpts = append(append([]sdk.ResourceOption{}, opts...), sdk.IgnoreChanges(cleanupPolicyFields))
 	}
 
 	params.Log.Info(ctx.Context(), "configure artifact registry repository %q", artifactRegistryName)
-	repo, err := artifactregistry.NewRepository(ctx, artifactRegistryName, &repoArgs, opts...)
+	repo, err := artifactregistry.NewRepository(ctx, artifactRegistryName, &repoArgs, repoOpts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create artifact registry")
 	}
@@ -273,12 +307,50 @@ func toRegistryServiceAccountEmailExport(input api.ResourceInput, saType string,
 // would let a provision flip an out-of-band dry-run repository into enforcing.
 var cleanupPolicyFields = []string{"cleanupPolicies", "cleanupPolicyDryRun"}
 
+// maxCleanupPolicies is the Artifact Registry limit. Exceeding it fails at
+// apply, after other resources in the stack have already been mutated.
+const maxCleanupPolicies = 10
+
+// cleanupDurationRe accepts the duration forms the provider accepts. Its own
+// acceptance tests use the day form ("30d", "7d"), while the REST API reports
+// seconds ("2592000s"); DurationDiffSuppress treats them as equivalent, so
+// rejecting either would reject valid configuration.
+var cleanupDurationRe = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)(s|m|h|d)$`)
+
+// validateCleanupDuration rejects shapes the provider would reject at apply,
+// and zero, which is not a syntax error but a semantic one: "olderThan: 0s" on
+// a DELETE policy matches every version in the repository.
+func validateCleanupDuration(policy, field, v string) error {
+	m := cleanupDurationRe.FindStringSubmatch(v)
+	if m == nil {
+		return errors.Errorf("cleanup policy %q: %s must be a positive duration such as %q or %q, got %q",
+			policy, field, "30d", "2592000s", v)
+	}
+	if n, err := strconv.ParseFloat(m[1], 64); err != nil || n <= 0 {
+		return errors.Errorf("cleanup policy %q: %s must be greater than zero, got %q", policy, field, v)
+	}
+	return nil
+}
+
+// hasEmpty reports whether a prefix list contains an empty entry. An empty
+// prefix matches everything, and it is the shape an unresolved template
+// placeholder collapses to, so it is reachable without anyone typing "".
+func hasEmpty(vals []string) bool {
+	return lo.Contains(vals, "")
+}
+
 // cleanupPolicyArgs converts the declared retention into provider inputs.
 //
-// Validation is deliberate rather than passing strings through: the provider
-// rejects an unknown action or tagState at APPLY, and an Artifact Registry
-// misconfiguration is measured in deleted images.
+// Validation is deliberate rather than passing strings through. Two classes of
+// mistake matter here and neither is caught by the provider in time to help:
+// shapes the API rejects fail at APPLY, halfway through a provision; and
+// shapes the API ACCEPTS but which match far more than the author intended
+// delete images that are still deployed. The guards below are ordered so the
+// second class is impossible to express, not merely discouraged.
 func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifactregistry.RepositoryCleanupPolicyArray, error) {
+	if len(policies) > maxCleanupPolicies {
+		return nil, errors.Errorf("artifact registry accepts at most %d cleanup policies, got %d", maxCleanupPolicies, len(policies))
+	}
 	out := make(artifactregistry.RepositoryCleanupPolicyArray, 0, len(policies))
 	seen := make(map[string]bool, len(policies))
 	for _, p := range policies {
@@ -297,6 +369,10 @@ func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifac
 		if p.MostRecentVersions != nil && action != "KEEP" {
 			return nil, errors.Errorf("cleanup policy %q: mostRecentVersions is only valid with a KEEP action", p.Name)
 		}
+		// condition and mostRecentVersions are a union field in the API.
+		if p.Condition != nil && p.MostRecentVersions != nil {
+			return nil, errors.Errorf("cleanup policy %q: condition and mostRecentVersions are mutually exclusive", p.Name)
+		}
 		if p.Condition == nil && p.MostRecentVersions == nil {
 			return nil, errors.Errorf("cleanup policy %q: needs a condition or mostRecentVersions", p.Name)
 		}
@@ -312,15 +388,57 @@ func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifac
 			default:
 				return nil, errors.Errorf("cleanup policy %q: tagState must be TAGGED, UNTAGGED or ANY, got %q", p.Name, c.TagState)
 			}
-			for field, v := range map[string]string{"olderThan": c.OlderThan, "newerThan": c.NewerThan} {
-				if v != "" && !strings.HasSuffix(v, "s") {
-					return nil, errors.Errorf("cleanup policy %q: %s must be a duration in seconds with an 's' suffix, e.g. \"2592000s\", got %q", p.Name, field, v)
+			// A condition whose every field is empty is not a narrow policy, it
+			// is every version in the repository: tagState defaults to ANY
+			// server-side and nothing else constrains it. Config decoding is
+			// non-strict, so a mistyped key ("olderThen") produces exactly this.
+			if tagState == "" && c.OlderThan == "" && c.NewerThan == "" &&
+				len(c.TagPrefixes)+len(c.PackageNamePrefixes)+len(c.VersionNamePrefixes) == 0 {
+				return nil, errors.Errorf("cleanup policy %q: condition has no criteria and would match every version; "+
+					"note that an unrecognised key is silently ignored, so check for a typo", p.Name)
+			}
+			for _, d := range []struct{ field, value string }{
+				{"olderThan", c.OlderThan},
+				{"newerThan", c.NewerThan},
+			} {
+				if d.value == "" {
+					continue
+				}
+				if err := validateCleanupDuration(p.Name, d.field, d.value); err != nil {
+					return nil, err
 				}
 			}
-			cond := &artifactregistry.RepositoryCleanupPolicyConditionArgs{
-				TagPrefixes:         sdk.ToStringArray(c.TagPrefixes),
-				PackageNamePrefixes: sdk.ToStringArray(c.PackageNamePrefixes),
-				VersionNamePrefixes: sdk.ToStringArray(c.VersionNamePrefixes),
+			// Tag prefixes only mean anything against tagged versions; the API
+			// rejects the combination rather than ignoring it.
+			if len(c.TagPrefixes) > 0 && tagState != "TAGGED" {
+				return nil, errors.Errorf("cleanup policy %q: tagPrefixes requires tagState TAGGED, got %q", p.Name, c.TagState)
+			}
+			for field, vals := range map[string][]string{
+				"tagPrefixes":         c.TagPrefixes,
+				"packageNamePrefixes": c.PackageNamePrefixes,
+				"versionNamePrefixes": c.VersionNamePrefixes,
+			} {
+				if hasEmpty(vals) {
+					return nil, errors.Errorf("cleanup policy %q: %s contains an empty prefix, which matches everything", p.Name, field)
+				}
+			}
+			narrowed := c.OlderThan != "" || len(c.TagPrefixes)+len(c.PackageNamePrefixes)+len(c.VersionNamePrefixes) > 0
+			if action == "DELETE" && !narrowed {
+				// Left here, the policy is either "everything" (tagState only)
+				// or "everything pushed recently" (newerThan only), and the
+				// latter is precisely the images currently running.
+				return nil, errors.Errorf("cleanup policy %q: a DELETE condition must narrow by olderThan or a prefix list; "+
+					"tagState or newerThan alone targets versions that are still deployed", p.Name)
+			}
+			cond := &artifactregistry.RepositoryCleanupPolicyConditionArgs{}
+			if len(c.TagPrefixes) > 0 {
+				cond.TagPrefixes = sdk.ToStringArray(c.TagPrefixes)
+			}
+			if len(c.PackageNamePrefixes) > 0 {
+				cond.PackageNamePrefixes = sdk.ToStringArray(c.PackageNamePrefixes)
+			}
+			if len(c.VersionNamePrefixes) > 0 {
+				cond.VersionNamePrefixes = sdk.ToStringArray(c.VersionNamePrefixes)
 			}
 			if tagState != "" {
 				cond.TagState = sdk.StringPtr(tagState)
@@ -334,14 +452,20 @@ func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifac
 			args.Condition = cond
 		}
 		if m := p.MostRecentVersions; m != nil {
-			if lo.FromPtr(m.KeepCount) < 0 {
-				return nil, errors.Errorf("cleanup policy %q: keepCount cannot be negative", p.Name)
+			// keepCount nil or 0 sends most_recent_versions {} with no count,
+			// which GCP treats as keeping nothing. Since KEEP is what outranks a
+			// companion DELETE, that reads as a safety net while being none.
+			if m.KeepCount == nil || *m.KeepCount < 1 {
+				return nil, errors.Errorf("cleanup policy %q: mostRecentVersions requires keepCount >= 1", p.Name)
+			}
+			if hasEmpty(m.PackageNamePrefixes) {
+				return nil, errors.Errorf("cleanup policy %q: packageNamePrefixes contains an empty prefix, which matches everything", p.Name)
 			}
 			mrv := &artifactregistry.RepositoryCleanupPolicyMostRecentVersionsArgs{
-				PackageNamePrefixes: sdk.ToStringArray(m.PackageNamePrefixes),
+				KeepCount: sdk.IntPtr(*m.KeepCount),
 			}
-			if m.KeepCount != nil {
-				mrv.KeepCount = sdk.IntPtr(*m.KeepCount)
+			if len(m.PackageNamePrefixes) > 0 {
+				mrv.PackageNamePrefixes = sdk.ToStringArray(m.PackageNamePrefixes)
 			}
 			args.MostRecentVersions = mrv
 		}

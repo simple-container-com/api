@@ -857,6 +857,34 @@ resources:
               password: "${env:REGISTRY_PASSWORD}"
 ```
 
+##### Image retention (`cleanupPolicies`)
+
+Artifact Registry keeps every image version forever unless a cleanup policy says otherwise, and storage is billed per GB. Retention can be declared here so it is reviewed as code.
+
+```yaml
+            cleanupPolicies:
+              - name: delete-untagged-older-30d
+                action: DELETE
+                condition:
+                  tagState: UNTAGGED
+                  olderThan: 30d                     # or "2592000s"; both are accepted
+              - name: keep-most-recent-20
+                action: KEEP                         # KEEP wins over a matching DELETE
+                mostRecentVersions:
+                  keepCount: 20
+            cleanupPolicyDryRun: true                # report only; set false to delete
+```
+
+Three behaviours are worth knowing before you use this.
+
+**Omitting `cleanupPolicies` means Simple Container does not manage retention.** Any policy set outside SC — through `gcloud` or the console — is left alone. This is the default and it is deliberate: the field is authoritative in the provider, so a resource that declares nothing would otherwise *delete* whatever is configured.
+
+**Declaring it makes Simple Container authoritative.** Policies set outside SC are then replaced by the declared list on the next provision. An explicitly empty list (`cleanupPolicies: []`) means "managed, and I want none", which is how retention is removed; deleting the block entirely returns the repository to unmanaged and leaves the live policies in place.
+
+**`cleanupPolicyDryRun` defaults to `true`.** Nothing is deleted until it is explicitly set to `false`. Dry run evaluates the policies and reports what they would remove, so run it first and read the result: deleting an image that is still deployed makes the next node reschedule fail to pull, and no provision can restore a deleted layer.
+
+Configuration is validated before provisioning, and a policy is rejected if it would match far more than it appears to — an empty `condition`, a `DELETE` narrowed only by `tagState` or `newerThan`, a `KEEP` with no `keepCount`, an empty prefix, or a non-positive duration. Note that an unrecognised key in `server.yaml` is silently ignored rather than rejected, so a mistyped condition field would otherwise produce a policy matching every version.
+
 ### **Database Resources**
 
 #### **Cloud SQL PostgreSQL** (`gcp-cloudsql-postgres`)
