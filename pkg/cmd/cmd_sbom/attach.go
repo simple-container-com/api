@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/security"
 	"github.com/simple-container-com/api/pkg/security/sbom"
 	"github.com/simple-container-com/api/pkg/security/signing"
 )
@@ -101,6 +102,25 @@ func runAttach(ctx context.Context, opts *attachOptions) error {
 		Password:       opts.password,
 		IdentityRegexp: opts.certIdent,
 		OIDCIssuer:     opts.certIssuer,
+	}
+
+	// Keyless cosign attest needs an OIDC identity token. Without it cosign 3.x
+	// can exit 0 while uploading no attestation, leaving the verify step to fail
+	// with "none of the attestations matched the predicate type". Mirrors
+	// `sc provenance attach`: pull from SIGSTORE_ID_TOKEN or the GitHub Actions
+	// OIDC request endpoint, and fail loudly if neither is available — a silent
+	// no-op here would ship an image whose SBOM attestation does not exist.
+	if useKeyless {
+		execCtx, err := security.NewExecutionContext(ctx)
+		if err != nil {
+			return fmt.Errorf("creating execution context: %w", err)
+		}
+		if execCtx.OIDCToken == "" {
+			return fmt.Errorf("OIDC token not available for keyless SBOM attestation. " +
+				"Set SIGSTORE_ID_TOKEN, or run from a CI provider that supplies one " +
+				"(e.g. GitHub Actions with `permissions: id-token: write`)")
+		}
+		signingConfig.OIDCToken = execCtx.OIDCToken
 	}
 
 	// Create attacher
