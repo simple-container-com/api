@@ -12,7 +12,7 @@ import (
 type ToolMetadata struct {
 	Name        string // Tool name (e.g., "cosign", "syft")
 	Command     string // Command to execute (usually same as name)
-	MinVersion  string // Minimum required version (e.g., "3.0.2")
+	MinVersion  string // Minimum required version (e.g., "3.1.3")
 	InstallURL  string // URL with installation instructions
 	Description string // Brief description
 	VersionFlag string // Flag to get version (e.g., "version" or "--version")
@@ -42,7 +42,7 @@ func (r *ToolRegistry) registerDefaultTools() {
 	r.Register(ToolMetadata{
 		Name:        "cosign",
 		Command:     "cosign",
-		MinVersion:  "3.0.2",
+		MinVersion:  "3.1.3",
 		InstallURL:  "https://docs.sigstore.dev/cosign/installation/",
 		Description: "Container image signing and verification tool",
 		VersionFlag: "version",

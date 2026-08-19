@@ -121,7 +121,7 @@ func TestKeyBasedSigner_Sign_GivesUpOnPersistentRekorConflict(t *testing.T) {
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
-	Expect(calls).To(Equal(MaxCosignAttempts))
+	Expect(calls).To(Equal(maxCosignAttempts))
 }
 
 func TestKeyBasedSigner_Sign_RetriesOnceOnTransientConflict(t *testing.T) {
