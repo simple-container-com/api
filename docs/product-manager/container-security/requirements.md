@@ -117,7 +117,7 @@ sc stack sign -s mystack -e production
 ```
 
 **Dependencies:**
-- Cosign v3.0.2+ installed on system
+- Cosign v3.1.3+ installed on system
 - GitHub Actions: `id-token: write` permission for OIDC
 - Container registry must support OCI artifacts (ECR, GCR, Harbor, DockerHub)
 
@@ -160,7 +160,7 @@ sc stack sbom -s mystack -e production --output ./sboms/
 ```
 
 **Dependencies:**
-- Syft v1.41.0+ installed on system
+- Syft v1.51.0+ installed on system
 - Container registry must support OCI artifacts
 
 ---
@@ -200,7 +200,7 @@ sc provenance verify --image docker.example.com/myapp:v1.0.0
 ```
 
 **Dependencies:**
-- Cosign v3.0.2+ for signing
+- Cosign v3.1.3+ for signing
 - CI/CD environment variables (GitHub Actions, GitLab CI, etc.)
 
 ---
@@ -243,8 +243,8 @@ sc stack scan -s mystack -e production
 ```
 
 **Dependencies:**
-- Grype v0.106.0+ installed on system
-- Trivy v0.68.2+ installed on system (optional)
+- Grype v0.117.0+ installed on system
+- Trivy v0.74.0+ installed on system (optional)
 - DefectDojo API access (optional)
 
 ---

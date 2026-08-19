@@ -214,12 +214,12 @@ func TestCosignVersionCheck(t *testing.T) {
 	Expect(strings.Contains(stdout, "GitVersion") || strings.Contains(stdout, "v")).To(BeTrue(),
 		"Cosign version output doesn't contain version information")
 
-	// Verify minimum version (v3.0.2+). ValidateVersion now returns
+	// Verify minimum version (v3.1.3+). ValidateVersion now returns
 	// only an error: nil = version meets minimum, non-nil = below
 	// minimum or parsing failed.
 	versionChecker := tools.NewVersionChecker()
 	if err := versionChecker.ValidateVersion("cosign", stdout); err != nil {
-		t.Logf("Warning: Cosign version may be below minimum (v3.0.2+) or parsing failed: %v", err)
+		t.Logf("Warning: Cosign version may be below minimum (v3.1.3+) or parsing failed: %v", err)
 	} else {
 		t.Logf("Cosign version meets minimum requirements")
 	}
