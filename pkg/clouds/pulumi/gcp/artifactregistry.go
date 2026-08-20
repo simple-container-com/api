@@ -108,7 +108,14 @@ func ArtifactRegistry(ctx *sdk.Context, stack api.Stack, input api.ResourceInput
 		}
 		repoArgs.CleanupPolicies = policies
 		repoArgs.CleanupPolicyDryRun = sdk.Bool(dryRun)
-		if dryRun {
+		if len(declared) == 0 {
+			// dryRun gates deletion of VERSIONS by policies, not removal of the
+			// policies themselves, so it offers no protection on this path.
+			params.Log.Warn(ctx.Context(), "artifact registry %q: cleanupPolicies is declared empty, so ALL retention "+
+				"policies on this repository will be removed, including any set outside SC; "+
+				"remove the cleanupPolicies block instead if you meant to leave retention alone",
+				artifactRegistryName)
+		} else if dryRun {
 			params.Log.Info(ctx.Context(), "artifact registry %q: SC manages %d cleanup policies in DRY RUN; "+
 				"policies set outside SC will be replaced, nothing is deleted until cleanupPolicyDryRun is false",
 				artifactRegistryName, len(declared))
@@ -311,11 +318,18 @@ var cleanupPolicyFields = []string{"cleanupPolicies", "cleanupPolicyDryRun"}
 // apply, after other resources in the stack have already been mutated.
 const maxCleanupPolicies = 10
 
+// maxCleanupPolicyNameLen mirrors the provider's documented limit on the policy
+// id; over it the apply fails.
+const maxCleanupPolicyNameLen = 128
+
 // cleanupDurationRe accepts the duration forms the provider accepts. Its own
 // acceptance tests use the day form ("30d", "7d"), while the REST API reports
 // seconds ("2592000s"); DurationDiffSuppress treats them as equivalent, so
 // rejecting either would reject valid configuration.
-var cleanupDurationRe = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)(s|m|h|d)$`)
+// The quantity must be an INTEGER: the provider expands the m/h/d forms with
+// strconv.Atoi before converting to seconds, so a fractional value such as
+// "1.5h" passes any regex that allows it and then fails at registration.
+var cleanupDurationRe = regexp.MustCompile(`^([0-9]+)(s|m|h|d)$`)
 
 // validateCleanupDuration rejects shapes the provider would reject at apply,
 // and zero, which is not a syntax error but a semantic one: "olderThan: 0s" on
@@ -326,16 +340,24 @@ func validateCleanupDuration(policy, field, v string) error {
 		return errors.Errorf("cleanup policy %q: %s must be a positive duration such as %q or %q, got %q",
 			policy, field, "30d", "2592000s", v)
 	}
-	if n, err := strconv.ParseFloat(m[1], 64); err != nil || n <= 0 {
+	// m[1] is [0-9]+ by construction, so only the range error is reachable.
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return errors.Errorf("cleanup policy %q: %s is out of range, got %q", policy, field, v)
+	}
+	if n <= 0 {
 		return errors.Errorf("cleanup policy %q: %s must be greater than zero, got %q", policy, field, v)
 	}
 	return nil
 }
 
-// hasEmpty reports whether a prefix list contains an empty entry. An empty
-// prefix matches everything, and it is the shape an unresolved template
-// placeholder collapses to, so it is reachable without anyone typing "".
-func hasEmpty(vals []string) bool {
+// hasEmptyPrefix reports whether a prefix list contains an empty entry, which
+// matches everything.
+//
+// Reachable without anyone typing "": an ${env:VAR} whose variable is unset
+// resolves to the empty string. (An UNRESOLVED placeholder stays literal
+// "${...}" instead, so that is not the path.)
+func hasEmptyPrefix(vals []string) bool {
 	return lo.Contains(vals, "")
 }
 
@@ -353,9 +375,12 @@ func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifac
 	}
 	out := make(artifactregistry.RepositoryCleanupPolicyArray, 0, len(policies))
 	seen := make(map[string]bool, len(policies))
-	for _, p := range policies {
+	for i, p := range policies {
 		if p.Name == "" {
-			return nil, errors.Errorf("cleanup policy is missing a name")
+			return nil, errors.Errorf("cleanup policy #%d is missing a name", i+1)
+		}
+		if len(p.Name) >= maxCleanupPolicyNameLen {
+			return nil, errors.Errorf("cleanup policy %q: name must be under %d characters", p.Name, maxCleanupPolicyNameLen)
 		}
 		if seen[p.Name] {
 			return nil, errors.Errorf("duplicate cleanup policy name %q", p.Name)
@@ -411,24 +436,38 @@ func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifac
 			// Tag prefixes only mean anything against tagged versions; the API
 			// rejects the combination rather than ignoring it.
 			if len(c.TagPrefixes) > 0 && tagState != "TAGGED" {
-				return nil, errors.Errorf("cleanup policy %q: tagPrefixes requires tagState TAGGED, got %q", p.Name, c.TagState)
+				got := c.TagState
+				if got == "" {
+					got = `"" (defaults to ANY)`
+				} else {
+					got = strconv.Quote(got)
+				}
+				return nil, errors.Errorf("cleanup policy %q: tagPrefixes requires tagState TAGGED, got %s", p.Name, got)
 			}
-			for field, vals := range map[string][]string{
-				"tagPrefixes":         c.TagPrefixes,
-				"packageNamePrefixes": c.PackageNamePrefixes,
-				"versionNamePrefixes": c.VersionNamePrefixes,
+			for _, pl := range []struct {
+				field string
+				vals  []string
+			}{
+				{"condition.tagPrefixes", c.TagPrefixes},
+				{"condition.packageNamePrefixes", c.PackageNamePrefixes},
+				{"condition.versionNamePrefixes", c.VersionNamePrefixes},
 			} {
-				if hasEmpty(vals) {
-					return nil, errors.Errorf("cleanup policy %q: %s contains an empty prefix, which matches everything", p.Name, field)
+				if hasEmptyPrefix(pl.vals) {
+					return nil, errors.Errorf("cleanup policy %q: %s contains an empty prefix, which matches everything", p.Name, pl.field)
 				}
 			}
-			narrowed := c.OlderThan != "" || len(c.TagPrefixes)+len(c.PackageNamePrefixes)+len(c.VersionNamePrefixes) > 0
+			// Only AGE, or restricting to untagged versions, separates "old" from
+			// "still running". Prefixes select which PACKAGES a policy covers,
+			// not which ages, so `DELETE` + packageNamePrefixes deletes every
+			// version of that package including the deployed digest, and for a
+			// Docker repository versionNamePrefixes is the digest itself.
+			// An earlier revision of this guard accepted prefixes as narrowing
+			// and named them in the error, which steered anyone blocked on the
+			// safe shape towards the destructive one.
+			narrowed := c.OlderThan != "" || tagState == "UNTAGGED"
 			if action == "DELETE" && !narrowed {
-				// Left here, the policy is either "everything" (tagState only)
-				// or "everything pushed recently" (newerThan only), and the
-				// latter is precisely the images currently running.
-				return nil, errors.Errorf("cleanup policy %q: a DELETE condition must narrow by olderThan or a prefix list; "+
-					"tagState or newerThan alone targets versions that are still deployed", p.Name)
+				return nil, errors.Errorf("cleanup policy %q: a DELETE condition must set olderThan, or target tagState UNTAGGED; "+
+					"prefixes select which packages are covered, not which ages, so a prefix alone deletes the running version", p.Name)
 			}
 			cond := &artifactregistry.RepositoryCleanupPolicyConditionArgs{}
 			if len(c.TagPrefixes) > 0 {
@@ -458,8 +497,8 @@ func cleanupPolicyArgs(policies []gcloud.ArtifactRegistryCleanupPolicy) (artifac
 			if m.KeepCount == nil || *m.KeepCount < 1 {
 				return nil, errors.Errorf("cleanup policy %q: mostRecentVersions requires keepCount >= 1", p.Name)
 			}
-			if hasEmpty(m.PackageNamePrefixes) {
-				return nil, errors.Errorf("cleanup policy %q: packageNamePrefixes contains an empty prefix, which matches everything", p.Name)
+			if hasEmptyPrefix(m.PackageNamePrefixes) {
+				return nil, errors.Errorf("cleanup policy %q: mostRecentVersions.packageNamePrefixes contains an empty prefix, which matches everything", p.Name)
 			}
 			mrv := &artifactregistry.RepositoryCleanupPolicyMostRecentVersionsArgs{
 				KeepCount: sdk.IntPtr(*m.KeepCount),

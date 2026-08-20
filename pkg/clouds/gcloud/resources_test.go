@@ -489,14 +489,19 @@ func TestArtifactRegistryConfigReadsCleanupPoliciesFromYAML(t *testing.T) {
 		"location":  "europe-west3",
 		"cleanupPolicies": []any{
 			map[string]any{
-				"name":      "delete-untagged-older-30d",
-				"action":    "DELETE",
-				"condition": map[string]any{"tagState": "UNTAGGED", "olderThan": "2592000s"},
+				"name":   "delete-old-feature-tags",
+				"action": "DELETE",
+				"condition": map[string]any{
+					"tagState": "TAGGED", "olderThan": "2592000s", "newerThan": "3600s",
+					"tagPrefixes":         []any{"feature-"},
+					"packageNamePrefixes": []any{"svc/"},
+					"versionNamePrefixes": []any{"sha256:"},
+				},
 			},
 			map[string]any{
 				"name":               "keep-most-recent-20",
 				"action":             "KEEP",
-				"mostRecentVersions": map[string]any{"keepCount": 20},
+				"mostRecentVersions": map[string]any{"keepCount": 20, "packageNamePrefixes": []any{"api/"}},
 			},
 		},
 		"cleanupPolicyDryRun": true,
@@ -509,13 +514,20 @@ func TestArtifactRegistryConfigReadsCleanupPoliciesFromYAML(t *testing.T) {
 	Expect(ar.ManagesCleanupPolicies()).To(BeTrue())
 	got := ar.DeclaredCleanupPolicies()
 	Expect(got).To(HaveLen(2))
-	Expect(got[0].Name).To(Equal("delete-untagged-older-30d"))
+	Expect(got[0].Name).To(Equal("delete-old-feature-tags"))
 	Expect(got[0].Action).To(Equal("DELETE"))
 	Expect(got[0].Condition).NotTo(BeNil())
-	Expect(got[0].Condition.TagState).To(Equal("UNTAGGED"))
+	// Every key, because a dead struct tag on any prefix field silently drops
+	// the narrowing and widens the DELETE to the whole repository, with no error.
+	Expect(got[0].Condition.TagState).To(Equal("TAGGED"))
 	Expect(got[0].Condition.OlderThan).To(Equal("2592000s"))
+	Expect(got[0].Condition.NewerThan).To(Equal("3600s"))
+	Expect(got[0].Condition.TagPrefixes).To(ConsistOf("feature-"))
+	Expect(got[0].Condition.PackageNamePrefixes).To(ConsistOf("svc/"))
+	Expect(got[0].Condition.VersionNamePrefixes).To(ConsistOf("sha256:"))
 	Expect(got[1].MostRecentVersions).NotTo(BeNil())
 	Expect(*got[1].MostRecentVersions.KeepCount).To(Equal(20))
+	Expect(got[1].MostRecentVersions.PackageNamePrefixes).To(ConsistOf("api/"))
 	Expect(ar.CleanupPolicyDryRun).NotTo(BeNil())
 	Expect(*ar.CleanupPolicyDryRun).To(BeTrue())
 }

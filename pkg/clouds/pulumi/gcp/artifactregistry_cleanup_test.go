@@ -4,6 +4,7 @@
 package gcp
 
 import (
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -162,6 +163,21 @@ func TestDeclaredRetentionReachesRepoArgs(t *testing.T) {
 				Name: "keep-most-recent-20", Action: "KEEP",
 				MostRecentVersions: &gcloud.ArtifactRegistryCleanupMostRecentVersions{KeepCount: lo.ToPtr(20)},
 			},
+			{
+				Name: "delete-old-feature-tags", Action: "DELETE",
+				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{
+					TagState: "TAGGED", OlderThan: "30d", NewerThan: "1s",
+					TagPrefixes:         []string{"feature-"},
+					PackageNamePrefixes: []string{"svc/"},
+					VersionNamePrefixes: []string{"sha256:"},
+				},
+			},
+			{
+				Name: "keep-api-20", Action: "KEEP",
+				MostRecentVersions: &gcloud.ArtifactRegistryCleanupMostRecentVersions{
+					KeepCount: lo.ToPtr(20), PackageNamePrefixes: []string{"api/"},
+				},
+			},
 		},
 		CleanupPolicyDryRun: lo.ToPtr(true),
 	})
@@ -170,17 +186,36 @@ func TestDeclaredRetentionReachesRepoArgs(t *testing.T) {
 	Expect(c.inputs["cleanupPolicyDryRun"].BoolValue()).To(BeTrue())
 
 	arr := c.inputs["cleanupPolicies"].ArrayValue()
-	Expect(arr).To(HaveLen(2))
+	Expect(arr).To(HaveLen(4))
 
 	p0 := arr[0].ObjectValue()
 	Expect(p0["id"].StringValue()).To(Equal("delete-untagged-older-30d"))
 	Expect(p0["action"].StringValue()).To(Equal("DELETE"), "action must be upper-cased for the API")
-	Expect(p0["condition"].ObjectValue()["tagState"].StringValue()).To(Equal("UNTAGGED"))
-	Expect(p0["condition"].ObjectValue()["olderThan"].StringValue()).To(Equal("2592000s"))
+	c0 := p0["condition"].ObjectValue()
+	Expect(c0["tagState"].StringValue()).To(Equal("UNTAGGED"))
+	Expect(c0["olderThan"].StringValue()).To(Equal("2592000s"))
+	// The absence side is the whole reason the builder uses len()>0 guards:
+	// sending an empty list is not the same as not constraining on it.
+	for _, k := range []resource.PropertyKey{"tagPrefixes", "packageNamePrefixes", "versionNamePrefixes", "newerThan"} {
+		Expect(c0).NotTo(HaveKey(k), "undeclared condition field %q must not be sent", k)
+	}
 
 	p1 := arr[1].ObjectValue()
 	Expect(p1["action"].StringValue()).To(Equal("KEEP"))
 	Expect(p1["mostRecentVersions"].ObjectValue()["keepCount"].NumberValue()).To(BeEquivalentTo(20))
+	Expect(p1["mostRecentVersions"].ObjectValue()).NotTo(HaveKey(resource.PropertyKey("packageNamePrefixes")))
+
+	// Every prefix and newerThan path must survive the trip. Losing a prefix
+	// silently widens a DELETE from one package to the whole repository.
+	c2 := arr[2].ObjectValue()["condition"].ObjectValue()
+	Expect(c2["tagPrefixes"].ArrayValue()[0].StringValue()).To(Equal("feature-"))
+	Expect(c2["packageNamePrefixes"].ArrayValue()[0].StringValue()).To(Equal("svc/"))
+	Expect(c2["versionNamePrefixes"].ArrayValue()[0].StringValue()).To(Equal("sha256:"))
+	Expect(c2["newerThan"].StringValue()).To(Equal("1s"))
+	Expect(c2["olderThan"].StringValue()).To(Equal("30d"))
+
+	mrv3 := arr[3].ObjectValue()["mostRecentVersions"].ObjectValue()
+	Expect(mrv3["packageNamePrefixes"].ArrayValue()[0].StringValue()).To(Equal("api/"))
 }
 
 // Unset dryRun must mean dry run. Enforcement destroys image layers no
@@ -233,7 +268,8 @@ func TestDryRunWithoutPoliciesIsRejected(t *testing.T) {
 
 	_, err := renderARRepo(&gcloud.ArtifactRegistryConfig{CleanupPolicyDryRun: lo.ToPtr(true)})
 	Expect(err).NotTo(BeNil(), "config that silently does nothing must fail loudly")
-	Expect(err.Error()).To(ContainSubstring("cleanupPolicyDryRun is set but cleanupPolicies is not declared"))
+	Expect(err.Error()).To(ContainSubstring(`artifact registry "registry--test" in "test": cleanupPolicyDryRun is set`),
+		"the error must identify which registry and environment")
 }
 
 func TestArtifactRegistryRejectsInvalidCleanupPolicy(t *testing.T) {
@@ -243,7 +279,7 @@ func TestArtifactRegistryRejectsInvalidCleanupPolicy(t *testing.T) {
 		CleanupPolicies: &[]gcloud.ArtifactRegistryCleanupPolicy{{Name: "p", Action: "PURGE"}},
 	})
 	Expect(err).NotTo(BeNil())
-	Expect(err.Error()).To(ContainSubstring("invalid cleanup policies for artifact registry"),
+	Expect(err.Error()).To(ContainSubstring(`invalid cleanup policies for artifact registry "registry--test" in "test"`),
 		"the error must name the registry and environment like every other failure in this function")
 }
 
@@ -280,17 +316,10 @@ func TestCleanupPolicyArgsRejectsBadInput(t *testing.T) {
 			why:     "config decoding is non-strict, so a mistyped key produces exactly this and would delete the whole repository",
 		},
 		{
-			name: "tagState alone does not narrow a DELETE",
-			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "DELETE",
-				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{TagState: "UNTAGGED"}}),
-			wantErr: "must narrow by olderThan or a prefix list",
-			why:     "every untagged version, regardless of age, includes ones just pushed",
-		},
-		{
 			name: "newerThan alone targets running images",
 			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "DELETE",
 				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{NewerThan: "7d"}}),
-			wantErr: "must narrow by olderThan or a prefix list",
+			wantErr: "must set olderThan, or target tagState UNTAGGED",
 			why:     "deleting the most recently pushed images is the shortest path to CannotPull",
 		},
 		{
@@ -350,7 +379,42 @@ func TestCleanupPolicyArgsRejectsBadInput(t *testing.T) {
 			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "DELETE",
 				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{NewerThan: "abcs", TagPrefixes: []string{"v"}, TagState: "TAGGED"}}),
 			wantErr: "positive duration",
-			why:     "the original only validated olderThan",
+			why:     "newerThan must be validated too, not just olderThan",
+		},
+		{
+			name: "unknown tagState",
+			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "DELETE",
+				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{TagState: "RELEASED", OlderThan: "30d"}}),
+			wantErr: "tagState must be",
+			why:     "a typo'd tagState defaults to ANY server-side, widening the delete set",
+		},
+		{
+			name: "keep with an empty package prefix",
+			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "KEEP",
+				MostRecentVersions: &gcloud.ArtifactRegistryCleanupMostRecentVersions{
+					KeepCount: lo.ToPtr(1), PackageNamePrefixes: []string{""}}}),
+			wantErr: "mostRecentVersions.packageNamePrefixes contains an empty prefix",
+			why:     "a KEEP matching every package silently changes what the companion DELETE spares",
+		},
+		{
+			name: "prefix alone does not narrow a DELETE by age",
+			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "DELETE",
+				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{PackageNamePrefixes: []string{"api"}}}),
+			wantErr: "must set olderThan, or target tagState UNTAGGED",
+			why:     "this deletes every version of that package including the deployed digest",
+		},
+		{
+			name: "digest prefix alone covers the whole docker repository",
+			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: "p", Action: "DELETE",
+				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{VersionNamePrefixes: []string{"sha256:"}}}),
+			wantErr: "must set olderThan, or target tagState UNTAGGED",
+			why:     "for a Docker repo the version name IS the digest",
+		},
+		{
+			name: "policy name over the provider limit",
+			in: ok(gcloud.ArtifactRegistryCleanupPolicy{Name: strings.Repeat("x", 128), Action: "DELETE",
+				Condition: &gcloud.ArtifactRegistryCleanupPolicyCondition{OlderThan: "30d"}}),
+			wantErr: "must be under 128 characters",
 		},
 		{
 			name:    "unknown action",
@@ -407,15 +471,25 @@ func TestCleanupPolicyArgsRejectsTooManyPolicies(t *testing.T) {
 	Expect(err.Error()).To(ContainSubstring("at most 10 cleanup policies"))
 }
 
-// The provider's own acceptance tests use the day form, while the REST API
-// reports seconds. Rejecting either would reject valid configuration.
-func TestCleanupDurationAcceptsBothProviderForms(t *testing.T) {
+// Accepted forms are pinned to evidence, not to the regex under test.
+//
+// "30d"/"7d" appear verbatim in terraform-provider-google's generated
+// acceptance test for google_artifact_registry_repository (older_than = "30d",
+// newer_than = "7d"), and the REST API reports the same field in seconds. So
+// both must be accepted. The quantity must be an integer, because the provider
+// expands the m/h/d forms with strconv.Atoi: "1.5h" would pass validation here
+// and then fail at resource registration.
+func TestCleanupDurationAcceptsTheFormsTheProviderAccepts(t *testing.T) {
 	RegisterTestingT(t)
 
-	for _, d := range []string{"30d", "7d", "2592000s", "720h", "45m", "1.5h"} {
-		Expect(validateCleanupDuration("p", "olderThan", d)).To(BeNil(), "%q must be accepted", d)
+	for _, d := range []string{"30d", "7d", "2592000s", "720h", "45m", "1s"} {
+		Expect(validateCleanupDuration("p", "olderThan", d)).To(BeNil(), "%q is used by the provider and must be accepted", d)
 	}
-	for _, d := range []string{"30days", "abcs", "s", "-5s", "0s", "0d", "30 s", ""} {
+	for _, d := range []string{
+		"1.5h", "0.5d", // fractional: the provider expands with strconv.Atoi
+		"30days", "abcs", "s", "-5s", "30 s", "", // malformed
+		"0s", "0d", // zero matches every version
+	} {
 		Expect(validateCleanupDuration("p", "olderThan", d)).NotTo(BeNil(), "%q must be rejected", d)
 	}
 }
