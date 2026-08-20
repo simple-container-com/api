@@ -857,6 +857,38 @@ resources:
               password: "${env:REGISTRY_PASSWORD}"
 ```
 
+##### Image retention (`cleanupPolicies`)
+
+Artifact Registry keeps every image version forever unless a cleanup policy says otherwise, and storage is billed per GB. Retention can be declared here so it is reviewed as code.
+
+```yaml
+            cleanupPolicies:
+              - name: delete-untagged-older-30d
+                action: DELETE
+                condition:
+                  tagState: UNTAGGED
+                  olderThan: 30d                     # or "2592000s"; both accepted, integers only
+              - name: keep-most-recent-20
+                action: KEEP                         # KEEP wins over a matching DELETE
+                mostRecentVersions:
+                  keepCount: 20
+            cleanupPolicyDryRun: true                # report only; set false to delete
+```
+
+Three behaviours are worth knowing before you use this.
+
+**Omitting `cleanupPolicies` means Simple Container does not manage retention.** Any policy set outside SC — through `gcloud` or the console — is left alone. This is the default and it is deliberate: the field is authoritative in the provider, so a resource that declares nothing would otherwise *delete* whatever is configured.
+
+**Declaring it makes Simple Container authoritative.** Policies set outside SC are then replaced by the declared list on the next provision. An explicitly empty list (`cleanupPolicies: []`) means "managed, and I want none", which is how retention is removed.
+
+Note two asymmetries. Writing the key with no value (`cleanupPolicies:` alone) decodes as *absent*, i.e. unmanaged — visually almost identical to `[]`, which removes every policy. And once SC has managed the field, **deleting the block does not return the repository to out-of-band control**: Pulumi's `ignoreChanges` carries the previous value forward from state, so retention freezes at the last declared list and later console edits are reverted on each provision. Genuinely handing the field back requires removing the property from stack state.
+
+**`cleanupPolicyDryRun` defaults to `true`.** Nothing is deleted until it is explicitly set to `false`. Dry run evaluates the policies and reports what they would remove, so run it first and read the result: deleting an image that is still deployed makes the next node reschedule fail to pull, and no provision can restore a deleted layer.
+
+Policies are validated while the Pulumi program is evaluated, and one is rejected if it would match far more than it appears to: an empty `condition`, a `DELETE` that does not set `olderThan` or target `tagState: UNTAGGED`, a `KEEP` with no `keepCount`, an empty prefix, or a non-positive duration. Prefixes are deliberately **not** accepted as narrowing a `DELETE` — they select which packages a policy covers, not which ages, so `packageNamePrefixes` alone would delete the running version of that package.
+
+An unrecognised key in `server.yaml` is silently ignored rather than rejected, so a mistyped condition field would otherwise produce a policy matching every version, which is what these checks are for.
+
 ### **Database Resources**
 
 #### **Cloud SQL PostgreSQL** (`gcp-cloudsql-postgres`)

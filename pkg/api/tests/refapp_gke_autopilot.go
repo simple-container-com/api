@@ -91,12 +91,6 @@ var ResolvedRefappGkeAutopilotServerResources = map[string]api.ResourceDescripto
 			Config: &gcloud.ArtifactRegistryConfig{
 				Credentials: ResolvedCommonGcpCredentials,
 				Location:    "europe-west3",
-				// Empty rather than nil because this fixture is post-resolution:
-				// the placeholder resolver deep-copies by reflection and calls
-				// reflect.MakeSlice for every slice kind, so an omitted list
-				// arrives as an empty non-nil slice. Not managed either way,
-				// which ManagesCleanupPolicies asserts.
-				CleanupPolicies: []gcloud.ArtifactRegistryCleanupPolicy{},
 			},
 		},
 		Inherit: api.Inherit{},
