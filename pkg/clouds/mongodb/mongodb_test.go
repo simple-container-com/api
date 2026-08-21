@@ -83,3 +83,51 @@ func TestAtlasBackup_FieldRoundTrip(t *testing.T) {
 	Expect(b.Every).To(Equal("2h"))
 	Expect(b.Retention).To(Equal("168h"))
 }
+
+func TestReadAtlasConfig(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("happy path", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"orgId":        "org-1",
+			"projectId":    "proj-1",
+			"projectName":  "sc",
+			"region":       "EU_WEST_1",
+			"instanceSize": "M10",
+			"privateKey":   "atlas-private-key",
+			"publicKey":    "atlas-public-key",
+			"admins":       []any{"admin@example.com"},
+			// The pointer fields distinguish "unset" from "explicitly zero", so
+			// they must survive the yaml round-trip ConvertConfig performs.
+			"diskSizeGB":            10.5,
+			"numShards":             2,
+			"namingStrategyVersion": 1,
+		}}
+		out, err := ReadAtlasConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+		ac, ok := out.Config.(*AtlasConfig)
+		Expect(ok).To(BeTrue())
+		Expect(ac.OrgId).To(Equal("org-1"))
+		Expect(ac.InstanceSize).To(Equal("M10"))
+		Expect(ac.CredentialsValue()).To(Equal("atlas-private-key"))
+		Expect(ac.ProjectIdValue()).To(Equal("proj-1"))
+		Expect(ac.Admins).To(ConsistOf("admin@example.com"))
+		Expect(ac.DiskSizeGB).ToNot(BeNil())
+		Expect(*ac.DiskSizeGB).To(Equal(10.5))
+		Expect(ac.NumShards).ToNot(BeNil())
+		Expect(*ac.NumShards).To(Equal(2))
+		Expect(ac.NamingStrategyVersion).ToNot(BeNil())
+		Expect(*ac.NamingStrategyVersion).To(Equal(1))
+		// Unset pointers stay nil so downstream defaults still apply.
+		Expect(ac.Backup).To(BeNil())
+		Expect(ac.NetworkConfig).To(BeNil())
+	})
+
+	t.Run("error path", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{"instanceSize": []int{1, 2, 3}}}
+		_, err := ReadAtlasConfig(cfg)
+		Expect(err).To(HaveOccurred())
+	})
+}

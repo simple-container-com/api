@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -276,4 +277,62 @@ func TestCredentials_RoundTripJSON(t *testing.T) {
 	var parsed CredentialsParsed
 	Expect(json.Unmarshal([]byte(c.CredentialsValue()), &parsed)).To(Succeed())
 	Expect(parsed.Type).To(Equal("service_account"))
+}
+
+// The read path validates, not just the provisioner: an already-provisioned
+// secrets-provider stack is skipped by the provisioner (its URL export exists),
+// so a bad rotation period would otherwise surface only at a DR rebuild.
+func TestReadSecretsProviderConfig_RejectsBadRotationPeriodAtReadTime(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, tc := range []struct {
+		name      string
+		period    string
+		errSubstr string
+	}{
+		{name: "missing s suffix", period: "90d", errSubstr: "must be a duration in seconds"},
+		{name: "not a number", period: "ninetys", errSubstr: "whole number of seconds"},
+		{name: "below GCP floor", period: "3600s", errSubstr: "GCP requires at least"},
+		{name: "below 30 day minimum", period: "604800s", errSubstr: "allowShortKeyRotation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			cfg := &api.Config{Config: map[string]any{
+				"projectId":         "my-gcp-project",
+				"keyName":           "gcpkms://projects/p/locations/global/keyRings/r/cryptoKeys/k",
+				"keyLocation":       "global",
+				"keyRotationPeriod": tc.period,
+				"provision":         true,
+			}}
+			_, err := ReadSecretsProviderConfig(cfg)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(tc.errSubstr))
+		})
+	}
+
+	// provision:false means the period is a BYO-key leftover and must not block.
+	t.Run("ignored when not provisioning", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"keyName":           "gcpkms://projects/p/locations/global/keyRings/r/cryptoKeys/k",
+			"keyRotationPeriod": "90d",
+			"provision":         false,
+		}}
+		_, err := ReadSecretsProviderConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+	})
+}
+
+// Nil means "apply the default", zero means "disable the rule" — the two are
+// not interchangeable, and collapsing them would silently drop the rollback
+// horizon on every state bucket that never set the field.
+func TestStateStorageConfig_EffectiveNoncurrentVersionRetentionDays(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect((&StateStorageConfig{}).EffectiveNoncurrentVersionRetentionDays()).
+		To(Equal(DefaultNoncurrentVersionRetentionDays))
+	Expect((&StateStorageConfig{NoncurrentVersionRetentionDays: lo.ToPtr(0)}).EffectiveNoncurrentVersionRetentionDays()).
+		To(Equal(0), "an explicit zero disables the rule and must not fall back to the default")
+	Expect((&StateStorageConfig{NoncurrentVersionRetentionDays: lo.ToPtr(7)}).EffectiveNoncurrentVersionRetentionDays()).
+		To(Equal(7))
 }

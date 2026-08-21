@@ -6,6 +6,22 @@ RUN dnf upgrade -y --setopt=tsflags=nodocs \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
+# Drop the Runtime Interface Emulator. It is the base image's LOCAL-testing
+# shim: /lambda-entrypoint.sh execs it only when AWS_LAMBDA_RUNTIME_API is
+# unset, and the ENTRYPOINT below replaces that script with /cloud-helpers
+# outright — so the RIE binary is never executed in this image, in Lambda or
+# anywhere else. It is also 9 MB of Go built by AWS with an older toolchain,
+# which is where every stdlib finding in this image came from (8 HIGH at the
+# al2023 digest pinned above, all fixed in Go >= 1.26.6; the currently-tagged
+# al2023 digest carries 30). Deleting it is the fix, not a suppression: nothing
+# links it and no workflow invokes it.
+#
+# Local debugging is unaffected — `welder run debug-aws-cloud-helpers` runs on
+# the HOST and uses the host's own `aws-lambda-rie` (welder.yaml), not this
+# image's copy. What this does remove is `docker run --entrypoint
+# /lambda-entrypoint.sh <image> /cloud-helpers`; use the welder task instead.
+RUN rm -f /usr/local/bin/aws-lambda-rie && test ! -e /usr/local/bin/aws-lambda-rie
+
 WORKDIR /
 COPY dist/cloud-helpers /cloud-helpers
 # actions/upload-artifact does not preserve the executable bit, and the release
