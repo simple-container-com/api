@@ -46,3 +46,40 @@ func Test_GenerateImagePullSecret(t *testing.T) {
 		})
 	}
 }
+
+// RegistryRequiresAuth gates whether an imagePullSecret is generated at all, so
+// a partially-configured registry (username without password) must read as
+// "no auth" rather than produce a half-formed secret.
+func TestRegistryCredentials_RegistryRequiresAuth(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, tc := range []struct {
+		name  string
+		creds RegistryCredentials
+		want  bool
+	}{
+		{name: "both set", want: true, creds: RegistryCredentials{
+			DockerRegistryUsername: lo.ToPtr("user"),
+			DockerRegistryPassword: lo.ToPtr("password"),
+		}},
+		{name: "username only", want: false, creds: RegistryCredentials{
+			DockerRegistryUsername: lo.ToPtr("user"),
+		}},
+		{name: "password only", want: false, creds: RegistryCredentials{
+			DockerRegistryPassword: lo.ToPtr("password"),
+		}},
+		{name: "neither", want: false, creds: RegistryCredentials{}},
+		// An empty-but-present pointer is a declared-yet-blank secret. It still
+		// counts as "auth requested" so the deploy fails on a bad credential
+		// rather than silently pulling anonymously.
+		{name: "both present but empty", want: true, creds: RegistryCredentials{
+			DockerRegistryUsername: lo.ToPtr(""),
+			DockerRegistryPassword: lo.ToPtr(""),
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			Expect(tc.creds.RegistryRequiresAuth()).To(Equal(tc.want))
+		})
+	}
+}

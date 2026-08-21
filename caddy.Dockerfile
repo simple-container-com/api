@@ -69,18 +69,36 @@
 #       Verify the LB is `externalTrafficPolicy: Local` + the parent
 #       Caddy's `trustedProxies` covers the LB CIDR range.
 
-FROM caddy:2.11.4-builder@sha256:198d47eaee306d4d0c38a9960c89ff2c959aa29ad51d3e2dafa3e93ac961782a AS builder
+FROM caddy:2.11.4-builder@sha256:4bdeabce8e79d36b23d1cba7d20598cec2c1117ace960d8ca06071f945e8fc9b AS builder
 
 # `$CADDY_VERSION` is set by the base image itself (v2.11.4 here), so xcaddy
 # builds exactly the version the builder ships and a skew is impossible by
 # construction — there is no second version literal to forget. The tag on the
 # FROM line is informational only; the digest is what resolves.
+#
+# The three `--replace` lines lift Caddy 2.11.4's own vendored deps past
+# CVE-2026-46600 (x/net), CVE-2026-56852 (x/text) and GHSA-hrxh-6v49-42gf
+# (grpc), which upstream has not yet re-released. `--replace` and not `--with`:
+# `--with` also writes a blank import, and none of these modules has a package
+# at its root, so it fails with "cannot find module providing package".
+# Refresh or drop each line when Caddy ships a release that already carries the
+# fixed version — a replace pinning an OLDER version than upstream would
+# silently downgrade.
+#
+# cel-go is deliberately NOT in this list. v0.29.0 renames
+# interpreter.Interpretable to InterpretableV2, which does not compile against
+# 2.11.4's modules/caddyhttp/celmatcher.go — an upstream code change, not a
+# version bump. GHSA-gcjh-h69q-9w9g (MEDIUM) therefore stays open until Caddy
+# adopts it; see the SCA PR for the reachability note.
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
     test -n "${CADDY_VERSION}" \
     && xcaddy build "${CADDY_VERSION}" \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
         --with github.com/mholt/caddy-ratelimit@16aecbbcb8ca07dc1c671e263379606ff9493c55 \
+        --replace golang.org/x/net=golang.org/x/net@v0.58.0 \
+        --replace golang.org/x/text=golang.org/x/text@v0.41.0 \
+        --replace google.golang.org/grpc=google.golang.org/grpc@v1.82.1 \
     && caddy version | grep -qF "${CADDY_VERSION} " \
     && caddy list-modules | grep -qE '^http\.handlers\.rate_limit$' \
     && caddy list-modules | grep -qE '^caddy\.storage\.gcs$'
@@ -93,7 +111,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 #     falls back to local-filesystem cert storage, so a multi-replica parent
 #     stack gets per-pod ACME state and risks Let's Encrypt rate-limit lockout.
 
-FROM caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+FROM caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 
