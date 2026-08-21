@@ -1,5 +1,13 @@
 # Refresh: docker buildx imagetools inspect public.ecr.aws/lambda/provided:al2023
-FROM public.ecr.aws/lambda/provided:al2023@sha256:5f3ae3216e07bb3677cc4dfa0c7867973f7e536abb114d6b44a7b8c558824812
+# The final stage is named `runtime` so CI can pass
+# `no-cache-filters: runtime` to docker/build-push-action. Without it the
+# distro-upgrade layer below is cached FOREVER: the base is digest-pinned and
+# the RUN string never changes, so its cache key is permanently stable and
+# `dnf upgrade` never actually executes again. `simplecontainer/github-actions:latest`
+# shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
+# already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
+# governs apk's own index cache, not Docker layers.
+FROM public.ecr.aws/lambda/provided:al2023@sha256:5f3ae3216e07bb3677cc4dfa0c7867973f7e536abb114d6b44a7b8c558824812 AS runtime
 
 # Pull post-tag distro fixes (e.g. glibc CVE-2026-4046 once published to AL2023 dnf).
 RUN dnf upgrade -y --setopt=tsflags=nodocs \

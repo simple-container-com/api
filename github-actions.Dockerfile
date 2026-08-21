@@ -84,7 +84,15 @@ RUN rm -rf \
     && rm -rf /tmp/* /var/tmp/*
 
 # ── runtime ─────────────────────────────────────────────────────────────────
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+# The final stage is named `runtime` so CI can pass
+# `no-cache-filters: runtime` to docker/build-push-action. Without it the
+# distro-upgrade layer below is cached FOREVER: the base is digest-pinned and
+# the RUN string never changes, so its cache key is permanently stable and
+# `apk upgrade` never actually executes again. `simplecontainer/github-actions:latest`
+# shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
+# already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
+# governs apk's own index cache, not Docker layers.
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 
 # python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
 # aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
