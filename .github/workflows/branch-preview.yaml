@@ -362,6 +362,18 @@ jobs:
             type=gha,scope=preview-${{ matrix.cache_scope }}
             type=gha,scope=prod-${{ matrix.cache_scope }}
           cache-to: type=gha,mode=max,scope=preview-${{ matrix.cache_scope }}
+          # Never cache-hit the distro-upgrade layer. `runtime` is the final
+          # stage in every one of these Dockerfiles; its base is digest-pinned
+          # and its `apk/dnf upgrade` RUN string never changes, so with
+          # `cache-from` its key is permanently stable and the upgrade silently
+          # stops executing after the first ever build. That is how
+          # `simplecontainer/github-actions:latest` came to ship python3
+          # 3.14.5-r0 (12 HIGH) while Alpine already served 3.14.7-r1 — and it
+          # would have frozen git / openssh-client / curl / libssl3 the same way.
+          # Scoped to the final stage on purpose: the expensive builder stage
+          # (SHA-verified Pulumi + gcloud download, install and slim) keeps its
+          # cache. Measured cost of re-running `runtime` alone: ~34 s.
+          no-cache-filters: runtime
           provenance: false
       # Phase 2 attestation (mirrors push.yaml). Preview builds get the SAME
       # security guarantees as production releases so consumers pin-testing a
