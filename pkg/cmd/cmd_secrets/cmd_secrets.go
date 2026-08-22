@@ -33,6 +33,7 @@ func NewSecretsCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		NewAddCmd(sCmd),
 		NewDeleteCmd(sCmd),
 		NewInitCmd(sCmd),
+		NewScopeCmd(sCmd),
 	)
 	return cmd
 }

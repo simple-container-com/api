@@ -57,8 +57,19 @@ func ed25519PrivateKeyToX25519(priv ed25519.PrivateKey) []byte {
 // decrypt — unlike the removed legacy scheme, whose key was derived from the
 // public key alone (and was therefore decryptable by anyone with read access).
 //
+// extraAAD is folded into the AEAD associated data on top of the format binding
+// (magic|version|ephPub). Callers pass a domain-separated context (e.g. a scoped
+// secret's "scope\x00key") so a sealed value cannot be transplanted to a different
+// scope or key without failing Open. Pass nil for the legacy/whole-file store — the
+// resulting blob is byte-identical to the pre-AAD format.
+//
 // Blob layout: magic(8) | version(1) | ephPub(32) | nonce(12) | ciphertext.
 func encryptWithX25519(recipientEd25519Pub ed25519.PublicKey, plaintext []byte) ([]byte, error) {
+	return encryptWithX25519AAD(recipientEd25519Pub, plaintext, nil)
+}
+
+// encryptWithX25519AAD is encryptWithX25519 with caller-supplied context binding.
+func encryptWithX25519AAD(recipientEd25519Pub ed25519.PublicKey, plaintext, extraAAD []byte) ([]byte, error) {
 	xPub, err := ed25519PublicKeyToX25519(recipientEd25519Pub)
 	if err != nil {
 		return nil, err
@@ -89,7 +100,7 @@ func encryptWithX25519(recipientEd25519Pub ed25519.PublicKey, plaintext []byte) 
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, errors.Wrap(err, "failed to generate nonce")
 	}
-	ct := aead.Seal(nil, nonce, plaintext, x25519AAD(ephPub))
+	ct := aead.Seal(nil, nonce, plaintext, x25519AAD(ephPub, extraAAD))
 
 	blob := make([]byte, 0, len(x25519Magic)+1+len(ephPub)+len(nonce)+len(ct))
 	blob = append(blob, x25519Magic...)
@@ -101,8 +112,15 @@ func encryptWithX25519(recipientEd25519Pub ed25519.PublicKey, plaintext []byte) 
 }
 
 // decryptWithX25519 reverses encryptWithX25519 using the recipient's Ed25519
-// private key (converted to X25519).
+// private key (converted to X25519). extraAAD must match what was passed at
+// encrypt time (nil for legacy/whole-file blobs).
 func decryptWithX25519(recipientEd25519Priv ed25519.PrivateKey, blob []byte) ([]byte, error) {
+	return decryptWithX25519AAD(recipientEd25519Priv, blob, nil)
+}
+
+// decryptWithX25519AAD is decryptWithX25519 with caller-supplied context binding
+// that must match encrypt time.
+func decryptWithX25519AAD(recipientEd25519Priv ed25519.PrivateKey, blob, extraAAD []byte) ([]byte, error) {
 	// ed25519.PrivateKey.Seed() panics on a wrong-sized key; fail safely instead.
 	if len(recipientEd25519Priv) != ed25519.PrivateKeySize {
 		return nil, errors.Errorf("invalid ed25519 private key size: %d", len(recipientEd25519Priv))
@@ -149,7 +167,7 @@ func decryptWithX25519(recipientEd25519Priv ed25519.PrivateKey, blob []byte) ([]
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create AEAD")
 	}
-	pt, err := aead.Open(nil, nonce, ct, x25519AAD(ephPub))
+	pt, err := aead.Open(nil, nonce, ct, x25519AAD(ephPub, extraAAD))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to decrypt data")
 	}
@@ -174,11 +192,15 @@ func deriveX25519Key(shared, ephPub, recipientXPub []byte) ([]byte, error) {
 
 // x25519AAD binds the format magic, version, and ephemeral public key into the
 // AEAD's associated data so none of them can be altered without failing Open.
-func x25519AAD(ephPub []byte) []byte {
-	aad := make([]byte, 0, len(x25519Magic)+1+len(ephPub))
+// extraAAD (may be nil) is appended for caller-supplied context binding; a nil
+// extraAAD yields exactly the pre-AAD associated data, keeping legacy blobs
+// bit-for-bit compatible.
+func x25519AAD(ephPub, extraAAD []byte) []byte {
+	aad := make([]byte, 0, len(x25519Magic)+1+len(ephPub)+len(extraAAD))
 	aad = append(aad, x25519Magic...)
 	aad = append(aad, x25519Version)
 	aad = append(aad, ephPub...)
+	aad = append(aad, extraAAD...)
 	return aad
 }
 
