@@ -116,6 +116,12 @@ plugins:
   - search
   - mermaid2:
       version: 10.6.1
+      # Load Mermaid from jsdelivr, not the plugin's default unpkg.com. The
+      # docs site's Content-Security-Policy allows script-src from
+      # cdn.jsdelivr.net but NOT unpkg.com, so the default URL was blocked and
+      # no diagram rendered. The .esm bundle lazy-loads its chunks relatively,
+      # so they resolve on jsdelivr too (also CSP-allowed).
+      javascript: https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.esm.min.mjs
       arguments:
         # startOnLoad MUST be set: supplying a custom `arguments` block
         # overrides the plugin's defaults (which include it), and Mermaid v10's
