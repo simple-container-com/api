@@ -189,6 +189,10 @@ jobs:
           install-tools: 'false'
           soft-fail: 'true'
 
+      # Warn-only on purpose. Previews and staging builds are not releases:
+      # nothing in SECURITY.md promises a consumer they carry a complete
+      # attestation chain, and blocking them would stall iteration on a
+      # Sigstore hiccup. push.yaml gates releases instead.
       - name: Soft-fail aggregator for staging attestation
         if: always()
         env:

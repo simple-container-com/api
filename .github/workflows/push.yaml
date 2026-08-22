@@ -173,10 +173,14 @@ jobs:
           # (no embedded timestamp) so a rebuild reproduces it bit-for-bit.
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --mode='u=rwx,go=rx' -cf - -C dist/${GOOS}-${GOARCH} sc${EXT} | gzip -9 -n > .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
-      # Phase 2: per-tarball SHA-256, CycloneDX SBOM, cosign keyless signature
-      # (self-contained bundle), SLSA provenance. Soft-fail per step — the tarball
-      # itself is the publish artifact; sidecars are best-effort during the 14-day
-      # bake-in. See HARDENING.md Phase 2 plan + verify-attestations.yml gate.
+      # Per-tarball SHA-256, CycloneDX SBOM, cosign keyless signature
+      # (self-contained bundle), SLSA provenance.
+      #
+      # continue-on-error stays on every step so one failure does not abort the
+      # rest: the run still produces a complete picture of which sidecars are
+      # missing. The trailing gate then decides whether that is publishable.
+      # On this workflow it is not — see the gate step for the release policy
+      # and the break-glass variable.
       - name: SHA-256 sidecars for ${{ matrix.os }}/${{ matrix.arch }}
         id: sha256
         env:
@@ -190,10 +194,10 @@ jobs:
           sha256sum "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" > "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz.sha256"
       - name: Install attestation tools
         id: install_attest_tools
-        continue-on-error: true   # Best-effort during Phase 2 bake-in. If the
-                                  # installer flakes, downstream sign/SBOM/SLSA
-                                  # steps soft-skip via their own outcome
-                                  # guards; the tarball + .sha256 still publish.
+        continue-on-error: true   # If the installer flakes, downstream
+                                  # sign/SBOM/SLSA steps soft-skip via their own
+                                  # outcome guards and the gate below reports
+                                  # every one of them at once.
         uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
@@ -253,22 +257,39 @@ jobs:
           for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
             cp "$BUNDLE_PATH" "${dest_dir}/${tarball}.sigstore.json"
           done
-      - name: Soft-fail aggregator for sc-${{ matrix.os }}-${{ matrix.arch }} attestation
+      # Release gate. SECURITY.md tells consumers that every release produces
+      # signed, attested artifacts, so an incomplete attestation chain is a
+      # failed release, not a warning: a green run with no SBOM, no signature
+      # and no provenance is indistinguishable from a good one at the consumer
+      # end. Branch previews and staging builds keep the warn-only aggregator.
+      #
+      # Break glass: set the repository variable ATTESTATION_SOFT_FAIL to
+      # 'true' to degrade this back to a warning for the duration of a Sigstore
+      # or Rekor outage. Unset it once the release ships.
+      - name: Attestation gate for sc-${{ matrix.os }}-${{ matrix.arch }}
         if: always()
         env:
           SBOM_OUTCOME: ${{ steps.sbom_tarball.outcome }}
           SIGN_OUTCOME: ${{ steps.cosign_sign_tarball.outcome }}
           SLSA_OUTCOME: ${{ steps.slsa_tarball.outcome }}
+          SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
+          PLATFORM: ${{ matrix.os }}-${{ matrix.arch }}
         run: |
           fail=0
           for v in "$SBOM_OUTCOME" "$SIGN_OUTCOME" "$SLSA_OUTCOME"; do
             if [ "$v" != "success" ]; then fail=1; fi
           done
-          if [ "$fail" -eq 1 ]; then
-            echo "::warning title=Attestation incomplete::sc-${{ matrix.os }}-${{ matrix.arch }} tarball published but one or more attestation steps failed (sbom=$SBOM_OUTCOME sign=$SIGN_OUTCOME slsa=$SLSA_OUTCOME)."
-          else
-            echo "All tarball attestation steps succeeded for ${{ matrix.os }}/${{ matrix.arch }}."
+          if [ "$fail" -eq 0 ]; then
+            echo "All tarball attestation steps succeeded for ${PLATFORM}."
+            exit 0
           fi
+          detail="sc-${PLATFORM} (sbom=$SBOM_OUTCOME sign=$SIGN_OUTCOME slsa=$SLSA_OUTCOME)"
+          if [ "${SOFT_FAIL:-}" = "true" ]; then
+            echo "::warning title=Attestation incomplete::${detail}. Blocking is disabled by the repository variable ATTESTATION_SOFT_FAIL."
+            exit 0
+          fi
+          echo "::error title=Attestation incomplete::${detail}. A release must not publish a tarball without an SBOM, a signature and provenance. Re-run the job; if the transparency log is down, set the repository variable ATTESTATION_SOFT_FAIL=true to ship without them."
+          exit 1
       - name: upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -487,12 +508,9 @@ jobs:
           # cache. Measured cost of re-running `runtime` alone: ~34 s.
           no-cache-filters: runtime
           provenance: false
-      # Phase 2 attestation: keyless cosign sign + CycloneDX SBOM + SLSA L3
-      # provenance. The publish step above is the gating job. Sign/attest steps
-      # below are continue-on-error so a sigstore-public outage does not block
-      # releases. A trailing aggregator emits ::warning:: on any failure. After
-      # 14 days of clean post-publish verification (see verify-attestations),
-      # flip continue-on-error to false (tracked in HARDENING.md Phase 2 plan).
+      # Attestation: keyless cosign sign + CycloneDX SBOM + SLSA L3 provenance.
+      # The sub-steps stay soft so that one failure does not hide the others;
+      # the trailing gate turns an incomplete chain into a failed release.
       #
       # `github-actions-staging` is intentionally skipped from attestation here.
       # The `:staging` tag is the canonical output of build-staging.yml under
@@ -511,9 +529,8 @@ jobs:
           image-name: ${{ matrix.image }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          # Phase 2 bake-in: keep soft-fail until 14 days of clean
-          # verify-attestations on `main`. Flip to 'false' tracked in
-          # HARDENING.md Phase 2.
+          # Kept soft so every sub-step reports its own outcome. The gate
+          # step below is what fails the release on an incomplete chain.
           soft-fail: 'true'
       # Record the immutable digest so verify-attestations can verify by
       # @sha256:... instead of by mutable tag (closes the verify-by-tag TOCTOU
@@ -534,23 +551,32 @@ jobs:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
           retention-days: 1
-      - name: Soft-fail aggregator for ${{ matrix.image }} attestation
+      # Release gate for images. Same policy as the tarball gate above.
+      - name: Attestation gate for ${{ matrix.image }}
         if: always() && steps.build_and_push.outcome == 'success'
         env:
           SIGN_OUTCOME: ${{ steps.signattest.outputs.sign-outcome }}
           SBOM_OUTCOME: ${{ steps.signattest.outputs.sbom-outcome }}
           ATTEST_SBOM_OUTCOME: ${{ steps.signattest.outputs.attest-outcome }}
           SLSA_OUTCOME: ${{ steps.signattest.outputs.slsa-outcome }}
+          SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
+          IMAGE: ${{ matrix.image }}
         run: |
           fail=0
           for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
             if [ "$v" != "success" ]; then fail=1; fi
           done
-          if [ "$fail" -eq 1 ]; then
-            echo "::warning title=Attestation incomplete::${{ matrix.image }} published but one or more attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME). See verify-attestations workflow."
-          else
-            echo "All attestation steps succeeded for ${{ matrix.image }}."
+          if [ "$fail" -eq 0 ]; then
+            echo "All attestation steps succeeded for ${IMAGE}."
+            exit 0
           fi
+          detail="${IMAGE} (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME)"
+          if [ "${SOFT_FAIL:-}" = "true" ]; then
+            echo "::warning title=Attestation incomplete::${detail}. Blocking is disabled by the repository variable ATTESTATION_SOFT_FAIL."
+            exit 0
+          fi
+          echo "::error title=Attestation incomplete::${detail}. A release must not publish an image without a signature, an SBOM attestation and provenance. See the verify-attestations workflow for the post-publish check."
+          exit 1
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
@@ -608,10 +634,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .sc/stacks/dist/bundle
-          # Phase 2: copy tarballs + every sidecar (sha256, sbom, cosign-bundle,
-          # sigstore.json). Sidecars may be absent if sign/SBOM steps soft-failed
-          # in build-platforms — that is by design during the 14-day bake-in; the
-          # count-assertion step below records the gap rather than blocks the run.
+          # Copy tarballs + every sidecar (sha256, sbom, cosign-bundle,
+          # sigstore.json). A missing sidecar means build-platforms could not
+          # attest that tarball; the assertion step below decides whether the
+          # release may still publish.
           shopt -s nullglob
           for f in artifacts/sc-*/*.tar.gz \
                    artifacts/sc-*/*.tar.gz.sha256 \
@@ -620,7 +646,12 @@ jobs:
                    artifacts/sc-*/*.tar.gz.sbom.cdx.json; do
             cp "$f" .sc/stacks/dist/bundle/
           done
-      - name: Sidecar count assertion (Phase 2 bake-in — warn-only)
+      # Second line of defence: build-platforms gates per matrix leg, this one
+      # gates the bundle that actually reaches the CDN. Honours the same
+      # ATTESTATION_SOFT_FAIL break-glass variable.
+      - name: Sidecar count assertion
+        env:
+          SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
@@ -646,13 +677,20 @@ jobs:
             label="${kind_count%%=*}"
             count="${kind_count#*=}"
             if [ "$count" -lt "$tarballs" ]; then
-              echo "::warning title=Sidecar count mismatch::${label} has $count of $tarballs expected sidecars (Phase 2 soft-fail)"
+              echo "::warning title=Sidecar count mismatch::${label} has $count of $tarballs expected sidecars"
               missing=1
             fi
           done
           if [ "$missing" -eq 0 ]; then
             echo "All sidecars present for every published tarball."
+            exit 0
           fi
+          if [ "${SOFT_FAIL:-}" = "true" ]; then
+            echo "::warning title=Sidecars incomplete::Publishing anyway; blocking is disabled by the repository variable ATTESTATION_SOFT_FAIL."
+            exit 0
+          fi
+          echo "::error title=Sidecars incomplete::Refusing to publish a release bundle with missing sidecars. Every tarball on dist must ship with .sha256, .cosign-bundle, .sigstore.json and .sbom.cdx.json."
+          exit 1
       - name: finalize dist bundle setup
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

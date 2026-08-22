@@ -120,6 +120,17 @@ our own crypto. The local security-scan cache uses HMAC-SHA256 with a
 Every release produces signed, attested artifacts published to Docker
 Hub and `dist.simple-container.com`. Consumers can verify before use.
 
+That promise is enforced in the release workflow, not merely intended:
+if an SBOM, a signature or a provenance attestation is missing for any
+image or tarball, the release build fails and nothing is published.
+The individual attestation steps stay soft so that one failure does not
+mask the others, and a gate step at the end of each job reports every
+missing piece at once and then exits non-zero. The repository variable
+`ATTESTATION_SOFT_FAIL=true` degrades those gates back to warnings; it
+exists for a Sigstore or Rekor outage and should be unset again as soon
+as the release ships. Branch previews and staging builds are not
+releases and stay warn-only.
+
 ### Identity-regex contract
 
 Cosign keyless signatures bind the signing identity to a GitHub
