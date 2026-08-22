@@ -47,10 +47,17 @@ type Options struct {
 	// budget shared across attempts: each invocation fits in its own window,
 	// but two cannot fit in a single shared one.
 	DelayEach time.Duration
+
+	// ArtifactAlreadyAttached makes the read-only presence probe
+	// (`cosign download signature|attestation`) report the artifact as already
+	// on the image. The retry loop treats a Rekor conflict confirmed this way
+	// as an idempotent success. Default false: the probe reports nothing
+	// attached, so conflicts keep flowing through the retry path.
+	ArtifactAlreadyAttached bool
 }
 
 // Fake is an installed stub. Calls reports how many times it ran.
-type Fake struct{ counter string }
+type Fake struct{ counter, probes string }
 
 // Install writes a `cosign` stub into a fresh temp dir and prepends that dir to
 // PATH for the duration of the test. The invocation count lives in a file so it
@@ -63,9 +70,26 @@ func Install(t *testing.T, o Options) *Fake {
 
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "calls")
+	probes := filepath.Join(dir, "probes")
 
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
+	// The presence probe is a separate, read-only subcommand. Count it apart
+	// from sign/attest so existing attempt-count assertions keep measuring
+	// signing attempts, and answer it before any of the scripted failures
+	// below apply.
+	b.WriteString("if [ \"$1\" = \"download\" ]; then\n")
+	b.WriteString("  p=$(cat " + shellQuote(probes) + " 2>/dev/null || echo 0)\n")
+	b.WriteString("  p=$((p+1))\n")
+	b.WriteString("  echo $p > " + shellQuote(probes) + "\n")
+	if o.ArtifactAlreadyAttached {
+		b.WriteString("  printf '%s\\n' '{\"payloadType\":\"application/vnd.in-toto+json\",\"payload\":\"e30=\"}'\n")
+		b.WriteString("  exit 0\n")
+	} else {
+		b.WriteString("  printf '%s\\n' 'Error: no matching attestations' 1>&2\n")
+		b.WriteString("  exit 1\n")
+	}
+	b.WriteString("fi\n")
 	b.WriteString("n=$(cat " + shellQuote(counter) + " 2>/dev/null || echo 0)\n")
 	b.WriteString("n=$((n+1))\n")
 	b.WriteString("echo $n > " + shellQuote(counter) + "\n")
@@ -103,7 +127,7 @@ func Install(t *testing.T, o Options) *Fake {
 	// Prepend so the stub wins over any real cosign on the runner.
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	return &Fake{counter: counter}
+	return &Fake{counter: counter, probes: probes}
 }
 
 // Calls returns how many times the stub ran. It fails the test when the counter
@@ -117,6 +141,25 @@ func (f *Fake) Calls(t *testing.T) int {
 	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
 		t.Fatalf("cosign stub counter %q is not a number: %v", data, err)
+	}
+	return n
+}
+
+// Probes returns how many times the read-only presence probe
+// (`cosign download …`) ran. Zero when it never ran; unlike Calls, an absent
+// counter file is a legitimate result.
+func (f *Fake) Probes(t *testing.T) int {
+	t.Helper()
+	data, err := os.ReadFile(f.probes)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("cosign stub probe counter %s unreadable: %v", f.probes, err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("cosign stub probe counter %q is not a number: %v", data, err)
 	}
 	return n
 }

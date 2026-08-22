@@ -78,7 +78,23 @@ func TestProvenanceAttach_PersistentConflictStillFails(t *testing.T) {
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
-	Expect(fake.Calls(t)).To(Equal(3))
+	Expect(fake.Calls(t)).To(Equal(5))
+	Expect(fake.Probes(t)).To(Equal(5), "every conflict is checked against the registry")
+}
+
+// The sbom twin: a provenance predicate for an unchanged digest is
+// byte-identical on every redeploy, so the conflict never clears. The
+// attestation is already attached, so the run is already done.
+func TestProvenanceAttach_ConflictWithAttestationAlreadyAttachedSucceeds(t *testing.T) {
+	RegisterTestingT(t)
+
+	fake := cosigntest.Install(t, cosigntest.Options{ConflictsBefore: 99, ArtifactAlreadyAttached: true})
+
+	err := provTestAttacher().Attach(context.Background(), provTestStatement(), provTestImage)
+
+	Expect(err).ToNot(HaveOccurred())
+	Expect(fake.Calls(t)).To(Equal(1), "confirmation must short-circuit the retry loop")
+	Expect(fake.Probes(t)).To(Equal(1))
 }
 
 func TestProvenanceAttach_NoRetryOnOtherErrors(t *testing.T) {

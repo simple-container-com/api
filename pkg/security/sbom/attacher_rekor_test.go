@@ -72,8 +72,9 @@ func TestAttach_EachRetryGetsItsOwnTimeoutBudget(t *testing.T) {
 	Expect(fake.Calls(t)).To(Equal(2), "the retry must not inherit the exhausted budget")
 }
 
-// A conflict on every attempt must still fail: cosign uploads to Rekor before it
-// pushes to the registry, so a tlog entry does not prove the attestation landed.
+// A conflict on every attempt, with no attestation on the image to back it,
+// must still fail: cosign uploads to Rekor before it pushes to the registry, so
+// a tlog entry on its own does not prove the attestation landed.
 func TestAttach_PersistentConflictStillFails(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -83,7 +84,23 @@ func TestAttach_PersistentConflictStillFails(t *testing.T) {
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
-	Expect(fake.Calls(t)).To(Equal(3))
+	Expect(fake.Calls(t)).To(Equal(5))
+	Expect(fake.Probes(t)).To(Equal(5), "every conflict is checked against the registry")
+}
+
+// Redeploying an unchanged digest regenerates a byte-identical predicate, so
+// Rekor rejects it forever. The attestation is already on the image, which is
+// the end state the deploy wanted: report success instead of breaking it.
+func TestAttach_ConflictWithAttestationAlreadyAttachedSucceeds(t *testing.T) {
+	RegisterTestingT(t)
+
+	fake := cosigntest.Install(t, cosigntest.Options{ConflictsBefore: 99, ArtifactAlreadyAttached: true})
+
+	err := rekorTestAttacher().Attach(context.Background(), rekorTestSBOM(), rekorTestImage)
+
+	Expect(err).ToNot(HaveOccurred())
+	Expect(fake.Calls(t)).To(Equal(1), "confirmation must short-circuit the retry loop")
+	Expect(fake.Probes(t)).To(Equal(1))
 }
 
 func TestAttach_NoRetryOnOtherErrors(t *testing.T) {
