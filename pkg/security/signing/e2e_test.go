@@ -33,12 +33,12 @@ func skipIfToolsNotInstalled(t *testing.T) {
 	installer := tools.NewToolInstaller()
 
 	// Check cosign
-	if installed, err := installer.CheckInstalled("cosign"); err != nil || !installed {
+	if err := installer.CheckInstalled(context.Background(), "cosign"); err != nil {
 		t.Skip("Skipping E2E test: cosign not installed. Install from https://docs.sigstore.dev/cosign/installation/")
 	}
 
 	// Check docker
-	if installed, err := installer.CheckInstalled("docker"); err != nil || !installed {
+	if err := installer.CheckInstalled(context.Background(), "docker"); err != nil {
 		t.Skip("Skipping E2E test: docker not installed")
 	}
 }
