@@ -168,9 +168,10 @@ jobs:
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
-      # Phase 2 attestation (mirrors push.yaml). Soft-fail per step — the
-      # tarball itself is the publish artifact. Preview builds only publish
-      # versioned tarballs (no unversioned twin), so sidecars are per-version.
+      # Attestation for preview tarballs. Soft-fail per step, and unlike
+      # push.yaml there is no gate afterwards: a preview publishes whatever it
+      # managed to attest. Preview builds only publish versioned tarballs (no
+      # unversioned twin), so sidecars are per-version.
       - name: SHA-256 sidecar for ${{ matrix.os }}/${{ matrix.arch }}
         env:
           GOOS: ${{ matrix.os }}
@@ -375,10 +376,13 @@ jobs:
           # cache. Measured cost of re-running `runtime` alone: ~34 s.
           no-cache-filters: runtime
           provenance: false
-      # Phase 2 attestation (mirrors push.yaml). Preview builds get the SAME
-      # security guarantees as production releases so consumers pin-testing a
+      # Attestation for preview images. Preview builds run the same sign + SBOM
+      # + SLSA steps as production releases, so consumers pin-testing a
       # preview version (per project_sc_preview memory: PAY-SPACE pins workflows
       # to versioned preview builds) can verify the same way they verify prod.
+      # Same steps, weaker promise: a preview does NOT get the release gate, and
+      # its tags go live before anything is signed. The warn-only aggregator
+      # below is the accurate statement of what a preview guarantees.
       - name: Sign + attest ${{ matrix.target }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'
@@ -388,7 +392,8 @@ jobs:
           image-name: ${{ matrix.target }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
+          # Soft-fail. push.yaml sets this too, but follows it with a gate
+          # that fails the release; a preview has no such gate.
           soft-fail: 'true'
       - name: Record image digest for verify-attestations
         if: steps.build_and_push.outcome == 'success'
@@ -406,6 +411,10 @@ jobs:
           name: image-digest-${{ matrix.target }}
           path: digests/${{ matrix.target }}.txt
           retention-days: 1
+      # Warn-only on purpose. Previews and staging builds are not releases:
+      # nothing in SECURITY.md promises a consumer they carry a complete
+      # attestation chain, and blocking them would stall iteration on a
+      # Sigstore hiccup. push.yaml gates releases instead.
       - name: Soft-fail aggregator for ${{ matrix.target }} attestation
         if: always() && steps.build_and_push.outcome == 'success'
         env:

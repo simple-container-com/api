@@ -57,6 +57,20 @@ type Args struct {
 	PreStopSleepSeconds *int
 }
 
+// imageSecurityOpts collects the security-gate resource options every built
+// image contributes. Images that were not built by SC (pre-built references)
+// and stacks with security disabled contribute none.
+func imageSecurityOpts(images []*ContainerImage) []sdk.ResourceOption {
+	var opts []sdk.ResourceOption
+	for _, img := range images {
+		if img == nil {
+			continue
+		}
+		opts = append(opts, img.AddOpts...)
+	}
+	return opts
+}
+
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	stackName := args.Input.StackParams.StackName
 	stackEnv := args.Input.StackParams.Environment
@@ -83,6 +97,20 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		namespace, deploymentName, stackEnv, parentEnv, isCustomStack(stackEnv, parentEnv))
 
 	opts = append(opts, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
+
+	// Gate the rollout on the image security operations.
+	//
+	// BuildAndPushImages hands back the fan-in of sign / verify / SBOM
+	// attestation / provenance attestation on ContainerImage.AddOpts. Nothing
+	// was consuming it here, so the workload had no dependency edge to any of
+	// them and Pulumi was free to update the Deployment first. A signing
+	// failure then arrived after the rollout had already completed, which
+	// leaves an unsigned, unattested image serving traffic while the run
+	// reports failure. Folding the options in makes signing a precondition of
+	// the rollout, matching the dependency graph documented in
+	// pkg/clouds/pulumi/docker/build_and_push.go and the wiring the ECS path
+	// already had.
+	opts = append(opts, imageSecurityOpts(args.Images)...)
 
 	replicas := 1
 	if args.Deployment.Scale != nil {

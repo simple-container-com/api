@@ -83,12 +83,24 @@ func (s *KeyBasedSigner) Sign(ctx context.Context, imageRef string) (*SignResult
 	if exec == nil {
 		exec = tools.ExecCommand
 	}
-	if _, err := runCosignSign(ctx, exec, args, env, s.Timeout); err != nil {
+	// `cosign verify --key` loads the private key and derives the public half,
+	// so the confirmation probe checks the signature is this key's own rather
+	// than merely present. COSIGN_PASSWORD is already in env and survives the
+	// probe's environment filter.
+	confirm := &ConfirmProbe{Args: []string{"verify", "--key", keyPath}, What: "signature"}
+	_, confirmed, err := runCosignSign(ctx, exec, args, env, s.Timeout, confirm)
+	if err != nil {
 		return nil, err
+	}
+	if confirmed {
+		fmt.Fprintf(os.Stderr,
+			"cosign sign %s: signature confirmed already present; no new transparency-log entry was created\n",
+			imageRef)
 	}
 
 	result := &SignResult{
-		SignedAt: time.Now().UTC().Format(time.RFC3339),
+		SignedAt:  time.Now().UTC().Format(time.RFC3339),
+		Confirmed: confirmed,
 	}
 
 	return result, nil
@@ -105,14 +117,19 @@ func GenerateKeyPair(ctx context.Context, outputDir string, password string) (pr
 		return "", "", fmt.Errorf("creating output directory: %w", err)
 	}
 
-	privateKeyPath = filepath.Join(outputDir, "cosign.key")
-	publicKeyPath = filepath.Join(outputDir, "cosign.pub")
+	prefix := filepath.Join(outputDir, "cosign")
+	privateKeyPath = prefix + ".key"
+	publicKeyPath = prefix + ".pub"
 
 	// Prepare environment
 	env := []string{"COSIGN_PASSWORD=" + password}
 
-	// Execute cosign generate-key-pair
-	args := []string{"generate-key-pair"}
+	// Execute cosign generate-key-pair. Without --output-key-prefix cosign
+	// writes cosign.key and cosign.pub into the PROCESS working directory, not
+	// into outputDir, so every caller passing a directory got the pair written
+	// somewhere else and then failed on the chmod below. Found by the
+	// real-registry confirmation-probe test.
+	args := []string{"generate-key-pair", "--output-key-prefix", prefix}
 	_, stderr, err := tools.ExecCommand(ctx, "cosign", args, env, 30*time.Second)
 	if err != nil {
 		return "", "", fmt.Errorf("cosign generate-key-pair failed: %w\nStderr: %s", err, stderr)

@@ -14,6 +14,12 @@ type SignResult struct {
 	Bundle      string
 	RekorEntry  string // URL to Rekor transparency log entry
 	SignedAt    string
+
+	// Confirmed reports that the signature was not produced by this run: the
+	// transparency log already held an identical entry and a verification probe
+	// confirmed the signature is on the image. Nothing fresh was emitted, so
+	// RekorEntry is empty even though the operation succeeded.
+	Confirmed bool
 }
 
 // Signer is the interface for signing container images
