@@ -49,7 +49,12 @@ func (c *Config) CreateSigner(oidcToken string) (Signer, error) {
 		if token == "" {
 			return nil, fmt.Errorf("OIDC token required for keyless signing")
 		}
-		return NewKeylessSigner(token, timeout), nil
+		signer := NewKeylessSigner(token, timeout)
+		// Needed to confirm a Rekor conflict against the image; see
+		// KeylessSigner.IdentityRegexp.
+		signer.IdentityRegexp = c.IdentityRegexp
+		signer.OIDCIssuer = c.OIDCIssuer
+		return signer, nil
 	}
 
 	if c.PrivateKey == "" {
@@ -134,4 +139,58 @@ func VerifyImage(ctx context.Context, config *Config, imageRef string) (*VerifyR
 	}
 
 	return verifier.Verify(ctx, imageRef)
+}
+
+// verificationIdentityArgs returns the cosign flags that bind a verification to
+// the identity this config signs with. Empty when the config cannot express
+// one, which is the signal to skip conflict confirmation entirely: a probe that
+// only asks whether *some* artifact is attached would accept one produced under
+// a rotated key or by an unrelated workflow.
+func (c *Config) verificationIdentityArgs() []string {
+	if c == nil {
+		return nil
+	}
+
+	if c.Keyless {
+		if c.IdentityRegexp == "" || c.OIDCIssuer == "" {
+			return nil
+		}
+		return []string{
+			"--certificate-identity-regexp", c.IdentityRegexp,
+			"--certificate-oidc-issuer", c.OIDCIssuer,
+		}
+	}
+
+	// cosign resolves --key against a public key, a KMS URI or a private key,
+	// deriving the public half where needed, so a config carrying only the
+	// signing key can still confirm against the identity it just signed with.
+	key := c.PublicKey
+	if key == "" {
+		key = c.PrivateKey
+	}
+	if key == "" {
+		return nil
+	}
+	return []string{"--key", key}
+}
+
+// AttestationConfirmProbe builds the read-only check that decides whether a
+// Rekor conflict on `cosign attest --type predicateType` is an idempotent
+// no-op. Nil when the config names no verification identity.
+func (c *Config) AttestationConfirmProbe(predicateType string) *ConfirmProbe {
+	identity := c.verificationIdentityArgs()
+	if len(identity) == 0 || predicateType == "" {
+		return nil
+	}
+	args := append([]string{"verify-attestation", "--type", predicateType}, identity...)
+	return &ConfirmProbe{Args: args, What: predicateType + " attestation"}
+}
+
+// SignatureConfirmProbe is AttestationConfirmProbe's twin for `cosign sign`.
+func (c *Config) SignatureConfirmProbe() *ConfirmProbe {
+	identity := c.verificationIdentityArgs()
+	if len(identity) == 0 {
+		return nil
+	}
+	return &ConfirmProbe{Args: append([]string{"verify"}, identity...), What: "signature"}
 }

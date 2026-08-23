@@ -206,3 +206,125 @@ func TestRekorConflictStderr_MatchesWhatCallersClassifyOn(t *testing.T) {
 	Expect(RekorConflictStderr).To(ContainSubstring("[POST /api/v1/log/entries][409]"))
 	Expect(RekorConflictStderr).To(ContainSubstring("createLogEntryConflict"))
 }
+
+// The probe half of the stub used to answer on "$1" alone. That is why the
+// cosign-v3 breakage was invisible: a probe real cosign rejects, or one aimed
+// at another image, still read as a clean confirm. These pin the validation.
+func TestInstall_ProbeRejectsAnArgvRealCosignWouldReject(t *testing.T) {
+	RegisterTestingT(t)
+
+	Install(t, Options{ArtifactAlreadyAttached: true, Image: "registry.example.com/team/app@sha256:abc"})
+
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "verify without an identity to verify against",
+			args: []string{"verify", "registry.example.com/team/app@sha256:abc"},
+			want: "no key or certificate identity",
+		},
+		{
+			name: "verify-attestation without a predicate type",
+			args: []string{"verify-attestation", "--key", "/tmp/k.pub", "registry.example.com/team/app@sha256:abc"},
+			want: "without --type",
+		},
+		{
+			name: "no image reference at all",
+			args: []string{"verify", "--key", "/tmp/k.pub"},
+			want: "no image reference",
+		},
+		{
+			name: "aimed at a different image",
+			args: []string{"verify", "--key", "/tmp/k.pub", "registry.example.com/team/other@sha256:def"},
+			want: "MANIFEST_UNKNOWN",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			_, stderr, err := runStub(tt.args...)
+			Expect(err).To(HaveOccurred())
+			Expect(stderr).To(ContainSubstring(tt.want))
+		})
+	}
+
+	// The well-formed probe still confirms, so the cases above fail for the
+	// reason stated rather than because nothing can ever pass.
+	_, _, err := runStub("verify", "--key", "/tmp/k.pub", "registry.example.com/team/app@sha256:abc")
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// cosign v3 defaults to the new bundle format and writes nothing to the legacy
+// signature tag, so `download` finds nothing however the image was signed.
+func TestInstall_LegacyDownloadNeverConfirms(t *testing.T) {
+	RegisterTestingT(t)
+
+	fake := Install(t, Options{ArtifactAlreadyAttached: true})
+
+	for _, args := range [][]string{
+		{"download", "signature", "registry.example.com/team/app@sha256:abc"},
+		{"download", "attestation", "--predicate-type", "cyclonedx", "registry.example.com/team/app@sha256:abc"},
+	} {
+		_, stderr, err := runStub(args...)
+		Expect(err).To(HaveOccurred(), "cosign v3 answers %v with nothing", args)
+		Expect(stderr).To(ContainSubstring("no signatures associated"))
+	}
+	Expect(fake.Probes(t)).To(Equal(0), "a download is not a confirmation probe")
+}
+
+func TestInstall_ProbeExitAndProbeStdoutAreIndependent(t *testing.T) {
+	RegisterTestingT(t)
+
+	probeArgs := []string{"verify", "--key", "/tmp/k.pub", "registry.example.com/team/app@sha256:abc"}
+
+	t.Run("exit 0 with empty stdout", func(t *testing.T) {
+		RegisterTestingT(t)
+		Install(t, Options{ArtifactAlreadyAttached: true})
+		stdout, _, err := runStub(probeArgs...)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(stdout).To(BeEmpty(), "real `cosign verify` prints its banner to stderr")
+	})
+
+	t.Run("registry auth failure", func(t *testing.T) {
+		RegisterTestingT(t)
+		Install(t, Options{ProbeExit: 10})
+		_, _, err := runStub(probeArgs...)
+		Expect(err).To(HaveOccurred())
+	})
+
+	t.Run("payload on stdout with a non-zero exit", func(t *testing.T) {
+		RegisterTestingT(t)
+		Install(t, Options{ProbeExit: 1, ProbeStdout: `{"payload":"e30="}`})
+		stdout, _, err := runStub(probeArgs...)
+		Expect(err).To(HaveOccurred(), "output is not confirmation")
+		Expect(stdout).To(ContainSubstring("payload"))
+	})
+}
+
+// The probe branch sits below the delay scripting now. Before, probes cost zero
+// simulated time, so no test could show the probe sharing the timeout model.
+func TestInstall_DelayEachAppliesToProbesToo(t *testing.T) {
+	RegisterTestingT(t)
+
+	const delay = 300 * time.Millisecond
+	fake := Install(t, Options{DelayEach: delay, ArtifactAlreadyAttached: true})
+
+	start := time.Now()
+	_, _, err := runStub("verify", "--key", "/tmp/k.pub", "registry.example.com/team/app@sha256:abc")
+	Expect(err).ToNot(HaveOccurred())
+	Expect(time.Since(start)).To(BeNumerically(">=", delay))
+	Expect(fake.Probes(t)).To(Equal(1))
+}
+
+func TestFake_LastProbeArgsRecordsTheWholeArgv(t *testing.T) {
+	RegisterTestingT(t)
+
+	fake := Install(t, Options{ArtifactAlreadyAttached: true})
+	Expect(fake.LastProbeArgs(t)).To(BeNil(), "no probe has run yet")
+
+	args := []string{"verify-attestation", "--type", "cyclonedx", "--key", "/tmp/k.pub", "registry.example.com/team/app@sha256:abc"}
+	_, _, err := runStub(args...)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(fake.LastProbeArgs(t)).To(Equal(args))
+}

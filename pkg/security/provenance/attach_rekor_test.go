@@ -23,10 +23,17 @@ func provTestStatement() *Statement {
 	return NewStatement(FormatSLSAV10, predicate, provTestImage, &Metadata{BuilderID: "sc"})
 }
 
+// See the sbom twin: the identity fields are what make a conflict confirmable.
 func provTestAttacher() *Attacher {
 	return &Attacher{
-		SigningConfig: &signing.Config{Enabled: true, Keyless: true, OIDCToken: "a.b.c"},
-		Timeout:       provAttestTimeout,
+		SigningConfig: &signing.Config{
+			Enabled:        true,
+			Keyless:        true,
+			OIDCToken:      "a.b.c",
+			IdentityRegexp: "^https://example.test/wf@refs/heads/main$",
+			OIDCIssuer:     "https://token.example.test",
+		},
+		Timeout: provAttestTimeout,
 	}
 }
 
@@ -88,13 +95,45 @@ func TestProvenanceAttach_PersistentConflictStillFails(t *testing.T) {
 func TestProvenanceAttach_ConflictWithAttestationAlreadyAttachedSucceeds(t *testing.T) {
 	RegisterTestingT(t)
 
-	fake := cosigntest.Install(t, cosigntest.Options{ConflictsBefore: 99, ArtifactAlreadyAttached: true})
+	fake := cosigntest.Install(t, cosigntest.Options{
+		ConflictsBefore:         99,
+		ArtifactAlreadyAttached: true,
+		Image:                   provTestImage,
+	})
 
 	err := provTestAttacher().Attach(context.Background(), provTestStatement(), provTestImage)
 
 	Expect(err).ToNot(HaveOccurred())
 	Expect(fake.Calls(t)).To(Equal(1), "confirmation must short-circuit the retry loop")
 	Expect(fake.Probes(t)).To(Equal(1))
+	// --type must carry the provenance predicate URI. Without it an SBOM
+	// attestation on the same image would confirm a missing provenance one.
+	probe := fake.LastProbeArgs(t)
+	Expect(probe).To(Equal([]string{
+		"verify-attestation",
+		"--type", attestationType(FormatSLSAV10),
+		"--certificate-identity-regexp", "^https://example.test/wf@refs/heads/main$",
+		"--certificate-oidc-issuer", "https://token.example.test",
+		provTestImage,
+	}))
+}
+
+// See the sbom twin: presence alone is not attribution, so a config with no
+// verification identity gets no probe and keeps the retry-then-report path.
+func TestProvenanceAttach_ConflictWithoutAVerificationIdentityStillFails(t *testing.T) {
+	RegisterTestingT(t)
+
+	fake := cosigntest.Install(t, cosigntest.Options{ConflictsBefore: 99, ArtifactAlreadyAttached: true})
+	a := &Attacher{
+		SigningConfig: &signing.Config{Enabled: true, Keyless: true, OIDCToken: "a.b.c"},
+		Timeout:       provAttestTimeout,
+	}
+
+	err := a.Attach(context.Background(), provTestStatement(), provTestImage)
+
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
+	Expect(fake.Probes(t)).To(Equal(0))
 }
 
 func TestProvenanceAttach_NoRetryOnOtherErrors(t *testing.T) {
