@@ -125,10 +125,32 @@ if an SBOM, a signature or a provenance attestation is missing for any
 image or tarball, the release build fails and nothing is published.
 The individual attestation steps stay soft so that one failure does not
 mask the others, and a gate step at the end of each job reports every
-missing piece at once and then exits non-zero. The repository variable
-`ATTESTATION_SOFT_FAIL=true` degrades those gates back to warnings; it
-exists for a Sigstore or Rekor outage and should be unset again as soon
-as the release ships. Branch previews and staging builds are not
+missing piece at once and then exits non-zero.
+
+"Nothing is published" is literal on both paths. A tarball is uploaded
+only after its gate passes. An image is built and pushed to a
+throwaway `:ci-<run>-<attempt>` tag, because cosign signs by digest and
+needs the manifest in the registry first; the release tags (`:latest`,
+`:<version>`) are applied by a separate promote step that runs only
+after the gate passes, and the throwaway tag is removed afterwards.
+Promotion republishes the signed manifest unchanged, so a release tag
+resolves to exactly the digest that was signed and verifying by tag
+gives the same answer as verifying by digest. A blocked release
+therefore leaves no consumer-facing tag pointing at an unattested
+image.
+
+Break glass: the variable `ATTESTATION_SOFT_FAIL` degrades those gates
+to warnings for the duration of a Sigstore or Rekor outage. Its value
+must be an ISO-8601 UTC expiry date (`YYYY-MM-DD`); it stops applying
+on that date whether or not anyone remembers to remove it, and any
+other value, including the historical `true`, is rejected and does not
+bypass. Every gate prints the variable's value on every run, pass or
+fail, and a bypassed run writes `attestation-breakglass=<date>` to its
+job summary. Note that `vars.*` resolves ORGANIZATION-level variables
+as well as repository ones, so a variable of this name set on the
+organization disables the gate in every repository that reads it;
+setting it at either scope is restricted to repository and
+organization admins. Branch previews and staging builds are not
 releases and stay warn-only.
 
 ### Identity-regex contract

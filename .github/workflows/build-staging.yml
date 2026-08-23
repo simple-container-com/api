@@ -160,7 +160,8 @@ jobs:
       - name: Install attestation tools
         id: install_attest_tools
         if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
-        continue-on-error: true   # Best-effort during Phase 2 bake-in (matches push.yaml).
+        continue-on-error: true   # Best-effort: staging is not a release, so a
+                                  # missing tool must not fail the build.
         uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
 
       - name: Sign + attest github-actions staging (SBOM + cosign + SLSA)
@@ -174,7 +175,9 @@ jobs:
           subject-digest: ${{ steps.build_gha_staging.outputs.digest }}
           # cosign + syft already installed by the step above; skip re-install.
           install-tools: 'false'
-          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
+          # Soft-fail with no gate behind it. push.yaml sets soft-fail too,
+          # but gates on the outcomes and fails the release; staging does not,
+          # because SECURITY.md promises a complete chain for releases only.
           soft-fail: 'true'
 
       - name: Sign + attest caddy staging (SBOM + cosign + SLSA)

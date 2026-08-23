@@ -1,10 +1,15 @@
 name: Verify published attestations
 
-# Post-publish quality gate for Phase 2 supply-chain attestations.
-# Off the release critical path: fires AFTER push.yaml or branch-preview.yaml
-# succeed, runs weekly as a drift check, and is manually dispatchable for
-# ad-hoc re-verification. A failure here surfaces in the repo's Actions tab
-# without blocking the release that already shipped — bake-in policy.
+# Post-publish verification of supply-chain attestations. Deliberately off the
+# release critical path, and not the control that stops a bad release: push.yaml
+# gates each job on its own attestation outcomes and promotes image tags only
+# after that gate passes, so an incomplete chain never reaches a release tag in
+# the first place. This workflow answers a different question, from outside the
+# build: does what is actually published still verify? It fires after push.yaml
+# or branch-preview.yaml succeed, runs weekly to catch drift (a deleted
+# signature, a rotated identity, an overwritten tag), and is manually
+# dispatchable. Previews and staging builds have no gate, so here a failure is
+# the first signal rather than the second.
 
 on:
   workflow_run:

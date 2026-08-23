@@ -263,9 +263,10 @@ jobs:
       # and no provenance is indistinguishable from a good one at the consumer
       # end. Branch previews and staging builds keep the warn-only aggregator.
       #
-      # Break glass: set the repository variable ATTESTATION_SOFT_FAIL to
-      # 'true' to degrade this back to a warning for the duration of a Sigstore
-      # or Rekor outage. Unset it once the release ships.
+      # Break glass: set the variable ATTESTATION_SOFT_FAIL to an ISO-8601 UTC
+      # expiry date (YYYY-MM-DD) to degrade this to a warning for the duration
+      # of a Sigstore or Rekor outage. It stops applying on that date whether
+      # or not anyone remembers to unset it, and every run prints its value.
       - name: Attestation gate for sc-${{ matrix.os }}-${{ matrix.arch }}
         if: always()
         env:
@@ -275,6 +276,11 @@ jobs:
           SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
           PLATFORM: ${{ matrix.os }}-${{ matrix.arch }}
         run: |
+          # See the image gate for why this is printed unconditionally and why
+          # the value must be a date: `vars.*` also resolves ORGANIZATION
+          # variables, so this can be switched off from outside the repository.
+          echo "ATTESTATION_SOFT_FAIL=${SOFT_FAIL:-<unset>}"
+          today="$(date -u +%F)"
           fail=0
           for v in "$SBOM_OUTCOME" "$SIGN_OUTCOME" "$SLSA_OUTCOME"; do
             if [ "$v" != "success" ]; then fail=1; fi
@@ -284,11 +290,24 @@ jobs:
             exit 0
           fi
           detail="sc-${PLATFORM} (sbom=$SBOM_OUTCOME sign=$SIGN_OUTCOME slsa=$SLSA_OUTCOME)"
-          if [ "${SOFT_FAIL:-}" = "true" ]; then
-            echo "::warning title=Attestation incomplete::${detail}. Blocking is disabled by the repository variable ATTESTATION_SOFT_FAIL."
+          if [ -n "${SOFT_FAIL:-}" ]; then
+            case "$SOFT_FAIL" in
+              [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+              *)
+                echo "::error title=Break-glass malformed::ATTESTATION_SOFT_FAIL must be an ISO-8601 UTC expiry date (YYYY-MM-DD); got '${SOFT_FAIL}'. Not bypassing the gate."
+                SOFT_FAIL=""
+                ;;
+            esac
+          fi
+          if [ -n "${SOFT_FAIL:-}" ] && [[ "$today" < "$SOFT_FAIL" ]]; then
+            echo "::warning title=Attestation incomplete::${detail}. Break-glass active until ${SOFT_FAIL}."
+            echo "attestation-breakglass=${SOFT_FAIL}" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          echo "::error title=Attestation incomplete::${detail}. A release must not publish a tarball without an SBOM, a signature and provenance. Re-run the job; if the transparency log is down, set the repository variable ATTESTATION_SOFT_FAIL=true to ship without them."
+          if [ -n "${SOFT_FAIL:-}" ]; then
+            echo "::warning title=Break-glass expired::ATTESTATION_SOFT_FAIL=${SOFT_FAIL} is not after ${today}; the gate is blocking. Remove the variable."
+          fi
+          echo "::error title=Attestation incomplete::${detail}. A release must not publish a tarball without an SBOM, a signature and provenance. Re-run the job; if the transparency log is down, set ATTESTATION_SOFT_FAIL to an ISO-8601 UTC expiry date to ship without them."
           exit 1
       - name: upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -486,7 +505,16 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
-          tags: ${{ matrix.tags }}
+          # Build to a throwaway CI tag, never straight to the release tags.
+          # cosign signs by digest, so the image has to exist in the registry
+          # before `Sign + attest` can run; but pushing `:latest` and
+          # `:<version>` here put them in front of consumers before the
+          # attestation gate below could block them. A failing gate then left a
+          # mutable `:latest` pointing at an unsigned, un-SBOM'd image while
+          # dist.simple-container.com still served the previous version. The
+          # release tags are applied by `Promote release tags` after the gate
+          # passes, which is the order the tarball path has always used.
+          tags: ${{ matrix.image_repo }}:ci-${{ github.run_id }}-${{ github.run_attempt }}
           push: true
           # Cache scopes are prefixed by TRUST TIER, not just by image.
           # A lower-trust build must never write a scope a release build
@@ -551,7 +579,8 @@ jobs:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
           retention-days: 1
-      # Release gate for images. Same policy as the tarball gate above.
+      # Release gate for images. Same policy as the tarball gate above, and it
+      # runs BEFORE the release tags exist: see `Promote release tags` below.
       - name: Attestation gate for ${{ matrix.image }}
         if: always() && steps.build_and_push.outcome == 'success'
         env:
@@ -562,6 +591,12 @@ jobs:
           SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
           IMAGE: ${{ matrix.image }}
         run: |
+          # Printed on every run, pass or fail. `vars.*` resolves ORGANIZATION
+          # variables as well as repository ones, so a variable of this name
+          # set at the org level silently applies to this repo, and to every
+          # other repo that reads it. This line is what makes that visible.
+          echo "ATTESTATION_SOFT_FAIL=${SOFT_FAIL:-<unset>}"
+          today="$(date -u +%F)"
           fail=0
           for v in "$SIGN_OUTCOME" "$SBOM_OUTCOME" "$ATTEST_SBOM_OUTCOME" "$SLSA_OUTCOME"; do
             if [ "$v" != "success" ]; then fail=1; fi
@@ -571,12 +606,110 @@ jobs:
             exit 0
           fi
           detail="${IMAGE} (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME)"
-          if [ "${SOFT_FAIL:-}" = "true" ]; then
-            echo "::warning title=Attestation incomplete::${detail}. Blocking is disabled by the repository variable ATTESTATION_SOFT_FAIL."
+          # Break glass carries its own expiry so a forgotten value stops
+          # bypassing on its own. Anything that is not an ISO-8601 UTC date is
+          # rejected rather than trusted, including the historical 'true'.
+          if [ -n "${SOFT_FAIL:-}" ]; then
+            case "$SOFT_FAIL" in
+              [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+              *)
+                echo "::error title=Break-glass malformed::ATTESTATION_SOFT_FAIL must be an ISO-8601 UTC expiry date (YYYY-MM-DD); got '${SOFT_FAIL}'. Not bypassing the gate."
+                SOFT_FAIL=""
+                ;;
+            esac
+          fi
+          if [ -n "${SOFT_FAIL:-}" ] && [[ "$today" < "$SOFT_FAIL" ]]; then
+            echo "::warning title=Attestation incomplete::${detail}. Break-glass active until ${SOFT_FAIL}."
+            echo "attestation-breakglass=${SOFT_FAIL}" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          echo "::error title=Attestation incomplete::${detail}. A release must not publish an image without a signature, an SBOM attestation and provenance. See the verify-attestations workflow for the post-publish check."
+          if [ -n "${SOFT_FAIL:-}" ]; then
+            echo "::warning title=Break-glass expired::ATTESTATION_SOFT_FAIL=${SOFT_FAIL} is not after ${today}; the gate is blocking. Remove the variable."
+          fi
+          echo "::error title=Attestation incomplete::${detail}. A release must not publish an image without a signature, an SBOM attestation and provenance. No release tag was applied, so nothing shipped. See the verify-attestations workflow for the post-publish check."
           exit 1
+      # The only step that makes this image reachable under a consumer-facing
+      # tag. No `if:`, so the default success() applies and a failed gate skips
+      # it.
+      #
+      # Promotion re-PUTs the signed manifest byte for byte under each release
+      # tag, which is what `crane tag` does and what keeps the tag resolving to
+      # the digest cosign signed. `docker buildx imagetools create` is NOT
+      # usable here: given a single platform-specific manifest it wraps it in a
+      # NEW index, so the tag resolves to an index digest that was never signed
+      # and `cosign verify <repo>:latest` fails. Measured against a local
+      # registry: source sha256:dd54c6… came back as sha256:45b9e3… .
+      #
+      # The Docker-Content-Digest check below makes the step self-verifying: if
+      # promotion ever stops preserving the digest, the release fails instead of
+      # shipping a tag no consumer can verify.
+      - name: Promote release tags for ${{ matrix.image }}
+        env:
+          TAGS: ${{ matrix.tags }}
+          IMAGE_REPO: ${{ matrix.image_repo }}
+          DIGEST: ${{ steps.build_and_push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          token="$(sc stack secret-get -s dist dockerhub-cicd-token)"
+          echo "::add-mask::${token}"
+          bearer="$(curl -sS -u "simplecontainer:${token}" \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${IMAGE_REPO}:pull,push" \
+            | jq -r '.token // empty')"
+          if [ -z "$bearer" ]; then
+            echo "::error title=Promotion failed::could not obtain a registry token for ${IMAGE_REPO}"
+            exit 1
+          fi
+          echo "::add-mask::${bearer}"
+          accept='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
+          manifest="$(mktemp)"
+          ctype="$(curl -sS -D - -o "$manifest" \
+            -H "Authorization: Bearer ${bearer}" -H "Accept: ${accept}" \
+            "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/${DIGEST}" \
+            | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')"
+          if [ -z "$ctype" ]; then
+            echo "::error title=Promotion failed::could not read the manifest for ${IMAGE_REPO}@${DIGEST}"
+            exit 1
+          fi
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            echo "Promoting ${IMAGE_REPO}@${DIGEST} to ${tag}"
+            pushed="$(curl -sS -X PUT -D - -o /dev/null \
+              -H "Authorization: Bearer ${bearer}" -H "Content-Type: ${ctype}" \
+              --data-binary "@${manifest}" \
+              "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/${tag##*:}" \
+              | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}')"
+            if [ "$pushed" != "$DIGEST" ]; then
+              echo "::error title=Promotion changed the digest::${tag} resolved to ${pushed:-<none>}, not the signed ${DIGEST}. Consumers verifying by tag would fail."
+              exit 1
+            fi
+          done <<< "$TAGS"
+      # Best effort: drop the throwaway build tag once the release tags carry
+      # the digest. Runs even when the gate blocked, because that is exactly
+      # the case where an unsigned image would otherwise stay reachable under a
+      # predictable name. Never fails the job: the tag is undocumented and
+      # untouched by any consumer either way.
+      - name: Remove throwaway CI tag for ${{ matrix.image }}
+        if: always() && steps.build_and_push.outcome == 'success'
+        continue-on-error: true
+        env:
+          IMAGE_REPO: ${{ matrix.image_repo }}
+          CI_TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          token="$(sc stack secret-get -s dist dockerhub-cicd-token)"
+          echo "::add-mask::${token}"
+          jwt="$(curl -sS -X POST https://hub.docker.com/v2/users/login/ \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"simplecontainer\",\"password\":\"${token}\"}" \
+            | jq -r '.token // empty')"
+          if [ -z "$jwt" ]; then
+            echo "Could not obtain a Docker Hub session; leaving ${IMAGE_REPO}:${CI_TAG} in place."
+            exit 0
+          fi
+          echo "::add-mask::${jwt}"
+          curl -sS -o /dev/null -w 'delete %{http_code}\n' -X DELETE \
+            -H "Authorization: JWT ${jwt}" \
+            "https://hub.docker.com/v2/repositories/${IMAGE_REPO}/tags/${CI_TAG}/"
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
@@ -648,46 +781,55 @@ jobs:
           done
       # Second line of defence: build-platforms gates per matrix leg, this one
       # gates the bundle that actually reaches the CDN. Honours the same
-      # ATTESTATION_SOFT_FAIL break-glass variable.
-      - name: Sidecar count assertion
+      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all.
+      - name: Sidecar assertion
         env:
           SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           shopt -s nullglob
-          arr_tarballs=( sc-*.tar.gz ); tarballs=${#arr_tarballs[@]}
-          arr_shas=( sc-*.tar.gz.sha256 ); shas=${#arr_shas[@]}
-          arr_bundles=( sc-*.tar.gz.cosign-bundle ); bundles=${#arr_bundles[@]}
-          arr_provs=( sc-*.tar.gz.sigstore.json ); provs=${#arr_provs[@]}
-          arr_sboms=( sc-*.tar.gz.sbom.cdx.json ); sboms=${#arr_sboms[@]}
-          echo "tarballs=$tarballs sha256=$shas cosign-bundle=$bundles slsa=$provs sbom=$sboms"
-          if [ "$tarballs" -eq 0 ]; then
+          echo "ATTESTATION_SOFT_FAIL=${SOFT_FAIL:-<unset>}"
+          today="$(date -u +%F)"
+          tarballs=( sc-*.tar.gz )
+          echo "tarballs=${#tarballs[@]}"
+          if [ "${#tarballs[@]}" -eq 0 ]; then
             echo "::error title=No tarballs to publish::dist bundle has zero tarballs"
             exit 1
           fi
+          # Paired per tarball, not counted in aggregate. Comparing totals let a
+          # bundle pass in which one tarball carried two sidecars of a kind and
+          # another carried none, which is the exact shape a half-failed matrix
+          # leg produces. An empty sidecar counts as missing.
           missing=0
-          # Every tarball has matching .sha256 / .cosign-bundle / .sigstore.json
-          # / .sbom.cdx.json sidecars; build-platforms duplicates the per-build
-          # outputs across the versioned and unversioned tarball names.
-          for kind_count in "sha256=$shas" \
-                            "cosign-bundle=$bundles" \
-                            "slsa=$provs" \
-                            "sbom=$sboms"; do
-            label="${kind_count%%=*}"
-            count="${kind_count#*=}"
-            if [ "$count" -lt "$tarballs" ]; then
-              echo "::warning title=Sidecar count mismatch::${label} has $count of $tarballs expected sidecars"
-              missing=1
-            fi
+          for tarball in "${tarballs[@]}"; do
+            for suffix in sha256 cosign-bundle sigstore.json sbom.cdx.json; do
+              if [ ! -s "${tarball}.${suffix}" ]; then
+                echo "::warning title=Sidecar missing::${tarball} has no .${suffix}"
+                missing=1
+              fi
+            done
           done
           if [ "$missing" -eq 0 ]; then
             echo "All sidecars present for every published tarball."
             exit 0
           fi
-          if [ "${SOFT_FAIL:-}" = "true" ]; then
-            echo "::warning title=Sidecars incomplete::Publishing anyway; blocking is disabled by the repository variable ATTESTATION_SOFT_FAIL."
+          if [ -n "${SOFT_FAIL:-}" ]; then
+            case "$SOFT_FAIL" in
+              [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+              *)
+                echo "::error title=Break-glass malformed::ATTESTATION_SOFT_FAIL must be an ISO-8601 UTC expiry date (YYYY-MM-DD); got '${SOFT_FAIL}'. Not bypassing the gate."
+                SOFT_FAIL=""
+                ;;
+            esac
+          fi
+          if [ -n "${SOFT_FAIL:-}" ] && [[ "$today" < "$SOFT_FAIL" ]]; then
+            echo "::warning title=Sidecars incomplete::Publishing anyway. Break-glass active until ${SOFT_FAIL}."
+            echo "attestation-breakglass=${SOFT_FAIL}" >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          fi
+          if [ -n "${SOFT_FAIL:-}" ]; then
+            echo "::warning title=Break-glass expired::ATTESTATION_SOFT_FAIL=${SOFT_FAIL} is not after ${today}; the gate is blocking. Remove the variable."
           fi
           echo "::error title=Sidecars incomplete::Refusing to publish a release bundle with missing sidecars. Every tarball on dist must ship with .sha256, .cosign-bundle, .sigstore.json and .sbom.cdx.json."
           exit 1
