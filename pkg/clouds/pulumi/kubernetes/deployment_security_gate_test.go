@@ -5,7 +5,7 @@ package kubernetes
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/samber/lo"
@@ -132,11 +132,8 @@ func TestImageSecurityOpts(t *testing.T) {
 	}), 2, "every image contributes its own gate")
 }
 
+// want is always a full URN, so equality is the check. The old suffix arm made
+// the assertion weaker than it reads: any URN ending in the wanted one passed.
 func containsURN(urns []string, want string) bool {
-	for _, u := range urns {
-		if u == want || strings.HasSuffix(u, want) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(urns, want)
 }
