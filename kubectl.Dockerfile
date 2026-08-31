@@ -7,7 +7,7 @@
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
-FROM alpine/kubectl:latest@sha256:5d380d18d2509483aef3df54d676c767d798d55ec9f3e02dabfa4c88fe6559bd AS runtime
+FROM alpine/kubectl:latest@sha256:036b8cf863b64e4c4dc0ca34f8b30fa9a151e7ae27631acfd7dccdc8bac85e52 AS runtime
 
 # apk upgrade pulls post-tag distro fixes (e.g. nghttp2 CVE-2026-27135 at scan time).
 RUN apk update \
