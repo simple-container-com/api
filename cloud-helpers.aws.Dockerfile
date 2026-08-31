@@ -7,7 +7,7 @@
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
-FROM public.ecr.aws/lambda/provided:al2023@sha256:5f3ae3216e07bb3677cc4dfa0c7867973f7e536abb114d6b44a7b8c558824812 AS runtime
+FROM public.ecr.aws/lambda/provided:al2023@sha256:8584408dac0c2536dfb4557ca91b08bc4fc727f785f3df6458b2145a10bc9978 AS runtime
 
 # Pull post-tag distro fixes (e.g. glibc CVE-2026-4046 once published to AL2023 dnf).
 RUN dnf upgrade -y --setopt=tsflags=nodocs \
