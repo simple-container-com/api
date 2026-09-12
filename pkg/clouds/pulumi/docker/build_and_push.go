@@ -119,7 +119,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	return &ImageOut{
 		Image:          res,
 		AddOpts:        addOpts,
-		DeployImageRef: resolveDeployImageRef(res.RepoDigest, res.ImageName, signingEnabled(stack.Client.Security)),
+		DeployImageRef: resolveDeployImageRef(ctx, res.RepoDigest, res.ImageName, securitySigningEnabled(stack.Client.Security)),
 	}, nil
 }
 
@@ -692,22 +692,41 @@ func resolveSecurityImageRef(ctx *sdk.Context, repoDigest, imageURL sdk.StringOu
 // whoever can write to the registry moves the tag between verification and the
 // runtime's pull, and something that was never verified runs.
 //
-// strict is tied to whether the stack signs its images. A stack that asked for
-// signing gets a hard failure when no digest is available, because deploying a
-// mutable reference would silently void the guarantee it asked for. A stack that
-// does not sign keeps working on the tag, since this would otherwise break every
-// consumer whose registry or provider does not report a digest.
-func resolveDeployImageRef(repoDigest, imageName sdk.StringOutput, strict bool) sdk.StringOutput {
+// strict is tied to whether the stack actually signs its images, meaning both
+// the top level security flag and the signing flag, since signing only runs when
+// both are set. A stack that asked for signing gets a hard failure when no
+// digest is available, because deploying a mutable reference would silently void
+// the guarantee it asked for. A stack that does not sign keeps working on the
+// tag, since this would otherwise break every consumer whose registry or
+// provider does not report a digest.
+//
+// During a preview nothing is pushed, so there is no digest to resolve and a
+// strict failure there would block the plan rather than the deployment. The tag
+// is returned quietly in that case and the check happens on the update.
+func resolveDeployImageRef(ctx *sdk.Context, repoDigest, imageName sdk.StringOutput, strict bool) sdk.StringOutput {
 	return sdk.All(repoDigest, imageName).ApplyT(func(values []interface{}) (string, error) {
 		repoDigestValue, _ := values[0].(string)
 		imageNameValue, _ := values[1].(string)
 		if repoDigestRe.MatchString(repoDigestValue) {
 			return repoDigestValue, nil
 		}
+		if ctx != nil && ctx.DryRun() {
+			return imageNameValue, nil
+		}
 		if strict {
 			return "", errors.Errorf("no immutable digest available for %s (got %q); signing is enabled for this stack, so refusing to deploy a mutable image reference", imageNameValue, repoDigestValue)
 		}
-		fmt.Printf("Warning: deploying %s by tag because no immutable digest is available; the running image is not pinned to what was built\n", imageNameValue)
+		if ctx != nil {
+			_ = ctx.Log.Warn(fmt.Sprintf("deploying %s by tag because no immutable digest is available; the running image is not pinned to what was built", imageNameValue), nil)
+		}
 		return imageNameValue, nil
 	}).(sdk.StringOutput)
+}
+
+// securitySigningEnabled mirrors the gate that decides whether the security
+// operations run at all: signing.enabled alone is not enough if the top level
+// security block is off, and treating it as enough would make an unsigned stack
+// fail closed for a guarantee it never had.
+func securitySigningEnabled(security *api.SecurityDescriptor) bool {
+	return security != nil && security.Enabled && signingEnabled(security)
 }

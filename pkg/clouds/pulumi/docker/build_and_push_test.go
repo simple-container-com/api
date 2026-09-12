@@ -280,6 +280,7 @@ func TestResolveDeployImageRef(t *testing.T) {
 			RegisterTestingT(t)
 			err := sdk.RunErr(func(ctx *sdk.Context) error {
 				resolved := resolveDeployImageRef(
+					ctx,
 					sdk.String(tt.repoDigest).ToStringOutput(),
 					sdk.String(tt.imageName).ToStringOutput(),
 					tt.strict,
@@ -528,4 +529,28 @@ func TestSigningCommandEnvironment(t *testing.T) {
 	Expect(ok).To(BeTrue(), "expected COSIGN_PASSWORD for key-based signing")
 	_, isStringOutput := interface{}(value).(sdk.StringOutput)
 	Expect(isStringOutput).To(BeTrue(), "COSIGN_PASSWORD env value type = %T, want pulumi StringOutput", value)
+}
+
+// signing only runs when both the top level security flag and the signing flag
+// are set, so the digest policy has to read the same pair. Treating
+// signing.enabled alone as strict makes a stack that never signs fail closed
+// for a guarantee it never asked for.
+func TestSecuritySigningEnabledRequiresBothFlags(t *testing.T) {
+	RegisterTestingT(t)
+	tests := []struct {
+		name     string
+		security *api.SecurityDescriptor
+		want     bool
+	}{
+		{name: "nil descriptor", security: nil, want: false},
+		{name: "security off, signing on", security: &api.SecurityDescriptor{Enabled: false, Signing: &api.SigningDescriptor{Enabled: true}}, want: false},
+		{name: "security on, signing off", security: &api.SecurityDescriptor{Enabled: true, Signing: &api.SigningDescriptor{Enabled: false}}, want: false},
+		{name: "security on, no signing block", security: &api.SecurityDescriptor{Enabled: true}, want: false},
+		{name: "both on", security: &api.SecurityDescriptor{Enabled: true, Signing: &api.SigningDescriptor{Enabled: true}}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Expect(securitySigningEnabled(tt.security)).To(Equal(tt.want))
+		})
+	}
 }
