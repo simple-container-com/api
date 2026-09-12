@@ -68,7 +68,7 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 		}
 		return &ContainerImage{
 			Container: container,
-			ImageName: image.Image.ImageName,
+			ImageName: image.DeployImageRef,
 			AddOpts:   image.AddOpts,
 		}, nil
 	})

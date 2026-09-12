@@ -12,6 +12,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -209,6 +210,105 @@ func TestRepoDigestRegex(t *testing.T) {
 	for _, ref := range invalid {
 		Expect(repoDigestRe.MatchString(ref)).To(BeFalse(), "repoDigestRe should not match %q", ref)
 	}
+}
+
+func TestResolveDeployImageRef(t *testing.T) {
+	RegisterTestingT(t)
+
+	validDigest := "registry.example.com/repo@sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	tests := []struct {
+		name        string
+		repoDigest  string
+		imageName   string
+		strict      bool
+		want        string
+		wantErrText string
+	}{
+		{
+			name:       "valid digest",
+			repoDigest: validDigest,
+			imageName:  "registry.example.com/repo:v1",
+			strict:     true,
+			want:       validDigest,
+		},
+		{
+			name:        "truncated digest while signing",
+			repoDigest:  "registry.example.com/repo@sha256:abcdef",
+			imageName:   "registry.example.com/repo:v1",
+			strict:      true,
+			wantErrText: "refusing to deploy a mutable image reference",
+		},
+		{
+			name:        "empty digest while signing",
+			repoDigest:  "",
+			imageName:   "registry.example.com/repo:v1",
+			strict:      true,
+			wantErrText: "refusing to deploy a mutable image reference",
+		},
+		{
+			name:       "valid digest wins over the tag",
+			repoDigest: validDigest,
+			imageName:  "registry.example.com/repo:attacker-moved-tag",
+			strict:     true,
+			want:       validDigest,
+		},
+		{
+			name:       "digest is still preferred when not signing",
+			repoDigest: validDigest,
+			imageName:  "registry.example.com/repo:v1",
+			strict:     false,
+			want:       validDigest,
+		},
+		{
+			name:       "falls back to the tag when not signing",
+			repoDigest: "",
+			imageName:  "registry.example.com/repo:v1",
+			strict:     false,
+			want:       "registry.example.com/repo:v1",
+		},
+		{
+			name:       "malformed digest falls back to the tag when not signing",
+			repoDigest: "<none>",
+			imageName:  "registry.example.com/repo:v1",
+			strict:     false,
+			want:       "registry.example.com/repo:v1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			err := sdk.RunErr(func(ctx *sdk.Context) error {
+				resolved := resolveDeployImageRef(
+					ctx,
+					sdk.String(tt.repoDigest).ToStringOutput(),
+					sdk.String(tt.imageName).ToStringOutput(),
+					tt.strict,
+				)
+				resolved.ApplyT(func(value string) string {
+					Expect(value).To(Equal(tt.want))
+					return value
+				})
+				ctx.Export("resolved", resolved)
+				return nil
+			}, sdk.WithMocks("project", "stack", &deployImageRefMocks{}))
+			if tt.wantErrText != "" {
+				Expect(err).To(MatchError(ContainSubstring(tt.wantErrText)))
+				return
+			}
+			Expect(err).ToNot(HaveOccurred())
+		})
+	}
+}
+
+type deployImageRefMocks struct{}
+
+func (*deployImageRefMocks) NewResource(args sdk.MockResourceArgs) (string, resource.PropertyMap, error) {
+	return args.Name, args.Inputs, nil
+}
+
+func (*deployImageRefMocks) Call(args sdk.MockCallArgs) (resource.PropertyMap, error) {
+	return args.Args, nil
 }
 
 func TestDockerConfigJSON(t *testing.T) {
@@ -429,4 +529,28 @@ func TestSigningCommandEnvironment(t *testing.T) {
 	Expect(ok).To(BeTrue(), "expected COSIGN_PASSWORD for key-based signing")
 	_, isStringOutput := interface{}(value).(sdk.StringOutput)
 	Expect(isStringOutput).To(BeTrue(), "COSIGN_PASSWORD env value type = %T, want pulumi StringOutput", value)
+}
+
+// signing only runs when both the top level security flag and the signing flag
+// are set, so the digest policy has to read the same pair. Treating
+// signing.enabled alone as strict makes a stack that never signs fail closed
+// for a guarantee it never asked for.
+func TestSecuritySigningEnabledRequiresBothFlags(t *testing.T) {
+	RegisterTestingT(t)
+	tests := []struct {
+		name     string
+		security *api.SecurityDescriptor
+		want     bool
+	}{
+		{name: "nil descriptor", security: nil, want: false},
+		{name: "security off, signing on", security: &api.SecurityDescriptor{Enabled: false, Signing: &api.SigningDescriptor{Enabled: true}}, want: false},
+		{name: "security on, signing off", security: &api.SecurityDescriptor{Enabled: true, Signing: &api.SigningDescriptor{Enabled: false}}, want: false},
+		{name: "security on, no signing block", security: &api.SecurityDescriptor{Enabled: true}, want: false},
+		{name: "both on", security: &api.SecurityDescriptor{Enabled: true, Signing: &api.SigningDescriptor{Enabled: true}}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Expect(securitySigningEnabled(tt.security)).To(Equal(tt.want))
+		})
+	}
 }
