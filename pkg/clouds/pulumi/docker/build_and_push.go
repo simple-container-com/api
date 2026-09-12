@@ -50,6 +50,11 @@ type Image struct {
 type ImageOut struct {
 	Image   *docker.Image
 	AddOpts []sdk.ResourceOption
+	// DeployImageRef is the reference a runtime should be pointed at. It is the
+	// immutable digest whenever one is available, so that what runs is what was
+	// scanned, signed and verified rather than whatever the tag points at by the
+	// time the runtime pulls.
+	DeployImageRef sdk.StringOutput
 }
 
 // BuildAndPushImage builds a Docker image, pushes it, and runs security
@@ -111,7 +116,11 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{res}))
 	}
 
-	return &ImageOut{Image: res, AddOpts: addOpts}, nil
+	return &ImageOut{
+		Image:          res,
+		AddOpts:        addOpts,
+		DeployImageRef: resolveDeployImageRef(res.RepoDigest, res.ImageName, signingEnabled(stack.Client.Security)),
+	}, nil
 }
 
 // executeSecurityOperations creates Pulumi resources for post-push security ops.
@@ -675,5 +684,30 @@ func resolveSecurityImageRef(ctx *sdk.Context, repoDigest, imageURL sdk.StringOu
 			return imageURLValue, nil
 		}
 		return "", errors.Errorf("docker image repo digest is unavailable for %s; security operations require an immutable digest", imageURLValue)
+	}).(sdk.StringOutput)
+}
+
+// resolveDeployImageRef returns the reference to hand to a runtime. Verification
+// runs against the digest, so deploying the tag would leave a window in which
+// whoever can write to the registry moves the tag between verification and the
+// runtime's pull, and something that was never verified runs.
+//
+// strict is tied to whether the stack signs its images. A stack that asked for
+// signing gets a hard failure when no digest is available, because deploying a
+// mutable reference would silently void the guarantee it asked for. A stack that
+// does not sign keeps working on the tag, since this would otherwise break every
+// consumer whose registry or provider does not report a digest.
+func resolveDeployImageRef(repoDigest, imageName sdk.StringOutput, strict bool) sdk.StringOutput {
+	return sdk.All(repoDigest, imageName).ApplyT(func(values []interface{}) (string, error) {
+		repoDigestValue, _ := values[0].(string)
+		imageNameValue, _ := values[1].(string)
+		if repoDigestRe.MatchString(repoDigestValue) {
+			return repoDigestValue, nil
+		}
+		if strict {
+			return "", errors.Errorf("no immutable digest available for %s (got %q); signing is enabled for this stack, so refusing to deploy a mutable image reference", imageNameValue, repoDigestValue)
+		}
+		fmt.Printf("Warning: deploying %s by tag because no immutable digest is available; the running image is not pinned to what was built\n", imageNameValue)
+		return imageNameValue, nil
 	}).(sdk.StringOutput)
 }
