@@ -128,3 +128,18 @@ func TestControlPlaneAccessConfig_Defaults(t *testing.T) {
 	Expect(onlyGcpCidrs.AuthorizedNetworksEnabled()).To(BeTrue())
 	Expect(onlyGcpCidrs.GcpPublicCidrsAllowed()).To(BeFalse())
 }
+
+// An explicitly empty list is a request to authorise nobody, and it must not be
+// read as "no opinion". Read as no opinion, the whole block is dropped and the
+// control plane keeps GKE's default, which is reachable from anywhere.
+func TestControlPlaneAccessConfig_ExplicitlyEmptyListIsNotAbsent(t *testing.T) {
+	RegisterTestingT(t)
+
+	explicit := &ControlPlaneAccessConfig{AuthorizedNetworks: []AuthorizedNetwork{}}
+	Expect(explicit.AuthorizedNetworksEnabled()).To(BeTrue())
+	Expect(explicit.Validate()).ToNot(BeNil())
+
+	absent := &ControlPlaneAccessConfig{}
+	Expect(absent.AuthorizedNetworksEnabled()).To(BeFalse())
+	Expect(absent.Validate()).To(BeNil())
+}

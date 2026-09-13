@@ -110,3 +110,78 @@ func TestApplyControlPlaneAccess_OnlyAllowListLeavesEndpointsAlone(t *testing.T)
 	// Neither endpoint flag was named, so neither is taken over.
 	Expect(args.ControlPlaneEndpointsConfig).To(BeNil())
 }
+
+func TestApplyControlPlaneAccess_ExplicitlyEmptyListAuthorisesNobody(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := &container.ClusterArgs{}
+	applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+		DnsEndpoint:        cpaBool(true),
+		AuthorizedNetworks: []gcloud.AuthorizedNetwork{},
+	})
+
+	// The block must be written, with no entries. Omitting it would leave GKE's
+	// default in place, which authorises every address.
+	man, ok := args.MasterAuthorizedNetworksConfig.(*container.ClusterMasterAuthorizedNetworksConfigArgs)
+	Expect(ok).To(BeTrue())
+	blocks, ok := man.CidrBlocks.(container.ClusterMasterAuthorizedNetworksConfigCidrBlockArray)
+	Expect(ok).To(BeTrue())
+	Expect(blocks).To(HaveLen(0))
+	Expect(man.GcpPublicCidrsAccessEnabled).To(Equal(sdk.Bool(false)))
+}
+
+func TestKubeconfigEndpoint(t *testing.T) {
+	dns := "gke-abc123.europe-north1.gke.goog"
+	withDNS := container.ClusterControlPlaneEndpointsConfig{
+		DnsEndpointConfig: &container.ClusterControlPlaneEndpointsConfigDnsEndpointConfig{
+			Endpoint: &dns,
+		},
+	}
+
+	for _, tt := range []struct {
+		name      string
+		cfg       *gcloud.ControlPlaneAccessConfig
+		endpoints container.ClusterControlPlaneEndpointsConfig
+		want      string
+		wantErr   string
+	}{
+		{
+			name: "no control plane access block keeps the ip endpoint",
+			cfg:  nil,
+			want: "10.0.0.1",
+		},
+		{
+			name: "allow list alone keeps the ip endpoint",
+			cfg: &gcloud.ControlPlaneAccessConfig{
+				AuthorizedNetworks: []gcloud.AuthorizedNetwork{{Cidr: "203.0.113.0/24"}},
+			},
+			want: "10.0.0.1",
+		},
+		{
+			name:      "ip endpoint disabled switches to the dns endpoint",
+			cfg:       &gcloud.ControlPlaneAccessConfig{IpEndpoint: cpaBool(false), DnsEndpoint: cpaBool(true)},
+			endpoints: withDNS,
+			want:      dns,
+		},
+		{
+			// Without this the kubeconfig would name the disabled IP endpoint and
+			// every consumer would fail at connect time instead of here.
+			name:    "ip endpoint disabled with no dns endpoint reported is an error",
+			cfg:     &gcloud.ControlPlaneAccessConfig{IpEndpoint: cpaBool(false), DnsEndpoint: cpaBool(true)},
+			wantErr: "reported no DNS endpoint",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			got, err := kubeconfigEndpoint("test-cluster", "10.0.0.1", tt.endpoints, tt.cfg)
+			if tt.wantErr != "" {
+				Expect(err).ToNot(BeNil())
+				Expect(err.Error()).To(ContainSubstring(tt.wantErr))
+				return
+			}
+			Expect(err).To(BeNil())
+			Expect(got).To(Equal(tt.want))
+		})
+	}
+}

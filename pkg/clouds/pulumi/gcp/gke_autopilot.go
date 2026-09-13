@@ -386,11 +386,18 @@ func toKubeconfigExport(clusterName string) string {
 }
 
 func generateKubeconfig(cluster *container.Cluster, gkeInput *gcloud.GkeAutopilotResource) sdk.StringOutput {
-	return sdk.All(cluster.Project, cluster.Name, cluster.Endpoint, cluster.MasterAuth).ApplyT(func(args []any) (string, error) {
+	return sdk.All(cluster.Project, cluster.Name, cluster.Endpoint, cluster.MasterAuth,
+		cluster.ControlPlaneEndpointsConfig).ApplyT(func(args []any) (string, error) {
 		project := args[0].(string)
 		name := args[1].(string)
 		endpoint := args[2].(string)
 		masterAuth := args[3].(container.ClusterMasterAuth)
+		endpoints, _ := args[4].(container.ClusterControlPlaneEndpointsConfig)
+
+		endpoint, err := kubeconfigEndpoint(name, endpoint, endpoints, gkeInput.ControlPlaneAccess)
+		if err != nil {
+			return "", err
+		}
 
 		context := fmt.Sprintf("%s_%s_%s", project, gkeInput.Zone, name)
 
@@ -813,4 +820,32 @@ func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPla
 		}
 	}
 	args.ControlPlaneEndpointsConfig = endpoints
+}
+
+// kubeconfigEndpoint picks the host a generated kubeconfig should talk to.
+//
+// cluster.Endpoint is the IP endpoint. With that endpoint turned off it names
+// something nothing can dial, and every stack consuming the kubeconfig fails at
+// connect time rather than at configuration time, so the DNS endpoint is used
+// instead. The IP endpoint is still the default: an allow list narrows who can
+// reach it, and deciding here whether the caller is inside that list is not
+// something this code can know.
+func kubeconfigEndpoint(
+	clusterName, ipEndpoint string,
+	endpoints container.ClusterControlPlaneEndpointsConfig,
+	cfg *gcloud.ControlPlaneAccessConfig,
+) (string, error) {
+	if cfg.IpEndpointEnabled() {
+		return ipEndpoint, nil
+	}
+	dnsEndpoint := ""
+	if endpoints.DnsEndpointConfig != nil {
+		dnsEndpoint = lo.FromPtr(endpoints.DnsEndpointConfig.Endpoint)
+	}
+	if dnsEndpoint == "" {
+		return "", errors.Errorf(
+			"cluster %q has ipEndpoint disabled but reported no DNS endpoint, so no kubeconfig can be generated",
+			clusterName)
+	}
+	return dnsEndpoint, nil
 }

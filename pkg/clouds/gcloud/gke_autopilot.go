@@ -317,8 +317,15 @@ func (c *ControlPlaneAccessConfig) IpEndpointEnabled() bool {
 }
 
 // AuthorizedNetworksEnabled reports whether the IP endpoint allow list applies.
+//
+// An explicitly empty list is a request to authorise nobody, so it counts as
+// enabled. Only an absent list means "no opinion": read the other way round,
+// `authorizedNetworks: []` would drop the whole block and leave the control
+// plane on GKE's default, which is reachable from anywhere. That is a config
+// that reads as a lock-down and silently is not one, so nil is the only value
+// that turns the allow list off.
 func (c *ControlPlaneAccessConfig) AuthorizedNetworksEnabled() bool {
-	return c != nil && (len(c.AuthorizedNetworks) > 0 || c.AllowGcpPublicCidrs != nil)
+	return c != nil && (c.AuthorizedNetworks != nil || c.AllowGcpPublicCidrs != nil)
 }
 
 // GcpPublicCidrsAllowed reports the effective value of the Google Cloud public
