@@ -192,7 +192,7 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	if err := gkeInput.ControlPlaneAccess.Validate(); err != nil {
 		return nil, errors.Wrapf(err, "invalid control plane access configuration for cluster %q", clusterName)
 	}
-	applyControlPlaneAccess(clusterArgs, gkeInput.ControlPlaneAccess)
+	ignoreChanges = append(ignoreChanges, applyControlPlaneAccess(clusterArgs, gkeInput.ControlPlaneAccess)...)
 
 	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, append(opts, sdk.IgnoreChanges(ignoreChanges), sdk.Timeouts(&timeouts))...)
 	if err != nil {
@@ -780,9 +780,15 @@ func extractRegionFromLocation(location string) string {
 // cluster arguments. A nil config writes nothing, so clusters that do not ask
 // for it keep whatever GKE gave them and Pulumi does not start managing the
 // fields.
-func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPlaneAccessConfig) {
+func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPlaneAccessConfig) []string {
+	// Writing nothing is not the same as not managing the field. Both blocks are
+	// optional and not computed, so once either is in state, a program that
+	// stops sending it plans its REMOVAL: deleting a controlPlaneAccess block as
+	// tidy-up would drop the allow list and put the control plane back on the
+	// open internet, with a diff that reads as "removed some config". Ignoring
+	// them while nothing asks for them is what makes the opt-in claim true.
 	if cfg == nil {
-		return
+		return []string{"masterAuthorizedNetworksConfig", "controlPlaneEndpointsConfig"}
 	}
 
 	if cfg.AuthorizedNetworksEnabled() {
@@ -806,7 +812,7 @@ func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPla
 	}
 
 	if cfg.DnsEndpoint == nil && cfg.IpEndpoint == nil {
-		return
+		return nil
 	}
 	endpoints := &container.ClusterControlPlaneEndpointsConfigArgs{}
 	if cfg.DnsEndpoint != nil {
@@ -820,6 +826,7 @@ func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPla
 		}
 	}
 	args.ControlPlaneEndpointsConfig = endpoints
+	return nil
 }
 
 // kubeconfigEndpoint picks the host a generated kubeconfig should talk to.

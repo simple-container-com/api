@@ -19,19 +19,21 @@ func TestApplyControlPlaneAccess_NilLeavesArgsUntouched(t *testing.T) {
 	RegisterTestingT(t)
 
 	args := &container.ClusterArgs{}
-	applyControlPlaneAccess(args, nil)
+	ignore := applyControlPlaneAccess(args, nil)
 
-	// Writing either field would make Pulumi start managing it, and an omitted
-	// allow list then reads as "remove the one that is there".
 	Expect(args.MasterAuthorizedNetworksConfig).To(BeNil())
 	Expect(args.ControlPlaneEndpointsConfig).To(BeNil())
+	// Writing nothing is not enough. Both blocks are optional and not computed,
+	// so once either is in state a program that stops sending it plans its
+	// removal, which would silently re-open the control plane.
+	Expect(ignore).To(ConsistOf("masterAuthorizedNetworksConfig", "controlPlaneEndpointsConfig"))
 }
 
 func TestApplyControlPlaneAccess_AuthorizedNetworks(t *testing.T) {
 	RegisterTestingT(t)
 
 	args := &container.ClusterArgs{}
-	applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+	_ = applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
 		DnsEndpoint: cpaBool(true),
 		AuthorizedNetworks: []gcloud.AuthorizedNetwork{
 			{Name: "office", Cidr: "203.0.113.0/24"},
@@ -67,9 +69,10 @@ func TestApplyControlPlaneAccess_GcpPublicCidrsOptIn(t *testing.T) {
 	RegisterTestingT(t)
 
 	args := &container.ClusterArgs{}
-	applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+	_ = applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
 		DnsEndpoint:         cpaBool(true),
 		AllowGcpPublicCidrs: cpaBool(true),
+		AuthorizedNetworks:  []gcloud.AuthorizedNetwork{{Cidr: "203.0.113.0/24"}},
 	})
 
 	man, ok := args.MasterAuthorizedNetworksConfig.(*container.ClusterMasterAuthorizedNetworksConfigArgs)
@@ -81,7 +84,7 @@ func TestApplyControlPlaneAccess_Endpoints(t *testing.T) {
 	RegisterTestingT(t)
 
 	args := &container.ClusterArgs{}
-	applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+	_ = applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
 		DnsEndpoint: cpaBool(true),
 		IpEndpoint:  cpaBool(false),
 	})
@@ -102,7 +105,7 @@ func TestApplyControlPlaneAccess_OnlyAllowListLeavesEndpointsAlone(t *testing.T)
 	RegisterTestingT(t)
 
 	args := &container.ClusterArgs{}
-	applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+	_ = applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
 		AuthorizedNetworks: []gcloud.AuthorizedNetwork{{Cidr: "203.0.113.0/24"}},
 	})
 
@@ -115,7 +118,7 @@ func TestApplyControlPlaneAccess_ExplicitlyEmptyListAuthorisesNobody(t *testing.
 	RegisterTestingT(t)
 
 	args := &container.ClusterArgs{}
-	applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+	_ = applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
 		DnsEndpoint:        cpaBool(true),
 		AuthorizedNetworks: []gcloud.AuthorizedNetwork{},
 	})
@@ -184,4 +187,40 @@ func TestKubeconfigEndpoint(t *testing.T) {
 			Expect(got).To(Equal(tt.want))
 		})
 	}
+}
+
+func TestApplyControlPlaneAccess_EndpointsOnlyLeavesTheAllowListAlone(t *testing.T) {
+	RegisterTestingT(t)
+
+	args := &container.ClusterArgs{}
+	ignore := applyControlPlaneAccess(args, &gcloud.ControlPlaneAccessConfig{
+		DnsEndpoint: cpaBool(true),
+		IpEndpoint:  cpaBool(false),
+	})
+
+	// Writing an allow list here would produce master authorized networks with
+	// no entries, which authorises nobody, for a config that only asked to move
+	// between endpoints.
+	Expect(args.MasterAuthorizedNetworksConfig).To(BeNil())
+	Expect(ignore).To(BeEmpty())
+}
+
+func TestApplyControlPlaneAccess_OnlyTheNamedEndpointIsTakenOver(t *testing.T) {
+	RegisterTestingT(t)
+
+	dnsOnly := &container.ClusterArgs{}
+	_ = applyControlPlaneAccess(dnsOnly, &gcloud.ControlPlaneAccessConfig{DnsEndpoint: cpaBool(true)})
+	endpoints, ok := dnsOnly.ControlPlaneEndpointsConfig.(*container.ClusterControlPlaneEndpointsConfigArgs)
+	Expect(ok).To(BeTrue())
+	Expect(endpoints.DnsEndpointConfig).ToNot(BeNil())
+	// Naming only the DNS endpoint must not close the IP endpoint the caller
+	// never mentioned.
+	Expect(endpoints.IpEndpointsConfig).To(BeNil())
+
+	ipOnly := &container.ClusterArgs{}
+	_ = applyControlPlaneAccess(ipOnly, &gcloud.ControlPlaneAccessConfig{IpEndpoint: cpaBool(false)})
+	endpoints, ok = ipOnly.ControlPlaneEndpointsConfig.(*container.ClusterControlPlaneEndpointsConfigArgs)
+	Expect(ok).To(BeTrue())
+	Expect(endpoints.IpEndpointsConfig).ToNot(BeNil())
+	Expect(endpoints.DnsEndpointConfig).To(BeNil())
 }

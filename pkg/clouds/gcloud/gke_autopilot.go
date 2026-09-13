@@ -339,13 +339,26 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 		return nil
 	}
 
+	// GKE caps the list. Past the cap the cluster is rejected by the API after
+	// the update has already started.
+	const maxAuthorizedNetworks = 50
+	if len(c.AuthorizedNetworks) > maxAuthorizedNetworks {
+		return errors.Errorf("controlPlaneAccess: %d authorized networks exceeds GKE's limit of %d",
+			len(c.AuthorizedNetworks), maxAuthorizedNetworks)
+	}
+
+	seen := make(map[string]int, len(c.AuthorizedNetworks))
 	for i, n := range c.AuthorizedNetworks {
+		n.Cidr = strings.TrimSpace(n.Cidr)
 		if n.Cidr == "" {
 			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: cidr is required", i)
 		}
 		ip, ipNet, err := net.ParseCIDR(n.Cidr)
 		if err != nil {
-			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q is not a CIDR, a single address needs an explicit /32 or /128", i, n.Cidr)
+			if net.ParseIP(n.Cidr) != nil {
+				return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q is a single address, it needs an explicit /32 or /128", i, n.Cidr)
+			}
+			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q is not a CIDR", i, n.Cidr)
 		}
 		if ones, _ := ipNet.Mask.Size(); ones == 0 {
 			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q allows every address, which is what the allow list exists to prevent", i, n.Cidr)
@@ -353,6 +366,10 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 		if !ip.Equal(ipNet.IP) {
 			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q has host bits set, use %s", i, n.Cidr, ipNet.String())
 		}
+		if first, dup := seen[ipNet.String()]; dup {
+			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q duplicates entry %d", i, n.Cidr, first)
+		}
+		seen[ipNet.String()] = i
 	}
 
 	// Both endpoints off leaves no way to reach the API server, and GKE accepts
@@ -362,10 +379,18 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 	}
 
 	// An empty allow list on the IP endpoint is the same lockout unless the DNS
-	// endpoint is there to take over.
+	// endpoint is there to take over. allowGcpPublicCidrs does not count as a
+	// way in: it authorises Google Cloud's public address space, which is every
+	// other tenant and nobody in this organisation.
 	if c.IpEndpointEnabled() && c.AuthorizedNetworksEnabled() &&
-		len(c.AuthorizedNetworks) == 0 && !c.GcpPublicCidrsAllowed() && !c.DnsEndpointEnabled() {
+		len(c.AuthorizedNetworks) == 0 && !c.DnsEndpointEnabled() {
 		return errors.New("controlPlaneAccess: the authorized network list is empty and dnsEndpoint is not enabled, which leaves no way to reach the control plane")
+	}
+
+	// An allow list on a switched-off endpoint governs nothing, and reads as
+	// though it does.
+	if !c.IpEndpointEnabled() && len(c.AuthorizedNetworks) > 0 {
+		return errors.New("controlPlaneAccess: authorizedNetworks has no effect while ipEndpoint is disabled")
 	}
 
 	return nil
