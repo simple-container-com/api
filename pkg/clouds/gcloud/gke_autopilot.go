@@ -4,6 +4,7 @@
 package gcloud
 
 import (
+	"net"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -41,6 +42,11 @@ type GkeAutopilotResource struct {
 
 	// Private VPC - creates dedicated VPC for the cluster (avoids CloudNAT conflicts)
 	PrivateVpc bool `json:"privateVpc,omitempty" yaml:"privateVpc,omitempty"`
+
+	// ControlPlaneAccess restricts who may reach the Kubernetes API server.
+	// Left unset the control plane keeps GKE's default, an IP endpoint that
+	// accepts connections from any address on the internet.
+	ControlPlaneAccess *ControlPlaneAccessConfig `json:"controlPlaneAccess,omitempty" yaml:"controlPlaneAccess,omitempty"`
 
 	// Resource adoption fields
 	Adopt       bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
@@ -263,4 +269,97 @@ func (c *ExternalEgressIpConfig) Validate() error {
 
 func isPowerOfTwo(n int) bool {
 	return n > 0 && n&(n-1) == 0
+}
+
+// ControlPlaneAccessConfig configures reachability of the cluster control
+// plane. The two endpoints are independent: the IP endpoint is authorised by
+// source address, the DNS endpoint by IAM. Enabling the DNS endpoint is what
+// makes locking the IP endpoint practical for callers with no stable address,
+// such as hosted CI runners.
+type ControlPlaneAccessConfig struct {
+	// DnsEndpoint opens the DNS-based control plane endpoint to callers outside
+	// the cluster VPC. The endpoint itself always exists; this is the flag that
+	// makes it usable, and it stays authorised by IAM either way.
+	DnsEndpoint *bool `json:"dnsEndpoint,omitempty" yaml:"dnsEndpoint,omitempty"`
+
+	// IpEndpoint toggles the IP-based endpoint. Defaults to enabled.
+	IpEndpoint *bool `json:"ipEndpoint,omitempty" yaml:"ipEndpoint,omitempty"`
+
+	// AuthorizedNetworks lists the CIDRs allowed to reach the IP endpoint.
+	// Setting this field is what turns the allow list on: with the list on and
+	// no entries, only Google internal traffic reaches the IP endpoint.
+	AuthorizedNetworks []AuthorizedNetwork `json:"authorizedNetworks,omitempty" yaml:"authorizedNetworks,omitempty"`
+
+	// AllowGcpPublicCidrs keeps every Google Cloud public address authorised.
+	// GKE defaults this to true, which admits any Google Cloud tenant, so it
+	// defaults to false here whenever an allow list is configured.
+	AllowGcpPublicCidrs *bool `json:"allowGcpPublicCidrs,omitempty" yaml:"allowGcpPublicCidrs,omitempty"`
+}
+
+// AuthorizedNetwork is one CIDR allowed to reach the control plane IP endpoint.
+type AuthorizedNetwork struct {
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+	Cidr string `json:"cidr" yaml:"cidr"`
+}
+
+// DnsEndpointEnabled reports whether the DNS endpoint accepts external callers.
+func (c *ControlPlaneAccessConfig) DnsEndpointEnabled() bool {
+	return c != nil && c.DnsEndpoint != nil && *c.DnsEndpoint
+}
+
+// IpEndpointEnabled reports whether the IP endpoint is switched on. It is on
+// unless explicitly disabled, matching GKE.
+func (c *ControlPlaneAccessConfig) IpEndpointEnabled() bool {
+	if c == nil || c.IpEndpoint == nil {
+		return true
+	}
+	return *c.IpEndpoint
+}
+
+// AuthorizedNetworksEnabled reports whether the IP endpoint allow list applies.
+func (c *ControlPlaneAccessConfig) AuthorizedNetworksEnabled() bool {
+	return c != nil && (len(c.AuthorizedNetworks) > 0 || c.AllowGcpPublicCidrs != nil)
+}
+
+// GcpPublicCidrsAllowed reports the effective value of the Google Cloud public
+// range exemption.
+func (c *ControlPlaneAccessConfig) GcpPublicCidrsAllowed() bool {
+	return c != nil && c.AllowGcpPublicCidrs != nil && *c.AllowGcpPublicCidrs
+}
+
+func (c *ControlPlaneAccessConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	for i, n := range c.AuthorizedNetworks {
+		if n.Cidr == "" {
+			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: cidr is required", i)
+		}
+		ip, ipNet, err := net.ParseCIDR(n.Cidr)
+		if err != nil {
+			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q is not a CIDR, a single address needs an explicit /32 or /128", i, n.Cidr)
+		}
+		if ones, _ := ipNet.Mask.Size(); ones == 0 {
+			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q allows every address, which is what the allow list exists to prevent", i, n.Cidr)
+		}
+		if !ip.Equal(ipNet.IP) {
+			return errors.Errorf("controlPlaneAccess.authorizedNetworks[%d]: %q has host bits set, use %s", i, n.Cidr, ipNet.String())
+		}
+	}
+
+	// Both endpoints off leaves no way to reach the API server, and GKE accepts
+	// it, so it is caught here rather than after the cluster is unreachable.
+	if !c.IpEndpointEnabled() && !c.DnsEndpointEnabled() {
+		return errors.New("controlPlaneAccess: ipEndpoint is disabled and dnsEndpoint is not enabled, which leaves no way to reach the control plane")
+	}
+
+	// An empty allow list on the IP endpoint is the same lockout unless the DNS
+	// endpoint is there to take over.
+	if c.IpEndpointEnabled() && c.AuthorizedNetworksEnabled() &&
+		len(c.AuthorizedNetworks) == 0 && !c.GcpPublicCidrsAllowed() && !c.DnsEndpointEnabled() {
+		return errors.New("controlPlaneAccess: the authorized network list is empty and dnsEndpoint is not enabled, which leaves no way to reach the control plane")
+	}
+
+	return nil
 }

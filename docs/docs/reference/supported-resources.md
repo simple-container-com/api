@@ -679,6 +679,17 @@ resources:
             externalEgressIp:
               enabled: true                              # Enables CloudNAT with static IP (optional)
               # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Use existing IP (optional)
+
+            # Control plane reachability (optional). Left out entirely, GKE
+            # keeps its default: an IP endpoint that accepts connections from
+            # any address on the internet.
+            controlPlaneAccess:
+              dnsEndpoint: true                          # IAM-authorised endpoint, works from any source address
+              ipEndpoint: true                           # set false once nothing dials the IP endpoint
+              allowGcpPublicCidrs: false                 # GKE defaults this to true, which admits every Google Cloud tenant
+              authorizedNetworks:
+                - name: office
+                  cidr: 203.0.113.0/24
             caddy:
               enable: true
               namespace: caddy

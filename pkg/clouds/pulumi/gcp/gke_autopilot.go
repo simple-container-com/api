@@ -189,6 +189,11 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		// For production safety, you may want to add "privateClusterConfig" to ignoreChanges for existing clusters.
 	}
 
+	if err := gkeInput.ControlPlaneAccess.Validate(); err != nil {
+		return nil, errors.Wrapf(err, "invalid control plane access configuration for cluster %q", clusterName)
+	}
+	applyControlPlaneAccess(clusterArgs, gkeInput.ControlPlaneAccess)
+
 	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, append(opts, sdk.IgnoreChanges(ignoreChanges), sdk.Timeouts(&timeouts))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create cluster %q in %q", clusterName, input.StackParams.Environment)
@@ -762,4 +767,50 @@ func extractRegionFromLocation(location string) string {
 
 	// Return as-is for regional clusters (already in correct format)
 	return location
+}
+
+// applyControlPlaneAccess translates the controlPlaneAccess block onto the
+// cluster arguments. A nil config writes nothing, so clusters that do not ask
+// for it keep whatever GKE gave them and Pulumi does not start managing the
+// fields.
+func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPlaneAccessConfig) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.AuthorizedNetworksEnabled() {
+		blocks := make(container.ClusterMasterAuthorizedNetworksConfigCidrBlockArray, 0, len(cfg.AuthorizedNetworks))
+		for _, n := range cfg.AuthorizedNetworks {
+			block := container.ClusterMasterAuthorizedNetworksConfigCidrBlockArgs{
+				CidrBlock: sdk.String(n.Cidr),
+			}
+			if n.Name != "" {
+				block.DisplayName = sdk.String(n.Name)
+			}
+			blocks = append(blocks, block)
+		}
+		// GcpPublicCidrsAccessEnabled is sent explicitly because GKE defaults it
+		// to true, which would keep every Google Cloud public address authorised
+		// alongside the list.
+		args.MasterAuthorizedNetworksConfig = &container.ClusterMasterAuthorizedNetworksConfigArgs{
+			CidrBlocks:                  blocks,
+			GcpPublicCidrsAccessEnabled: sdk.Bool(cfg.GcpPublicCidrsAllowed()),
+		}
+	}
+
+	if cfg.DnsEndpoint == nil && cfg.IpEndpoint == nil {
+		return
+	}
+	endpoints := &container.ClusterControlPlaneEndpointsConfigArgs{}
+	if cfg.DnsEndpoint != nil {
+		endpoints.DnsEndpointConfig = &container.ClusterControlPlaneEndpointsConfigDnsEndpointConfigArgs{
+			AllowExternalTraffic: sdk.Bool(cfg.DnsEndpointEnabled()),
+		}
+	}
+	if cfg.IpEndpoint != nil {
+		endpoints.IpEndpointsConfig = &container.ClusterControlPlaneEndpointsConfigIpEndpointsConfigArgs{
+			Enabled: sdk.Bool(cfg.IpEndpointEnabled()),
+		}
+	}
+	args.ControlPlaneEndpointsConfig = endpoints
 }
