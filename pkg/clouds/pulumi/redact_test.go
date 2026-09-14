@@ -5,6 +5,7 @@ package pulumi
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -54,11 +55,13 @@ func TestRedactCredentials_EscapedServiceAccountKey(t *testing.T) {
 	Expect(got).ToNot(ContainSubstring("9f1c0de4cafe"), "private_key_id identifies the key and must be redacted too")
 	Expect(got).To(ContainSubstring(redactedValue))
 
-	// Everything that makes the preview useful is still there.
+	// Everything that makes the preview useful is still there. A blob the
+	// engine could not decode is masked whole, so the fields inside it go with
+	// it; the decoded rendering, which is what the engine actually produces
+	// for this property, keeps its non-credential fields (see the engine test
+	// below).
 	Expect(got).To(ContainSubstring(`project    : "acme-staging"`))
 	Expect(got).To(ContainSubstring("+ 4 to create"))
-	Expect(got).To(ContainSubstring("deploy@acme-staging.iam.gserviceaccount.com"),
-		"the client email is not a credential and is worth keeping for identifying the account")
 }
 
 func TestRedactCredentials_MultilinePEM(t *testing.T) {
@@ -259,9 +262,17 @@ func TestRedactCredentials_AuthProviderKubeconfig(t *testing.T) {
 // hand-written fixture reaches for, and the redaction has to match what is
 // actually emitted. colors.Never mirrors what the automation API returns,
 // since Simple Container never asks the engine for colour.
+// truncateOutput is the production setting, not a convenience: the CLI's
+// --show-full-output defaults to false and the automation API never passes it,
+// so every preview Simple Container produces cuts long values to three lines
+// of 150 characters. Rendering the fixtures without it would test a shape the
+// engine does not emit -- and truncation is exactly what strips a PEM key of
+// its closing marker.
+const truncateOutput = true
+
 func renderCreate(props resource.PropertyMap) string {
 	var b bytes.Buffer
-	display.PrintObject(&b, props, true, 1, deploy.OpCreate, true, false, false, false)
+	display.PrintObject(&b, props, true, 1, deploy.OpCreate, true, truncateOutput, false, false)
 	return colors.Never.Colorize(b.String())
 }
 
@@ -269,7 +280,7 @@ func renderUpdate(old, updated resource.PropertyMap) string {
 	var b bytes.Buffer
 	diff := old.Diff(updated)
 	Expect(diff).ToNot(BeNil(), "the two property maps must actually differ")
-	display.PrintObjectDiff(&b, *diff, nil, true, 1, false, false, false, false, nil)
+	display.PrintObjectDiff(&b, *diff, nil, true, 1, false, truncateOutput, false, false, nil)
 	return colors.Never.Colorize(b.String())
 }
 
@@ -363,4 +374,131 @@ func TestRedactCredentials_UnterminatedPEMDoesNotSwallowTheDiff(t *testing.T) {
 	Expect(got).ToNot(ContainSubstring("BEGIN PRIVATE KEY"))
 	Expect(got).To(ContainSubstring(`name       : "important-resource"`),
 		"the diff between the two keys must survive the sweep")
+}
+
+// A rotation can have an engine marker on one side: the old value was secret
+// in the checkpoint, the new one is not (a call site that regressed, or a
+// revert). The plaintext side is the one that matters, and a rule that cannot
+// match `[secret]` misses the whole line rather than half of it.
+func TestRedactCredentials_RotationFromEngineMarker(t *testing.T) {
+	RegisterTestingT(t)
+
+	got := redactCredentials(`      ~ password  : [secret] => "NEWPLAINTEXTAAA"
+      ~ token     : [unknown] => NEWBEARERBBB
+      ~ apiToken  : "OLDPLAINCCC" => [secret]
+`)
+
+	for _, secret := range []string{"NEWPLAINTEXTAAA", "NEWBEARERBBB", "OLDPLAINCCC"} {
+		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
+	}
+}
+
+// The automation API puts the whole engine stdout and stderr into the error it
+// returns from a failed operation, and those errors are printed by the CLI. A
+// provider that cannot configure itself is exactly where a credential is
+// echoed back, so the failure path needs the same treatment as the summary.
+func TestRedactErrorRemovesCredentialsFromFailedOperations(t *testing.T) {
+	RegisterTestingT(t)
+
+	leaky := errors.New("failed to configure provider\ncode: 255\nstdout: \nstderr: " +
+		`error: unable to parse credentials: {"private_key":"-----BEGIN PRIVATE KEY-----\n` + testKeyBody +
+		`\n-----END PRIVATE KEY-----\n","private_key_id":"9f1c0de4cafe"}`)
+
+	got := redactError(leaky)
+	Expect(got).To(HaveOccurred())
+	Expect(got.Error()).ToNot(ContainSubstring(testKeyBody))
+	Expect(got.Error()).ToNot(ContainSubstring("9f1c0de4cafe"))
+	Expect(got.Error()).To(ContainSubstring("unable to parse credentials"), "the diagnosis has to survive")
+	Expect(got.Error()).To(ContainSubstring("code: 255"))
+
+	// An error with nothing to remove is returned as-is, so wrapping costs no
+	// type information on the path every other failure takes.
+	ordinary := errors.New("error: resource acme-db already exists")
+	Expect(redactError(ordinary)).To(BeIdenticalTo(ordinary))
+	Expect(redactError(nil)).To(BeNil())
+}
+
+// The credential names this codebase and its consumers actually produce are
+// qualified: a property is `rootPassword`, an environment variable is
+// `AWS_SECRET_ACCESS_KEY`. A rule anchored at the start of the key matched none
+// of them.
+func TestRedactCredentials_QualifiedCredentialKeys(t *testing.T) {
+	RegisterTestingT(t)
+
+	got := redactCredentials(`        AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMIexampleAAA"
+        AWS_ACCESS_KEY_ID    : "AKIAIOSFODNN7EXAMPLE"
+        rootPassword         : "hunter2-rootBBB"
+        registryPassword     : "ya29.registrytokenCCC"
+        COSIGN_PASSWORD      : "cosign-passDDD"
+        authHeader           : "eyJ1c2VybmFtZSI6ImFFEE"
+`)
+
+	for _, secret := range []string{
+		"wJalrXUtnFEMIexampleAAA", "AKIAIOSFODNN7EXAMPLE", "hunter2-rootBBB",
+		"ya29.registrytokenCCC", "cosign-passDDD", "eyJ1c2VybmFtZSI6ImFFEE",
+	} {
+		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
+	}
+}
+
+// PGP keys carry a BLOCK suffix in their armour, which is still a private key.
+func TestRedactCredentials_PGPArmouredKey(t *testing.T) {
+	RegisterTestingT(t)
+
+	got := redactCredentials(`        signingKey: -----BEGIN PGP PRIVATE KEY BLOCK-----
+` + testKeyBody + `
+-----END PGP PRIVATE KEY BLOCK-----
+        keyId     : "ABCD1234"
+`)
+
+	Expect(got).ToNot(ContainSubstring(testKeyBody))
+	Expect(got).ToNot(ContainSubstring("BEGIN PGP PRIVATE KEY BLOCK"))
+	Expect(got).To(ContainSubstring(`keyId     : "ABCD1234"`))
+}
+
+// A truncated key loses its closing marker, and the sweep that removes what is
+// left has to stop at the first line that is not key material. Deleting the
+// diff below it would be worse than the leak: a masked value is visible, a
+// missing line is not.
+func TestRedactCredentials_OrphanedKeyDoesNotEatTheNextProperty(t *testing.T) {
+	RegisterTestingT(t)
+
+	got := redactCredentials(`      + privateKey           : "-----BEGIN PRIVATE KEY-----
+` + testKeyBody + `
+      + clusterCaCertificate: "LS0tLS1CRUdJTkNFUlQtLS0t"
+      + endpoint            : "203.0.113.10"
+`)
+
+	Expect(got).ToNot(ContainSubstring(testKeyBody))
+	Expect(got).ToNot(ContainSubstring("BEGIN PRIVATE KEY"))
+	Expect(got).To(ContainSubstring(`clusterCaCertificate: "LS0tLS1CRUdJTkNFUlQtLS0t"`),
+		"the property after the key must survive, name and value")
+	Expect(got).To(ContainSubstring(`endpoint            : "203.0.113.10"`))
+}
+
+// Provider diagnostics run through the redactor now, and they are prose. A
+// sentence that happens to start with a credential word must stay readable:
+// mangling it costs debugging time at exactly the wrong moment.
+func TestRedactCredentials_LeavesDiagnosticsLegible(t *testing.T) {
+	RegisterTestingT(t)
+
+	diagnostic := `auth: could not refresh credentials, falling back to ADC
+token: exchange failed for account deploy@acme
+`
+	Expect(redactCredentials(diagnostic)).To(Equal(diagnostic))
+
+	// The same key with something credential-shaped after it is still masked.
+	Expect(redactCredentials(`token: eyJhbGciOiJSUzI1NiJ9.payload`)).To(ContainSubstring(redactedValue))
+	Expect(redactCredentials(`token: eyJhbGciOiJSUzI1NiJ9.payload`)).ToNot(ContainSubstring("payload"))
+}
+
+// Colour is not switched on today, and the rules are line-oriented enough that
+// it would defeat them silently if it ever were.
+func TestRedactCredentials_SurvivesColourEscapes(t *testing.T) {
+	RegisterTestingT(t)
+
+	got := redactCredentials("\x1b[32m+\x1b[0m password: \x1b[1mhunter2-coloured\x1b[0m")
+
+	Expect(got).ToNot(ContainSubstring("hunter2-coloured"))
+	Expect(got).To(ContainSubstring(redactedValue))
 }

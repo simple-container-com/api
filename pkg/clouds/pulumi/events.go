@@ -60,7 +60,7 @@ func (p *pulumi) processEvent(ctx context.Context, evt events.EngineEvent) {
 	case evt.DiagnosticEvent != nil:
 		p.procDiagnosticEvent(ctx, evt)
 	case evt.Error != nil:
-		p.logger.Error(ctx, "[pulumi/error] %s", evt.Error)
+		p.logger.Error(ctx, "[pulumi/error] %s", redactCredentials(fmt.Sprintf("%v", evt.Error)))
 	default:
 		return // other events are not supported, uncomment lines below for debugging
 	}

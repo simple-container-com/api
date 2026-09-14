@@ -94,8 +94,8 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 	// The token is a live registry credential: secret it here rather than only
 	// on the export, so every consumer of res.Password inherits the marking.
-	res.Password = sdk.ToSecret(registryPassword).(sdk.StringOutput)
-	ctx.Export(toEcrRepositoryPasswordExport(ecrRepoName), sdk.ToSecret(registryPassword))
+	res.Password = pApi.SecretString(registryPassword)
+	ctx.Export(toEcrRepositoryPasswordExport(ecrRepoName), res.Password)
 
 	return res, nil
 }

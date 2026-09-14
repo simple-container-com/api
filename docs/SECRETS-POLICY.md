@@ -61,22 +61,30 @@ diffs. A dry-run in CI therefore prints whatever was passed in clear.
 
 Two rules keep that closed.
 
-- **Mark the input secret at the call site.** Anything credential-shaped
-  handed to a provider or a resource goes through
-  `pApi.SecretString`. Generated provider SDKs wrap the fields they own
-  (pulumi-aws `accessKey`/`secretKey`/`token`, pulumi-gcp `accessToken`,
-  pulumi-cloudflare `apiToken`, pulumi-mongodbatlas `privateKey`, the
-  `data` of a Kubernetes `Secret`), but several fields Simple Container
-  uses are not among them: gcp `credentials`, kubernetes `kubeconfig`,
-  docker `registry.password`, and anything assembled into a
-  `command:local:Command`. Those are wrapped by us, and
-  `TestUpstreamProvidersStillSecretTheirOwnCredentials` fails if an SDK
-  bump stops holding up its end.
+- **Mark the input secret at the call site.** Generated provider SDKs
+  wrap the fields they own (pulumi-aws `accessKey`/`secretKey`/`token`,
+  pulumi-gcp `accessToken`, pulumi-cloudflare `apiToken`,
+  pulumi-mongodbatlas `privateKey`, the `data` of a Kubernetes
+  `Secret`), and `TestUpstreamProvidersStillSecretTheirOwnCredentials`
+  fails if an SDK bump stops holding up its end. Several fields Simple
+  Container uses are **not** among them and are wrapped here, with
+  `pApi.SecretString`: gcp `credentials`, kubernetes `kubeconfig`,
+  docker `registry.password`, a `command:local:Command` environment or
+  script that carries one, and a Cloudflare worker script that embeds a
+  basic-auth password.
+
+  Adding a call site that hands a credential to Pulumi means wrapping it
+  there too. The rule is per call site rather than per type, so it is
+  worth grepping for `pApi.SecretString` next to whatever you are adding
+  rather than assuming the class is covered.
 - **Redact on the way out.** `PreviewResult.Summary`,
-  `UpdateResult.Summary` and provider diagnostics pass through
-  `redactCredentials`, which removes PEM private keys and
-  credential-named fields from engine output. This is defence in depth;
-  it is not a substitute for the first rule.
+  `UpdateResult.Summary`, provider diagnostics and the errors returned
+  from a failed operation pass through `redactCredentials`, which
+  removes PEM private keys and credential-named scalar fields from
+  engine output. This is defence in depth; it is not a substitute for
+  the first rule, and it has known limits: a credential inside an array,
+  one embedded in a connection URI, and one in a bare all-letter value
+  on a diagnostic line are not removed.
 
 A credential printed in clear by `sc provision`, `sc deploy` or a
 preview in CI is a leak, and is handled under **On suspected leak**

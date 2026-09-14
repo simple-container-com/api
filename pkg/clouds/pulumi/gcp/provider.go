@@ -274,6 +274,12 @@ func ShouldApplyNoncurrentVersionLifecycle(attrs *gcpStorage.BucketAttrs, retent
 // read it. Leaving it in TMPDIR would outlast the operation that needed it and,
 // on a shared or reused runner, outlast the job.
 func activateGcloudServiceAccount(ctx context.Context, credentials string) error {
+	// Ambient auth (workload identity, an attached service account) leaves the
+	// credentials empty. There is nothing to activate, and running gcloud
+	// against an empty key file only produces a warning on every provision.
+	if credentials == "" {
+		return nil
+	}
 	gcloudPath, err := exec.LookPath("gcloud")
 	if err != nil {
 		return errors.Wrapf(err, "gcloud command not found")
@@ -283,16 +289,20 @@ func activateGcloudServiceAccount(ctx context.Context, credentials string) error
 		return errors.Wrapf(err, "failed to create temp file for google creds")
 	}
 	defer func() {
-		_ = f.Close()
 		_ = os.Remove(f.Name())
 	}()
 	if _, err := f.Write([]byte(credentials)); err != nil {
+		_ = f.Close()
 		return errors.Wrapf(err, "failed to write temp file for google creds")
 	}
 	if err := f.Close(); err != nil {
 		return errors.Wrapf(err, "failed to close temp file for google creds")
 	}
-	if err := exec.Command(gcloudPath, "auth", "activate-service-account", "--key-file", f.Name()).Run(); err != nil {
+	// The command's own output is deliberately not folded into the error: it
+	// is unbounded text from a process that was just handed a private key, and
+	// this package cannot reach the redactor that would make it safe to
+	// repeat.
+	if err := exec.CommandContext(ctx, gcloudPath, "auth", "activate-service-account", "--key-file", f.Name()).Run(); err != nil {
 		return errors.Wrapf(err, "gcloud auth activate-service-account failed")
 	}
 	return nil

@@ -305,10 +305,18 @@ async function handleRequest(origRequest) {
 
 %s
 `
+	// With basic auth configured the script body carries the password as a
+	// literal, and a worker script is a plaintext resource input like any
+	// other: the engine renders it in the diff and it is exported with the
+	// resource. Scripts without a credential stay legible.
+	content := sdk.Sprintf(workerScriptCode, sdk.String(headerCode), rule.ToHost, sdk.String(pagesCode), sdk.String(footerCode))
+	if rule.BasicAuth != nil {
+		content = pApi.SecretString(content)
+	}
 	workerScript, err := cfImpl.NewWorkerScript(ctx, scriptName, &cfImpl.WorkerScriptArgs{
 		ScriptName: sdk.String(scriptName),
 		AccountId:  sdk.String(r.accountId),
-		Content:    sdk.Sprintf(workerScriptCode, sdk.String(headerCode), rule.ToHost, sdk.String(pagesCode), sdk.String(footerCode)),
+		Content:    content,
 	}, sdk.Provider(r.provider))
 	if err != nil {
 		r.log.Error(ctx.Context(), "failed to create worker script: "+err.Error())
