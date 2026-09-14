@@ -232,15 +232,22 @@ func TestRedactCredentials_CamelCaseProperties(t *testing.T) {
 
 // A kubeconfig authenticated by an OIDC auth-provider keeps its credentials
 // under hyphenated keys, and a diff may render the value escaped.
+//
+// The docker auth below is deliberately not a decodable `user:password`: the
+// rules key on the field name, so the fixture loses nothing by it, and a
+// fixture that decodes is a finding for the repo's own secret scanner.
 func TestRedactCredentials_AuthProviderKubeconfig(t *testing.T) {
 	RegisterTestingT(t)
 
 	summary := `        kubeconfig: "users:\n- name: oidc\n  user:\n    auth-provider:\n      config:\n        id-token: eyJhbGciOiJSUzI1NiJ9.idtoken\n        refresh-token: \"1//0eRefreshTokenValue\"\n        client-secret: oidc-client-secret-value\n"
-        dockerconfig: "{\"auths\":{\"registry.example\":{\"auth\":\"QVdTOnBhc3N3b3Jk\"}}}"
+        dockerconfig: "{\"auths\":{\"registry.example\":{\"auth\":\"placeholder-not-a-real-credential\"}}}"
 `
 	got := redactCredentials(summary)
 
-	for _, secret := range []string{"eyJhbGciOiJSUzI1NiJ9.idtoken", "1//0eRefreshTokenValue", "oidc-client-secret-value", "QVdTOnBhc3N3b3Jk"} {
+	for _, secret := range []string{
+		"eyJhbGciOiJSUzI1NiJ9.idtoken", "1//0eRefreshTokenValue",
+		"oidc-client-secret-value", "placeholder-not-a-real-credential",
+	} {
 		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
 	}
 }
