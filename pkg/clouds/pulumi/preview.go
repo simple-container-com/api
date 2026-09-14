@@ -46,8 +46,9 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "%s", color.GreenFmt("Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
-	return p.toPreviewResult(stackSource.Name(), previewResult), nil
+	res := p.toPreviewResult(stackSource.Name(), previewResult)
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview parent summary: %q", res))
+	return res, nil
 }
 
 func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
@@ -74,8 +75,9 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
-	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
-	return p.toPreviewResult(stackSource.Name(), previewResult), nil
+	res := p.toPreviewResult(stackSource.Name(), previewResult)
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child summary: %q", res))
+	return res, nil
 }
 
 func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.StackParams) (*api.OutputsResult, error) {

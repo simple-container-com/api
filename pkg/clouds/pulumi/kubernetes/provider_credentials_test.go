@@ -4,18 +4,17 @@
 package kubernetes
 
 import (
-	"sync"
 	"testing"
 
 	. "github.com/onsi/gomega"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 )
 
 // kubeconfigWithCredentials carries a client key, so it is worth exactly as
@@ -31,24 +30,14 @@ users:
     client-key-data: LS0tLS1CRUdJTlBSSVZBVEVLRVk=
 `
 
-type kubeProviderInputRecorder struct {
-	mu     sync.Mutex
-	inputs map[string]resource.PropertyMap
-}
-
-func newKubeProviderInputRecorder() *kubeProviderInputRecorder {
-	return &kubeProviderInputRecorder{inputs: map[string]resource.PropertyMap{}}
-}
-
-func (m *kubeProviderInputRecorder) NewResource(args pulumi.MockResourceArgs) (string, resource.PropertyMap, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.inputs[args.TypeToken] = args.Inputs
-	return args.Name + "-id", args.Inputs, nil
-}
-
-func (m *kubeProviderInputRecorder) Call(pulumi.MockCallArgs) (resource.PropertyMap, error) {
-	return resource.PropertyMap{}, nil
+func kubernetesAuthInput() api.ResourceInput {
+	return api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Name:   "kubernetes-auth",
+			Config: api.Config{Config: &k8s.KubernetesConfig{Kubeconfig: kubeconfigWithCredentials}},
+		},
+		StackParams: &api.StackParams{Environment: "staging"},
+	}
 }
 
 // The kubeconfig a parent stack hands out is held as a secret there; reading it
@@ -57,26 +46,20 @@ func (m *kubeProviderInputRecorder) Call(pulumi.MockCallArgs) (resource.Property
 func TestKubernetesProviderKubeconfigIsSecret(t *testing.T) {
 	RegisterTestingT(t)
 
-	mocks := newKubeProviderInputRecorder()
+	mocks := testutil.NewRecordingMocks()
+	var out *api.ResourceOutput
 
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
-		out, err := Provider(ctx, api.Stack{Name: "acme"}, api.ResourceInput{
-			Descriptor: &api.ResourceDescriptor{
-				Name: "kubernetes-auth",
-				Config: api.Config{
-					Config: &k8s.KubernetesConfig{Kubeconfig: kubeconfigWithCredentials},
-				},
-			},
-			StackParams: &api.StackParams{Environment: "staging"},
-		}, pApi.ProvisionParams{Log: logger.New()})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(out.Ref).ToNot(BeNil())
-		return nil
+		var err error
+		out, err = Provider(ctx, api.Stack{Name: "acme"}, kubernetesAuthInput(), pApi.ProvisionParams{Log: logger.New()})
+		return err
 	}, pulumi.WithMocks("acme", "staging", mocks))
 	Expect(err).ToNot(HaveOccurred())
+	Expect(out).ToNot(BeNil())
+	Expect(out.Ref).ToNot(BeNil())
 
-	inputs := mocks.inputs["pulumi:providers:kubernetes"]
-	Expect(inputs).ToNot(BeNil(), "the kubernetes provider should have been registered")
+	inputs, ok := mocks.Inputs("pulumi:providers:kubernetes", "kubernetes-auth--staging")
+	Expect(ok).To(BeTrue(), "the kubernetes provider should have been registered")
 
 	kubeconfig, ok := inputs["kubeconfig"]
 	Expect(ok).To(BeTrue(), "provider should be configured with a kubeconfig")
@@ -89,4 +72,18 @@ func TestKubernetesProviderKubeconfigIsSecret(t *testing.T) {
 	Expect(ok).To(BeTrue())
 	Expect(ssa.IsSecret()).To(BeFalse())
 	Expect(ssa.BoolValue()).To(BeTrue())
+}
+
+func TestKubernetesProviderRejectsNonAuthConfig(t *testing.T) {
+	RegisterTestingT(t)
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		input := kubernetesAuthInput()
+		input.Descriptor.Config.Config = map[string]string{"not": "an auth config"}
+		_, err := Provider(ctx, api.Stack{Name: "acme"}, input, pApi.ProvisionParams{Log: logger.New()})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to cast config to api.AuthConfig"))
+		return nil
+	}, pulumi.WithMocks("acme", "staging", testutil.NewRecordingMocks()))
+	Expect(err).ToNot(HaveOccurred())
 }

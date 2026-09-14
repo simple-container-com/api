@@ -58,7 +58,7 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 			ProviderOptions:        args.Opts,
 			Platform:               lo.If(container.Image.Platform != "", lo.ToPtr(string(container.Image.Platform))).Else(nil),
 			Registry: docker.RegistryArgs{
-				Password: lo.If(args.RegistryPassword != nil, sdk.StringPtr(lo.FromPtr(args.RegistryPassword))).Else(nil),
+				Password: lo.If[sdk.StringPtrInput](args.RegistryPassword != nil, pApi.SecretString(sdk.String(lo.FromPtr(args.RegistryPassword)))).Else(nil),
 				Server:   sdk.String(args.RegistryURL),
 				Username: lo.If(args.RegistryUsername != nil, sdk.StringPtr(lo.FromPtr(args.RegistryUsername))).Else(nil),
 			},

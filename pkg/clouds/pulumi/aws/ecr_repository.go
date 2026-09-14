@@ -92,7 +92,9 @@ func createEcrRegistry(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		return strings.TrimPrefix(string(decodedCreds), "AWS:"), nil
 	}).(sdk.StringOutput)
 
-	res.Password = registryPassword
+	// The token is a live registry credential: secret it here rather than only
+	// on the export, so every consumer of res.Password inherits the marking.
+	res.Password = sdk.ToSecret(registryPassword).(sdk.StringOutput)
 	ctx.Export(toEcrRepositoryPasswordExport(ecrRepoName), sdk.ToSecret(registryPassword))
 
 	return res, nil

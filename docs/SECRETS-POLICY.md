@@ -47,9 +47,42 @@ and [`MAINTAINERS.md`](MAINTAINERS.md) (who holds what).
   with a read-only token and no access to org secrets.
 - **No secrets in workflow logs**: GitHub Actions auto-redacts known
   secret values; we add no debug echoes of env vars that might
-  contain secrets.
+  contain secrets. A consumer's cloud credential is not a known value
+  to GitHub, so it is handled by the rule below instead.
 - **Job-scoped env**: secrets passed to steps via `env:` at the step
   level (or `env:` on the smallest enclosing job), never globally.
+
+## Credentials Simple Container passes to Pulumi
+
+A consumer's cloud credential does not stay in the config file it came
+from: Simple Container hands it to a Pulumi provider, and from there it
+is recorded in the stack checkpoint and rendered in preview and update
+diffs. A dry-run in CI therefore prints whatever was passed in clear.
+
+Two rules keep that closed.
+
+- **Mark the input secret at the call site.** Anything credential-shaped
+  handed to a provider or a resource goes through
+  `pApi.SecretString`. Generated provider SDKs wrap the fields they own
+  (pulumi-aws `accessKey`/`secretKey`/`token`, pulumi-gcp `accessToken`,
+  pulumi-cloudflare `apiToken`, pulumi-mongodbatlas `privateKey`, the
+  `data` of a Kubernetes `Secret`), but several fields Simple Container
+  uses are not among them: gcp `credentials`, kubernetes `kubeconfig`,
+  docker `registry.password`, and anything assembled into a
+  `command:local:Command`. Those are wrapped by us, and
+  `TestUpstreamProvidersStillSecretTheirOwnCredentials` fails if an SDK
+  bump stops holding up its end.
+- **Redact on the way out.** `PreviewResult.Summary`,
+  `UpdateResult.Summary` and provider diagnostics pass through
+  `redactCredentials`, which removes PEM private keys and
+  credential-named fields from engine output. This is defence in depth;
+  it is not a substitute for the first rule.
+
+A credential printed in clear by `sc provision`, `sc deploy` or a
+preview in CI is a leak, and is handled under **On suspected leak**
+below: rotate first, then fix the call site. A checkpoint written before
+the fix keeps its plaintext copy, in the state file and in the retained
+backup generations, until the stack is deployed again.
 
 ## Rotation cadence
 

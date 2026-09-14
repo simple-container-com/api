@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) Simple Container
 
-package api
+package api_test
 
 import (
 	"testing"
@@ -10,25 +10,13 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 )
 
 type secretsTestResource struct {
 	sdk.CustomResourceState
-}
-
-// secretsTestMocks records the inputs a resource was registered with, which is
-// the only place the secret marking is observable.
-type secretsTestMocks struct {
-	inputs resource.PropertyMap
-}
-
-func (m *secretsTestMocks) NewResource(args sdk.MockResourceArgs) (string, resource.PropertyMap, error) {
-	m.inputs = args.Inputs
-	return args.Name + "-id", args.Inputs, nil
-}
-
-func (m *secretsTestMocks) Call(sdk.MockCallArgs) (resource.PropertyMap, error) {
-	return resource.PropertyMap{}, nil
 }
 
 func TestSecretStringMarksValuesSecret(t *testing.T) {
@@ -36,26 +24,37 @@ func TestSecretStringMarksValuesSecret(t *testing.T) {
 
 	const credential = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----\n"
 
-	mocks := &secretsTestMocks{}
+	mocks := testutil.NewRecordingMocks()
 	err := sdk.RunErr(func(ctx *sdk.Context) error {
 		var res secretsTestResource
 		return ctx.RegisterResource("test:index:Resource", "creds", sdk.Map{
 			"plain":            sdk.String(credential),
-			"fromString":       SecretString(credential),
-			"fromOutput":       SecretStringOutput(sdk.String(credential).ToStringOutput()),
-			"fromSecretOutput": SecretStringOutput(sdk.ToSecret(sdk.String(credential)).(sdk.StringOutput)),
+			"fromString":       pApi.SecretString(sdk.String(credential)),
+			"fromOutput":       pApi.SecretString(sdk.String(credential).ToStringOutput()),
+			"fromSecretOutput": pApi.SecretString(sdk.ToSecret(sdk.String(credential)).(sdk.StringOutput)),
+			"empty":            pApi.SecretString(sdk.String("")),
 		}, &res)
 	}, sdk.WithMocks("acme", "staging", mocks))
 	Expect(err).ToNot(HaveOccurred())
 
+	inputs, ok := mocks.Inputs("test:index:Resource", "creds")
+	Expect(ok).To(BeTrue(), "the resource should have been registered")
+	Expect(inputs).To(HaveLen(5))
+
 	// The baseline: without the helper the credential is handed over in clear,
 	// which is what the engine then prints in a preview diff.
-	Expect(mocks.inputs["plain"].IsSecret()).To(BeFalse())
+	Expect(inputs["plain"].IsSecret()).To(BeFalse())
 
 	for _, key := range []resource.PropertyKey{"fromString", "fromOutput", "fromSecretOutput"} {
-		value := mocks.inputs[key]
+		value := inputs[key]
 		Expect(value.IsSecret()).To(BeTrue(), "%s must be secret", key)
 		Expect(value.SecretValue().Element.StringValue()).To(Equal(credential),
 			"%s must keep the value it wraps", key)
 	}
+
+	// An empty credential is a real state: GCP auth can come from the ambient
+	// environment instead of a key. It must stay empty rather than become
+	// unknown, and stay secret rather than be skipped.
+	Expect(inputs["empty"].IsSecret()).To(BeTrue())
+	Expect(inputs["empty"].SecretValue().Element.StringValue()).To(BeEmpty())
 }

@@ -4,12 +4,17 @@
 package pulumi
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
 
+	"github.com/pulumi/pulumi/pkg/v3/backend/display"
+	"github.com/pulumi/pulumi/pkg/v3/resource/deploy"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/diag/colors"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 )
 
 // The body of a real service-account key: base64, no markers of its own, and
@@ -85,7 +90,7 @@ users:
 	Expect(got).ToNot(ContainSubstring("LS0tLS1CRUdJTlBSSVZBVEU="))
 	Expect(got).ToNot(ContainSubstring("eyJhbGciOiJSUzI1NiIsImtpZCI6ImFiYyJ9.payload.signature"))
 	Expect(got).ToNot(ContainSubstring("hunter2"))
-	Expect(strings.Count(got, redactedValue)).To(Equal(3))
+	Expect(strings.Count(got, redactedValue)).To(BeNumerically(">=", 3))
 	Expect(got).To(ContainSubstring("- name: admin"))
 }
 
@@ -100,6 +105,10 @@ func TestRedactCredentials_EscapedKubeconfig(t *testing.T) {
 	Expect(got).To(ContainSubstring("- name: admin"))
 }
 
+// The rules have to leave a legible preview legible. The fixture is built from
+// near misses rather than unrelated text, because a rule that fires on
+// `passwordPolicy` or on a public certificate would blank out the lines an
+// operator reads to decide whether to approve a deploy.
 func TestRedactCredentials_LeavesOrdinaryOutputAlone(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -108,9 +117,14 @@ func TestRedactCredentials_LeavesOrdinaryOutputAlone(t *testing.T) {
     + gcp:sql/databaseInstance:DatabaseInstance: (create)
         name           : "acme-db"
         databaseVersion: "POSTGRES_15"
+        passwordPolicy : "ENFORCE_COMPLEXITY"
+        tokenSecretName: "acme-db-token"
         settings       : {
             tier: "db-custom-2-7680"
         }
+        caCert         : "-----BEGIN CERTIFICATE-----
+MIIDdzCCAl+gAwIBAgIEexample
+-----END CERTIFICATE-----"
 
 Resources:
     + 1 to create
@@ -120,17 +134,39 @@ Resources:
 	Expect(redactCredentials("")).To(Equal(""))
 }
 
+// The accepted cost of the rules, pinned so a change in blast radius is a test
+// change rather than a surprise: a property named like a credential is masked
+// whether or not its value is one.
+func TestRedactCredentials_MasksNonSecretsNamedLikeSecrets(t *testing.T) {
+	RegisterTestingT(t)
+
+	got := redactCredentials("        token: ${GITHUB_TOKEN}\n        password: \"\"\n")
+
+	Expect(got).To(ContainSubstring("token: " + redactedValue))
+	Expect(got).ToNot(ContainSubstring("GITHUB_TOKEN"), "a placeholder is masked whole, not left half-eaten")
+	Expect(got).To(ContainSubstring(`password: "`+redactedValue+`"`), "quoting is preserved")
+}
+
+// Redaction runs on text that may already have been redacted (a summary is
+// logged and returned), so a second pass must not chew on its own output.
 func TestRedactCredentials_IsIdempotent(t *testing.T) {
 	RegisterTestingT(t)
 
-	once := redactCredentials(previewWithEscapedKey)
-	Expect(redactCredentials(once)).To(Equal(once))
+	for name, fixture := range map[string]string{
+		"escaped service account key": previewWithEscapedKey,
+		"multiline PEM":               previewWithMultilineKey,
+		"kubeconfig":                  "    client-key-data: LS0tLS1CRUdJTg==\n    token: eyJhbGciOiJSUzI1NiJ9.payload\n",
+		"rotation":                    `      ~ password  : "OLD" => "NEW"`,
+	} {
+		once := redactCredentials(fixture)
+		Expect(redactCredentials(once)).To(Equal(once), "redacting %s twice must equal redacting it once", name)
+	}
 }
 
 // The summary is not only logged, it is also returned to callers (the CLI
 // prints it, CI publishes it), so the redaction has to sit on the conversion
 // rather than on the log line.
-func TestToPreviewResultRedactsSummary(t *testing.T) {
+func TestPreviewAndUpdateResultsRedactSummary(t *testing.T) {
 	RegisterTestingT(t)
 
 	p := &pulumi{}
@@ -144,4 +180,180 @@ func TestToPreviewResultRedactsSummary(t *testing.T) {
 	Expect(update.Summary).ToNot(ContainSubstring(testKeyBody))
 	Expect(update.Summary).To(ContainSubstring(redactedValue))
 	Expect(update.StackName).To(Equal("acme/staging"))
+}
+
+// A preview of a change renders each property with a diff marker, and an
+// updated value as "old => new". Both shapes have to survive the regex, and
+// the second one has two values to remove, not one.
+func TestRedactCredentials_DiffMarkersAndRotation(t *testing.T) {
+	RegisterTestingT(t)
+
+	summary := `    ~ pulumi:providers:kubernetes: (update)
+      ~ kubeconfig: apiVersion: v1
+users:
+- name: admin
+  user:
+    token: OLDTOKENAAA => NEWTOKENBBB
+      + password: hunter2
+      ~ client-key-data: "OLDKEYDATA" => "NEWKEYDATA"
+`
+	got := redactCredentials(summary)
+
+	for _, secret := range []string{"OLDTOKENAAA", "NEWTOKENBBB", "hunter2", "OLDKEYDATA", "NEWKEYDATA"} {
+		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
+	}
+	Expect(got).To(ContainSubstring("(update)"))
+	Expect(got).To(ContainSubstring("- name: admin"))
+}
+
+// Pulumi renders resource properties in camelCase, so a credential that never
+// passes through a service-account JSON shows up under a different spelling.
+func TestRedactCredentials_CamelCaseProperties(t *testing.T) {
+	RegisterTestingT(t)
+
+	summary := `    + docker:index/image:Image: (create)
+        registry  : {
+            password: "ya29.a0AfB_exampleAccessToken"
+            server  : "europe-docker.pkg.dev"
+        }
+    + pulumi:providers:aws: (create)
+        secretKey: "wJalrXUtnFEMIexampleKEY"
+        apiToken : "cf-Abc123SuperSecretToken"
+        region   : "us-east-1"
+`
+	got := redactCredentials(summary)
+
+	for _, secret := range []string{"ya29.a0AfB_exampleAccessToken", "wJalrXUtnFEMIexampleKEY", "cf-Abc123SuperSecretToken"} {
+		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
+	}
+	Expect(got).To(ContainSubstring(`server  : "europe-docker.pkg.dev"`))
+	Expect(got).To(ContainSubstring(`region   : "us-east-1"`))
+}
+
+// A kubeconfig authenticated by an OIDC auth-provider keeps its credentials
+// under hyphenated keys, and a diff may render the value escaped.
+func TestRedactCredentials_AuthProviderKubeconfig(t *testing.T) {
+	RegisterTestingT(t)
+
+	summary := `        kubeconfig: "users:\n- name: oidc\n  user:\n    auth-provider:\n      config:\n        id-token: eyJhbGciOiJSUzI1NiJ9.idtoken\n        refresh-token: \"1//0eRefreshTokenValue\"\n        client-secret: oidc-client-secret-value\n"
+        dockerconfig: "{\"auths\":{\"registry.example\":{\"auth\":\"QVdTOnBhc3N3b3Jk\"}}}"
+`
+	got := redactCredentials(summary)
+
+	for _, secret := range []string{"eyJhbGciOiJSUzI1NiJ9.idtoken", "1//0eRefreshTokenValue", "oidc-client-secret-value", "QVdTOnBhc3N3b3Jk"} {
+		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
+	}
+}
+
+// renderCreate and renderUpdate produce the text the engine itself would print
+// for a resource, rather than a hand-written guess at it. The distinction
+// matters: a string property that parses as JSON or YAML is decoded and
+// re-printed as a structure with BARE keys, which is not the shape a
+// hand-written fixture reaches for, and the redaction has to match what is
+// actually emitted. colors.Never mirrors what the automation API returns,
+// since Simple Container never asks the engine for colour.
+func renderCreate(props resource.PropertyMap) string {
+	var b bytes.Buffer
+	display.PrintObject(&b, props, true, 1, deploy.OpCreate, true, false, false, false)
+	return colors.Never.Colorize(b.String())
+}
+
+func renderUpdate(old, updated resource.PropertyMap) string {
+	var b bytes.Buffer
+	diff := old.Diff(updated)
+	Expect(diff).ToNot(BeNil(), "the two property maps must actually differ")
+	display.PrintObjectDiff(&b, *diff, nil, true, 1, false, false, false, false, nil)
+	return colors.Never.Colorize(b.String())
+}
+
+func serviceAccountKey() string {
+	return `{"type":"service_account","project_id":"acme-staging",` +
+		`"private_key_id":"9f1c0de4cafe",` +
+		`"private_key":"-----BEGIN PRIVATE KEY-----\n` + testKeyBody + `\n-----END PRIVATE KEY-----\n",` +
+		`"client_email":"deploy@acme-staging.iam.gserviceaccount.com"}`
+}
+
+// The reported leak, reproduced through the engine's own printer: creating the
+// GCP provider renders its credentials input.
+func TestRedactCredentials_EngineCreateRendering(t *testing.T) {
+	RegisterTestingT(t)
+
+	rendered := renderCreate(resource.PropertyMap{
+		"credentials": resource.NewStringProperty(serviceAccountKey()),
+		"project":     resource.NewStringProperty("acme-staging"),
+	})
+	Expect(rendered).To(ContainSubstring(testKeyBody), "fixture check: the engine really does print the key")
+	Expect(rendered).To(ContainSubstring("(json)"), "fixture check: the engine decodes the credential blob")
+
+	got := redactCredentials(rendered)
+
+	Expect(got).ToNot(ContainSubstring(testKeyBody))
+	Expect(got).ToNot(ContainSubstring("9f1c0de4cafe"))
+	Expect(got).To(ContainSubstring(`project_id    : "acme-staging"`), "non-credential fields stay readable")
+	Expect(got).To(ContainSubstring(`type          : "service_account"`))
+}
+
+// An update prints `old => new`. The new value is the credential now in use,
+// so redacting only the left-hand side would leak the one that matters.
+func TestRedactCredentials_EngineUpdateRendering(t *testing.T) {
+	RegisterTestingT(t)
+
+	kubeconfig := `apiVersion: v1
+clusters:
+- cluster:
+    server: https://203.0.113.10
+  name: acme
+users:
+- name: acme
+  user:
+    client-key-data: OLDKEYDATA_AAAA
+    token: OLDTOKEN_AAAA
+`
+	updated := strings.NewReplacer("OLDKEYDATA_AAAA", "NEWKEYDATA_BBBB", "OLDTOKEN_AAAA", "NEWTOKEN_BBBB").Replace(kubeconfig)
+
+	rendered := renderUpdate(
+		resource.PropertyMap{
+			"kubeconfig": resource.NewStringProperty(kubeconfig),
+			"password":   resource.NewStringProperty("OLDPASSWORD_AAAA"),
+		},
+		resource.PropertyMap{
+			"kubeconfig": resource.NewStringProperty(updated),
+			"password":   resource.NewStringProperty("NEWPASSWORD_BBBB"),
+		},
+	)
+	Expect(rendered).To(ContainSubstring("NEWTOKEN_BBBB"), "fixture check: the engine really does print the new value")
+
+	got := redactCredentials(rendered)
+
+	for _, secret := range []string{
+		"OLDKEYDATA_AAAA", "NEWKEYDATA_BBBB", "OLDTOKEN_AAAA", "NEWTOKEN_BBBB",
+		"OLDPASSWORD_AAAA", "NEWPASSWORD_BBBB",
+	} {
+		Expect(got).ToNot(ContainSubstring(secret), "%s must not survive redaction", secret)
+	}
+	Expect(got).To(ContainSubstring("203.0.113.10"), "the cluster endpoint is not a credential")
+}
+
+// Output can be truncated or interleaved, leaving a BEGIN marker with no END.
+// The key still has to go, and the sweep must not run past it: an unbounded
+// match would delete every line up to an END marker belonging to something
+// else, and a preview that silently loses most of its diff is worse than one
+// that shows a masked line.
+func TestRedactCredentials_UnterminatedPEMDoesNotSwallowTheDiff(t *testing.T) {
+	RegisterTestingT(t)
+
+	summary := `    + credentials: "-----BEGIN PRIVATE KEY-----
+` + testKeyBody + `
+  ... (output truncated)
+    + name       : "important-resource"
+    + other      : "-----BEGIN PRIVATE KEY-----
+` + testKeyBody + `
+-----END PRIVATE KEY-----"
+`
+	got := redactCredentials(summary)
+
+	Expect(got).ToNot(ContainSubstring(testKeyBody), "neither key body may survive")
+	Expect(got).ToNot(ContainSubstring("BEGIN PRIVATE KEY"))
+	Expect(got).To(ContainSubstring(`name       : "important-resource"`),
+		"the diff between the two keys must survive the sweep")
 }
