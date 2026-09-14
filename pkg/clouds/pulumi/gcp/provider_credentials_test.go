@@ -91,15 +91,15 @@ func TestGcpProviderCredentialsAreSecret(t *testing.T) {
 func TestGcpProviderRejectsNonAuthConfig(t *testing.T) {
 	RegisterTestingT(t)
 
+	var provErr error
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		input := gcpAuthInput()
 		input.Descriptor.Config.Config = map[string]string{"not": "an auth config"}
-		_, err := Provider(ctx, api.Stack{Name: "acme"}, input, pApi.ProvisionParams{Log: logger.New()})
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("failed to cast config to api.AuthConfig"))
+		_, provErr = Provider(ctx, api.Stack{Name: "acme"}, input, pApi.ProvisionParams{Log: logger.New()})
 		return nil
 	}, pulumi.WithMocks("acme", "staging", testutil.NewRecordingMocks()))
 	Expect(err).ToNot(HaveOccurred())
+	Expect(provErr).To(MatchError(ContainSubstring("failed to cast config to api.AuthConfig")))
 }
 
 // Adopting a cluster builds a second Kubernetes provider from the generated
@@ -112,6 +112,17 @@ func TestGkeAutopilotAdoptionKubeconfigIsSecret(t *testing.T) {
 	defer resetGlobalServicesAPIClient()
 
 	mocks := testutil.NewRecordingMocks()
+	// The adopted cluster's own outputs: the kubeconfig is built from these,
+	// and without them it would be a secret wrapped around nothing.
+	mocks.ResourceStates["gcp:container/cluster:Cluster"] = resource.NewPropertyMapFromMap(map[string]any{
+		"name":     "existing-cluster",
+		"project":  "acme-staging",
+		"location": "us-central1",
+		"endpoint": "203.0.113.10",
+		"masterAuth": map[string]any{
+			"clusterCaCertificate": "LS0tLS1CRUdJTi0tLS0t",
+		},
+	})
 	mocks.CallResults["gcp:container/getCluster:getCluster"] = resource.NewPropertyMapFromMap(map[string]any{
 		"name":             "existing-cluster",
 		"location":         "us-central1",
@@ -149,6 +160,10 @@ func TestGkeAutopilotAdoptionKubeconfigIsSecret(t *testing.T) {
 	}, pulumi.WithMocks("acme", "staging", mocks))
 	Expect(err).ToNot(HaveOccurred())
 
+	// The lookup fixture has to have been used, or the kubeconfig below is
+	// built from zero values and asserting on it proves nothing.
+	Expect(mocks.CalledTokens()).To(ContainElement("gcp:container/getCluster:getCluster"))
+
 	providers := mocks.InputsOfType("pulumi:providers:kubernetes")
 	Expect(providers).ToNot(BeEmpty(), "adoption should have created a kubernetes provider")
 	for _, inputs := range providers {
@@ -156,6 +171,8 @@ func TestGkeAutopilotAdoptionKubeconfigIsSecret(t *testing.T) {
 		Expect(ok).To(BeTrue())
 		Expect(kubeconfig.IsSecret()).To(BeTrue(),
 			"the adopted cluster's kubeconfig must reach the engine as a secret")
+		Expect(kubeconfig.SecretValue().Element.StringValue()).To(ContainSubstring("203.0.113.10"),
+			"and it must be the real kubeconfig, not an empty one that is secret by accident")
 	}
 }
 
@@ -175,7 +192,7 @@ func TestGkeAutopilotStackKubeconfigIsSecret(t *testing.T) {
 		toKubeconfigExport("acme-cluster--staging"): kubeconfigFromParentStack,
 	}
 
-	_ = pulumi.RunErr(func(ctx *pulumi.Context) error {
+	runErr := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		_, err := GkeAutopilotStack(ctx, api.Stack{Name: "acme"}, api.ResourceInput{
 			Descriptor: &api.ResourceDescriptor{
 				Name: "acme",
@@ -198,6 +215,11 @@ func TestGkeAutopilotStackKubeconfigIsSecret(t *testing.T) {
 		})
 		return err
 	}, pulumi.WithMocks("acme", "staging", mocks))
+
+	// Naming the expected failure keeps the test honest: if the program starts
+	// failing somewhere else, this stops silently covering less than it says.
+	Expect(runErr).To(MatchError(ContainSubstring("registry url")),
+		"the test covers the provider registration, which happens before the registry work")
 
 	providers := mocks.InputsOfType("pulumi:providers:kubernetes")
 	Expect(providers).ToNot(BeEmpty(), "the client stack should have created a kubernetes provider")

@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	cloudflareSdk "github.com/pulumi/pulumi-cloudflare/sdk/v6/go/cloudflare"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -35,6 +36,7 @@ func TestUpstreamProvidersStillSecretTheirOwnCredentials(t *testing.T) {
 	const (
 		awsSecretKey    = "wJalrXUtnFEMIexampleKEY"
 		atlasPrivateKey = "b8f9c0de-atlas-private-key"
+		cloudflareToken = "cf-Abc123ExampleApiToken"
 	)
 
 	mocks := testutil.NewRecordingMocks()
@@ -64,6 +66,14 @@ func TestUpstreamProvidersStillSecretTheirOwnCredentials(t *testing.T) {
 			},
 			StackParams: &api.StackParams{Environment: "staging"},
 		}, pApi.ProvisionParams{Log: logger.New()})
+		if err != nil {
+			return err
+		}
+		// Cloudflare's registrar passes its token straight through, so this
+		// leans on the SDK the same way.
+		_, err = cloudflareSdk.NewProvider(ctx, "cloudflare-auth", &cloudflareSdk.ProviderArgs{
+			ApiToken: sdk.StringPtr(cloudflareToken),
+		})
 		return err
 	}, sdk.WithMocks("acme", "staging", mocks))
 	Expect(err).ToNot(HaveOccurred())
@@ -79,4 +89,9 @@ func TestUpstreamProvidersStillSecretTheirOwnCredentials(t *testing.T) {
 	Expect(ok).To(BeTrue())
 	Expect(atlasInputs["privateKey"].IsSecret()).To(BeTrue(),
 		"pulumi-mongodbatlas no longer secrets privateKey: wrap it at the call site")
+
+	cfInputs, ok := mocks.Inputs("pulumi:providers:cloudflare", "cloudflare-auth")
+	Expect(ok).To(BeTrue())
+	Expect(cfInputs["apiToken"].IsSecret()).To(BeTrue(),
+		"pulumi-cloudflare no longer secrets apiToken: wrap it at the call site")
 }

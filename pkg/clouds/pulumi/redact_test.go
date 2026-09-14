@@ -103,9 +103,13 @@ func TestRedactCredentials_EscapedKubeconfig(t *testing.T) {
 	// A kubeconfig that reaches the diff as a single escaped string.
 	got := redactCredentials(`        kubeconfig: "apiVersion: v1\nusers:\n- name: admin\n  user:\n    token: eyJhbGciOiJSUzI1NiJ9.payload\n"`)
 
+	// A kubeconfig that reaches the diff undecoded is masked whole: it is a
+	// credential container, and nothing inside it is worth more than the risk
+	// of missing one of its shapes. The decoded rendering, which is what the
+	// engine produces for a multi-line value, keeps its structure and masks
+	// the credential leaves one by one.
 	Expect(got).ToNot(ContainSubstring("eyJhbGciOiJSUzI1NiJ9.payload"))
-	Expect(got).To(ContainSubstring(redactedValue))
-	Expect(got).To(ContainSubstring("- name: admin"))
+	Expect(got).To(ContainSubstring(`kubeconfig: "` + redactedValue + `"`))
 }
 
 // The rules have to leave a legible preview legible. The fixture is built from
@@ -207,6 +211,11 @@ users:
 	}
 	Expect(got).To(ContainSubstring("(update)"))
 	Expect(got).To(ContainSubstring("- name: admin"))
+
+	// Both halves are masked, not collapsed into one: a preview that quietly
+	// drops the right-hand side of every rotated line still reads as green.
+	Expect(got).To(ContainSubstring(redactedValue + " => " + redactedValue))
+	Expect(got).To(ContainSubstring(`"` + redactedValue + `" => "` + redactedValue + `"`))
 }
 
 // Pulumi renders resource properties in camelCase, so a credential that never

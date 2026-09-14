@@ -42,6 +42,7 @@ var credentialKeys = []string{
 	`access[_-]?key[_-]?id`,
 	`auth[_-]?header`,
 	`credentials`,
+	`kubeconfig`,
 	`password`,
 	`token`,
 	`auth`,

@@ -77,13 +77,13 @@ func TestKubernetesProviderKubeconfigIsSecret(t *testing.T) {
 func TestKubernetesProviderRejectsNonAuthConfig(t *testing.T) {
 	RegisterTestingT(t)
 
+	var provErr error
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		input := kubernetesAuthInput()
 		input.Descriptor.Config.Config = map[string]string{"not": "an auth config"}
-		_, err := Provider(ctx, api.Stack{Name: "acme"}, input, pApi.ProvisionParams{Log: logger.New()})
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("failed to cast config to api.AuthConfig"))
+		_, provErr = Provider(ctx, api.Stack{Name: "acme"}, input, pApi.ProvisionParams{Log: logger.New()})
 		return nil
 	}, pulumi.WithMocks("acme", "staging", testutil.NewRecordingMocks()))
 	Expect(err).ToNot(HaveOccurred())
+	Expect(provErr).To(MatchError(ContainSubstring("failed to cast config to api.AuthConfig")))
 }
