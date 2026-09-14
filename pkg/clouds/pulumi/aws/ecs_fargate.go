@@ -44,7 +44,11 @@ type EcsFargateRepository struct {
 type ECRImage struct {
 	Container aws.EcsFargateContainer
 	ImageName sdk.StringOutput
-	AddOpts   []sdk.ResourceOption
+	// DeployImageRef is what the task definition must reference: the digest the
+	// security pipeline signed and verified. ImageName stays the tag, because it
+	// is what the stack exports and what a human reads.
+	DeployImageRef sdk.StringOutput
+	AddOpts        []sdk.ResourceOption
 }
 
 type EcsFargateOutput struct {
@@ -400,7 +404,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			cDef := EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
 					Name:        sdk.String(image.Container.Name),
-					Image:       image.ImageName,
+					Image:       image.DeployImageRef,
 					Cpu:         sdk.IntPtr(cpu),
 					Memory:      sdk.IntPtr(memory),
 					Essential:   sdk.BoolPtr(true),
@@ -999,9 +1003,10 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 			return nil, errors.Wrapf(err, "failed to build and push image for container %q in stack %q env %q", container.Name, stack.Name, deployParams.Environment)
 		}
 		return &ECRImage{
-			Container: container,
-			ImageName: image.image.ImageName,
-			AddOpts:   image.addOpts,
+			Container:      container,
+			ImageName:      image.image.ImageName,
+			DeployImageRef: image.deployImageRef,
+			AddOpts:        image.addOpts,
 		}, nil
 	})
 	if err != nil {

@@ -258,7 +258,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 	lambdaFuncArgs := lambda.FunctionArgs{
 		PackageType: sdk.String("Image"),
 		Role:        lambdaExecutionRole.Arn,
-		ImageUri:    image.image.ImageName,
+		ImageUri:    image.deployImageRef,
 		Tags:        tags,
 		MemorySize:  sdk.IntPtr(lambdaSizeMb),
 		Timeout:     sdk.IntPtr(lo.If(stackConfig.Timeout != nil, lo.FromPtr(stackConfig.Timeout)).Else(10)),
