@@ -125,7 +125,7 @@ func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.Upd
 	}
 	return &api.UpdateResult{
 		StackName:  stackName,
-		Summary:    result.StdOut,
+		Summary:    redactCredentials(result.StdOut),
 		Operations: changes,
 	}
 }
@@ -133,7 +133,7 @@ func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.Upd
 func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *api.PreviewResult {
 	return &api.PreviewResult{
 		StackName: stackName,
-		Summary:   result.StdOut,
+		Summary:   redactCredentials(result.StdOut),
 		Operations: lo.MapKeys(result.ChangeSummary, func(value int, key apitype.OpType) string {
 			return string(key)
 		}),

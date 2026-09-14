@@ -283,7 +283,7 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	projectId := pcfg.ProjectIdValue()
 
 	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
-		Credentials: sdk.String(creds),
+		Credentials: pApi.SecretString(creds),
 		Project:     sdk.String(projectId),
 	})
 	return &api.ResourceOutput{

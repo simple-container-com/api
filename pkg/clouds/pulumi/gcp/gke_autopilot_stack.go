@@ -87,7 +87,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out := &GkeAutopilotOutput{}
 
 	kubeProvider, err := sdkK8s.NewProvider(ctx, input.ToResName(stackName), &sdkK8s.ProviderArgs{
-		Kubeconfig:            sdk.String(kubeConfig),
+		Kubeconfig:            pApi.SecretString(kubeConfig),
 		EnableServerSideApply: sdk.BoolPtr(true), // Required for DeploymentPatch resources
 	})
 	if err != nil {

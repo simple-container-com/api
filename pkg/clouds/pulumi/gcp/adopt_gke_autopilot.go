@@ -187,7 +187,7 @@ func exportExistingLoadBalancerIP(ctx *sdk.Context, cluster *container.Cluster, 
 	// Create a Kubernetes provider for the adopted cluster
 	kubeconfig := generateKubeconfig(cluster, gkeInput)
 	kubeProvider, err := k8s.NewProvider(ctx, fmt.Sprintf("%s-adoption-kube-provider", clusterName), &k8s.ProviderArgs{
-		Kubeconfig: kubeconfig,
+		Kubeconfig: pApi.SecretStringOutput(kubeconfig),
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to create Kubernetes provider for adopted cluster %q", gkeInput.ClusterName)

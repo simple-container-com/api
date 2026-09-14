@@ -78,7 +78,7 @@ func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.ResourceInput, params pApi.ProvisionParams, kubeconfig sdk.StringOutput) (*SimpleContainer, error) {
 	params.Log.Info(ctx.Context(), "Configure Caddy deployment for cluster %q in %q", input.Descriptor.Name, input.StackParams.Environment)
 	kubeProvider, err := sdkK8s.NewProvider(ctx, fmt.Sprintf("%s-caddy-kubeprovider", input.ToResName(input.Descriptor.Name)), &sdkK8s.ProviderArgs{
-		Kubeconfig: kubeconfig,
+		Kubeconfig: pApi.SecretStringOutput(kubeconfig),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
