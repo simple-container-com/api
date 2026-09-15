@@ -45,13 +45,17 @@ func GetValueFromStack[T any](ctx *sdk.Context, refName, stackName, outName stri
 	if err != nil {
 		return lo.Empty[T](), errors.Wrapf(err, "failed to get output %q from %q", outName, refName)
 	}
+	// errors.Wrapf(nil, ...) is nil, so wrapping the (already checked) err here
+	// returned a nil error alongside a zero value: a missing parent output
+	// silently became an empty kubeconfig, handed to a provider as if it were
+	// real. These are the failures, not the absence of one.
 	if secret && parentOutput.SecretValue == nil {
-		return lo.Empty[T](), errors.Wrapf(err, "no secret value for output %q from %q", outName, refName)
+		return lo.Empty[T](), errors.Errorf("no secret value for output %q from %q", outName, refName)
 	} else if secret {
 		return parentOutput.SecretValue.(T), nil
 	}
 	if !secret && parentOutput.Value == nil {
-		return lo.Empty[T](), errors.Wrapf(err, "no value for output %q from %q", outName, refName)
+		return lo.Empty[T](), errors.Errorf("no value for output %q from %q", outName, refName)
 	}
 	return parentOutput.Value.(T), nil
 }
