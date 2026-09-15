@@ -6,6 +6,7 @@ package signing
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -17,16 +18,25 @@ import (
 type execFn func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error)
 
 // runCosignSign retries the full `cosign sign` on Rekor entry conflicts.
-// See RunCosignWithRetry for why a retry — not a success — is the right
-// response to a conflict.
-func runCosignSign(ctx context.Context, exec execFn, args, env []string, timeout time.Duration) (string, error) {
-	return runCosignWithRetry(ctx, "sign", args, env, timeout, exec)
+// See RunCosignWithRetryConfirm for why a retry, not a success, is the right
+// response to an unconfirmed conflict. It reports whether the run ended by
+// confirming an existing signature instead of producing a new one.
+func runCosignSign(ctx context.Context, exec execFn, args, env []string, timeout time.Duration, confirm *ConfirmProbe) (string, bool, error) {
+	return runCosignWithRetry(ctx, "sign", args, env, timeout, confirm, exec)
 }
 
 // KeylessSigner implements keyless signing using OIDC tokens
 type KeylessSigner struct {
 	OIDCToken string
 	Timeout   time.Duration
+
+	// IdentityRegexp and OIDCIssuer name the certificate identity this signer
+	// produces. Both are needed to confirm a Rekor conflict against the image;
+	// with either missing the signer keeps the plain retry-then-report path
+	// rather than accepting a signature it cannot attribute. Config.CreateSigner
+	// populates them.
+	IdentityRegexp string
+	OIDCIssuer     string
 
 	// exec overrides command execution in tests; nil means tools.ExecCommand.
 	exec execFn
@@ -61,20 +71,33 @@ func (s *KeylessSigner) Sign(ctx context.Context, imageRef string) (*SignResult,
 	if exec == nil {
 		exec = tools.ExecCommand
 	}
-	stdout, err := runCosignSign(ctx, exec, args, env, s.Timeout)
+	stdout, confirmed, err := runCosignSign(ctx, exec, args, env, s.Timeout, s.confirmProbe())
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse output for Rekor entry URL
 	rekorEntry := parseRekorEntry(stdout)
+	if confirmed {
+		fmt.Fprintf(os.Stderr,
+			"cosign sign %s: signature confirmed already present; no new transparency-log entry, RekorEntry is unavailable\n",
+			imageRef)
+	}
 
 	result := &SignResult{
 		RekorEntry: rekorEntry,
 		SignedAt:   time.Now().UTC().Format(time.RFC3339),
+		Confirmed:  confirmed,
 	}
 
 	return result, nil
+}
+
+// confirmProbe returns the verification that confirms an existing signature is
+// this signer's own. Nil unless the certificate identity is known.
+func (s *KeylessSigner) confirmProbe() *ConfirmProbe {
+	cfg := &Config{Keyless: true, IdentityRegexp: s.IdentityRegexp, OIDCIssuer: s.OIDCIssuer}
+	return cfg.SignatureConfirmProbe()
 }
 
 // parseRekorEntry extracts the Rekor entry URL from cosign output

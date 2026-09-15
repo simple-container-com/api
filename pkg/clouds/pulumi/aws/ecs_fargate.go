@@ -143,7 +143,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	// Build unified tags using the tagging utility
 	tags := taggingUtil.BuildTagsFromStackParams(deployParams).ToAWSTags()
 
+	// Gate every resource in this cluster on the image security operations.
+	// The nil guard matches the export loop further down and the Kubernetes
+	// path's imageSecurityOpts: MapErr can leave a nil entry in ref.Images, and
+	// the two loops disagreeing about that is how one of them panics.
 	for _, img := range ref.Images {
+		if img == nil {
+			continue
+		}
 		opts = append(opts, img.AddOpts...)
 	}
 

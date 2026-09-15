@@ -113,7 +113,7 @@ func TestRunCosignSign_RetryOnRekorConflict(t *testing.T) {
 			}
 			return "done", "", nil
 		}
-		out, err := runCosignSign(ctx, exec, []string{"sign"}, nil, time.Minute)
+		out, _, err := runCosignSign(ctx, exec, []string{"sign"}, nil, time.Minute, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(out).To(Equal("done"))
 		Expect(calls).To(Equal(2))
@@ -122,7 +122,7 @@ func TestRunCosignSign_RetryOnRekorConflict(t *testing.T) {
 	t.Run("exhausts attempts on persistent conflict", func(t *testing.T) {
 		RegisterTestingT(t)
 		exec := fakeSignExec("", "createLogEntryConflict", fmt.Errorf("409"))
-		_, err := runCosignSign(ctx, exec, []string{"sign"}, nil, time.Minute)
+		_, _, err := runCosignSign(ctx, exec, []string{"sign"}, nil, time.Minute, nil)
 		Expect(err).To(HaveOccurred())
 	})
 }

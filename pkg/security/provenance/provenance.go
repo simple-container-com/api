@@ -210,8 +210,11 @@ func (a *Attacher) Attach(ctx context.Context, statement *Statement, imageRef st
 	args = append(args, imageRef)
 
 	// Every retry is a fresh process with its own full a.Timeout budget. The
-	// predicate file outlives the loop via the deferred remove above.
-	_, err = signing.RunCosignWithRetry(ctx, "provenance attest", args, a.buildSigningEnv(), a.Timeout)
+	// predicate file outlives the loop via the deferred remove above. See the
+	// SBOM attacher for why the confirm probe verifies rather than downloads,
+	// and why a nil probe keeps the retry-then-report path.
+	confirm := a.SigningConfig.AttestationConfirmProbe(attestationType(statement.Format))
+	_, err = signing.RunCosignWithRetryConfirm(ctx, "provenance attest", args, a.buildSigningEnv(), a.Timeout, confirm)
 	return err
 }
 
