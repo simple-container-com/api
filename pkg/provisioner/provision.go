@@ -14,6 +14,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
@@ -121,7 +122,10 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			p.log.Debug(ctx, "Secrets descriptor not found for %s", stackName)
 		}
 
-		if secretsDesc, err := p.readSecretsDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
+		if secretsDesc, err := p.readSecretsDescriptor(ctx, stacksDir, stackName); err != nil && (errors.Is(err, scoped.ErrScopedIntegrity) || errors.Is(err, scoped.ErrScopedUnavailable) || !readOpts.IgnoreSecretsMissing || lo.Contains(readOpts.RequireSecretConfigs, stackName)) {
+			// A scoped integrity failure (tamper / corrupt / ambiguous) OR a transient
+			// backend outage (KMS throttle) is fatal even under IgnoreSecretsMissing — a
+			// secret we could not resolve is never treated as "simply absent".
 			return err
 		} else if secretsDesc != nil {
 			// SECURITY: Never log actual secrets descriptor content - contains credential values
@@ -191,20 +195,91 @@ func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*a
 	}
 }
 
-func (p *provisioner) readSecretsDescriptor(rootDir string, stackName string) (*api.SecretsDescriptor, error) {
+func (p *provisioner) readSecretsDescriptor(ctx context.Context, rootDir string, stackName string) (*api.SecretsDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.SecretsDescriptorFileName)
+	legacyExists := true
 	if _, err := os.Stat(descFilePath); errors.Is(err, os.ErrNotExist) {
-		return nil, errors.Wrapf(err, "file not found: %q", descFilePath)
+		legacyExists = false
 	}
-	return p.readSecretsDescriptorFromFile(descFilePath)
+	return p.readSecretsDescriptorFromFile(ctx, descFilePath, legacyExists)
 }
 
-func (p *provisioner) readSecretsDescriptorFromFile(descFilePath string) (*api.SecretsDescriptor, error) {
-	if desc, err := api.ReadSecretsDescriptor(descFilePath); err != nil {
-		return nil, errors.Wrapf(err, "failed to read secrets descriptor from %q", descFilePath)
-	} else {
-		return desc, nil
+func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFilePath string, legacyExists bool) (*api.SecretsDescriptor, error) {
+	desc := &api.SecretsDescriptor{}
+	if legacyExists {
+		d, err := api.ReadSecretsDescriptor(descFilePath)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to read secrets descriptor from %q", descFilePath)
+		}
+		desc = d
 	}
+	// Additively merge any per-scope secrets (secrets.<scope>.yaml) that a candidate
+	// key — the ambient config key OR a CI scope key (SC_KEY_<SCOPE> / SC_SCOPE_KEY) —
+	// is a recipient of. Repos without scope files are unaffected. Whole-file values
+	// win on conflict, so a scoped value never changes an existing ${secret:} result;
+	// only new keys are added. The pull_request clamp is cryptographic — a scope key
+	// that is not a recipient of secrets.prod.yaml cannot open it. Integrity failures
+	// (tamper / corrupt / ambiguous) are tagged scoped.ErrScopedIntegrity and MUST NOT
+	// be swallowed by IgnoreSecretsMissing (see ReadStacks).
+	scopedVals, sErr := scoped.ResolveScopedValues(path.Dir(descFilePath), p.scopeCandidateKeys())
+	if sErr != nil {
+		return nil, sErr
+	}
+	for k, v := range scopedVals {
+		if _, exists := desc.Values[k]; exists {
+			// The legacy whole-file store wins on conflict (an actor who can only write a
+			// scope file cannot override a legacy secret). `sc secrets scope lint` flags
+			// this collision, but lint is not always a required check — so warn at deploy
+			// too, or an operator who set a scoped value silently gets the legacy one.
+			if p.log != nil {
+				p.log.Warn(ctx, "scoped secret %q is shadowed by the legacy secrets.yaml for this stack; the legacy value is used. Remove one (see `sc secrets scope lint`).", k)
+			}
+			continue
+		}
+		if desc.Values == nil {
+			desc.Values = map[string]string{}
+		}
+		desc.Values[k] = v
+	}
+	// A stack with neither a legacy secrets.yaml nor any openable scoped value has no
+	// secrets for this key — preserve the previous "not found" behavior (ignorable
+	// under IgnoreSecretsMissing) rather than returning an empty descriptor.
+	if !legacyExists && len(desc.Values) == 0 && len(desc.Auth) == 0 {
+		return nil, errors.Wrapf(os.ErrNotExist, "file not found: %q (and no openable scoped secrets)", descFilePath)
+	}
+	return desc, nil
+}
+
+// scopeCandidateKeys gathers every private key that might open a scope file: the
+// ambient cryptor key (from SIMPLE_CONTAINER_CONFIG / profile) plus CI scope keys
+// supplied without a full config — a generic SC_SCOPE_KEY and any per-scope
+// SC_KEY_<SCOPE> (e.g. SC_KEY_PR). This lets a pull_request job resolve scoped
+// secrets holding ONLY its scope key.
+func (p *provisioner) scopeCandidateKeys() []string {
+	var keys []string
+	if p.cryptor != nil {
+		if pk := p.cryptor.PrivateKey(); strings.TrimSpace(pk) != "" {
+			keys = append(keys, pk)
+		}
+	}
+	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" {
+		keys = append(keys, v)
+	}
+	// Accept only SC_KEY_<SCOPE> where <SCOPE> maps back to a valid scope name
+	// (uppercase, '-'→'_'), so an unrelated SC_KEY_* env var is not blindly tried as
+	// a decryption key. A job with several scope keys resolves the union of its scopes.
+	for _, e := range os.Environ() {
+		name, val, ok := strings.Cut(e, "=")
+		if !ok || strings.TrimSpace(val) == "" || !strings.HasPrefix(name, "SC_KEY_") {
+			continue
+		}
+		scopeName := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(name, "SC_KEY_"), "_", "-"))
+		if scoped.ValidateScopeName(scopeName) != nil {
+			continue
+		}
+		keys = append(keys, val)
+	}
+	return keys
 }
 
 func (p *provisioner) readClientDescriptor(rootDir string, stackName string) (*api.ClientDescriptor, error) {
