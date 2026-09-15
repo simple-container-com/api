@@ -40,7 +40,7 @@ type registryInspector func(ctx context.Context, imageRef, encodedAuth string) (
 // registry. This contacts the registry for the manifest only; layers are not
 // pulled. The daemon is already required for the build itself.
 func inspectViaDaemon(ctx context.Context, imageRef, encodedAuth string) (string, error) {
-	cli, err := client.New(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to connect to docker daemon")
 	}
