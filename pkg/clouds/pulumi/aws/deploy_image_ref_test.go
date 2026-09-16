@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,10 +21,21 @@ var runtimeImageFields = map[string]bool{
 	"ImageUri": true, // lambda.FunctionArgs
 }
 
+// permittedRuntimeImageExprs is an exact allowlist rather than a substring
+// match. A substring passes anything that merely mentions the field, including
+// a helper that returns the tag and a literal string containing the name.
+var permittedRuntimeImageExprs = map[string]bool{
+	"image.DeployImageRef": true,
+	"image.deployImageRef": true,
+}
+
 // allowedTagReferences are the runtime image references deliberately left on a
-// tag, keyed by the expression as it appears in the source. The helpers image is
-// a mirrored third-party image built outside BuildAndPushImage, so no digest is
-// produced for it and nothing signs it.
+// tag, keyed by the expression as it appears in the source.
+//
+// The cloud-helpers image IS built and pushed here (alerts.go), so a digest
+// does exist for it; it is simply not wired through resolveDeployImageRef and
+// nothing signs it. TODO: point alerts.go at cfg.helpersImage.RepoDigest and
+// delete this entry.
 var allowedTagReferences = map[string]bool{
 	"cfg.helpersImage.ImageName": true,
 }
@@ -37,7 +47,28 @@ func TestRuntimeImageReferencesUseTheDigest(t *testing.T) {
 		t.Fatalf("read package dir: %v", err)
 	}
 
-	var checked int
+	// Counted per field and excluding the allowlist: counting every occurrence
+	// would let the allowlisted helpers entry alone keep the anti-vacuity guard
+	// happy while both real assignments disappeared.
+	seen := map[string]int{}
+
+	check := func(src []byte, fieldName string, value ast.Expr, pos token.Pos) {
+		start := fset.Position(value.Pos()).Offset
+		end := fset.Position(value.End()).Offset
+		expr := strings.TrimSpace(string(src[start:end]))
+		if allowedTagReferences[expr] {
+			return
+		}
+		seen[fieldName]++
+		if permittedRuntimeImageExprs[expr] {
+			return
+		}
+		p := fset.Position(pos)
+		t.Errorf("%s:%d: %s is fed %q; a runtime image reference must be the digest "+
+			"(one of the permittedRuntimeImageExprs), or be added to allowedTagReferences with a reason",
+			p.Filename, p.Line, fieldName, expr)
+	}
+
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -52,32 +83,86 @@ func TestRuntimeImageReferencesUseTheDigest(t *testing.T) {
 			t.Fatalf("parse %s: %v", name, err)
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			kv, ok := n.(*ast.KeyValueExpr)
-			if !ok {
-				return true
+			switch node := n.(type) {
+			case *ast.KeyValueExpr:
+				key, ok := node.Key.(*ast.Ident)
+				if !ok || !runtimeImageFields[key.Name] {
+					return true
+				}
+				check(src, key.Name, node.Value, node.Pos())
+			case *ast.AssignStmt:
+				// A composite literal is not the only way in: `cDef.Image = x`
+				// after the fact is invisible to a KeyValueExpr-only walk.
+				for i, lhs := range node.Lhs {
+					sel, ok := lhs.(*ast.SelectorExpr)
+					if !ok || !runtimeImageFields[sel.Sel.Name] || i >= len(node.Rhs) {
+						continue
+					}
+					check(src, sel.Sel.Name, node.Rhs[i], node.Pos())
+				}
 			}
-			key, ok := kv.Key.(*ast.Ident)
-			if !ok || !runtimeImageFields[key.Name] {
-				return true
-			}
-			start := fset.Position(kv.Value.Pos()).Offset
-			end := fset.Position(kv.Value.End()).Offset
-			expr := strings.TrimSpace(string(src[start:end]))
-			checked++
-			if strings.Contains(strings.ToLower(expr), "deployimageref") || allowedTagReferences[expr] {
-				return true
-			}
-			pos := fset.Position(kv.Pos())
-			t.Errorf("%s:%d: %s is fed %q; a runtime image reference must be the digest "+
-				"(DeployImageRef), or be added to allowedTagReferences with a reason",
-				filepath.Base(pos.Filename), pos.Line, key.Name, expr)
 			return true
 		})
 	}
 
 	// A refactor that renames the fields would otherwise turn this into a test
 	// that passes by checking nothing.
-	if checked == 0 {
-		t.Fatal("found no runtime image assignments to check; the field names in runtimeImageFields are stale")
+	for field := range runtimeImageFields {
+		if seen[field] == 0 {
+			t.Fatalf("found no non-allowlisted %s assignment; runtimeImageFields is stale", field)
+		}
+	}
+}
+
+// The consumer-side check above cannot see a producer that leaves the field
+// unset: a zero sdk.StringOutput resolves as unknown, which fails the task
+// definition at apply while reading as correct in the source. The prebuilt-image
+// branch shipped exactly that.
+func TestEveryECRImageSetsDeployImageRef(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+
+	var found int
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			ident, ok := lit.Type.(*ast.Ident)
+			if !ok || ident.Name != "ECRImage" {
+				return true
+			}
+			found++
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "DeployImageRef" {
+					return true
+				}
+			}
+			p := fset.Position(lit.Pos())
+			t.Errorf("%s:%d: this ECRImage leaves DeployImageRef unset; "+
+				"a zero StringOutput resolves as unknown and fails the task definition",
+				p.Filename, p.Line)
+			return true
+		})
+	}
+
+	if found == 0 {
+		t.Fatal("found no ECRImage literals; this test no longer checks anything")
 	}
 }

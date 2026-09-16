@@ -102,6 +102,10 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 			CacheFrom:      cacheFromArg,
 			BuilderVersion: builderVersion,
 		},
+		// skipPush carries the reuse decision and legitimately alternates
+		// between runs, so it must NOT get sdk.IgnoreChanges here, unlike the
+		// helpers image in aws/alerts.go where it is a constant and the diff is
+		// a phantom.
 		SkipPush:  skipPushOutput(ctx, reusableDigest),
 		ImageName: imageFullUrl,
 		Registry:  image.Registry,
@@ -110,15 +114,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		return nil, errors.Wrapf(err, "failed to build and push image %q for stack %q env %q", image.Name, stack.Name, deployParams.Environment)
 	}
 
-	// On reuse res.RepoDigest describes the locally built image that was never
-	// pushed, so it must not reach anything that names what runs.
-	effectiveDigest := sdk.All(reusableDigest, res.RepoDigest).ApplyT(func(values []interface{}) string {
-		if reused, _ := values[0].(string); reused != "" {
-			return reused
-		}
-		built, _ := values[1].(string)
-		return built
-	}).(sdk.StringOutput)
+	effectiveDigest := pickEffectiveDigest(reusableDigest, res.RepoDigest)
 
 	var addOpts []sdk.ResourceOption
 	if stack.Client.Security != nil && stack.Client.Security.Enabled {
@@ -154,9 +150,10 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 //	push ──→ sbom-gen ──→ sbom-att ──→ verify-sbom
 //	push ──→ prov-gen ──→ prov-att ──→ verify-prov
 //
-// All operations use the immutable content digest (name@sha256:...) returned
-// by the push step. No mutable tags are used after push.
-func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, repoDigest sdk.StringOutput, image Image, environment string) ([]sdk.ResourceOption, error) {
+// All operations use the immutable content digest (name@sha256:...) of the
+// image that is actually in the registry: from the push, or from the reuse
+// lookup when the tag was already there. No mutable tags are used.
+func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, imageDigest sdk.StringOutput, image Image, environment string) ([]sdk.ResourceOption, error) {
 	security := stack.Client.Security
 	var opts []sdk.ResourceOption
 	imageName := image.Name
@@ -177,7 +174,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		}
 	}
 
-	securityImageRef := resolveSecurityImageRef(ctx, repoDigest, dockerImage.ImageName)
+	securityImageRef := resolveSecurityImageRef(ctx, imageDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
 
 	baseDeps, err := createRegistryLogin(ctx, image, imageName, baseDeps)
@@ -719,6 +716,20 @@ func resolveSecurityImageRef(ctx *sdk.Context, repoDigest, imageURL sdk.StringOu
 // During a preview nothing is pushed, so there is no digest to resolve and a
 // strict failure there would block the plan rather than the deployment. The tag
 // is returned quietly in that case and the check happens on the update.
+// pickEffectiveDigest chooses the digest of the image that is actually in the
+// registry. On reuse nothing was pushed, so res.RepoDigest describes a locally
+// built image that exists nowhere else; letting it through would have the
+// security pipeline sign a digest the registry does not hold and would hand the
+// runtime something it cannot pull.
+func pickEffectiveDigest(reusedDigest, builtDigest sdk.StringOutput) sdk.StringOutput {
+	return sdk.All(reusedDigest, builtDigest).ApplyT(func(values []interface{}) string {
+		if reused := resolveStringArg(values[0]); reused != "" {
+			return reused
+		}
+		return resolveStringArg(values[1])
+	}).(sdk.StringOutput)
+}
+
 func resolveDeployImageRef(ctx *sdk.Context, repoDigest, imageName sdk.StringOutput, strict bool) sdk.StringOutput {
 	return sdk.All(repoDigest, imageName).ApplyT(func(values []interface{}) (string, error) {
 		repoDigestValue, _ := values[0].(string)

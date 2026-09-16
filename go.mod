@@ -18,6 +18,7 @@ require (
 	github.com/aws/aws-secretsmanager-caching-go/v2 v2.2.0
 	github.com/cloudflare/cloudflare-go v0.117.0
 	github.com/compose-spec/compose-go v1.20.2
+	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/snowflake/v2 v2.0.3
@@ -171,7 +172,6 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/cosiner/argv v0.1.0 // indirect

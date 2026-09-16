@@ -981,10 +981,14 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*ECRImage, error) {
 		dockerfile := container.Image.Dockerfile
 		if dockerfile == "" && container.Image.Context == "" && container.Image.Name != "" {
-			// do not build and return right away
+			// Nothing is built, so no digest exists and nothing signs it. The
+			// reference the user pinned is all there is, and DeployImageRef must
+			// still be set: a zero StringOutput resolves as unknown, which fails
+			// the task definition rather than deploying the image.
 			return &ECRImage{
-				Container: container,
-				ImageName: sdk.String(container.Image.Name).ToStringOutput(),
+				Container:      container,
+				ImageName:      sdk.String(container.Image.Name).ToStringOutput(),
+				DeployImageRef: sdk.String(container.Image.Name).ToStringOutput(),
 			}, nil
 		}
 		if !filepath.IsAbs(dockerfile) {

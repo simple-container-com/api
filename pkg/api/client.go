@@ -37,6 +37,11 @@ func (c *ClientDescriptor) HasDefaults() bool {
 	return len(c.Defaults) > 0
 }
 
+// ReuseExistingCommitTagEnabled reports whether tag reuse is configured.
+func (c *ClientDescriptor) ReuseExistingCommitTagEnabled() bool {
+	return c != nil && c.ImageBuild != nil && c.ImageBuild.ReuseExistingCommitTag
+}
+
 // GetDefaultsSection returns the defaults section as a map for flexible access
 // This allows users to define any YAML anchors and templates they need
 func (c *ClientDescriptor) GetDefaultsSection() map[string]interface{} {
