@@ -87,6 +87,12 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		args["BUILDKIT_INLINE_CACHE"] = sdk.String("1")
 	}
 
+	// Resolved once, consumed three times: it decides whether the push happens,
+	// which digest the security pipeline runs against, and what the runtime is
+	// pointed at. Empty means "no reusable image", including every case where
+	// reuse does not apply at all.
+	reusableDigest := resolveReuseOutput(ctx, stack, image, imageFullUrl)
+
 	res, err := docker.NewImage(ctx, image.Name, &docker.ImageArgs{
 		Build: &docker.DockerBuildArgs{
 			Context:        sdk.String(image.Context),
@@ -96,7 +102,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 			CacheFrom:      cacheFromArg,
 			BuilderVersion: builderVersion,
 		},
-		SkipPush:  sdk.Bool(ctx.DryRun()),
+		SkipPush:  skipPushOutput(ctx, reusableDigest),
 		ImageName: imageFullUrl,
 		Registry:  image.Registry,
 	}, append(image.ProviderOptions, sdk.DependsOn(params.ComputeContext.Dependencies()))...)
@@ -104,9 +110,19 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		return nil, errors.Wrapf(err, "failed to build and push image %q for stack %q env %q", image.Name, stack.Name, deployParams.Environment)
 	}
 
+	// On reuse res.RepoDigest describes the locally built image that was never
+	// pushed, so it must not reach anything that names what runs.
+	effectiveDigest := sdk.All(reusableDigest, res.RepoDigest).ApplyT(func(values []interface{}) string {
+		if reused, _ := values[0].(string); reused != "" {
+			return reused
+		}
+		built, _ := values[1].(string)
+		return built
+	}).(sdk.StringOutput)
+
 	var addOpts []sdk.ResourceOption
 	if stack.Client.Security != nil && stack.Client.Security.Enabled {
-		securityOpts, err := executeSecurityOperations(ctx, stack, res, image, deployParams.Environment)
+		securityOpts, err := executeSecurityOperations(ctx, stack, res, effectiveDigest, image, deployParams.Environment)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to execute security operations for image %q", image.Name)
 		}
@@ -119,7 +135,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	return &ImageOut{
 		Image:          res,
 		AddOpts:        addOpts,
-		DeployImageRef: resolveDeployImageRef(ctx, res.RepoDigest, res.ImageName, securitySigningEnabled(stack.Client.Security)),
+		DeployImageRef: resolveDeployImageRef(ctx, effectiveDigest, res.ImageName, securitySigningEnabled(stack.Client.Security)),
 	}, nil
 }
 
@@ -140,7 +156,7 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 //
 // All operations use the immutable content digest (name@sha256:...) returned
 // by the push step. No mutable tags are used after push.
-func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, image Image, environment string) ([]sdk.ResourceOption, error) {
+func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, repoDigest sdk.StringOutput, image Image, environment string) ([]sdk.ResourceOption, error) {
 	security := stack.Client.Security
 	var opts []sdk.ResourceOption
 	imageName := image.Name
@@ -161,7 +177,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		}
 	}
 
-	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
+	securityImageRef := resolveSecurityImageRef(ctx, repoDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
 
 	baseDeps, err := createRegistryLogin(ctx, image, imageName, baseDeps)

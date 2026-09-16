@@ -76,6 +76,7 @@ nav:
   - Reference:
     - Supported Resources: reference/supported-resources.md
     - Deployment Schemas: reference/service-available-deployment-schemas.md
+    - Image Build Configuration: reference/image-build-config.md
   - Troubleshooting:
     - Container Security: troubleshooting/container-security.md
   - Compliance:
