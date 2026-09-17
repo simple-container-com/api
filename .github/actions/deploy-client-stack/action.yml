@@ -69,7 +69,7 @@ outputs:
 
 runs:
   using: 'docker'
-  image: 'docker://simplecontainer/github-actions:latest'
+  image: 'docker://simplecontainer/github-actions:2026.9.5-pre.58b8082f-preview.58b8082'
   env:
     GITHUB_ACTION_TYPE: 'deploy-client-stack'
     STACK_NAME: ${{ inputs.stack-name }}
