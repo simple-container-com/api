@@ -23,7 +23,6 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/security/signing"
 )
 
 // The reuse path only ever runs against a real daemon and a real registry:
@@ -31,6 +30,10 @@ import (
 // and the cosign verification of an adopted image have no unit coverage by
 // construction. These exercise them against a registry container on loopback,
 // which go-containerregistry and the daemon both treat as plain HTTP.
+//
+// Nothing here writes to a registry it does not own, and nothing signs: the
+// accepted arm verifies an image this project's own pipeline already signed,
+// so no entry is ever added to the public transparency log.
 //
 // Run with: go test -tags integration ./pkg/clouds/pulumi/docker/...
 
@@ -45,6 +48,22 @@ func registryImage() string {
 	return "public.ecr.aws/docker/library/registry:3"
 }
 
+// signedReferenceImage is an image the project's own release pipeline signed
+// keyless. It is what makes the accepting arm of verifyAdoptedImage testable
+// without producing a signature, and therefore without a transparency log
+// entry for a throwaway digest.
+func signedReferenceImage() (string, string) {
+	ref := os.Getenv("SC_TEST_SIGNED_IMAGE")
+	identity := os.Getenv("SC_TEST_SIGNED_IDENTITY")
+	if ref == "" {
+		ref = "simplecontainer/github-actions:latest"
+	}
+	if identity == "" {
+		identity = `^https://github\.com/simple-container-com/.*$`
+	}
+	return ref, identity
+}
+
 func requireDocker(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
@@ -52,6 +71,13 @@ func requireDocker(t *testing.T) {
 	}
 	if out, err := exec.Command("docker", "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
 		t.Skipf("docker daemon unreachable: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+}
+
+func requireCosign(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("cosign"); err != nil {
+		t.Skip("cosign not installed")
 	}
 }
 
@@ -127,20 +153,21 @@ func pushScratchImage(t *testing.T, ref, payload string) (string, string) {
 	return ref, digestRef
 }
 
-// generateKeyPair shells cosign directly instead of using signing.GenerateKeyPair:
-// that helper builds its return paths from outputDir but never tells cosign
-// where to write, so the key pair lands in the process working directory and
-// the paths it hands back do not exist. The gate under test does not use it.
-func generateKeyPair(t *testing.T, dir, password string) (string, string) {
-	t.Helper()
-	prefix := filepath.Join(dir, "cosign")
-	cmd := exec.Command("cosign", "generate-key-pair", "--output-key-prefix", prefix)
-	cmd.Env = append(os.Environ(), "COSIGN_PASSWORD="+password)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("cosign generate-key-pair: %v\n%s", err, out)
+// keylessSecurity mirrors what consumers actually configure: keyless signing
+// with verification pinned to an OIDC issuer and an identity pattern.
+func keylessSecurity(identityRegexp string) *api.SecurityDescriptor {
+	return &api.SecurityDescriptor{
+		Enabled: true,
+		Signing: &api.SigningDescriptor{
+			Enabled: true,
+			Keyless: true,
+			Verify: &api.VerifyDescriptor{
+				Enabled:        true,
+				OIDCIssuer:     "https://token.actions.githubusercontent.com",
+				IdentityRegexp: identityRegexp,
+			},
+		},
 	}
-	return prefix + ".key", prefix + ".pub"
 }
 
 // What the daemon actually returns for a tag that resolves, and that the
@@ -202,47 +229,29 @@ func TestUnreachableRegistryIsAnErrorNotAnAbsentTag(t *testing.T) {
 }
 
 // verifyAdoptedImage is the gate that stops push access to the registry from
-// becoming a signature from this pipeline. Both arms run against real cosign.
-func TestVerifyAdoptedImageAcceptsSignedAndRefusesUnsigned(t *testing.T) {
+// becoming a signature from this pipeline. Both arms matter: refusing
+// everything would disable reuse silently, accepting everything would defeat
+// the gate.
+func TestVerifyAdoptedImageAcceptsASignedImageAndRefusesAnUnsignedOne(t *testing.T) {
 	requireDocker(t)
-	if _, err := exec.LookPath("cosign"); err != nil {
-		t.Skip("cosign not installed")
-	}
+	requireCosign(t)
 	RegisterTestingT(t)
 
 	ctx := context.Background()
-	host, _ := startRegistry(t)
+	ref, identity := signedReferenceImage()
+	security := keylessSecurity(identity)
 
-	keyDir := t.TempDir()
-	const password = "integration-test"
-	privateKey, publicKey := generateKeyPair(t, keyDir, password)
-
-	signedTag := fmt.Sprintf("%s/reuse/signed:%s", host, integrationTestVersion)
-	_, signedDigest := pushScratchImage(t, signedTag, "signed")
-	unsignedTag := fmt.Sprintf("%s/reuse/unsigned:%s", host, integrationTestVersion)
-	_, unsignedDigest := pushScratchImage(t, unsignedTag, "unsigned")
-
-	_, err := signing.SignImage(ctx, &signing.Config{
-		Enabled:    true,
-		Keyless:    false,
-		PrivateKey: privateKey,
-		Password:   password,
-	}, signedDigest, "")
-	Expect(err).NotTo(HaveOccurred())
-
-	security := &api.SecurityDescriptor{
-		Enabled: true,
-		Signing: &api.SigningDescriptor{
-			Enabled:   true,
-			PublicKey: publicKey,
-			Verify:    &api.VerifyDescriptor{Enabled: true},
-		},
-	}
+	digest, err := inspectViaDaemon(ctx, ref, "")
+	Expect(err).NotTo(HaveOccurred(), "failed to resolve the signed reference image %q", ref)
+	signedDigestRef := ref[:strings.LastIndex(ref, ":")] + "@" + digest
 
 	started := time.Now()
-	Expect(verifyAdoptedImage(ctx, security, signedDigest)).To(Succeed())
-	t.Logf("key-based verification of an adopted image took %s", time.Since(started))
+	Expect(verifyAdoptedImage(ctx, security, signedDigestRef)).To(Succeed())
+	t.Logf("keyless verification of %s took %s", signedDigestRef, time.Since(started))
 
+	host, _ := startRegistry(t)
+	unsignedTag := fmt.Sprintf("%s/reuse/unsigned:%s", host, integrationTestVersion)
+	_, unsignedDigest := pushScratchImage(t, unsignedTag, "unsigned")
 	Expect(verifyAdoptedImage(ctx, security, unsignedDigest)).To(HaveOccurred())
 }
 
@@ -301,22 +310,11 @@ func TestResolveReuseOutputAgainstARealRegistry(t *testing.T) {
 	})
 
 	t.Run("an image that fails verification is not adopted", func(t *testing.T) {
-		if _, err := exec.LookPath("cosign"); err != nil {
-			t.Skip("cosign not installed")
-		}
+		requireCosign(t)
 		RegisterTestingT(t)
 
-		keyDir := t.TempDir()
-		_, publicKey := generateKeyPair(t, keyDir, "integration-test")
-
-		stack := reuseTestStack(true, &api.SecurityDescriptor{
-			Enabled: true,
-			Signing: &api.SigningDescriptor{
-				Enabled:   true,
-				PublicKey: publicKey,
-				Verify:    &api.VerifyDescriptor{Enabled: true},
-			},
-		})
+		_, identity := signedReferenceImage()
+		stack := reuseTestStack(true, keylessSecurity(identity))
 		image := integrationImage(host, "reuse/adopted")
 
 		got := resolveUnderMocks[string](t, "unverifiable", false, func(ctx *sdk.Context) sdk.Output {
