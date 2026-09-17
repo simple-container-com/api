@@ -5,7 +5,11 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -70,6 +74,10 @@ var reuseInspector registryInspector = inspectViaDaemon
 var ensureCosign = func(ctx context.Context) error {
 	return tools.NewToolInstaller().InstallIfMissing(ctx, "cosign")
 }
+
+// verifyImage is the verification call, as a variable so a test can see the
+// configuration it is handed without running cosign.
+var verifyImage = signing.VerifyImage
 
 // inspectViaDaemon asks the Docker daemon to resolve the tag against the
 // registry. This contacts the registry for the manifest only; layers are not
@@ -212,19 +220,81 @@ func reuseSkipReason(stack api.Stack, image Image) string {
 // installed anything, so cosign was absent from PATH and a correctly signed
 // image was refused. Refusing is the safe direction, but it made reuse
 // unreachable for every stack that signs, which is every stack that may reuse.
-func verifyAdoptedImage(ctx context.Context, security *api.SecurityDescriptor, digestRef string) error {
+func verifyAdoptedImage(ctx context.Context, security *api.SecurityDescriptor, digestRef, username, password string) error {
 	if err := ensureCosign(ctx); err != nil {
 		return errors.Wrap(err, "cosign is required to check the image already under the tag")
 	}
+	configDir, cleanup, err := writeIsolatedDockerConfig(digestRef, username, password)
+	if err != nil {
+		return errors.Wrap(err, "failed to give cosign credentials for the registry")
+	}
+	defer cleanup()
+
+	var env []string
+	if configDir != "" {
+		env = []string{"DOCKER_CONFIG=" + configDir}
+	}
+
 	verify := security.Signing.Verify
-	_, err := signing.VerifyImage(ctx, &signing.Config{
+	_, err = verifyImage(ctx, &signing.Config{
 		Enabled:        true,
 		Keyless:        security.Signing.Keyless,
 		PublicKey:      security.Signing.PublicKey,
 		OIDCIssuer:     verify.OIDCIssuer,
 		IdentityRegexp: verify.IdentityRegexp,
+		VerifyEnv:      env,
 	}, digestRef)
 	return err
+}
+
+// writeIsolatedDockerConfig gives cosign credentials for exactly this registry,
+// in a directory of its own.
+//
+// The deploy does write the same credentials to the shared docker config, but
+// from a resource that runs after the image is built, and this check runs
+// before that: measured on a real deploy, cosign reached the registry
+// unauthenticated, was refused, and the refusal then read as "this image does
+// not carry a signature we accept". Writing the shared file from here would
+// race the resource that owns it, so this one is private and removed after use.
+func writeIsolatedDockerConfig(imageRef, username, password string) (string, func(), error) {
+	noop := func() {}
+	// No password means nothing to write. Every stack that reaches this check
+	// has credentials, because a registry without them is refused earlier; a
+	// public registry that needs none is left to cosign's ambient behaviour
+	// rather than handed an empty credential that would fail the pull.
+	if password == "" {
+		return "", noop, nil
+	}
+	if username == "" {
+		username = "_token"
+	}
+	registry := imageRef
+	if slash := strings.Index(registry, "/"); slash > 0 {
+		registry = registry[:slash]
+	}
+
+	dir, err := os.MkdirTemp("", "sc-reuse-verify-")
+	if err != nil {
+		return "", noop, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	body, err := json.Marshal(map[string]any{
+		"auths": map[string]any{
+			registry: map[string]string{
+				"auth": base64.StdEncoding.EncodeToString([]byte(username + ":" + password)),
+			},
+		},
+	})
+	if err != nil {
+		cleanup()
+		return "", noop, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), body, 0o600); err != nil {
+		cleanup()
+		return "", noop, err
+	}
+	return dir, cleanup, nil
 }
 
 // resolveReuseOutput produces the digest of an image already in the registry
@@ -279,7 +349,8 @@ func resolveReuseOutput(ctx *sdk.Context, stack api.Stack, image Image, imageFul
 			if securitySigningEnabled(stack.Client.Security) {
 				verifyCtx, cancelVerify := context.WithTimeout(lookupCtx, verifyAdoptedTimeout)
 				defer cancelVerify()
-				if err := verifyAdoptedImage(verifyCtx, stack.Client.Security, digestRef); err != nil {
+				if err := verifyAdoptedImage(verifyCtx, stack.Client.Security, digestRef,
+					resolveStringArg(values[1]), resolveStringArg(values[2])); err != nil {
 					// Not fatal on purpose: refusing to reuse falls back to
 					// building and pushing, which overwrites whatever is under
 					// the tag. That is the behaviour before this feature and it

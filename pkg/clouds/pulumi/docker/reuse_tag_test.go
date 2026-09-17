@@ -15,7 +15,12 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
+	"encoding/base64"
+	"encoding/json"
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/security/signing"
+	"os"
+	"path/filepath"
 )
 
 func TestIsCommitPinnedVersion(t *testing.T) {
@@ -387,7 +392,7 @@ func TestVerifyAdoptedImageMakesCosignAvailableFirst(t *testing.T) {
 	}
 
 	err := verifyAdoptedImage(context.Background(), signedStack().Client.Security,
-		"registry.example.com/repo@"+testDigest)
+		"registry.example.com/repo@"+testDigest, "user", "pass")
 
 	Expect(calls).To(Equal(1), "cosign must be made available before it is invoked")
 	Expect(err).To(HaveOccurred())
@@ -417,4 +422,96 @@ func TestResolveReuseOutputDoesNotAdoptWhenCosignIsUnavailable(t *testing.T) {
 			sdk.String("registry.example.com/repo:2026.09.14-4fc2fda").ToStringOutput())
 	})
 	Expect(got).To(BeEmpty())
+}
+
+// cosign has to be told where the credentials are. The deploy writes them to
+// the shared docker config from a resource that runs later, so at this point
+// the registry answers an anonymous pull with DENIED — measured on a real
+// deploy, and reported as though the image were unsigned.
+func TestVerifyAdoptedImageAuthenticatesToTheRegistry(t *testing.T) {
+	RegisterTestingT(t)
+
+	restoreEnsure := ensureCosign
+	ensureCosign = func(context.Context) error { return nil }
+	defer func() { ensureCosign = restoreEnsure }()
+
+	var seen *signing.Config
+	var configReadable bool
+	restoreVerify := verifyImage
+	verifyImage = func(_ context.Context, cfg *signing.Config, _ string) (*signing.VerifyResult, error) {
+		seen = cfg
+		for _, kv := range cfg.VerifyEnv {
+			if dir, ok := strings.CutPrefix(kv, "DOCKER_CONFIG="); ok {
+				_, err := os.Stat(filepath.Join(dir, "config.json"))
+				configReadable = err == nil
+			}
+		}
+		return nil, nil
+	}
+	defer func() { verifyImage = restoreVerify }()
+
+	err := verifyAdoptedImage(context.Background(), signedStack().Client.Security,
+		"registry.example.com/repo@"+testDigest, "oauth2accesstoken", "s3cret")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(seen).NotTo(BeNil())
+
+	var configDir string
+	for _, kv := range seen.VerifyEnv {
+		if strings.HasPrefix(kv, "DOCKER_CONFIG=") {
+			configDir = strings.TrimPrefix(kv, "DOCKER_CONFIG=")
+		}
+	}
+	Expect(configDir).NotTo(BeEmpty(), "cosign was given no credentials")
+	Expect(configReadable).To(BeTrue(), "the config was not in place while cosign ran")
+
+	// Credentials must not outlive the check that needed them.
+	_, statErr := os.Stat(configDir)
+	Expect(os.IsNotExist(statErr)).To(BeTrue())
+}
+
+// The credentials written must be the ones the registry under test expects,
+// keyed by that registry's host. A config keyed by the wrong host authenticates
+// nothing and fails exactly as an anonymous pull does.
+func TestIsolatedDockerConfigCarriesTheRegistryCredentials(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir, cleanup, err := writeIsolatedDockerConfig(
+		"europe-north1-docker.pkg.dev/project/repo/app@"+testDigest, "_json_key", "s3cret")
+	Expect(err).NotTo(HaveOccurred())
+	defer cleanup()
+
+	body, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	Expect(err).NotTo(HaveOccurred())
+
+	var parsed struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}
+	Expect(json.Unmarshal(body, &parsed)).To(Succeed())
+
+	entry, ok := parsed.Auths["europe-north1-docker.pkg.dev"]
+	Expect(ok).To(BeTrue(), "config is not keyed by the registry host: %s", body)
+	decoded, err := base64.StdEncoding.DecodeString(entry.Auth)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(string(decoded)).To(Equal("_json_key:s3cret"))
+
+	info, err := os.Stat(filepath.Join(dir, "config.json"))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(info.Mode().Perm()).To(Equal(os.FileMode(0o600)))
+
+	cleanup()
+	_, err = os.Stat(dir)
+	Expect(os.IsNotExist(err)).To(BeTrue(), "the credentials outlived the check")
+}
+
+// A registry that needs no credentials must not be handed an empty one: an
+// auth header of ":" fails a pull that would have succeeded anonymously.
+func TestIsolatedDockerConfigSkipsWhenThereIsNoPassword(t *testing.T) {
+	RegisterTestingT(t)
+
+	dir, cleanup, err := writeIsolatedDockerConfig("registry.example.com/repo@"+testDigest, "user", "")
+	defer cleanup()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(dir).To(BeEmpty())
 }

@@ -246,13 +246,13 @@ func TestVerifyAdoptedImageAcceptsASignedImageAndRefusesAnUnsignedOne(t *testing
 	signedDigestRef := ref[:strings.LastIndex(ref, ":")] + "@" + digest
 
 	started := time.Now()
-	Expect(verifyAdoptedImage(ctx, security, signedDigestRef)).To(Succeed())
+	Expect(verifyAdoptedImage(ctx, security, signedDigestRef, "", "")).To(Succeed())
 	t.Logf("keyless verification of %s took %s", signedDigestRef, time.Since(started))
 
 	host, _ := startRegistry(t)
 	unsignedTag := fmt.Sprintf("%s/reuse/unsigned:%s", host, integrationTestVersion)
 	_, unsignedDigest := pushScratchImage(t, unsignedTag, "unsigned")
-	Expect(verifyAdoptedImage(ctx, security, unsignedDigest)).To(HaveOccurred())
+	Expect(verifyAdoptedImage(ctx, security, unsignedDigest, "user", "pass")).To(HaveOccurred())
 }
 
 func integrationImage(host, repo string) Image {

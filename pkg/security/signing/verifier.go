@@ -35,6 +35,13 @@ type Verifier struct {
 	// For key-based verification
 	PublicKey string // Path to public key file
 
+	// ExtraEnv is appended to cosign's environment. A caller that verifies an
+	// image before the deploy has written registry credentials to the shared
+	// docker config needs it: without DOCKER_CONFIG pointing at credentials of
+	// its own, cosign pulls anonymously and a private registry answers DENIED,
+	// which is not a statement about the signature.
+	ExtraEnv []string
+
 	Timeout time.Duration
 }
 
@@ -81,6 +88,8 @@ func (v *Verifier) Verify(ctx context.Context, imageRef string) (*VerifyResult, 
 	} else {
 		return nil, fmt.Errorf("verifier requires either public key or OIDC issuer + identity regexp")
 	}
+
+	env = append(env, v.ExtraEnv...)
 
 	stdout, stderr, err := tools.ExecCommand(ctx, "cosign", args, env, v.Timeout)
 
