@@ -18,12 +18,21 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/security/signing"
+	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
 // registryLookupTimeout bounds the manifest lookup. Without it a registry that
 // accepts the connection and never answers blocks SkipPush forever, which
 // blocks the image resource, which hangs the whole update with no diagnostic.
 const registryLookupTimeout = 30 * time.Second
+
+// verifyAdoptedTimeout bounds making cosign available and running it. It is
+// separate from the manifest lookup because the two are not the same order of
+// magnitude: verification may have to download the pinned cosign first, and
+// keyless verification then talks to Fulcio, Rekor and TUF. Sharing the lookup
+// budget would turn a slow download into "this image is not signed by us",
+// which reads as a security verdict and is not one.
+const verifyAdoptedTimeout = 3 * time.Minute
 
 // commitPinnedVersionRe matches the CalVer version the release pipeline
 // produces: date plus the abbreviated commit sha. A tag of this shape names one
@@ -54,6 +63,13 @@ type registryInspector func(ctx context.Context, imageRef, encodedAuth string) (
 // a daemon; the gates are the part worth testing and they are unreachable
 // through resolveReusableDigest.
 var reuseInspector registryInspector = inspectViaDaemon
+
+// ensureCosign makes the pinned cosign available, the same way the sign, SBOM
+// and provenance commands do. It is a variable so the reuse decision can be
+// tested without installing anything.
+var ensureCosign = func(ctx context.Context) error {
+	return tools.NewToolInstaller().InstallIfMissing(ctx, "cosign")
+}
 
 // inspectViaDaemon asks the Docker daemon to resolve the tag against the
 // registry. This contacts the registry for the manifest only; layers are not
@@ -189,7 +205,17 @@ func reuseSkipReason(stack api.Stack, image Image) string {
 // though it had been built here. Rebuilding used to overwrite a planted image
 // on the next deploy; reuse is what removes that self-healing, so the check
 // belongs at the moment of adoption.
+//
+// The tool has to be made available first. Every other consumer of cosign in
+// this codebase installs it on the way in, and the reuse check runs before all
+// of them: measured on a real deploy, it ran before the signing step had
+// installed anything, so cosign was absent from PATH and a correctly signed
+// image was refused. Refusing is the safe direction, but it made reuse
+// unreachable for every stack that signs, which is every stack that may reuse.
 func verifyAdoptedImage(ctx context.Context, security *api.SecurityDescriptor, digestRef string) error {
+	if err := ensureCosign(ctx); err != nil {
+		return errors.Wrap(err, "cosign is required to check the image already under the tag")
+	}
 	verify := security.Signing.Verify
 	_, err := signing.VerifyImage(ctx, &signing.Config{
 		Enabled:        true,
@@ -251,14 +277,16 @@ func resolveReuseOutput(ctx *sdk.Context, stack api.Stack, image Image, imageFul
 				return "", nil
 			}
 			if securitySigningEnabled(stack.Client.Security) {
-				if err := verifyAdoptedImage(reqCtx, stack.Client.Security, digestRef); err != nil {
+				verifyCtx, cancelVerify := context.WithTimeout(lookupCtx, verifyAdoptedTimeout)
+				defer cancelVerify()
+				if err := verifyAdoptedImage(verifyCtx, stack.Client.Security, digestRef); err != nil {
 					// Not fatal on purpose: refusing to reuse falls back to
 					// building and pushing, which overwrites whatever is under
 					// the tag. That is the behaviour before this feature and it
 					// is the one that heals a planted image.
 					if ctx != nil {
 						_ = ctx.Log.Warn(fmt.Sprintf(
-							"refusing to reuse %s: it does not carry a signature this stack accepts (%v); building and pushing over it",
+							"refusing to reuse %s: could not prove it carries a signature this stack accepts (%v); building and pushing over it",
 							digestRef, err), nil)
 					}
 					return "", nil
