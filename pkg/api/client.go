@@ -26,6 +26,7 @@ type ClientDescriptor struct {
 	Defaults      map[string]interface{}           `json:"defaults,omitempty" yaml:"defaults,omitempty"` // Maximum flexibility - supports any user-defined YAML anchors, templates, and configuration
 	Stacks        map[string]StackClientDescriptor `json:"stacks" yaml:"stacks"`
 	Security      *SecurityDescriptor              `json:"security,omitempty" yaml:"security,omitempty"` // Container security configuration
+	ImageBuild    *ImageBuildDescriptor            `json:"imageBuild,omitempty" yaml:"imageBuild,omitempty"`
 
 	// Additional flexible root-level properties for future extensibility
 	// Any other user-defined root-level sections will be preserved via our text manipulation approach
@@ -34,6 +35,11 @@ type ClientDescriptor struct {
 // HasDefaults checks if the client configuration has a defaults section
 func (c *ClientDescriptor) HasDefaults() bool {
 	return len(c.Defaults) > 0
+}
+
+// ReuseExistingCommitTagEnabled reports whether tag reuse is configured.
+func (c *ClientDescriptor) ReuseExistingCommitTagEnabled() bool {
+	return c != nil && c.ImageBuild != nil && c.ImageBuild.ReuseExistingCommitTag
 }
 
 // GetDefaultsSection returns the defaults section as a map for flexible access

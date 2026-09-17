@@ -23,6 +23,16 @@
       "schema": {}
     },
     {
+      "name": "ImageBuildDescriptor",
+      "type": "configuration",
+      "provider": "core",
+      "description": "Image build configuration schema",
+      "goPackage": "pkg/api/image_build_config.go",
+      "goStruct": "ImageBuildDescriptor",
+      "resourceType": "image-build-config",
+      "schema": {}
+    },
+    {
       "name": "ProvenanceDescriptor",
       "type": "configuration",
       "provider": "core",

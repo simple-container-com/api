@@ -153,7 +153,8 @@ func (s *ClientDescriptor) Copy() ClientDescriptor {
 		Stacks: lo.MapValues(s.Stacks, func(v StackClientDescriptor, k string) StackClientDescriptor {
 			return v.Copy()
 		}),
-		Security: s.Security,
+		Security:   s.Security,
+		ImageBuild: s.ImageBuild,
 	}
 }
 

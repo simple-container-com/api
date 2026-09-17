@@ -403,6 +403,16 @@ func (sg *SchemaGenerator) generateConfigurationSchemas() ([]ResourceDefinition,
 			ResourceType: "scan-config",
 			Schema:       reflect.TypeOf(api.ScanDescriptor{}),
 		},
+		{
+			Name:         "ImageBuildDescriptor",
+			Type:         "configuration",
+			Provider:     "core",
+			Description:  "Image build configuration schema",
+			GoPackage:    "pkg/api/image_build_config.go",
+			GoStruct:     "ImageBuildDescriptor",
+			ResourceType: "image-build-config",
+			Schema:       reflect.TypeOf(api.ImageBuildDescriptor{}),
+		},
 	}...)
 
 	fmt.Printf("Generated %d configuration file schemas\n", len(configSchemas))
