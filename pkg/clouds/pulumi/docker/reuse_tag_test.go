@@ -352,3 +352,69 @@ func TestResolveReuseOutputSurfacesRegistryErrors(t *testing.T) {
 	Expect(awaitErr).To(HaveOccurred())
 	Expect(awaitErr.Error()).To(ContainSubstring("image reuse check failed"))
 }
+
+// signedStack is a stack whose configuration reaches verifyAdoptedImage: signing
+// on, verification on and fully specified, so no earlier gate short-circuits.
+func signedStack() api.Stack {
+	return reuseTestStack(true, &api.SecurityDescriptor{
+		Enabled: true,
+		Signing: &api.SigningDescriptor{
+			Enabled: true,
+			Keyless: true,
+			Verify: &api.VerifyDescriptor{
+				Enabled:        true,
+				OIDCIssuer:     "https://token.actions.githubusercontent.com",
+				IdentityRegexp: "^https://github.com/acme/.*$",
+			},
+		},
+	})
+}
+
+// The reuse check runs before anything else has installed cosign. On a real
+// deploy that meant a correctly signed image was refused because the binary was
+// absent from PATH, which made reuse unreachable for every stack that signs.
+// Verification must therefore make the tool available itself.
+func TestVerifyAdoptedImageMakesCosignAvailableFirst(t *testing.T) {
+	RegisterTestingT(t)
+
+	restore := ensureCosign
+	defer func() { ensureCosign = restore }()
+
+	calls := 0
+	ensureCosign = func(context.Context) error {
+		calls++
+		return errors.New("auto-install of cosign failed")
+	}
+
+	err := verifyAdoptedImage(context.Background(), signedStack().Client.Security,
+		"registry.example.com/repo@"+testDigest)
+
+	Expect(calls).To(Equal(1), "cosign must be made available before it is invoked")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("cosign is required"))
+}
+
+// A tool that cannot be made available is not a verdict about the image, so the
+// deploy falls back to building and pushing rather than adopting. Asserting the
+// digest is empty is what distinguishes the fallback from a silent reuse.
+func TestResolveReuseOutputDoesNotAdoptWhenCosignIsUnavailable(t *testing.T) {
+	RegisterTestingT(t)
+
+	restoreInspector := reuseInspector
+	reuseInspector = func(context.Context, string, string) (string, error) {
+		return testDigest, nil
+	}
+	defer func() { reuseInspector = restoreInspector }()
+
+	restoreEnsure := ensureCosign
+	ensureCosign = func(context.Context) error {
+		return errors.New("auto-install of cosign failed")
+	}
+	defer func() { ensureCosign = restoreEnsure }()
+
+	got := resolveUnderMocks[string](t, "cosign unavailable", false, func(ctx *sdk.Context) sdk.Output {
+		return resolveReuseOutput(ctx, signedStack(), reuseTestImage("2026.09.14-4fc2fda", true),
+			sdk.String("registry.example.com/repo:2026.09.14-4fc2fda").ToStringOutput())
+	})
+	Expect(got).To(BeEmpty())
+}
