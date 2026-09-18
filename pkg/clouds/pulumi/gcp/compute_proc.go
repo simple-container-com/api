@@ -97,7 +97,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		}
 		kubeProviderName := fmt.Sprintf("%s-%s-computeproc-kubeconfig", input.ToResName(input.Descriptor.Name), clusterName)
 		kubeProvider, err = sdkK8s.NewProvider(ctx, kubeProviderName, &sdkK8s.ProviderArgs{
-			Kubeconfig: sdk.String(kubeConfig),
+			Kubeconfig: pApi.SecretString(sdk.String(kubeConfig)),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",

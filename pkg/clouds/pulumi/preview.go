@@ -32,7 +32,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
 		refreshResult, err := stackSource.Refresh(ctx)
 		if err != nil {
-			return nil, err
+			return nil, redactError(err)
 		}
 		p.logger.Info(ctx, "%s", color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
 	}
@@ -44,10 +44,11 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
 	)
 	if err != nil {
-		return nil, err
+		return nil, redactError(err)
 	}
-	p.logger.Info(ctx, "%s", color.GreenFmt("Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
-	return p.toPreviewResult(stackSource.Name(), previewResult), nil
+	res := p.toPreviewResult(stackSource.Name(), previewResult)
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview parent summary: %q", res))
+	return res, nil
 }
 
 func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
@@ -72,10 +73,11 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
 	)
 	if err != nil {
-		return nil, err
+		return nil, redactError(err)
 	}
-	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
-	return p.toPreviewResult(stackSource.Name(), previewResult), nil
+	res := p.toPreviewResult(stackSource.Name(), previewResult)
+	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child summary: %q", res))
+	return res, nil
 }
 
 func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.StackParams) (*api.OutputsResult, error) {
@@ -125,7 +127,7 @@ func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.Upd
 	}
 	return &api.UpdateResult{
 		StackName:  stackName,
-		Summary:    result.StdOut,
+		Summary:    redactCredentials(result.StdOut),
 		Operations: changes,
 	}
 }
@@ -133,7 +135,7 @@ func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.Upd
 func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *api.PreviewResult {
 	return &api.PreviewResult{
 		StackName: stackName,
-		Summary:   result.StdOut,
+		Summary:   redactCredentials(result.StdOut),
 		Operations: lo.MapKeys(result.ChangeSummary, func(value int, key apitype.OpType) string {
 			return string(key)
 		}),
@@ -142,16 +144,22 @@ func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *a
 
 func (p *pulumi) toDestroyResult(result auto.DestroyResult) *api.DestroyResult {
 	return &api.DestroyResult{
-		Operations: lo.MapValues(*result.Summary.ResourceChanges, func(value int, key string) int {
-			return int(value)
-		}),
+		Operations: resourceChanges(result.Summary.ResourceChanges),
 	}
 }
 
 func (p *pulumi) toRefreshResult(result auto.RefreshResult) *api.RefreshResult {
 	return &api.RefreshResult{
-		Operations: lo.MapValues(*result.Summary.ResourceChanges, func(value int, key string) int {
-			return int(value)
-		}),
+		Operations: resourceChanges(result.Summary.ResourceChanges),
 	}
+}
+
+// resourceChanges copies a summary's change counts. An operation that changed
+// nothing reports no counts at all, so the pointer has to be checked: the
+// sibling converter above already did, these two dereferenced it.
+func resourceChanges(changes *map[string]int) map[string]int {
+	if changes == nil {
+		return map[string]int{}
+	}
+	return lo.MapValues(*changes, func(value int, _ string) int { return value })
 }
