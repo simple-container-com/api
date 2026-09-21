@@ -679,6 +679,35 @@ resources:
             externalEgressIp:
               enabled: true                              # Enables CloudNAT with static IP (optional)
               # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Use existing IP (optional)
+
+            # Control plane reachability (optional). Left out entirely, GKE
+            # keeps its default: an IP endpoint that accepts connections from
+            # any address on the internet. Naming a key here hands that field
+            # to Pulumi, so omit the ones you want left alone.
+            #
+            # Removing this block later does NOT restore the defaults, it plans
+            # the allow list away and re-opens the control plane. To widen
+            # access, widen the list.
+            #
+            # If an allow list locks you out, recover through the GCP API, which
+            # does not go through the cluster endpoint:
+            #   gcloud container clusters update CLUSTER --region REGION \
+            #     --master-authorized-networks=YOUR.IP.ADDR/32
+            controlPlaneAccess:
+              # IAM-authorised endpoint, reachable from any source address.
+              # Callers without a stable address, hosted CI runners above all,
+              # need this before the allow list below can be narrowed.
+              dnsEndpoint: true
+              # GKE defaults this to true, which authorises every Google Cloud
+              # tenant alongside the list.
+              allowGcpPublicCidrs: false
+              authorizedNetworks:
+                - name: office
+                  cidr: 203.0.113.0/24
+              # ipEndpoint: false   # only once nothing dials the IP endpoint;
+                                    # the generated kubeconfig then uses the DNS
+                                    # endpoint. IPv6 entries above need a
+                                    # dual-stack cluster.
             caddy:
               enable: true
               namespace: caddy

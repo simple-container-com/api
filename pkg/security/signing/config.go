@@ -31,6 +31,8 @@ type Config struct {
 	// Verification settings
 	OIDCIssuer     string
 	IdentityRegexp string
+	// VerifyEnv is appended to the environment of the cosign verify process.
+	VerifyEnv []string
 }
 
 // CreateSigner creates a signer based on the configuration.
@@ -75,14 +77,18 @@ func (c *Config) CreateVerifier() (*Verifier, error) {
 		if c.OIDCIssuer == "" || c.IdentityRegexp == "" {
 			return nil, fmt.Errorf("OIDC issuer and identity regexp required for keyless verification")
 		}
-		return NewKeylessVerifier(c.OIDCIssuer, c.IdentityRegexp, timeout), nil
+		verifier := NewKeylessVerifier(c.OIDCIssuer, c.IdentityRegexp, timeout)
+		verifier.ExtraEnv = c.VerifyEnv
+		return verifier, nil
 	}
 
 	if c.PublicKey == "" {
 		return nil, fmt.Errorf("public key required for key-based verification")
 	}
 
-	return NewKeyBasedVerifier(c.PublicKey, timeout), nil
+	verifier := NewKeyBasedVerifier(c.PublicKey, timeout)
+	verifier.ExtraEnv = c.VerifyEnv
+	return verifier, nil
 }
 
 // Validate validates the configuration

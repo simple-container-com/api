@@ -50,6 +50,11 @@ type Image struct {
 type ImageOut struct {
 	Image   *docker.Image
 	AddOpts []sdk.ResourceOption
+	// DeployImageRef is the reference a runtime should be pointed at. It is the
+	// immutable digest whenever one is available, so that what runs is what was
+	// scanned, signed and verified rather than whatever the tag points at by the
+	// time the runtime pulls.
+	DeployImageRef sdk.StringOutput
 }
 
 // BuildAndPushImage builds a Docker image, pushes it, and runs security
@@ -82,6 +87,12 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		args["BUILDKIT_INLINE_CACHE"] = sdk.String("1")
 	}
 
+	// Resolved once, consumed three times: it decides whether the push happens,
+	// which digest the security pipeline runs against, and what the runtime is
+	// pointed at. Empty means "no reusable image", including every case where
+	// reuse does not apply at all.
+	reusableDigest := resolveReuseOutput(ctx, stack, image, imageFullUrl)
+
 	res, err := docker.NewImage(ctx, image.Name, &docker.ImageArgs{
 		Build: &docker.DockerBuildArgs{
 			Context:        sdk.String(image.Context),
@@ -91,7 +102,11 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 			CacheFrom:      cacheFromArg,
 			BuilderVersion: builderVersion,
 		},
-		SkipPush:  sdk.Bool(ctx.DryRun()),
+		// skipPush carries the reuse decision and legitimately alternates
+		// between runs, so it must NOT get sdk.IgnoreChanges here, unlike the
+		// helpers image in aws/alerts.go where it is a constant and the diff is
+		// a phantom.
+		SkipPush:  skipPushOutput(ctx, reusableDigest),
 		ImageName: imageFullUrl,
 		Registry:  image.Registry,
 	}, append(image.ProviderOptions, sdk.DependsOn(params.ComputeContext.Dependencies()))...)
@@ -99,9 +114,11 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		return nil, errors.Wrapf(err, "failed to build and push image %q for stack %q env %q", image.Name, stack.Name, deployParams.Environment)
 	}
 
+	effectiveDigest := pickEffectiveDigest(reusableDigest, res.RepoDigest)
+
 	var addOpts []sdk.ResourceOption
 	if stack.Client.Security != nil && stack.Client.Security.Enabled {
-		securityOpts, err := executeSecurityOperations(ctx, stack, res, image, deployParams.Environment)
+		securityOpts, err := executeSecurityOperations(ctx, stack, res, effectiveDigest, image, deployParams.Environment)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to execute security operations for image %q", image.Name)
 		}
@@ -111,7 +128,11 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 		addOpts = append(addOpts, sdk.DependsOn([]sdk.Resource{res}))
 	}
 
-	return &ImageOut{Image: res, AddOpts: addOpts}, nil
+	return &ImageOut{
+		Image:          res,
+		AddOpts:        addOpts,
+		DeployImageRef: resolveDeployImageRef(ctx, effectiveDigest, res.ImageName, securitySigningEnabled(stack.Client.Security)),
+	}, nil
 }
 
 // executeSecurityOperations creates Pulumi resources for post-push security ops.
@@ -129,9 +150,10 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 //	push ──→ sbom-gen ──→ sbom-att ──→ verify-sbom
 //	push ──→ prov-gen ──→ prov-att ──→ verify-prov
 //
-// All operations use the immutable content digest (name@sha256:...) returned
-// by the push step. No mutable tags are used after push.
-func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, image Image, environment string) ([]sdk.ResourceOption, error) {
+// All operations use the immutable content digest (name@sha256:...) of the
+// image that is actually in the registry: from the push, or from the reuse
+// lookup when the tag was already there. No mutable tags are used.
+func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *docker.Image, imageDigest sdk.StringOutput, image Image, environment string) ([]sdk.ResourceOption, error) {
 	security := stack.Client.Security
 	var opts []sdk.ResourceOption
 	imageName := image.Name
@@ -152,7 +174,7 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 		}
 	}
 
-	securityImageRef := resolveSecurityImageRef(ctx, dockerImage.RepoDigest, dockerImage.ImageName)
+	securityImageRef := resolveSecurityImageRef(ctx, imageDigest, dockerImage.ImageName)
 	baseDeps := []sdk.Resource{dockerImage}
 
 	baseDeps, err := createRegistryLogin(ctx, image, imageName, baseDeps)
@@ -676,4 +698,62 @@ func resolveSecurityImageRef(ctx *sdk.Context, repoDigest, imageURL sdk.StringOu
 		}
 		return "", errors.Errorf("docker image repo digest is unavailable for %s; security operations require an immutable digest", imageURLValue)
 	}).(sdk.StringOutput)
+}
+
+// resolveDeployImageRef returns the reference to hand to a runtime. Verification
+// runs against the digest, so deploying the tag would leave a window in which
+// whoever can write to the registry moves the tag between verification and the
+// runtime's pull, and something that was never verified runs.
+//
+// strict is tied to whether the stack actually signs its images, meaning both
+// the top level security flag and the signing flag, since signing only runs when
+// both are set. A stack that asked for signing gets a hard failure when no
+// digest is available, because deploying a mutable reference would silently void
+// the guarantee it asked for. A stack that does not sign keeps working on the
+// tag, since this would otherwise break every consumer whose registry or
+// provider does not report a digest.
+//
+// During a preview nothing is pushed, so there is no digest to resolve and a
+// strict failure there would block the plan rather than the deployment. The tag
+// is returned quietly in that case and the check happens on the update.
+// pickEffectiveDigest chooses the digest of the image that is actually in the
+// registry. On reuse nothing was pushed, so res.RepoDigest describes a locally
+// built image that exists nowhere else; letting it through would have the
+// security pipeline sign a digest the registry does not hold and would hand the
+// runtime something it cannot pull.
+func pickEffectiveDigest(reusedDigest, builtDigest sdk.StringOutput) sdk.StringOutput {
+	return sdk.All(reusedDigest, builtDigest).ApplyT(func(values []interface{}) string {
+		if reused := resolveStringArg(values[0]); reused != "" {
+			return reused
+		}
+		return resolveStringArg(values[1])
+	}).(sdk.StringOutput)
+}
+
+func resolveDeployImageRef(ctx *sdk.Context, repoDigest, imageName sdk.StringOutput, strict bool) sdk.StringOutput {
+	return sdk.All(repoDigest, imageName).ApplyT(func(values []interface{}) (string, error) {
+		repoDigestValue, _ := values[0].(string)
+		imageNameValue, _ := values[1].(string)
+		if repoDigestRe.MatchString(repoDigestValue) {
+			return repoDigestValue, nil
+		}
+		if ctx != nil && ctx.DryRun() {
+			return imageNameValue, nil
+		}
+		if strict {
+			return "", errors.Errorf("no immutable digest available for %s (got %q); signing is enabled for this stack, so refusing to deploy a mutable image reference", imageNameValue, repoDigestValue)
+		}
+		if ctx != nil {
+			_ = ctx.Log.Warn(fmt.Sprintf("deploying %s by tag because no immutable digest is available; the running image is not pinned to what was built", imageNameValue), nil)
+		}
+		return imageNameValue, nil
+	}).(sdk.StringOutput)
+}
+
+// securitySigningEnabled mirrors the gate that decides whether the security
+// operations run at all: signing.enabled alone is not enough if the top level
+// security block is off, and treating it as enough would make an unsigned stack
+// fail closed for a guarantee it never had.
+func securitySigningEnabled(security *api.SecurityDescriptor) bool {
+	return security != nil && security.Enabled && signingEnabled(security)
 }

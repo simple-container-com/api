@@ -22,6 +22,16 @@
         },
         "type": "object"
       },
+      "imageBuild": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "reuseExistingCommitTag": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "schemaVersion": {
         "type": "string"
       },
