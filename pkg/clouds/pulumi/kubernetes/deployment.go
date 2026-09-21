@@ -57,6 +57,20 @@ type Args struct {
 	PreStopSleepSeconds *int
 }
 
+// imageSecurityOpts collects the security-gate resource options every built
+// image contributes. Images that were not built by SC (pre-built references)
+// and stacks with security disabled contribute none.
+func imageSecurityOpts(images []*ContainerImage) []sdk.ResourceOption {
+	var opts []sdk.ResourceOption
+	for _, img := range images {
+		if img == nil {
+			continue
+		}
+		opts = append(opts, img.AddOpts...)
+	}
+	return opts
+}
+
 func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOption) (*SimpleContainer, error) {
 	stackName := args.Input.StackParams.StackName
 	stackEnv := args.Input.StackParams.Environment
@@ -83,6 +97,20 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		namespace, deploymentName, stackEnv, parentEnv, isCustomStack(stackEnv, parentEnv))
 
 	opts = append(opts, sdk.Provider(args.KubeProvider), sdk.DependsOn(args.Params.ComputeContext.Dependencies()))
+
+	// Gate the rollout on the image security operations.
+	//
+	// BuildAndPushImages hands back the fan-in of sign / verify / SBOM
+	// attestation / provenance attestation on ContainerImage.AddOpts. Nothing
+	// was consuming it here, so the workload had no dependency edge to any of
+	// them and Pulumi was free to update the Deployment first. A signing
+	// failure then arrived after the rollout had already completed, which
+	// leaves an unsigned, unattested image serving traffic while the run
+	// reports failure. Folding the options in makes signing a precondition of
+	// the rollout, matching the dependency graph documented in
+	// pkg/clouds/pulumi/docker/build_and_push.go and the wiring the ECS path
+	// already had.
+	opts = append(opts, imageSecurityOpts(args.Images)...)
 
 	replicas := 1
 	if args.Deployment.Scale != nil {
@@ -128,15 +156,8 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 				Value: sdk.String(containerEnvVars[k]),
 			})
 		}
-		var ports corev1.ContainerPortArray
-		var readinessProbe *corev1.ProbeArgs
-		for _, p := range c.Container.Ports {
-			portName := toPortName(p) // TODO: support non-http ports
-			ports = append(ports, corev1.ContainerPortArgs{
-				Name:          sdk.String(portName),
-				ContainerPort: sdk.Int(p),
-			})
-		}
+		ports := toContainerPorts(c.Container.Ports)
+
 		cReadyProbe := c.Container.ReadinessProbe
 		// Use global readiness probe if container doesn't have one AND it's the ingress container
 		// This prevents applying HTTP/TCP probes to worker containers that don't expose ports
@@ -145,26 +166,15 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			cReadyProbe = args.ReadinessProbe
 		}
 
-		if cReadyProbe == nil && len(c.Container.Ports) == 1 {
-			readinessProbe = &corev1.ProbeArgs{
-				TcpSocket: corev1.TCPSocketActionArgs{
-					Port: sdk.String(toPortName(c.Container.Ports[0])),
-				},
-				PeriodSeconds:       sdk.IntPtr(10),
-				InitialDelaySeconds: sdk.IntPtr(5),
-			}
-		} else if cReadyProbe == nil && c.Container.MainPort != nil {
-			readinessProbe = &corev1.ProbeArgs{
-				TcpSocket: corev1.TCPSocketActionArgs{
-					Port: sdk.String(toPortName(lo.FromPtr(c.Container.MainPort))),
-				},
-				PeriodSeconds:       sdk.IntPtr(10),
-				InitialDelaySeconds: sdk.IntPtr(5),
-			}
-		} else if cReadyProbe != nil {
+		var readinessProbe *corev1.ProbeArgs
+		if cReadyProbe != nil {
 			readinessProbe = toProbeArgs(c, cReadyProbe)
-		} else if len(c.Container.Ports) > 1 {
-			return corev1.ContainerArgs{}, errors.Errorf("container %q has multiple ports and no readiness probe specified", c.Container.Name)
+		} else {
+			probe, probeErr := autoTCPReadinessProbe(c.Container)
+			if probeErr != nil {
+				return corev1.ContainerArgs{}, probeErr
+			}
+			readinessProbe = probe
 		}
 
 		// Handle liveness probe
@@ -228,6 +238,21 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 	// Merge secret environment variables from Args with those from Deployment config
 	mergedSecretEnvs := lo.Assign(secretEnvs, args.SecretEnvs)
 
+	// Ports declared by non-ingress run containers, so the Service can publish
+	// them too (they share the pod's network namespace). Lets serviceType:
+	// LoadBalancer expose e.g. a self-hosted SFU sidecar's UDP media port.
+	ingressContainerName := ""
+	if args.Deployment.IngressContainer != nil {
+		ingressContainerName = args.Deployment.IngressContainer.Name
+	}
+	var extraServicePorts []k8s.ContainerPort
+	for _, c := range args.Images {
+		if c.Container.Name == ingressContainerName {
+			continue
+		}
+		extraServicePorts = append(extraServicePorts, c.Container.Ports...)
+	}
+
 	args.Params.Log.Warn(ctx.Context(), "configure simple container deployment for %q in %q", stackName, stackEnv)
 	sc, err := NewSimpleContainer(ctx, &SimpleContainerArgs{
 		KubeProvider:              args.KubeProvider,
@@ -241,6 +266,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		Deployment:                deploymentName,
 		ScEnv:                     stackEnv,
 		IngressContainer:          args.Deployment.IngressContainer,
+		ExtraServicePorts:         extraServicePorts,
 		Domain:                    lo.FromPtr(args.Deployment.StackConfig).Domain,
 		Prefix:                    lo.FromPtr(args.Deployment.StackConfig).Prefix,
 		ProxyKeepPrefix:           lo.FromPtr(args.Deployment.StackConfig).ProxyKeepPrefix,
@@ -333,7 +359,7 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 	} else if c.Container.MainPort != nil && *c.Container.MainPort > 0 {
 		probePort = *c.Container.MainPort
 	} else if len(c.Container.Ports) > 0 {
-		probePort = c.Container.Ports[0]
+		probePort = c.Container.Ports[0].Port
 	}
 
 	// periodSeconds (k8s-native) wins over the legacy duration-typed interval
@@ -380,4 +406,36 @@ func toProbeArgs(c *ContainerImage, probe *k8s.CloudRunProbe) *corev1.ProbeArgs 
 
 func toPortName(p int) string {
 	return fmt.Sprintf("http-%d", p)
+}
+
+func tcpSocketProbe(portName string) *corev1.ProbeArgs {
+	return &corev1.ProbeArgs{
+		TcpSocket: corev1.TCPSocketActionArgs{
+			Port: sdk.String(portName),
+		},
+		PeriodSeconds:       sdk.IntPtr(10),
+		InitialDelaySeconds: sdk.IntPtr(5),
+	}
+}
+
+// autoTCPReadinessProbe derives the default TCP readiness probe for a container
+// that has no explicit (or global ingress) probe configured. UDP-only ports
+// have no HTTP/TCP health surface, so no probe is attached to them.
+func autoTCPReadinessProbe(container k8s.CloudRunContainer) (*corev1.ProbeArgs, error) {
+	switch {
+	case len(container.Ports) == 1:
+		if isUDP(container.Ports[0].Protocol) {
+			return nil, nil
+		}
+		return tcpSocketProbe(toPortName(container.Ports[0].Port)), nil
+	case container.MainPort != nil:
+		if isUDP(portProtocol(container, *container.MainPort)) {
+			return nil, nil
+		}
+		return tcpSocketProbe(toPortName(*container.MainPort)), nil
+	case len(container.Ports) > 1:
+		return nil, errors.Errorf("container %q has multiple ports and no readiness probe specified", container.Name)
+	default:
+		return nil, nil
+	}
 }

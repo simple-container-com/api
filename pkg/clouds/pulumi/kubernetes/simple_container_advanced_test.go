@@ -36,7 +36,7 @@ func TestSimpleContainer_MultiContainerDeployment(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "main-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -117,7 +117,7 @@ func TestSimpleContainer_ComplexVolumeConfiguration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "app-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -220,7 +220,7 @@ func TestSimpleContainer_SecurityAndNetworkingConfiguration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "secure-app",
-				Ports:    []int{8443},
+				Ports:    k8s.ContainerPorts(8443),
 				MainPort: lo.ToPtr(8443),
 			},
 			ServiceType:      lo.ToPtr("LoadBalancer"),
@@ -417,7 +417,7 @@ func TestSimpleContainer_AutoscalingCombinations(t *testing.T) {
 
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "test-container",
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 						MainPort: lo.ToPtr(8080),
 					},
 					ServiceType: lo.ToPtr("ClusterIP"),
@@ -551,7 +551,7 @@ func TestSimpleContainer_ResourceLimitsAndRequests(t *testing.T) {
 
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "resource-container",
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 						MainPort: lo.ToPtr(8080),
 					},
 					ServiceType: lo.ToPtr("ClusterIP"),
@@ -628,7 +628,7 @@ func TestSimpleContainer_ServiceTypeVariations(t *testing.T) {
 
 					IngressContainer: &k8s.CloudRunContainer{
 						Name:     "service-container",
-						Ports:    []int{8080},
+						Ports:    k8s.ContainerPorts(8080),
 						MainPort: lo.ToPtr(8080),
 					},
 					ServiceType: lo.ToPtr(st.serviceType),

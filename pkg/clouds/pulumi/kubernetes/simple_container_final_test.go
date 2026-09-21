@@ -39,7 +39,7 @@ func TestSimpleContainer_CreationSuccess(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -94,7 +94,7 @@ func TestSimpleContainer_HPAIntegration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -154,7 +154,7 @@ func TestSimpleContainer_VPAIntegration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),
@@ -212,7 +212,7 @@ func TestSimpleContainer_IngressIntegration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType:      lo.ToPtr("ClusterIP"),
@@ -266,7 +266,7 @@ func TestSimpleContainer_PersistentVolumeIntegration(t *testing.T) {
 
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "test-container",
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 				MainPort: lo.ToPtr(8080),
 			},
 			ServiceType: lo.ToPtr("ClusterIP"),

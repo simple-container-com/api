@@ -1,8 +1,20 @@
-# Caddy 2.11.3: closes vendored-dep CVEs in 2.11.2's binary (go-jose v4,
-# otel, smallstep/certificates) plus Caddy core fastcgi + admin-socket
-# auth-bypass fixes — see https://github.com/caddyserver/caddy/releases/tag/v2.11.3.
-# Bumping requires editing all three "2.11.x" sites below (two FROMs + xcaddy).
+# Caddy 2.11.4: closes CVE-2026-52844, CVE-2026-52845 and CVE-2026-52846 on
+# top of 2.11.3's vendored-dep CVEs (go-jose v4, otel, smallstep/certificates)
+# and core fastcgi + admin-socket auth-bypass fixes.
+#
+# The version lives in ONE place: the CADDY_VERSION ARG below. It feeds both
+# FROMs and `xcaddy build`, because `COPY --from=builder /usr/bin/caddy`
+# overwrites the runtime image's own binary — so a builder/runtime version skew
+# ships silently. Only the two digests are per-tag and must be refreshed with it.
 # Refresh: docker buildx imagetools inspect caddy:X.Y.Z[-builder]
+#
+# NOTE: 2.11.4 is a security release upstream flags as breaking if you relied on
+# the buggy behaviour — request header fields containing underscores are now
+# ignored, Windows backslashes are normalised in the path matcher, and `rewrite`
+# no longer re-expands placeholders in an injected query. SC's own generated
+# Caddyfiles use none of those, but consumers injecting headers via
+# lbConfig.extraHelpers / siteExtraHelpers should check for underscore-named
+# request headers.
 #
 # Plugins:
 # - github.com/grafana/certmagic-gcs — GCS-backed certmagic storage for GKE.
@@ -57,25 +69,66 @@
 #       Verify the LB is `externalTrafficPolicy: Local` + the parent
 #       Caddy's `trustedProxies` covers the LB CIDR range.
 
-FROM caddy:2.11.4-builder@sha256:f2b98918658f949a3c533f2c73bd0806e3f2576ccf8eb182c8b1690c977007ea AS builder
+FROM caddy:2.11.4-builder@sha256:4bdeabce8e79d36b23d1cba7d20598cec2c1117ace960d8ca06071f945e8fc9b AS builder
 
+# `$CADDY_VERSION` is set by the base image itself (v2.11.4 here), so xcaddy
+# builds exactly the version the builder ships and a skew is impossible by
+# construction — there is no second version literal to forget. The tag on the
+# FROM line is informational only; the digest is what resolves.
+#
+# The three `--replace` lines lift Caddy 2.11.4's own vendored deps past
+# CVE-2026-46600 (x/net), CVE-2026-56852 (x/text) and GHSA-hrxh-6v49-42gf
+# (grpc), which upstream has not yet re-released. `--replace` and not `--with`:
+# `--with` also writes a blank import, and none of these modules has a package
+# at its root, so it fails with "cannot find module providing package".
+# Refresh or drop each line when Caddy ships a release that already carries the
+# fixed version — a replace pinning an OLDER version than upstream would
+# silently downgrade.
+#
+# cel-go is deliberately NOT in this list. v0.29.0 renames
+# interpreter.Interpretable to InterpretableV2, which does not compile against
+# 2.11.4's modules/caddyhttp/celmatcher.go — an upstream code change, not a
+# version bump. GHSA-gcjh-h69q-9w9g (MEDIUM) therefore stays open until Caddy
+# adopts it; see the SCA PR for the reachability note.
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     --mount=type=cache,target=/root/.cache,sharing=locked \
-    xcaddy build "v2.11.3" \
+    test -n "${CADDY_VERSION}" \
+    && xcaddy build "${CADDY_VERSION}" \
         --with github.com/grafana/certmagic-gcs@v0.1.7 \
         --with github.com/mholt/caddy-ratelimit@16aecbbcb8ca07dc1c671e263379606ff9493c55 \
-    && caddy version \
-    && caddy list-modules | grep -qE '^http\.handlers\.rate_limit$'
-# ^ Final grep is a sanity check that the ratelimit module actually registered
-# into the resulting binary (xcaddy has been known to silently drop plugins
-# when versions disagree). If this fails the RUN exits non-zero with the
-# failing command visible — no misleading prefixed echo.
+        --replace golang.org/x/net=golang.org/x/net@v0.58.0 \
+        --replace golang.org/x/text=golang.org/x/text@v0.41.0 \
+        --replace google.golang.org/grpc=google.golang.org/grpc@v1.82.1 \
+    && caddy version | grep -qF "${CADDY_VERSION} " \
+    && caddy list-modules | grep -qE '^http\.handlers\.rate_limit$' \
+    && caddy list-modules | grep -qE '^caddy\.storage\.gcs$'
+# ^ The greps are gates, not decoration:
+#   - `caddy version | grep` pins the built binary to the base image's own
+#     version. The previous line printed `caddy version` and never compared it,
+#     which is how a 2.11.3 binary shipped inside a 2.11.4 base unnoticed.
+#   - both module greps catch a silently dropped plugin (xcaddy does this when
+#     versions disagree). Dropping certmagic-gcs is the expensive one: Caddy
+#     falls back to local-filesystem cert storage, so a multi-replica parent
+#     stack gets per-pod ACME state and risks Let's Encrypt rate-limit lockout.
 
-FROM caddy:2.11.4@sha256:cb9d71ad83182011b79355cd57692686374bd78d6fe327efe0ff8507da03ab13
+# The final stage is named `runtime` so CI can pass
+# `no-cache-filters: runtime` to docker/build-push-action. Without it the
+# distro-upgrade layer below is cached FOREVER: the base is digest-pinned and
+# the RUN string never changes, so its cache key is permanently stable and
+# `apk upgrade` never actually executes again. `simplecontainer/github-actions:latest`
+# shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
+# already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
+# governs apk's own index cache, not Docker layers.
+FROM caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d AS runtime
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+# Re-assert against the RUNTIME base's own $CADDY_VERSION: this is what catches
+# builder/runtime digest skew, and stops a cache-hit builder stage slipping a
+# stale binary into a freshly-pulled runtime base.
+RUN test -n "${CADDY_VERSION}" && caddy version | grep -qF "${CADDY_VERSION} "
 
 LABEL org.opencontainers.image.source="https://github.com/simple-container-com/api" \
       org.opencontainers.image.licenses="Apache-2.0" \

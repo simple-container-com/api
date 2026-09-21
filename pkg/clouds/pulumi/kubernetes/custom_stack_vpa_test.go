@@ -35,7 +35,7 @@ func TestNewSimpleContainer_CustomStackVPATargetsDeployment(t *testing.T) {
 			IngressContainer: &k8s.CloudRunContainer{
 				Name:     "myapp-tenant-a",
 				MainPort: lo.ToPtr(8080),
-				Ports:    []int{8080},
+				Ports:    k8s.ContainerPorts(8080),
 			},
 			Log: logger.New(),
 			Containers: []corev1.ContainerArgs{

@@ -27,6 +27,9 @@
       "account": {
         "type": "string"
       },
+      "permissionsBoundary": {
+        "type": "string"
+      },
       "region": {
         "type": "string"
       },

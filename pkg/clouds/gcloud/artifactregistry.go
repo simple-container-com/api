@@ -17,6 +17,72 @@ type ArtifactRegistryConfig struct {
 	Docker      *DockerConfig      `json:"docker,omitempty" yaml:"docker,omitempty"`
 	Domain      *string            `json:"domain" yaml:"domain"`
 	BasicAuth   *RegistryBasicAuth `json:"basicAuth,omitempty" yaml:"basicAuth,omitempty"`
+
+	// CleanupPolicies declares image retention for the repository.
+	//
+	// The provider treats cleanupPolicies as authoritative (unlike labels, whose
+	// schema documents itself as non-authoritative), so a repository resource
+	// that does not declare it will CLEAR any policy set by another tool on the
+	// next provision. Leaving this empty therefore means "SC does not manage
+	// retention", and SC preserves whatever is configured out of band rather
+	// than deleting it. See ManagesCleanupPolicies.
+	// A POINTER so that "absent" and "declared empty" stay distinguishable.
+	// The placeholder resolver deep-copies configs by reflection and calls
+	// reflect.MakeSlice for every slice kind, so a nil SLICE arrives as an empty
+	// one and the difference is destroyed; its pointer branch returns early on
+	// nil, so a nil POINTER survives. Without that, `cleanupPolicies: []` could
+	// not mean "managed, and I want none", and removing policies from config
+	// would silently leave the live ones in place forever.
+	CleanupPolicies *[]ArtifactRegistryCleanupPolicy `json:"cleanupPolicies,omitempty" yaml:"cleanupPolicies,omitempty"`
+
+	// CleanupPolicyDryRun evaluates the policies and reports what they would
+	// delete without deleting it. Only meaningful alongside CleanupPolicies.
+	CleanupPolicyDryRun *bool `json:"cleanupPolicyDryRun,omitempty" yaml:"cleanupPolicyDryRun,omitempty"`
+}
+
+// ManagesCleanupPolicies reports whether retention is declared here. When it is
+// not, the caller must tell Pulumi to ignore the field rather than send an empty
+// value, which is the difference between "not managed" and "delete the policy".
+func (c *ArtifactRegistryConfig) ManagesCleanupPolicies() bool {
+	return c.CleanupPolicies != nil
+}
+
+// DeclaredCleanupPolicies returns the declared retention, or nil when SC does
+// not manage it. An explicitly empty list is "managed, and empty", which is how
+// retention is removed.
+func (c *ArtifactRegistryConfig) DeclaredCleanupPolicies() []ArtifactRegistryCleanupPolicy {
+	if c.CleanupPolicies == nil {
+		return nil
+	}
+	return *c.CleanupPolicies
+}
+
+// ArtifactRegistryCleanupPolicy mirrors a single Artifact Registry cleanup
+// policy. Durations are the API's second-suffixed form, e.g. "2592000s".
+type ArtifactRegistryCleanupPolicy struct {
+	// Name identifies the policy within the repository.
+	Name string `json:"name" yaml:"name"`
+	// Action is DELETE or KEEP (case-insensitive).
+	Action    string                                  `json:"action" yaml:"action"`
+	Condition *ArtifactRegistryCleanupPolicyCondition `json:"condition,omitempty" yaml:"condition,omitempty"`
+	// MostRecentVersions retains a minimum number of versions. KEEP only.
+	MostRecentVersions *ArtifactRegistryCleanupMostRecentVersions `json:"mostRecentVersions,omitempty" yaml:"mostRecentVersions,omitempty"`
+}
+
+type ArtifactRegistryCleanupPolicyCondition struct {
+	// TagState is TAGGED, UNTAGGED or ANY.
+	TagState string `json:"tagState,omitempty" yaml:"tagState,omitempty"`
+	// OlderThan / NewerThan are durations, e.g. "2592000s" for 30 days.
+	OlderThan           string   `json:"olderThan,omitempty" yaml:"olderThan,omitempty"`
+	NewerThan           string   `json:"newerThan,omitempty" yaml:"newerThan,omitempty"`
+	TagPrefixes         []string `json:"tagPrefixes,omitempty" yaml:"tagPrefixes,omitempty"`
+	PackageNamePrefixes []string `json:"packageNamePrefixes,omitempty" yaml:"packageNamePrefixes,omitempty"`
+	VersionNamePrefixes []string `json:"versionNamePrefixes,omitempty" yaml:"versionNamePrefixes,omitempty"`
+}
+
+type ArtifactRegistryCleanupMostRecentVersions struct {
+	KeepCount           *int     `json:"keepCount,omitempty" yaml:"keepCount,omitempty"`
+	PackageNamePrefixes []string `json:"packageNamePrefixes,omitempty" yaml:"packageNamePrefixes,omitempty"`
 }
 
 type RegistryBasicAuth struct {

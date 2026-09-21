@@ -30,7 +30,7 @@ func renderVPAContainerPolicies(t *testing.T, vpa *k8s.VPAConfig) []resource.Pro
 			Prefix:     "/",
 			Replicas:   2,
 			IngressContainer: &k8s.CloudRunContainer{
-				Name: "myapp", MainPort: lo.ToPtr(8080), Ports: []int{8080},
+				Name: "myapp", MainPort: lo.ToPtr(8080), Ports: k8s.ContainerPorts(8080),
 			},
 			Log: logger.New(),
 			Containers: []corev1.ContainerArgs{

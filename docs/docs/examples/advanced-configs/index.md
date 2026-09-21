@@ -57,7 +57,7 @@ services:
       - training-logs:/logs
       
   mlflow:
-    image: python:3.9
+    image: python:3.12-slim
     ports:
       - "5000:5000"
     command: |

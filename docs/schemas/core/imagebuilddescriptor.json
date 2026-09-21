@@ -1,0 +1,19 @@
+{
+  "name": "ImageBuildDescriptor",
+  "type": "configuration",
+  "provider": "core",
+  "description": "Image build configuration schema",
+  "goPackage": "pkg/api/image_build_config.go",
+  "goStruct": "ImageBuildDescriptor",
+  "resourceType": "image-build-config",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "reuseExistingCommitTag": {
+        "type": "boolean"
+      }
+    },
+    "required": [],
+    "type": "object"
+  }
+}

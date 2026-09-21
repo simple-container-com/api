@@ -168,7 +168,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			Name:     caddyImage,
 			Platform: api.ImagePlatformLinuxAmd64,
 		},
-		Ports:     []int{443, 80},
+		Ports:     k8s.ContainerPorts(443, 80),
 		MainPort:  lo.ToPtr(80),
 		Resources: caddy.Resources, // Use custom resources if specified, otherwise defaults will be applied
 	}

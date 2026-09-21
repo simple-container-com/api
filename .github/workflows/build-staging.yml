@@ -37,7 +37,7 @@ jobs:
           exit 1
 
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -61,7 +61,7 @@ jobs:
           echo "🏷️ Set VERSION: $VERSION"
 
       - name: Cache CLI tools (SC + Welder)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v4.3.0 (Automatically uses Blacksmith cache on Blacksmith runners)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (Automatically uses Blacksmith cache on Blacksmith runners)
         with:
           path: |
             ~/.local/bin/sc
@@ -90,7 +90,7 @@ jobs:
           echo "cicd-bot-telegram-chat-id=$(sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
 
       - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
         with:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
@@ -106,7 +106,7 @@ jobs:
 
       - name: Build and push github-actions staging image
         id: build_gha_staging
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: .
           file: github-actions-staging.Dockerfile
@@ -115,13 +115,27 @@ jobs:
             simplecontainer/github-actions:staging
             simplecontainer/github-actions:${{ github.ref_name }}
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=staging-github-actions
+            type=gha,scope=prod-github-actions
+          cache-to: type=gha,mode=max,scope=staging-github-actions
+          # Never cache-hit the distro-upgrade layer. `runtime` is the final
+          # stage in every one of these Dockerfiles; its base is digest-pinned
+          # and its `apk/dnf upgrade` RUN string never changes, so with
+          # `cache-from` its key is permanently stable and the upgrade silently
+          # stops executing after the first ever build. That is how
+          # `simplecontainer/github-actions:latest` came to ship python3
+          # 3.14.5-r0 (12 HIGH) while Alpine already served 3.14.7-r1 — and it
+          # would have frozen git / openssh-client / curl / libssl3 the same way.
+          # Scoped to the final stage on purpose: the expensive builder stage
+          # (SHA-verified Pulumi + gcloud download, install and slim) keeps its
+          # cache. Measured cost of re-running `runtime` alone: ~34 s.
+          no-cache-filters: runtime
           provenance: false
 
       - name: Build and push caddy staging image
         id: build_caddy_staging
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: .
           file: caddy.Dockerfile
@@ -130,8 +144,12 @@ jobs:
             simplecontainer/caddy:staging
             simplecontainer/caddy:${{ steps.version.outputs.version }}
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=staging-caddy
+            type=gha,scope=prod-caddy
+          cache-to: type=gha,mode=max,scope=staging-caddy
+          # Same reason as above — see the first build step in this file.
+          no-cache-filters: runtime
           provenance: false
 
       # Phase 2: sign + SBOM + SLSA provenance for staging images. Staging has
@@ -142,7 +160,8 @@ jobs:
       - name: Install attestation tools
         id: install_attest_tools
         if: steps.build_gha_staging.outcome == 'success' || steps.build_caddy_staging.outcome == 'success'
-        continue-on-error: true   # Best-effort during Phase 2 bake-in (matches push.yaml).
+        continue-on-error: true   # Best-effort: staging is not a release, so a
+                                  # missing tool must not fail the build.
         uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
 
       - name: Sign + attest github-actions staging (SBOM + cosign + SLSA)
@@ -156,7 +175,9 @@ jobs:
           subject-digest: ${{ steps.build_gha_staging.outputs.digest }}
           # cosign + syft already installed by the step above; skip re-install.
           install-tools: 'false'
-          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
+          # Soft-fail with no gate behind it. push.yaml sets soft-fail too,
+          # but gates on the outcomes and fails the release; staging does not,
+          # because SECURITY.md promises a complete chain for releases only.
           soft-fail: 'true'
 
       - name: Sign + attest caddy staging (SBOM + cosign + SLSA)
@@ -171,6 +192,10 @@ jobs:
           install-tools: 'false'
           soft-fail: 'true'
 
+      # Warn-only on purpose. Previews and staging builds are not releases:
+      # nothing in SECURITY.md promises a consumer they carry a complete
+      # attestation chain, and blocking them would stall iteration on a
+      # Sigstore hiccup. push.yaml gates releases instead.
       - name: Soft-fail aggregator for staging attestation
         if: always()
         env:
@@ -227,7 +252,7 @@ jobs:
     needs:
       - build-staging
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         if: ${{ always() }}
         with:
           persist-credentials: false

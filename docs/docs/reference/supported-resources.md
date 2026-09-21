@@ -679,6 +679,35 @@ resources:
             externalEgressIp:
               enabled: true                              # Enables CloudNAT with static IP (optional)
               # existing: "projects/my-project/regions/europe-west3/addresses/my-static-ip"  # Use existing IP (optional)
+
+            # Control plane reachability (optional). Left out entirely, GKE
+            # keeps its default: an IP endpoint that accepts connections from
+            # any address on the internet. Naming a key here hands that field
+            # to Pulumi, so omit the ones you want left alone.
+            #
+            # Removing this block later does NOT restore the defaults, it plans
+            # the allow list away and re-opens the control plane. To widen
+            # access, widen the list.
+            #
+            # If an allow list locks you out, recover through the GCP API, which
+            # does not go through the cluster endpoint:
+            #   gcloud container clusters update CLUSTER --region REGION \
+            #     --master-authorized-networks=YOUR.IP.ADDR/32
+            controlPlaneAccess:
+              # IAM-authorised endpoint, reachable from any source address.
+              # Callers without a stable address, hosted CI runners above all,
+              # need this before the allow list below can be narrowed.
+              dnsEndpoint: true
+              # GKE defaults this to true, which authorises every Google Cloud
+              # tenant alongside the list.
+              allowGcpPublicCidrs: false
+              authorizedNetworks:
+                - name: office
+                  cidr: 203.0.113.0/24
+              # ipEndpoint: false   # only once nothing dials the IP endpoint;
+                                    # the generated kubeconfig then uses the DNS
+                                    # endpoint. IPv6 entries above need a
+                                    # dual-stack cluster.
             caddy:
               enable: true
               namespace: caddy
@@ -856,6 +885,38 @@ resources:
               username: "registry-user"
               password: "${env:REGISTRY_PASSWORD}"
 ```
+
+##### Image retention (`cleanupPolicies`)
+
+Artifact Registry keeps every image version forever unless a cleanup policy says otherwise, and storage is billed per GB. Retention can be declared here so it is reviewed as code.
+
+```yaml
+            cleanupPolicies:
+              - name: delete-untagged-older-30d
+                action: DELETE
+                condition:
+                  tagState: UNTAGGED
+                  olderThan: 30d                     # or "2592000s"; both accepted, integers only
+              - name: keep-most-recent-20
+                action: KEEP                         # KEEP wins over a matching DELETE
+                mostRecentVersions:
+                  keepCount: 20
+            cleanupPolicyDryRun: true                # report only; set false to delete
+```
+
+Three behaviours are worth knowing before you use this.
+
+**Omitting `cleanupPolicies` means Simple Container does not manage retention.** Any policy set outside SC — through `gcloud` or the console — is left alone. This is the default and it is deliberate: the field is authoritative in the provider, so a resource that declares nothing would otherwise *delete* whatever is configured.
+
+**Declaring it makes Simple Container authoritative.** Policies set outside SC are then replaced by the declared list on the next provision. An explicitly empty list (`cleanupPolicies: []`) means "managed, and I want none", which is how retention is removed.
+
+Note two asymmetries. Writing the key with no value (`cleanupPolicies:` alone) decodes as *absent*, i.e. unmanaged — visually almost identical to `[]`, which removes every policy. And once SC has managed the field, **deleting the block does not return the repository to out-of-band control**: Pulumi's `ignoreChanges` carries the previous value forward from state, so retention freezes at the last declared list and later console edits are reverted on each provision. Genuinely handing the field back requires removing the property from stack state.
+
+**`cleanupPolicyDryRun` defaults to `true`.** Nothing is deleted until it is explicitly set to `false`. Dry run evaluates the policies and reports what they would remove, so run it first and read the result: deleting an image that is still deployed makes the next node reschedule fail to pull, and no provision can restore a deleted layer.
+
+Policies are validated while the Pulumi program is evaluated, and one is rejected if it would match far more than it appears to: an empty `condition`, a `DELETE` that does not set `olderThan` or target `tagState: UNTAGGED`, a `KEEP` with no `keepCount`, an empty prefix, or a non-positive duration. Prefixes are deliberately **not** accepted as narrowing a `DELETE` — they select which packages a policy covers, not which ages, so `packageNamePrefixes` alone would delete the running version of that package.
+
+An unrecognised key in `server.yaml` is silently ignored rather than rejected, so a mistyped condition field would otherwise produce a policy matching every version, which is what these checks are for.
 
 ### **Database Resources**
 

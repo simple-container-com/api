@@ -12,3 +12,16 @@ mkdocs-mermaid2-plugin~=1.2.3
 # chain at docs-build time only.
 requests>=2.33.0
 urllib3>=2.7.0
+
+# Second Scorecard round (2026-08), same rationale as above:
+#   - PYSEC-2026-2132 (CVE-2026-7246)      - click < 8.3.3
+#   - GHSA-9xwg-3r6f-jcx2 (CVE-2026-61632) - pymdown-extensions < 11.0.0 (b64 path traversal)
+#   - PYSEC-2026-3447 (CVE-2026-59890)     - setuptools < 83.0.0
+#   - PYSEC-2026-3071 (CVE-2026-49476)     - soupsieve < 2.8.4 (memory exhaustion)
+#   - PYSEC-2026-3072 (CVE-2026-49477)     - soupsieve < 2.8.4 (ReDoS)
+# mkdocs-material >=9.7.7 declares `pymdown-extensions>=10.2` with no upper
+# bound, so the 11.x major is in-range for the theme.
+click>=8.3.3
+pymdown-extensions>=11.0.0
+setuptools>=83.0.0
+soupsieve>=2.8.4

@@ -556,6 +556,9 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if err := api.ConvertAuth(&cfg.AccountConfig, accountConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert aws account config")
 	}
+	// Preserve the template-level boundary across ConvertAuth so it reaches the
+	// alert Lambda's execution role (see awsApi.AccountConfig.KeepBoundary).
+	accountConfig.KeepBoundary(cfg.AccountConfig.PermissionsBoundary)
 	cfg.AccountConfig = *accountConfig
 
 	if cfg.LogGroupName == "" {
@@ -739,22 +742,23 @@ func CloudTrailSecurityAlerts(ctx *sdk.Context, stack api.Stack, input api.Resou
 			alertRegion := cfg.LogGroupRegion
 			ctLogGroupArn := cloudTrailLogGroupArn(cfg, alertRegion)
 			if err := createAlert(ctx, alertCfg{
-				name:             alertBaseName,
-				description:      alertDef.description,
-				slackConfig:      cfg.Slack,
-				discordConfig:    cfg.Discord,
-				telegramConfig:   cfg.Telegram,
-				deployParams:     *input.StackParams,
-				secretSuffix:     resPrefix,
-				helpersImage:     helpersImage,
-				snsTopic:         snsTopic,
-				opts:             opts,
-				tags:             tags,
-				metricAlarmArgs:  alarmArgs,
-				ctLogGroupName:   cfg.LogGroupName,
-				ctLogGroupRegion: alertRegion,
-				ctFilterPattern:  alertDef.filterPattern,
-				ctLogGroupArn:    ctLogGroupArn,
+				permissionsBoundary: cfg.AccountConfig.PermissionsBoundary,
+				name:                alertBaseName,
+				description:         alertDef.description,
+				slackConfig:         cfg.Slack,
+				discordConfig:       cfg.Discord,
+				telegramConfig:      cfg.Telegram,
+				deployParams:        *input.StackParams,
+				secretSuffix:        resPrefix,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
+				metricAlarmArgs:     alarmArgs,
+				ctLogGroupName:      cfg.LogGroupName,
+				ctLogGroupRegion:    alertRegion,
+				ctFilterPattern:     alertDef.filterPattern,
+				ctLogGroupArn:       ctLogGroupArn,
 			}); err != nil {
 				return nil, errors.Wrapf(err, "failed to create alert %q", alertDef.name)
 			}

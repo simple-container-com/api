@@ -14,11 +14,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/simple-container-com/api/pkg/security/tools"
 )
 
-// DefaultGrypeVersion is the pinned install version. Bump here to upgrade cluster-wide,
-// or override per-scan via SC config (ScanToolConfig.Version) or SC_GRYPE_VERSION env var.
-const DefaultGrypeVersion = "0.111.0"
+// DefaultGrypeVersion is the pinned install version, sourced from
+// tools.DefaultGrypeVersion so the installer floor and the scanner pin cannot
+// drift apart. Bump it there to upgrade cluster-wide, or override per-scan via
+// SC config (ScanToolConfig.Version) or the SC_GRYPE_VERSION env var.
+const DefaultGrypeVersion = tools.DefaultGrypeVersion
 
 // GrypeScanner implements Scanner interface using Grype
 type GrypeScanner struct {

@@ -146,6 +146,34 @@ resources:
 
 ---
 
+## **Optional: Cap Workload Roles with a Permissions Boundary**
+
+Set `permissionsBoundary` on a template's `config` to an IAM policy ARN. Simple Container then attaches it as the **permissions boundary** on every IAM role it creates for workloads under that template:
+
+- ECS task and execution roles
+- Lambda execution roles (including alert / CloudTrail-security-alert Lambdas)
+- DB-init (`pg-init` / `mysql-init`) task roles
+
+```yaml
+templates:
+  stack-per-app:
+    type: ecs-fargate
+    config:
+      credentials: "${auth:aws}"
+      account: "${auth:aws.projectId}"
+      permissionsBoundary: "arn:aws:iam::123456789012:policy/sc-workload-boundary"
+```
+
+A permissions boundary is a **ceiling**: a role's effective permissions become the intersection of its own policy and the boundary. This lets an operator provision SC workloads under a least-privilege deploy identity while guaranteeing a hard limit on what any minted role can ever do.
+
+**Defaults and compatibility.** The field is optional and empty by default — leave it unset and nothing changes. Adding or changing it later is an in-place role update (`PutRolePermissionsBoundary`), not a role replacement, so existing deployments are not recreated.
+
+**Precedence.** Declare it either at the template level (as above) or inside the `${auth:...}` credentials block. A non-empty template-level value wins.
+
+> **Warning:** one ARN caps **all** workload roles for the template at once. A boundary that is too tight silently strips permissions (ECR pull, CloudWatch Logs, Secrets Manager, …) from every service on the next deploy. Validate the boundary in staging before rolling it to production.
+
+---
+
 # **Provisioning the AWS & MongoDB Atlas Parent Stack**
 Once `server.yaml` is configured, **provision** the infrastructure:
 

@@ -44,7 +44,11 @@ type EcsFargateRepository struct {
 type ECRImage struct {
 	Container aws.EcsFargateContainer
 	ImageName sdk.StringOutput
-	AddOpts   []sdk.ResourceOption
+	// DeployImageRef is what the task definition must reference: the digest the
+	// security pipeline signed and verified. ImageName stays the tag, because it
+	// is what the stack exports and what a human reads.
+	DeployImageRef sdk.StringOutput
+	AddOpts        []sdk.ResourceOption
 }
 
 type EcsFargateOutput struct {
@@ -89,9 +93,15 @@ func EcsFargate(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	if !ok {
 		return output, errors.Errorf("failed to convert ecs_fargate config for %q in stack %q in %q", input.Descriptor.Type, stack.Name, deployParams.Environment)
 	}
+	// This in-place ConvertAuth re-reads the credentials blob over
+	// crInput.AccountConfig (which createEcsFargateCluster reads for the role's
+	// boundary). Capture the template-level boundary first and re-assert it so
+	// "template wins" holds and a future refactor can't silently drop it.
+	tplBoundary := crInput.AccountConfig.PermissionsBoundary
 	if err := api.ConvertAuth(crInput, &crInput.AccountConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert auth config to aws.AccountConfig")
 	}
+	crInput.AccountConfig.KeepBoundary(tplBoundary)
 
 	params.Log.Debug(ctx.Context(), "configure ECS Fargate for stack %q in %q: %+v...", stack.Name, deployParams.Environment, crInput)
 
@@ -137,7 +147,14 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	// Build unified tags using the tagging utility
 	tags := taggingUtil.BuildTagsFromStackParams(deployParams).ToAWSTags()
 
+	// Gate every resource in this cluster on the image security operations.
+	// The nil guard matches the export loop further down and the Kubernetes
+	// path's imageSecurityOpts: MapErr can leave a nil entry in ref.Images, and
+	// the two loops disagreeing about that is how one of them panics.
 	for _, img := range ref.Images {
+		if img == nil {
+			continue
+		}
 		opts = append(opts, img.AddOpts...)
 	}
 
@@ -253,8 +270,9 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	// Create an ECS task execution IAM role
 	roleName := fmt.Sprintf("%s-exec-role", ecsSimpleClusterName)
 	taskExecRole, err := iam.NewRole(ctx, roleName, &iam.RoleArgs{
-		Name: sdk.String(ecsSimpleClusterName),
-		Tags: tags,
+		Name:                sdk.String(ecsSimpleClusterName),
+		Tags:                tags,
+		PermissionsBoundary: permissionsBoundaryPtr(crInput.AccountConfig.PermissionsBoundary),
 		AssumeRolePolicy: sdk.String(`{
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -393,7 +411,7 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 			cDef := EcsContainerDef{
 				TaskDefinitionContainerDefinitionArgs: ecs.TaskDefinitionContainerDefinitionArgs{
 					Name:        sdk.String(image.Container.Name),
-					Image:       image.ImageName,
+					Image:       image.DeployImageRef,
 					Cpu:         sdk.IntPtr(cpu),
 					Memory:      sdk.IntPtr(memory),
 					Essential:   sdk.BoolPtr(true),
@@ -753,16 +771,17 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 
 	if alerts.MaxCPU != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:           fmt.Sprintf("%s--%s", alerts.MaxCPU.AlertName, deployParams.Environment),
-			description:    alerts.MaxCPU.Description,
-			telegramConfig: alerts.Telegram,
-			discordConfig:  alerts.Discord,
-			slackConfig:    alerts.Slack,
-			deployParams:   deployParams,
-			helpersImage:   helpersImage,
-			secretSuffix:   crInput.Config.Version,
-			opts:           opts,
-			tags:           tags,
+			permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+			name:                fmt.Sprintf("%s--%s", alerts.MaxCPU.AlertName, deployParams.Environment),
+			description:         alerts.MaxCPU.Description,
+			telegramConfig:      alerts.Telegram,
+			discordConfig:       alerts.Discord,
+			slackConfig:         alerts.Slack,
+			deployParams:        deployParams,
+			helpersImage:        helpersImage,
+			secretSuffix:        crInput.Config.Version,
+			opts:                opts,
+			tags:                tags,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -784,16 +803,17 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 	}
 	if alerts.MaxMemory != nil {
 		if err := createAlert(ctx, alertCfg{
-			name:           fmt.Sprintf("%s--%s", alerts.MaxMemory.AlertName, deployParams.Environment),
-			description:    alerts.MaxMemory.Description,
-			telegramConfig: alerts.Telegram,
-			discordConfig:  alerts.Discord,
-			slackConfig:    alerts.Slack,
-			deployParams:   deployParams,
-			secretSuffix:   crInput.Config.Version,
-			helpersImage:   helpersImage,
-			opts:           opts,
-			tags:           tags,
+			permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+			name:                fmt.Sprintf("%s--%s", alerts.MaxMemory.AlertName, deployParams.Environment),
+			description:         alerts.MaxMemory.Description,
+			telegramConfig:      alerts.Telegram,
+			discordConfig:       alerts.Discord,
+			slackConfig:         alerts.Slack,
+			deployParams:        deployParams,
+			secretSuffix:        crInput.Config.Version,
+			helpersImage:        helpersImage,
+			opts:                opts,
+			tags:                tags,
 			metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 				ComparisonOperator: sdk.String("GreaterThanThreshold"),
 				EvaluationPeriods:  sdk.Int(1),
@@ -860,17 +880,18 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Server Errors (5XX) Alert
 		if alerts.ServerErrors != nil {
 			if err := createAlert(ctx, alertCfg{
-				name:           fmt.Sprintf("%s--%s", alerts.ServerErrors.AlertName, deployParams.Environment),
-				description:    alerts.ServerErrors.Description,
-				telegramConfig: alerts.Telegram,
-				discordConfig:  alerts.Discord,
-				slackConfig:    alerts.Slack,
-				deployParams:   deployParams,
-				secretSuffix:   crInput.Config.Version,
-				helpersImage:   helpersImage,
-				snsTopic:       snsTopic,
-				opts:           opts,
-				tags:           tags,
+				permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+				name:                fmt.Sprintf("%s--%s", alerts.ServerErrors.AlertName, deployParams.Environment),
+				description:         alerts.ServerErrors.Description,
+				telegramConfig:      alerts.Telegram,
+				discordConfig:       alerts.Discord,
+				slackConfig:         alerts.Slack,
+				deployParams:        deployParams,
+				secretSuffix:        crInput.Config.Version,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
@@ -893,17 +914,18 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Unhealthy Hosts Alert
 		if alerts.UnhealthyHosts != nil {
 			if err := createAlert(ctx, alertCfg{
-				name:           fmt.Sprintf("%s--%s", alerts.UnhealthyHosts.AlertName, deployParams.Environment),
-				description:    alerts.UnhealthyHosts.Description,
-				telegramConfig: alerts.Telegram,
-				discordConfig:  alerts.Discord,
-				slackConfig:    alerts.Slack,
-				deployParams:   deployParams,
-				secretSuffix:   crInput.Config.Version,
-				helpersImage:   helpersImage,
-				snsTopic:       snsTopic,
-				opts:           opts,
-				tags:           tags,
+				permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+				name:                fmt.Sprintf("%s--%s", alerts.UnhealthyHosts.AlertName, deployParams.Environment),
+				description:         alerts.UnhealthyHosts.Description,
+				telegramConfig:      alerts.Telegram,
+				discordConfig:       alerts.Discord,
+				slackConfig:         alerts.Slack,
+				deployParams:        deployParams,
+				secretSuffix:        crInput.Config.Version,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanOrEqualToThreshold"),
 					EvaluationPeriods:  sdk.Int(2),
@@ -927,17 +949,18 @@ func createEcsAlerts(ctx *sdk.Context, clusterName, serviceName string, stack ap
 		// Target Response Time Alert
 		if alerts.ResponseTime != nil {
 			if err := createAlert(ctx, alertCfg{
-				name:           fmt.Sprintf("%s--%s", alerts.ResponseTime.AlertName, deployParams.Environment),
-				description:    alerts.ResponseTime.Description,
-				telegramConfig: alerts.Telegram,
-				discordConfig:  alerts.Discord,
-				slackConfig:    alerts.Slack,
-				deployParams:   deployParams,
-				secretSuffix:   crInput.Config.Version,
-				helpersImage:   helpersImage,
-				snsTopic:       snsTopic,
-				opts:           opts,
-				tags:           tags,
+				permissionsBoundary: crInput.AccountConfig.PermissionsBoundary,
+				name:                fmt.Sprintf("%s--%s", alerts.ResponseTime.AlertName, deployParams.Environment),
+				description:         alerts.ResponseTime.Description,
+				telegramConfig:      alerts.Telegram,
+				discordConfig:       alerts.Discord,
+				slackConfig:         alerts.Slack,
+				deployParams:        deployParams,
+				secretSuffix:        crInput.Config.Version,
+				helpersImage:        helpersImage,
+				snsTopic:            snsTopic,
+				opts:                opts,
+				tags:                tags,
 				metricAlarmArgs: cloudwatch.MetricAlarmArgs{
 					ComparisonOperator: sdk.String("GreaterThanThreshold"),
 					EvaluationPeriods:  sdk.Int(3),
@@ -965,10 +988,14 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 	images, err := util.MapErr(crInput.Containers, func(container aws.EcsFargateContainer, _ int) (*ECRImage, error) {
 		dockerfile := container.Image.Dockerfile
 		if dockerfile == "" && container.Image.Context == "" && container.Image.Name != "" {
-			// do not build and return right away
+			// Nothing is built, so no digest exists and nothing signs it. The
+			// reference the user pinned is all there is, and DeployImageRef must
+			// still be set: a zero StringOutput resolves as unknown, which fails
+			// the task definition rather than deploying the image.
 			return &ECRImage{
-				Container: container,
-				ImageName: sdk.String(container.Image.Name).ToStringOutput(),
+				Container:      container,
+				ImageName:      sdk.String(container.Image.Name).ToStringOutput(),
+				DeployImageRef: sdk.String(container.Image.Name).ToStringOutput(),
 			}, nil
 		}
 		if !filepath.IsAbs(dockerfile) {
@@ -987,9 +1014,10 @@ func buildAndPushECSFargateImages(ctx *sdk.Context, stack api.Stack, params pApi
 			return nil, errors.Wrapf(err, "failed to build and push image for container %q in stack %q env %q", container.Name, stack.Name, deployParams.Environment)
 		}
 		return &ECRImage{
-			Container: container,
-			ImageName: image.image.ImageName,
-			AddOpts:   image.addOpts,
+			Container:      container,
+			ImageName:      image.image.ImageName,
+			DeployImageRef: image.deployImageRef,
+			AddOpts:        image.addOpts,
 		}, nil
 	})
 	if err != nil {

@@ -81,6 +81,9 @@ type CloudSQLProxyArgs struct {
 	KubeProvider *sdkK8s.Provider
 	Metadata     *metav1.ObjectMetaArgs
 	TimeoutSec   int
+	// PrivateIp makes the proxy dial the instance's private IP (--private-ip)
+	// instead of the public endpoint.
+	PrivateIp bool
 }
 
 type CloudSQLProxy struct {
@@ -112,7 +115,7 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 		return nil, err
 	}
 
-	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.TimeoutSec)
+	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.PrivateIp, args.TimeoutSec)
 
 	return &CloudSQLProxy{
 		ProxyContainer: proxyContainer,
@@ -127,28 +130,33 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 // backs the startup probe that gates the app containers.
 const cloudSQLProxyHealthPort = 9090
 
-func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, timeout int) sdk.Output {
+func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, privateIp bool, timeout int) sdk.Output {
 	return sdk.All(credsSecret.Metadata.Name(), dbInstance.Project, dbInstance.Region, dbInstance.InstanceName).ApplyT(func(all []interface{}) v1.ContainerArgs {
 		secretName := all[0].(*string)
 		project := all[1].(string)
 		region := all[2].(string)
 		instanceName := all[3].(string)
-		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, timeout)
+		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, privateIp, timeout)
 	}).(v1.ContainerOutput)
 }
 
 // cloudsqlProxyCommandArgs returns the proxy entrypoint. timeout == 0 is the long-lived
 // runtime proxy (with its health server enabled); timeout > 0 is the init-Job proxy,
 // shell-wrapped to self-kill after `timeout`s so a RestartPolicy: Never Job can complete.
-func cloudsqlProxyCommandArgs(project, region, instanceName string, timeout int) (string, []string) {
+func cloudsqlProxyCommandArgs(project, region, instanceName string, privateIp bool, timeout int) (string, []string) {
 	command := "/cloud-sql-proxy"
 	args := []string{
 		"--address",
 		"0.0.0.0",
 		"--structured-logs",
+	}
+	if privateIp {
+		args = append(args, "--private-ip")
+	}
+	args = append(args,
 		"--credentials-file=/var/run/secrets/cloudsql/credentials.json",
 		fmt.Sprintf("%s:%s:%s", project, region, instanceName),
-	}
+	)
 
 	if timeout > 0 {
 		return "sh", []string{
@@ -180,8 +188,8 @@ func cloudsqlProxyCommandArgs(project, region, instanceName string, timeout int)
 // timeout == 0 yields a native sidecar (RestartPolicy: Always + startup probe) so the app
 // containers don't start before the proxy is listening. timeout > 0 (init-Job) stays an
 // ordinary terminating container -- it must NOT be a native sidecar or the Job would hang.
-func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, timeout int) v1.ContainerArgs {
-	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, timeout)
+func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, privateIp bool, timeout int) v1.ContainerArgs {
+	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, privateIp, timeout)
 
 	container := v1.ContainerArgs{
 		Name:    sdk.String("cloudsql-proxy"),
@@ -198,7 +206,9 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 			},
 			Requests: sdk.StringMap{
 				"memory": sdk.String("200Mi"),
-				"cpu":    sdk.String("50m"),
+				// 100m (was 50m): at 50m the proxy's health server starves under
+				// node CPU pressure and readiness probes time out.
+				"cpu": sdk.String("100m"),
 			},
 		},
 		VolumeMounts: v1.VolumeMountArray{
@@ -226,31 +236,47 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 			Path: sdk.String("/startup"),
 			Port: sdk.String("csql-hc"),
 		},
+		// Startup keeps the tight 3s timeout deliberately: nothing is connected
+		// yet, and the 30-failure budget already absorbs slow cold starts.
 		PeriodSeconds:    sdk.IntPtr(2),
 		TimeoutSeconds:   sdk.IntPtr(3),
 		FailureThreshold: sdk.IntPtr(30),
 	}
+	// Sidecar readiness GATES POD READINESS (KEP-753): three consecutive
+	// failures drop the whole pod from Service endpoints. timeout 10s (was 3s):
+	// with a 50m-CPU-request sidecar the health server starves under node
+	// pressure (observed at the previous 50m request) and 3s timeouts flap
+	// pods out of rotation; combined with
+	// Autopilot node consolidation this can leave a Service with zero ready
+	// pods.
+	// /readiness stays (unlike /liveness it verifies instance connectivity
+	// and connection capacity; /liveness returns 200 whenever the health
+	// server responds at all).
 	container.ReadinessProbe = &v1.ProbeArgs{
 		HttpGet: v1.HTTPGetActionArgs{
 			Path: sdk.String("/readiness"),
 			Port: sdk.String("csql-hc"),
 		},
 		PeriodSeconds:    sdk.IntPtr(10),
-		TimeoutSeconds:   sdk.IntPtr(3),
+		TimeoutSeconds:   sdk.IntPtr(10),
 		FailureThreshold: sdk.IntPtr(3),
 	}
-	// On a native sidecar a failing readiness probe neither restarts the container nor
-	// gates pod readiness — only liveness recovers a proxy that passed startup and then
-	// hung (deadlock / pool exhaustion / partial-OOM), where the process stays alive but
-	// app DB calls to localhost:5432 fail. /liveness is already served by --health-check.
+	// Liveness recovers a proxy that passed startup and then hung (deadlock /
+	// pool exhaustion / partial-OOM), where the process stays alive but app DB
+	// calls to localhost:5432 fail. /liveness is already served by --health-check.
 	// kubelet defers liveness until the startup probe succeeds, so no InitialDelay is needed.
 	container.LivenessProbe = &v1.ProbeArgs{
 		HttpGet: v1.HTTPGetActionArgs{
 			Path: sdk.String("/liveness"),
 			Port: sdk.String("csql-hc"),
 		},
-		PeriodSeconds:    sdk.IntPtr(10),
-		TimeoutSeconds:   sdk.IntPtr(3),
+		PeriodSeconds: sdk.IntPtr(10),
+		// Same 10s budget as readiness: /liveness is served by the same health
+		// server, and under the exact starvation the readiness change tolerates,
+		// a 3s liveness timeout would RESTART the sidecar (dropping every live
+		// DB connection) — strictly worse than an endpoint drop. A genuinely
+		// hung process still fails a 10s timeout, so deadlock recovery holds.
+		TimeoutSeconds:   sdk.IntPtr(10),
 		FailureThreshold: sdk.IntPtr(3),
 	}
 	return container

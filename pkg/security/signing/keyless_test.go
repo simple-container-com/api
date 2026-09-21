@@ -149,63 +149,15 @@ func TestGetRekorEntryFromOutput(t *testing.T) {
 	Expect(GetRekorEntryFromOutput(output)).To(Equal(expected))
 }
 
-func TestIsRekorConflict(t *testing.T) {
-	RegisterTestingT(t)
-
-	tests := []struct {
-		name   string
-		output string
-		want   bool
-	}{
-		{
-			name: "cosign bundle 409 createLogEntryConflict",
-			output: `signing registry.example.com/app@sha256:a7c43eb1700be291e4ea2bc146c8d5d23118f1d9: signing bundle: error signing bundle: ` +
-				`[POST /api/v1/log/entries][409] createLogEntryConflict {"code":409,"message":"an equivalent entry already exists in the transparency log with UUID 108e9186e8c5677a"}`,
-			want: true,
-		},
-		{
-			name:   "bare conflict marker",
-			output: "createLogEntryConflict",
-			want:   true,
-		},
-		{
-			name:   "409 against the rekor entries endpoint",
-			output: "[POST /api/v1/log/entries][409] something else",
-			want:   true,
-		},
-		{
-			name:   "unrelated 409 from a registry",
-			output: "GET https://registry.example.com/v2/: unexpected status 409",
-			want:   false,
-		},
-		{
-			name:   "fulcio auth failure",
-			output: "error signing: getting signer: getting key from Fulcio: retrieving cert: oidc: token expired",
-			want:   false,
-		},
-		{
-			name:   "empty",
-			output: "",
-			want:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			RegisterTestingT(t)
-			Expect(isRekorConflict(tt.output)).To(Equal(tt.want))
-		})
-	}
-}
-
 func TestKeylessSigner_Sign_RetriesOnRekorConflict(t *testing.T) {
 	RegisterTestingT(t)
+	noBackoff(t)
 
 	conflictStderr := `signing bundle: error signing bundle: [POST /api/v1/log/entries][409] createLogEntryConflict {"code":409,"message":"an equivalent entry already exists in the transparency log"}`
 
 	calls := 0
 	signer := NewKeylessSigner("a.b.c", time.Second)
-	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer.exec = probeAbsent(func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		Expect(name).To(Equal("cosign"))
 		Expect(args[0]).To(Equal("sign"))
@@ -213,7 +165,7 @@ func TestKeylessSigner_Sign_RetriesOnRekorConflict(t *testing.T) {
 			return "", conflictStderr, fmt.Errorf("exit status 1")
 		}
 		return "tlog entry created with index: 123456", "", nil
-	}
+	})
 	result, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 
 	Expect(err).ToNot(HaveOccurred())
@@ -239,16 +191,87 @@ func TestKeylessSigner_Sign_NoRetryOnOtherErrors(t *testing.T) {
 
 func TestKeylessSigner_Sign_GivesUpAfterMaxConflictAttempts(t *testing.T) {
 	RegisterTestingT(t)
+	noBackoff(t)
 
 	calls := 0
 	signer := NewKeylessSigner("a.b.c", time.Second)
-	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer.exec = probeAbsent(func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		return "", "[POST /api/v1/log/entries][409] createLogEntryConflict", fmt.Errorf("exit status 1")
-	}
+	})
 	_, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
-	Expect(calls).To(Equal(maxSignAttempts))
+	Expect(calls).To(Equal(maxCosignAttempts))
+}
+
+// A redeploy of an unchanged digest: the signature is already on the image, so
+// the conflict is the expected outcome and the deploy must not fail on it.
+func TestKeylessSigner_Sign_ConfirmedConflictSucceeds(t *testing.T) {
+	RegisterTestingT(t)
+	noBackoff(t)
+
+	calls, probes := 0, 0
+	signer := NewKeylessSigner("a.b.c", time.Second)
+	// Confirmation needs an identity to verify against; Config.CreateSigner
+	// plumbs these from the signing config in production.
+	signer.IdentityRegexp = "^https://example.test/wf@refs/heads/main$"
+	signer.OIDCIssuer = "https://token.example.test"
+	signer.exec = probePresent(func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+		calls++
+		return "", "[POST /api/v1/log/entries][409] createLogEntryConflict", fmt.Errorf("exit status 1")
+	}, &probes)
+
+	result, err := signer.Sign(context.Background(), "registry.example.com/app@sha256:f7ed9277c480591d7ec36fe7da13e112b33d898b7687f9bcbcda5c214a242099")
+
+	Expect(err).ToNot(HaveOccurred())
+	Expect(result).ToNot(BeNil())
+	Expect(calls).To(Equal(1))
+	Expect(probes).To(Equal(1))
+	Expect(result.Confirmed).To(BeTrue(), "the signature was confirmed, not freshly made")
+	Expect(result.RekorEntry).To(BeEmpty(), "no new transparency-log entry exists to point at")
+}
+
+// A keyless signer with no certificate identity cannot tell its own signature
+// from anyone else's, so it must not confirm. The conflict is retried and then
+// reported, which is the pre-confirmation behaviour.
+func TestKeylessSigner_Sign_WithoutAnIdentityDoesNotConfirm(t *testing.T) {
+	RegisterTestingT(t)
+	noBackoff(t)
+
+	calls, probes := 0, 0
+	signer := NewKeylessSigner("a.b.c", time.Second)
+	signer.exec = probePresent(func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+		calls++
+		return "", "[POST /api/v1/log/entries][409] createLogEntryConflict", fmt.Errorf("exit status 1")
+	}, &probes)
+
+	_, err := signer.Sign(context.Background(), "registry.example.com/app@sha256:f7ed9277c480591d7ec36fe7da13e112b33d898b7687f9bcbcda5c214a242099")
+
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
+	Expect(calls).To(Equal(maxCosignAttempts))
+	Expect(probes).To(Equal(0), "there is nothing to verify against")
+}
+
+// CreateSigner is where the identity reaches the signer. Without this wiring
+// the confirmation path is dead code in every production keyless run.
+func TestConfig_CreateSigner_PlumbsTheKeylessIdentity(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := &Config{
+		Enabled:        true,
+		Keyless:        true,
+		OIDCIssuer:     "https://token.example.test",
+		IdentityRegexp: "^https://example.test/wf@refs/heads/main$",
+	}
+	signer, err := cfg.CreateSigner("a.b.c")
+	Expect(err).ToNot(HaveOccurred())
+
+	keyless, ok := signer.(*KeylessSigner)
+	Expect(ok).To(BeTrue())
+	Expect(keyless.IdentityRegexp).To(Equal(cfg.IdentityRegexp))
+	Expect(keyless.OIDCIssuer).To(Equal(cfg.OIDCIssuer))
+	Expect(keyless.confirmProbe()).ToNot(BeNil())
 }

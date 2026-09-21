@@ -12,7 +12,6 @@ import (
 	"google.golang.org/api/serviceusage/v1"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v8/go/gcp/kms"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -27,6 +26,14 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	kmsInput, ok := input.Descriptor.Config.Config.(*gcloud.SecretsProviderConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to convert KmsKeyInput for %q", input.Descriptor.Type)
+	}
+
+	// Validate before any side effect. Enabling service APIs mutates the
+	// project, and a KeyRing can never be deleted in GCP (destroying the Pulumi
+	// resource only drops it from state), so failing later would leave a
+	// permanent, un-recreatable-by-name KeyRing behind for a mere typo.
+	if err := kmsInput.Validate(); err != nil {
+		return nil, err
 	}
 
 	if err := enableServicesAPI(ctx.Context(), input.Descriptor.Config.Config,
@@ -54,7 +61,7 @@ func KmsKeySecretsProvider(ctx *sdk.Context, stack api.Stack, input api.Resource
 	}
 
 	// Create a new CryptoKey associated with the KeyRing.
-	rotationPeriod := lo.If(kmsInput.KeyRotationPeriod == "", "100000s").Else(kmsInput.KeyRotationPeriod)
+	rotationPeriod := kmsInput.EffectiveKeyRotationPeriod()
 
 	key, err := kms.NewCryptoKey(ctx, input.ToResName(input.Descriptor.Name), &kms.CryptoKeyArgs{
 		Name:           sdk.String(input.Descriptor.Name),

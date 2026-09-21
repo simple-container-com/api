@@ -31,7 +31,7 @@ jobs:
         run: |
           echo "::error title=branch-preview.yaml requires a branch ref::Got github.ref=$GITHUB_REF; this workflow signs preview artifacts under the preview trust root (refs/heads/* only). Re-dispatch from a branch."
           exit 1
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Get next version
@@ -56,7 +56,7 @@ jobs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
@@ -145,7 +145,7 @@ jobs:
           - os: darwin
             arch: amd64
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -168,9 +168,10 @@ jobs:
           go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
           cp .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz
-      # Phase 2 attestation (mirrors push.yaml). Soft-fail per step — the
-      # tarball itself is the publish artifact. Preview builds only publish
-      # versioned tarballs (no unversioned twin), so sidecars are per-version.
+      # Attestation for preview tarballs. Soft-fail per step, and unlike
+      # push.yaml there is no gate afterwards: a preview publishes whatever it
+      # managed to attest. Preview builds only publish versioned tarballs (no
+      # unversioned twin), so sidecars are per-version.
       - name: SHA-256 sidecar for ${{ matrix.os }}/${{ matrix.arch }}
         env:
           GOOS: ${{ matrix.os }}
@@ -212,7 +213,7 @@ jobs:
       - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: slsa_tarball
         continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32  # v4.1.0
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v${{ needs.prepare.outputs.version }}.tar.gz
       - name: Materialize SLSA provenance bundle next to tarball
@@ -251,7 +252,7 @@ jobs:
             cmd: cloud-helpers
             output: dist/cloud-helpers
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -279,7 +280,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: [prepare, build-setup]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -302,17 +303,22 @@ jobs:
       matrix:
         include:
           - target: github-actions
+            cache_scope: github-actions
             binary: github-actions
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tag_prefix: "simplecontainer/github-actions:"
           - target: cloud-helpers
+            # matches push.yaml's `image: cloud-helpers-aws` so the prod
+            # cache fallback above resolves; the artifact/tag names stay
+            # `cloud-helpers`.
+            cache_scope: cloud-helpers-aws
             binary: cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
             tag_prefix: "simplecontainer/cloud-helpers:aws-"
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: download ${{ matrix.target }} binary
@@ -331,7 +337,7 @@ jobs:
           EOF
           sc secrets reveal
       - name: Setup Docker Buildx with advanced caching
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
         with:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
@@ -342,20 +348,41 @@ jobs:
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
       - name: Build and push preview ${{ matrix.target }} image
         id: build_and_push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           tags: ${{ matrix.tag_prefix }}${{ needs.prepare.outputs.version }}
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Writes its own preview tier; reads prod as a warm fallback.
+          # Reading a higher-trust scope is safe, writing one is not.
+          # matrix.cache_scope (not matrix.target) so the prod fallback
+          # actually matches push.yaml's image names.
+          cache-from: |
+            type=gha,scope=preview-${{ matrix.cache_scope }}
+            type=gha,scope=prod-${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.cache_scope }}
+          # Never cache-hit the distro-upgrade layer. `runtime` is the final
+          # stage in every one of these Dockerfiles; its base is digest-pinned
+          # and its `apk/dnf upgrade` RUN string never changes, so with
+          # `cache-from` its key is permanently stable and the upgrade silently
+          # stops executing after the first ever build. That is how
+          # `simplecontainer/github-actions:latest` came to ship python3
+          # 3.14.5-r0 (12 HIGH) while Alpine already served 3.14.7-r1 — and it
+          # would have frozen git / openssh-client / curl / libssl3 the same way.
+          # Scoped to the final stage on purpose: the expensive builder stage
+          # (SHA-verified Pulumi + gcloud download, install and slim) keeps its
+          # cache. Measured cost of re-running `runtime` alone: ~34 s.
+          no-cache-filters: runtime
           provenance: false
-      # Phase 2 attestation (mirrors push.yaml). Preview builds get the SAME
-      # security guarantees as production releases so consumers pin-testing a
+      # Attestation for preview images. Preview builds run the same sign + SBOM
+      # + SLSA steps as production releases, so consumers pin-testing a
       # preview version (per project_sc_preview memory: PAY-SPACE pins workflows
       # to versioned preview builds) can verify the same way they verify prod.
+      # Same steps, weaker promise: a preview does NOT get the release gate, and
+      # its tags go live before anything is signed. The warn-only aggregator
+      # below is the accurate statement of what a preview guarantees.
       - name: Sign + attest ${{ matrix.target }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'
@@ -365,7 +392,8 @@ jobs:
           image-name: ${{ matrix.target }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
-          # Phase 2 bake-in soft-fail. Mirrors push.yaml.
+          # Soft-fail. push.yaml sets this too, but follows it with a gate
+          # that fails the release; a preview has no such gate.
           soft-fail: 'true'
       - name: Record image digest for verify-attestations
         if: steps.build_and_push.outcome == 'success'
@@ -383,6 +411,10 @@ jobs:
           name: image-digest-${{ matrix.target }}
           path: digests/${{ matrix.target }}.txt
           retention-days: 1
+      # Warn-only on purpose. Previews and staging builds are not releases:
+      # nothing in SECURITY.md promises a consumer they carry a complete
+      # attestation chain, and blocking them would stall iteration on a
+      # Sigstore hiccup. push.yaml gates releases instead.
       - name: Soft-fail aggregator for ${{ matrix.target }} attestation
         if: always() && steps.build_and_push.outcome == 'success'
         env:
@@ -410,7 +442,7 @@ jobs:
     permissions:
       contents: write  # welder deploy reads release artifacts + updates dist
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: download all sc platform artifacts
@@ -481,7 +513,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -537,7 +569,7 @@ jobs:
       - publish-git-tag
       - docker-build
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         if: ${{ always() }}
         with:
           persist-credentials: false

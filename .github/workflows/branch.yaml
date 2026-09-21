@@ -46,7 +46,7 @@ jobs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
@@ -131,7 +131,7 @@ jobs:
           - os: darwin
             arch: amd64
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -173,7 +173,7 @@ jobs:
             cmd: cloud-helpers
             output: dist/cloud-helpers
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -200,7 +200,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: build-setup
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -223,7 +223,7 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: build-setup
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Go with Blacksmith caching
@@ -233,6 +233,24 @@ jobs:
       - name: test
         run: |
           go test ./...
+
+  test-registry-integration:
+    name: Run registry integration tests
+    runs-on: blacksmith-8vcpu-ubuntu-2204
+    needs: build-setup
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go with Blacksmith caching
+        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+        with:
+          go-version: '1.25'
+      - name: install attestation tools
+        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+      - name: test
+        run: |
+          go test -tags integration -count=1 ./pkg/clouds/pulumi/docker/...
 
   finalize:
     name: Finalize build in branch
@@ -255,8 +273,9 @@ jobs:
       - build-binaries
       - build-github-actions-staging
       - test
+      - test-registry-integration
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         if: ${{ always() }}
         with:
           persist-credentials: false

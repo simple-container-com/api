@@ -40,6 +40,9 @@
       "name": {
         "type": "string"
       },
+      "noncurrentVersionRetentionDays": {
+        "type": "integer"
+      },
       "provision": {
         "type": "boolean"
       }

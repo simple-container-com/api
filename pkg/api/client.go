@@ -26,6 +26,7 @@ type ClientDescriptor struct {
 	Defaults      map[string]interface{}           `json:"defaults,omitempty" yaml:"defaults,omitempty"` // Maximum flexibility - supports any user-defined YAML anchors, templates, and configuration
 	Stacks        map[string]StackClientDescriptor `json:"stacks" yaml:"stacks"`
 	Security      *SecurityDescriptor              `json:"security,omitempty" yaml:"security,omitempty"` // Container security configuration
+	ImageBuild    *ImageBuildDescriptor            `json:"imageBuild,omitempty" yaml:"imageBuild,omitempty"`
 
 	// Additional flexible root-level properties for future extensibility
 	// Any other user-defined root-level sections will be preserved via our text manipulation approach
@@ -34,6 +35,11 @@ type ClientDescriptor struct {
 // HasDefaults checks if the client configuration has a defaults section
 func (c *ClientDescriptor) HasDefaults() bool {
 	return len(c.Defaults) > 0
+}
+
+// ReuseExistingCommitTagEnabled reports whether tag reuse is configured.
+func (c *ClientDescriptor) ReuseExistingCommitTagEnabled() bool {
+	return c != nil && c.ImageBuild != nil && c.ImageBuild.ReuseExistingCommitTag
 }
 
 // GetDefaultsSection returns the defaults section as a map for flexible access
@@ -168,6 +174,20 @@ type SimpleContainerLBConfig struct {
 	// what's accepted at each scope; mis-placing a directive yields a
 	// Caddyfile parse error at reload time.
 	SiteExtraHelpers []string `json:"siteExtraHelpers" yaml:"siteExtraHelpers"`
+	// RequestBufferSize controls the `request_buffers` directive on the
+	// generated reverse_proxy block. Bodies up to this size are buffered so
+	// the upstream receives Content-Length instead of Transfer-Encoding:
+	// chunked — WSGI frameworks (Django #28668) read an empty body on chunked
+	// requests. The value is parsed as a byte size (humanize: "512KB",
+	// "4MiB"), validated (max 16MiB — the buffer is held in edge-proxy memory
+	// per in-flight request), and rendered as a plain byte count, so no
+	// user-controlled text reaches the shared Caddyfile. "0" omits the
+	// directive entirely (also the escape hatch for edges running Caddy
+	// < 2.6.0, which predates request_buffers). Unset/empty = default 1MiB.
+	// Chunked bodies LARGER than the buffer still reach the upstream chunked
+	// and remain subject to Django #28668 — raise the size for endpoints
+	// receiving large chunked uploads.
+	RequestBufferSize string `json:"requestBufferSize,omitempty" yaml:"requestBufferSize,omitempty"`
 }
 
 type StackConfigCompose struct {

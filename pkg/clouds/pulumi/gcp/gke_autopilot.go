@@ -189,6 +189,11 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 		// For production safety, you may want to add "privateClusterConfig" to ignoreChanges for existing clusters.
 	}
 
+	if err := gkeInput.ControlPlaneAccess.Validate(); err != nil {
+		return nil, errors.Wrapf(err, "invalid control plane access configuration for cluster %q", clusterName)
+	}
+	ignoreChanges = append(ignoreChanges, applyControlPlaneAccess(clusterArgs, gkeInput.ControlPlaneAccess)...)
+
 	cluster, err := container.NewCluster(ctx, clusterName, clusterArgs, append(opts, sdk.IgnoreChanges(ignoreChanges), sdk.Timeouts(&timeouts))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create cluster %q in %q", clusterName, input.StackParams.Environment)
@@ -381,11 +386,18 @@ func toKubeconfigExport(clusterName string) string {
 }
 
 func generateKubeconfig(cluster *container.Cluster, gkeInput *gcloud.GkeAutopilotResource) sdk.StringOutput {
-	return sdk.All(cluster.Project, cluster.Name, cluster.Endpoint, cluster.MasterAuth).ApplyT(func(args []any) (string, error) {
+	return sdk.All(cluster.Project, cluster.Name, cluster.Endpoint, cluster.MasterAuth,
+		cluster.ControlPlaneEndpointsConfig).ApplyT(func(args []any) (string, error) {
 		project := args[0].(string)
 		name := args[1].(string)
 		endpoint := args[2].(string)
 		masterAuth := args[3].(container.ClusterMasterAuth)
+		endpoints, _ := args[4].(container.ClusterControlPlaneEndpointsConfig)
+
+		endpoint, err := kubeconfigEndpoint(name, endpoint, endpoints, gkeInput.ControlPlaneAccess)
+		if err != nil {
+			return "", err
+		}
 
 		context := fmt.Sprintf("%s_%s_%s", project, gkeInput.Zone, name)
 
@@ -471,7 +483,7 @@ func setupCloudNAT(
 	out.Router = router
 
 	// Step 3: Create Cloud NAT (configured for cluster's specific subnet)
-	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, subnetwork, opts, params)
+	nat, err := createCloudNat(ctx, clusterName, router, staticIp, region, cluster, subnetwork, gkeInput.ExternalEgressIp, opts, params)
 	if err != nil {
 		return errors.Wrap(err, "failed to create Cloud NAT")
 	}
@@ -545,6 +557,47 @@ func createCloudRouter(
 	}, opts...)
 }
 
+// natPortSettings holds the resolved Cloud NAT port/mapping configuration.
+type natPortSettings struct {
+	minPortsPerVm              int
+	maxPortsPerVm              int
+	endpointIndependentMapping bool
+	dynamicPortAllocation      bool
+}
+
+// resolveNatPortSettings applies the egress config over the historical defaults
+// (64 min ports, endpoint-independent mapping on, dynamic port allocation off),
+// so an unset or nil config reproduces the prior behaviour exactly.
+func resolveNatPortSettings(cfg *gcloud.ExternalEgressIpConfig) natPortSettings {
+	s := natPortSettings{
+		minPortsPerVm:              gcloud.DefaultMinPortsPerVm,
+		maxPortsPerVm:              gcloud.DefaultMaxPortsPerVm,
+		endpointIndependentMapping: true,
+		dynamicPortAllocation:      false,
+	}
+	if cfg == nil {
+		return s
+	}
+	if cfg.MinPortsPerVm != nil {
+		s.minPortsPerVm = *cfg.MinPortsPerVm
+	}
+	if cfg.MaxPortsPerVm != nil {
+		s.maxPortsPerVm = *cfg.MaxPortsPerVm
+	}
+	if cfg.EndpointIndependentMapping != nil {
+		s.endpointIndependentMapping = *cfg.EndpointIndependentMapping
+	}
+	if cfg.DynamicPortAllocation != nil {
+		s.dynamicPortAllocation = *cfg.DynamicPortAllocation
+	}
+	// GCP rejects dynamic port allocation with endpoint-independent mapping on;
+	// keep the resolved settings self-consistent regardless of validation order.
+	if s.dynamicPortAllocation {
+		s.endpointIndependentMapping = false
+	}
+	return s
+}
+
 // createCloudNat creates a Cloud NAT gateway
 func createCloudNat(
 	ctx *sdk.Context,
@@ -554,6 +607,7 @@ func createCloudNat(
 	region string,
 	cluster *container.Cluster,
 	subnetwork sdk.StringInput, // Optional: specific subnet for private VPC
+	egressCfg *gcloud.ExternalEgressIpConfig,
 	opts []sdk.ResourceOption,
 	params pApi.ProvisionParams,
 ) (*compute.RouterNat, error) {
@@ -562,6 +616,8 @@ func createCloudNat(
 
 	// Create array of static IP references for NAT
 	natIps := sdk.StringArray{staticIp.SelfLink}
+
+	ports := resolveNatPortSettings(egressCfg)
 
 	// Configure NAT for specific GKE cluster subnet instead of all subnets
 	natArgs := &compute.RouterNatArgs{
@@ -573,9 +629,9 @@ func createCloudNat(
 		NatIpAllocateOption: sdk.String("MANUAL_ONLY"), // Use only the IPs we specify in NatIps
 		NatIps:              natIps,                    // Our static IP address
 
-		// Port allocation - production-ready defaults
-		MinPortsPerVm: sdk.Int(64),
-		MaxPortsPerVm: sdk.Int(65536),
+		// Port allocation - defaults preserve prior behaviour; tunable via egress config
+		MinPortsPerVm: sdk.Int(ports.minPortsPerVm),
+		MaxPortsPerVm: sdk.Int(ports.maxPortsPerVm),
 
 		// Logging configuration - errors only for cost optimization
 		LogConfig: &compute.RouterNatLogConfigArgs{
@@ -583,8 +639,14 @@ func createCloudNat(
 			Filter: sdk.String("ERRORS_ONLY"),
 		},
 
-		// Enable endpoint independent mapping for better performance
-		EnableEndpointIndependentMapping: sdk.Bool(true),
+		EnableEndpointIndependentMapping: sdk.Bool(ports.endpointIndependentMapping),
+	}
+
+	// Only send EnableDynamicPortAllocation when enabling it: the historical
+	// default path left the field unset, so keep it absent to avoid a spurious
+	// resource update on existing NATs.
+	if ports.dynamicPortAllocation {
+		natArgs.EnableDynamicPortAllocation = sdk.Bool(true)
 	}
 
 	// Configure NAT to target ALL IP ranges (primary + secondary) for GKE pods
@@ -631,7 +693,7 @@ func createCloudNat(
 	params.Log.Info(ctx.Context(), "   - IP Allocation: MANUAL_ONLY (using static IP %v)", staticIp.Name.ToStringOutput())
 	params.Log.Info(ctx.Context(), "   - Source Ranges: LIST_OF_SUBNETWORKS with ALL_IP_RANGES")
 	params.Log.Info(ctx.Context(), "   - Subnet: default (includes primary + secondary ranges)")
-	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM", 64, 65536)
+	params.Log.Info(ctx.Context(), "   - Port Range: %d-%d per VM (dynamic=%t, endpointIndependentMapping=%t)", ports.minPortsPerVm, ports.maxPortsPerVm, ports.dynamicPortAllocation, ports.endpointIndependentMapping)
 	params.Log.Info(ctx.Context(), "")
 	params.Log.Info(ctx.Context(), "🔍 Troubleshooting Steps if egress IP is still wrong:")
 	params.Log.Info(ctx.Context(), "   1. Check GCP Console → VPC Network → Cloud NAT")
@@ -712,4 +774,85 @@ func extractRegionFromLocation(location string) string {
 
 	// Return as-is for regional clusters (already in correct format)
 	return location
+}
+
+// applyControlPlaneAccess translates the controlPlaneAccess block onto the
+// cluster arguments. A nil config writes nothing, so clusters that do not ask
+// for it keep whatever GKE gave them and Pulumi does not start managing the
+// fields.
+func applyControlPlaneAccess(args *container.ClusterArgs, cfg *gcloud.ControlPlaneAccessConfig) []string {
+	// Writing nothing is not the same as not managing the field. Both blocks are
+	// optional and not computed, so once either is in state, a program that
+	// stops sending it plans its REMOVAL: deleting a controlPlaneAccess block as
+	// tidy-up would drop the allow list and put the control plane back on the
+	// open internet, with a diff that reads as "removed some config". Ignoring
+	// them while nothing asks for them is what makes the opt-in claim true.
+	if cfg == nil {
+		return []string{"masterAuthorizedNetworksConfig", "controlPlaneEndpointsConfig"}
+	}
+
+	if cfg.AuthorizedNetworksEnabled() {
+		blocks := make(container.ClusterMasterAuthorizedNetworksConfigCidrBlockArray, 0, len(cfg.AuthorizedNetworks))
+		for _, n := range cfg.AuthorizedNetworks {
+			block := container.ClusterMasterAuthorizedNetworksConfigCidrBlockArgs{
+				CidrBlock: sdk.String(n.Cidr),
+			}
+			if n.Name != "" {
+				block.DisplayName = sdk.String(n.Name)
+			}
+			blocks = append(blocks, block)
+		}
+		// GcpPublicCidrsAccessEnabled is sent explicitly because GKE defaults it
+		// to true, which would keep every Google Cloud public address authorised
+		// alongside the list.
+		args.MasterAuthorizedNetworksConfig = &container.ClusterMasterAuthorizedNetworksConfigArgs{
+			CidrBlocks:                  blocks,
+			GcpPublicCidrsAccessEnabled: sdk.Bool(cfg.GcpPublicCidrsAllowed()),
+		}
+	}
+
+	if cfg.DnsEndpoint == nil && cfg.IpEndpoint == nil {
+		return nil
+	}
+	endpoints := &container.ClusterControlPlaneEndpointsConfigArgs{}
+	if cfg.DnsEndpoint != nil {
+		endpoints.DnsEndpointConfig = &container.ClusterControlPlaneEndpointsConfigDnsEndpointConfigArgs{
+			AllowExternalTraffic: sdk.Bool(cfg.DnsEndpointEnabled()),
+		}
+	}
+	if cfg.IpEndpoint != nil {
+		endpoints.IpEndpointsConfig = &container.ClusterControlPlaneEndpointsConfigIpEndpointsConfigArgs{
+			Enabled: sdk.Bool(cfg.IpEndpointEnabled()),
+		}
+	}
+	args.ControlPlaneEndpointsConfig = endpoints
+	return nil
+}
+
+// kubeconfigEndpoint picks the host a generated kubeconfig should talk to.
+//
+// cluster.Endpoint is the IP endpoint. With that endpoint turned off it names
+// something nothing can dial, and every stack consuming the kubeconfig fails at
+// connect time rather than at configuration time, so the DNS endpoint is used
+// instead. The IP endpoint is still the default: an allow list narrows who can
+// reach it, and deciding here whether the caller is inside that list is not
+// something this code can know.
+func kubeconfigEndpoint(
+	clusterName, ipEndpoint string,
+	endpoints container.ClusterControlPlaneEndpointsConfig,
+	cfg *gcloud.ControlPlaneAccessConfig,
+) (string, error) {
+	if cfg.IpEndpointEnabled() {
+		return ipEndpoint, nil
+	}
+	dnsEndpoint := ""
+	if endpoints.DnsEndpointConfig != nil {
+		dnsEndpoint = lo.FromPtr(endpoints.DnsEndpointConfig.Endpoint)
+	}
+	if dnsEndpoint == "" {
+		return "", errors.Errorf(
+			"cluster %q has ipEndpoint disabled but reported no DNS endpoint, so no kubeconfig can be generated",
+			clusterName)
+	}
+	return dnsEndpoint, nil
 }

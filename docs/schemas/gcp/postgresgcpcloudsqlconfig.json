@@ -64,8 +64,14 @@
       "pointInTimeRecoveryEnabled": {
         "type": "boolean"
       },
+      "privateNetwork": {
+        "type": "string"
+      },
       "project": {
         "type": "string"
+      },
+      "publicIpEnabled": {
+        "type": "boolean"
       },
       "queryInsightsEnabled": {
         "type": "boolean"

@@ -25,6 +25,10 @@ type dockerImage struct {
 type dockerImageOut struct {
 	image   *docker.Image
 	addOpts []sdk.ResourceOption
+	// deployImageRef is the immutable digest reference to point the runtime at.
+	// Deploying image.ImageName instead means the task definition carries a tag
+	// that can be moved after signing and verification have already passed.
+	deployImageRef sdk.StringOutput
 }
 
 func buildAndPushDockerImageV2(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, image dockerImage) (*dockerImageOut, error) {
@@ -51,7 +55,8 @@ func buildAndPushDockerImageV2(ctx *sdk.Context, stack api.Stack, params pApi.Pr
 			image.name, image.context, stack.Name, deployParams.Environment)
 	}
 	return &dockerImageOut{
-		image:   out.Image,
-		addOpts: out.AddOpts,
+		image:          out.Image,
+		addOpts:        out.AddOpts,
+		deployImageRef: out.DeployImageRef,
 	}, nil
 }

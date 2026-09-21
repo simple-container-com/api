@@ -65,11 +65,17 @@ updates:
 
   # ── Docker: VERSION only ────────────────────────────────────────────────
   # Production images built from the 5 root *.Dockerfile files (caddy,
-  # cloud-helpers.aws, github-actions, github-actions-staging, kubectl).
-  # Dependabot only scans the configured directory level, so the example
-  # Dockerfiles under docs/ are implicitly out of scope.
+  # cloud-helpers.aws, github-actions, github-actions-staging, kubectl),
+  # plus the user-facing example Dockerfiles under docs/ (see below).
   - package-ecosystem: docker
-    directory: /
+    # The user-facing example Dockerfiles under docs/ are part of the tracked
+    # Docker surface per docs/DEPENDENCIES.md, but a bare `directory: /` only
+    # scans the root level — so their digests went unwatched and drifted onto
+    # caddy 2.11.3 and node 22.22.3 (both with HIGH CVEs) until the 2026-08 SCA
+    # pass caught them by hand. `directories:` with a glob closes that gap.
+    directories:
+      - /
+      - /docs/docs/examples/**
     schedule:
       interval: weekly
       day: monday
