@@ -234,9 +234,17 @@ async function handleRequest(origRequest) {
     const origHost = new URL(origRequest.url).hostname; 
 	url.hostname = overrideHost;
 
+	// Workers overwrite Host on the outbound fetch with the override hostname, so an
+	// upstream that serves more than one domain cannot tell which one the visitor asked
+	// for. Forward the original under X-Forwarded-Host. set(), never append: a
+	// client-supplied X-Forwarded-Host is replaced, so the upstream can trust this value
+	// exactly as far as it trusts the worker.
+	const fwdHeaders = new Headers(origRequest.headers);
+	fwdHeaders.set("X-Forwarded-Host", origHost);
+
 	const request = new Request(url, {
-		headers: origRequest.headers, 
-		method: origRequest.method, 
+		headers: fwdHeaders,
+		method: origRequest.method,
 		body: origRequest.body,
 	});
 
