@@ -97,7 +97,14 @@ func createS3Bucket(ctx *sdk.Context, input S3BucketInput) (*PrivateBucketOutput
 	}
 
 	bucketArgs.Tags = input.Tags
-	bucket, err := s3.NewBucket(ctx, input.Name, bucketArgs, opts...)
+	// Ignore drift on aws:s3/bucket:Bucket.corsRules: the CORS rules are managed by the
+	// standalone aws:s3/bucketCorsConfigurationV2 resource created below. Without this,
+	// refresh pulls the AWS-side rules into the Bucket resource's state on run N, then
+	// preview on run N+1 sees them as unwanted drift and calls DeleteBucketCors — wiping
+	// the rules that the V2 resource just installed. Result: CORS oscillates on/off every
+	// other deploy. See forge-storage--staging incidents Sep 22 & prior.
+	bucketOpts := append(opts, sdk.IgnoreChanges([]string{"corsRules"}))
+	bucket, err := s3.NewBucket(ctx, input.Name, bucketArgs, bucketOpts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision bucket %q", input.Name)
 	}
