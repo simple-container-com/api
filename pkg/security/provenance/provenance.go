@@ -201,9 +201,6 @@ func (a *Attacher) Attach(ctx context.Context, statement *Statement, imageRef st
 	// Close before cosign reads it — ensures content is flushed to disk.
 	tmpFile.Close()
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, a.Timeout)
-	defer cancel()
-
 	args := []string{
 		"attest",
 		"--predicate", tmpFile.Name(),
@@ -212,16 +209,13 @@ func (a *Attacher) Attach(ctx context.Context, statement *Statement, imageRef st
 	args = append(args, a.buildSigningArgs()...)
 	args = append(args, imageRef)
 
-	cmd := exec.CommandContext(timeoutCtx, "cosign", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	cmd.Env = append(os.Environ(), a.buildSigningEnv()...)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cosign attest failed: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
-	}
-
-	return nil
+	// Every retry is a fresh process with its own full a.Timeout budget. The
+	// predicate file outlives the loop via the deferred remove above. See the
+	// SBOM attacher for why the confirm probe verifies rather than downloads,
+	// and why a nil probe keeps the retry-then-report path.
+	confirm := a.SigningConfig.AttestationConfirmProbe(attestationType(statement.Format))
+	_, err = signing.RunCosignWithRetryConfirm(ctx, "provenance attest", args, a.buildSigningEnv(), a.Timeout, confirm)
+	return err
 }
 
 // Verify verifies the provenance attestation and returns the decoded predicate.

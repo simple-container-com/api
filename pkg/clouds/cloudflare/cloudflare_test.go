@@ -66,3 +66,37 @@ func TestProviderConstants(t *testing.T) {
 	Expect(ProviderType).To(Equal("cloudflare"))
 	Expect(RegistrarType).To(Equal("cloudflare"))
 }
+
+func TestReadRegistrarConfig(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("happy path", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"credentials": "cf-token",
+			"accountId":   "acct-12345",
+			"zoneName":    "example.com",
+			"dnsRecords": []any{
+				map[string]any{"name": "www", "type": "CNAME", "value": "example.com"},
+			},
+		}}
+		out, err := ReadRegistrarConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+		rc, ok := out.Config.(*RegistrarConfig)
+		Expect(ok).To(BeTrue())
+		Expect(rc.ZoneName).To(Equal("example.com"))
+		Expect(rc.AccountId).To(Equal("acct-12345"))
+		Expect(rc.CredentialsValue()).To(Equal("cf-token"))
+		Expect(rc.DnsRecords()).To(HaveLen(1))
+		Expect(rc.DnsRecords()[0].Type).To(Equal("CNAME"))
+
+		var _ api.RegistrarConfig = rc
+	})
+
+	t.Run("error path", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{"zoneName": []int{1, 2, 3}}}
+		_, err := ReadRegistrarConfig(cfg)
+		Expect(err).To(HaveOccurred())
+	})
+}

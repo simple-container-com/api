@@ -199,10 +199,17 @@ func scanCommandEnvironment(cfg *api.ReportingDescriptor) sdk.StringMap {
 }
 
 // --- Path resolvers ---
+//
+// A configured output.local is a single path, but security operations run once
+// per image in the stack. Returning it verbatim made every image write the same
+// file, so with two images a concurrent sbom-att could attach the other image's
+// SBOM — and the PR comment body and scan results overwrote each other. Each
+// resolver therefore disambiguates a configured base path by image, using the
+// same appendPathSuffix idiom already applied to per-tool scan output.
 
 func resolveScanOutputPath(security *api.SecurityDescriptor, imageName string) string {
 	if security.Scan != nil && security.Scan.Output != nil && security.Scan.Output.Local != "" {
-		return security.Scan.Output.Local
+		return appendPathSuffix(security.Scan.Output.Local, safeArtifactName(imageName))
 	}
 	return ""
 }
@@ -220,14 +227,14 @@ func resolveToolScanOutputPath(security *api.SecurityDescriptor, imageName, tool
 
 func resolveSBOMOutputPath(security *api.SecurityDescriptor, imageName string) string {
 	if security.SBOM != nil && security.SBOM.Output != nil && security.SBOM.Output.Local != "" {
-		return security.SBOM.Output.Local
+		return appendPathSuffix(security.SBOM.Output.Local, safeArtifactName(imageName))
 	}
 	return tempArtifactPath("sbom", imageName, "json")
 }
 
 func resolveProvenanceOutputPath(security *api.SecurityDescriptor, imageName string) string {
 	if security.Provenance != nil && security.Provenance.Output != nil && security.Provenance.Output.Local != "" {
-		return security.Provenance.Output.Local
+		return appendPathSuffix(security.Provenance.Output.Local, safeArtifactName(imageName))
 	}
 	return ""
 }
@@ -237,14 +244,18 @@ func resolveCommentOutputPath(security *api.SecurityDescriptor, imageName string
 		return ""
 	}
 	if security.Reporting.PRComment.Output != "" {
-		return security.Reporting.PRComment.Output
+		return appendPathSuffix(security.Reporting.PRComment.Output, safeArtifactName(imageName))
 	}
 	return tempArtifactPath("scan-comment", imageName, "md")
 }
 
+// safeArtifactName turns an image name into a filename-safe fragment.
+func safeArtifactName(imageName string) string {
+	return strings.NewReplacer("/", "-", ":", "-", "@", "-", "\\", "-").Replace(imageName)
+}
+
 func tempArtifactPath(prefix, imageName, extension string) string {
-	safeName := strings.NewReplacer("/", "-", ":", "-", "@", "-", "\\", "-").Replace(imageName)
-	return filepath.Join("/tmp", fmt.Sprintf("%s-%s.%s", prefix, safeName, extension))
+	return filepath.Join("/tmp", fmt.Sprintf("%s-%s.%s", prefix, safeArtifactName(imageName), extension))
 }
 
 func appendPathSuffix(path, suffix string) string {

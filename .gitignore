@@ -32,3 +32,9 @@ pkg/clouds/pulumi/testdata/secrets/mongodb-e2e-config.yaml
 pkg/clouds/pulumi/testdata/secrets/docker-creds.yaml
 .windsurf
 .claude
+
+# cosign key pairs. Tests generate throwaway pairs; before GenerateKeyPair
+# passed --output-key-prefix, cosign wrote them into the process working
+# directory, which meant an encrypted private key landed in the source tree.
+cosign.key
+cosign.pub

@@ -107,35 +107,38 @@ func TestKeyBasedSignerPasswordHandling(t *testing.T) {
 
 func TestKeyBasedSigner_Sign_GivesUpOnPersistentRekorConflict(t *testing.T) {
 	RegisterTestingT(t)
+	noBackoff(t)
 
-	// Deterministic keys reproduce the same signature: a persistent conflict
-	// must exhaust the loop and fail, never be treated as success.
+	// Deterministic keys reproduce the same signature, so the conflict never
+	// clears. With no signature on the image to confirm it, the loop must
+	// exhaust and fail rather than report a success nothing backs.
 	calls := 0
 	signer := NewKeyBasedSigner("test-key-content", "", time.Second)
-	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer.exec = probeAbsent(func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		return "", "[POST /api/v1/log/entries][409] createLogEntryConflict", fmt.Errorf("exit status 1")
-	}
+	})
 
 	_, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("createLogEntryConflict"))
-	Expect(calls).To(Equal(maxSignAttempts))
+	Expect(calls).To(Equal(maxCosignAttempts))
 }
 
 func TestKeyBasedSigner_Sign_RetriesOnceOnTransientConflict(t *testing.T) {
 	RegisterTestingT(t)
+	noBackoff(t)
 
 	calls := 0
 	signer := NewKeyBasedSigner("test-key-content", "", time.Second)
-	signer.exec = func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
+	signer.exec = probeAbsent(func(ctx context.Context, name string, args []string, env []string, timeout time.Duration) (string, string, error) {
 		calls++
 		if calls == 1 {
 			return "", "createLogEntryConflict", fmt.Errorf("exit status 1")
 		}
 		return "", "", nil
-	}
+	})
 
 	result, err := signer.Sign(context.Background(), "registry.example.com/app:1.0.0")
 

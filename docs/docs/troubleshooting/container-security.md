@@ -115,27 +115,46 @@ signing:
 
 ### Error: "createLogEntryConflict" (Rekor HTTP 409)
 
-**Problem:** `sc image sign` fails with:
+**Problem:** `sc image sign`, `sc sbom attach` or `sc provenance attach` fails
+with:
 
 ```
 signing bundle: error signing bundle: [POST /api/v1/log/entries][409] createLogEntryConflict
 {"code":409,"message":"an equivalent entry already exists in the transparency log with UUID ..."}
 ```
 
+The same conflict surfaces from the Pulumi deploy as a failed `sbom-att-*` or
+`prov-att-*` resource:
+
+```
+Error: failed to attach SBOM: cosign attest failed: exit status 1
+error: update failed
+```
+
 An identical entry is already in the transparency log — typically cosign
 re-uploading an entry whose first attempt timed out client-side but succeeded
-server-side. Common under parallel CI deploys of stacks that share one image.
-The image *is* effectively signed; only the duplicate upload was rejected.
+server-side. Common under parallel CI deploys against the public-good Rekor
+instance.
+
+Note the attest resources run *after* the workload resources, so a conflict can
+fail the deploy with the new revision already rolled out and healthy. Check the
+Pulumi summary before assuming the rollout did not happen.
 
 **Solution:**
 
-- `sc` retries the sign automatically with a fresh signature (a fresh
-  invocation cannot conflict with itself), so transient conflicts self-heal.
-- If the error persists after the automatic retries, verify the existing
-  signature instead of re-signing: `cosign tree IMAGE` and `sc image verify`.
-- Persistent conflicts with key-based signing can indicate a deterministic
-  re-sign of an unchanged digest — skip signing when the digest is already
-  signed by the same identity.
+- `sc` retries the sign or attest automatically, up to 3 attempts with jittered
+  backoff. Every attempt is a fresh invocation with its own full timeout, and a
+  fresh invocation produces a new signature, so it cannot conflict with itself
+  and transient conflicts self-heal.
+- A conflict is *not* treated as success: cosign uploads to Rekor before it
+  pushes to the registry, so a transparency-log entry does not prove the
+  signature or attestation was attached to the image.
+- If the error persists after the automatic retries, that indicates a
+  server-side condition rather than a duplicate replay. Verify what is actually
+  attached before re-signing: `cosign tree IMAGE` and `sc image verify`.
+- Attach failures can be downgraded to warnings with `security.sbom.required:
+  false` / `security.provenance.required: false` when a transparency-log outage
+  must not block a deploy.
 
 ### Warning: "Rekor entry not found"
 

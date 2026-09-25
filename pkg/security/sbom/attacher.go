@@ -43,10 +43,6 @@ func (a *Attacher) Attach(ctx context.Context, sbom *SBOM, image string) error {
 	}
 	defer os.Remove(tmpFile)
 
-	// Create context with timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, a.Timeout)
-	defer cancel()
-
 	// Build cosign attest command
 	args := []string{
 		"attest",
@@ -60,21 +56,22 @@ func (a *Attacher) Attach(ctx context.Context, sbom *SBOM, image string) error {
 	// Add image
 	args = append(args, image)
 
-	cmd := exec.CommandContext(timeoutCtx, "cosign", args...)
+	// Every retry is a fresh process with its own full a.Timeout budget. The
+	// predicate file outlives the loop via the deferred remove above. The
+	// confirm probe turns a Rekor conflict over an attestation that is already
+	// on the image into an idempotent success; it is nil when SigningConfig
+	// names no verification identity, in which case a conflict is retried and
+	// then reported rather than assumed benign.
+	confirm := a.confirmProbe(sbom.Format)
+	_, err = signing.RunCosignWithRetryConfirm(ctx, "sbom attest", args, a.buildSigningEnv(), a.Timeout, confirm)
+	return err
+}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// Set environment variables for signing
-	cmd.Env = append(os.Environ(), a.buildSigningEnv()...)
-
-	// Execute cosign attest
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cosign attest failed: %w (stderr: %s)", err, stderr.String())
-	}
-
-	return nil
+// confirmProbe builds the read-only verification that confirms an SBOM
+// attestation of this format is already attached under the identity this
+// attacher signs with.
+func (a *Attacher) confirmProbe(format Format) *signing.ConfirmProbe {
+	return a.SigningConfig.AttestationConfirmProbe(format.AttestationType())
 }
 
 // Verify verifies an SBOM attestation

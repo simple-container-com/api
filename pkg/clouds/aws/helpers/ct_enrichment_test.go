@@ -4,6 +4,7 @@
 package helpers
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -157,9 +158,17 @@ func TestLookupTriggeringEventsShortCircuits(t *testing.T) {
 	// refactors don't accidentally try to open a session with empty inputs.
 	RegisterTestingT(t)
 
+	// Already-cancelled, rather than nil or context.TODO(): the point of these
+	// cases is that the short-circuit happens BEFORE any AWS call. A cancelled
+	// context makes a regression fail with context.Canceled instead of reaching
+	// the network, and it keeps staticcheck's SA1012 (never pass a nil Context)
+	// satisfied.
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
 	t.Run("missing log group name — no call, no error", func(t *testing.T) {
 		RegisterTestingT(t)
-		events, total, err := lookupTriggeringEvents(nil, nil, enrichmentConfig{FilterPattern: "x"}, time.Now(), 5)
+		events, total, err := lookupTriggeringEvents(cancelled, nil, enrichmentConfig{FilterPattern: "x"}, time.Now(), 5)
 		Expect(err).To(BeNil())
 		Expect(events).To(BeNil())
 		Expect(total).To(Equal(0))
@@ -167,7 +176,7 @@ func TestLookupTriggeringEventsShortCircuits(t *testing.T) {
 
 	t.Run("missing filter pattern — no call, no error", func(t *testing.T) {
 		RegisterTestingT(t)
-		events, total, err := lookupTriggeringEvents(nil, nil, enrichmentConfig{LogGroupName: "g"}, time.Now(), 5)
+		events, total, err := lookupTriggeringEvents(cancelled, nil, enrichmentConfig{LogGroupName: "g"}, time.Now(), 5)
 		Expect(err).To(BeNil())
 		Expect(events).To(BeNil())
 		Expect(total).To(Equal(0))

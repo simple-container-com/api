@@ -221,7 +221,7 @@ func TestGrypeScanner_CheckVersion_FakeBinary(t *testing.T) {
 
 	t.Run("meets minimum", func(t *testing.T) {
 		RegisterTestingT(t)
-		writeFakeScanner(t, "grype", "grype 0.111.0", "{}")
+		writeFakeScanner(t, "grype", "grype "+DefaultGrypeVersion, "{}")
 		scanner := NewGrypeScanner()
 		Expect(scanner.CheckVersion(context.Background())).To(Succeed())
 	})
@@ -398,7 +398,7 @@ func TestTrivyScanner_CheckVersion_FakeBinary(t *testing.T) {
 
 	t.Run("meets minimum", func(t *testing.T) {
 		RegisterTestingT(t)
-		writeFakeScanner(t, "trivy", "Version: 0.70.0", "{}")
+		writeFakeScanner(t, "trivy", "Version: "+DefaultTrivyVersion, "{}")
 		scanner := NewTrivyScanner()
 		Expect(scanner.CheckVersion(context.Background())).To(Succeed())
 	})

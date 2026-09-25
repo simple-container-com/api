@@ -73,7 +73,11 @@ RUN rm -rf \
     && rm -rf /tmp/* /var/tmp/*
 
 # ── runtime ─────────────────────────────────────────────────────────────────
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+# Named `runtime` so CI can pass `no-cache-filters: runtime`. See
+# github-actions.Dockerfile for why: without it the apk upgrade layer below sits
+# behind a digest-pinned base with an unchanging RUN string, so its cache key
+# never moves and the upgrade never actually re-runs.
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 
 # aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
 # static-website template at pkg/clouds/pulumi/aws/static_website.go).
