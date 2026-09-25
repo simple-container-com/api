@@ -106,6 +106,10 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	if err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
 	}
+	if s == nil {
+		p.logger.Info(ctx, "child stack %q not found; nothing to destroy", childStack.Name)
+		return nil
+	}
 	program := p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String())
 	return p.destroyStack(ctx, cfg, s, params, program, preview, func(stackSource auto.Stack) {
 		for _, hook := range pApi.PreDestroyHookFuncs {
