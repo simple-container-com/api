@@ -60,7 +60,7 @@ func (p *pulumi) processEvent(ctx context.Context, evt events.EngineEvent) {
 	case evt.DiagnosticEvent != nil:
 		p.procDiagnosticEvent(ctx, evt)
 	case evt.Error != nil:
-		p.logger.Error(ctx, "[pulumi/error] %s", evt.Error)
+		p.logger.Error(ctx, "[pulumi/error] %s", redactCredentials(fmt.Sprintf("%v", evt.Error)))
 	default:
 		return // other events are not supported, uncomment lines below for debugging
 	}
@@ -72,11 +72,13 @@ func (p *pulumi) contextActionName(ctx context.Context) string {
 }
 
 func (p *pulumi) procDiagnosticEvent(ctx context.Context, evt events.EngineEvent) {
-	p.logger.Info(ctx, "[%s][pulumi/diagnostic] %s: %s", p.contextActionName(ctx), evt.DiagnosticEvent.URN, evt.DiagnosticEvent.Message)
+	// A provider that fails to configure quotes the config it could not parse,
+	// which on an auth failure is the credential itself.
+	p.logger.Info(ctx, "[%s][pulumi/diagnostic] %s: %s", p.contextActionName(ctx), evt.DiagnosticEvent.URN, redactCredentials(evt.DiagnosticEvent.Message))
 }
 
 func (p *pulumi) procPolicyEvent(ctx context.Context, evt events.EngineEvent) {
-	p.logger.Info(ctx, "[%s][pulumi/policy] %s: %s", p.contextActionName(ctx), evt.PolicyEvent.ResourceURN, evt.PolicyEvent.Message)
+	p.logger.Info(ctx, "[%s][pulumi/policy] %s: %s", p.contextActionName(ctx), evt.PolicyEvent.ResourceURN, redactCredentials(evt.PolicyEvent.Message))
 }
 
 func (p *pulumi) procResourceFailedEvent(ctx context.Context, evt events.EngineEvent) {
