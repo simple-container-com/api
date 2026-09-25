@@ -34,7 +34,7 @@
       "description": "Mongodb cloud provider resources and templates"
     },
     "yandex": {
-      "count": 6,
+      "count": 7,
       "description": "Yandex cloud provider resources and templates"
     }
   },

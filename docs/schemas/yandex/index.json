@@ -13,6 +13,16 @@
       "schema": {}
     },
     {
+      "name": "ObjectStorageBucket",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX objectstoragebucket configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "ObjectStorageBucket",
+      "resourceType": "yc-bucket",
+      "schema": {}
+    },
+    {
       "name": "SecretsConfig",
       "type": "resource",
       "provider": "yandex",
