@@ -17,6 +17,7 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudflare"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/yandex"
 )
 
 func init() {
