@@ -121,6 +121,9 @@ func TestServerlessContainer_ProvisionsCoreResources(t *testing.T) {
 	Expect(env[resource.PropertyKey(api.ComputeEnv.StackName)].StringValue()).To(Equal("test-stack"))
 	Expect(env[resource.PropertyKey(api.ComputeEnv.StackEnv)].StringValue()).To(Equal("test"))
 	Expect(env[resource.PropertyKey(api.ComputeEnv.StackVersion)].StringValue()).To(Equal("1.2.3"))
+	// go-aws-lambda-sdk serves plain HTTP instead of starting the Lambda runtime
+	// loop only when it sees this; YC itself sets nothing that names the cloud.
+	Expect(env[resource.PropertyKey(api.ComputeEnv.CloudProvider)].StringValue()).To(Equal(yandex.ProviderType))
 
 	// Public invoke, the analogue of the AWS function URL's Principal "*": without
 	// it the endpoint answers 403 even to the Cloudflare worker fronting the domain.

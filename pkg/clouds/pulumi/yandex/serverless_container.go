@@ -178,6 +178,12 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 		api.ComputeEnv.StackName:    sdk.String(stack.Name),
 		api.ComputeEnv.StackEnv:     sdk.String(deployParams.Environment),
 		api.ComputeEnv.StackVersion: sdk.String(deployParams.Version),
+		// Yandex's Serverless Containers runtime defines exactly PORT and
+		// REQUEST_PATH — nothing that names the cloud. So the deployed binary
+		// cannot tell where it is running, and go-aws-lambda-sdk reads this
+		// variable to decide between serving HTTP and starting the Lambda
+		// runtime loop (pkg/service/yandex.go, IsYandexCloudRuntime).
+		api.ComputeEnv.CloudProvider: sdk.String(yandex.ProviderType),
 	}
 	for name, value := range params.BaseEnvVariables {
 		envVariables[name] = sdk.String(value)
