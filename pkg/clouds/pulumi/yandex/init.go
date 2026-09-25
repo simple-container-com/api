@@ -15,12 +15,14 @@ import (
 // which is geo-blocked from the hosts this fleet deploys from. See the design doc's
 // §0.3/§0.4.
 //
-// Serverless Containers themselves are not registered yet — that is the next slice.
+// Templates register through the same RegisterResources map as resources — there
+// is no separate RegisterTemplate (see aws/init.go).
 func init() {
 	api.RegisterInitStateStore(yandex.ProviderType, InitStateStore)
 	api.RegisterProvider(yandex.ProviderType, Provider)
 	api.RegisterResources(map[string]api.ProvisionFunc{
-		yandex.ResourceTypeObjectStorageBucket: ObjectStorageBucket,
+		yandex.ResourceTypeObjectStorageBucket:       ObjectStorageBucket,
+		yandex.TemplateTypeYandexServerlessContainer: ServerlessContainer,
 	})
 	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
 		yandex.ResourceTypeObjectStorageBucket: ObjectStorageBucketComputeProcessor,
