@@ -1,0 +1,1 @@
+Good. The PR is live and open at https://github.com/simple-container-com/api/pull/321. I have a clear picture of the state. Now I produce my DevOps handoff.

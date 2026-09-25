@@ -1,0 +1,125 @@
+{
+  "initialCharacterId": "pm",
+  "characters": [
+    {
+      "id": "pm",
+      "agentId": "34890141-d95a-4628-9507-35a06c70827e",
+      "displayName": "Max Warner",
+      "roleHint": "pm",
+      "capabilities": {
+        "hasDocker": false,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 1800,
+        "supportsLongLived": false,
+        "isolation": "process",
+        "egressPolicy": "scoped",
+        "minMemoryMB": 512
+      },
+      "description": "Product Manager — Max Warner (autonomous slice-id addition shipped 2026-06-11)."
+    },
+    {
+      "id": "architect",
+      "agentId": "7b6ae717-cab4-4b7c-b4ea-ed61353ee6f4",
+      "displayName": "Dan Johnson",
+      "roleHint": "architect",
+      "capabilities": {
+        "hasDocker": false,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 1800,
+        "supportsLongLived": false,
+        "isolation": "process",
+        "egressPolicy": "scoped",
+        "minMemoryMB": 512
+      },
+      "description": "Architect — Dan Johnson (no prompt changes for SDLC; existing persona is strong)."
+    },
+    {
+      "id": "developer",
+      "agentId": "0d913379-fa6c-4833-8c61-b39a94acec46",
+      "displayName": "David Black",
+      "roleHint": "developer",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": true,
+        "maxTurnDurationSec": 3600,
+        "supportsLongLived": false,
+        "isolation": "container",
+        "egressPolicy": "open",
+        "minMemoryMB": 2048,
+        "runtimeKindsAllowed": [
+          "container",
+          "vm"
+        ]
+      },
+      "description": "Developer — David Black (autonomous workflow-branch commit clause shipped 2026-06-11)."
+    },
+    {
+      "id": "qa",
+      "agentId": "b49e743d-1004-406c-b832-db4098eaa8ac",
+      "displayName": "Maria Currie",
+      "roleHint": "qa",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 2700,
+        "supportsLongLived": false,
+        "isolation": "container",
+        "egressPolicy": "open",
+        "minMemoryMB": 1024,
+        "runtimeKindsAllowed": [
+          "container",
+          "vm"
+        ]
+      },
+      "description": "QA — Maria Currie (autonomous deploy/smoke/destroy/sign-off duties block shipped 2026-06-11)."
+    },
+    {
+      "id": "devops",
+      "agentId": "7075eb90-38ec-4ab2-8159-c9eb8a2ff5a5",
+      "displayName": "William Smith",
+      "roleHint": "devops",
+      "capabilities": {
+        "hasDocker": false,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 1800,
+        "supportsLongLived": false,
+        "isolation": "process",
+        "egressPolicy": "scoped",
+        "minMemoryMB": 512
+      },
+      "description": "DevOps — William Smith (autonomous chain-continuation tail shipped 2026-06-11)."
+    }
+  ],
+  "transitions": [
+    {
+      "id": "pm-to-architect",
+      "fromCharacterId": "pm",
+      "toCharacterId": "architect",
+      "escalationPolicy": "operator_review"
+    },
+    {
+      "id": "architect-to-developer",
+      "fromCharacterId": "architect",
+      "toCharacterId": "developer",
+      "escalationPolicy": "operator_review"
+    },
+    {
+      "id": "developer-to-qa",
+      "fromCharacterId": "developer",
+      "toCharacterId": "qa",
+      "escalationPolicy": "operator_review"
+    },
+    {
+      "id": "qa-to-devops",
+      "fromCharacterId": "qa",
+      "toCharacterId": "devops",
+      "condition": "handoff.verdict == 'signoff'",
+      "escalationPolicy": "operator_review"
+    }
+  ],
+  "managementAgentId": "architect",
+  "enrichBudgetDefault": 0,
+  "storageMode": "shared",
+  "allowWorkflowTriggers": true,
+  "autonomyBudget": 3
+}
