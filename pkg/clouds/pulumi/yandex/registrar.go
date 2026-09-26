@@ -23,7 +23,10 @@ type registrar struct {
 	provider *sdkYandex.Provider
 	config   *yandex.RegistrarConfig
 	zone     *sdkYandex.LookupDnsZoneResult
-	log      logger.Logger
+	// zoneID is the id every recordset is written against. It is kept separate
+	// from zone because the lookup does not always put it in the same field.
+	zoneID string
+	log    logger.Logger
 }
 
 // Registrar resolves a Yandex Cloud DNS zone into something records can be written
@@ -68,14 +71,33 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 	if err != nil {
 		return nil, err
 	}
-	params.Log.Info(ctx.Context(), "resolved yandex DNS zone %q (%s) for %q", zone.Name, zone.DnsZoneId, cfg.ZoneName)
+	zoneID, err := zoneIDOf(zone, cfg)
+	if err != nil {
+		return nil, err
+	}
+	params.Log.Info(ctx.Context(), "resolved yandex DNS zone %q (%s) for %q", zone.Name, zoneID, cfg.ZoneName)
 
 	return &registrar{
 		provider: provider,
 		config:   cfg,
 		zone:     zone,
+		zoneID:   zoneID,
 		log:      params.Log,
 	}, nil
+}
+
+// zoneIDOf reads the zone's id out of a lookup result. `DnsZoneId` echoes the
+// argument, so it is empty on a lookup by name — the id then lives in `Id`, the
+// provider-assigned one. Looking only at `DnsZoneId` yields an empty ZoneId that YC
+// rejects with a generic message several minutes into a deploy (live-caught
+// 2026-09-26).
+func zoneIDOf(zone *sdkYandex.LookupDnsZoneResult, cfg *yandex.RegistrarConfig) (string, error) {
+	for _, candidate := range []string{zone.DnsZoneId, zone.Id} {
+		if candidate != "" {
+			return candidate, nil
+		}
+	}
+	return "", errors.Errorf("yandex DNS zone %q for %q resolved without an id", zone.Name, cfg.ZoneName)
 }
 
 // lookupZone finds the zone by id when one is configured and by resource name
@@ -101,7 +123,7 @@ func lookupZone(ctx *sdk.Context, cfg *yandex.RegistrarConfig, provider *sdkYand
 	}
 	if served := strings.TrimSuffix(zone.Zone, "."); !strings.EqualFold(served, strings.TrimSuffix(cfg.ZoneName, ".")) {
 		return nil, errors.Errorf("yandex DNS zone %q (%s) serves %q, not the configured zoneName %q",
-			zone.Name, zone.DnsZoneId, served, cfg.ZoneName)
+			zone.Name, lo.If(zone.DnsZoneId != "", zone.DnsZoneId).Else(zone.Id), served, cfg.ZoneName)
 	}
 	return zone, nil
 }
@@ -138,7 +160,7 @@ func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.R
 	// ProvisionDomainForEndpoint creates, so a record is only ever a record.
 
 	recordset, err := sdkYandex.NewDnsRecordset(ctx, fmt.Sprintf("%s-recordset", dnsRecord.Name), &sdkYandex.DnsRecordsetArgs{
-		ZoneId: sdk.String(r.zone.DnsZoneId),
+		ZoneId: sdk.String(r.zoneID),
 		Name:   sdk.String(fqdn(dnsRecord.Name)),
 		Type:   sdk.String(dnsRecord.Type),
 		// One recordset holds every value for a name+type, so a multi-valued

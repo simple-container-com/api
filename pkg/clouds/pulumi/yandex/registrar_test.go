@@ -12,6 +12,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
+	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 )
 
 // TestRegistrarIsRegistered pins the wiring. A registrar needs BOTH tiers registered
@@ -104,4 +105,27 @@ func TestProxySpecForwardsEverything(t *testing.T) {
 	// `http` rather than `serverless_containers`: the registrar is handed a hostname,
 	// not a container id, and the http integration is what forwards the target's Host.
 	Expect(spec).To(ContainSubstring("type: http"))
+}
+
+// TestZoneIDOf covers the field the lookup actually fills. `DnsZoneId` echoes the
+// argument, so a lookup by name leaves it empty and the id arrives in `Id` — reading
+// only the first yields an empty ZoneId, which YC rejects generically several minutes
+// into a deploy.
+func TestZoneIDOf(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := &yandex.RegistrarConfig{ZoneName: "simple-forge.ru"}
+
+	byName := &sdkYandex.LookupDnsZoneResult{Name: "simple-forge-ru", Id: "dns8cs728kosp7ms1s3u"}
+	id, err := zoneIDOf(byName, cfg)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(id).To(Equal("dns8cs728kosp7ms1s3u"))
+
+	byID := &sdkYandex.LookupDnsZoneResult{Name: "simple-forge-ru", DnsZoneId: "dns8cs728kosp7ms1s3u"}
+	id, err = zoneIDOf(byID, cfg)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(id).To(Equal("dns8cs728kosp7ms1s3u"))
+
+	_, err = zoneIDOf(&sdkYandex.LookupDnsZoneResult{Name: "simple-forge-ru"}, cfg)
+	Expect(err).To(MatchError(ContainSubstring("resolved without an id")))
 }
