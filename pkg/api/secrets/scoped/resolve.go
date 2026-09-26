@@ -43,8 +43,9 @@ var ErrScopedUnavailable = errors.New("scoped secret temporarily unavailable")
 //   - A value a key IS a recipient of but cannot decrypt is a HARD error tagged
 //     ErrScopedIntegrity (tampered ciphertext / broken binding) — never a silent
 //     skip (RFC hard-fail).
-//   - A corrupt or renamed scope file, or the same key in two openable scopes, is a
-//     HARD error tagged ErrScopedIntegrity.
+//   - A corrupt or renamed scope file, or the same key with different values in
+//     two openable scopes, is a HARD error tagged ErrScopedIntegrity. The same
+//     value in several scopes is not ambiguous and resolves once.
 //
 // The caller merges the result into the whole-file store's values WITHOUT
 // overwriting existing keys, so a scoped value can never change the meaning of a
@@ -132,7 +133,14 @@ func ResolveScopedValues(stackDir string, privateKeys []string) (map[string]stri
 				continue
 			}
 			if prev, dup := origin[key]; dup {
-				return nil, errors.Wrapf(ErrScopedIntegrity, "secret %q is present in two openable scopes (%q and %q); resolution is ambiguous — run `sc secrets scope lint`", key, prev, f.Scope)
+				// The same value sealed into several scopes is how a shared secret
+				// (a DNS token every client deploy needs) reaches each client's own
+				// scope, and a key that opens several of them, such as a break-glass
+				// recipient, sees them all. Only different values are ambiguous.
+				if out[key] == val {
+					continue
+				}
+				return nil, errors.Wrapf(ErrScopedIntegrity, "secret %q has different values in two openable scopes (%q and %q); resolution is ambiguous — run `sc secrets scope lint`", key, prev, f.Scope)
 			}
 			out[key] = val
 			origin[key] = f.Scope

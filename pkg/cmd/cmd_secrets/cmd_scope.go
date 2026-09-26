@@ -395,6 +395,7 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 
 func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
+	var allowLegacyDuplicates bool
 	cmd := &cobra.Command{
 		Use:   "lint",
 		Short: "Verify every scope file: encryption, recipient set vs scopes.yaml, scope/filename binding",
@@ -409,7 +410,14 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var problems []string
+			var problems, warnings []string
+			pk, pkErr := s.privateKey()
+			var keys []string
+			if pkErr == nil && strings.TrimSpace(pk) != "" {
+				keys = append(keys, pk)
+			}
+			opener := scoped.NewOpener(keys, true)
+			loaded := map[string]map[string]*scoped.ScopeFile{} // stack -> scope -> file
 			// keyScopes[stack][key] = scopes that define it, to catch cross-scope
 			// duplicates (the resolver hard-fails on these at deploy; lint catches
 			// them first).
@@ -431,7 +439,9 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 				}
 				if keyScopes[f.Stack] == nil {
 					keyScopes[f.Stack] = map[string][]string{}
+					loaded[f.Stack] = map[string]*scoped.ScopeFile{}
 				}
+				loaded[f.Stack][f.Scope] = f
 				for _, k := range f.Keys() {
 					keyScopes[f.Stack][k] = append(keyScopes[f.Stack][k], f.Scope)
 				}
@@ -450,12 +460,29 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 				for k, scopes := range keys {
 					if len(scopes) > 1 {
 						sort.Strings(scopes)
-						problems = append(problems, fmt.Sprintf("stack %q: key %q is defined in multiple scopes %v (ambiguous at deploy)", stack, k, scopes))
+						// Ambiguous only if the copies differ. Compare them when this
+						// run can open every copy; otherwise say so, since a deploy that
+						// opens more than one fails if they differ.
+						same, known := sameValue(loaded[stack], scopes, k, opener)
+						switch {
+						case known && !same:
+							problems = append(problems, fmt.Sprintf("stack %q: key %q has different values in scopes %v (ambiguous at deploy)", stack, k, scopes))
+						case !known:
+							warnings = append(warnings, fmt.Sprintf("stack %q: key %q is in scopes %v; could not compare the copies without a key that opens all of them (a deploy that opens more than one fails if they differ)", stack, k, scopes))
+						}
 					}
 					if _, inLegacy := legacy[k]; inLegacy {
-						problems = append(problems, fmt.Sprintf("stack %q: key %q is in both scope %q and the legacy secrets.yaml (mode A wins silently)", stack, k, scopes[0]))
+						msg := fmt.Sprintf("stack %q: key %q is in both scope %q and the legacy secrets.yaml (mode A wins silently)", stack, k, scopes[0])
+						if allowLegacyDuplicates {
+							warnings = append(warnings, msg)
+						} else {
+							problems = append(problems, msg)
+						}
 					}
 				}
+			}
+			for _, w := range warnings {
+				fmt.Fprintf(cmd.OutOrStderr(), "! %s\n", w)
 			}
 			if len(problems) > 0 {
 				for _, p := range problems {
@@ -467,7 +494,32 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&allowLegacyDuplicates, "allow-legacy-duplicates", false,
+		"report, not fail, keys that are also in the whole-file secrets.yaml: expected while client deploys move off it, "+
+			"since the store keeps serving clients that have not moved")
 	return cmd
+}
+
+// sameValue opens key in every named scope. known is false when any copy could
+// not be opened with the material at hand.
+func sameValue(files map[string]*scoped.ScopeFile, scopes []string, key string, o *scoped.Opener) (same, known bool) {
+	var first string
+	for i, scope := range scopes {
+		f := files[scope]
+		if f == nil {
+			return false, false
+		}
+		v, owned, err := f.Open(key, o)
+		if err != nil || !owned {
+			return false, false
+		}
+		if i == 0 {
+			first = v
+		} else if v != first {
+			return false, true
+		}
+	}
+	return true, true
 }
 
 func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {

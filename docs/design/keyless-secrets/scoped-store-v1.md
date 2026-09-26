@@ -299,7 +299,7 @@ result transparently:
    returns empty without even parsing the key).
 4. **Hard-fail — a real error, not a swallowed warn (P0-2):** a value the key IS a recipient
    of but cannot decrypt (tampered ciphertext / broken binding), a corrupt or renamed scope
-   file, or the same key present in two openable scopes (ambiguous) all abort the read with
+   file, or the same key with different values in two openable scopes (ambiguous) all abort the read with
    a non-nil error naming the scope. A `${secret:KEY}` or `${auth:NAME}` that resolves to
    nothing is left in the config as literal text by the template engine; a client deploy
    whose parent has scope files and no readable whole-file store therefore checks the parts
@@ -307,8 +307,14 @@ result transparently:
    placeholders (see "Client deploys without the whole-file store"). Without scopes it is
    only logged, as before. Not being a recipient of a
    scope is NOT an error — you simply don't see it (least privilege).
-5. A KEY must live in exactly one mode; `sc secrets scope lint` rejects duplicates
-   (mode A vs mode B, and cross-scope) to keep resolution deterministic.
+5. Duplicates. A key in several scopes is expected once client deploys have scopes: a
+   secret every client needs (a DNS token) is sealed into each client's scope, and a
+   break-glass recipient opens all of them. Resolution stays deterministic because the
+   same value resolves once and different values fail the read. `sc secrets scope lint`
+   therefore fails on copies that differ when it can open them, and warns when it cannot.
+   A key in both a scope and the whole-file store fails lint, since mode A wins silently;
+   `--allow-legacy-duplicates` reports it instead, for the migration period when the store
+   still serves clients that have not moved.
 
 ## CI wiring (consumer side, Integrail) — v1 = scan/lint only (D1)
 

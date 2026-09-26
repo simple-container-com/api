@@ -777,9 +777,11 @@ steps:
 ```
 
 At deploy time, `${secret:KEY}` and `sc stack secret-get` transparently include every scope
-the job's key can open, merged over the whole-file store (the legacy store wins on conflict;
-`sc secrets scope lint` rejects a key that appears in two scopes or in both a scope and the
-legacy store). A key that is **not** a recipient of a scope cannot decrypt it — the
+the job's key can open, merged over the whole-file store (the legacy store wins on conflict). A key may sit in
+several scopes with the same value; different values fail the deploy, and
+`sc secrets scope lint` fails on them when it can open the copies (it warns when it cannot).
+A key in both a scope and the whole-file store fails lint unless `--allow-legacy-duplicates`
+is given, which is meant for the period when clients are moving off the store. A key that is **not** a recipient of a scope cannot decrypt it — the
 `pull_request` clamp is cryptographic, not a config flag.
 
 > **Rotation:** `disallow` re-encrypts current files but does NOT rewrite git history — that

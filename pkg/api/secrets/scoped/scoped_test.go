@@ -601,3 +601,18 @@ func TestScopeFile_AuthEntryIsBoundLikeAValue(t *testing.T) {
 		t.Fatalf("an auth entry relabelled as a value must fail its binding: owned=%v err=%v", owned, err)
 	}
 }
+
+func TestResolveScopedValues_SameValueInTwoScopesResolves(t *testing.T) {
+	RegisterTestingT(t)
+	authA, privA := genEd25519Recipient(t)
+	scDir := t.TempDir()
+	for _, scope := range []string{"app-staging", "other-staging"} {
+		f, err := NewScopeFile("teststack", scope, []string{authA})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(f.Set("DNS_TOKEN", "same")).To(Succeed())
+		Expect(f.Save(ScopeFilePath(scDir, "teststack", scope))).To(Succeed())
+	}
+	got, err := ResolveScopedValues(StackDir(scDir, "teststack"), []string{privA})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(Equal(map[string]string{"DNS_TOKEN": "same"}))
+}

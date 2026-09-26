@@ -120,23 +120,60 @@ func TestScopeCmd_AuthEntry(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), out)
 }
 
+// A key in several scopes is how a shared secret reaches each client's scope, so
+// only differing copies are ambiguous. lint compares them when it can open them
+// all, and says it could not otherwise.
 func TestScopeCmd_LintCatchesCrossScopeDuplicate(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
-	authorized, _ := testRecipient(t)
+	authorized, keyPEM := testRecipient(t)
 
-	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
-	Expect(err).NotTo(HaveOccurred())
-	_, err = execScope(t, workdir, "", "allow", "--scope", "prod", authorized)
-	Expect(err).NotTo(HaveOccurred())
-	_, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "integrail", "shared", "a")
+	for _, scope := range []string{"pr", "prod"} {
+		_, err := execScope(t, workdir, "", "allow", "--scope", scope, authorized)
+		Expect(err).NotTo(HaveOccurred())
+	}
+	_, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "integrail", "shared", "a")
 	Expect(err).NotTo(HaveOccurred())
 	_, err = execScope(t, workdir, "", "set", "--scope", "prod", "-s", "integrail", "shared", "b")
 	Expect(err).NotTo(HaveOccurred())
 
+	// Without a key the copies cannot be compared: a warning, not a failure.
+	out, err := execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("could not compare"))
+
+	// With one, differing copies fail...
+	t.Setenv("SC_SCOPE_KEY", keyPEM)
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).To(HaveOccurred())
+	Expect(out).To(ContainSubstring("different values"))
+
+	// ...and equal ones pass.
+	_, err = execScope(t, workdir, "", "set", "--scope", "prod", "-s", "integrail", "shared", "a")
+	Expect(err).NotTo(HaveOccurred())
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).NotTo(ContainSubstring("shared"))
+}
+
+func TestScopeCmd_LintLegacyDuplicates(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, _ := testRecipient(t)
+	_, err := execScope(t, workdir, "", "allow", "--scope", "app-staging", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, workdir, "", "set", "--scope", "app-staging", "-s", "infra", "DNS_TOKEN", "t")
+	Expect(err).NotTo(HaveOccurred())
+	legacy := filepath.Join(workdir, ".sc", "stacks", "infra", "secrets.yaml")
+	Expect(os.WriteFile(legacy, []byte("values:\n  DNS_TOKEN: t\n"), 0o600)).To(Succeed())
+
 	out, err := execScope(t, workdir, "", "lint")
 	Expect(err).To(HaveOccurred())
-	Expect(out).To(ContainSubstring("multiple scopes"))
+	Expect(out).To(ContainSubstring("legacy secrets.yaml"))
+
+	out, err = execScope(t, workdir, "", "lint", "--allow-legacy-duplicates")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("legacy secrets.yaml"))
 }
 
 func TestScopeCmd_DisallowLastRecipientRefused(t *testing.T) {
