@@ -427,11 +427,17 @@ func provisionDNSForContainer(
 
 // provisionScheduleForContainer turns a cloudExtras schedule into a Timer Trigger.
 //
-// The payload is POSTed to the container's root path as-is. A schedule written
-// for AWS carries an API-Gateway event envelope, which the container will only
-// understand once the SDK grows a YC runtime mode — that is a separate slice, and
-// a schedule that fires into a handler that cannot decode it is a dead job, not a
-// working one.
+// YC does not POST the payload on its own: it wraps it in a trigger envelope
+// ({"messages":[{"event_metadata":…,"details":{"payload":…}}]}) and POSTs that to
+// the container's ROOT path, not to the route the payload names. So a schedule
+// written for AWS — whose payload is an API-Gateway-shaped request naming its own
+// path — needs the receiving service to unwrap the envelope and re-dispatch, or
+// every firing 404s at "/" and the trigger retries forever.
+//
+// go-aws-lambda-sdk does that as of release 2026.9.1 (pkg/service/yandex.go), which
+// it enables on seeing ComputeEnv.CloudProvider set below. A service pinned to an
+// older SDK will deploy a schedule that cannot fire: that is a dead job, not a
+// working one, so bump the SDK before relying on a schedule here.
 func provisionScheduleForContainer(
 	ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *yandex.ServerlessContainerInput,
 	containerName string, container *sdkYandex.ServerlessContainer, serviceAccountID sdk.StringInput,

@@ -209,6 +209,35 @@ func TestServerlessContainer_SchedulesBecomeTimerTriggers(t *testing.T) {
 	container := trigger["container"].ObjectValue()
 	Expect(container["retryAttempts"].StringValue()).To(Equal("3"))
 	Expect(container["retryInterval"].StringValue()).To(Equal("30s"))
+
+	// No dlq block unless one was asked for — an empty QueueId is not a valid
+	// resource and would fail at apply time rather than being ignored.
+	Expect(trigger["dlq"].IsNull()).To(BeTrue())
+}
+
+func TestServerlessContainer_ScheduleDLQBecomesTriggerDLQ(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := baseContainerInput()
+	cfg.StackConfig.CloudExtras = lo.ToPtr(any(map[string]any{
+		"schedules": []any{
+			map[string]any{
+				"name":       "cleanup",
+				"expression": "0 0 * * ? *",
+				"request":    `{"path":"/cleanup"}`,
+				"dlq":        "yc-dlq-queue-id",
+			},
+		},
+	}))
+
+	mocks := newBucketMocks()
+	Expect(provisionContainer(cfg, mocks)).To(BeNil())
+
+	dlq := mocks.inputsOf(tokenTrigger)["dlq"].ObjectValue()
+	Expect(dlq["queueId"].StringValue()).To(Equal("yc-dlq-queue-id"))
+	// The trigger writes to the queue as the container's own service account;
+	// without it YC accepts the trigger and silently drops every failed message.
+	Expect(dlq["serviceAccountId"].IsNull()).To(BeFalse())
 }
 
 // Folder role bindings are additive, so two stacks each "owning" the same
