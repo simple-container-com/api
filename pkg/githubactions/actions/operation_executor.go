@@ -155,6 +155,10 @@ func (e *Executor) logOperationStart(ctx context.Context, config OperationConfig
 
 // setupRepositoryAndConfig handles repository cloning and SC config creation
 func (e *Executor) setupRepositoryAndConfig(ctx context.Context, config OperationConfig) error {
+	for name, path := range remapWorkspaceCredentialFiles() {
+		e.logger.Info(ctx, "%s pointed at the workspace copy %s", name, path)
+	}
+
 	// For client operations, clone parent repository
 	if config.Scope == ScopeClient {
 		if err := e.cloneParentRepository(ctx); err != nil {

@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	gcpStorage "cloud.google.com/go/storage"
-	gcpOptions "google.golang.org/api/option"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -35,8 +34,9 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	log.Debug(ctx, "🔍 GCP Auth Debug - Credentials length: %d", len(authCfg.CredentialsValue()))
 
 	credValue := authCfg.CredentialsValue()
-	if credValue == "" {
-		log.Debug(ctx, "❌ GCP credentials are EMPTY!")
+	ambient := gcloud.UsesAmbientCredentials(credValue)
+	if ambient {
+		log.Info(ctx, "GCP credentials are empty: using Application Default Credentials (ambient mode)")
 	} else if credValue[0] == '$' {
 		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder (starts with '$')")
 	} else if credValue[0] == '{' {
@@ -46,11 +46,17 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	}
 
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
-	if err := os.Setenv("GOOGLE_CREDENTIALS", credValue); err != nil {
+	// In ambient mode nothing is set: the Pulumi backend and gcloud already fall
+	// back to Application Default Credentials, and activating a key would replace them.
+	if ambient {
+		// nothing to activate
+	} else if err := os.Setenv("GOOGLE_CREDENTIALS", credValue); err != nil {
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
 
-	if gcloudPath, err := exec.LookPath("gcloud"); err != nil {
+	if ambient {
+		// nothing to activate
+	} else if gcloudPath, err := exec.LookPath("gcloud"); err != nil {
 		fmt.Println("WARN: Failed to find gcloud command")
 	} else if f, err := os.CreateTemp(os.TempDir(), "google-creds.json"); err != nil {
 		fmt.Println("WARN: failed to create temp file for google creds: ", err.Error())
@@ -69,7 +75,7 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	if !ok {
 		return errors.Errorf("failed to convert auth config to *gcloud.Credentials")
 	}
-	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue()))) //nolint:staticcheck // SA1019: no in-memory replacement available
+	client, err := gcpStorage.NewClient(ctx, clientOptions(credValue)...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to initialize gcp client")
 	}
@@ -282,10 +288,12 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	creds := pcfg.CredentialsValue()
 	projectId := pcfg.ProjectIdValue()
 
-	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
-		Credentials: sdk.String(creds),
-		Project:     sdk.String(projectId),
-	})
+	args := &gcp.ProviderArgs{Project: sdk.String(projectId)}
+	if !gcloud.UsesAmbientCredentials(creds) {
+		// Without Credentials the provider uses Application Default Credentials.
+		args.Credentials = sdk.String(creds)
+	}
+	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), args)
 	return &api.ResourceOutput{
 		Ref: provider,
 	}, err

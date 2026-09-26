@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 
-	gcpOptions "google.golang.org/api/option"
 	"google.golang.org/api/serviceusage/v1"
 
 	"github.com/pkg/errors"
@@ -90,7 +89,7 @@ func initServicesAPIClient(ctx context.Context, resourceConfig any) (*serviceusa
 	if !ok {
 		return nil, errors.Errorf("failed to convert config to api.AuthConfig")
 	}
-	svc, err := serviceusage.NewService(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue()))) //nolint:staticcheck // SA1019: no in-memory replacement available
+	svc, err := serviceusage.NewService(ctx, clientOptions(authCfg.CredentialsValue())...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to init google API services client")
 	}

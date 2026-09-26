@@ -207,17 +207,6 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 											filePath := filepath.Join(stackPath, file.Name())
 											if info, err := os.Stat(filePath); err == nil {
 												e.logger.Debug(ctx, "      📄 stacks/%s/%s (%d bytes)", stackEntry.Name(), file.Name(), info.Size())
-
-												// Show preview of secrets.yaml files
-												if file.Name() == "secrets.yaml" {
-													if content, err := os.ReadFile(filePath); err == nil {
-														preview := string(content)
-														if len(preview) > 200 {
-															preview = preview[:200] + "..."
-														}
-														e.logger.Debug(ctx, "      📄 secrets.yaml preview: %s", preview)
-													}
-												}
 											} else {
 												e.logger.Debug(ctx, "      📄 stacks/%s/%s", stackEntry.Name(), file.Name())
 											}
@@ -528,15 +517,6 @@ func (e *Executor) revealAndVerifyParentSecrets(ctx context.Context, parentCrypt
 
 	e.logger.Info(ctx, "Found secrets.yaml in parent repository, attempting to reveal secrets...")
 
-	// Read and log first few bytes to confirm it's encrypted
-	if content, err := os.ReadFile(secretsFile); err == nil {
-		contentPreview := string(content)
-		if len(contentPreview) > 100 {
-			contentPreview = contentPreview[:100] + "..."
-		}
-		e.logger.Debug(ctx, "📄 secrets.yaml content preview: %s", contentPreview)
-	}
-
 	e.logger.Info(ctx, "🔧 Calling DecryptAll(true) - same as 'sc secrets reveal --force'")
 
 	// Use the same DecryptAll approach as the SC CLI
@@ -570,14 +550,6 @@ func (e *Executor) revealAndVerifyParentSecrets(ctx context.Context, parentCrypt
 				if _, err := os.Stat(secretsPath); err == nil {
 					e.logger.Info(ctx, "✅ Found revealed secrets.yaml for stack: %s", entry.Name())
 
-					// Preview the revealed content to confirm it's not encrypted
-					if content, err := os.ReadFile(secretsPath); err == nil {
-						contentPreview := string(content)
-						if len(contentPreview) > 200 {
-							contentPreview = contentPreview[:200] + "..."
-						}
-						e.logger.Debug(ctx, "📄 Revealed secrets preview for %s: %s", entry.Name(), contentPreview)
-					}
 					secretsFound = true
 				}
 			}

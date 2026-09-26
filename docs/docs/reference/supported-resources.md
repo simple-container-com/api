@@ -1064,8 +1064,28 @@ auth:
     type: gcp-service-account
     config:
       projectId: "my-gcp-project"
-      serviceAccountKey: "${env:GCP_SERVICE_ACCOUNT_KEY}"
+      credentials: "${env:GCP_SERVICE_ACCOUNT_KEY}"   # service-account key JSON
 ```
+
+**Ambient credentials (no key).** Leave `credentials` empty and every GCP client uses
+Application Default Credentials instead: in GitHub Actions, the file that
+`google-github-actions/auth` writes after exchanging the job's OIDC token through Workload
+Identity Federation; elsewhere, a metadata server or `gcloud auth application-default login`.
+No long-lived key exists to leak. A configured value must still be a service-account key.
+
+```yaml
+auth:
+  gcloud:
+    type: gcp-service-account
+    config:
+      projectId: "my-gcp-project"
+      credentials: ""                                   # use ADC
+      serviceAccount: deployer@my-gcp-project.iam.gserviceaccount.com  # static websites only
+```
+
+`serviceAccount` is read only in ambient mode, and only by resources that grant the deploying
+identity access to themselves (a static website's bucket write binding), which otherwise take
+the email from the key.
 
 #### **GCP Secrets Manager** (`gcp-secrets-manager`)
 
