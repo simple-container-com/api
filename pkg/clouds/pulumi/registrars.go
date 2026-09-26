@@ -72,11 +72,7 @@ func declaredZones(desc api.RegistrarDescriptor) []string {
 }
 
 func domainInZone(domain, zone string) bool {
-	if zone == "" || domain == "" {
-		return false
-	}
-	domain, zone = strings.TrimSuffix(domain, "."), strings.TrimSuffix(zone, ".")
-	return strings.EqualFold(domain, zone) || strings.HasSuffix(strings.ToLower(domain), "."+strings.ToLower(zone))
+	return api.DomainInZone(domain, zone)
 }
 
 // forDomain picks the registrar authoritative for a domain: the longest declared zone

@@ -23,6 +23,16 @@
       "schema": {}
     },
     {
+      "name": "RegistrarConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX registrar configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "RegistrarConfig",
+      "resourceType": "yc-dns",
+      "schema": {}
+    },
+    {
       "name": "SecretsConfig",
       "type": "resource",
       "provider": "yandex",

@@ -12,9 +12,9 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
-// TestProviderConfigsRegistered pins the five type strings a server.yaml may name.
-// They are the provider's entire public surface: a rename here silently turns an
-// existing stack into "unknown template type".
+// TestProviderConfigsRegistered pins the type strings a server.yaml may name. They
+// are the provider's entire public surface: a rename here silently turns an existing
+// stack into "unknown template type".
 func TestProviderConfigsRegistered(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -23,6 +23,8 @@ func TestProviderConfigsRegistered(t *testing.T) {
 		AuthTypeYandexServiceAccount,
 		SecretsTypeYandexLockbox,
 		TemplateTypeYandexServerlessContainer,
+		ResourceTypeObjectStorageBucket,
+		RegistrarTypeYandexDns,
 	} {
 		Expect(registered).To(HaveKey(typ), "provider config %q must be registered", typ)
 	}

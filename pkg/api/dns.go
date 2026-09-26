@@ -4,6 +4,8 @@
 package api
 
 import (
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -52,6 +54,18 @@ func (s PerStackResourcesDescriptor) AllRegistrars() (map[string]RegistrarDescri
 // config that does not implement it can still be the only registrar in a stack.
 type RegistrarZonesAware interface {
 	Zones() []string
+}
+
+// DomainInZone reports whether a domain is served by a DNS zone — the zone itself, or
+// anything under it. Both sides are compared without a trailing dot and without regard
+// to case, and a match must land on a label boundary so that `notsimple-forge.com` is
+// not read as being inside `simple-forge.com`.
+func DomainInZone(domain, zone string) bool {
+	if zone == "" || domain == "" {
+		return false
+	}
+	domain, zone = strings.TrimSuffix(domain, "."), strings.TrimSuffix(zone, ".")
+	return strings.EqualFold(domain, zone) || strings.HasSuffix(strings.ToLower(domain), "."+strings.ToLower(zone))
 }
 
 type DnsRecord struct {
