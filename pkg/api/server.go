@@ -69,8 +69,12 @@ type VariableDescriptor struct {
 }
 
 type PerStackResourcesDescriptor struct {
-	Registrar RegistrarDescriptor                  `json:"registrar" yaml:"registrar"`
-	Resources map[string]PerEnvResourcesDescriptor `json:"resources" yaml:"resources"`
+	// Registrar is the legacy single-registrar form. Mutually exclusive with Registrars.
+	Registrar RegistrarDescriptor `json:"registrar" yaml:"registrar"`
+	// Registrars allows several registrars to coexist, each serving its own DNS zones.
+	// The one that handles a given domain is picked by zone suffix. See AllRegistrars.
+	Registrars map[string]RegistrarDescriptor       `json:"registrars,omitempty" yaml:"registrars,omitempty"`
+	Resources  map[string]PerEnvResourcesDescriptor `json:"resources" yaml:"resources"`
 }
 
 type PerEnvResourcesDescriptor struct {

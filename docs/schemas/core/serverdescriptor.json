@@ -90,6 +90,35 @@
             ],
             "type": "object"
           },
+          "registrars": {
+            "additionalProperties": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "inherit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "inherit"
+                  ],
+                  "type": "object"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "",
+                "",
+                "type"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
           "resources": {
             "additionalProperties": {
               "$schema": "https://json-schema.org/draft/2020-12/schema",
