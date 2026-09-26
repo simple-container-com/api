@@ -29,7 +29,7 @@ const (
 // EncryptedValue is one secret in envelope form: the value is AEAD-encrypted ONCE
 // under a random data key (Ciphertext), and that data key is wrapped per recipient
 // (Wraps, keyed by recipient ID — a SHA256 SSH fingerprint for an ssh key, or a
-// normalized awskms:// URL for a KMS recipient). All recipients therefore decrypt
+// normalized KMS URL (awskms:// or gcpkms://) for a KMS recipient). All recipients therefore decrypt
 // the SAME value — a tampered slot yields a decrypt failure, never a different
 // plaintext — and the value carries a single whole-message MAC (no chunk splicing).
 // Committed as-is (opaque values, diffable structure).

@@ -63,21 +63,27 @@ var newKMSClient = func(ctx context.Context, region string) (kmsAPI, error) {
 }
 
 // kmsRecipient is a parsed awskms:// recipient.
+const (
+	kmsProviderAWS = "aws"
+	kmsProviderGCP = "gcp"
+)
+
 type kmsRecipient struct {
-	raw    string // normalized "awskms://<keyID>?region=<region>" — the wrap-slot map key
-	keyID  string // key id, "alias/<name>", or full ARN
-	region string
+	provider string // kmsProviderAWS or kmsProviderGCP
+	raw      string // normalized "awskms://<keyID>?region=<region>" or "gcpkms://<name>" — the wrap-slot map key
+	keyID    string // key id, "alias/<name>", or full ARN
+	region   string
 }
 
 // isKMSRecipient reports whether a scopes.yaml recipient entry is an awskms:// URL.
 func isKMSRecipient(recipient string) bool {
-	return strings.HasPrefix(strings.TrimSpace(recipient), kmsRecipientScheme)
+	return isKMSRecipientID(strings.TrimSpace(recipient))
 }
 
 // isKMSRecipientID reports whether a wrap-slot map key is a KMS recipient (vs an
 // SSH "SHA256:…" fingerprint).
 func isKMSRecipientID(id string) bool {
-	return strings.HasPrefix(id, kmsRecipientScheme)
+	return strings.HasPrefix(id, kmsRecipientScheme) || strings.HasPrefix(id, gcpKMSRecipientScheme)
 }
 
 // parseKMSRecipient parses and normalizes an awskms:// recipient. The region is
@@ -86,6 +92,9 @@ func isKMSRecipientID(id string) bool {
 // map key and for recipient-drift lint without any KMS call.
 func parseKMSRecipient(recipient string) (kmsRecipient, error) {
 	raw := strings.TrimSpace(recipient)
+	if strings.HasPrefix(raw, gcpKMSRecipientScheme) {
+		return parseGCPKMSRecipient(raw)
+	}
 	if !strings.HasPrefix(raw, kmsRecipientScheme) {
 		return kmsRecipient{}, errors.Errorf("not a KMS recipient: %q", recipient)
 	}
@@ -114,7 +123,7 @@ func parseKMSRecipient(recipient string) (kmsRecipient, error) {
 	if region == "" {
 		return kmsRecipient{}, errors.Errorf("KMS recipient %q has no region (use awskms://<key>?region=<region>)", recipient)
 	}
-	return kmsRecipient{raw: normalizeKMSRecipient(keyID, region), keyID: keyID, region: region}, nil
+	return kmsRecipient{provider: kmsProviderAWS, raw: normalizeKMSRecipient(keyID, region), keyID: keyID, region: region}, nil
 }
 
 // normalizeKMSRecipient renders the canonical wrap-slot identity for a KMS key.
@@ -143,6 +152,9 @@ func wrapDEKKMS(recipient string, dek []byte, stack, scope, key string) ([]strin
 	r, err := parseKMSRecipient(recipient)
 	if err != nil {
 		return nil, err
+	}
+	if r.provider == kmsProviderGCP {
+		return wrapDEKGCPKMS(r, dek, stack, scope, key)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), kmsCallTimeout)
 	defer cancel()

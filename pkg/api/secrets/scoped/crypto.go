@@ -33,7 +33,7 @@ func valueAAD(stack, scope, key string) []byte {
 // public key (e.g. "SHA256:abc…"). It is used as the per-recipient map key inside a
 // scope file for SSH recipients: readable, order-independent, and derivable from a
 // private key so a decryptor can find its own slot. KMS recipients use their
-// normalized awskms:// URL instead — see recipientID.
+// normalized KMS URL (awskms:// or gcpkms://) instead — see recipientID.
 //
 // This funnels through the same ssh.ParseAuthorizedKey that ciphers.ParsePublicKey
 // uses, so the fingerprint (identity) and the encryptability check
@@ -49,7 +49,7 @@ func recipientFingerprint(authorizedKey string) (string, error) {
 }
 
 // recipientID returns the stable wrap-slot identity for any recipient: the SHA256
-// SSH fingerprint for an ssh-* key, or the normalized awskms:// URL for a KMS key.
+// SSH fingerprint for an ssh-* key, or the normalized KMS URL (awskms:// or gcpkms://) for a KMS key.
 // It is offline-derivable for both kinds, so recipient-drift lint and dedup work
 // without a private key or a KMS call.
 func recipientID(recipient string) (string, error) {
@@ -66,7 +66,7 @@ func recipientID(recipient string) (string, error) {
 // validateEncryptableRecipient rejects recipients that fingerprint fine but cannot
 // actually receive a scoped secret. SSH recipients must be ssh-rsa or ssh-ed25519
 // (the cipher layer supports no others); KMS recipients must be a well-formed
-// awskms:// URL. Caught at governance time (`allow`) rather than failing later on
+// KMS URL (awskms:// or gcpkms://). Caught at governance time (`allow`) rather than failing later on
 // the first `set`.
 func validateEncryptableRecipient(recipient string) error {
 	if isKMSRecipient(recipient) {
@@ -80,7 +80,7 @@ func validateEncryptableRecipient(recipient string) error {
 	case *rsa.PublicKey, ed25519.PublicKey:
 		return nil
 	default:
-		return errors.Errorf("unsupported recipient key type %T (only ssh-rsa, ssh-ed25519, and awskms:// can receive scoped secrets)", pub)
+		return errors.Errorf("unsupported recipient key type %T (only ssh-rsa, ssh-ed25519, awskms:// and gcpkms:// can receive scoped secrets)", pub)
 	}
 }
 
@@ -96,7 +96,7 @@ func parseAuthorizedKey(authorizedKey string) (ssh.PublicKey, error) {
 
 // encryptForRecipients builds the envelope for value: it is AEAD-encrypted ONCE
 // under a fresh random data key (bound to stack/scope/key), and that data key is
-// wrapped per recipient (keyed by recipient ID — SSH fingerprint or awskms:// URL).
+// wrapped per recipient (keyed by recipient ID — SSH fingerprint or KMS URL (awskms:// or gcpkms://)).
 // Because the value ciphertext is shared, every recipient decrypts the SAME
 // plaintext — a tampered per-recipient slot yields a decrypt failure, never a
 // different value — and the whole value is one AEAD blob (no chunk splicing). Every

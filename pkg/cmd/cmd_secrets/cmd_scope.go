@@ -254,7 +254,7 @@ func newScopeAllowCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
 		Use:   "allow RECIPIENT",
-		Short: "Add a recipient — SSH pubkey or awskms://<key>?region=<r> — to a scope (updates scopes.yaml and reseals its files)",
+		Short: "Add a recipient — SSH pubkey, awskms://<key>?region=<r>, or gcpkms://projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k> — to a scope (updates scopes.yaml and reseals its files)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return s.reconcileRecipients(cmd, args[0], true)
@@ -269,7 +269,7 @@ func newScopeDisallowCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
 		Use:   "disallow RECIPIENT",
-		Short: "Remove a recipient — SSH pubkey or awskms:// URL — from a scope (reseals; prints rotate-values warning)",
+		Short: "Remove a recipient — SSH pubkey or awskms:// / gcpkms:// URL — from a scope (reseals; prints rotate-values warning)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return s.reconcileRecipients(cmd, args[0], false)

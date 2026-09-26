@@ -34,12 +34,17 @@ type Opener struct {
 	// so an SSH-only / local deploy in a repo that happens to contain KMS scopes it
 	// is not a recipient of does not pay a credential-probe stall per value.
 	kmsNoIdentity bool
+
+	// gcpClient / gcpNoIdentity are the Cloud KMS counterparts: one client (Cloud KMS
+	// is not regional at the client level) and the same one-shot breaker.
+	gcpClient     gcpKMSAPI
+	gcpNoIdentity bool
 }
 
 // NewOpener parses each candidate PEM private key (skipping empty/unparseable
 // ones, so a caller may pass everything it has) and, when kmsAllowed is set,
 // permits KMS Decrypt attempts for values that carry a KMS wrap slot. KMS is only
-// ever attempted for a value that actually has an awskms:// wrap AND that no held
+// ever attempted for a value that actually has a KMS (awskms:// or gcpkms://) wrap AND that no held
 // SSH key already opened — so an SSH-only store never triggers an AWS call.
 func NewOpener(privateKeys []string, kmsAllowed bool) *Opener {
 	o := &Opener{sshByFP: map[string]any{}, kmsAllowed: kmsAllowed, kmsClients: map[string]kmsAPI{}}
@@ -105,6 +110,24 @@ func (o *Opener) kmsClientFor(ctx context.Context, region string) (kmsAPI, bool)
 	return c, true
 }
 
+// gcpKMSClient returns the cached Cloud KMS client, or (nil,false) when no
+// Application Default Credentials are available.
+func (o *Opener) gcpKMSClient(ctx context.Context) (gcpKMSAPI, bool) {
+	if o.gcpNoIdentity {
+		return nil, false
+	}
+	if o.gcpClient != nil {
+		return o.gcpClient, true
+	}
+	c, err := newGCPKMSClient(ctx)
+	if err != nil {
+		o.gcpNoIdentity = true
+		return nil, false
+	}
+	o.gcpClient = c
+	return c, true
+}
+
 // OpenValue attempts to decrypt one envelope value bound to (stack, scope, key).
 // It returns:
 //
@@ -151,12 +174,23 @@ func (o *Opener) OpenValue(stack, scope, key string, ev EncryptedValue) (string,
 				continue // not base64 → skip
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), kmsCallTimeout)
-			cli, ok := o.kmsClientFor(ctx, r.region)
-			if !ok {
-				cancel()
-				continue // no ambient KMS identity → skip (breaker set, no re-probe)
+			var dek []byte
+			var owned bool
+			if r.provider == kmsProviderGCP {
+				cli, ok := o.gcpKMSClient(ctx)
+				if !ok {
+					cancel()
+					continue // no Application Default Credentials → skip (breaker set)
+				}
+				dek, owned, err = decryptGCPKMSWrap(ctx, cli, r, blob, stack, scope, key)
+			} else {
+				cli, ok := o.kmsClientFor(ctx, r.region)
+				if !ok {
+					cancel()
+					continue // no ambient KMS identity → skip (breaker set, no re-probe)
+				}
+				dek, owned, err = decryptKMSWrap(ctx, cli, r, blob, stack, scope, key)
 			}
-			dek, owned, err := decryptKMSWrap(ctx, cli, r, blob, stack, scope, key)
 			cancel()
 			if err != nil {
 				if owned {

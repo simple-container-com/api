@@ -51,7 +51,7 @@ func Fingerprint(authorizedKey string) (string, error) {
 
 // SameRecipients reports, as an error, whether two recipient lists denote the same
 // set of recipients — compared by recipient ID (SSH fingerprint or normalized
-// awskms:// URL) so ordering and comments do not matter. Used to detect drift
+// KMS URL (awskms:// or gcpkms://)) so ordering and comments do not matter. Used to detect drift
 // between a scope file and scopes.yaml.
 func SameRecipients(a, b []string) error {
 	fps := func(list []string) (map[string]struct{}, error) {
