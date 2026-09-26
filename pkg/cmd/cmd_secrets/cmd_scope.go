@@ -139,13 +139,24 @@ func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 		Long: "Seal a value into a scope. The value is taken from the VALUE argument, or " +
 			"read from stdin when VALUE is omitted or '-'. When read from stdin, a single " +
 			"trailing newline is stripped (the usual echo/heredoc artifact); pipe binary or " +
-			"exact-match data via the VALUE argument if that matters.",
+			"exact-match data via the VALUE argument if that matters.\n\n" +
+			"A KEY of auth:<name> seals an auth entry instead of a value: the YAML that " +
+			"would sit under <name> in secrets.yaml's auth map. A deploy that can open the " +
+			"scope but not the whole-file store gets its ${auth:<name>} from it. With " +
+			"credentials left empty, a gcp-service-account entry uses the environment's " +
+			"credentials (Workload Identity Federation in CI).",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			value, err := readValueArg(cmd, args)
 			if err != nil {
 				return err
+			}
+			if strings.HasPrefix(key, scoped.AuthKeyPrefix) {
+				// Refuse a broken auth entry now rather than at the next deploy.
+				if _, err := api.ParseAuthDescriptor(value); err != nil {
+					return errors.Wrapf(err, "%s must be the YAML of one auth entry (type + config)", key)
+				}
 			}
 			f, _, path, err := s.openForWrite()
 			if err != nil {

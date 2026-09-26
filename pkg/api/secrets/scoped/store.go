@@ -151,7 +151,7 @@ func (f *ScopeFile) Save(path string) error {
 // the file has no recipients, so a value is never written unencrypted or to an
 // empty audience.
 func (f *ScopeFile) Set(key, value string) error {
-	if err := ValidateSecretKey(key); err != nil {
+	if err := ValidateScopedKey(key); err != nil {
 		return err
 	}
 	if len(f.Recipients) == 0 {
@@ -301,7 +301,7 @@ func (f *ScopeFile) VerifyConsistency() error {
 	}
 	nRecipients := len(sshPub) + len(kmsIDs)
 	for key, ev := range f.Values {
-		if err := ValidateSecretKey(key); err != nil {
+		if err := ValidateScopedKey(key); err != nil {
 			return err
 		}
 		// The value blob: base64, and a plausibly-shaped envelope AEAD (nonce+tag),

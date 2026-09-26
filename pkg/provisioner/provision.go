@@ -226,6 +226,23 @@ func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFil
 		return nil, sErr
 	}
 	for k, v := range scopedVals {
+		if name, isAuth := strings.CutPrefix(k, scoped.AuthKeyPrefix); isAuth {
+			if _, exists := desc.Auth[name]; exists {
+				if p.log != nil {
+					p.log.Warn(ctx, "scoped auth %q is shadowed by the legacy secrets.yaml for this stack; the legacy entry is used", name)
+				}
+				continue
+			}
+			auth, err := api.ParseAuthDescriptor(v)
+			if err != nil {
+				return nil, errors.Wrapf(scoped.ErrScopedIntegrity, "scoped auth %q in %s: %v", name, path.Dir(descFilePath), err)
+			}
+			if desc.Auth == nil {
+				desc.Auth = map[string]api.AuthDescriptor{}
+			}
+			desc.Auth[name] = auth
+			continue
+		}
 		if _, exists := desc.Values[k]; exists {
 			// The legacy whole-file store wins on conflict (an actor who can only write a
 			// scope file cannot override a legacy secret). `sc secrets scope lint` flags
@@ -240,6 +257,17 @@ func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFil
 			desc.Values = map[string]string{}
 		}
 		desc.Values[k] = v
+	}
+	// Remember a stack that has adopted scopes and has no readable whole-file store:
+	// nothing else can fill a placeholder its scopes do not, so an unresolved one
+	// fails the deploy (see checkUnresolvedPlaceholders) instead of reaching the
+	// deployment as text. Keyed on the scope files being there, not on any of them
+	// opening, so a job holding the wrong key fails instead of deploying literals.
+	if !legacyExists && hasScopeFiles(path.Dir(descFilePath)) {
+		if p.scopedOnly == nil {
+			p.scopedOnly = map[string]bool{}
+		}
+		p.scopedOnly[path.Base(path.Dir(descFilePath))] = true
 	}
 	// A stack with neither a legacy secrets.yaml nor any openable scoped value has no
 	// secrets for this key — preserve the previous "not found" behavior (ignorable
@@ -296,4 +324,18 @@ func (p *provisioner) readClientDescriptorFromFile(path string) (*api.ClientDesc
 	} else {
 		return desc, nil
 	}
+}
+
+// hasScopeFiles reports whether stackDir contains any secrets.<scope>.yaml.
+func hasScopeFiles(stackDir string) bool {
+	entries, err := os.ReadDir(stackDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && scoped.ScopeNameFromFile(e.Name()) != "" {
+			return true
+		}
+	}
+	return false
 }

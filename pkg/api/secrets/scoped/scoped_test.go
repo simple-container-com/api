@@ -574,3 +574,29 @@ func TestScopeNameFromFile(t *testing.T) {
 	Expect(ScopeNameFromFile("/x/secrets.yaml")).To(Equal(""))
 	Expect(ScopeNameFromFile("/x/other.pr.yaml")).To(Equal(""))
 }
+
+func TestValidateScopedKey(t *testing.T) {
+	for _, ok := range []string{"API_KEY", "staging-app-key", "auth:gcloud", "auth:aws-eu"} {
+		if err := ValidateScopedKey(ok); err != nil {
+			t.Errorf("ValidateScopedKey(%q) = %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "auth:", "auth:bad name", "auth:auth:x", "a:b", "x\x00y"} {
+		if err := ValidateScopedKey(bad); err == nil {
+			t.Errorf("ValidateScopedKey(%q) should fail", bad)
+		}
+	}
+}
+
+func TestScopeFile_AuthEntryIsBoundLikeAValue(t *testing.T) {
+	auth, priv := genEd25519Recipient(t)
+	fA, _ := NewScopeFile("stackA", "pr", []string{auth})
+	if err := fA.Set("auth:gcloud", "type: gcp-service-account"); err != nil {
+		t.Fatal(err)
+	}
+	fB, _ := NewScopeFile("stackA", "pr", []string{auth})
+	fB.Values["gcloud"] = fA.Values["auth:gcloud"] // relabel the entry as a value
+	if _, owned, err := fB.Open("gcloud", NewOpener([]string{priv}, false)); err == nil || !owned {
+		t.Fatalf("an auth entry relabelled as a value must fail its binding: owned=%v err=%v", owned, err)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -91,6 +92,21 @@ func ValidateScopeName(scope string) error {
 		return errors.Errorf("invalid scope name %q (allowed: %s)", scope, scopeNameRe.String())
 	}
 	return nil
+}
+
+// AuthKeyPrefix marks a scope entry that holds an auth descriptor (what sits under
+// one name in a secrets.yaml `auth:` map, as YAML) instead of a ${secret:} value.
+// It lets a deploy that cannot open the whole-file store still get its ${auth:}
+// entries, sealed and bound exactly like values. ':' is outside secretKeyRe, so an
+// auth entry can never collide with a value key.
+const AuthKeyPrefix = "auth:"
+
+// ValidateScopedKey accepts a value key or AuthKeyPrefix followed by one.
+func ValidateScopedKey(key string) error {
+	if name, ok := strings.CutPrefix(key, AuthKeyPrefix); ok {
+		return errors.Wrapf(ValidateSecretKey(name), "invalid auth entry %q", key)
+	}
+	return ValidateSecretKey(key)
 }
 
 // ValidateSecretKey rejects secret keys that are unsafe as an AAD field.

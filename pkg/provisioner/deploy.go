@@ -97,6 +97,11 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 	if err := p.resolvePlaceholders(); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
 	}
+	if params.Environment != "" && !params.Parent {
+		if err := p.checkUnresolvedPlaceholders(ctx, params); err != nil {
+			return nil, nil, nil, err
+		}
+	}
 	stack, ok := p.stacks[params.StackName]
 	if !ok {
 		return nil, nil, nil, errors.Errorf("stack %q is not configured", params.StackName)

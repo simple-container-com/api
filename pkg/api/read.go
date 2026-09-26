@@ -112,6 +112,27 @@ func DetectAuthType(descriptor *SecretsDescriptor) (*SecretsDescriptor, error) {
 	return descriptor, nil
 }
 
+// ParseAuthDescriptor reads one auth entry, written as the YAML that sits under its
+// name in a secrets.yaml `auth:` map, and converts its config to the provider's
+// type. A standalone entry has no parent to inherit from, so inherit is refused.
+func ParseAuthDescriptor(text string) (AuthDescriptor, error) {
+	var auth AuthDescriptor
+	if err := yaml.Unmarshal([]byte(text), &auth); err != nil {
+		return AuthDescriptor{}, errors.Wrap(err, "auth entry is not valid YAML")
+	}
+	if auth.IsInherited() {
+		return AuthDescriptor{}, errors.New("auth entry cannot inherit here; give its type and config")
+	}
+	if auth.Type == "" {
+		return AuthDescriptor{}, errors.New("auth entry has no type")
+	}
+	parsed, err := DetectAuthProvider(&auth)
+	if err != nil {
+		return AuthDescriptor{}, err
+	}
+	return *parsed, nil
+}
+
 func DetectAuthProvider(auth *AuthDescriptor) (*AuthDescriptor, error) {
 	if fn, found := providerConfigMapping[auth.Type]; !found {
 		return nil, errors.Errorf("unknown auth type %q", auth.Type)

@@ -89,6 +89,36 @@ func TestScopeCmd_SetGetListLintDoctor(t *testing.T) {
 	Expect(out).To(ContainSubstring("YES"))
 }
 
+func TestScopeCmd_AuthEntry(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, keyPEM := testRecipient(t)
+	_, err := execScope(t, workdir, "", "allow", "--scope", "app-staging", authorized)
+	Expect(err).NotTo(HaveOccurred())
+
+	auth := "type: gcp-service-account\nconfig:\n  projectId: acme-staging\n  credentials: \"\"\n"
+	out, err := execScope(t, workdir, auth, "set", "--scope", "app-staging", "-s", "infra", "auth:gcloud", "-")
+	Expect(err).NotTo(HaveOccurred(), out)
+
+	for _, bad := range []string{"not: [yaml", "config:\n  projectId: p\n", "type: no-such-auth\nconfig: {}\n", "inherit: common\n"} {
+		_, err := execScope(t, workdir, bad, "set", "--scope", "app-staging", "-s", "infra", "auth:broken", "-")
+		Expect(err).To(HaveOccurred(), "accepted auth entry %q", bad)
+	}
+	_, err = execScope(t, workdir, auth, "set", "--scope", "app-staging", "-s", "infra", "auth:bad name", "-")
+	Expect(err).To(HaveOccurred())
+
+	out, _ = execScope(t, workdir, "", "list", "--scope", "app-staging", "-s", "infra")
+	Expect(out).To(ContainSubstring("auth:gcloud"))
+	Expect(out).NotTo(ContainSubstring("auth:broken"))
+
+	t.Setenv("SC_SCOPE_KEY", keyPEM)
+	out, err = execScope(t, workdir, "", "get", "--scope", "app-staging", "-s", "infra", "auth:gcloud")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(out).To(ContainSubstring("acme-staging"))
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+}
+
 func TestScopeCmd_LintCatchesCrossScopeDuplicate(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()

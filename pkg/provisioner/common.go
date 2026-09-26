@@ -65,6 +65,9 @@ type provisioner struct {
 	phResolver          placeholders.Placeholders
 	log                 logger.Logger
 	overrideProvisioner api.Provisioner
+	// scopedOnly names the stacks whose secrets came from scope files alone (no
+	// whole-file store was readable), which makes unresolved placeholders fatal.
+	scopedOnly map[string]bool
 }
 
 func New(opts ...Option) (Provisioner, error) {
