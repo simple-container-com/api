@@ -15,6 +15,9 @@ findings fixed. The remaining out-of-repo step is the consumer rollout (the Inte
 `secrets.pr.yaml` sweep, then adding the `awskms://` recipient + `ci-oidc-pr-scan` role and
 deleting `SC_KEY_PR`). Implements "Minimal v1" **and** the v2 KeyProvider of the
 keyless-secrets RFC in this directory.
+Also in this PR: Cloud KMS recipients (`gcpkms://`), auth entries in scopes, ambient GCP
+credentials and fail-closed unresolved placeholders, which together let a client deploy run
+without the master key (see "Client deploys without the whole-file store").
 Prerequisite already shipped: the fail-closed `schemaVersion` store guard is released
 and baked fleet-wide, so old binaries hard-fail on formats they do not understand
 instead of silently rewriting them.
@@ -51,8 +54,10 @@ workflows and `pkg/githubactions/actions/parent_repo.go`:
 - **D3 — scope files live in the devops PARENT repo (`integrail` stack store) for v1.**
   Every PR consumer fetches `-s integrail`, and resolution merges parent+child (below), so
   one CODEOWNERS-guarded `secrets.pr.yaml` in the parent serves all consumers. The resolver
-  still supports consumer-repo scope files (they merge on top of parent) — that path is
-  reserved for the later deploy sweep, not populated in v1.
+  reads scope files wherever a stack directory is read, but at deploy time a client stack's
+  secrets are *replaced* by its parent's (`ReconcileForDeploy`), so scope files in a consumer
+  repo are not used by a client deploy. Deploy scopes therefore live in the parent too (see
+  "Client deploys without the whole-file store").
 
 ## Problem
 
@@ -110,6 +115,53 @@ it is a recipient of".
 - The legacy whole-file store keeps working unchanged (mode A). Scoped files are
   additive (mode B); old binaries never open them.
 
+## Client deploys without the whole-file store
+
+v1 keeps deploy-shaped jobs on the master key (D1) because a deploy needs the parent's
+credentials, not just values. Four additions make it possible to drop the master key from a
+client deploy without renaming it, all opt-in:
+
+1. **Ambient GCP credentials.** A `gcp-service-account` auth entry with empty `credentials`
+   makes every GCP client (Pulumi provider, state backend, storage, service usage, registry
+   token) use Application Default Credentials, which in CI are the Workload Identity
+   Federation credentials of the job. The auth entry then holds no secret. AWS already
+   behaves this way with empty static keys.
+2. **Auth entries in scopes.** A scope entry `auth:<name>` holds the YAML of one entry of
+   the `auth:` map, sealed and bound like a value. A deploy that opens the scope gets its
+   `${auth:<name>}`; the whole-file store still wins where it has the same name.
+3. **Cloud KMS recipients.** `gcpkms://projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>`
+   is a recipient kind next to `awskms://`, with the value's `(stack, scope, key)` as KMS
+   additional authenticated data and CRC32C integrity checks in both directions, so a
+   federated job opens its scope with no stored key.
+4. **Unresolved placeholders fail.** When the parent has scope files and no readable
+   whole-file store, an unresolved `${secret:}`/`${auth:}` in the parts of the stack a
+   deploy uses (the client config for the environment; the parent's provisioner, templates,
+   registrar, CI/CD and resources for the parent environment) fails the deploy. It is keyed
+   on the scope files being present, so a job holding the wrong key fails rather than
+   shipping literals. Other environments' placeholders are ignored: they are out of reach by
+   design.
+
+Layout for a client `app` deploying to `staging` from parent `infra`:
+
+```
+infra/.sc/scopes.yaml                          # app-staging: [break-glass ssh, gcpkms://…/app-staging]
+infra/.sc/stacks/infra/secrets.app-staging.yaml
+  auth:gcloud      -> type: gcp-service-account, config: {projectId: …, credentials: ""}
+  staging-app-key  -> the app's own secret
+  <parent values the deploy needs, e.g. a DNS or notification token>
+```
+
+The job federates to GCP (an identity allowed to use only the `app-staging` key and to
+deploy only its own resources), clones the parent with a read-only credential that is not a
+recipient of the whole-file store, and deploys. The parent's `secrets.yaml` stays sealed;
+the reveal of it fails as "not a recipient", which the GitHub Actions path already treats
+as non-fatal.
+
+What stays shared: a client deploy still reads the parent's Pulumi state (stack references
+for cluster, registry and database outputs), so its identity needs read access to that state
+and decrypt on the state's secrets-provider key. That exposes the parent's secret outputs to
+every client identity; narrowing it is separate from the secret store.
+
 ## Parent/child resolution — the load-bearing constraint (P0-1)
 
 A child (client) stack with `parent: <org>/<parent-stack>` does NOT decrypt in isolation.
@@ -140,10 +192,8 @@ consequences the spec must honor:
 scope, recipients, value names) stay diffable, each value is an opaque `{ciphertext, wraps}`
 envelope. They
 are NOT listed in the legacy registry and NOT touched by `sc secrets hide/reveal` legacy
-paths. Consumer-repo scope files
-(`<consumer>/.sc/stacks/<stack>/secrets.<scope>.yaml`) are a supported location the
-resolver merges on top of the parent, reserved for the later deploy sweep — v1 ships only
-the parent `secrets.pr.yaml`.
+paths. A scope file in a consumer repo is read by `sc secrets scope` and by stacks deployed
+from that repo as a parent, but not by a client deploy, whose secrets are the parent's.
 
 ## `scopes.yaml` (the governance surface)
 
@@ -250,8 +300,12 @@ result transparently:
 4. **Hard-fail — a real error, not a swallowed warn (P0-2):** a value the key IS a recipient
    of but cannot decrypt (tampered ciphertext / broken binding), a corrupt or renamed scope
    file, or the same key present in two openable scopes (ambiguous) all abort the read with
-   a non-nil error naming the scope. A `${secret:KEY}` that resolves to nothing still
-   hard-fails in the placeholder resolver (existing behavior). Not being a recipient of a
+   a non-nil error naming the scope. A `${secret:KEY}` or `${auth:NAME}` that resolves to
+   nothing is left in the config as literal text by the template engine; a client deploy
+   whose parent has scope files and no readable whole-file store therefore checks the parts
+   of the stack it uses after resolution and fails before Pulumi runs, naming the
+   placeholders (see "Client deploys without the whole-file store"). Without scopes it is
+   only logged, as before. Not being a recipient of a
    scope is NOT an error — you simply don't see it (least privilege).
 5. A KEY must live in exactly one mode; `sc secrets scope lint` rejects duplicates
    (mode A vs mode B, and cross-scope) to keep resolution deterministic.

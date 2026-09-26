@@ -880,7 +880,8 @@ steps:
 `get`, `doctor`, and deploy-time `${secret:}` resolution all try, in order: an explicit
 `--key-file`, the `SC_KEY_<SCOPE>` / `SC_SCOPE_KEY` env keys, the ambient
 `SIMPLE_CONTAINER_CONFIG`, and finally a KMS Decrypt for any `awskms://` recipient using the
-ambient AWS credentials. A value with no KMS recipient never triggers an AWS call.
+ambient AWS credentials, or a Cloud KMS Decrypt for a `gcpkms://` recipient using Application
+Default Credentials. A value with no KMS recipient never triggers a cloud call.
 
 **Secure-usage rules for KMS recipients**
 
@@ -923,6 +924,64 @@ ambient AWS credentials. A value with no KMS recipient never triggers an AWS cal
 - **Rotation still applies.** Removing a KMS recipient re-encrypts current files but does not
   rewrite history — rotate the values, and additionally rotate/disable the KMS key material if
   the key itself is the concern.
+
+### Cloud KMS recipients (`gcpkms://`)
+
+The same keyless model on Google Cloud. The recipient names a symmetric CryptoKey (not a key
+version: Encrypt uses the primary version and Decrypt finds it from the ciphertext, so
+rotation needs no reseal):
+
+```
+gcpkms://projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>
+```
+
+```bash
+sc secrets scope allow --scope app-staging 'gcpkms://projects/acme/locations/europe-west1/keyRings/sc/cryptoKeys/app-staging'
+```
+
+Sealing needs `roles/cloudkms.cryptoKeyEncrypter` on the key; opening needs
+`roles/cloudkms.cryptoKeyDecrypter`, which in CI is granted to the identity the job gets
+through Workload Identity Federation (`google-github-actions/auth`). Grant it on that one key
+only.
+
+- The value's `(stack, scope, key)` is sent as the KMS additional authenticated data, which
+  KMS enforces: a wrap moved to another stack, scope or key does not decrypt.
+- Decrypt names the key from the recipient, so a wrap filed under another key's slot is
+  rejected.
+- CRC32C checksums are sent and verified in both directions, and Encrypt must report a
+  version of the named key.
+- `INVALID_ARGUMENT` is an integrity failure (deploy fails as tamper); `PERMISSION_DENIED`,
+  `NOT_FOUND`, `FAILED_PRECONDITION` (key disabled or destroyed) and `UNAUTHENTICATED` mean
+  "not your scope" and are skipped; anything else fails the deploy as unavailable (retry).
+  No Application Default Credentials are probed once per resolve.
+
+### Client deploys without the master key
+
+A client (consumer) deploy normally needs the parent's whole-file store: its `${auth:...}`
+entries and the values its `client.yaml` references. Scopes can replace that, per client and
+per environment, so a leaked CI credential exposes one application's secrets instead of the
+platform's.
+
+1. Give the parent's GCP auth entry no key, so it holds no secret, and seal it into the
+   client's scope as an `auth:` entry:
+
+   ```bash
+   printf 'type: gcp-service-account\nconfig:\n  projectId: acme\n  credentials: ""\n' |
+     sc secrets scope set --scope app-staging -s infra auth:gcloud -
+   ```
+
+2. Seal the values that deploy references into the same scope: the app's own secrets and
+   any parent value it needs (a DNS token for its domains, a notification token).
+3. Make the scope's recipients a break-glass SSH key and a `gcpkms://` key the client's CI
+   identity can decrypt with.
+4. In the client workflow, federate to GCP before deploying. The deploy's
+   `SIMPLE_CONTAINER_CONFIG` carries only a key that can clone the parent repository
+   read-only and is not a recipient of its `secrets.yaml`.
+
+With scope files present and the whole-file store unreadable, a placeholder that no openable
+scope fills fails the deploy before anything is changed, naming the placeholder. Placeholders
+of other environments are ignored. Without scope files nothing changes: an unresolved
+placeholder is logged and deployed as before.
 
 ## Summary
 

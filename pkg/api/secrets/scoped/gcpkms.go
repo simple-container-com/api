@@ -117,11 +117,11 @@ func decryptGCPKMSWrap(ctx context.Context, cli gcpKMSAPI, r kmsRecipient, blob 
 		case codes.PermissionDenied, codes.NotFound, codes.FailedPrecondition, codes.Unauthenticated:
 			return nil, false, nil
 		default:
-			return nil, false, errors.Wrapf(err, "Cloud KMS decrypt failed for %s (transient — retry)", r.raw)
+			return nil, false, errors.Wrapf(err, "Cloud KMS decrypt failed for %s (transient, retry)", r.raw)
 		}
 	}
 	if out.GetPlaintextCrc32C().GetValue() != crc(out.GetPlaintext()).GetValue() {
-		return nil, false, errors.Errorf("Cloud KMS decrypt for %s failed its CRC32C integrity check (transient — retry)", r.raw)
+		return nil, false, errors.Errorf("Cloud KMS decrypt for %s failed its CRC32C integrity check (transient, retry)", r.raw)
 	}
 	return out.GetPlaintext(), true, nil
 }
