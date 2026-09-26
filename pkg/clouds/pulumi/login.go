@@ -31,6 +31,13 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
+// ambientCredentials is implemented by state storage configs that fall back to the
+// environment's credentials (e.g. GCP Application Default Credentials) when none
+// are configured.
+type ambientCredentials interface {
+	UsesAmbientCredentials() bool
+}
+
 // PULUMI_HOME env-var name. Inlined here because `workspace.PulumiHomeEnvVar`
 // from pulumi/sdk/v3/go/common/workspace is marked SA1019-deprecated in favour
 // of the newer `env.Home` Var indirection — switching to env.Home would couple
@@ -91,7 +98,7 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		return errors.Errorf("state storage config is not of type api.StateStorageConfig for %q", provisionerCfg.StateStorage.Type)
 	}
 	creds := stateStorageCfg.CredentialsValue()
-	if creds == "" {
+	if ambient, ok := stateStorageCfg.(ambientCredentials); creds == "" && (!ok || !ambient.UsesAmbientCredentials()) {
 		return errors.Errorf("credentials for pulumi backend must not be empty")
 	}
 

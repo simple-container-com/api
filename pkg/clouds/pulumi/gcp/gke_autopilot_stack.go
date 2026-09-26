@@ -13,8 +13,6 @@ import (
 	"os/exec"
 	"strings"
 
-	auth "golang.org/x/oauth2/google"
-
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -313,8 +311,10 @@ func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceIn
 			parts := strings.SplitN(env, "=", 2)
 			return parts[0], parts[1]
 		})
-		env["GOOGLE_CREDENTIALS"] = authConfig.CredentialsValue()
-		env["GOOGLE_APPLICATION_CREDENTIALS"] = authConfig.CredentialsValue()
+		if !gcloud.UsesAmbientCredentials(authConfig.CredentialsValue()) {
+			env["GOOGLE_CREDENTIALS"] = authConfig.CredentialsValue()
+			env["GOOGLE_APPLICATION_CREDENTIALS"] = authConfig.CredentialsValue()
+		}
 		registryHost := registryURL.ApplyT(func(out any) (string, error) {
 			rUrl := out.(string)
 			var parsedRegistryURL *url.URL
@@ -358,20 +358,11 @@ func getDockerCredentialsWithAuthToken(ctx *sdk.Context, input api.ResourceInput
 	if !ok {
 		return nil, errors.Errorf("failed to cast resource descriptor to api.AuthConfig")
 	}
-	// CredentialsFromJSONWithParams was deprecated in golang.org/x/oauth2 ≥ v0.34
-	// for security reasons; replaced by the typed variant. SC stores GCP auth as
-	// service-account JSON only (see api.AuthConfig.CredentialsValue), so pinning
-	// the credential type to ServiceAccount keeps this call rejecting unexpected
-	// credential shapes (workload-identity, refresh-token, etc.).
-	credentials, err := auth.CredentialsFromJSONWithTypeAndParams(ctx.Context(), []byte(authCfg.CredentialsValue()), auth.ServiceAccount, auth.CredentialsParams{
-		Scopes: []string{
-			"https://www.googleapis.com/auth/cloud-platform",
-		},
-	})
+	ts, err := tokenSource(ctx.Context(), authCfg.CredentialsValue())
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to find default credentials for GCP")
+		return nil, err
 	}
-	token, err := credentials.TokenSource.Token()
+	token, err := ts.Token()
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get GCP token from credentials")
 	}
