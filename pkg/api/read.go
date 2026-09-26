@@ -240,22 +240,45 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 }
 
 func DetectRegistrarType(p *PerStackResourcesDescriptor) (*PerStackResourcesDescriptor, error) {
-	registrar := p.Registrar
-	if registrar.IsInherited() {
-		return p, nil
+	// inherited registrars are resolved later, an empty type means "not configured"
+	skip := func(registrar RegistrarDescriptor) bool {
+		return registrar.IsInherited() || registrar.Type == ""
 	}
-	if registrar.Type == "" { // skip registrar when not configured
-		return p, nil
-	}
-	if fn, found := providerConfigMapping[registrar.Type]; !found {
-		return nil, errors.Errorf("unknown registrar type %q", registrar.Type)
-	} else {
-		var err error
-		registrar.Config, err = fn(&registrar.Config)
+	// the bool reports whether the type is known at all, which decides whether an
+	// unusable descriptor is returned alongside the error (as it always has been)
+	detect := func(registrar RegistrarDescriptor) (RegistrarDescriptor, bool, error) {
+		fn, found := providerConfigMapping[registrar.Type]
+		if !found {
+			return registrar, false, errors.Errorf("unknown registrar type %q", registrar.Type)
+		}
+		config, err := fn(&registrar.Config)
 		if err != nil {
+			return registrar, true, err
+		}
+		registrar.Config = config
+		return registrar, true, nil
+	}
+
+	if !skip(p.Registrar) {
+		registrar, known, err := detect(p.Registrar)
+		if !known {
+			return nil, err
+		} else if err != nil {
 			return p, err
 		}
 		p.Registrar = registrar
+	}
+	for name, registrar := range p.Registrars {
+		if skip(registrar) {
+			continue
+		}
+		detected, known, err := detect(registrar)
+		if !known {
+			return nil, errors.Wrapf(err, "registrar %q", name)
+		} else if err != nil {
+			return p, errors.Wrapf(err, "registrar %q", name)
+		}
+		p.Registrars[name] = detected
 	}
 	return p, nil
 }

@@ -66,8 +66,17 @@ func (s *StackDescriptor) Copy() StackDescriptor {
 }
 
 func (s *PerStackResourcesDescriptor) Copy() PerStackResourcesDescriptor {
+	// lo.MapValues turns a nil map into an empty one, which would make a copied
+	// descriptor unequal to the original for every stack that declares no registrars
+	var registrars map[string]RegistrarDescriptor
+	if s.Registrars != nil {
+		registrars = lo.MapValues(s.Registrars, func(value RegistrarDescriptor, key string) RegistrarDescriptor {
+			return value.Copy()
+		})
+	}
 	return PerStackResourcesDescriptor{
-		Registrar: s.Registrar.Copy(),
+		Registrar:  s.Registrar.Copy(),
+		Registrars: registrars,
 		Resources: lo.MapValues(s.Resources, func(value PerEnvResourcesDescriptor, key string) PerEnvResourcesDescriptor {
 			return value.Copy()
 		}),
