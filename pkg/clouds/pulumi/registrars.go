@@ -186,3 +186,11 @@ func (m *multiRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack
 	}
 	return registrar.NewOverrideHeaderRule(ctx, stack, rule)
 }
+
+func (m *multiRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	registrar, err := m.registrarFor(ctx, endpoint.Domain)
+	if err != nil {
+		return nil, err
+	}
+	return registrar.ProvisionDomainForEndpoint(ctx, stack, endpoint)
+}
