@@ -68,9 +68,13 @@ type ServerlessContainerOutput struct {
 // ServerlessContainer provisions the Yandex Cloud analogue of an AWS lambda: the
 // image is pushed to Container Registry, secrets go into Lockbox and are
 // *referenced* (never inlined) by the container, schedules become Timer
-// Triggers, and the custom domain is a proxied CNAME plus a host-override rule
-// at the registrar — the same mechanism the AWS lambda uses, so no YC DNS or API
-// Gateway resource is involved.
+// Triggers, and the custom domain is handed to the registrar that owns the zone.
+//
+// That last step is NOT the AWS lambda's mechanism. A lambda gets a proxied
+// Cloudflare record plus a host-override worker, which only works because the
+// edge is transparent; a `.ru` zone on Yandex DNS has neither, so the yc-dns
+// registrar builds a real API Gateway and points the record at it. See
+// forge/docs/design/2026-09-26/multi-registrar-dns/.
 func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != yandex.TemplateTypeYandexServerlessContainer {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
@@ -424,6 +428,14 @@ func provisionDNSForContainer(
 // it enables on seeing ComputeEnv.CloudProvider set below. A service pinned to an
 // older SDK will deploy a schedule that cannot fire: that is a dead job, not a
 // working one, so bump the SDK before relying on a schedule here.
+//
+// Confirmed against a live firing on 2026-09-26 (the yc-smoke stack), which added
+// three details the docs do not carry: the first message's fields are repeated at
+// the TOP level beside `messages`, so a decoder written against that copy would
+// quietly handle only single-message deliveries; `details.payload` is a JSON
+// *string* needing a second decode, not an object; and the delivery carries no
+// Authorization header, so what admits it is the container's allUsers invoker
+// binding — the trigger's own service account is not granted that role here.
 func provisionScheduleForContainer(
 	ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, crInput *yandex.ServerlessContainerInput,
 	containerName string, container *sdkYandex.ServerlessContainer, serviceAccountID sdk.StringInput,
@@ -450,7 +462,12 @@ func provisionScheduleForContainer(
 		return nil, errors.Wrapf(err, "invalid retryInterval for schedule %q", schedule.Name)
 	}
 	if interval > 0 {
-		containerArgs.RetryInterval = sdk.StringPtr(fmt.Sprintf("%ds", int(interval.Seconds())))
+		// A bare count of seconds, NOT a duration string: the field is typed as a
+		// string but the provider runs strconv.ParseInt over it, so "10s" fails at
+		// apply time with `Cannot define container.retry_interval … invalid syntax`
+		// — minutes into a deploy, after the image has already been pushed.
+		// Live-caught 2026-09-26 on the yc-smoke stack.
+		containerArgs.RetryInterval = sdk.StringPtr(strconv.Itoa(int(interval.Seconds())))
 	}
 
 	triggerArgs := &sdkYandex.FunctionTriggerArgs{

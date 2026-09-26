@@ -208,7 +208,10 @@ func TestServerlessContainer_SchedulesBecomeTimerTriggers(t *testing.T) {
 
 	container := trigger["container"].ObjectValue()
 	Expect(container["retryAttempts"].StringValue()).To(Equal("3"))
-	Expect(container["retryInterval"].StringValue()).To(Equal("30s"))
+	// Seconds as a bare integer. The field is a string, but the provider parses it
+	// with strconv.ParseInt, so the duration spelling the client.yaml uses ("30s")
+	// must not survive into the resource input.
+	Expect(container["retryInterval"].StringValue()).To(Equal("30"))
 
 	// No dlq block unless one was asked for — an empty QueueId is not a valid
 	// resource and would fail at apply time rather than being ignored.
