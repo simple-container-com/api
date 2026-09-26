@@ -12,9 +12,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 )

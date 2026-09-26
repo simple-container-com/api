@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	smithy "github.com/aws/smithy-go"
-	"github.com/pkg/errors"
 )
 
 // kmsRecipientScheme prefixes an AWS KMS recipient in scopes.yaml. The rest is

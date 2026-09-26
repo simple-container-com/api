@@ -17,8 +17,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pkg/errors"
 )
 
 // CurrentScopesSchemaVersion is the highest scopes.yaml / secrets.<scope>.yaml

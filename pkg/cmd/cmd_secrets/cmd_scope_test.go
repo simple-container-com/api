@@ -10,8 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/onsi/gomega"
 	"golang.org/x/crypto/ssh"
+
+	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"

@@ -8,8 +8,9 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"

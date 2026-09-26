@@ -207,7 +207,6 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 											filePath := filepath.Join(stackPath, file.Name())
 											if info, err := os.Stat(filePath); err == nil {
 												e.logger.Debug(ctx, "      📄 stacks/%s/%s (%d bytes)", stackEntry.Name(), file.Name(), info.Size())
-
 											} else {
 												e.logger.Debug(ctx, "      📄 stacks/%s/%s", stackEntry.Name(), file.Name())
 											}

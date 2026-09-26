@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package ciphers
 
 import (
@@ -10,9 +13,10 @@ import (
 	"io"
 
 	"filippo.io/edwards25519"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
+
+	"github.com/pkg/errors"
 )
 
 // x25519Magic marks a sealed-box blob produced by encryptWithX25519, so

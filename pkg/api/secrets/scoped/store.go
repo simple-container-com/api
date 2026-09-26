@@ -12,8 +12,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"

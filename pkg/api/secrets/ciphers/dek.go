@@ -6,8 +6,9 @@ package ciphers
 import (
 	"crypto/rand"
 
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/chacha20poly1305"
+
+	"github.com/pkg/errors"
 )
 
 // DEKSize is the length of a data-encryption key for the envelope AEAD.

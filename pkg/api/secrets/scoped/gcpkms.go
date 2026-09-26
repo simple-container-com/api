@@ -12,11 +12,12 @@ import (
 
 	gcpkms "cloud.google.com/go/kms/apiv1"
 	"cloud.google.com/go/kms/apiv1/kmspb"
-	"github.com/googleapis/gax-go/v2"
-	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/googleapis/gax-go/v2"
+	"github.com/pkg/errors"
 )
 
 // gcpKMSRecipientScheme names a Google Cloud KMS symmetric key as a scope recipient:
