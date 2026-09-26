@@ -318,6 +318,53 @@ This isolation is automatic and is what makes `sc destroy -s myservice -e <env>`
 
 ---
 
+# **Advanced Configuration: Template Node Selector**
+
+A `gcp-gke-autopilot` template can set a default `nodeSelector` for every client stack deployed through it. Point one environment at a dedicated template to change scheduling for all of its services at once, for example running a staging environment on Spot Pods:
+
+```yaml
+# File: "myproject/.sc/stacks/devops/server.yaml"
+templates:
+  stack-per-app-gke:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+      gkeClusterResource: gke-autopilot-res
+      artifactRegistryResource: artifact-registry-res
+  stack-per-app-gke-spot:
+    type: gcp-gke-autopilot
+    config:
+      projectId: "${auth:gcloud.projectId}"
+      credentials: "${auth:gcloud}"
+      gkeClusterResource: gke-autopilot-res
+      artifactRegistryResource: artifact-registry-res
+      nodeSelector:
+        cloud.google.com/gke-spot: "true"
+
+resources:
+  resources:
+    staging:
+      template: stack-per-app-gke-spot
+    production:
+      template: stack-per-app-gke
+```
+
+GKE Autopilot adds the Spot toleration automatically, so no `tolerations` are needed.
+
+The template value is a default. A client's `cloudExtras.nodeSelector` keys are merged on top and win on conflict, and an empty value removes a template key:
+
+```yaml
+# File: "myproject/.sc/stacks/myservice/client.yaml"
+cloudExtras:
+  nodeSelector:
+    cloud.google.com/gke-spot: ""
+```
+
+Spot Pods get at most 15 seconds of grace when preempted and are excluded from the Autopilot SLA, so keep them to environments that tolerate interruptions. A new template is exported by the next parent stack provision; client stacks pick up the change on their next deploy.
+
+---
+
 # **Advanced Configuration: Vertical Pod Autoscaler (VPA)**
 
 GKE Autopilot supports **Vertical Pod Autoscaler (VPA)** for automatic resource optimization. Simple Container provides built-in VPA support for both **application deployments** and **Caddy ingress controllers**.

@@ -413,6 +413,20 @@ func TestReadGkeAutopilotTemplateConfig(t *testing.T) {
 		Expect(tpl.GkeClusterResource).To(Equal("my-cluster"))
 		Expect(tpl.ArtifactRegistryResource).To(Equal("my-registry"))
 		Expect(tpl.ProjectId).To(Equal("my-gcp-project"))
+		Expect(tpl.NodeSelector).To(BeNil())
+	})
+
+	t.Run("node selector", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"gkeClusterResource": "my-cluster",
+			"nodeSelector":       map[string]any{"cloud.google.com/gke-spot": "true"},
+		}}
+		out, err := ReadGkeAutopilotTemplateConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+		tpl, ok := out.Config.(*GkeAutopilotTemplate)
+		Expect(ok).To(BeTrue())
+		Expect(tpl.NodeSelector).To(Equal(map[string]string{"cloud.google.com/gke-spot": "true"}))
 	})
 
 	t.Run("error path", func(t *testing.T) {

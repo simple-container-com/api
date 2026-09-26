@@ -84,8 +84,9 @@ type ExternalEgressIpConfig struct {
 
 type GkeAutopilotTemplate struct {
 	Credentials              `json:",inline" yaml:",inline"`
-	GkeClusterResource       string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
-	ArtifactRegistryResource string `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	GkeClusterResource       string            `json:"gkeClusterResource" yaml:"gkeClusterResource"`
+	ArtifactRegistryResource string            `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	NodeSelector             map[string]string `json:"nodeSelector,omitempty" yaml:"nodeSelector,omitempty"`
 }
 
 type GkeAutopilotInput struct {
@@ -187,6 +188,8 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 			// For exclusive node pool, anti-affinity rules are handled in simple_container.go
 		}
 	}
+
+	deployCfg.NodeSelector = mergeNodeSelector(templateCfg.NodeSelector, deployCfg.NodeSelector)
 
 	res := &GkeAutopilotInput{
 		GkeAutopilotTemplate: *templateCfg,
@@ -394,4 +397,22 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func mergeNodeSelector(defaults, overrides map[string]string) map[string]string {
+	if len(defaults) == 0 {
+		return overrides
+	}
+	merged := lo.Assign(map[string]string{}, defaults)
+	for k, v := range overrides {
+		if _, fromTemplate := defaults[k]; fromTemplate && v == "" {
+			delete(merged, k)
+			continue
+		}
+		merged[k] = v
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
