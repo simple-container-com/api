@@ -29,6 +29,7 @@ type fakeRegistrar struct {
 	name       string
 	records    []api.DnsRecord
 	rules      []pApi.OverrideHeaderRule
+	endpoints  []pApi.DomainEndpoint
 	provisions int
 }
 
@@ -46,6 +47,11 @@ func (f *fakeRegistrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*a
 
 func (f *fakeRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
 	f.rules = append(f.rules, rule)
+	return &api.ResourceOutput{Ref: f.name}, nil
+}
+
+func (f *fakeRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	f.endpoints = append(f.endpoints, endpoint)
 	return &api.ResourceOutput{Ref: f.name}, nil
 }
 
@@ -221,4 +227,27 @@ func TestDomainInZone(t *testing.T) {
 		Expect(domainInZone(tt.domain, tt.zone)).To(Equal(tt.want),
 			"domainInZone(%q, %q)", tt.domain, tt.zone)
 	}
+}
+
+// ProvisionDomainForEndpoint routes on the domain the endpoint is being published under,
+// not on the cloud endpoint it points at: a lambda in AWS may perfectly well answer on a
+// name in a zone served by a different registrar.
+func TestMultiRegistrarRoutesEndpointByDomain(t *testing.T) {
+	RegisterTestingT(t)
+
+	instances, _ := registerFakeRegistrars(t, "epcf", "epyc")
+	m := newMultiRegistrar("infra", map[string]api.RegistrarDescriptor{
+		"cf": descriptorFor("epcf", "simple-forge.com"),
+		"yc": descriptorFor("epyc", "simple-forge.ru"),
+	}, nil, nil)
+
+	_, err := m.ProvisionDomainForEndpoint(nil, api.Stack{}, pApi.DomainEndpoint{
+		Name:       "storage",
+		Domain:     "storage.simple-forge.ru",
+		TargetHost: sdk.String("abc.lambda-url.eu-central-1.on.aws"),
+	})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(instances["epyc"].endpoints).To(HaveLen(1))
+	Expect(instances["epyc"].endpoints[0].Name).To(Equal("storage"))
+	Expect(instances["epcf"].endpoints).To(BeEmpty())
 }

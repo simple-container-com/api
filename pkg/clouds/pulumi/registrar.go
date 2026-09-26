@@ -32,6 +32,10 @@ func (n notConfigured) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, 
 	return nil, NotConfiguredRegistrarError
 }
 
+func (n notConfigured) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	return nil, NotConfiguredRegistrarError
+}
+
 func NotConfiguredRegistrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error) {
 	return &notConfigured{}, nil
 }
