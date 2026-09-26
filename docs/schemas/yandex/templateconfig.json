@@ -1,12 +1,12 @@
 {
   "name": "TemplateConfig",
   "type": "template",
-  "provider": "aws",
-  "description": "AWS deployment template configuration",
-  "goPackage": "pkg/clouds/aws/",
+  "provider": "yandex",
+  "description": "YANDEX deployment template configuration",
+  "goPackage": "pkg/clouds/yandex/",
   "goStruct": "TemplateConfig",
-  "resourceType": "ecs-fargate",
-  "templateType": "ecs-fargate",
+  "resourceType": "yc-serverless-container",
+  "templateType": "yc-serverless-container",
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
@@ -28,10 +28,10 @@
           "accessKey": {
             "type": "string"
           },
-          "account": {
+          "cloudId": {
             "type": "string"
           },
-          "permissionsBoundary": {
+          "folderId": {
             "type": "string"
           },
           "region": {
@@ -39,16 +39,26 @@
           },
           "secretAccessKey": {
             "type": "string"
+          },
+          "serviceAccountKey": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
           }
         },
         "required": [
           "",
-          "accessKey",
-          "account",
-          "region",
-          "secretAccessKey"
+          "cloudId",
+          "folderId"
         ],
         "type": "object"
+      },
+      "registryId": {
+        "type": "string"
+      },
+      "serviceAccountId": {
+        "type": "string"
       }
     },
     "required": [

@@ -37,3 +37,12 @@ func (r *AuthConfig) ProviderType() string {
 func (r *RegistrarConfig) DnsRecords() []api.DnsRecord {
 	return r.Records
 }
+
+// Zones implements api.RegistrarZonesAware: a Cloudflare registrar serves exactly the
+// one zone it is configured with.
+func (r *RegistrarConfig) Zones() []string {
+	if r.ZoneName == "" {
+		return nil
+	}
+	return []string{r.ZoneName}
+}

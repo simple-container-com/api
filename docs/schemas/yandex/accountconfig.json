@@ -1,0 +1,53 @@
+{
+  "name": "AccountConfig",
+  "type": "auth",
+  "provider": "yandex",
+  "description": "YANDEX authentication configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "AccountConfig",
+  "resourceType": "yc-service-account",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "credentials": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credentials"
+        ],
+        "type": "object"
+      },
+      "accessKey": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "folderId": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "zone": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "cloudId",
+      "folderId"
+    ],
+    "type": "object"
+  }
+}

@@ -32,6 +32,10 @@
     "mongodb": {
       "count": 1,
       "description": "Mongodb cloud provider resources and templates"
+    },
+    "yandex": {
+      "count": 8,
+      "description": "Yandex cloud provider resources and templates"
     }
   },
   "title": "Simple Container Resource Schemas"

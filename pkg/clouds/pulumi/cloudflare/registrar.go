@@ -127,6 +127,34 @@ func (r *provisioner) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api
 	}, nil
 }
 
+// ProvisionDomainForEndpoint points the domain straight at the endpoint with a proxied
+// record — which is what gives it a certificate — and deploys a worker to rewrite the
+// Host header so the endpoint recognises the request. No edge resource of our own is
+// involved, so the record can be created before the rule.
+func (r *provisioner) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	r.log.Info(ctx.Context(), "configure CNAME DNS record %q for stack %q...", endpoint.Domain, stack.Name)
+
+	record, err := r.NewRecord(ctx, api.DnsRecord{
+		Name:     endpoint.Domain,
+		Type:     "CNAME",
+		ValueOut: endpoint.TargetHost.ToStringOutput(),
+		Proxied:  true,
+	})
+	if err != nil {
+		r.log.Error(ctx.Context(), "failed to create DNS record %q: %s", endpoint.Domain, err.Error())
+		return nil, errors.Wrapf(err, "failed to create DNS record %q", endpoint.Domain)
+	}
+	if _, err := r.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
+		Name:     endpoint.Name,
+		FromHost: endpoint.Domain,
+		ToHost:   endpoint.TargetHost,
+	}); err != nil {
+		r.log.Error(ctx.Context(), "failed to create override header rule for %q", endpoint.Domain)
+		return nil, errors.Wrapf(err, "failed to create override host rule from %q", endpoint.Domain)
+	}
+	return record, nil
+}
+
 func (r *provisioner) NewWorkerScript(ctx *sdk.Context, workerName string, hostName string, script string) (*api.ResourceOutput, error) {
 	ruleName := fmt.Sprintf("%s-worker-script", workerName)
 	r.log.Info(ctx.Context(), "configure cloudflare worker script %q...", workerName)

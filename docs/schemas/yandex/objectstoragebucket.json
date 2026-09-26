@@ -1,12 +1,11 @@
 {
-  "name": "TemplateConfig",
-  "type": "template",
-  "provider": "aws",
-  "description": "AWS deployment template configuration",
-  "goPackage": "pkg/clouds/aws/",
-  "goStruct": "TemplateConfig",
-  "resourceType": "ecs-fargate",
-  "templateType": "ecs-fargate",
+  "name": "ObjectStorageBucket",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX objectstoragebucket configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "ObjectStorageBucket",
+  "resourceType": "yc-bucket",
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
@@ -28,10 +27,10 @@
           "accessKey": {
             "type": "string"
           },
-          "account": {
+          "cloudId": {
             "type": "string"
           },
-          "permissionsBoundary": {
+          "folderId": {
             "type": "string"
           },
           "region": {
@@ -39,16 +38,32 @@
           },
           "secretAccessKey": {
             "type": "string"
+          },
+          "serviceAccountKey": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
           }
         },
         "required": [
           "",
-          "accessKey",
-          "account",
-          "region",
-          "secretAccessKey"
+          "cloudId",
+          "folderId"
         ],
         "type": "object"
+      },
+      "forceDestroy": {
+        "type": "boolean"
+      },
+      "maxSize": {
+        "type": "integer"
+      },
+      "name": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
       }
     },
     "required": [
