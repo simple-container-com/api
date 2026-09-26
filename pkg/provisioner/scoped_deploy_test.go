@@ -317,3 +317,32 @@ func Test_Deploy_LegacyUnresolvedPlaceholderOnlyWarns(t *testing.T) {
 	Expect(joined).To(ContainSubstring("${secret:NOTIFY_TOKEN}"))
 	Expect(joined).NotTo(ContainSubstring(`{"type":"service_account"}`))
 }
+
+// A client picks its parent template per run with ${env:NAME:default}, so one
+// client.yaml serves a keyless run (which sets the variable) and a run with the
+// master key (which gets the default, i.e. today's template).
+func Test_Deploy_TemplateFromEnvironment(t *testing.T) {
+	RegisterTestingT(t)
+	rec, key := scopeKey(t)
+	w := newScopedWorkspace(t, rec, map[string]string{
+		"auth:gcloud":     ambientGcloudAuth,
+		"staging-app-key": "s3cr3t",
+		"NOTIFY_TOKEN":    "notify",
+	})
+	client := filepath.Join(w.root, ".sc", "stacks", "app", "client.yaml")
+	body, err := os.ReadFile(client)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(os.WriteFile(client, []byte(strings.Replace(string(body),
+		"    parent: acme/infra\n    config:\n      dockerComposeFile: docker-compose.yaml\n      runs: [api]\n      env:\n        APP_KEY: \"${secret:staging-app-key}\"",
+		"    parent: acme/infra\n    template: ${env:SC_TEST_TEMPLATE:stack-per-app}\n    config:\n      dockerComposeFile: docker-compose.yaml\n      runs: [api]\n      env:\n        APP_KEY: \"${secret:staging-app-key}\"", 1)), 0o644)).To(Succeed())
+	t.Setenv("SC_KEY_APP_STAGING", key)
+
+	got, err := w.deploy(t, nil, "staging")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got.Client.Stacks["staging"].Template).To(Equal("stack-per-app"))
+
+	t.Setenv("SC_TEST_TEMPLATE", "stack-per-app-ambient")
+	got, err = w.deploy(t, nil, "staging")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got.Client.Stacks["staging"].Template).To(Equal("stack-per-app-ambient"))
+}
