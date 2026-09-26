@@ -413,7 +413,45 @@ func TestReadGkeAutopilotTemplateConfig(t *testing.T) {
 		Expect(tpl.GkeClusterResource).To(Equal("my-cluster"))
 		Expect(tpl.ArtifactRegistryResource).To(Equal("my-registry"))
 		Expect(tpl.ProjectId).To(Equal("my-gcp-project"))
+		Expect(tpl.NodeSelector).To(BeNil())
 	})
+
+	t.Run("node selector", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"gkeClusterResource": "my-cluster",
+			"nodeSelector":       map[string]any{"cloud.google.com/gke-spot": "true"},
+		}}
+		out, err := ReadGkeAutopilotTemplateConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+		tpl, ok := out.Config.(*GkeAutopilotTemplate)
+		Expect(ok).To(BeTrue())
+		Expect(tpl.NodeSelector).To(Equal(map[string]string{"cloud.google.com/gke-spot": "true"}))
+	})
+
+	t.Run("node selector unquoted bool becomes a string", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"nodeSelector": map[string]any{"cloud.google.com/gke-spot": true},
+		}}
+		out, err := ReadGkeAutopilotTemplateConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out.Config.(*GkeAutopilotTemplate).NodeSelector).To(Equal(map[string]string{"cloud.google.com/gke-spot": "true"}))
+	})
+
+	for name, selector := range map[string]map[string]any{
+		"empty value":      {"cloud.google.com/gke-spot": ""},
+		"null value":       {"cloud.google.com/gke-spot": nil},
+		"non-scalar value": {"cloud.google.com/gke-spot": map[string]any{"a": "b"}},
+		"invalid key":      {"bad key!": "true"},
+		"invalid value":    {"tier": "not a label value"},
+	} {
+		t.Run("node selector rejects "+name, func(t *testing.T) {
+			RegisterTestingT(t)
+			_, err := ReadGkeAutopilotTemplateConfig(&api.Config{Config: map[string]any{"nodeSelector": selector}})
+			Expect(err).To(HaveOccurred())
+		})
+	}
 
 	t.Run("error path", func(t *testing.T) {
 		RegisterTestingT(t)

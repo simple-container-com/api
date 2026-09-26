@@ -36,6 +36,12 @@
       },
       "gkeClusterResource": {
         "type": "string"
+      },
+      "nodeSelector": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
       }
     },
     "required": [

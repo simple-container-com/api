@@ -4,8 +4,12 @@
 package gcloud
 
 import (
+	"maps"
 	"net"
+	"slices"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -84,8 +88,9 @@ type ExternalEgressIpConfig struct {
 
 type GkeAutopilotTemplate struct {
 	Credentials              `json:",inline" yaml:",inline"`
-	GkeClusterResource       string `json:"gkeClusterResource" yaml:"gkeClusterResource"`
-	ArtifactRegistryResource string `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	GkeClusterResource       string            `json:"gkeClusterResource" yaml:"gkeClusterResource"`
+	ArtifactRegistryResource string            `json:"artifactRegistryResource" yaml:"artifactRegistryResource"`
+	NodeSelector             map[string]string `json:"nodeSelector,omitempty" yaml:"nodeSelector,omitempty"`
 }
 
 type GkeAutopilotInput struct {
@@ -106,7 +111,32 @@ func (i *GkeAutopilotInput) DependsOnResources() []api.StackConfigDependencyReso
 }
 
 func ReadGkeAutopilotTemplateConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &GkeAutopilotTemplate{})
+	res, err := api.ConvertConfig(config, &GkeAutopilotTemplate{})
+	if err != nil {
+		return res, err
+	}
+	if tpl, ok := res.Config.(*GkeAutopilotTemplate); ok {
+		if err := validateTemplateNodeSelector(tpl.NodeSelector); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+func validateTemplateNodeSelector(selector map[string]string) error {
+	for _, k := range slices.Sorted(maps.Keys(selector)) {
+		if errs := validation.IsQualifiedName(k); len(errs) > 0 {
+			return errors.Errorf("template nodeSelector key %q is invalid: %s", k, strings.Join(errs, "; "))
+		}
+		v := selector[k]
+		if v == "" {
+			return errors.Errorf("template nodeSelector %q has an empty value; set a value or remove the key", k)
+		}
+		if errs := validation.IsValidLabelValue(v); len(errs) > 0 {
+			return errors.Errorf("template nodeSelector %q value %q is invalid: %s", k, v, strings.Join(errs, "; "))
+		}
+	}
+	return nil
 }
 
 func ReadGkeAutopilotResourceConfig(config *api.Config) (api.Config, error) {
@@ -188,8 +218,12 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 		}
 	}
 
+	deployCfg.NodeSelector = mergeNodeSelector(templateCfg.NodeSelector, deployCfg.NodeSelector)
+
+	tplCopy := *templateCfg
+	tplCopy.NodeSelector = nil
 	res := &GkeAutopilotInput{
-		GkeAutopilotTemplate: *templateCfg,
+		GkeAutopilotTemplate: tplCopy,
 		Deployment:           deployCfg,
 	}
 
@@ -394,4 +428,24 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 	}
 
 	return nil
+}
+
+func mergeNodeSelector(defaults, overrides map[string]string) map[string]string {
+	merged := make(map[string]string, len(defaults)+len(overrides))
+	for k, v := range defaults {
+		if v != "" {
+			merged[k] = v
+		}
+	}
+	for k, v := range overrides {
+		if v == "" {
+			delete(merged, k)
+			continue
+		}
+		merged[k] = v
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
