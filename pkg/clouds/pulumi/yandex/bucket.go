@@ -44,6 +44,15 @@ func ObjectStorageBucket(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	if params.Provider == nil {
 		return nil, errors.Errorf("provider must not be nil for bucket %q in stack %q", input.Descriptor.Name, stack.Name)
 	}
+	// Rehydrate the account config out of `credentials: "${auth:yc}"`, exactly as
+	// Provider and ServerlessContainer do. Without this a bucket declared with
+	// nothing but a credentials reference — the way every other resource in the
+	// fleet is declared — fails with "folderId must be set", because SC resolves
+	// `${auth:...}` into the opaque Credentials blob and never into the sibling
+	// fields. Live-caught on the first YC smoke provision, 2026-09-26.
+	if err := api.ConvertAuth(bucketCfg, &bucketCfg.AccountConfig); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert auth config to yandex.AccountConfig for bucket %q", input.Descriptor.Name)
+	}
 	if bucketCfg.FolderID == "" {
 		return nil, errors.Errorf("folderId must be set for bucket %q in stack %q", input.Descriptor.Name, stack.Name)
 	}

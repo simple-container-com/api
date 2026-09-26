@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -97,8 +98,17 @@ func buildAndPushDockerImage(
 		return fmt.Sprintf("%s/%s", ContainerRegistryHost, id)
 	}).(sdk.StringOutput)
 
+	repositoryName := toRepositoryName(image.name)
+	if repositoryName == "" {
+		return nil, errors.Errorf("cannot derive a container registry repository name from %q for stack %q", image.name, stack.Name)
+	}
+	if repositoryName != image.name {
+		params.Log.Info(ctx.Context(), "image name %q is not a valid %s repository name, pushing as %q instead",
+			image.name, ContainerRegistryHost, repositoryName)
+	}
+
 	out, err := pDocker.BuildAndPushImage(ctx, stack, params, deployParams, pDocker.Image{
-		Name:       image.name,
+		Name:       repositoryName,
 		Dockerfile: image.dockerfile,
 		Args:       image.args,
 		Context:    image.context,
@@ -126,6 +136,36 @@ func buildAndPushDockerImage(
 		deployImageRef: out.DeployImageRef,
 		registry:       registry,
 	}, nil
+}
+
+// separatorRunRegexp matches a run of two or more consecutive separators in a
+// repository name.
+var separatorRunRegexp = regexp.MustCompile(`[._-]{2,}`)
+
+// toRepositoryName makes an image name pushable to cr.yandex.
+//
+// Yandex Container Registry enforces the *legacy* Docker repository grammar,
+// `[a-z0-9]+(?:[._-][a-z0-9]+)*` — at most ONE separator between components.
+// Modern Docker clients accept `__` and `-+`, so the client happily forms the
+// request and the registry answers a bare `400 Bad Request` to the blob HEAD,
+// with no hint that the repository name is what it objects to. Live-caught on
+// the first YC container deploy, 2026-09-26: `--` and `__` both fail, `-`, `_`
+// and `.` all succeed.
+//
+// This matters for every stack, not just oddly-named ones: SC's image name is
+// the stack name, and a client stack is always `<stack>--<env>`. So without this
+// NO Forge service could push an image to YC at all.
+//
+// Runs collapse to their first character (`a--b` -> `a-b`, `a__b` -> `a_b`)
+// rather than being hashed or stripped, to keep the registry readable. Two
+// stacks whose names differ only in the position of a doubled separator would
+// collide, which is accepted: it takes deliberately adversarial naming to hit.
+func toRepositoryName(name string) string {
+	collapsed := separatorRunRegexp.ReplaceAllStringFunc(strings.ToLower(name), func(run string) string {
+		return run[:1]
+	})
+	// A leading or trailing separator is rejected by the same grammar.
+	return strings.Trim(collapsed, "._-")
 }
 
 // containerRegistryPassword returns the credential that authenticates a docker
