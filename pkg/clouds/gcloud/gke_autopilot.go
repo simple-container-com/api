@@ -4,8 +4,12 @@
 package gcloud
 
 import (
+	"maps"
 	"net"
+	"slices"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -107,7 +111,32 @@ func (i *GkeAutopilotInput) DependsOnResources() []api.StackConfigDependencyReso
 }
 
 func ReadGkeAutopilotTemplateConfig(config *api.Config) (api.Config, error) {
-	return api.ConvertConfig(config, &GkeAutopilotTemplate{})
+	res, err := api.ConvertConfig(config, &GkeAutopilotTemplate{})
+	if err != nil {
+		return res, err
+	}
+	if tpl, ok := res.Config.(*GkeAutopilotTemplate); ok {
+		if err := validateTemplateNodeSelector(tpl.NodeSelector); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+func validateTemplateNodeSelector(selector map[string]string) error {
+	for _, k := range slices.Sorted(maps.Keys(selector)) {
+		if errs := validation.IsQualifiedName(k); len(errs) > 0 {
+			return errors.Errorf("template nodeSelector key %q is invalid: %s", k, strings.Join(errs, "; "))
+		}
+		v := selector[k]
+		if v == "" {
+			return errors.Errorf("template nodeSelector %q has an empty value; set a value or remove the key", k)
+		}
+		if errs := validation.IsValidLabelValue(v); len(errs) > 0 {
+			return errors.Errorf("template nodeSelector %q value %q is invalid: %s", k, v, strings.Join(errs, "; "))
+		}
+	}
+	return nil
 }
 
 func ReadGkeAutopilotResourceConfig(config *api.Config) (api.Config, error) {
@@ -191,8 +220,10 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 
 	deployCfg.NodeSelector = mergeNodeSelector(templateCfg.NodeSelector, deployCfg.NodeSelector)
 
+	tplCopy := *templateCfg
+	tplCopy.NodeSelector = nil
 	res := &GkeAutopilotInput{
-		GkeAutopilotTemplate: *templateCfg,
+		GkeAutopilotTemplate: tplCopy,
 		Deployment:           deployCfg,
 	}
 
@@ -400,12 +431,14 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 }
 
 func mergeNodeSelector(defaults, overrides map[string]string) map[string]string {
-	if len(defaults) == 0 {
-		return overrides
+	merged := make(map[string]string, len(defaults)+len(overrides))
+	for k, v := range defaults {
+		if v != "" {
+			merged[k] = v
+		}
 	}
-	merged := lo.Assign(map[string]string{}, defaults)
 	for k, v := range overrides {
-		if _, fromTemplate := defaults[k]; fromTemplate && v == "" {
+		if v == "" {
 			delete(merged, k)
 			continue
 		}

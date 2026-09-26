@@ -346,22 +346,35 @@ resources:
   resources:
     staging:
       template: stack-per-app-gke-spot
+      resources:
+        # keep the environment's existing resources unchanged
     production:
       template: stack-per-app-gke
+      resources:
+        # keep the environment's existing resources unchanged
 ```
 
-GKE Autopilot adds the Spot toleration automatically, so no `tolerations` are needed.
+Only the `template` line of each environment changes; its `resources` stay as they are.
 
-The template value is a default. A client's `cloudExtras.nodeSelector` keys are merged on top and win on conflict, and an empty value removes a template key:
+Use it for labels whose tolerations GKE Autopilot adds itself, such as `cloud.google.com/gke-spot` and `cloud.google.com/compute-class`. A template cannot add tolerations, so for custom workload-separation labels use `cloudExtras.affinity.nodePool` instead. Template keys and values are validated when the parent stack is read, and an empty value is rejected.
+
+The template value is a default, not a policy. A client's `cloudExtras.nodeSelector` keys are merged on top and win on conflict, and an empty value removes the key, so the selector never reaches Kubernetes with an empty value. A client can also pick a different template with `stacks.<env>.template`. Enforce placement with an admission policy if it must not be overridden.
 
 ```yaml
 # File: "myproject/.sc/stacks/myservice/client.yaml"
-cloudExtras:
-  nodeSelector:
-    cloud.google.com/gke-spot: ""
+stacks:
+  staging:
+    type: cloud-compose
+    parent: myproject/devops
+    config:
+      cloudExtras:
+        nodeSelector:
+          cloud.google.com/gke-spot: ""
 ```
 
-Spot Pods get at most 15 seconds of grace when preempted and are excluded from the Autopilot SLA, so keep them to environments that tolerate interruptions. A new template is exported by the next parent stack provision; client stacks pick up the change on their next deploy.
+Spot Pods get at most 15 seconds of grace when preempted and are excluded from the Autopilot SLA, so keep them to environments that tolerate interruptions.
+
+A new or changed template is exported by the next parent stack provision, and each client stack picks it up on its next deploy; removing the key rolls the environment back the same way. Both the parent provision and the client deploys must run an SC release that includes this field: an older release ignores it without an error. The deploy log prints the effective `nodeSelector`.
 
 ---
 
@@ -758,7 +771,7 @@ stacks:
 
 | Field                | Type                | Description                                  | GKE Autopilot Support           |
 |----------------------|---------------------|----------------------------------------------|--------------------------------|
-| `nodeSelector`       | `map[string]string` | Node selection labels                        | Custom labels supported        |
+| `nodeSelector`       | `map[string]string` | Node selection labels, merged over the template default; `""` removes a key | Custom labels supported        |
 | `disruptionBudget`   | `object`            | Pod disruption budget for HA                 | Full support                   |
 | `rollingUpdate`      | `object`            | Rolling update strategy                      | Full support                   |
 | `affinity`           | `object`            | Pod affinity and anti-affinity               | With workload separation       |

@@ -149,6 +149,9 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	} else {
 		params.Log.Info(ctx.Context(), "🔍 DEBUG: gkeAutopilotInput.Deployment.Affinity is nil")
 	}
+	if len(gkeAutopilotInput.Deployment.NodeSelector) > 0 {
+		params.Log.Info(ctx.Context(), "effective nodeSelector: %v", gkeAutopilotInput.Deployment.NodeSelector)
+	}
 
 	// UseSSL gates two SC outputs in the kubernetes.Args contract:
 	//   1. `import hsts` in the per-stack Caddyfile entry → the parent
