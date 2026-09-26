@@ -16,6 +16,7 @@ func init() {
 		AuthTypeYandexServiceAccount:          ReadAuthServiceAccountConfig,
 		SecretsTypeYandexLockbox:              ReadSecretsConfig,
 		TemplateTypeYandexServerlessContainer: ReadTemplateConfig,
+		ResourceTypeObjectStorageBucket:       ReadObjectStorageBucketConfig,
 	})
 
 	api.RegisterProvisionerFieldConfig(api.ProvisionerFieldConfigRegister{

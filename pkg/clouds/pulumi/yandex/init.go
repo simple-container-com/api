@@ -8,13 +8,23 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
-// Only the state store is registered so far. Resource provisioning
-// (api.RegisterProvider / RegisterResources) waits on the choice of Yandex Pulumi
-// provider — pulumi/pulumi-yandex is deprecated and pinned to v0.13.0 (2022),
-// which predates Serverless Containers entirely. See the design doc's §0.3.
+// The Pulumi provider behind these registrations is simple-container-com/pulumi-yandex,
+// our static bridge over yandex-cloud/terraform-provider-yandex. pulumi/pulumi-yandex
+// was archived at v0.13.0 (2022), predating Serverless Containers entirely, and the
+// dynamic `pulumi package add terraform-provider` path needs registry.opentofu.org,
+// which is geo-blocked from the hosts this fleet deploys from. See the design doc's
+// §0.3/§0.4.
 //
-// Until then a YC stack parses, and its Pulumi state lives in Object Storage, but
-// `sc provision` has nothing to create.
+// Templates register through the same RegisterResources map as resources — there
+// is no separate RegisterTemplate (see aws/init.go).
 func init() {
 	api.RegisterInitStateStore(yandex.ProviderType, InitStateStore)
+	api.RegisterProvider(yandex.ProviderType, Provider)
+	api.RegisterResources(map[string]api.ProvisionFunc{
+		yandex.ResourceTypeObjectStorageBucket:       ObjectStorageBucket,
+		yandex.TemplateTypeYandexServerlessContainer: ServerlessContainer,
+	})
+	api.RegisterComputeProcessor(map[string]api.ComputeProcessorFunc{
+		yandex.ResourceTypeObjectStorageBucket: ObjectStorageBucketComputeProcessor,
+	})
 }
