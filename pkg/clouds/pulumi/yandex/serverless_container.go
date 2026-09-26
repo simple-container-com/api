@@ -388,15 +388,14 @@ func provisionContainerSecrets(
 	return secret, version, refs, nil
 }
 
-// provisionDNSForContainer points a custom domain at the container's invoke URL.
-// It is the AWS lambda's provisionDNSForLambda, unchanged in substance: a proxied
-// CNAME plus a host-override rule, which Cloudflare implements as a worker that
-// rewrites Host. No Yandex DNS zone and no API Gateway are involved.
+// provisionDNSForContainer points a custom domain at the container's invoke URL. What
+// that takes depends on whose zone the domain sits in — a proxied Cloudflare record plus
+// a Host-rewriting worker, or a Yandex API Gateway terminating TLS — so the registrar
+// decides, not this function.
 func provisionDNSForContainer(
 	ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, containerName, domain string, endpointUrl sdk.StringOutput,
 ) (*api.ResourceOutput, error) {
-	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for stack %q...", domain, stack.Name)
-
+	// the container's invoke URL is a full URL, the registrar wants a bare hostname
 	endpointHost := endpointUrl.ApplyT(func(epUrl string) (string, error) {
 		parsed, err := url.Parse(epUrl)
 		if err != nil {
@@ -404,25 +403,12 @@ func provisionDNSForContainer(
 		}
 		return parsed.Host, nil
 	}).(sdk.StringOutput)
-	record, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
-		Name:     domain,
-		Type:     "CNAME",
-		ValueOut: endpointHost,
-		Proxied:  true,
+
+	return params.Registrar.ProvisionDomainForEndpoint(ctx, stack, pApi.DomainEndpoint{
+		Name:       containerName,
+		Domain:     domain,
+		TargetHost: endpointHost,
 	})
-	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to create DNS record %q: %s", domain, err.Error())
-		return nil, errors.Wrapf(err, "failed to create DNS record %q", domain)
-	}
-	if _, err := params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
-		Name:     containerName,
-		FromHost: domain,
-		ToHost:   endpointHost,
-	}); err != nil {
-		params.Log.Error(ctx.Context(), "failed to create override header rule for %q", domain)
-		return nil, errors.Wrapf(err, "failed to create override host rule from %q", domain)
-	}
-	return record, nil
 }
 
 // provisionScheduleForContainer turns a cloudExtras schedule into a Timer Trigger.

@@ -20,6 +20,9 @@ import (
 func init() {
 	api.RegisterInitStateStore(yandex.ProviderType, InitStateStore)
 	api.RegisterProvider(yandex.ProviderType, Provider)
+	// The registrar type is `yc-dns`, not ProviderType: both tiers must agree on the
+	// same string, and schema-gen files anything carrying an AWS token under aws/.
+	api.RegisterRegistrar(yandex.RegistrarTypeYandexDns, Registrar)
 	api.RegisterResources(map[string]api.ProvisionFunc{
 		yandex.ResourceTypeObjectStorageBucket:       ObjectStorageBucket,
 		yandex.TemplateTypeYandexServerlessContainer: ServerlessContainer,

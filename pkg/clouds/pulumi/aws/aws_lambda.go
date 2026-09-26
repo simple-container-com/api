@@ -456,8 +456,7 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 }
 
 func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, lambdaName, domain string, endpointUrl sdk.StringOutput) (*api.ResourceOutput, error) {
-	params.Log.Info(ctx.Context(), "configure CNAME DNS record %q for stack %q...", domain, stack.Name)
-
+	// the lambda function URL is a full URL, the registrar wants a bare hostname
 	endpointHost := endpointUrl.ApplyT(func(epUrl string) (string, error) {
 		parsed, err := url.Parse(epUrl)
 		if err != nil {
@@ -465,26 +464,12 @@ func provisionDNSForLambda(ctx *sdk.Context, stack api.Stack, params pApi.Provis
 		}
 		return parsed.Host, nil
 	}).(sdk.StringOutput)
-	record, err := params.Registrar.NewRecord(ctx, api.DnsRecord{
-		Name:     domain,
-		Type:     "CNAME",
-		ValueOut: endpointHost,
-		Proxied:  true,
+
+	return params.Registrar.ProvisionDomainForEndpoint(ctx, stack, pApi.DomainEndpoint{
+		Name:       lambdaName,
+		Domain:     domain,
+		TargetHost: endpointHost,
 	})
-	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to create DNS record %q: %s", domain, err.Error())
-		return nil, errors.Wrapf(err, "failed to create DNS record %q", domain)
-	}
-	_, err = params.Registrar.NewOverrideHeaderRule(ctx, stack, pApi.OverrideHeaderRule{
-		Name:     lambdaName,
-		FromHost: domain,
-		ToHost:   endpointHost,
-	})
-	if err != nil {
-		params.Log.Error(ctx.Context(), "failed to create override header rule for %q", domain)
-		return nil, errors.Wrapf(err, "failed to create override host rule from %q", domain)
-	}
-	return record, nil
 }
 
 func provisionScheduleForLambda(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams,
