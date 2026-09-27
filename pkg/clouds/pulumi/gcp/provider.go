@@ -87,7 +87,9 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 
 	attrs, err := bucketRef.Attrs(ctx)
 	if err != nil {
-		// does not exist
+		if !stateBucketMissing(err) {
+			return errors.Wrapf(err, "failed to read state bucket %q", gcpStateCfg.GetBucketName())
+		}
 		return bucketRef.Create(ctx, gcpStateCfg.ProjectId, &gcpStorage.BucketAttrs{
 			Location:  lo.FromPtr(gcpStateCfg.Location),
 			Lifecycle: StateHistoryLifecycle(retentionDays),
@@ -297,4 +299,11 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	return &api.ResourceOutput{
 		Ref: provider,
 	}, err
+}
+
+// stateBucketMissing tells a bucket that does not exist from one this identity
+// may not read. Only the first is created; creating on a denied read turns a
+// missing grant into a misleading storage.buckets.create error.
+func stateBucketMissing(err error) bool {
+	return errors.Is(err, gcpStorage.ErrBucketNotExist)
 }
