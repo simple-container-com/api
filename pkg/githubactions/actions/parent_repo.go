@@ -243,6 +243,14 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		return fmt.Errorf("failed to create .sc/stacks directory: %w", err)
 	}
 
+	removed, err := removeStaleParentSecrets(parentStacksDir, currentStacksDir)
+	if err != nil {
+		return fmt.Errorf("failed to remove stale parent secrets from the workspace: %w", err)
+	}
+	for _, path := range removed {
+		e.logger.Warn(ctx, "Removed %s left by an earlier step; this run uses only what it revealed itself", path)
+	}
+
 	// Copy stacks with awareness of secret revelation status
 	if secretsRevealed {
 		e.logger.Info(ctx, "📁 Copying parent stack configurations from %s (with revealed secrets)", parentStacksDir)
