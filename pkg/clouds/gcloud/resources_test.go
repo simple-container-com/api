@@ -439,19 +439,24 @@ func TestReadGkeAutopilotTemplateConfig(t *testing.T) {
 		Expect(out.Config.(*GkeAutopilotTemplate).NodeSelector).To(Equal(map[string]string{"cloud.google.com/gke-spot": "true"}))
 	})
 
-	for name, selector := range map[string]map[string]any{
-		"empty value":      {"cloud.google.com/gke-spot": ""},
-		"null value":       {"cloud.google.com/gke-spot": nil},
-		"non-scalar value": {"cloud.google.com/gke-spot": map[string]any{"a": "b"}},
-		"invalid key":      {"bad key!": "true"},
-		"invalid value":    {"tier": "not a label value"},
-	} {
-		t.Run("node selector rejects "+name, func(t *testing.T) {
-			RegisterTestingT(t)
-			_, err := ReadGkeAutopilotTemplateConfig(&api.Config{Config: map[string]any{"nodeSelector": selector}})
-			Expect(err).To(HaveOccurred())
-		})
-	}
+	t.Run("node selector placeholder is read as is", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"nodeSelector": map[string]any{"cloud.google.com/compute-class": "${env:COMPUTE_CLASS}"},
+		}}
+		out, err := ReadGkeAutopilotTemplateConfig(cfg)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(out.Config.(*GkeAutopilotTemplate).NodeSelector).To(Equal(map[string]string{"cloud.google.com/compute-class": "${env:COMPUTE_CLASS}"}))
+	})
+
+	t.Run("node selector non-scalar value fails conversion", func(t *testing.T) {
+		RegisterTestingT(t)
+		cfg := &api.Config{Config: map[string]any{
+			"nodeSelector": map[string]any{"cloud.google.com/gke-spot": map[string]any{"a": "b"}},
+		}}
+		_, err := ReadGkeAutopilotTemplateConfig(cfg)
+		Expect(err).To(MatchError(ContainSubstring("cannot unmarshal")))
+	})
 
 	t.Run("error path", func(t *testing.T) {
 		RegisterTestingT(t)

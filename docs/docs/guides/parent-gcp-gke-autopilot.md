@@ -341,24 +341,29 @@ templates:
       artifactRegistryResource: artifact-registry-res
       nodeSelector:
         cloud.google.com/gke-spot: "true"
-
-resources:
-  resources:
-    staging:
-      template: stack-per-app-gke-spot
-      resources:
-        # keep the environment's existing resources unchanged
-    production:
-      template: stack-per-app-gke
-      resources:
-        # keep the environment's existing resources unchanged
 ```
 
-Only the `template` line of each environment changes; its `resources` stay as they are.
+Then change only the environment's `template` line under `resources.resources`, and keep its `resources` block as it is:
 
-Use it for labels whose tolerations GKE Autopilot adds itself, such as `cloud.google.com/gke-spot` and `cloud.google.com/compute-class`. A template cannot add tolerations, so for custom workload-separation labels use `cloudExtras.affinity.nodePool` instead. Template keys and values are validated when the parent stack is read, and an empty value is rejected.
+```diff
+   resources:
+     staging:
+-      template: stack-per-app-gke
++      template: stack-per-app-gke-spot
+       resources:
+```
 
-The template value is a default, not a policy. A client's `cloudExtras.nodeSelector` keys are merged on top and win on conflict, and an empty value removes the key, so the selector never reaches Kubernetes with an empty value. A client can also pick a different template with `stacks.<env>.template`. Enforce placement with an admission policy if it must not be overridden.
+Use it for labels whose tolerations GKE Autopilot adds itself, such as `cloud.google.com/gke-spot` and `cloud.google.com/compute-class`. A template cannot add tolerations, so for custom workload-separation labels use `cloudExtras.affinity.nodePool` instead.
+
+Template keys and values are checked as Kubernetes label keys and values when a client stack deploys through the template, after placeholders are resolved. An invalid or empty value fails that deploy with an error naming the key; stacks on other templates are not affected.
+
+The template value is a default, not a policy. Precedence, lowest to highest:
+
+1. the template `nodeSelector`;
+2. the client's `cloudExtras.nodeSelector`, where an empty value removes the key;
+3. `cloudExtras.affinity.computeClass` and `cloudExtras.affinity.nodePool`.
+
+An empty value is never sent to Kubernetes, with or without a template. To opt a service out of Spot, set the key to `""`; `"false"` is not an opt-out, because no node carries that label value and the pods would stay Pending. A client can also pick a different template with `stacks.<env>.template`. Enforce placement with an admission policy if it must not be overridden.
 
 ```yaml
 # File: "myproject/.sc/stacks/myservice/client.yaml"
@@ -367,14 +372,15 @@ stacks:
     type: cloud-compose
     parent: myproject/devops
     config:
+      # ...the rest of the stack config
       cloudExtras:
         nodeSelector:
           cloud.google.com/gke-spot: ""
 ```
 
-Spot Pods get at most 15 seconds of grace when preempted and are excluded from the Autopilot SLA, so keep them to environments that tolerate interruptions.
+[Spot Pods](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/autopilot-spot-pods) get at most 15 seconds of grace when preempted and are excluded from the Autopilot SLA, so keep them to environments that tolerate interruptions. A `nodeSelector` is a hard requirement: if Spot capacity runs out, new pods stay Pending instead of falling back to on-demand nodes, and the old pods keep serving until the rollout completes.
 
-A new or changed template is exported by the next parent stack provision, and each client stack picks it up on its next deploy; removing the key rolls the environment back the same way. Both the parent provision and the client deploys must run an SC release that includes this field: an older release ignores it without an error. The deploy log prints the effective `nodeSelector`.
+A new or changed template is exported by the next parent stack provision, and each client stack picks it up on its next deploy; removing the key rolls the environment back the same way, one deploy at a time. For a single service, the client `""` override or `stacks.<env>.template` is the faster way out. Both the parent provision and the client deploys must run an SC release that includes this field: an older release ignores it without an error. Every deploy logs the effective `nodeSelector`, including when it is empty.
 
 ---
 
@@ -771,7 +777,7 @@ stacks:
 
 | Field                | Type                | Description                                  | GKE Autopilot Support           |
 |----------------------|---------------------|----------------------------------------------|--------------------------------|
-| `nodeSelector`       | `map[string]string` | Node selection labels, merged over the template default; `""` removes a key | Custom labels supported        |
+| `nodeSelector`       | `map[string]string` | Node selection labels, merged over the template default; `""` removes a key; affinity keys win | Custom labels supported        |
 | `disruptionBudget`   | `object`            | Pod disruption budget for HA                 | Full support                   |
 | `rollingUpdate`      | `object`            | Rolling update strategy                      | Full support                   |
 | `affinity`           | `object`            | Pod affinity and anti-affinity               | With workload separation       |
@@ -933,7 +939,7 @@ stacks:
         vpa:
           updateMode: "Initial"
         nodeSelector:
-          cost-optimization: "spot"
+          cloud.google.com/gke-spot: "true"
 ```
 
 ---

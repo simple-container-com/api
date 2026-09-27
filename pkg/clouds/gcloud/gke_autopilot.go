@@ -111,16 +111,7 @@ func (i *GkeAutopilotInput) DependsOnResources() []api.StackConfigDependencyReso
 }
 
 func ReadGkeAutopilotTemplateConfig(config *api.Config) (api.Config, error) {
-	res, err := api.ConvertConfig(config, &GkeAutopilotTemplate{})
-	if err != nil {
-		return res, err
-	}
-	if tpl, ok := res.Config.(*GkeAutopilotTemplate); ok {
-		if err := validateTemplateNodeSelector(tpl.NodeSelector); err != nil {
-			return res, err
-		}
-	}
-	return res, nil
+	return api.ConvertConfig(config, &GkeAutopilotTemplate{})
 }
 
 func validateTemplateNodeSelector(selector map[string]string) error {
@@ -150,6 +141,9 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 	}
 	if templateCfg == nil {
 		return nil, errors.Errorf("template config is nil")
+	}
+	if err := validateTemplateNodeSelector(templateCfg.NodeSelector); err != nil {
+		return nil, err
 	}
 	deployCfg := k8s.DeploymentConfig{
 		StackConfig: stackCfg,
@@ -193,7 +187,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 			// separate nodes with those labels and taints.
 
 			// Handle nodePool as a custom workload separation label
-			if k8sCloudExtras.Affinity.NodePool != nil {
+			if lo.FromPtr(k8sCloudExtras.Affinity.NodePool) != "" {
 				nodePoolValue := *k8sCloudExtras.Affinity.NodePool
 				// Use custom label for workload separation (not system labels)
 				deployCfg.NodeSelector["workload-group"] = nodePoolValue
@@ -210,7 +204,7 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 
 			// Handle computeClass - require exact GKE Autopilot values
 			// Valid values: Accelerator, Balanced, Performance, Scale-Out, autopilot, autopilot-spot
-			if k8sCloudExtras.Affinity.ComputeClass != nil {
+			if lo.FromPtr(k8sCloudExtras.Affinity.ComputeClass) != "" {
 				deployCfg.NodeSelector["cloud.google.com/compute-class"] = *k8sCloudExtras.Affinity.ComputeClass
 			}
 
@@ -431,12 +425,7 @@ func (c *ControlPlaneAccessConfig) Validate() error {
 }
 
 func mergeNodeSelector(defaults, overrides map[string]string) map[string]string {
-	merged := make(map[string]string, len(defaults)+len(overrides))
-	for k, v := range defaults {
-		if v != "" {
-			merged[k] = v
-		}
-	}
+	merged := lo.Assign(map[string]string{}, defaults)
 	for k, v := range overrides {
 		if v == "" {
 			delete(merged, k)

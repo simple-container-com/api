@@ -22,17 +22,23 @@ const (
 	computeClassKey = "cloud.google.com/compute-class"
 )
 
-func convertWithTemplate(t *testing.T, tpl *GkeAutopilotTemplate, cloudExtras map[string]any) *GkeAutopilotInput {
-	t.Helper()
+func convertTemplate(tpl *GkeAutopilotTemplate, cloudExtras map[string]any) (*GkeAutopilotInput, error) {
 	stackCfg := &api.StackConfigCompose{Runs: []string{}}
 	if cloudExtras != nil {
 		extras := any(cloudExtras)
 		stackCfg.CloudExtras = &extras
 	}
 	res, err := ToGkeAutopilotConfig(tpl, compose.Config{Project: &types.Project{}}, stackCfg)
+	if err != nil {
+		return nil, err
+	}
+	return res.(*GkeAutopilotInput), nil
+}
+
+func convertWithTemplate(t *testing.T, tpl *GkeAutopilotTemplate, cloudExtras map[string]any) *GkeAutopilotInput {
+	t.Helper()
+	input, err := convertTemplate(tpl, cloudExtras)
 	require.NoError(t, err)
-	input, ok := res.(*GkeAutopilotInput)
-	require.True(t, ok)
 	return input
 }
 
@@ -57,6 +63,12 @@ func TestTemplateNodeSelectorMergedIntoDeployment(t *testing.T) {
 			name:        "template default applies when cloudExtras has no nodeSelector",
 			template:    map[string]string{spotKey: "true"},
 			cloudExtras: map[string]any{"vpa": map[string]any{"enabled": true}},
+			want:        map[string]string{spotKey: "true"},
+		},
+		{
+			name:        "template default applies when client nodeSelector is null",
+			template:    map[string]string{spotKey: "true"},
+			cloudExtras: map[string]any{"nodeSelector": nil},
 			want:        map[string]string{spotKey: "true"},
 		},
 		{
@@ -101,11 +113,6 @@ func TestTemplateNodeSelectorMergedIntoDeployment(t *testing.T) {
 			want:        map[string]string{"tier": "batch"},
 		},
 		{
-			name:     "empty template value is ignored",
-			template: map[string]string{spotKey: ""},
-			want:     nil,
-		},
-		{
 			name:        "affinity compute class merges with template default",
 			template:    map[string]string{spotKey: "true"},
 			cloudExtras: map[string]any{"affinity": map[string]any{"computeClass": "Balanced"}},
@@ -126,6 +133,11 @@ func TestTemplateNodeSelectorMergedIntoDeployment(t *testing.T) {
 			},
 			want: map[string]string{computeClassKey: "Balanced"},
 		},
+		{
+			name:        "affinity without selector keys and no template yields no selector",
+			cloudExtras: map[string]any{"affinity": map[string]any{"exclusiveNodePool": true}},
+			want:        nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -136,12 +148,48 @@ func TestTemplateNodeSelectorMergedIntoDeployment(t *testing.T) {
 	}
 }
 
+func TestTemplateNodeSelectorValidatedOnConvert(t *testing.T) {
+	tests := []struct {
+		name     string
+		selector map[string]string
+		wantErr  string
+	}{
+		{name: "prefixed and unprefixed keys are accepted", selector: map[string]string{spotKey: "true", "tier": "batch"}},
+		{name: "empty value", selector: map[string]string{spotKey: ""}, wantErr: `template nodeSelector "cloud.google.com/gke-spot" has an empty value`},
+		{name: "invalid key", selector: map[string]string{"bad key!": "true"}, wantErr: `template nodeSelector key "bad key!" is invalid`},
+		{name: "invalid value", selector: map[string]string{"tier": "not a label value"}, wantErr: `template nodeSelector "tier" value "not a label value" is invalid`},
+		{name: "value with a slash", selector: map[string]string{"tier": "a/b"}, wantErr: `template nodeSelector "tier" value "a/b" is invalid`},
+		{name: "unresolved placeholder", selector: map[string]string{spotKey: "${env:SPOT}"}, wantErr: `value "${env:SPOT}" is invalid`},
+		{name: "first invalid key in sorted order is reported", selector: map[string]string{"b key!": "x", "a key!": "x"}, wantErr: `key "a key!" is invalid`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := convertTemplate(&GkeAutopilotTemplate{NodeSelector: tt.selector}, nil)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestTemplateNodeSelectorWithAffinityNodePool(t *testing.T) {
 	tpl := &GkeAutopilotTemplate{NodeSelector: map[string]string{spotKey: "true", "workload-group": "a"}}
 	input := convertWithTemplate(t, tpl, map[string]any{"affinity": map[string]any{"nodePool": "b"}})
 
 	assert.Equal(t, map[string]string{spotKey: "true", "workload-group": "b"}, input.Deployment.NodeSelector)
 	assert.Equal(t, []k8s.Toleration{{Key: "workload-group", Operator: "Equal", Value: "b", Effect: "NoSchedule"}}, input.Deployment.Tolerations)
+}
+
+func TestEmptyAffinityValuesKeepTemplateDefaults(t *testing.T) {
+	tpl := &GkeAutopilotTemplate{NodeSelector: map[string]string{computeClassKey: "Scale-Out", "workload-group": "a"}}
+	input := convertWithTemplate(t, tpl, map[string]any{"affinity": map[string]any{"computeClass": "", "nodePool": ""}})
+
+	assert.Equal(t, map[string]string{computeClassKey: "Scale-Out", "workload-group": "a"}, input.Deployment.NodeSelector)
+	assert.Empty(t, input.Deployment.Tolerations)
 }
 
 func TestTemplateNodeSelectorNotAliased(t *testing.T) {
@@ -156,11 +204,9 @@ func TestTemplateNodeSelectorNotAliased(t *testing.T) {
 	assert.Nil(t, input.GkeAutopilotTemplate.NodeSelector)
 }
 
-func TestTemplateNodeSelectorSurvivesParentStackOutput(t *testing.T) {
-	read, err := ReadGkeAutopilotTemplateConfig(&api.Config{Config: map[string]any{
-		"gkeClusterResource": "cluster",
-		"nodeSelector":       map[string]any{spotKey: true},
-	}})
+func exportAndDetectTemplate(t *testing.T, raw map[string]any) (*GkeAutopilotTemplate, string) {
+	t.Helper()
+	read, err := ReadGkeAutopilotTemplateConfig(&api.Config{Config: raw})
 	require.NoError(t, err)
 
 	exported, err := yaml.Marshal(api.StackDescriptor{Type: TemplateTypeGkeAutopilot, Config: read})
@@ -168,11 +214,25 @@ func TestTemplateNodeSelectorSurvivesParentStackOutput(t *testing.T) {
 
 	var imported api.StackDescriptor
 	require.NoError(t, yaml.Unmarshal(exported, &imported))
-	reread, err := ReadGkeAutopilotTemplateConfig(&imported.Config)
+	detected, err := api.DetectTemplateType(imported)
 	require.NoError(t, err)
 
-	tpl, ok := reread.Config.(*GkeAutopilotTemplate)
+	tpl, ok := detected.Config.Config.(*GkeAutopilotTemplate)
 	require.True(t, ok)
+	return tpl, string(exported)
+}
+
+func TestTemplateNodeSelectorSurvivesParentStackOutput(t *testing.T) {
+	tpl, _ := exportAndDetectTemplate(t, map[string]any{
+		"gkeClusterResource": "cluster",
+		"nodeSelector":       map[string]any{spotKey: true},
+	})
 	assert.Equal(t, map[string]string{spotKey: "true"}, tpl.NodeSelector)
 	assert.Equal(t, map[string]string{spotKey: "true"}, convertWithTemplate(t, tpl, nil).Deployment.NodeSelector)
+}
+
+func TestTemplateWithoutNodeSelectorExportsNone(t *testing.T) {
+	tpl, exported := exportAndDetectTemplate(t, map[string]any{"gkeClusterResource": "cluster"})
+	assert.Nil(t, tpl.NodeSelector)
+	assert.NotContains(t, exported, "nodeSelector")
 }
