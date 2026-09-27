@@ -82,6 +82,21 @@ func (m *StacksMap) ResolveInheritance() *StacksMap {
 			val.Server.Resources.Registrar = current[stack.Server.Resources.Registrar.Inherit.Inherit].Server.Resources.Registrar
 			current[stackName] = val
 		}
+		for regName, registrar := range lo.Assign(stack.Server.Resources.Registrars) {
+			if !registrar.IsInherited() {
+				continue
+			}
+			val := current[stackName]
+			parent := current[registrar.Inherit.Inherit].Server.Resources
+			inherited, found := parent.Registrars[regName]
+			if !found {
+				// let a child name a parent that predates `registrars:` and still
+				// inherit its single block, under whatever name the child chose
+				inherited = parent.Registrar
+			}
+			val.Server.Resources.Registrars[regName] = inherited
+			current[stackName] = val
+		}
 		if stack.Server.CiCd.IsInherited() {
 			val := current[stackName]
 			val.Server.CiCd = current[stack.Server.CiCd.Inherit.Inherit].Server.CiCd

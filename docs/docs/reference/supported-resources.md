@@ -1082,6 +1082,200 @@ secrets:
 
 ---
 
+## **Yandex Cloud Provider**
+
+### **Templates** (`TemplateType` → `templates` section in `server.yaml`)
+
+#### **Serverless Container** (`yc-serverless-container`)
+
+Deploys a single container image as a Yandex Cloud Serverless Container. Analogous
+to AWS Lambda under `single-image`.
+
+**Golang Struct Reference:** `pkg/clouds/yandex/serverless_container.go:ServerlessContainerInput`
+
+```yaml
+# server.yaml — Parent Stack (DevOps managed)
+templates:
+  yc-container:
+    type: yc-serverless-container
+    config:
+      credentials: "${auth:yc}"
+      # `registryId` and `serviceAccountId` are optional; if unset SC
+      # creates one Container Registry per stack and one SA per container
+      # with `container-registry.images.puller` + `lockbox.payloadViewer`.
+```
+
+```yaml
+# client.yaml — Client Stack
+stacks:
+  staging:
+    type: single-image
+    template: yc-container
+    parent: myproject/devops
+    config:
+      domain: myservice.example.ru
+      image: { dockerfile: ${git:root}/Dockerfile }
+      maxMemory: 128     # min 128 MB, multiple of 128
+      timeout: 30        # 30 s free tier, up to 3600 s paid
+      uses: [blobs]
+      env: { LOG_LEVEL: info }
+      secrets:
+        SOME_TOKEN: "${secret:MY_SERVICE_TOKEN}"
+```
+
+### **Resources** (`ResourceType` → `resources` section in `server.yaml`)
+
+#### **Object Storage Bucket** (`yc-bucket`)
+
+Provisions a YC Object Storage bucket, its owning service account, folder-role
+binding, and a static S3 key pair. The S3 credentials are exported so any client
+stack listing `uses: [<name>]` picks them up as `${resource:<name>.*}`.
+
+**Golang Struct Reference:** `pkg/clouds/yandex/bucket.go:ObjectStorageBucket`
+
+```yaml
+# server.yaml — Parent Stack
+resources:
+  resources:
+    staging:
+      resources:
+        blobs:
+          type: yc-bucket
+          config:
+            credentials: "${auth:yc}"
+            name: myproject-blobs
+            forceDestroy: true       # allow `sc destroy` to empty the bucket
+```
+
+#### **Object Storage (state backend)** (`yc-object-storage`)
+
+Pulumi state in a YC Object Storage bucket, reached via the S3-compatible API and
+`gocloud`'s `s3blob` backend. `provision: false` is required — a state backend
+that provisions itself is chicken-and-egg, and there is no ProvisionFunc registered
+for this state-storage type. Create the bucket by hand first (`yc storage bucket
+create --name <name>`).
+
+```yaml
+# server.yaml
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: yc-object-storage
+      config:
+        credentials: "${auth:yc}"
+        bucketName: myproject-sc-yc-state
+        provision: false
+```
+
+The three query parameters SC emits on the state URL — `endpoint`, `region`,
+`s3ForcePathStyle` — are the exact set gocloud accepts on this backend. Adding
+any other parameter fails login-time.
+
+#### **Container Registry** (bridged, auto-created)
+
+SC creates one `yandex_container_registry` per stack (named `<image-name>-registry`)
+during the deploy of a `yc-serverless-container` — it is not a stand-alone
+resource type in `server.yaml`. Every image push must collapse `--` runs in the
+repository segment: YC Container Registry enforces the *legacy* Docker repository
+grammar, which allows at most one separator between components. SC's default
+image name is `<stack>--<env>`, so `toRepositoryName` collapses it to
+`<stack>-<env>` before pushing. Container, SA and trigger names *do* accept `--`.
+
+### **Authentication** (`AuthType` → `auth` section in `secrets.yaml`)
+
+#### **YC Service Account** (`yc-service-account`)
+
+The credentials blob for every `yc-*` resource. Combines the service-account key
+(gRPC auth) with a static access key pair (S3-signing auth), cloud and folder ids,
+and region/zone defaults.
+
+```yaml
+# secrets.yaml
+auth:
+  yc:
+    type: yc-service-account
+    cloudId: b1g...
+    folderId: b1g...
+    serviceAccountKey: |
+      { "id": "...", "service_account_id": "...", ... }
+    accessKey: "YCAJE..."
+    secretAccessKey: "..."
+    region: ru-central1
+    zone: ru-central1-a
+```
+
+**Important:** `${auth:yc}` resolves into the opaque `Credentials` blob and does
+NOT fan out into sibling `folderId`, `cloudId` etc. Custom resources must call
+`api.ConvertAuth(cfg, &cfg.AccountConfig)` themselves.
+
+### **Registrar** (`RegistrarType` → `registrars` section in `server.yaml`)
+
+#### **Yandex Cloud DNS** (`yc-dns`)
+
+Publishes services under a YC-hosted zone through an API Gateway edge. Two
+lookup quirks worth knowing:
+
+- The `zoneName` is the YC **resource** name, not the DNS zone name — the zone
+  serving `example.ru.` is a resource named `example-ru`. Set `zoneId:`
+  directly to skip guessing.
+- The certificate is **adopted**, never issued: `certificateId` is required and
+  must reference a wildcard cert covering the zone. A second managed certificate
+  for the same domain contends with the first's renewal via the single
+  `_acme-challenge.<zone>` CNAME target and fails silently up to 90 days later.
+
+```yaml
+# server.yaml
+resources:
+  registrars:
+    yandex:
+      type: yc-dns
+      config:
+        credentials: "${auth:yc}"
+        zoneName: example-ru               # YC resource name
+        # or: zoneId: dns...
+        certificateId: fpqu...             # adopted wildcard cert
+```
+
+Records under `NS`, `SOA` and anything below `_acme-challenge.` are refused at
+conversion time. TTL defaults to 300 (`Ttl 1` is not the "automatic" sentinel
+that some other providers use).
+
+### **Provisioner Configuration**
+
+#### **Passphrase Secrets Provider** (`passphrase`)
+
+Only functional secrets-provider for YC today — `yc-kms` has no ProvisionFunc
+registered in the current build. Any random string works.
+
+```yaml
+# server.yaml
+provisioner:
+  type: pulumi
+  config:
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: "${secret:state-passphrase}"
+```
+
+### **Runtime secrets** (`yc-lockbox`, auto-created)
+
+Runtime secrets are delivered as **Lockbox references**, not `${secret:…}`
+placeholders. SC creates one `LockboxSecret` per stack, one `LockboxSecretVersion`
+holding every entry, and the container revision receives references keyed by
+entry name. A stack with no `secrets:` entries produces no Lockbox resource at
+all — YC rejects a `LockboxSecretVersion` with zero entries. There is no
+`${lockbox:…}` interpolation.
+
+On `sc destroy` the Lockbox secret enters YC's usual `PENDING_DELETE` state; this
+is YC platform behaviour, not an SC bug.
+
+For the full YC guide (parent + client + destroy hazards), see
+[Yandex Cloud](../guides/parent-yandex-cloud.md).
+
+---
+
 ## **Kubernetes Resources**
 
 ### **Templates (Compute)**

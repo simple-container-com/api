@@ -33,6 +33,7 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
+	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
 // ResourceDefinition holds metadata about a resource struct
@@ -222,7 +223,7 @@ func (sg *SchemaGenerator) discoverRegisteredResources() ([]ResourceDefinition, 
 			}
 
 			// Set template type for templates
-			if strings.Contains(resourceType, "template") || strings.Contains(resourceType, "fargate") || strings.Contains(resourceType, "lambda") || strings.Contains(resourceType, "cloudrun") {
+			if strings.Contains(resourceType, "template") || strings.Contains(resourceType, "fargate") || strings.Contains(resourceType, "lambda") || strings.Contains(resourceType, "cloudrun") || strings.Contains(resourceType, "serverless-container") {
 				resourceDef.TemplateType = resourceType
 			}
 
@@ -270,9 +271,17 @@ func (sg *SchemaGenerator) discoverRegisteredResources() ([]ResourceDefinition, 
 		}
 	}
 
-	// Sort all resources by name for consistent ordering
+	// Sort all resources by name for consistent ordering, tie-breaking on resource
+	// type. Name alone is NOT a total order — a provider may register the same struct
+	// under several types (aws's TemplateConfig is aws-lambda, aws-static-website and
+	// ecs-fargate) and they all write the same per-provider file, last one wins. With
+	// sort.Slice being unstable, which one that is depends on the slice length, so
+	// registering an unrelated provider silently rewrote aws/ and gcp/ metadata.
 	sort.Slice(resources, func(i, j int) bool {
-		return resources[i].Name < resources[j].Name
+		if resources[i].Name != resources[j].Name {
+			return resources[i].Name < resources[j].Name
+		}
+		return resources[i].ResourceType < resources[j].ResourceType
 	})
 
 	fmt.Printf("Discovered %d registered resources dynamically\n", len(resources))
@@ -450,6 +459,18 @@ func (sg *SchemaGenerator) generateCloudExtrasSchemas() ([]ResourceDefinition, e
 		Schema:       reflect.TypeOf(k8s.CloudExtras{}),
 	})
 
+	// Yandex CloudExtras - use the actual type from yandex package
+	cloudExtrasSchemas = append(cloudExtrasSchemas, ResourceDefinition{
+		Name:         "YandexCloudExtras",
+		Type:         "cloudextras",
+		Provider:     "yandex",
+		Description:  "Yandex Cloud-specific cloudExtras configuration for Simple Container deployments including Serverless Container timer-trigger schedules, IAM roles, concurrency and provisioned instances",
+		GoPackage:    "pkg/clouds/yandex/",
+		GoStruct:     "CloudExtras",
+		ResourceType: "yandex-cloudextras",
+		Schema:       reflect.TypeOf(yandex.CloudExtras{}),
+	})
+
 	fmt.Printf("Generated %d CloudExtras schemas\n", len(cloudExtrasSchemas))
 	return cloudExtrasSchemas, nil
 }
@@ -516,6 +537,11 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 		return "slack"
 	case has("telegram"):
 		return "telegram"
+	// Yandex Cloud types are all spelled "yc-*" (yc-service-account, yc-object-storage,
+	// yc-kms, yc-lockbox, yc-serverless-container); without this the whole provider
+	// lands in "unknown" and schema generation fails on a directory that is never created.
+	case has("yc", "yandex"):
+		return "yandex"
 	default:
 		return "unknown"
 	}
@@ -524,9 +550,11 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 // guessResourceType attempts to determine if this is a resource, template, or auth type
 func (sg *SchemaGenerator) guessResourceType(resourceType string) string {
 	switch {
-	case strings.Contains(resourceType, "template") || strings.Contains(resourceType, "fargate") || strings.Contains(resourceType, "lambda") || strings.Contains(resourceType, "cloudrun") || strings.Contains(resourceType, "static"):
+	case strings.Contains(resourceType, "template") || strings.Contains(resourceType, "fargate") || strings.Contains(resourceType, "lambda") || strings.Contains(resourceType, "cloudrun") || strings.Contains(resourceType, "serverless-container") || strings.Contains(resourceType, "static"):
 		return "template"
-	case strings.Contains(resourceType, "auth") || strings.Contains(resourceType, "token") || strings.Contains(resourceType, "kubeconfig"):
+	// "service-account" is how both GCP and Yandex spell their auth entry; without it
+	// those land in "resource" while aws-token is correctly classified "auth".
+	case strings.Contains(resourceType, "auth") || strings.Contains(resourceType, "token") || strings.Contains(resourceType, "service-account") || strings.Contains(resourceType, "kubeconfig"):
 		return "auth"
 	case strings.Contains(resourceType, "secrets"):
 		return "secrets"

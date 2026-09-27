@@ -51,6 +51,7 @@ require (
 	github.com/pulumi/pulumi/pkg/v3 v3.245.0
 	github.com/pulumi/pulumi/sdk/v3 v3.245.0
 	github.com/samber/lo v1.53.0
+	github.com/simple-container-com/pulumi-yandex/sdk v1.1.0
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

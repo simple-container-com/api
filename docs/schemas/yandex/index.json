@@ -1,0 +1,87 @@
+{
+  "description": "JSON Schema definitions for Yandex resources and templates",
+  "provider": "yandex",
+  "resources": [
+    {
+      "name": "AccountConfig",
+      "type": "auth",
+      "provider": "yandex",
+      "description": "YANDEX authentication configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "AccountConfig",
+      "resourceType": "yc-service-account",
+      "schema": {}
+    },
+    {
+      "name": "ObjectStorageBucket",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX objectstoragebucket configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "ObjectStorageBucket",
+      "resourceType": "yc-bucket",
+      "schema": {}
+    },
+    {
+      "name": "RegistrarConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX registrar configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "RegistrarConfig",
+      "resourceType": "yc-dns",
+      "schema": {}
+    },
+    {
+      "name": "SecretsConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX secrets configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "SecretsConfig",
+      "resourceType": "yc-lockbox",
+      "schema": {}
+    },
+    {
+      "name": "SecretsProviderConfig",
+      "type": "provisioner",
+      "provider": "yandex",
+      "description": "YANDEX secretsprovider configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "SecretsProviderConfig",
+      "resourceType": "yc-kms",
+      "schema": {}
+    },
+    {
+      "name": "StateStorageConfig",
+      "type": "provisioner",
+      "provider": "yandex",
+      "description": "YANDEX statestorage configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "StateStorageConfig",
+      "resourceType": "yc-object-storage",
+      "schema": {}
+    },
+    {
+      "name": "TemplateConfig",
+      "type": "template",
+      "provider": "yandex",
+      "description": "YANDEX deployment template configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "TemplateConfig",
+      "resourceType": "yc-serverless-container",
+      "templateType": "yc-serverless-container",
+      "schema": {}
+    },
+    {
+      "name": "YandexCloudExtras",
+      "type": "cloudextras",
+      "provider": "yandex",
+      "description": "Yandex Cloud-specific cloudExtras configuration for Simple Container deployments including Serverless Container timer-trigger schedules, IAM roles, concurrency and provisioned instances",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "CloudExtras",
+      "resourceType": "yandex-cloudextras",
+      "schema": {}
+    }
+  ]
+}
