@@ -5,8 +5,13 @@ This guide will help you deploy your first application with Simple Container in 
 ## Prerequisites
 
 - Simple Container CLI installed ([Installation Guide](installation.md))
-- Access to a cloud provider (AWS, GCP, or Kubernetes cluster)
+- Access to a cloud provider (AWS, GCP, Yandex Cloud, or a Kubernetes cluster)
 - Basic familiarity with YAML configuration
+
+> Deploying on **Yandex Cloud**? Follow the AWS quick-start below to get
+> oriented, then jump to the [Yandex Cloud guide](../guides/parent-yandex-cloud.md)
+> for the YC parent-stack shape (Serverless Container + `yc-dns` + Lockbox
+> + `yc-object-storage` state).
 
 ## Step 1: Initialize Your Project
 
