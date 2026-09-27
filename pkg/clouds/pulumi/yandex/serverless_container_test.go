@@ -7,10 +7,9 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
@@ -216,6 +215,36 @@ func TestServerlessContainer_SchedulesBecomeTimerTriggers(t *testing.T) {
 	// No dlq block unless one was asked for — an empty QueueId is not a valid
 	// resource and would fail at apply time rather than being ignored.
 	Expect(trigger["dlq"].IsNull()).To(BeTrue())
+}
+
+// A cron change on a live YC Timer Trigger, applied in-place, leaves the
+// trigger ACTIVE but does not re-arm the scheduler when the next fire is more
+// than a short window away (live-caught 2026-09-26: a `* * ? * * *` -> `0 3 ? *
+// * *` in-place flip left the trigger silent through the following 03:00 UTC).
+// The trigger must therefore be REPLACED whenever the schedule shape changes,
+// with DeleteBeforeReplace because the trigger name is unique within a folder.
+func TestServerlessContainer_TimerTriggerReplacesOnScheduleChange(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := baseContainerInput()
+	cfg.StackConfig.CloudExtras = lo.ToPtr(any(map[string]any{
+		"schedules": []any{
+			map[string]any{
+				"name":       "cleanup",
+				"expression": "0 0 * * ? *",
+				"request":    `{"path":"/cleanup"}`,
+			},
+		},
+	}))
+
+	mocks := newBucketMocks()
+	Expect(provisionContainer(cfg, mocks)).To(BeNil())
+
+	rpc := mocks.registerRPCOf(tokenTrigger)
+	Expect(rpc).NotTo(BeNil())
+	// The three sub-objects that carry every scheduler-relevant field.
+	Expect(rpc.ReplaceOnChanges).To(ConsistOf("timer", "container", "dlq"))
+	Expect(rpc.DeleteBeforeReplace).To(BeTrue())
 }
 
 func TestServerlessContainer_ScheduleDLQBecomesTriggerDLQ(t *testing.T) {

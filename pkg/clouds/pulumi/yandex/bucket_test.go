@@ -9,9 +9,9 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
@@ -61,6 +61,20 @@ func (m *bucketMocks) countOf(typeToken string) int {
 		}
 	}
 	return n
+}
+
+// registerRPCOf returns the raw RegisterResourceRequest captured for the first
+// resource of the given type — the only place ResourceOptions like
+// `ReplaceOnChanges` and `DeleteBeforeReplace` survive into the mock.
+func (m *bucketMocks) registerRPCOf(typeToken string) *pulumirpc.RegisterResourceRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.created {
+		if a.TypeToken == typeToken {
+			return a.RegisterRPC
+		}
+	}
+	return nil
 }
 
 // bucketProvisionParams builds a real provider under the mocks: ProvisionParams

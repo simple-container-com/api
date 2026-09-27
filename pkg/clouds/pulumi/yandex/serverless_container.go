@@ -12,14 +12,13 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
-	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 )
 
 const (
@@ -489,7 +488,22 @@ func provisionScheduleForContainer(
 
 	params.Log.Info(ctx.Context(), "configure timer trigger %q (%q) for serverless container %q in stack %q...",
 		triggerName, schedule.NormalizedExpression(), containerName, stack.Name)
-	trigger, err := sdkYandex.NewFunctionTrigger(ctx, triggerName, triggerArgs, opts...)
+	// An in-place UpdateTrigger against YC's serverless-triggers API leaves the
+	// trigger ACTIVE with the new spec but does NOT reliably re-arm the scheduler
+	// when the next fire is more than a short window away. Live-caught 2026-09-26
+	// on the yc-smoke stack: a `* * ? * * *` -> `0 3 ? * * *` in-place flip left
+	// the trigger silent through the following 03:00 UTC. A pause+resume+cron
+	// flip resurrects it. Force Pulumi to REPLACE the trigger whenever the
+	// schedule shape changes, so the new spec always lands on a fresh scheduler
+	// slot; DeleteBeforeReplace because the trigger name is unique within a
+	// folder.
+	scheduleOpts := append([]sdk.ResourceOption{}, opts...)
+	scheduleOpts = append(
+		scheduleOpts,
+		sdk.ReplaceOnChanges([]string{"timer", "container", "dlq"}),
+		sdk.DeleteBeforeReplace(true),
+	)
+	trigger, err := sdkYandex.NewFunctionTrigger(ctx, triggerName, triggerArgs, scheduleOpts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create timer trigger %q", triggerName)
 	}
