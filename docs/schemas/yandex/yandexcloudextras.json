@@ -1,0 +1,63 @@
+{
+  "name": "YandexCloudExtras",
+  "type": "cloudextras",
+  "provider": "yandex",
+  "description": "Yandex Cloud-specific cloudExtras configuration for Simple Container deployments including Serverless Container timer-trigger schedules, IAM roles, concurrency and provisioned instances",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "CloudExtras",
+  "resourceType": "yandex-cloudextras",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "concurrency": {
+        "type": "integer"
+      },
+      "provisionedInstances": {
+        "type": "integer"
+      },
+      "roles": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "schedules": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "dlq": {
+              "type": "string"
+            },
+            "expression": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "retryAttempts": {
+              "type": "integer"
+            },
+            "retryInterval": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "expression",
+            "name",
+            "request"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "serviceAccountId": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  }
+}

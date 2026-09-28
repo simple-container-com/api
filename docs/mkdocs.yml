@@ -55,6 +55,7 @@ nav:
     - ECS Fargate: guides/parent-ecs-fargate.md
     - GKE Autopilot: guides/parent-gcp-gke-autopilot.md
     - Pure Kubernetes: guides/parent-pure-kubernetes.md
+    - Yandex Cloud: guides/parent-yandex-cloud.md
     - Service Deploy Steps: guides/service-steps-to-deploy.md
     - CI/CD with GitHub Actions: guides/cicd-github-actions.md
     - Secrets Management: guides/secrets-management.md

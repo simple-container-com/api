@@ -5,7 +5,8 @@
   "description": "AWS deployment template configuration",
   "goPackage": "pkg/clouds/aws/",
   "goStruct": "TemplateConfig",
-  "resourceType": "aws-static-website",
+  "resourceType": "ecs-fargate",
+  "templateType": "ecs-fargate",
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
