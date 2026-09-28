@@ -2,7 +2,7 @@
 # difference is that it consumes ./bin/github-actions (built by welder) instead
 # of dist/github-actions (built by CI). Keep the two files in sync.
 
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS builder
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS builder
 
 RUN apk update && apk upgrade --no-cache \
     && apk add --no-cache curl bash binutils upx ca-certificates tar python3 \
@@ -77,7 +77,7 @@ RUN rm -rf \
 # github-actions.Dockerfile for why: without it the apk upgrade layer below sits
 # behind a digest-pinned base with an unchanging RUN string, so its cache key
 # never moves and the upgrade never actually re-runs.
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runtime
 
 # aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
 # static-website template at pkg/clouds/pulumi/aws/static_website.go).

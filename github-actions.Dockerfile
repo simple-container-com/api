@@ -5,7 +5,7 @@
 # git ops. HEALTHCHECK omitted: one-shot action, never long-running.
 
 # Refresh: docker buildx imagetools inspect alpine:3.24
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS builder
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS builder
 
 # python3 needed so `gcloud components install` doesn't fall back to (and recreate) the bundled Python we want to delete.
 RUN apk update && apk upgrade --no-cache \
@@ -92,7 +92,7 @@ RUN rm -rf \
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runtime
 
 # python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
 # aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
