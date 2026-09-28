@@ -77,6 +77,10 @@ type CaddyConfig struct {
 	// aggregator serves; there is no per-stack override. Unset or empty
 	// uses the snippet's default (`max-age=31536000; includeSubDomains; preload`).
 	HSTSValue *string `json:"hstsValue,omitempty" yaml:"hstsValue,omitempty"`
+	// Annotations are added to the Caddy Deployment, its pod template and Service.
+	// e.g. cluster-autoscaler.kubernetes.io/safe-to-evict: "false" keeps GKE Autopilot
+	// scale-down from evicting the ingress pod.
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
 type DisruptionBudget struct {

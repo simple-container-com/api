@@ -51,6 +51,14 @@ func caddyHSTSEnv(cfg *k8s.CaddyConfig) map[string]string {
 	return map[string]string{"HSTS_VALUE": *v}
 }
 
+// caddyAnnotations merges user annotations under the ones SC relies on, so a user
+// value cannot drop pulumi.com/patchForce.
+func caddyAnnotations(cfg *k8s.CaddyConfig) map[string]string {
+	return lo.Assign(lo.FromPtr(cfg).Annotations, map[string]string{
+		"pulumi.com/patchForce": "true",
+	})
+}
+
 func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != k8s.ResourceTypeCaddy {
 		return nil, errors.Errorf("unsupported caddy type %q", input.Descriptor.Type)
@@ -368,9 +376,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		InitContainers:         []corev1.ContainerArgs{initContainer},
 		KubeProvider:           kubeProvider,
 		GenerateCaddyfileEntry: false,
-		Annotations: map[string]string{
-			"pulumi.com/patchForce": "true",
-		},
+		Annotations:            caddyAnnotations(caddy.CaddyConfig),
 	}, addOpts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for caddy in GKE cluster %q in %q",

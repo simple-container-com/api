@@ -37,6 +37,12 @@
       "caddy": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "annotations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "caddyfile": {
             "type": "string"
           },
