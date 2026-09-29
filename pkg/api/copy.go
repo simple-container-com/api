@@ -103,8 +103,16 @@ func (s *ResourceDescriptor) Copy() ResourceDescriptor {
 }
 
 func (s *RegistrarDescriptor) Copy() RegistrarDescriptor {
+	// Every scalar field must be listed here. A child stack reaches its registrars
+	// through Copy (parent-descriptor inheritance), so a field omitted below is not
+	// merely lost on copy — it is absent from every deploy that is not the parent's
+	// own provision. Omitting Default silently unmarked the fleet's catch-all
+	// registrar and broke every `.com` deploy with "no registrar handles domain
+	// storage.simple-forge.com"; TestCopyPreservesEveryScalarField now fails when a
+	// new field is added and not copied.
 	return RegistrarDescriptor{
 		Type:    s.Type,
+		Default: s.Default,
 		Config:  s.Config.Copy(),
 		Inherit: s.Inherit,
 	}
