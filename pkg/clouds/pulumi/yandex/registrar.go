@@ -281,6 +281,19 @@ func proxySpec(title string, targetHost sdk.StringInput) sdk.StringOutput {
 // services already read — so a service moved onto YC needs no change to resolve by host.
 // With omitEmptyHeaders the substitution simply disappears when a header is absent,
 // rather than arriving as an empty value that a receiver has to special-case.
+//
+// `Authorization` is the one header that must NOT be relayed, and the reason is not
+// hygiene — it is that the request would stop arriving at all. A Serverless Container's
+// own ingress reads `Authorization: Bearer …` as an IAM token and answers
+// `403 {"errorCode":403,"errorMessage":"Forbidden: Not authorized"}` BEFORE the container
+// runs, even when its invoker binding is `system:allUsers`. Measured live 2026-09-29: the
+// capital-B `Bearer` scheme is a reserved word at that ingress (`Basic`, `Token` and
+// lowercase `bearer` pass and are then dropped), so relaying it turns every bearer-token
+// caller into a 403 that no service code can see or explain. Overriding it to the empty
+// string makes omitEmptyHeaders drop it, and the credential travels as
+// `X-Forwarded-Authorization` instead — measured on the same run: 403 became 200 with the
+// token intact. A service that authenticates bearer tokens behind this gateway reads that
+// header (or has its SDK normalise it) — the alternative is that it cannot be reached.
 func proxySpecFor(title, targetHost string) string {
 	return fmt.Sprintf(`openapi: 3.0.0
 info:
@@ -312,7 +325,7 @@ paths:
 // forwardedHeaders are the request headers the spec reads by name so it can re-send them
 // under a name of its own. They have to be declared as parameters for `{Name}` to
 // interpolate — an undeclared parameter renders as the literal braces.
-var forwardedHeaders = []string{"Host"}
+var forwardedHeaders = []string{"Host", "Authorization"}
 
 func headerParams(indent string) string {
 	var b strings.Builder
@@ -332,6 +345,8 @@ func forwardingIntegration(indent, targetHost, path string) string {
 %[1]s  '*': '*'
 %[1]s  Host: %[2]s
 %[1]s  X-Forwarded-Host: '{Host}'
+%[1]s  X-Forwarded-Authorization: '{Authorization}'
+%[1]s  Authorization: ''
 %[1]somitEmptyHeaders: true
 %[1]somitEmptyQueryParameters: true`, indent, targetHost, path)
 }

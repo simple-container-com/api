@@ -161,6 +161,12 @@ func TestProxySpecIsValidYamlAndForwardsHeadersAndQuery(t *testing.T) {
 		Expect(in.Headers).To(HaveKeyWithValue("Host", target))
 		// ...and the visitor's hostname travels under the name host-routing services read.
 		Expect(in.Headers).To(HaveKeyWithValue("X-Forwarded-Host", "{Host}"))
+		// Authorization is suppressed, not relayed: a Serverless Container's ingress reads
+		// `Authorization: Bearer …` as an IAM token and 403s before the container runs, so
+		// relaying it makes every bearer-token caller unreachable. Empty + omitEmptyHeaders
+		// drops it; the credential travels under X-Forwarded-Authorization instead.
+		Expect(in.Headers).To(HaveKeyWithValue("Authorization", ""))
+		Expect(in.Headers).To(HaveKeyWithValue("X-Forwarded-Authorization", "{Authorization}"))
 		Expect(in.OmitEmptyHeaders).To(BeTrue())
 		Expect(in.OmitEmptyQueryParameters).To(BeTrue())
 
@@ -171,6 +177,7 @@ func TestProxySpecIsValidYamlAndForwardsHeadersAndQuery(t *testing.T) {
 			names[prm.Name] = prm.In
 		}
 		Expect(names).To(HaveKeyWithValue("Host", "header"))
+		Expect(names).To(HaveKeyWithValue("Authorization", "header"))
 		if path == "/{path+}" {
 			Expect(names).To(HaveKeyWithValue("path", "path"))
 		}
