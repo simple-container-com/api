@@ -4,6 +4,7 @@
 package api
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -18,7 +19,25 @@ import (
 const DefaultRegistrarName = ""
 
 type RegistrarDescriptor struct {
-	Type    string `json:"type" yaml:"type"`
+	Type string `json:"type" yaml:"type"`
+
+	// Default marks this registrar as the one that handles any domain no other
+	// registrar claims. At most one registrar in a stack may set it.
+	//
+	// It exists because a registrar's declared zone is not the set of zones it can
+	// serve. A Cloudflare registrar authenticates against a whole account and looks
+	// up whichever zone the deploying stack asks for via `baseDnsZone`, so its
+	// `zoneName:` is only a default — the fleet's registrar declares
+	// `simple-container.com` while every service it publishes sits under
+	// `simple-forge.com`. With a single registrar that never mattered, because the
+	// single registrar handled everything. Adding a second one makes routing by zone
+	// suddenly load-bearing, and without this marker the first two-registrar deploy
+	// fails on every domain the narrow declaration misses.
+	//
+	// Not implicit on purpose: falling back to "whichever registrar sorts first"
+	// would silently publish a domain through a provider chosen by alphabet.
+	Default bool `json:"default,omitempty" yaml:"default,omitempty"`
+
 	Config  `json:",inline" yaml:",inline"`
 	Inherit `json:",inline" yaml:",inline"`
 }
@@ -45,6 +64,16 @@ func (s PerStackResourcesDescriptor) AllRegistrars() (map[string]RegistrarDescri
 		return nil, errors.New("cannot declare both `registrar:` and `registrars:` in the same stack: " +
 			"move the single `registrar:` block into `registrars:` under a name of your choosing")
 	}
+	var defaults []string
+	for name, desc := range s.Registrars {
+		if desc.Default {
+			defaults = append(defaults, name)
+		}
+	}
+	if len(defaults) > 1 {
+		sort.Strings(defaults)
+		return nil, errors.Errorf("at most one registrar may set `default: true`, but %s do", strings.Join(defaults, " and "))
+	}
 	return lo.Assign(s.Registrars), nil
 }
 
@@ -66,6 +95,19 @@ func DomainInZone(domain, zone string) bool {
 	}
 	domain, zone = strings.TrimSuffix(domain, "."), strings.TrimSuffix(zone, ".")
 	return strings.EqualFold(domain, zone) || strings.HasSuffix(strings.ToLower(domain), "."+strings.ToLower(zone))
+}
+
+// IsZoneApex reports whether a domain IS the zone rather than a name under it. The
+// distinction decides which record type may point the name at a hostname: a CNAME is
+// illegal at an apex, because the apex already holds the zone's own SOA and NS records
+// and a CNAME may not coexist with other data (RFC 1034 §3.6.2). Every provider answers
+// that with a non-standard record of its own, so the caller has to know which end of the
+// zone it is writing.
+func IsZoneApex(domain, zone string) bool {
+	if zone == "" || domain == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSuffix(domain, "."), strings.TrimSuffix(zone, "."))
 }
 
 type DnsRecord struct {

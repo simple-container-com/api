@@ -251,3 +251,81 @@ func TestMultiRegistrarRoutesEndpointByDomain(t *testing.T) {
 	Expect(instances["epyc"].endpoints[0].Name).To(Equal("storage"))
 	Expect(instances["epcf"].endpoints).To(BeEmpty())
 }
+
+func defaultDescriptorFor(name string, zones ...string) api.RegistrarDescriptor {
+	desc := descriptorFor(name, zones...)
+	desc.Default = true
+	return desc
+}
+
+// TestMultiRegistrarFallsBackToDefaultRegistrar is the regression test for what the
+// fleet's first two-registrar parent would otherwise have done on its next deploy of
+// ANY service. The Cloudflare registrar declares `simple-container.com` while every
+// service it publishes sits under `simple-forge.com`, which worked only because a lone
+// registrar is never routed to. Zone routing turns that narrow declaration into a
+// fleet-wide outage; `default: true` is what keeps it serving the domains it always did.
+func TestMultiRegistrarFallsBackToDefaultRegistrar(t *testing.T) {
+	RegisterTestingT(t)
+
+	instances, _ := registerFakeRegistrars(t, "defcf", "defyc")
+	m := newMultiRegistrar("infra", map[string]api.RegistrarDescriptor{
+		"cloudflare": defaultDescriptorFor("defcf", "simple-container.com"),
+		"yandex":     descriptorFor("defyc", "atriumdev.ru"),
+	}, &pApi.DnsPreference{BaseZone: "simple-forge.com"}, nil)
+
+	// Matches neither declared zone, and the base-zone preference matches neither either.
+	_, err := m.NewRecord(nil, api.DnsRecord{Name: "app.simple-forge.com", Type: "CNAME"})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(instances["defcf"].records).To(HaveLen(1))
+	Expect(instances["defyc"].records).To(BeEmpty())
+}
+
+// A default registrar must never win a domain another registrar declares — otherwise
+// marking the fleet's Cloudflare registrar default would quietly publish `.ru` domains
+// through Cloudflare, which is exactly what it is there to avoid.
+func TestMultiRegistrarDefaultLosesToADeclaredZone(t *testing.T) {
+	RegisterTestingT(t)
+
+	instances, _ := registerFakeRegistrars(t, "poachcf", "poachyc")
+	m := newMultiRegistrar("infra", map[string]api.RegistrarDescriptor{
+		"cloudflare": defaultDescriptorFor("poachcf", "simple-container.com"),
+		"yandex":     descriptorFor("poachyc", "atriumdev.ru"),
+	}, &pApi.DnsPreference{BaseZone: "simple-forge.com"}, nil)
+
+	for _, domain := range []string{"atriumdev.ru", "www.atriumdev.ru"} {
+		_, err := m.NewRecord(nil, api.DnsRecord{Name: domain, Type: "CNAME"})
+		Expect(err).NotTo(HaveOccurred())
+	}
+	Expect(instances["poachyc"].records).To(HaveLen(2))
+	Expect(instances["poachcf"].records).To(BeEmpty())
+}
+
+// MainDomain is read for the stack's own front door, so with no explicit preference the
+// default registrar's zone must win over whichever name sorts first.
+func TestMultiRegistrarMainDomainPrefersTheDefaultRegistrar(t *testing.T) {
+	RegisterTestingT(t)
+
+	registerFakeRegistrars(t, "maincf", "mainyc")
+	m := newMultiRegistrar("infra", map[string]api.RegistrarDescriptor{
+		// "atrium" sorts before "cloudflare", so without the default marker this
+		// would answer atriumdev.ru.
+		"atrium":     descriptorFor("mainyc", "atriumdev.ru"),
+		"cloudflare": defaultDescriptorFor("maincf", "simple-container.com"),
+	}, nil, nil)
+
+	Expect(m.MainDomain()).To(Equal("simple-container.com"))
+}
+
+// Without a default, an unroutable domain must still fail loudly rather than pick one.
+func TestMultiRegistrarWithoutDefaultStillRefusesUnroutableDomains(t *testing.T) {
+	RegisterTestingT(t)
+
+	registerFakeRegistrars(t, "nodefcf", "nodefyc")
+	m := newMultiRegistrar("infra", map[string]api.RegistrarDescriptor{
+		"cloudflare": descriptorFor("nodefcf", "simple-container.com"),
+		"yandex":     descriptorFor("nodefyc", "atriumdev.ru"),
+	}, &pApi.DnsPreference{BaseZone: "simple-forge.com"}, nil)
+
+	_, err := m.NewRecord(nil, api.DnsRecord{Name: "app.simple-forge.com", Type: "CNAME"})
+	Expect(err).To(MatchError(ContainSubstring("`default: true`")))
+}
